@@ -333,21 +333,33 @@ impl Lowerer {
                 span: _,
                 doc: _,
             } => {
-                let class_name = if let Expr::New(ref cls, _, _) = value {
+                let mut class_name = if let Expr::New(ref cls, _, _) = value {
                     Some(cls.clone())
                 } else {
                     None
                 };
-                let sem_ty = ty
-                    .as_ref()
-                    .map(|t| self.resolve_type(t.clone()))
-                    .or_else(|| {
-                        if let Expr::StringLiteral(_, _) = value {
-                            Some(Type::String)
-                        } else {
-                            None
+                let mut sem_ty = ty.as_ref().map(|t| self.resolve_type(t.clone()));
+
+                if sem_ty.is_none() {
+                    match &value {
+                        Expr::StringLiteral(_, _) => {
+                            sem_ty = Some(Type::String);
                         }
-                    });
+                        Expr::Call(name, _, _) => {
+                            if let Some((_, ret_ty)) = self.function_tys.get(name) {
+                                sem_ty = Some(ret_ty.clone());
+                                if let Type::Class(c) = ret_ty {
+                                    class_name = Some(c.clone());
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                } else if class_name.is_none() {
+                    if let Some(Type::Class(c)) = &sem_ty {
+                        class_name = Some(c.clone());
+                    }
+                }
                 let size = if let Some(Type::Union(_)) = sem_ty {
                     16
                 } else {

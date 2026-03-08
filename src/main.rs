@@ -12,7 +12,7 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     let use_ir = args.contains(&"--ir".to_string());
     let use_interp = args.contains(&"--interp".to_string());
-    let print_ir = args.contains(&"--print-ir".to_string());
+    let emit_ir = args.contains(&"--emit-ir".to_string());
     let is_lsp = args.contains(&"--lsp".to_string());
 
     if is_lsp {
@@ -81,12 +81,12 @@ fn main() {
         return;
     }
 
-    let asm = if use_ir {
+    let asm = if use_ir || emit_ir {
         let mut lowerer = Lowerer::new();
         let module = lowerer.lower_program(program);
-        if print_ir {
-            println!("--- SSA IR ---");
-            println!("{:#?}", module);
+        if emit_ir {
+            println!("{}", module);
+            return;
         }
         let mut opt = Optimizer::new();
         let module = opt.optimize(module);

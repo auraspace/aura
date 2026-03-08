@@ -64,3 +64,140 @@ pub struct IrModule {
     pub functions: Vec<IrFunction>,
     pub globals: Vec<(String, String)>, // (name, content)
 }
+
+impl std::fmt::Display for IrType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            IrType::I32 => write!(f, "i32"),
+            IrType::I64 => write!(f, "i64"),
+            IrType::Pointer => write!(f, "ptr"),
+            IrType::Any => write!(f, "any"),
+            IrType::Void => write!(f, "void"),
+        }
+    }
+}
+
+impl std::fmt::Display for Operand {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Operand::Value(v) => write!(f, "%{}", v),
+            Operand::Constant(c) => write!(f, "const({})", c),
+            Operand::Parameter(p) => write!(f, "param({})", p),
+        }
+    }
+}
+
+impl std::fmt::Display for Instruction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Instruction::Add(d, l, r) => write!(f, "  %{} = add {}, {}", d, l, r),
+            Instruction::Sub(d, l, r) => write!(f, "  %{} = sub {}, {}", d, l, r),
+            Instruction::Mul(d, l, r) => write!(f, "  %{} = mul {}, {}", d, l, r),
+            Instruction::Div(d, l, r) => write!(f, "  %{} = div {}, {}", d, l, r),
+            Instruction::Rem(d, l, r) => write!(f, "  %{} = rem {}, {}", d, l, r),
+            Instruction::Eq(d, l, r) => write!(f, "  %{} = eq {}, {}", d, l, r),
+            Instruction::Ne(d, l, r) => write!(f, "  %{} = ne {}, {}", d, l, r),
+            Instruction::Lt(d, l, r) => write!(f, "  %{} = lt {}, {}", d, l, r),
+            Instruction::Le(d, l, r) => write!(f, "  %{} = le {}, {}", d, l, r),
+            Instruction::Gt(d, l, r) => write!(f, "  %{} = gt {}, {}", d, l, r),
+            Instruction::Ge(d, l, r) => write!(f, "  %{} = ge {}, {}", d, l, r),
+            Instruction::Jump(lbl) => write!(f, "  jump {}", lbl),
+            Instruction::Branch(c, t, e) => write!(f, "  br {}, {}, {}", c, t, e),
+            Instruction::Return(Some(op)) => write!(f, "  ret {}", op),
+            Instruction::Return(None) => write!(f, "  ret"),
+            Instruction::Alloc(d, s) => write!(f, "  %{} = alloc {}", d, s),
+            Instruction::Load(d, b, off) => write!(f, "  %{} = load {}, {}", d, b, off),
+            Instruction::Store(v, b, off) => write!(f, "  store {}, {}, {}", v, b, off),
+            Instruction::WriteBarrier(o, v) => write!(f, "  write_barrier {}, {}", o, v),
+            Instruction::Call(d, func, args) => {
+                let args_str = args
+                    .iter()
+                    .map(|a| a.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                write!(f, "  %{} = call {} {}", d, func, args_str)
+            }
+        }
+    }
+}
+
+impl std::fmt::Display for BasicBlock {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "{}:", self.label)?;
+        for instr in &self.instructions {
+            writeln!(f, "{}", instr)?;
+        }
+        Ok(())
+    }
+}
+
+impl std::fmt::Display for IrFunction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let params_str = self
+            .params
+            .iter()
+            .map(|p| p.to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        writeln!(
+            f,
+            "func {}({}) -> {} {{",
+            self.name, params_str, self.return_type
+        )?;
+        for block in &self.blocks {
+            write!(f, "{}", block)?;
+        }
+        writeln!(f, "}}")
+    }
+}
+
+impl std::fmt::Display for IrModule {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for (name, content) in &self.globals {
+            writeln!(f, "global {} = \"{}\"", name, content)?;
+        }
+        if !self.globals.is_empty() {
+            writeln!(f)?;
+        }
+        for func in &self.functions {
+            writeln!(f, "{}", func)?;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_ir_text_format() {
+        let module = IrModule {
+            globals: vec![("msg".to_string(), "Hello World".to_string())],
+            functions: vec![IrFunction {
+                name: "main".to_string(),
+                params: vec![IrType::I32, IrType::I32],
+                return_type: IrType::I32,
+                blocks: vec![BasicBlock {
+                    label: "entry".to_string(),
+                    instructions: vec![
+                        Instruction::Add(1, Operand::Parameter(0), Operand::Parameter(1)),
+                        Instruction::Return(Some(Operand::Value(1))),
+                    ],
+                }],
+            }],
+        };
+
+        let output = format!("{}", module);
+        let expected = "global msg = \"Hello World\"
+
+func main(i32, i32) -> i32 {
+entry:
+  %1 = add param(0), param(1)
+  ret %1
+}
+
+";
+        assert_eq!(output, expected);
+    }
+}
