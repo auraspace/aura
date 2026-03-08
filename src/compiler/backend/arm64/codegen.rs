@@ -55,9 +55,40 @@ impl Codegen {
         self.emitter.finalize()
     }
 
-    fn new_label(&mut self, prefix: &str) -> String {
+    pub fn new_label(&mut self, prefix: &str) -> String {
+        let l = self.label_count;
         self.label_count += 1;
-        format!("L_{}_{}", prefix, self.label_count)
+        format!("_{}_{}", prefix, l)
+    }
+
+    pub fn load_stdlib(&mut self) {
+        let stdlib_path = "stdlib/std";
+        if let Ok(entries) = std::fs::read_dir(stdlib_path) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|s| s.to_str()) == Some("aura") {
+                    if let Ok(source) = std::fs::read_to_string(&path) {
+                        let mut lexer = crate::compiler::frontend::lexer::Lexer::new(&source);
+                        let tokens = lexer.lex_all();
+                        let mut parser = crate::compiler::frontend::parser::Parser::new(tokens);
+                        let program = parser.parse_program();
+                        for stmt in program.statements {
+                            if let Statement::ClassDeclaration {
+                                name,
+                                fields,
+                                methods,
+                                ..
+                            } = stmt
+                            {
+                                let fnames = fields.into_iter().map(|f| f.name).collect();
+                                let mnames = methods.into_iter().map(|m| m.name).collect();
+                                self.classes.insert(name, (fnames, mnames));
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     fn generate_statement(&mut self, stmt: Statement) {
@@ -197,8 +228,16 @@ impl Codegen {
                 span: _,
                 doc: _,
             } => {
-                let field_names: Vec<String> = fields.iter().map(|f| f.name.clone()).collect();
-                let method_names: Vec<String> = methods.iter().map(|m| m.name.clone()).collect();
+                let field_names: Vec<String> = fields
+                    .iter()
+                    .filter(|f| !f.is_static)
+                    .map(|f| f.name.clone())
+                    .collect();
+                let method_names: Vec<String> = methods
+                    .iter()
+                    .filter(|m| !m.is_static)
+                    .map(|m| m.name.clone())
+                    .collect();
                 self.classes
                     .insert(name.clone(), (field_names, method_names));
 
@@ -217,7 +256,11 @@ impl Codegen {
 
                 for method in methods {
                     self.generate_statement(Statement::FunctionDeclaration {
-                        name: format!("{}_{}", name, method.name),
+                        name: if method.is_static {
+                            format!("{}_{}", name, method.name)
+                        } else {
+                            format!("{}_{}", name, method.name) // Currently same mangling
+                        },
                         params: method.params,
                         return_ty: method.return_ty,
                         body: method.body,
@@ -240,13 +283,15 @@ impl Codegen {
                 self.emitter.mov_imm(Register::X0, 0); // TODO: String support
             }
             Expr::Variable(name, _) => {
-                let offset = self
-                    .variables
-                    .get(&name)
-                    .expect(&format!("Undefined variable {}", name));
-                self.emitter
-                    .output
-                    .push_str(&format!("    ldr x0, [x29, -{}]\n", offset));
+                if let Some(offset) = self.variables.get(&name) {
+                    self.emitter
+                        .output
+                        .push_str(&format!("    ldr x0, [x29, -{}]\n", offset));
+                } else if self.classes.contains_key(&name) {
+                    self.emitter.mov_imm(Register::X0, 0); // Class reference is null for now
+                } else {
+                    panic!("Undefined variable {}", name);
+                }
             }
             Expr::BinaryOp(left, op, right, _) => {
                 self.generate_expr(*left);
@@ -405,6 +450,12 @@ impl Codegen {
                         .push_str(&format!("    ldr x{}, [sp], 16\n", i));
                 }
                 self.emitter.call(&format!("_{}", name));
+            }
+            Expr::UnaryOp(op, expr, _) => {
+                self.generate_expr(*expr);
+                if op == "-" {
+                    self.emitter.sub(Register::X0, Register::XZR, Register::X0);
+                }
             }
             Expr::TypeTest(_, _, _) => {
                 // TODO: Implement type test codegen in Phase 4/5

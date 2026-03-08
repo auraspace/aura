@@ -8,6 +8,7 @@ pub enum TokenKind {
     While,
     Function,
     Return,
+    Static, // Added Static variant
     Class,
     Constructor,
     New,

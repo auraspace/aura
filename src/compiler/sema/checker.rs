@@ -7,7 +7,9 @@ use std::collections::HashMap;
 pub struct ClassInfo {
     pub name: String,
     pub fields: HashMap<String, Type>,
+    pub static_fields: HashMap<String, Type>,
     pub methods: HashMap<String, (Vec<Type>, Type, Option<String>)>, // name -> (params, return_ty, doc)
+    pub static_methods: HashMap<String, (Vec<Type>, Type, Option<String>)>,
     pub span: Span,
     pub doc: Option<String>,
 }
@@ -84,7 +86,16 @@ impl SemanticAnalyzer {
     }
 
     pub fn analyze(&mut self, program: Program) {
-        // Pass 1: Collect class info
+        // Pass 1: Collect class info from current program
+        self.collect_classes(&program);
+
+        // Pass 2: Check statements
+        for stmt in program.statements {
+            self.check_statement(stmt);
+        }
+    }
+
+    pub fn collect_classes(&mut self, program: &Program) {
         for stmt in &program.statements {
             if let Statement::ClassDeclaration {
                 name,
@@ -96,10 +107,17 @@ impl SemanticAnalyzer {
             } = stmt
             {
                 let mut field_map = HashMap::new();
+                let mut static_field_map = HashMap::new();
                 for f in fields {
-                    field_map.insert(f.name.clone(), self.resolve_type(f.ty.clone()));
+                    let ty = self.resolve_type(f.ty.clone());
+                    if f.is_static {
+                        static_field_map.insert(f.name.clone(), ty);
+                    } else {
+                        field_map.insert(f.name.clone(), ty);
+                    }
                 }
                 let mut method_map = HashMap::new();
+                let mut static_method_map = HashMap::new();
                 for m in methods {
                     let param_tys = m
                         .params
@@ -107,37 +125,57 @@ impl SemanticAnalyzer {
                         .map(|(_, ty)| self.resolve_type(ty.clone()))
                         .collect();
                     let ret_ty = self.resolve_type(m.return_ty.clone());
-                    method_map.insert(m.name.clone(), (param_tys, ret_ty, m.doc.clone()));
+                    if m.is_static {
+                        static_method_map
+                            .insert(m.name.clone(), (param_tys, ret_ty, m.doc.clone()));
+                    } else {
+                        method_map.insert(m.name.clone(), (param_tys, ret_ty, m.doc.clone()));
+                    }
                 }
                 self.classes.insert(
                     name.clone(),
                     ClassInfo {
                         name: name.clone(),
                         fields: field_map,
+                        static_fields: static_field_map,
                         methods: method_map,
+                        static_methods: static_method_map,
                         span: *span,
                         doc: doc.clone(),
                     },
                 );
             }
         }
+    }
 
-        // Pass 2: Check statements
-        for stmt in program.statements {
-            self.check_statement(stmt);
+    pub fn load_stdlib(&mut self) {
+        let stdlib_path = "stdlib/std";
+        if let Ok(entries) = std::fs::read_dir(stdlib_path) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|s| s.to_str()) == Some("aura") {
+                    if let Ok(source) = std::fs::read_to_string(&path) {
+                        let mut lexer = crate::compiler::frontend::lexer::Lexer::new(&source);
+                        let tokens = lexer.lex_all();
+                        let mut parser = crate::compiler::frontend::parser::Parser::new(tokens);
+                        let program = parser.parse_program();
+                        self.collect_classes(&program);
+                    }
+                }
+            }
         }
     }
 
     fn resolve_type(&self, te: TypeExpr) -> Type {
         match te {
             TypeExpr::Name(n, _) => match n.as_str() {
-                "i32" => Type::Int32,
-                "i64" => Type::Int64,
-                "f32" => Type::Float32,
-                "f64" => Type::Float64,
-                "string" => Type::String,
-                "boolean" => Type::Boolean,
-                "void" => Type::Void,
+                "i32" | "Int32" => Type::Int32,
+                "i64" | "Int64" => Type::Int64,
+                "f32" | "Float32" => Type::Float32,
+                "f64" | "Float64" => Type::Float64,
+                "string" | "String" => Type::String,
+                "boolean" | "Boolean" => Type::Boolean,
+                "void" | "Void" => Type::Void,
                 "any" => Type::Unknown,
                 _ => Type::Class(n),
             },
@@ -404,11 +442,13 @@ impl SemanticAnalyzer {
             Expr::StringLiteral(_, _) => Type::String,
             Expr::Variable(name, span) => {
                 if let Some(sym) = self.scope.lookup(&name) {
-                    self.node_definitions.insert(span, sym.span);
                     if let Some(doc) = &sym.doc {
                         self.node_docs.insert(span, doc.clone());
                     }
+                    self.node_definitions.insert(span, sym.span);
                     sym.ty.clone()
+                } else if self.classes.contains_key(&name) {
+                    Type::Class(name)
                 } else {
                     self.error(SemanticErrorKind::UndefinedVariable(name), span);
                     Type::Unknown
@@ -509,6 +549,8 @@ impl SemanticAnalyzer {
                     if let Some(class_info) = self.classes.get(&class_name) {
                         if let Some(field_ty) = class_info.fields.get(&field) {
                             field_ty.clone()
+                        } else if let Some(field_ty) = class_info.static_fields.get(&field) {
+                            field_ty.clone()
                         } else {
                             self.error(SemanticErrorKind::UndefinedField(class_name, field), span);
                             Type::Unknown
@@ -556,16 +598,21 @@ impl SemanticAnalyzer {
                 }
 
                 if let Type::Class(class_name) = obj_ty {
-                    let method_info = self.classes.get(&class_name).and_then(|c| {
-                        c.methods.get(&method).map(|(params, ret, doc)| {
-                            if let Some(d) = doc {
-                                self.node_docs.insert(span, d.clone());
-                            }
-                            (params.clone(), ret.clone())
-                        })
-                    });
+                    let method_info = if let Some(class_info) = self.classes.get(&class_name) {
+                        if let Some(m) = class_info.methods.get(&method) {
+                            Some(m.clone())
+                        } else {
+                            class_info.static_methods.get(&method).cloned()
+                        }
+                    } else {
+                        None
+                    };
 
-                    if let Some((param_tys, ret_ty)) = method_info {
+                    if let Some((param_tys, ret_ty, doc)) = method_info {
+                        if let Some(d) = doc {
+                            self.node_docs.insert(span, d.clone());
+                        }
+
                         if param_tys.len() != arg_tys.len() {
                             self.error(
                                 SemanticErrorKind::WrongArgumentCount(
@@ -613,6 +660,22 @@ impl SemanticAnalyzer {
                 self.check_expr(*expr);
                 self.resolve_type(ty_expr);
                 Type::Boolean
+            }
+            Expr::UnaryOp(op, expr, span) => {
+                let expr_ty = self.check_expr(*expr);
+                if op == "-" && expr_ty.is_numeric() {
+                    expr_ty
+                } else {
+                    self.error(
+                        SemanticErrorKind::IncompatibleBinaryOperators(
+                            format!("{:?}", expr_ty),
+                            op,
+                            "None".to_string(),
+                        ),
+                        span,
+                    );
+                    Type::Unknown
+                }
             }
             Expr::Error(_) => Type::Unknown,
         };

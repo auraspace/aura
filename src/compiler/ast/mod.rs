@@ -44,6 +44,7 @@ pub enum Expr {
     New(String, Vec<Expr>, Span),
     MemberAccess(Box<Expr>, String, Span),
     MemberAssign(Box<Expr>, String, Box<Expr>, Span),
+    UnaryOp(String, Box<Expr>, Span),
     TypeTest(Box<Expr>, TypeExpr, Span),
     Error(Span),
 }
@@ -62,6 +63,7 @@ impl Expr {
             Expr::New(_, _, s) => *s,
             Expr::MemberAccess(_, _, s) => *s,
             Expr::MemberAssign(_, _, _, s) => *s,
+            Expr::UnaryOp(_, _, s) => *s,
             Expr::TypeTest(_, _, s) => *s,
             Expr::Error(s) => *s,
         }
@@ -72,6 +74,7 @@ impl Expr {
 pub struct Field {
     pub name: String,
     pub ty: TypeExpr,
+    pub is_static: bool,
     pub span: Span,
     pub doc: Option<String>,
 }
@@ -82,6 +85,7 @@ pub struct ClassMethod {
     pub params: Vec<(String, TypeExpr)>,
     pub return_ty: TypeExpr,
     pub body: Box<Statement>,
+    pub is_static: bool,
     pub span: Span,
     pub doc: Option<String>,
 }

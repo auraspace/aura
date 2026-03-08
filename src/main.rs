@@ -66,6 +66,7 @@ fn main() {
 
     // Semantic Analysis
     let mut analyzer = SemanticAnalyzer::new();
+    analyzer.load_stdlib();
     analyzer.analyze(program.clone());
     if analyzer.diagnostics.has_errors() {
         analyzer.diagnostics.report();
@@ -75,6 +76,7 @@ fn main() {
     if use_interp {
         println!("--- Starting Interpreter ---");
         let mut interpreter = Interpreter::new();
+        interpreter.load_stdlib();
         interpreter.interpret(program);
         return;
     }
@@ -91,7 +93,8 @@ fn main() {
         let mut cg = IrCodegen::new();
         cg.generate(module)
     } else {
-        let cg = Codegen::new();
+        let mut cg = Codegen::new();
+        cg.load_stdlib();
         cg.generate(program)
     };
 

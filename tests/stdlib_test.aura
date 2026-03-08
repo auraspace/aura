@@ -1,0 +1,8 @@
+let x: i32 = -10;
+let y = Math.abs(x);
+print(y);
+
+let max_val = Math.max(10, 20);
+print(max_val);
+
+IO.println("Hello from Stdlib!");

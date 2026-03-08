@@ -72,6 +72,24 @@ impl Interpreter {
         }
     }
 
+    pub fn load_stdlib(&mut self) {
+        let stdlib_path = "stdlib/std";
+        if let Ok(entries) = std::fs::read_dir(stdlib_path) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|s| s.to_str()) == Some("aura") {
+                    if let Ok(source) = std::fs::read_to_string(&path) {
+                        let mut lexer = crate::compiler::frontend::lexer::Lexer::new(&source);
+                        let tokens = lexer.lex_all();
+                        let mut parser = crate::compiler::frontend::parser::Parser::new(tokens);
+                        let program = parser.parse_program();
+                        self.interpret(program);
+                    }
+                }
+            }
+        }
+    }
+
     fn push_scope(&mut self) {
         let parent = std::mem::replace(&mut self.env, Box::new(Environment::new(None)));
         self.env = Box::new(Environment::new(Some(parent)));
@@ -85,13 +103,13 @@ impl Interpreter {
     fn resolve_type(&self, te: TypeExpr) -> Type {
         match te {
             TypeExpr::Name(n, _) => match n.as_str() {
-                "i32" => Type::Int32,
-                "i64" => Type::Int64,
-                "f32" => Type::Float32,
-                "f64" => Type::Float64,
-                "string" => Type::String,
-                "boolean" => Type::Boolean,
-                "void" => Type::Void,
+                "i32" | "Int32" => Type::Int32,
+                "i64" | "Int64" => Type::Int64,
+                "f32" | "Float32" => Type::Float32,
+                "f64" | "Float64" => Type::Float64,
+                "string" | "String" => Type::String,
+                "boolean" | "Boolean" => Type::Boolean,
+                "void" | "Void" => Type::Void,
                 _ => Type::Class(n),
             },
             TypeExpr::Union(tys, _) => Type::Union(
@@ -169,6 +187,7 @@ impl Interpreter {
                     Value::Null => println!("null"),
                     Value::Instance(c, _) => println!("<Instance of {}>", c),
                     Value::Function { name, .. } => println!("<Function {}>", name),
+                    Value::Class(name) => println!("<Class {}>", name),
                 }
                 StatementResult::None
             }
@@ -225,10 +244,15 @@ impl Interpreter {
         match expr {
             Expr::Number(n, _) => Value::Int(n),
             Expr::StringLiteral(s, _) => Value::String(s),
-            Expr::Variable(name, _) => self
-                .env
-                .lookup(&name)
-                .expect(&format!("Undefined variable {}", name)),
+            Expr::Variable(name, _) => {
+                if let Some(val) = self.env.lookup(&name) {
+                    val
+                } else if self.classes.contains_key(&name) {
+                    Value::Class(name)
+                } else {
+                    panic!("Undefined variable {}", name)
+                }
+            }
             Expr::BinaryOp(lhs, op, rhs, _) => {
                 let left = self.eval_expr(*lhs);
                 let right = self.eval_expr(*rhs);
@@ -285,33 +309,76 @@ impl Interpreter {
             }
             Expr::MethodCall(obj_expr, method, args, _) => {
                 let obj = self.eval_expr(*obj_expr);
-                if let Value::Instance(class_name, fields_ref) = obj {
-                    let m = {
-                        let (_, methods) = self.classes.get(&class_name).expect("Class not found");
-                        methods.get(&method).expect("Method not found").clone()
-                    };
+                match obj {
+                    Value::Instance(class_name, fields_ref) => {
+                        let m = {
+                            let (_, methods) = self
+                                .classes
+                                .get(&class_name)
+                                .expect(&format!("Class {} not found", class_name));
+                            methods
+                                .get(&method)
+                                .expect(&format!(
+                                    "Method {} not found in class {}",
+                                    method, class_name
+                                ))
+                                .clone()
+                        };
 
-                    let mut arg_vals = Vec::new();
-                    for a in args {
-                        arg_vals.push(self.eval_expr(a));
-                    }
+                        let mut arg_vals = Vec::new();
+                        for a in args {
+                            arg_vals.push(self.eval_expr(a));
+                        }
 
-                    self.push_scope();
-                    self.env
-                        .insert("this".to_string(), Value::Instance(class_name, fields_ref));
-                    for (i, (pname, _)) in m.params.iter().enumerate() {
-                        self.env.insert(pname.clone(), arg_vals[i].clone());
-                    }
+                        self.push_scope();
+                        self.env
+                            .insert("this".to_string(), Value::Instance(class_name, fields_ref));
+                        for (i, (pname, _)) in m.params.iter().enumerate() {
+                            self.env.insert(pname.clone(), arg_vals[i].clone());
+                        }
 
-                    let res = self.execute_statement((*m.body).clone());
-                    self.pop_scope();
-                    if let StatementResult::Return(v) = res {
-                        v
-                    } else {
-                        Value::Void
+                        let res = self.execute_statement((*m.body).clone());
+                        self.pop_scope();
+                        if let StatementResult::Return(v) = res {
+                            v
+                        } else {
+                            Value::Void
+                        }
                     }
-                } else {
-                    panic!("Not an instance");
+                    Value::Class(class_name) => {
+                        let m = {
+                            let (_, methods) = self
+                                .classes
+                                .get(&class_name)
+                                .expect(&format!("Class {} not found", class_name));
+                            methods
+                                .get(&method)
+                                .expect(&format!(
+                                    "Static method {} not found in class {}",
+                                    method, class_name
+                                ))
+                                .clone()
+                        };
+
+                        let mut arg_vals = Vec::new();
+                        for a in args {
+                            arg_vals.push(self.eval_expr(a));
+                        }
+
+                        self.push_scope();
+                        for (i, (pname, _)) in m.params.iter().enumerate() {
+                            self.env.insert(pname.clone(), arg_vals[i].clone());
+                        }
+
+                        let res = self.execute_statement((*m.body).clone());
+                        self.pop_scope();
+                        if let StatementResult::Return(v) = res {
+                            v
+                        } else {
+                            Value::Void
+                        }
+                    }
+                    _ => panic!("Method call on non-instance and non-class: {:?}", obj),
                 }
             }
             Expr::This(_) => self
@@ -382,11 +449,23 @@ impl Interpreter {
             Expr::TypeTest(expr, ty_expr, _) => {
                 let val = self.eval_expr(*expr);
                 let target_ty = self.resolve_type(ty_expr);
-                // Check if val matches target_ty
                 match (val, target_ty) {
                     (Value::Int(_), Type::Int32) => Value::Boolean(true),
                     (Value::String(_), Type::String) => Value::Boolean(true),
-                    _ => Value::Boolean(false), // Simple match for now
+                    _ => Value::Boolean(false),
+                }
+            }
+            Expr::UnaryOp(op, expr, _) => {
+                let val = self.eval_expr(*expr);
+                match val {
+                    Value::Int(i) => {
+                        if op == "-" {
+                            Value::Int(-i)
+                        } else {
+                            panic!("Unsupported unary operator {}", op);
+                        }
+                    }
+                    _ => panic!("Unary operator {} only supported for integers", op),
                 }
             }
             Expr::Error(_) => panic!("Compiler bug: reaching error node in interpreter"),

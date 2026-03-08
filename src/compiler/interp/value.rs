@@ -18,6 +18,7 @@ pub enum Value {
     },
     Void,
     Null,
+    Class(String),
 }
 
 impl Value {

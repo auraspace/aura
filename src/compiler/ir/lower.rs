@@ -16,6 +16,7 @@ pub struct Lowerer {
     class_layouts: HashMap<String, ClassLayout>,
     function_tys: HashMap<String, (Vec<Type>, Type)>, // (params, return)
     class_structures: HashMap<String, HashMap<String, Type>>, // field_name -> Type
+    static_methods: HashMap<String, std::collections::HashSet<String>>,
     current_class: Option<String>,
     globals: Vec<(String, String)>, // (name, content) for strings
     last_expr_ty: Type,
@@ -29,6 +30,7 @@ impl Lowerer {
             class_layouts: HashMap::new(),
             function_tys: HashMap::new(),
             class_structures: HashMap::new(),
+            static_methods: HashMap::new(),
             current_class: None,
             globals: Vec::new(),
             last_expr_ty: Type::Unknown,
@@ -42,19 +44,120 @@ impl Lowerer {
             .cloned()
             .unwrap_or(0)
     }
+    pub fn load_stdlib(&mut self) -> Vec<IrFunction> {
+        let mut functions = Vec::new();
+        let stdlib_path = "stdlib/std";
+        if let Ok(entries) = std::fs::read_dir(stdlib_path) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|s| s.to_str()) == Some("aura") {
+                    if let Ok(source) = std::fs::read_to_string(&path) {
+                        let mut lexer = crate::compiler::frontend::lexer::Lexer::new(&source);
+                        let tokens = lexer.lex_all();
+                        let mut parser = crate::compiler::frontend::parser::Parser::new(tokens);
+                        let program = parser.parse_program();
+
+                        // Pass 1: Layouts
+                        for stmt in &program.statements {
+                            if let Statement::ClassDeclaration {
+                                name,
+                                fields,
+                                methods,
+                                ..
+                            } = stmt
+                            {
+                                let mut field_offsets = HashMap::new();
+                                let mut field_tys = HashMap::new();
+                                let mut current_offset = 0;
+                                for f in fields.iter() {
+                                    field_offsets.insert(f.name.clone(), current_offset);
+                                    let ty = self.resolve_type(f.ty.clone());
+                                    field_tys.insert(f.name.clone(), ty);
+                                    current_offset += 8;
+                                }
+                                self.class_layouts.insert(
+                                    name.clone(),
+                                    ClassLayout {
+                                        field_offsets,
+                                        size: current_offset,
+                                    },
+                                );
+                                self.class_structures.insert(name.clone(), field_tys);
+
+                                let mut statics = std::collections::HashSet::new();
+                                for m in methods.iter() {
+                                    if m.is_static {
+                                        statics.insert(m.name.clone());
+                                    }
+                                }
+                                self.static_methods.insert(name.clone(), statics);
+                            }
+                        }
+
+                        // Pass 2: Methods
+                        for stmt in program.statements {
+                            if let Statement::ClassDeclaration {
+                                name,
+                                methods,
+                                constructor,
+                                ..
+                            } = stmt
+                            {
+                                for m in methods {
+                                    let mangled_name = format!("{}_{}", name, m.name);
+                                    let mut pnames = Vec::new();
+                                    if !m.is_static {
+                                        pnames.push("this".to_string());
+                                    }
+                                    pnames.extend(m.params.into_iter().map(|(n, _)| n));
+                                    functions.push(self.lower_function(
+                                        mangled_name,
+                                        pnames,
+                                        *m.body,
+                                        if m.is_static {
+                                            None
+                                        } else {
+                                            Some(name.clone())
+                                        },
+                                    ));
+                                }
+                                if let Some(ctor) = constructor {
+                                    let mangled_name = format!("{}_ctor", name);
+                                    let mut pnames = vec!["this".to_string()];
+                                    pnames.extend(ctor.params.into_iter().map(|(n, _)| n));
+                                    functions.push(self.lower_function(
+                                        mangled_name,
+                                        pnames,
+                                        *ctor.body,
+                                        Some(name.clone()),
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        functions
+    }
 
     pub fn lower_program(&mut self, program: Program) -> IrModule {
-        let mut functions = Vec::new();
+        let mut functions = self.load_stdlib();
         let mut global_stmts = Vec::new();
 
         // Pass 1: Collect class layouts, structures and function types
         for stmt in &program.statements {
             match stmt {
-                Statement::ClassDeclaration { name, fields, .. } => {
+                Statement::ClassDeclaration {
+                    name,
+                    fields,
+                    methods,
+                    ..
+                } => {
                     let mut field_offsets = HashMap::new();
                     let mut field_tys = HashMap::new();
                     let mut current_offset = 0;
-                    for f in fields {
+                    for f in fields.iter() {
                         field_offsets.insert(f.name.clone(), current_offset);
                         let ty = self.resolve_type(f.ty.clone());
                         field_tys.insert(f.name.clone(), ty);
@@ -68,6 +171,14 @@ impl Lowerer {
                         },
                     );
                     self.class_structures.insert(name.clone(), field_tys);
+
+                    let mut statics = std::collections::HashSet::new();
+                    for m in methods.iter() {
+                        if m.is_static {
+                            statics.insert(m.name.clone());
+                        }
+                    }
+                    self.static_methods.insert(name.clone(), statics);
                 }
                 Statement::FunctionDeclaration {
                     name,
@@ -110,13 +221,20 @@ impl Lowerer {
                 } => {
                     for m in methods {
                         let mangled_name = format!("{}_{}", name, m.name);
-                        let mut pnames = vec!["this".to_string()];
+                        let mut pnames = Vec::new();
+                        if !m.is_static {
+                            pnames.push("this".to_string());
+                        }
                         pnames.extend(m.params.into_iter().map(|(n, _)| n));
                         functions.push(self.lower_function(
                             mangled_name,
                             pnames,
                             *m.body,
-                            Some(name.clone()),
+                            if m.is_static {
+                                None
+                            } else {
+                                Some(name.clone())
+                            },
                         ));
                     }
                     if let Some(ctor) = constructor {
@@ -340,26 +458,28 @@ impl Lowerer {
                 )
             }
             Expr::Variable(name, _) => {
-                let (ptr_reg, cls_name, ty) = self
-                    .mem_vars
-                    .get(&name)
-                    .cloned()
-                    .expect("Undefined variable");
-                self.last_expr_ty = ty.unwrap_or_else(|| {
-                    if let Some(cls) = cls_name {
-                        Type::Class(cls)
-                    } else {
-                        Type::Unknown
-                    }
-                });
-                let dest = self.builder.new_reg();
-                self.builder
-                    .emit(crate::compiler::ir::instr::Instruction::Load(
-                        dest,
-                        Operand::Value(ptr_reg),
-                        0,
-                    ));
-                Operand::Value(dest)
+                if let Some((ptr_reg, cls_name, ty)) = self.mem_vars.get(&name).cloned() {
+                    self.last_expr_ty = ty.unwrap_or_else(|| {
+                        if let Some(cls) = cls_name {
+                            Type::Class(cls)
+                        } else {
+                            Type::Unknown
+                        }
+                    });
+                    let dest = self.builder.new_reg();
+                    self.builder
+                        .emit(crate::compiler::ir::instr::Instruction::Load(
+                            dest,
+                            Operand::Value(ptr_reg),
+                            0,
+                        ));
+                    Operand::Value(dest)
+                } else if self.class_structures.contains_key(&name) {
+                    self.last_expr_ty = Type::Class(name);
+                    Operand::Constant(0) // Class constant is 0
+                } else {
+                    panic!("Undefined variable {}", name);
+                }
             }
             Expr::BinaryOp(left, op, right, _) => {
                 let lhs = self.lower_expr(*left);
@@ -499,16 +619,33 @@ impl Lowerer {
             Expr::MethodCall(obj, method, args, _) => {
                 let obj_op = self.lower_expr(*obj);
                 let obj_ty = self.last_expr_ty.clone();
+                let mut is_static = false;
                 let mangled_name = if let Type::Class(cls_name) = obj_ty {
+                    if let Some(statics) = self.static_methods.get(&cls_name) {
+                        if statics.contains(&method) {
+                            is_static = true;
+                        }
+                    }
                     format!("{}_{}", cls_name, method)
                 } else {
                     method
                 };
 
-                let mut ir_args = vec![obj_op];
+                let mut ir_args = Vec::new();
+                if !is_static {
+                    ir_args.push(obj_op);
+                }
                 ir_args.extend(args.into_iter().map(|a| self.lower_expr(a)));
                 self.last_expr_ty = Type::Unknown; // TODO: Lookup method return type
                 self.builder.call(mangled_name, ir_args)
+            }
+            Expr::UnaryOp(op, expr, _) => {
+                let val = self.lower_expr(*expr);
+                if op == "-" {
+                    self.builder.sub(Operand::Constant(0), val)
+                } else {
+                    val
+                }
             }
             Expr::TypeTest(expr, ty_expr, _) => {
                 let _target_ty = self.resolve_type(ty_expr);
@@ -528,13 +665,13 @@ impl Lowerer {
     fn resolve_type(&self, te: TypeExpr) -> Type {
         match te {
             TypeExpr::Name(n, _) => match n.as_str() {
-                "i32" => Type::Int32,
-                "i64" => Type::Int64,
-                "f32" => Type::Float32,
-                "f64" => Type::Float64,
-                "string" => Type::String,
-                "boolean" => Type::Boolean,
-                "void" => Type::Void,
+                "i32" | "Int32" => Type::Int32,
+                "i64" | "Int64" => Type::Int64,
+                "f32" | "Float32" => Type::Float32,
+                "f64" | "Float64" => Type::Float64,
+                "string" | "String" => Type::String,
+                "boolean" | "Boolean" => Type::Boolean,
+                "void" | "Void" => Type::Void,
                 _ => Type::Class(n),
             },
             TypeExpr::Union(tys, _) => {

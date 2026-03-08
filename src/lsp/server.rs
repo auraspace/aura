@@ -2,7 +2,7 @@ use crate::compiler::ast::{Program, Span, Statement};
 use crate::compiler::frontend::error::Severity;
 use crate::compiler::frontend::lexer::Lexer;
 use crate::compiler::frontend::parser::Parser;
-use crate::compiler::sema::checker::SemanticAnalyzer;
+use crate::compiler::sema::checker::{ClassInfo, SemanticAnalyzer};
 use crate::compiler::sema::ty::Type;
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -16,6 +16,7 @@ pub struct DocumentState {
     pub node_types: HashMap<Span, Type>,
     pub node_definitions: HashMap<Span, Span>,
     pub node_docs: HashMap<Span, String>,
+    pub classes: HashMap<String, ClassInfo>,
 }
 
 pub struct Backend {
@@ -285,22 +286,89 @@ impl LanguageServer for Backend {
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
         let uri = params.text_document_position.text_document.uri;
-        let _position = params.text_document_position.position;
+        let position = params.text_document_position.position;
 
         let docs = self.documents.lock().unwrap();
         if let Some(state) = docs.get(&uri) {
             let mut items = Vec::new();
 
-            // Simple completion: return all symbols found in types
-            // A better way would be to look up the scope at position, but for now
-            // let's return all top-level symbols we've seen.
-            let mut seen = std::collections::HashSet::new();
-            for (span, ty) in &state.node_types {
-                // If the span is the definition, it's a candidate for completion
-                // or if we just want all names...
+            // Check for member access (e.g., "obj.")
+            let lines: Vec<&str> = state.source.lines().collect();
+            if let Some(line) = lines.get(position.line as usize) {
+                let col = position.character as usize;
+                if col > 0 {
+                    let before = &line[..col];
+                    if before.ends_with('.') {
+                        let parts: Vec<&str> = before[..before.len() - 1]
+                            .split(|c: char| !c.is_alphanumeric() && c != '_')
+                            .collect();
+                        if let Some(obj_name) = parts.last() {
+                            // 1. Static Access
+                            if let Some(class_info) = state.classes.get(*obj_name) {
+                                for (mname, (p_tys, r_ty, mdoc)) in &class_info.static_methods {
+                                    items.push(CompletionItem {
+                                        label: mname.clone(),
+                                        kind: Some(CompletionItemKind::METHOD),
+                                        detail: Some(format!("fn({:?}) -> {:?}", p_tys, r_ty)),
+                                        documentation: mdoc
+                                            .as_ref()
+                                            .map(|d| Documentation::String(d.clone())),
+                                        ..Default::default()
+                                    });
+                                }
+                                for (fname, f_ty) in &class_info.static_fields {
+                                    items.push(CompletionItem {
+                                        label: fname.clone(),
+                                        kind: Some(CompletionItemKind::FIELD),
+                                        detail: Some(format!("{:?}", f_ty)),
+                                        ..Default::default()
+                                    });
+                                }
+                                return Ok(Some(CompletionResponse::Array(items)));
+                            }
+
+                            // 2. Instance Access
+                            for (span, ty) in &state.node_types {
+                                if span.line == position.line as usize + 1
+                                    && col >= span.column
+                                    && col <= span.column + obj_name.len()
+                                {
+                                    if let Type::Class(class_name) = ty {
+                                        if let Some(class_info) = state.classes.get(class_name) {
+                                            for (mname, (p_tys, r_ty, mdoc)) in &class_info.methods
+                                            {
+                                                items.push(CompletionItem {
+                                                    label: mname.clone(),
+                                                    kind: Some(CompletionItemKind::METHOD),
+                                                    detail: Some(format!(
+                                                        "fn({:?}) -> {:?}",
+                                                        p_tys, r_ty
+                                                    )),
+                                                    documentation: mdoc
+                                                        .as_ref()
+                                                        .map(|d| Documentation::String(d.clone())),
+                                                    ..Default::default()
+                                                });
+                                            }
+                                            for (fname, f_ty) in &class_info.fields {
+                                                items.push(CompletionItem {
+                                                    label: fname.clone(),
+                                                    kind: Some(CompletionItemKind::FIELD),
+                                                    detail: Some(format!("{:?}", f_ty)),
+                                                    ..Default::default()
+                                                });
+                                            }
+                                        }
+                                    }
+                                    return Ok(Some(CompletionResponse::Array(items)));
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
-            // Let's use the program to find declarations
+            let mut seen = std::collections::HashSet::new();
             if let Some(program) = &state.program {
                 for stmt in &program.statements {
                     match stmt {
@@ -412,6 +480,7 @@ impl Backend {
         let program = parser.parse_program();
 
         let mut analyzer = SemanticAnalyzer::new();
+        analyzer.load_stdlib();
         analyzer.analyze(program.clone());
 
         let mut diagnostics = Vec::new();
@@ -478,6 +547,7 @@ impl Backend {
                     node_types: analyzer.node_types,
                     node_definitions: analyzer.node_definitions,
                     node_docs: analyzer.node_docs,
+                    classes: analyzer.classes,
                 },
             );
         }

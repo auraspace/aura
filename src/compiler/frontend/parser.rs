@@ -322,7 +322,15 @@ impl Parser {
 
         while self.peek().kind != TokenKind::CloseBrace && !self.is_at_end() {
             let member_doc = self.parse_doc_comments();
-            let ms = self.span();
+            let mut ms = self.span();
+            let mut is_static = false;
+
+            if self.peek().kind == TokenKind::Static {
+                self.advance();
+                is_static = true;
+                ms = self.span(); // Update span to include static if needed? or keep original?
+            }
+
             let kind = self.peek().kind.clone();
             match kind {
                 TokenKind::Constructor => {
@@ -349,6 +357,7 @@ impl Parser {
                         params,
                         return_ty: TypeExpr::Name(name.clone(), ms),
                         body,
+                        is_static: false,
                         span: ms,
                         doc: member_doc,
                     });
@@ -407,6 +416,7 @@ impl Parser {
                         params,
                         return_ty,
                         body,
+                        is_static,
                         span: ms,
                         doc: member_doc,
                     });
@@ -420,6 +430,7 @@ impl Parser {
                     fields.push(Field {
                         name: fname,
                         ty: fty,
+                        is_static,
                         span: fs,
                         doc: member_doc,
                     });
@@ -537,7 +548,7 @@ impl Parser {
 
     fn parse_multiplicative(&mut self) -> Expr {
         let s = self.span();
-        let mut node = self.parse_primary();
+        let mut node = self.parse_unary();
 
         while let TokenKind::Star | TokenKind::Slash | TokenKind::Percent = self.peek().kind {
             let op = match self.peek().kind {
@@ -553,6 +564,16 @@ impl Parser {
         }
 
         node
+    }
+
+    fn parse_unary(&mut self) -> Expr {
+        let s = self.span();
+        if self.peek().kind == TokenKind::Minus {
+            self.advance();
+            let expr = self.parse_unary();
+            return Expr::UnaryOp("-".to_string(), Box::new(expr), s);
+        }
+        self.parse_primary()
     }
 
     fn parse_primary(&mut self) -> Expr {
