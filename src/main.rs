@@ -15,6 +15,13 @@ fn main() {
     let emit_ir = args.contains(&"--emit-ir".to_string());
     let is_lsp = args.contains(&"--lsp".to_string());
 
+    let mut target = "arm64".to_string();
+    if let Some(idx) = args.iter().position(|a| a == "--target") {
+        if idx + 1 < args.len() {
+            target = args[idx + 1].clone();
+        }
+    }
+
     if is_lsp {
         let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
         rt.block_on(aura_rust::lsp::server::run_server());
@@ -90,8 +97,14 @@ fn main() {
         }
         let mut opt = Optimizer::new();
         let module = opt.optimize(module);
-        let mut cg = IrCodegen::new();
-        cg.generate(module)
+
+        if target == "x86_64" {
+            let mut cg = aura_rust::compiler::backend::x86_64::ir_codegen::IrCodegen::new();
+            cg.generate(module)
+        } else {
+            let mut cg = IrCodegen::new();
+            cg.generate(module)
+        }
     } else {
         let mut cg = Codegen::new();
         cg.load_stdlib();
