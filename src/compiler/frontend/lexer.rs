@@ -251,6 +251,10 @@ impl<'a> Lexer<'a> {
             "static" => TokenKind::Static,
             "this" => TokenKind::This,
             "is" => TokenKind::Is,
+            "import" => TokenKind::Import,
+            "export" => TokenKind::Export,
+            "from" => TokenKind::From,
+            "as" => TokenKind::As,
             _ => TokenKind::Identifier(literal.to_string()),
         };
         Token::new(kind, line, column)

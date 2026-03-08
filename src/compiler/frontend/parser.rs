@@ -1,4 +1,6 @@
-use crate::compiler::ast::{ClassMethod, Expr, Field, Program, Span, Statement, TypeExpr};
+use crate::compiler::ast::{
+    ClassMethod, Expr, Field, ImportItem, Program, Span, Statement, TypeExpr,
+};
 use crate::compiler::frontend::error::{Diagnostic, DiagnosticList};
 use crate::compiler::frontend::token::{Token, TokenKind};
 
@@ -52,6 +54,8 @@ impl Parser {
             TokenKind::Function => self.parse_function_declaration(doc),
             TokenKind::Return => self.parse_return_statement(),
             TokenKind::Class => self.parse_class_declaration(doc),
+            TokenKind::Import => self.parse_import_statement(),
+            TokenKind::Export => self.parse_export_statement(doc),
             _ => {
                 let expr = self.parse_expression();
                 self.consume(TokenKind::Semicolon)?;
@@ -96,6 +100,86 @@ impl Parser {
         let expr = self.parse_expression();
         self.consume(TokenKind::Semicolon)?;
         Ok(Statement::Return(expr, s))
+    }
+
+    fn parse_import_statement(&mut self) -> Result<Statement, ()> {
+        let s = self.span();
+        self.consume(TokenKind::Import)?;
+
+        let item = if self.peek().kind == TokenKind::Star {
+            self.advance();
+            self.consume(TokenKind::As)?;
+            let ns = if let TokenKind::Identifier(name) = self.peek().kind.clone() {
+                self.advance();
+                name
+            } else {
+                return Err(());
+            };
+            ImportItem::Namespace(ns)
+        } else if self.peek().kind == TokenKind::OpenBrace {
+            self.advance();
+            let mut names = Vec::new();
+            while self.peek().kind != TokenKind::CloseBrace && !self.is_at_end() {
+                if let TokenKind::Identifier(name) = self.peek().kind.clone() {
+                    self.advance();
+                    names.push(name);
+                    if self.peek().kind == TokenKind::Comma {
+                        self.advance();
+                    }
+                } else {
+                    break;
+                }
+            }
+            self.consume(TokenKind::CloseBrace)?;
+            ImportItem::Named(names)
+        } else {
+            return Err(());
+        };
+
+        self.consume(TokenKind::From)?;
+
+        let path = if let TokenKind::StringLiteral(p) = self.peek().kind.clone() {
+            self.advance();
+            p
+        } else {
+            return Err(());
+        };
+
+        self.consume(TokenKind::Semicolon)?;
+
+        Ok(Statement::Import {
+            item,
+            path,
+            span: s,
+        })
+    }
+
+    fn parse_export_statement(&mut self, doc: Option<String>) -> Result<Statement, ()> {
+        let s = self.span();
+        self.consume(TokenKind::Export)?;
+
+        let decl = match self.peek().kind {
+            TokenKind::Let => self.parse_let_statement(doc)?,
+            TokenKind::Function => self.parse_function_declaration(doc)?,
+            TokenKind::Class => self.parse_class_declaration(doc)?,
+            _ => {
+                if !self.panic_mode {
+                    let token = self.peek();
+                    self.diagnostics.push(Diagnostic::error(
+                        "Export is only allowed on declarations".to_string(),
+                        token.line,
+                        token.column,
+                    ));
+                    self.panic_mode = true;
+                }
+                return Err(());
+            }
+        };
+
+        Ok(Statement::Export {
+            decl: Box::new(decl),
+            span: s,
+        })
     }
 
     fn parse_type_expr(&mut self) -> TypeExpr {
@@ -753,6 +837,8 @@ impl Parser {
                 | TokenKind::While
                 | TokenKind::Print
                 | TokenKind::Return
+                | TokenKind::Import
+                | TokenKind::Export
                 | TokenKind::CloseBrace => return,
                 _ => {}
             }

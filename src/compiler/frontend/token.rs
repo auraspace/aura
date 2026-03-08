@@ -14,6 +14,10 @@ pub enum TokenKind {
     New,
     This,
     Is,
+    Import,
+    Export,
+    From,
+    As,
 
     // Identifiers & Literals
     Identifier(String),

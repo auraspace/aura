@@ -1,0 +1,11 @@
+import * as math from "./math";
+import { pow, sqrt } from "./math";
+
+export function add(a: i32, b: i32): i32 {
+    return a + b;
+}
+
+export let x = 10;
+export class User {
+    name: string;
+}

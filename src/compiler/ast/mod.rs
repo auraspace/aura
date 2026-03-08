@@ -91,6 +91,12 @@ pub struct ClassMethod {
 }
 
 #[derive(Debug, Clone)]
+pub enum ImportItem {
+    Named(Vec<String>),
+    Namespace(String),
+}
+
+#[derive(Debug, Clone)]
 pub enum Statement {
     VarDeclaration {
         name: String,
@@ -130,6 +136,15 @@ pub enum Statement {
     },
     Block(Vec<Statement>, Span),
     Expression(Expr, Span),
+    Import {
+        item: ImportItem,
+        path: String,
+        span: Span,
+    },
+    Export {
+        decl: Box<Statement>,
+        span: Span,
+    },
     Error,
 }
 
@@ -145,6 +160,8 @@ impl Statement {
             Statement::While { span, .. } => *span,
             Statement::Block(_, s) => *s,
             Statement::Expression(_, s) => *s,
+            Statement::Import { span, .. } => *span,
+            Statement::Export { span, .. } => *span,
             Statement::Error => Span::new(0, 0),
         }
     }

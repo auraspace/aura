@@ -271,6 +271,9 @@ impl Codegen {
                 self.current_class = old_class;
             }
             Statement::Error => panic!("Compiler bug: reaching error node in codegen"),
+            Statement::Import { .. } | Statement::Export { .. } => {
+                todo!("Imports/exports are not supported in codegen yet")
+            }
         }
     }
 

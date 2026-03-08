@@ -237,6 +237,9 @@ impl Interpreter {
                 StatementResult::None
             }
             Statement::Error => StatementResult::None,
+            Statement::Import { .. } | Statement::Export { .. } => {
+                todo!("Imports/exports are not supported in interpreter yet")
+            }
         }
     }
 

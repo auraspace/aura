@@ -432,6 +432,9 @@ impl SemanticAnalyzer {
                 self.current_class = None;
             }
             Statement::Error => {}
+            Statement::Import { .. } | Statement::Export { .. } => {
+                todo!("Imports/exports are not supported in semantic analyzer yet")
+            }
         }
     }
 
