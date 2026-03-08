@@ -18,6 +18,7 @@ pub enum TokenKind {
     Identifier(String),
     StringLiteral(String),
     Number(i32),
+    DocComment(String),
 
     // Operators
     Plus,         // +

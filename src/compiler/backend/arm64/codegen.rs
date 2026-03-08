@@ -67,6 +67,7 @@ impl Codegen {
                 ty: _,
                 value,
                 span: _,
+                doc: _,
             } => {
                 self.generate_expr(value);
                 if !self.variables.contains_key(&name) {
@@ -84,6 +85,7 @@ impl Codegen {
                 return_ty: _,
                 body,
                 span: _,
+                doc: _,
             } => {
                 let saved_vars = self.variables.clone();
                 let saved_offset = self.stack_offset;
@@ -193,6 +195,7 @@ impl Codegen {
                 methods,
                 constructor,
                 span: _,
+                doc: _,
             } => {
                 let field_names: Vec<String> = fields.iter().map(|f| f.name.clone()).collect();
                 let method_names: Vec<String> = methods.iter().map(|m| m.name.clone()).collect();
@@ -206,8 +209,9 @@ impl Codegen {
                         name: format!("{}_constructor", name),
                         params: cons.params,
                         return_ty: cons.return_ty,
-                        body: cons.body.clone(),
+                        body: cons.body,
                         span: cons.span,
+                        doc: None,
                     });
                 }
 
@@ -216,8 +220,9 @@ impl Codegen {
                         name: format!("{}_{}", name, method.name),
                         params: method.params,
                         return_ty: method.return_ty,
-                        body: method.body.clone(),
+                        body: method.body,
                         span: method.span,
+                        doc: None,
                     });
                 }
                 self.current_class = old_class;

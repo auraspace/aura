@@ -8,6 +8,7 @@ pub struct Symbol {
     pub ty: Type,
     pub is_param: bool,
     pub span: Span,
+    pub doc: Option<String>,
 }
 
 pub struct Scope {
@@ -23,7 +24,14 @@ impl Scope {
         }
     }
 
-    pub fn insert(&mut self, name: String, ty: Type, is_param: bool, span: Span) {
+    pub fn insert(
+        &mut self,
+        name: String,
+        ty: Type,
+        is_param: bool,
+        span: Span,
+        doc: Option<String>,
+    ) {
         self.symbols.insert(
             name.clone(),
             Symbol {
@@ -31,6 +39,7 @@ impl Scope {
                 ty,
                 is_param,
                 span,
+                doc,
             },
         );
     }

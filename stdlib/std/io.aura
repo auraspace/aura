@@ -1,0 +1,12 @@
+/// Standard I/O module for Aura
+class IO {
+    /// Prints a string to standard output followed by a newline
+    static fn println(msg: String) {
+        // Builtin intrinsic would go here
+    }
+
+    /// Prints a string to standard output
+    static fn print(msg: String) {
+        // Builtin intrinsic would go here
+    }
+}

@@ -1,4 +1,4 @@
-use crate::compiler::ast::{Program, Span};
+use crate::compiler::ast::{Program, Span, Statement};
 use crate::compiler::frontend::error::Severity;
 use crate::compiler::frontend::lexer::Lexer;
 use crate::compiler::frontend::parser::Parser;
@@ -15,6 +15,7 @@ pub struct DocumentState {
     pub program: Option<Program>,
     pub node_types: HashMap<Span, Type>,
     pub node_definitions: HashMap<Span, Span>,
+    pub node_docs: HashMap<Span, String>,
 }
 
 pub struct Backend {
@@ -32,6 +33,12 @@ impl LanguageServer for Backend {
                 )),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 definition_provider: Some(OneOf::Left(true)),
+                document_symbol_provider: Some(OneOf::Left(true)),
+                completion_provider: Some(CompletionOptions {
+                    resolve_provider: Some(false),
+                    trigger_characters: Some(vec![".".to_string()]),
+                    ..Default::default()
+                }),
                 ..Default::default()
             },
             ..Default::default()
@@ -96,11 +103,16 @@ impl LanguageServer for Backend {
             }
 
             if let Some(ty) = best_ty {
+                let span = best_span.unwrap();
+                let doc = state.node_docs.get(&span);
+
+                let mut hover_text = format!("type: {:?}", ty);
+                if let Some(doc_str) = doc {
+                    hover_text = format!("{}\n\n{}", hover_text, doc_str);
+                }
+
                 return Ok(Some(Hover {
-                    contents: HoverContents::Scalar(MarkedString::String(format!(
-                        "type: {:?}",
-                        ty
-                    ))),
+                    contents: HoverContents::Scalar(MarkedString::String(hover_text)),
                     range: None,
                 }));
             }
@@ -109,6 +121,235 @@ impl LanguageServer for Backend {
         Ok(None)
     }
 
+    async fn document_symbol(
+        &self,
+        params: DocumentSymbolParams,
+    ) -> Result<Option<DocumentSymbolResponse>> {
+        let uri = params.text_document.uri;
+        let docs = self.documents.lock().unwrap();
+        if let Some(state) = docs.get(&uri) {
+            if let Some(program) = &state.program {
+                let mut symbols = Vec::new();
+                for stmt in &program.statements {
+                    match stmt {
+                        Statement::FunctionDeclaration { name, span, .. } => {
+                            symbols.push(DocumentSymbol {
+                                name: name.clone(),
+                                detail: None,
+                                kind: SymbolKind::FUNCTION,
+                                tags: None,
+                                #[allow(deprecated)]
+                                deprecated: None,
+                                range: Range {
+                                    start: Position::new(
+                                        span.line as u32 - 1,
+                                        span.column as u32 - 1,
+                                    ),
+                                    end: Position::new(span.line as u32 - 1, span.column as u32),
+                                },
+                                selection_range: Range {
+                                    start: Position::new(
+                                        span.line as u32 - 1,
+                                        span.column as u32 - 1,
+                                    ),
+                                    end: Position::new(span.line as u32 - 1, span.column as u32),
+                                },
+                                children: None,
+                            });
+                        }
+                        Statement::ClassDeclaration {
+                            name,
+                            fields,
+                            methods,
+                            span,
+                            ..
+                        } => {
+                            let mut children = Vec::new();
+                            for f in fields {
+                                children.push(DocumentSymbol {
+                                    name: f.name.clone(),
+                                    detail: None,
+                                    kind: SymbolKind::FIELD,
+                                    tags: None,
+                                    deprecated: None,
+                                    range: Range {
+                                        start: Position::new(
+                                            f.span.line as u32 - 1,
+                                            f.span.column as u32 - 1,
+                                        ),
+                                        end: Position::new(
+                                            f.span.line as u32 - 1,
+                                            f.span.column as u32,
+                                        ),
+                                    },
+                                    selection_range: Range {
+                                        start: Position::new(
+                                            f.span.line as u32 - 1,
+                                            f.span.column as u32 - 1,
+                                        ),
+                                        end: Position::new(
+                                            f.span.line as u32 - 1,
+                                            f.span.column as u32,
+                                        ),
+                                    },
+                                    children: None,
+                                });
+                            }
+                            for m in methods {
+                                children.push(DocumentSymbol {
+                                    name: m.name.clone(),
+                                    detail: None,
+                                    kind: SymbolKind::METHOD,
+                                    tags: None,
+                                    deprecated: None,
+                                    range: Range {
+                                        start: Position::new(
+                                            m.span.line as u32 - 1,
+                                            m.span.column as u32 - 1,
+                                        ),
+                                        end: Position::new(
+                                            m.span.line as u32 - 1,
+                                            m.span.column as u32,
+                                        ),
+                                    },
+                                    selection_range: Range {
+                                        start: Position::new(
+                                            m.span.line as u32 - 1,
+                                            m.span.column as u32 - 1,
+                                        ),
+                                        end: Position::new(
+                                            m.span.line as u32 - 1,
+                                            m.span.column as u32,
+                                        ),
+                                    },
+                                    children: None,
+                                });
+                            }
+
+                            symbols.push(DocumentSymbol {
+                                name: name.clone(),
+                                detail: None,
+                                kind: SymbolKind::CLASS,
+                                tags: None,
+                                range: Range {
+                                    start: Position::new(
+                                        span.line as u32 - 1,
+                                        span.column as u32 - 1,
+                                    ),
+                                    end: Position::new(span.line as u32 - 1, span.column as u32),
+                                },
+                                selection_range: Range {
+                                    start: Position::new(
+                                        span.line as u32 - 1,
+                                        span.column as u32 - 1,
+                                    ),
+                                    end: Position::new(span.line as u32 - 1, span.column as u32),
+                                },
+                                #[allow(deprecated)]
+                                deprecated: None,
+                                children: Some(children),
+                            });
+                        }
+                        Statement::VarDeclaration { name, span, .. } => {
+                            symbols.push(DocumentSymbol {
+                                name: name.clone(),
+                                detail: None,
+                                kind: SymbolKind::VARIABLE,
+                                tags: None,
+                                deprecated: None,
+                                range: Range {
+                                    start: Position::new(
+                                        span.line as u32 - 1,
+                                        span.column as u32 - 1,
+                                    ),
+                                    end: Position::new(span.line as u32 - 1, span.column as u32),
+                                },
+                                selection_range: Range {
+                                    start: Position::new(
+                                        span.line as u32 - 1,
+                                        span.column as u32 - 1,
+                                    ),
+                                    end: Position::new(span.line as u32 - 1, span.column as u32),
+                                },
+                                children: None,
+                            });
+                        }
+                        _ => {}
+                    }
+                }
+                return Ok(Some(DocumentSymbolResponse::Nested(symbols)));
+            }
+        }
+        Ok(None)
+    }
+
+    async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
+        let uri = params.text_document_position.text_document.uri;
+        let _position = params.text_document_position.position;
+
+        let docs = self.documents.lock().unwrap();
+        if let Some(state) = docs.get(&uri) {
+            let mut items = Vec::new();
+
+            // Simple completion: return all symbols found in types
+            // A better way would be to look up the scope at position, but for now
+            // let's return all top-level symbols we've seen.
+            let mut seen = std::collections::HashSet::new();
+            for (span, ty) in &state.node_types {
+                // If the span is the definition, it's a candidate for completion
+                // or if we just want all names...
+            }
+
+            // Let's use the program to find declarations
+            if let Some(program) = &state.program {
+                for stmt in &program.statements {
+                    match stmt {
+                        Statement::FunctionDeclaration { name, doc, .. } => {
+                            if seen.insert(name.clone()) {
+                                items.push(CompletionItem {
+                                    label: name.clone(),
+                                    kind: Some(CompletionItemKind::FUNCTION),
+                                    documentation: doc
+                                        .as_ref()
+                                        .map(|d| Documentation::String(d.clone())),
+                                    ..Default::default()
+                                });
+                            }
+                        }
+                        Statement::ClassDeclaration { name, doc, .. } => {
+                            if seen.insert(name.clone()) {
+                                items.push(CompletionItem {
+                                    label: name.clone(),
+                                    kind: Some(CompletionItemKind::CLASS),
+                                    documentation: doc
+                                        .as_ref()
+                                        .map(|d| Documentation::String(d.clone())),
+                                    ..Default::default()
+                                });
+                            }
+                        }
+                        Statement::VarDeclaration { name, doc, .. } => {
+                            if seen.insert(name.clone()) {
+                                items.push(CompletionItem {
+                                    label: name.clone(),
+                                    kind: Some(CompletionItemKind::VARIABLE),
+                                    documentation: doc
+                                        .as_ref()
+                                        .map(|d| Documentation::String(d.clone())),
+                                    ..Default::default()
+                                });
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            return Ok(Some(CompletionResponse::Array(items)));
+        }
+
+        Ok(None)
+    }
     async fn goto_definition(
         &self,
         params: GotoDefinitionParams,
@@ -236,6 +477,7 @@ impl Backend {
                     program: Some(program),
                     node_types: analyzer.node_types,
                     node_definitions: analyzer.node_definitions,
+                    node_docs: analyzer.node_docs,
                 },
             );
         }

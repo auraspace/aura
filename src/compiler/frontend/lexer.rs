@@ -128,11 +128,27 @@ impl<'a> Lexer<'a> {
             '/' => {
                 self.advance();
                 if self.peek() == '/' {
-                    // Comment: skip to end of line
-                    while !self.is_at_end() && self.peek() != '\n' {
+                    self.advance();
+                    if self.peek() == '/' {
                         self.advance();
+                        // Doc Comment: collect to end of line
+                        let start_pos = self.pos;
+                        while !self.is_at_end() && self.peek() != '\n' {
+                            self.advance();
+                        }
+                        let content = &self.source[start_pos..self.pos];
+                        Token::new(
+                            TokenKind::DocComment(content.to_string()),
+                            current_line,
+                            current_column,
+                        )
+                    } else {
+                        // Regular comment: skip to end of line
+                        while !self.is_at_end() && self.peek() != '\n' {
+                            self.advance();
+                        }
+                        self.next_token()
                     }
-                    self.next_token()
                 } else {
                     Token::new(TokenKind::Slash, current_line, current_column)
                 }

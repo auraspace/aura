@@ -110,6 +110,7 @@ impl Interpreter {
                 ty: _,
                 value,
                 span: _,
+                doc: _,
             } => {
                 let val = self.eval_expr(value);
                 self.env.insert(name, val);
@@ -121,6 +122,7 @@ impl Interpreter {
                 return_ty,
                 body,
                 span: _,
+                doc: _,
             } => {
                 let func_val = Value::Function {
                     name: name.clone(),
@@ -140,6 +142,7 @@ impl Interpreter {
                 methods,
                 constructor,
                 span: _,
+                doc: _,
             } => {
                 let mut method_map = HashMap::new();
                 for m in methods {

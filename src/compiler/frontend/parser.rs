@@ -42,20 +42,34 @@ impl Parser {
 
     fn parse_statement(&mut self) -> Result<Statement, ()> {
         let s = self.span();
+        let doc = self.parse_doc_comments();
         match self.peek().kind {
-            TokenKind::Let => self.parse_let_statement(),
+            TokenKind::Let => self.parse_let_statement(doc),
             TokenKind::Print => self.parse_print_statement(),
             TokenKind::If => self.parse_if_statement(),
             TokenKind::While => self.parse_while_statement(),
             TokenKind::OpenBrace => Ok(self.parse_block()),
-            TokenKind::Function => self.parse_function_declaration(),
+            TokenKind::Function => self.parse_function_declaration(doc),
             TokenKind::Return => self.parse_return_statement(),
-            TokenKind::Class => self.parse_class_declaration(),
+            TokenKind::Class => self.parse_class_declaration(doc),
             _ => {
                 let expr = self.parse_expression();
                 self.consume(TokenKind::Semicolon)?;
                 Ok(Statement::Expression(expr, s))
             }
+        }
+    }
+
+    fn parse_doc_comments(&mut self) -> Option<String> {
+        let mut docs = Vec::new();
+        while let TokenKind::DocComment(content) = self.peek().kind.clone() {
+            docs.push(content);
+            self.advance();
+        }
+        if docs.is_empty() {
+            None
+        } else {
+            Some(docs.join("\n"))
         }
     }
 
@@ -126,7 +140,7 @@ impl Parser {
         }
     }
 
-    fn parse_function_declaration(&mut self) -> Result<Statement, ()> {
+    fn parse_function_declaration(&mut self, doc: Option<String>) -> Result<Statement, ()> {
         let s = self.span();
         self.consume(TokenKind::Function)?;
         let name = if let TokenKind::Identifier(name) = self.peek().kind.clone() {
@@ -174,10 +188,11 @@ impl Parser {
             return_ty,
             body,
             span: s,
+            doc,
         })
     }
 
-    fn parse_let_statement(&mut self) -> Result<Statement, ()> {
+    fn parse_let_statement(&mut self, doc: Option<String>) -> Result<Statement, ()> {
         let s = self.span();
         self.consume(TokenKind::Let)?;
         let name = if let TokenKind::Identifier(name) = self.peek().kind.clone() {
@@ -209,6 +224,7 @@ impl Parser {
             ty,
             value,
             span: s,
+            doc,
         })
     }
 
@@ -280,7 +296,7 @@ impl Parser {
         })
     }
 
-    fn parse_class_declaration(&mut self) -> Result<Statement, ()> {
+    fn parse_class_declaration(&mut self, doc: Option<String>) -> Result<Statement, ()> {
         let s = self.span();
         self.consume(TokenKind::Class)?;
         let name = if let TokenKind::Identifier(name) = self.peek().kind.clone() {
@@ -305,6 +321,7 @@ impl Parser {
         let mut constructor = None;
 
         while self.peek().kind != TokenKind::CloseBrace && !self.is_at_end() {
+            let member_doc = self.parse_doc_comments();
             let ms = self.span();
             let kind = self.peek().kind.clone();
             match kind {
@@ -333,6 +350,7 @@ impl Parser {
                         return_ty: TypeExpr::Name(name.clone(), ms),
                         body,
                         span: ms,
+                        doc: member_doc,
                     });
                 }
                 TokenKind::Function => {
@@ -390,6 +408,7 @@ impl Parser {
                         return_ty,
                         body,
                         span: ms,
+                        doc: member_doc,
                     });
                 }
                 TokenKind::Identifier(fname) => {
@@ -402,6 +421,7 @@ impl Parser {
                         name: fname,
                         ty: fty,
                         span: fs,
+                        doc: member_doc,
                     });
                 }
                 _ => {
@@ -414,6 +434,7 @@ impl Parser {
                         ));
                         self.panic_mode = true;
                     }
+                    self.advance();
                     self.synchronize();
                 }
             }
@@ -426,6 +447,7 @@ impl Parser {
             methods,
             constructor,
             span: s,
+            doc,
         })
     }
 

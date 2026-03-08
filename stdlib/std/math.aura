@@ -1,0 +1,18 @@
+/// Mathematical utilities for Aura
+class Math {
+    /// Returns the absolute value of an integer
+    static fn abs(n: Int32) : Int32 {
+        if (n < 0) {
+            return 0 - n;
+        }
+        return n;
+    }
+
+    /// Returns the maximum of two integers
+    static fn max(a: Int32, b: Int32) : Int32 {
+        if (a > b) {
+            return a;
+        }
+        return b;
+    }
+}

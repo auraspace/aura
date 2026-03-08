@@ -73,6 +73,7 @@ pub struct Field {
     pub name: String,
     pub ty: TypeExpr,
     pub span: Span,
+    pub doc: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -82,6 +83,7 @@ pub struct ClassMethod {
     pub return_ty: TypeExpr,
     pub body: Box<Statement>,
     pub span: Span,
+    pub doc: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -91,6 +93,7 @@ pub enum Statement {
         ty: Option<TypeExpr>,
         value: Expr,
         span: Span,
+        doc: Option<String>,
     },
     FunctionDeclaration {
         name: String,
@@ -98,6 +101,7 @@ pub enum Statement {
         return_ty: TypeExpr,
         body: Box<Statement>,
         span: Span,
+        doc: Option<String>,
     },
     ClassDeclaration {
         name: String,
@@ -105,6 +109,7 @@ pub enum Statement {
         methods: Vec<ClassMethod>,
         constructor: Option<ClassMethod>,
         span: Span,
+        doc: Option<String>,
     },
     Return(Expr, Span),
     Print(Expr, Span),

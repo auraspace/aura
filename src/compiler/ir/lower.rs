@@ -95,6 +95,7 @@ impl Lowerer {
                     return_ty: _,
                     body,
                     span: _,
+                    doc: _,
                 } => {
                     let pnames = params.into_iter().map(|(n, _)| n).collect();
                     functions.push(self.lower_function(name, pnames, *body, None));
@@ -105,6 +106,7 @@ impl Lowerer {
                     methods,
                     constructor,
                     span: _,
+                    doc: _,
                 } => {
                     for m in methods {
                         let mangled_name = format!("{}_{}", name, m.name);
@@ -194,6 +196,7 @@ impl Lowerer {
                 ty,
                 value,
                 span: _,
+                doc: _,
             } => {
                 let class_name = if let Expr::New(ref cls, _, _) = value {
                     Some(cls.clone())
