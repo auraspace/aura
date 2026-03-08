@@ -1,0 +1,9 @@
+let a = 10
+let b = ;
+let c = 20;
+
+function {
+    return 1;
+}
+
+print(c);

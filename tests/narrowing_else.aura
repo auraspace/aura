@@ -1,0 +1,11 @@
+function test_narrowing_else(val: i32 | string) {
+    if (val is i32) {
+        let x: i32 = val; // Works
+        print(x);
+    } else {
+        let y: string = val; // Should work now!
+        print(0);
+    }
+}
+
+test_narrowing_else(42);

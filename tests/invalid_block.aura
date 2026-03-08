@@ -1,0 +1,10 @@
+{
+    let x = 10;
+    print(x) // Missing semicolon
+    let y = 20;
+    if (y > 10) {
+        let z = 30
+        print(z); // Semicolon missing on z = 30 might cause issues
+    }
+    print("done");
+}

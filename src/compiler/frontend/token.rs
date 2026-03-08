@@ -1,0 +1,65 @@
+#[derive(Debug, Clone, PartialEq)]
+pub enum TokenKind {
+    // Keywords
+    Let,
+    Print,
+    If,
+    Else,
+    While,
+    Function,
+    Return,
+    Class,
+    Constructor,
+    New,
+    This,
+    Is,
+
+    // Identifiers & Literals
+    Identifier(String),
+    StringLiteral(String),
+    Number(i32),
+
+    // Operators
+    Plus,         // +
+    Minus,        // -
+    Equal,        // =
+    EqEqual,      // ==
+    BangEqual,    // !=
+    Less,         // <
+    LessEqual,    // <=
+    Greater,      // >
+    GreaterEqual, // >=
+    Dot,          // .
+    Pipe,         // |
+    Slash,        // /
+    Star,         // *
+    Percent,      // %
+
+    // Punctuation
+    Colon,      // :
+    Semicolon,  // ;
+    Comma,      // ,
+    OpenParen,  // (
+    CloseParen, // )
+    OpenBrace,  // {
+    CloseBrace, // }
+
+    // End of file
+    EOF,
+
+    // Error
+    Unknown(char),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Token {
+    pub kind: TokenKind,
+    pub line: usize,
+    pub column: usize,
+}
+
+impl Token {
+    pub fn new(kind: TokenKind, line: usize, column: usize) -> Self {
+        Self { kind, line, column }
+    }
+}

@@ -1,0 +1,12 @@
+[package]
+name = "aura-rust"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+clap = { version = "4.0", features = ["derive"] }
+miette = { version = "5.10", features = ["fancy"] }
+thiserror = "1.0"
+logos = "0.14" # Lexer generation, but wait, the prompt says "Scanner: Source text -> Tokens" in lexer.rs.
+# Maybe I should write the lexer manually as common in compilers for better error control and performance.
+# Let's start with manual lexer as per project-structure definition.

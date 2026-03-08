@@ -1,0 +1,25 @@
+class Point {
+    x: i32;
+    y: i32;
+    constructor(x: i32, y: i32) {
+        this.x = x;
+        this.y = y;
+    }
+}
+
+class Vec2 {
+    x: i32;
+    y: i32;
+    constructor(x: i32, y: i32) {
+        this.x = x;
+        this.y = y;
+    }
+}
+
+function print_point(p: Point) {
+    print(p.x);
+    print(p.y);
+}
+
+let v: Vec2 = new Vec2(10, 20);
+print_point(v); // This should pass because Vec2 is structural copy of Point

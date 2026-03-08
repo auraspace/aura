@@ -1,0 +1,10 @@
+function test_union(val: i32 | string) {
+    print(val);
+}
+
+test_union(42);
+
+let x: i32 | string = 100;
+print(x);
+x = 200;
+print(x);

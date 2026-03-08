@@ -1,0 +1,20 @@
+class Point {
+    x: i32;
+    y: i32;
+
+    constructor(x: i32, y: i32) {
+        this.x = x;
+        this.y = y;
+    }
+
+    function getX(): i32 {
+        return this.x;
+    }
+    function getY(): i32 {
+        return this.y;
+    }
+}
+
+let p = new Point(10, 20);
+print(p.getX());
+print(p.getY());

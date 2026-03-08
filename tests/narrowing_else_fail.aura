@@ -1,0 +1,10 @@
+function test_narrowing_else_fail(val: i32 | string) {
+    if (val is i32) {
+        print(1);
+    } else {
+        let x: i32 = val; // Should fail because val is now 'string'
+        print(x);
+    }
+}
+
+test_narrowing_else_fail(42);

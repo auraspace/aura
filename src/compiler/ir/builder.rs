@@ -1,0 +1,164 @@
+use crate::compiler::ir::instr::{BasicBlock, Instruction, IrFunction, IrType, Operand};
+
+pub struct IrBuilder {
+    pub current_block: String,
+    pub blocks: Vec<BasicBlock>,
+    pub reg_count: u32,
+    pub label_count: u32,
+}
+
+impl IrBuilder {
+    pub fn new() -> Self {
+        Self {
+            current_block: "entry".to_string(),
+            blocks: vec![BasicBlock {
+                label: "entry".to_string(),
+                instructions: Vec::new(),
+            }],
+            reg_count: 0,
+            label_count: 0,
+        }
+    }
+
+    pub fn new_reg(&mut self) -> u32 {
+        let r = self.reg_count;
+        self.reg_count += 1;
+        r
+    }
+
+    pub fn new_label(&mut self, prefix: &str) -> String {
+        let l = self.label_count;
+        self.label_count += 1;
+        format!("L_{}_{}", prefix, l)
+    }
+
+    pub fn create_block(&mut self, label: String) {
+        self.blocks.push(BasicBlock {
+            label,
+            instructions: Vec::new(),
+        });
+    }
+
+    pub fn set_block(&mut self, label: String) {
+        if !self.blocks.iter().any(|b| b.label == label) {
+            self.create_block(label.clone());
+        }
+        self.current_block = label;
+    }
+
+    pub fn emit(&mut self, instr: Instruction) {
+        for b in &mut self.blocks {
+            if b.label == self.current_block {
+                b.instructions.push(instr);
+                return;
+            }
+        }
+    }
+
+    pub fn add(&mut self, lhs: Operand, rhs: Operand) -> Operand {
+        let dest = self.new_reg();
+        self.emit(Instruction::Add(dest, lhs, rhs));
+        Operand::Value(dest)
+    }
+
+    pub fn sub(&mut self, lhs: Operand, rhs: Operand) -> Operand {
+        let dest = self.new_reg();
+        self.emit(Instruction::Sub(dest, lhs, rhs));
+        Operand::Value(dest)
+    }
+
+    pub fn mul(&mut self, lhs: Operand, rhs: Operand) -> Operand {
+        let dest = self.new_reg();
+        self.emit(Instruction::Mul(dest, lhs, rhs));
+        Operand::Value(dest)
+    }
+
+    pub fn div(&mut self, lhs: Operand, rhs: Operand) -> Operand {
+        let dest = self.new_reg();
+        self.emit(Instruction::Div(dest, lhs, rhs));
+        Operand::Value(dest)
+    }
+
+    pub fn rem(&mut self, lhs: Operand, rhs: Operand) -> Operand {
+        let dest = self.new_reg();
+        self.emit(Instruction::Rem(dest, lhs, rhs));
+        Operand::Value(dest)
+    }
+
+    pub fn eq(&mut self, lhs: Operand, rhs: Operand) -> Operand {
+        let dest = self.new_reg();
+        self.emit(Instruction::Eq(dest, lhs, rhs));
+        Operand::Value(dest)
+    }
+
+    pub fn ne(&mut self, lhs: Operand, rhs: Operand) -> Operand {
+        let dest = self.new_reg();
+        self.emit(Instruction::Ne(dest, lhs, rhs));
+        Operand::Value(dest)
+    }
+
+    pub fn lt(&mut self, lhs: Operand, rhs: Operand) -> Operand {
+        let dest = self.new_reg();
+        self.emit(Instruction::Lt(dest, lhs, rhs));
+        Operand::Value(dest)
+    }
+
+    pub fn le(&mut self, lhs: Operand, rhs: Operand) -> Operand {
+        let dest = self.new_reg();
+        self.emit(Instruction::Le(dest, lhs, rhs));
+        Operand::Value(dest)
+    }
+
+    pub fn gt(&mut self, lhs: Operand, rhs: Operand) -> Operand {
+        let dest = self.new_reg();
+        self.emit(Instruction::Gt(dest, lhs, rhs));
+        Operand::Value(dest)
+    }
+
+    pub fn ge(&mut self, lhs: Operand, rhs: Operand) -> Operand {
+        let dest = self.new_reg();
+        self.emit(Instruction::Ge(dest, lhs, rhs));
+        Operand::Value(dest)
+    }
+
+    pub fn jump(&mut self, target: String) {
+        self.emit(Instruction::Jump(target));
+    }
+
+    pub fn branch(&mut self, cond: Operand, then_block: String, else_block: String) {
+        self.emit(Instruction::Branch(cond, then_block, else_block));
+    }
+
+    pub fn ret(&mut self, val: Option<Operand>) {
+        self.emit(Instruction::Return(val));
+    }
+
+    pub fn call(&mut self, func: String, args: Vec<Operand>) -> Operand {
+        let dest = self.new_reg();
+        self.emit(Instruction::Call(dest, func, args));
+        Operand::Value(dest)
+    }
+
+    pub fn finish_function(
+        &mut self,
+        name: String,
+        params: Vec<IrType>,
+        return_type: IrType,
+    ) -> IrFunction {
+        let f = IrFunction {
+            name,
+            params,
+            return_type,
+            blocks: self.blocks.split_off(0),
+        };
+        // Reset state for next function
+        self.current_block = "entry".to_string();
+        self.blocks = vec![BasicBlock {
+            label: "entry".to_string(),
+            instructions: Vec::new(),
+        }];
+        self.reg_count = 0;
+        self.label_count = 0;
+        f
+    }
+}

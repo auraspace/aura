@@ -1,0 +1,4 @@
+target/
+aura_program
+*.s
+.DS_Store
