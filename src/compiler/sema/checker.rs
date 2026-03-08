@@ -8,6 +8,7 @@ pub struct ClassInfo {
     pub name: String,
     pub fields: HashMap<String, Type>,
     pub methods: HashMap<String, (Vec<Type>, Type)>, // name -> (params, return_ty)
+    pub span: Span,
 }
 
 #[derive(Debug, Clone)]
@@ -35,6 +36,7 @@ pub struct SemanticAnalyzer {
     pub current_class: Option<String>,
     pub diagnostics: DiagnosticList,
     pub node_types: HashMap<Span, Type>,
+    pub node_definitions: HashMap<Span, Span>,
 }
 
 impl SemanticAnalyzer {
@@ -45,6 +47,7 @@ impl SemanticAnalyzer {
             current_class: None,
             diagnostics: DiagnosticList::new(),
             node_types: HashMap::new(),
+            node_definitions: HashMap::new(),
         }
     }
 
@@ -84,7 +87,8 @@ impl SemanticAnalyzer {
                 name,
                 fields,
                 methods,
-                ..
+                constructor: _,
+                span,
             } = stmt
             {
                 let mut field_map = HashMap::new();
@@ -107,6 +111,7 @@ impl SemanticAnalyzer {
                         name: name.clone(),
                         fields: field_map,
                         methods: method_map,
+                        span: *span,
                     },
                 );
             }
@@ -241,7 +246,7 @@ impl SemanticAnalyzer {
                         span,
                     );
                 }
-                self.scope.insert(name, declared_ty, false);
+                self.scope.insert(name, declared_ty, false, span);
             }
             Statement::Expression(expr, _) => {
                 self.check_expr(expr);
@@ -260,7 +265,7 @@ impl SemanticAnalyzer {
                 condition,
                 then_branch,
                 else_branch,
-                span: _,
+                span,
             } => {
                 let _cond_ty = self.check_expr(condition.clone());
 
@@ -269,7 +274,8 @@ impl SemanticAnalyzer {
                         let narrowed_ty = self.resolve_type(ty_expr.clone());
 
                         self.push_scope();
-                        self.scope.insert(name.clone(), narrowed_ty.clone(), false);
+                        self.scope
+                            .insert(name.clone(), narrowed_ty.clone(), false, span);
                         self.check_statement(*then_branch);
                         self.pop_scope();
 
@@ -282,7 +288,7 @@ impl SemanticAnalyzer {
                             let excluded_ty = original_ty.exclude(&narrowed_ty);
 
                             self.push_scope();
-                            self.scope.insert(name.clone(), excluded_ty, false);
+                            self.scope.insert(name.clone(), excluded_ty, false, span);
                             self.check_statement(*eb);
                             self.pop_scope();
                         }
@@ -309,7 +315,7 @@ impl SemanticAnalyzer {
                 params,
                 return_ty,
                 body,
-                ..
+                span,
             } => {
                 let param_tys: Vec<Type> = params
                     .iter()
@@ -322,12 +328,13 @@ impl SemanticAnalyzer {
                     name.clone(),
                     Type::Function(param_tys.clone(), Box::new(ret_ty.clone())),
                     false,
+                    span,
                 );
 
                 self.push_scope();
                 for (pname, pty) in params {
-                    let ty = self.resolve_type(pty);
-                    self.scope.insert(pname, ty, false);
+                    let ty = self.resolve_type(pty.clone());
+                    self.scope.insert(pname, ty, true, pty.span());
                 }
                 self.check_statement(*body);
                 self.pop_scope();
@@ -337,17 +344,21 @@ impl SemanticAnalyzer {
                 fields: _,
                 methods,
                 constructor,
-                ..
+                span: _,
             } => {
                 self.current_class = Some(name.clone());
 
                 if let Some(ctor) = constructor {
                     self.push_scope();
-                    self.scope
-                        .insert("this".to_string(), Type::Class(name.clone()), false);
+                    self.scope.insert(
+                        "this".to_string(),
+                        Type::Class(name.clone()),
+                        false,
+                        ctor.span,
+                    );
                     for (pname, pty) in ctor.params {
-                        let ty = self.resolve_type(pty);
-                        self.scope.insert(pname, ty, false);
+                        let ty = self.resolve_type(pty.clone());
+                        self.scope.insert(pname, ty, true, pty.span());
                     }
                     self.check_statement(*ctor.body);
                     self.pop_scope();
@@ -356,10 +367,10 @@ impl SemanticAnalyzer {
                 for m in methods {
                     self.push_scope();
                     self.scope
-                        .insert("this".to_string(), Type::Class(name.clone()), false);
+                        .insert("this".to_string(), Type::Class(name.clone()), false, m.span);
                     for (pname, pty) in m.params {
-                        let ty = self.resolve_type(pty);
-                        self.scope.insert(pname, ty, false);
+                        let ty = self.resolve_type(pty.clone());
+                        self.scope.insert(pname, ty, true, pty.span());
                     }
                     self.check_statement(*m.body);
                     self.pop_scope();
@@ -377,6 +388,7 @@ impl SemanticAnalyzer {
             Expr::StringLiteral(_, _) => Type::String,
             Expr::Variable(name, span) => {
                 if let Some(sym) = self.scope.lookup(&name) {
+                    self.node_definitions.insert(span, sym.span);
                     sym.ty.clone()
                 } else {
                     self.error(SemanticErrorKind::UndefinedVariable(name), span);
@@ -424,7 +436,11 @@ impl SemanticAnalyzer {
                     arg_tys.push(self.check_expr(arg));
                 }
 
-                let function_ty = self.scope.lookup(&name).map(|s| s.ty.clone());
+                let sym = self.scope.lookup(&name);
+                let function_ty = sym.map(|s| s.ty.clone());
+                if let Some(s) = sym {
+                    self.node_definitions.insert(span, s.span);
+                }
 
                 if let Some(Type::Function(param_tys, ret_ty)) = function_ty {
                     if param_tys.len() != arg_tys.len() {
@@ -455,7 +471,9 @@ impl SemanticAnalyzer {
                 }
             }
             Expr::New(class_name, args, span) => {
-                if !self.classes.contains_key(&class_name) {
+                if let Some(class_info) = self.classes.get(&class_name) {
+                    self.node_definitions.insert(span, class_info.span);
+                } else {
                     self.error(SemanticErrorKind::UndefinedClass(class_name.clone()), span);
                 }
                 for arg in args {

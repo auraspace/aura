@@ -1,3 +1,4 @@
+use crate::compiler::ast::Span;
 use crate::compiler::sema::ty::Type;
 use std::collections::HashMap;
 
@@ -6,6 +7,7 @@ pub struct Symbol {
     pub name: String,
     pub ty: Type,
     pub is_param: bool,
+    pub span: Span,
 }
 
 pub struct Scope {
@@ -21,9 +23,16 @@ impl Scope {
         }
     }
 
-    pub fn insert(&mut self, name: String, ty: Type, is_param: bool) {
-        self.symbols
-            .insert(name.clone(), Symbol { name, ty, is_param });
+    pub fn insert(&mut self, name: String, ty: Type, is_param: bool, span: Span) {
+        self.symbols.insert(
+            name.clone(),
+            Symbol {
+                name,
+                ty,
+                is_param,
+                span,
+            },
+        );
     }
 
     pub fn lookup(&self, name: &str) -> Option<&Symbol> {

@@ -14,6 +14,7 @@ pub struct DocumentState {
     pub source: String,
     pub program: Option<Program>,
     pub node_types: HashMap<Span, Type>,
+    pub node_definitions: HashMap<Span, Span>,
 }
 
 pub struct Backend {
@@ -78,24 +79,18 @@ impl LanguageServer for Backend {
             let mut best_ty: Option<Type> = None;
 
             for (span, ty) in &state.node_types {
-                // Line is 1-indexed in our Span, but 0-indexed in LSP Position
                 let line = position.line as usize + 1;
                 let col = position.character as usize + 1;
 
-                if span.line == line {
-                    // For now, we only have start position in Span.
-                    // This is a simplification. Ideally we'd have start and end.
-                    // But we can check if it's the exact line and near the column.
-                    if span.column <= col {
-                        if let Some(prev_span) = best_span {
-                            if span.column > prev_span.column {
-                                best_span = Some(*span);
-                                best_ty = Some(ty.clone());
-                            }
-                        } else {
+                if span.line == line && span.column <= col {
+                    if let Some(prev_span) = best_span {
+                        if span.column > prev_span.column {
                             best_span = Some(*span);
                             best_ty = Some(ty.clone());
                         }
+                    } else {
+                        best_span = Some(*span);
+                        best_ty = Some(ty.clone());
                     }
                 }
             }
@@ -116,8 +111,44 @@ impl LanguageServer for Backend {
 
     async fn goto_definition(
         &self,
-        _: GotoDefinitionParams,
+        params: GotoDefinitionParams,
     ) -> Result<Option<GotoDefinitionResponse>> {
+        let uri = params.text_document_position_params.text_document.uri;
+        let position = params.text_document_position_params.position;
+
+        let docs = self.documents.lock().unwrap();
+        if let Some(state) = docs.get(&uri) {
+            let mut best_span: Option<Span> = None;
+            let mut best_def: Option<Span> = None;
+
+            for (span, def) in &state.node_definitions {
+                let line = position.line as usize + 1;
+                let col = position.character as usize + 1;
+
+                if span.line == line && span.column <= col {
+                    if let Some(prev_span) = best_span {
+                        if span.column > prev_span.column {
+                            best_span = Some(*span);
+                            best_def = Some(*def);
+                        }
+                    } else {
+                        best_span = Some(*span);
+                        best_def = Some(*def);
+                    }
+                }
+            }
+
+            if let Some(def) = best_def {
+                return Ok(Some(GotoDefinitionResponse::Scalar(Location {
+                    uri: uri.clone(),
+                    range: Range {
+                        start: Position::new(def.line as u32 - 1, def.column as u32 - 1),
+                        end: Position::new(def.line as u32 - 1, def.column as u32),
+                    },
+                })));
+            }
+        }
+
         Ok(None)
     }
 }
@@ -204,6 +235,7 @@ impl Backend {
                     source: params.text,
                     program: Some(program),
                     node_types: analyzer.node_types,
+                    node_definitions: analyzer.node_definitions,
                 },
             );
         }
