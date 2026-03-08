@@ -243,7 +243,7 @@ impl<'a> Lexer<'a> {
             "if" => TokenKind::If,
             "else" => TokenKind::Else,
             "while" => TokenKind::While,
-            "function" | "fn" => TokenKind::Function,
+            "function" => TokenKind::Function,
             "return" => TokenKind::Return,
             "class" => TokenKind::Class,
             "constructor" => TokenKind::Constructor,
