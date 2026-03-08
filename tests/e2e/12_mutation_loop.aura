@@ -1,0 +1,25 @@
+// Test: Mutable object fields in a loop
+// Expected output:
+// 10
+
+class Counter {
+    count: i32;
+    constructor() {
+        this.count = 0;
+    }
+    function increment(): i32 {
+        this.count = this.count + 1;
+        return this.count;
+    }
+    function get(): i32 {
+        return this.count;
+    }
+}
+
+let c = new Counter();
+let i = 0;
+while (i < 10) {
+    c.increment();
+    i = i + 1;
+}
+print(c.get());

@@ -1,0 +1,11 @@
+// Test: Sum in a while loop (1+2+...+100)
+// Expected output:
+// 5050
+
+let sum = 0;
+let i = 1;
+while (i <= 100) {
+    sum = sum + i;
+    i = i + 1;
+}
+print(sum);

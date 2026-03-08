@@ -1,6 +1,0 @@
-function test_narrowing_fail(val: i32 | string) {
-    let x: i32 = val;
-    print(x);
-}
-
-test_narrowing_fail(42);

@@ -1,0 +1,9 @@
+// Test: Unary negation operator
+// Expected output:
+// -10
+// 10
+
+let a: i32 = 10;
+let b = -a;
+print(b);
+print(a);

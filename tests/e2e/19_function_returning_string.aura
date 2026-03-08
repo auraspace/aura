@@ -1,0 +1,10 @@
+// Test: Function returning a string
+// Expected output:
+// Aura rocks!
+
+function slogan(): string {
+    return "Aura rocks!";
+}
+
+let s = slogan();
+print(s);

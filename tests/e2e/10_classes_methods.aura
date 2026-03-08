@@ -1,0 +1,17 @@
+// Test: Classes with methods
+// Expected output:
+// 78
+
+class Circle {
+    radius: i32;
+    constructor(r: i32) {
+        this.radius = r;
+    }
+    function area(): i32 {
+        // Approximating pi as 314 / 100 = 3.14 with integer math
+        return this.radius * this.radius * 314 / 100;
+    }
+}
+
+let c = new Circle(5);
+print(c.area());

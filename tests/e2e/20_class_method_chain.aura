@@ -1,0 +1,26 @@
+// Test: Chained method calls
+// Expected output:
+// 100
+// 200
+
+class Acc {
+    total: i32;
+    constructor(start: i32) {
+        this.total = start;
+    }
+    function add(n: i32): i32 {
+        this.total = this.total + n;
+        return this.total;
+    }
+    function val(): i32 {
+        return this.total;
+    }
+}
+
+let acc = new Acc(0);
+acc.add(50);
+acc.add(50);
+print(acc.val());
+
+acc.add(100);
+print(acc.val());

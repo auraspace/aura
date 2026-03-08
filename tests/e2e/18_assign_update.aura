@@ -1,0 +1,12 @@
+// Test: Variable mutation and reassignment
+// Expected output:
+// 10
+// 20
+// 30
+
+let x = 10;
+print(x);
+x = 20;
+print(x);
+x = x + 10;
+print(x);

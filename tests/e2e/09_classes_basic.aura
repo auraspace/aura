@@ -1,0 +1,17 @@
+// Test: Basic Classes – fields and constructor
+// Expected output:
+// 5
+// 10
+
+class Point {
+    x: i32;
+    y: i32;
+    constructor(x: i32, y: i32) {
+        this.x = x;
+        this.y = y;
+    }
+}
+
+let p = new Point(5, 10);
+print(p.x);
+print(p.y);

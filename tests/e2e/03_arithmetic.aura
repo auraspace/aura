@@ -1,0 +1,16 @@
+// Test: Arithmetic Operators
+// Expected output:
+// 15
+// 5
+// 50
+// 2
+// 1
+
+let a: i32 = 10;
+let b: i32 = 5;
+
+print(a + b);
+print(a - b);
+print(a * b);
+print(a / b);
+print(a % b + 1);

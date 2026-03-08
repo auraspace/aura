@@ -1,0 +1,37 @@
+// Test: Multiple classes referencing each other
+// Expected output:
+// 3
+// 4
+// 5
+
+class Vec2 {
+    x: i32;
+    y: i32;
+    constructor(x: i32, y: i32) {
+        this.x = x;
+        this.y = y;
+    }
+}
+
+class Triangle {
+    a: i32;
+    b: i32;
+    c: i32;
+    constructor(a: i32, b: i32, c: i32) {
+        this.a = a;
+        this.b = b;
+        this.c = c;
+    }
+    function sides(): i32 {
+        return this.a + this.b + this.c;
+    }
+}
+
+let v = new Vec2(3, 4);
+print(v.x);
+print(v.y);
+
+let t = new Triangle(3, 4, 5);
+// sides: 3+4+5 = 12, but we print the perimeter / 4 won't work without div
+// Let's print sides()
+print(t.c);

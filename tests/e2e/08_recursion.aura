@@ -1,4 +1,7 @@
-print(fib(5));
+// Test: Recursive Functions (Fibonacci)
+// Expected output:
+// 55
+
 function fib(n: i32): i32 {
     if (n <= 1) {
         return n;
@@ -6,3 +9,4 @@ function fib(n: i32): i32 {
     return fib(n - 1) + fib(n - 2);
 }
 
+print(fib(10));

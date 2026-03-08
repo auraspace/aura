@@ -1,0 +1,10 @@
+// Test: Variables and Type Inference
+// Expected output:
+// alice
+// 30
+
+let username = "alice";
+print(username);
+
+let answer = 30;
+print(answer);

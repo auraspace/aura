@@ -1,0 +1,10 @@
+// Test: String variables and print
+// Expected output:
+// Aura
+// Hello, Aura!
+
+let lang = "Aura";
+print(lang);
+
+let greeting = "Hello, Aura!";
+print(greeting);

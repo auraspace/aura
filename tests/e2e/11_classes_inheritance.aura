@@ -1,0 +1,19 @@
+// Test: Classes with static methods
+// Expected output:
+// 42
+// hello world
+
+class MathUtil {
+    static function add(a: i32, b: i32): i32 {
+        return a + b;
+    }
+}
+
+class Greet {
+    static function hello(name: string): string {
+        return "hello world";
+    }
+}
+
+print(MathUtil.add(20, 22));
+print(Greet.hello("aura"));
