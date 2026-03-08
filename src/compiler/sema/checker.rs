@@ -360,6 +360,7 @@ impl SemanticAnalyzer {
                 params,
                 return_ty,
                 body,
+                is_async: _,
                 span,
                 doc,
             } => {
@@ -368,6 +369,7 @@ impl SemanticAnalyzer {
                     .map(|(_, ty)| self.resolve_type(ty.clone()))
                     .collect();
                 let ret_ty = self.resolve_type(return_ty);
+                let doc_clone = doc.clone();
 
                 // Register function before checking body for recursion
                 self.scope.insert(
@@ -375,7 +377,7 @@ impl SemanticAnalyzer {
                     Type::Function(param_tys.clone(), Box::new(ret_ty.clone())),
                     false,
                     span,
-                    doc.clone(),
+                    doc_clone,
                 );
 
                 self.push_scope();
@@ -443,15 +445,26 @@ impl SemanticAnalyzer {
         let ty = match expr {
             Expr::Number(_, _) => Type::Int32,
             Expr::StringLiteral(_, _) => Type::String,
-            Expr::Template(parts, _) => {
-                use crate::compiler::ast::TemplatePart;
+            Expr::Template(parts, s) => {
                 for part in parts {
-                    if let TemplatePart::Expr(e) = part {
+                    if let crate::compiler::ast::TemplatePart::Expr(e) = part {
                         self.check_expr(*e);
                     }
                 }
                 Type::String
             }
+            Expr::Await(expr, s) => {
+                let ty = self.check_expr(*expr);
+                // Basic validation: await target should be a Promise (or any for now)
+                // For now, we just return the inner type if it's a Promise, or the type itself
+                match ty {
+                    Type::Generic(name, args) if name == "Promise" && args.len() == 1 => {
+                        args[0].clone()
+                    }
+                    _ => ty, // Fallback
+                }
+            }
+            Expr::Error(s) => Type::Unknown,
             Expr::Variable(name, span) => {
                 if let Some(sym) = self.scope.lookup(&name) {
                     if let Some(doc) = &sym.doc {
@@ -471,6 +484,8 @@ impl SemanticAnalyzer {
                 let rhs = self.check_expr(*right);
                 if lhs.is_numeric() && rhs.is_numeric() {
                     lhs
+                } else if op == "+" && lhs == Type::String && rhs == Type::String {
+                    Type::String
                 } else {
                     self.error(
                         SemanticErrorKind::IncompatibleBinaryOperators(

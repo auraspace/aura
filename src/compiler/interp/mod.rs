@@ -139,6 +139,7 @@ impl Interpreter {
                 params,
                 return_ty,
                 body,
+                is_async,
                 span: _,
                 doc: _,
             } => {
@@ -150,6 +151,7 @@ impl Interpreter {
                         .collect(),
                     return_ty: self.resolve_type(return_ty),
                     body: *body,
+                    is_async,
                 };
                 self.env.insert(name, func_val);
                 StatementResult::None
@@ -267,6 +269,10 @@ impl Interpreter {
                 }
                 Value::String(out)
             }
+            Expr::Await(expr, _) => {
+                // In synchronous interpreter, await just evaluates and returns the value
+                self.eval_expr(*expr)
+            }
             Expr::Variable(name, _) => {
                 if let Some(val) = self.env.lookup(&name) {
                     val
@@ -309,6 +315,7 @@ impl Interpreter {
                     params,
                     return_ty: _,
                     body,
+                    is_async: _,
                 } = func
                 {
                     let mut arg_vals = Vec::new();

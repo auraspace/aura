@@ -18,6 +18,8 @@ pub enum TokenKind {
     Export,
     From,
     As,
+    Async,
+    Await,
 
     // Identifiers & Literals
     Identifier(String),

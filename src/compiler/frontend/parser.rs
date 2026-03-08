@@ -45,13 +45,37 @@ impl Parser {
     fn parse_statement(&mut self) -> Result<Statement, ()> {
         let s = self.span();
         let doc = self.parse_doc_comments();
+        let mut is_async = false;
+        if self.peek().kind == TokenKind::Async {
+            self.advance();
+            is_async = true;
+        }
+
         match self.peek().kind {
-            TokenKind::Let => self.parse_let_statement(doc),
-            TokenKind::Print => self.parse_print_statement(),
+            TokenKind::Let => {
+                if is_async {
+                    self.diagnostics.push(Diagnostic::error(
+                        "Async is not allowed on variable declarations".to_string(),
+                        s.line,
+                        s.column,
+                    ));
+                }
+                self.parse_let_statement(doc)
+            }
+            TokenKind::Print => {
+                if is_async {
+                    self.diagnostics.push(Diagnostic::error(
+                        "Async is not allowed on print statements".to_string(),
+                        s.line,
+                        s.column,
+                    ));
+                }
+                self.parse_print_statement()
+            }
             TokenKind::If => self.parse_if_statement(),
             TokenKind::While => self.parse_while_statement(),
             TokenKind::OpenBrace => Ok(self.parse_block()),
-            TokenKind::Function => self.parse_function_declaration(doc),
+            TokenKind::Function => self.parse_function_declaration(doc, is_async),
             TokenKind::Return => self.parse_return_statement(),
             TokenKind::Class => self.parse_class_declaration(doc),
             TokenKind::Import => self.parse_import_statement(),
@@ -160,7 +184,14 @@ impl Parser {
 
         let decl = match self.peek().kind {
             TokenKind::Let => self.parse_let_statement(doc)?,
-            TokenKind::Function => self.parse_function_declaration(doc)?,
+            TokenKind::Function => {
+                let mut is_async = false;
+                if self.peek().kind == TokenKind::Async {
+                    self.advance();
+                    is_async = true;
+                }
+                self.parse_function_declaration(doc, is_async)?
+            }
             TokenKind::Class => self.parse_class_declaration(doc)?,
             _ => {
                 if !self.panic_mode {
@@ -224,7 +255,11 @@ impl Parser {
         }
     }
 
-    fn parse_function_declaration(&mut self, doc: Option<String>) -> Result<Statement, ()> {
+    fn parse_function_declaration(
+        &mut self,
+        doc: Option<String>,
+        is_async: bool,
+    ) -> Result<Statement, ()> {
         let s = self.span();
         self.consume(TokenKind::Function)?;
         let name = if let TokenKind::Identifier(name) = self.peek().kind.clone() {
@@ -271,6 +306,7 @@ impl Parser {
             params,
             return_ty,
             body,
+            is_async,
             span: s,
             doc,
         })
@@ -315,9 +351,19 @@ impl Parser {
     fn parse_print_statement(&mut self) -> Result<Statement, ()> {
         let s = self.span();
         self.consume(TokenKind::Print)?;
-        self.consume(TokenKind::OpenParen)?;
+
+        let has_paren = if self.peek().kind == TokenKind::OpenParen {
+            self.advance();
+            true
+        } else {
+            false
+        };
+
         let expr = self.parse_expression();
-        self.consume(TokenKind::CloseParen)?;
+
+        if has_paren {
+            self.consume(TokenKind::CloseParen)?;
+        }
         self.consume(TokenKind::Semicolon)?;
 
         Ok(Statement::Print(expr, s))
@@ -415,6 +461,13 @@ impl Parser {
                 ms = self.span(); // Update span to include static if needed? or keep original?
             }
 
+            let mut is_async = false;
+            if self.peek().kind == TokenKind::Async {
+                self.advance();
+                is_async = true;
+                ms = self.span();
+            }
+
             let kind = self.peek().kind.clone();
             match kind {
                 TokenKind::Constructor => {
@@ -442,6 +495,7 @@ impl Parser {
                         return_ty: TypeExpr::Name(name.clone(), ms),
                         body,
                         is_static: false,
+                        is_async: false,
                         span: ms,
                         doc: member_doc,
                     });
@@ -501,6 +555,7 @@ impl Parser {
                         return_ty,
                         body,
                         is_static,
+                        is_async,
                         span: ms,
                         doc: member_doc,
                     });
@@ -508,16 +563,56 @@ impl Parser {
                 TokenKind::Identifier(fname) => {
                     let fs = self.span();
                     self.advance();
-                    let _ = self.consume(TokenKind::Colon);
-                    let fty = self.parse_type_expr();
-                    let _ = self.consume(TokenKind::Semicolon);
-                    fields.push(Field {
-                        name: fname,
-                        ty: fty,
-                        is_static,
-                        span: fs,
-                        doc: member_doc,
-                    });
+                    if self.peek().kind == TokenKind::OpenParen {
+                        // Method without 'function' keyword
+                        let _ = self.consume(TokenKind::OpenParen);
+                        let mut params = Vec::new();
+                        while self.peek().kind != TokenKind::CloseParen && !self.is_at_end() {
+                            if let TokenKind::Identifier(pname) = self.peek().kind.clone() {
+                                self.advance();
+                                let _ = self.consume(TokenKind::Colon);
+                                let pty = self.parse_type_expr();
+                                params.push((pname, pty));
+                                if self.peek().kind == TokenKind::Comma {
+                                    self.advance();
+                                }
+                            } else {
+                                break;
+                            }
+                        }
+                        let _ = self.consume(TokenKind::CloseParen);
+
+                        let return_ty = if self.peek().kind == TokenKind::Colon {
+                            self.advance();
+                            self.parse_type_expr()
+                        } else {
+                            TypeExpr::Name("void".to_string(), ms)
+                        };
+
+                        let body = Box::new(self.parse_block());
+                        methods.push(ClassMethod {
+                            name: fname,
+                            params,
+                            return_ty,
+                            body,
+                            is_static,
+                            is_async,
+                            span: ms,
+                            doc: member_doc,
+                        });
+                    } else {
+                        // It's a field
+                        let _ = self.consume(TokenKind::Colon);
+                        let fty = self.parse_type_expr();
+                        let _ = self.consume(TokenKind::Semicolon);
+                        fields.push(Field {
+                            name: fname,
+                            ty: fty,
+                            is_static,
+                            span: fs,
+                            doc: member_doc,
+                        });
+                    }
                 }
                 _ => {
                     if !self.panic_mode {
@@ -738,6 +833,11 @@ impl Parser {
                 let expr = self.parse_expression();
                 let _ = self.consume(TokenKind::CloseParen);
                 expr
+            }
+            TokenKind::Await => {
+                self.advance();
+                let expr = self.parse_unary();
+                Expr::Await(Box::new(expr), s)
             }
             _ => {
                 if !self.panic_mode {

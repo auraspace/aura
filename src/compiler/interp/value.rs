@@ -15,6 +15,7 @@ pub enum Value {
         params: Vec<(String, Type)>,
         return_ty: Type,
         body: Statement,
+        is_async: bool,
     },
     Void,
     Null,

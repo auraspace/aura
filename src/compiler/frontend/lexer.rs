@@ -333,6 +333,8 @@ impl<'a> Lexer<'a> {
             "export" => TokenKind::Export,
             "from" => TokenKind::From,
             "as" => TokenKind::As,
+            "async" => TokenKind::Async,
+            "await" => TokenKind::Await,
             _ => TokenKind::Identifier(literal.to_string()),
         };
         Token::new(kind, line, column)

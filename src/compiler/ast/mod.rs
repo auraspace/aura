@@ -51,6 +51,7 @@ pub enum Expr {
     /// Template literal: `` `Hello, ${name}!` ``
     /// Parts are alternating Str / Expr segments.
     Template(Vec<TemplatePart>, Span),
+    Await(Box<Expr>, Span),
     Error(Span),
 }
 
@@ -78,6 +79,7 @@ impl Expr {
             Expr::UnaryOp(_, _, s) => *s,
             Expr::TypeTest(_, _, s) => *s,
             Expr::Template(_, s) => *s,
+            Expr::Await(_, s) => *s,
             Expr::Error(s) => *s,
         }
     }
@@ -99,6 +101,7 @@ pub struct ClassMethod {
     pub return_ty: TypeExpr,
     pub body: Box<Statement>,
     pub is_static: bool,
+    pub is_async: bool,
     pub span: Span,
     pub doc: Option<String>,
 }
@@ -123,6 +126,7 @@ pub enum Statement {
         params: Vec<(String, TypeExpr)>,
         return_ty: TypeExpr,
         body: Box<Statement>,
+        is_async: bool,
         span: Span,
         doc: Option<String>,
     },

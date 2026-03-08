@@ -52,6 +52,12 @@ impl Codegen {
         }
         self.emitter.emit_footer();
 
+        // Define aura_string_table for linker
+        self.emitter.output.push_str("\n.data\n");
+        self.emitter.output.push_str(".global _aura_string_table\n");
+        self.emitter.output.push_str("_aura_string_table:\n");
+        self.emitter.output.push_str("    .quad 0\n"); // Empty table
+
         self.emitter.finalize()
     }
 
@@ -115,6 +121,7 @@ impl Codegen {
                 params,
                 return_ty: _,
                 body,
+                is_async: _,
                 span: _,
                 doc: _,
             } => {
@@ -225,7 +232,7 @@ impl Codegen {
                 fields,
                 methods,
                 constructor,
-                span: _,
+                span,
                 doc: _,
             } => {
                 let field_names: Vec<String> = fields
@@ -245,11 +252,23 @@ impl Codegen {
 
                 if let Some(cons) = constructor {
                     self.generate_statement(Statement::FunctionDeclaration {
-                        name: format!("{}_constructor", name),
+                        name: format!("{}_ctor", name),
                         params: cons.params,
                         return_ty: cons.return_ty,
                         body: cons.body,
+                        is_async: cons.is_async,
                         span: cons.span,
+                        doc: None,
+                    });
+                } else {
+                    // Default constructor
+                    self.generate_statement(Statement::FunctionDeclaration {
+                        name: format!("{}_ctor", name),
+                        params: vec![],
+                        return_ty: crate::compiler::ast::TypeExpr::Name("void".to_string(), span),
+                        body: Box::new(Statement::Block(vec![], span)),
+                        is_async: false,
+                        span,
                         doc: None,
                     });
                 }
@@ -264,6 +283,7 @@ impl Codegen {
                         params: method.params,
                         return_ty: method.return_ty,
                         body: method.body,
+                        is_async: method.is_async,
                         span: method.span,
                         doc: None,
                     });
@@ -382,7 +402,7 @@ impl Codegen {
                         .push_str(&format!("    ldr x{}, [sp], 16\n", i));
                 }
 
-                self.emitter.call(&format!("_{}_constructor", class_name));
+                self.emitter.call(&format!("_{}_ctor", class_name));
 
                 self.emitter.output.push_str("    ldr x0, [sp], 16\n");
             }
@@ -464,8 +484,12 @@ impl Codegen {
                 // TODO: Implement type test codegen in Phase 4/5
                 self.emitter.mov_imm(Register::X0, 0);
             }
-            Expr::Error(_) => panic!("Compiler bug: reaching error node in codegen"),
             Expr::Template(_, _) => todo!("Implement codegen for template strings"),
+            Expr::Await(expr, _) => {
+                // For now, evaluate the expression and hope it's a value
+                self.generate_expr(*expr);
+            }
+            Expr::Error(_) => panic!("Compiler bug: reaching error node in codegen"),
         }
     }
 }

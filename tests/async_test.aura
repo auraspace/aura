@@ -1,0 +1,15 @@
+async function fetchData(url: string): Promise<i32> {
+    print("Fetching from " + url);
+    return 42;
+}
+
+class Api {
+    async get(path: string): Promise<i32> {
+        let result = await fetchData("https://api.example.com" + path);
+        return result;
+    }
+}
+
+let api = new Api();
+let data = await api.get("/users");
+print(data);
