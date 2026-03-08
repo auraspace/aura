@@ -342,7 +342,7 @@ impl Lowerer {
 
                 if sem_ty.is_none() {
                     match &value {
-                        Expr::StringLiteral(_, _) => {
+                        Expr::StringLiteral(_, _) | Expr::Template(_, _) => {
                             sem_ty = Some(Type::String);
                         }
                         Expr::Call(name, _, _) => {
@@ -693,6 +693,7 @@ impl Lowerer {
                 )
             }
             Expr::Error(_) => panic!("Compiler bug: reaching error node in lowerer"),
+            Expr::Template(_, _) => todo!("Implement IR lowering for template strings"),
         }
     }
 

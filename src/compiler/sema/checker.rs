@@ -443,6 +443,15 @@ impl SemanticAnalyzer {
         let ty = match expr {
             Expr::Number(_, _) => Type::Int32,
             Expr::StringLiteral(_, _) => Type::String,
+            Expr::Template(parts, _) => {
+                use crate::compiler::ast::TemplatePart;
+                for part in parts {
+                    if let TemplatePart::Expr(e) = part {
+                        self.check_expr(*e);
+                    }
+                }
+                Type::String
+            }
             Expr::Variable(name, span) => {
                 if let Some(sym) = self.scope.lookup(&name) {
                     if let Some(doc) = &sym.doc {

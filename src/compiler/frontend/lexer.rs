@@ -1,5 +1,5 @@
 use crate::compiler::frontend::error::{Diagnostic, DiagnosticList};
-use crate::compiler::frontend::token::{Token, TokenKind};
+use crate::compiler::frontend::token::{Token, TokenKind, TplPart};
 
 pub struct Lexer<'a> {
     source: &'a str,
@@ -162,6 +162,7 @@ impl<'a> Lexer<'a> {
                 Token::new(TokenKind::Percent, current_line, current_column)
             }
             '"' => self.lex_string(),
+            '`' => self.lex_template_literal(),
             _ if ch.is_ascii_digit() => self.lex_number(),
             _ if ch.is_alphabetic() || ch == '_' => self.lex_identifier(),
             _ => {
@@ -174,6 +175,83 @@ impl<'a> Lexer<'a> {
                 Token::new(TokenKind::Unknown(ch), current_line, current_column)
             }
         }
+    }
+
+    fn lex_template_literal(&mut self) -> Token {
+        let line = self.line;
+        let column = self.column;
+        self.advance(); // skip opening `
+
+        let mut parts: Vec<TplPart> = Vec::new();
+        let mut static_buf = String::new();
+
+        while !self.is_at_end() && self.peek() != '`' {
+            if self.peek() == '$' {
+                // Check for ${
+                let next_pos = self.pos + 1;
+                if next_pos < self.source.len() && self.source.as_bytes()[next_pos] == b'{' {
+                    // Flush static text collected so far
+                    if !static_buf.is_empty() {
+                        parts.push(TplPart::Str(std::mem::take(&mut static_buf)));
+                    }
+                    self.advance(); // skip '$'
+                    self.advance(); // skip '{'
+
+                    // Collect expression source until matching '}'
+                    let mut expr_src = String::new();
+                    let mut depth = 1usize;
+                    while !self.is_at_end() && depth > 0 {
+                        let c = self.peek();
+                        if c == '{' {
+                            depth += 1;
+                            expr_src.push(c);
+                            self.advance();
+                        } else if c == '}' {
+                            depth -= 1;
+                            if depth > 0 {
+                                expr_src.push(c);
+                            }
+                            self.advance();
+                        } else {
+                            if c == '\n' {
+                                self.line += 1;
+                                self.column = 1;
+                            }
+                            expr_src.push(c);
+                            self.advance();
+                        }
+                    }
+                    parts.push(TplPart::Expr(expr_src));
+                } else {
+                    static_buf.push(self.advance());
+                }
+            } else {
+                let c = self.peek();
+                if c == '\n' {
+                    self.line += 1;
+                    self.column = 1;
+                }
+                static_buf.push(c);
+                self.advance();
+            }
+        }
+
+        // Flush remaining static text
+        if !static_buf.is_empty() {
+            parts.push(TplPart::Str(static_buf));
+        }
+
+        if self.is_at_end() {
+            self.diagnostics.push(Diagnostic::error(
+                "Unterminated template literal".to_string(),
+                line,
+                column,
+            ));
+        } else {
+            self.advance(); // skip closing `
+        }
+
+        Token::new(TokenKind::TemplateLiteral(parts), line, column)
     }
 
     fn lex_number(&mut self) -> Token {

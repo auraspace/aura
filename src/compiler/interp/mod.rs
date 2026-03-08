@@ -247,6 +247,26 @@ impl Interpreter {
         match expr {
             Expr::Number(n, _) => Value::Int(n),
             Expr::StringLiteral(s, _) => Value::String(s),
+            Expr::Template(parts, _) => {
+                use crate::compiler::ast::TemplatePart;
+                let mut out = String::new();
+                for part in parts {
+                    match part {
+                        TemplatePart::Str(s) => out.push_str(&s),
+                        TemplatePart::Expr(e) => {
+                            let val = self.eval_expr(*e);
+                            match val {
+                                Value::String(s) => out.push_str(&s),
+                                Value::Int(n) => out.push_str(&n.to_string()),
+                                Value::Boolean(b) => out.push_str(if b { "true" } else { "false" }),
+                                Value::Null => out.push_str("null"),
+                                _ => panic!("Cannot interpolate {:?}", val),
+                            }
+                        }
+                    }
+                }
+                Value::String(out)
+            }
             Expr::Variable(name, _) => {
                 if let Some(val) = self.env.lookup(&name) {
                     val

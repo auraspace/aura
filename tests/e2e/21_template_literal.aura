@@ -1,0 +1,20 @@
+// Test: Template literals
+// Expected output:
+// Hello, Aura!
+// 1 + 2 = 3
+// Flag is true
+// User alice is 30 years old.
+
+let name = "Aura";
+print(`Hello, ${name}!`);
+
+let a = 1;
+let b = 2;
+print(`${a} + ${b} = ${a + b}`);
+
+let flag = 1 == 1;
+print(`Flag is ${flag}`);
+
+let user = "alice";
+let age = 30;
+print(`User ${user} is ${age} years old.`);

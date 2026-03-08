@@ -1,3 +1,5 @@
+pub use crate::compiler::frontend::token::TplPart;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Span {
     pub line: usize,
@@ -46,7 +48,17 @@ pub enum Expr {
     MemberAssign(Box<Expr>, String, Box<Expr>, Span),
     UnaryOp(String, Box<Expr>, Span),
     TypeTest(Box<Expr>, TypeExpr, Span),
+    /// Template literal: `` `Hello, ${name}!` ``
+    /// Parts are alternating Str / Expr segments.
+    Template(Vec<TemplatePart>, Span),
     Error(Span),
+}
+
+/// A resolved template literal part (expression already parsed).
+#[derive(Debug, Clone)]
+pub enum TemplatePart {
+    Str(String),
+    Expr(Box<Expr>),
 }
 
 impl Expr {
@@ -65,6 +77,7 @@ impl Expr {
             Expr::MemberAssign(_, _, _, s) => *s,
             Expr::UnaryOp(_, _, s) => *s,
             Expr::TypeTest(_, _, s) => *s,
+            Expr::Template(_, s) => *s,
             Expr::Error(s) => *s,
         }
     }

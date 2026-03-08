@@ -465,6 +465,7 @@ impl Codegen {
                 self.emitter.mov_imm(Register::X0, 0);
             }
             Expr::Error(_) => panic!("Compiler bug: reaching error node in codegen"),
+            Expr::Template(_, _) => todo!("Implement codegen for template strings"),
         }
     }
 }

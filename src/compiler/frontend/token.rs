@@ -24,6 +24,9 @@ pub enum TokenKind {
     StringLiteral(String),
     Number(i32),
     DocComment(String),
+    /// Template literal: `Hello, ${name}! You are ${age} years old.`
+    /// Pre-parsed at lex time into alternating parts.
+    TemplateLiteral(Vec<TplPart>),
 
     // Operators
     Plus,         // +
@@ -55,6 +58,16 @@ pub enum TokenKind {
 
     // Error
     Unknown(char),
+}
+
+/// A single segment inside a template literal.
+#[derive(Debug, Clone, PartialEq)]
+pub enum TplPart {
+    /// A static string segment (already unescaped).
+    Str(String),
+    /// An interpolated expression, stored as raw source text so the parser
+    /// can re-lex/re-parse it into a proper `Expr`.
+    Expr(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]

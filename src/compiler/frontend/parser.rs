@@ -1,5 +1,5 @@
 use crate::compiler::ast::{
-    ClassMethod, Expr, Field, ImportItem, Program, Span, Statement, TypeExpr,
+    ClassMethod, Expr, Field, ImportItem, Program, Span, Statement, TemplatePart, TplPart, TypeExpr,
 };
 use crate::compiler::frontend::error::{Diagnostic, DiagnosticList};
 use crate::compiler::frontend::token::{Token, TokenKind};
@@ -670,6 +670,31 @@ impl Parser {
             TokenKind::StringLiteral(ls) => {
                 self.advance();
                 Expr::StringLiteral(ls, s)
+            }
+            TokenKind::TemplateLiteral(parts) => {
+                self.advance();
+                let mut ast_parts = Vec::new();
+                for part in parts {
+                    match part {
+                        TplPart::Str(st) => ast_parts.push(TemplatePart::Str(st)),
+                        TplPart::Expr(src) => {
+                            let mut sub_lexer = crate::compiler::frontend::lexer::Lexer::new(&src);
+                            let tokens = sub_lexer.lex_all();
+                            let mut sub_parser = Parser::new(tokens);
+                            let expr = sub_parser.parse_expression();
+                            for mut d in sub_lexer.diagnostics.diagnostics {
+                                d.line += s.line - 1;
+                                self.diagnostics.push(d);
+                            }
+                            for mut d in sub_parser.diagnostics.diagnostics {
+                                d.line += s.line - 1;
+                                self.diagnostics.push(d);
+                            }
+                            ast_parts.push(TemplatePart::Expr(Box::new(expr)));
+                        }
+                    }
+                }
+                Expr::Template(ast_parts, s)
             }
             TokenKind::Identifier(name) => {
                 self.advance();
