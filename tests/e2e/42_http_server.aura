@@ -14,10 +14,8 @@ if (server.server != null) {
     print("Failed to initialize server");
 }
 
-/*
 // Example usage:
-server.listen(fn (req: HTTPRequest): HTTPResponse {
-    print("Received request: " + req.path);
-    return new HTTPResponse(200, "OK", "Content-Type: text/plain\r\n", "Hello from Aura!");
-});
-*/
+// server.listen(fn (req: HTTPRequest): HTTPResponse {
+//     print("Received request: " + req.path);
+//     return new HTTPResponse(200, "OK", "Content-Type: text/plain\r\n", "Hello from Aura!");
+// });

@@ -76,9 +76,8 @@ pub enum TokenKind {
 pub enum TplPart {
     /// A static string segment (already unescaped).
     Str(String),
-    /// An interpolated expression, stored as raw source text so the parser
-    /// can re-lex/re-parse it into a proper `Expr`.
-    Expr(String),
+    /// An interpolated expression, stored as raw source text with its start position.
+    Expr(String, usize, usize),
 }
 
 #[derive(Debug, Clone, PartialEq)]

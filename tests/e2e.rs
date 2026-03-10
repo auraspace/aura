@@ -39,7 +39,7 @@ fn parse_expected(source: &str) -> Vec<String> {
     expected
 }
 
-/// Run a single `.aura` file with the interpreter and compare output.
+/// Run a single `.aura` file with the selected mode and compare output.
 fn run_test(aura_file: &Path) {
     let source = std::fs::read_to_string(aura_file)
         .unwrap_or_else(|e| panic!("Cannot read {:?}: {}", aura_file, e));
@@ -57,9 +57,24 @@ fn run_test(aura_file: &Path) {
     let binary = std::env::var("CARGO_BIN_EXE_aura-rust")
         .unwrap_or_else(|_| "target/debug/aura-rust".to_string());
 
-    let output = Command::new(&binary)
-        .arg("--interp")
-        .arg(aura_file)
+    let mode = std::env::var("AURA_TEST_MODE").unwrap_or_else(|_| "interp".to_string());
+
+    let mut cmd = Command::new(&binary);
+    match mode.as_str() {
+        "interp" => {
+            cmd.arg("--interp");
+        }
+        "compiler" => {
+            // No extra flags for basic compiler
+        }
+        "ir" => {
+            cmd.arg("--ir");
+        }
+        _ => panic!("Unknown AURA_TEST_MODE: {}", mode),
+    }
+    cmd.arg(aura_file);
+
+    let output = cmd
         .output()
         .unwrap_or_else(|e| panic!("Failed to run binary '{}': {}", binary, e));
 
@@ -77,8 +92,17 @@ fn run_test(aura_file: &Path) {
     // blank lines.
     let actual: Vec<String> = stdout
         .lines()
-        // Strip the "Interpreting: ..." banner line that main.rs emits
-        .filter(|l| !l.starts_with("Interpreting:") && !l.starts_with("--- Starting"))
+        // Strip the banner lines that main.rs emits
+        .filter(|l| {
+            !l.starts_with("Interpreting:")
+                && !l.starts_with("Compiling:")
+                && !l.starts_with("--- Starting")
+                && !l.starts_with("--- Running")
+                && !l.starts_with("Assembling")
+                && !l.starts_with("Compiling runtime")
+                && !l.starts_with("Linking")
+                && !l.starts_with("Building runtime")
+        })
         .map(|l| l.trim_end().to_string())
         .collect();
 
@@ -103,8 +127,9 @@ fn run_test(aura_file: &Path) {
     assert_eq!(
         exp_trimmed,
         actual_trimmed,
-        "Output mismatch for {:?}\nExpected:\n{}\nActual:\n{}",
+        "Output mismatch for {:?}\nMode: {}\nExpected:\n{}\nActual:\n{}",
         aura_file,
+        mode,
         exp_trimmed.join("\n"),
         actual_trimmed.join("\n")
     );

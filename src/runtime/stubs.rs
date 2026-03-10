@@ -38,3 +38,11 @@ pub extern "C" fn print_str(ptr: *const c_char) {
         println!("{}", c_str.to_string_lossy());
     }
 }
+#[no_mangle]
+pub extern "C" fn print_bool(val: i64) {
+    if val != 0 {
+        println!("true");
+    } else {
+        println!("false");
+    }
+}

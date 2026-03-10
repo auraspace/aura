@@ -11,11 +11,15 @@ pub struct Lexer<'a> {
 
 impl<'a> Lexer<'a> {
     pub fn new(source: &'a str) -> Self {
+        Self::new_with_offset(source, 1, 1)
+    }
+
+    pub fn new_with_offset(source: &'a str, line: usize, column: usize) -> Self {
         Self {
             source,
             pos: 0,
-            line: 1,
-            column: 1,
+            line,
+            column,
             diagnostics: DiagnosticList::new(),
         }
     }
@@ -218,6 +222,8 @@ impl<'a> Lexer<'a> {
                     }
                     self.advance(); // skip '$'
                     self.advance(); // skip '{'
+                    let expr_line = self.line;
+                    let expr_column = self.column;
 
                     // Collect expression source until matching '}'
                     let mut expr_src = String::new();
@@ -243,7 +249,7 @@ impl<'a> Lexer<'a> {
                             self.advance();
                         }
                     }
-                    parts.push(TplPart::Expr(expr_src));
+                    parts.push(TplPart::Expr(expr_src, expr_line, expr_column));
                 } else {
                     static_buf.push(self.advance());
                 }

@@ -121,18 +121,26 @@ fn main() {
         }
     } else {
         let mut cg = Codegen::new();
+        cg.set_node_types(analyzer.node_types);
         cg.load_stdlib();
         cg.generate(program)
     };
 
-    let asm_file = "output.s";
-    let binary_file = "aura_program";
+    let input_stem = std::path::Path::new(&input_name)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("output");
 
-    std::fs::write(asm_file, asm).expect("Unable to write assembly file");
+    let asm_file = format!("{}.s", input_stem);
+    let binary_file = format!("{}_bin", input_stem);
 
-    if let Err(e) = Driver::build(asm_file, binary_file) {
+    std::fs::write(&asm_file, asm).expect("Unable to write assembly file");
+
+    if let Err(e) = Driver::build(&asm_file, &binary_file) {
         eprintln!("Build failed: {}", e);
-        return;
+        // Cleanup on failure
+        let _ = std::fs::remove_file(&asm_file);
+        std::process::exit(1);
     }
 
     println!("--- Running Aura Program ---");
@@ -140,4 +148,8 @@ fn main() {
         .output()
         .expect("Failed to execute program");
     println!("{}", String::from_utf8_lossy(&output.stdout));
+
+    // Cleanup temporary files
+    let _ = std::fs::remove_file(&asm_file);
+    let _ = std::fs::remove_file(&binary_file);
 }

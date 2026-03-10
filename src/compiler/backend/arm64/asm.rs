@@ -212,6 +212,24 @@ impl Emitter {
         ));
     }
 
+    pub fn mul(&mut self, dst: Register, src1: Register, src2: Register) {
+        self.output.push_str(&format!(
+            "    mul {}, {}, {}\n",
+            dst.name(),
+            src1.name(),
+            src2.name()
+        ));
+    }
+
+    pub fn sdiv(&mut self, dst: Register, src1: Register, src2: Register) {
+        self.output.push_str(&format!(
+            "    sdiv {}, {}, {}\n",
+            dst.name(),
+            src1.name(),
+            src2.name()
+        ));
+    }
+
     pub fn call(&mut self, label: &str) {
         self.output.push_str(&format!("    bl {}\n", label));
     }

@@ -856,10 +856,13 @@ impl Parser {
                 for part in parts {
                     match part {
                         TplPart::Str(st) => ast_parts.push(TemplatePart::Str(st)),
-                        TplPart::Expr(src) => {
-                            let mut sub_lexer = crate::compiler::frontend::lexer::Lexer::new(&src);
-                            let tokens = sub_lexer.lex_all();
-                            let mut sub_parser = Parser::new(tokens);
+                        TplPart::Expr(src, line, col) => {
+                            let mut sub_lexer =
+                                crate::compiler::frontend::lexer::Lexer::new_with_offset(
+                                    &src, line, col,
+                                );
+                            let sub_tokens = sub_lexer.lex_all();
+                            let mut sub_parser = Parser::new(sub_tokens);
                             let expr = sub_parser.parse_expression();
                             for mut d in sub_lexer.diagnostics.diagnostics {
                                 d.line += s.line - 1;
