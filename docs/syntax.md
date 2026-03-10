@@ -549,8 +549,8 @@ Aura's standard library is modular and provides essential primitives:
 
 - `core`: Basic types, Exception, Promise.
 - `fs`: File system operations.
-- `io`: Streams, terminal I/O.
-- `net`: HTTP and socket networking.
+- `net`: TCP (Transport layer). Work with TCP socket directly
+- `http`: HTTP (Application layer). Implements HTTP protocol on top of TCP
 - `json`: Fast serialization and parsing.
 
 ```typescript

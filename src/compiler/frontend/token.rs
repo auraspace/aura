@@ -20,6 +20,11 @@ pub enum TokenKind {
     As,
     Async,
     Await,
+    Try,
+    Catch,
+    Throw,
+    Finally,
+    Null,
 
     // Identifiers & Literals
     Identifier(String),
@@ -40,6 +45,8 @@ pub enum TokenKind {
     LessEqual,    // <=
     Greater,      // >
     GreaterEqual, // >=
+    And,          // &&
+    Or,           // ||
     Dot,          // .
     Pipe,         // |
     Slash,        // /

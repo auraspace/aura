@@ -1,0 +1,23 @@
+import { HTTPServer, HTTPResponse, HTTPRequest } from "std/http.aura";
+
+// Test basic HTTPServer structure
+// This test starts a server and prints a message.
+// Since it's a while(true) loop, we can't easily test it in E2E automated suite
+// without backgrounding support in Aura, so we'll just test the initialization.
+
+print("HTTP Server test");
+
+let server = new HTTPServer(45678);
+if (server.server != null) {
+    print("Server initialized on 45678");
+} else {
+    print("Failed to initialize server");
+}
+
+/*
+// Example usage:
+server.listen(fn (req: HTTPRequest): HTTPResponse {
+    print("Received request: " + req.path);
+    return new HTTPResponse(200, "OK", "Content-Type: text/plain\r\n", "Hello from Aura!");
+});
+*/

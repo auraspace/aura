@@ -1,0 +1,64 @@
+// Expected output:
+// All math tests passed
+import { Math } from "std/math";
+
+function test_math_abs(): i32 {
+    let positive = Math.abs(5);
+    if (positive != 5) {
+        print("Math.abs(5) failed");
+        return 1;
+    }
+
+    let negative = Math.abs(-10);
+    if (negative != 10) {
+        print("Math.abs(-10) failed");
+        return 1;
+    }
+
+    let zero = Math.abs(0);
+    if (zero != 0) {
+        print("Math.abs(0) failed");
+        return 1;
+    }
+    
+    return 0;
+}
+
+function test_math_max(): i32 {
+    let m1 = Math.max(5, 10);
+    if (m1 != 10) {
+        print("Math.max(5, 10) failed");
+        return 1;
+    }
+
+    let m2 = Math.max(20, 15);
+    if (m2 != 20) {
+        print("Math.max(20, 15) failed");
+        return 1;
+    }
+
+    let m3 = Math.max(7, 7);
+    if (m3 != 7) {
+        print("Math.max(7, 7) failed");
+        return 1;
+    }
+
+    return 0;
+}
+
+function main(): i32 {
+    let r1 = test_math_abs();
+    if (r1 != 0) {
+        return r1;
+    }
+
+    let r2 = test_math_max();
+    if (r2 != 0) {
+        return r2;
+    }
+
+    print("All math tests passed");
+    return 0;
+}
+
+main();

@@ -1,0 +1,23 @@
+import { TCPServer, TCPStream } from "std/net.aura";
+
+// Test basic TCPServer listen and close
+// Expected output:
+// Server listening on 45678
+// Connection failed as expected
+
+let server = TCPServer.listen(45678);
+if (server != null) {
+    print("Server listening on 45678");
+    server.close();
+} else {
+    print("Failed to listen on 45678");
+}
+
+// Test TCPStream connect to a non-existent port
+let client = TCPStream.connect("127.0.0.1", 45679);
+if (client == null) {
+    print("Connection failed as expected");
+} else {
+    print("Unexpectedly connected to 45679");
+    client.close();
+}

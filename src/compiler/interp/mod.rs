@@ -1,6 +1,6 @@
 pub mod value;
 
-use crate::compiler::ast::{ClassMethod, Expr, Program, Statement, TypeExpr};
+use crate::compiler::ast::{ClassMethod, Expr, Field, Program, Statement, TypeExpr};
 use crate::compiler::sema::ty::Type;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -11,6 +11,7 @@ use value::Value;
 pub enum StatementResult {
     None,
     Return(Value),
+    Throw(Value),
 }
 
 pub struct Environment {
@@ -55,7 +56,10 @@ impl Environment {
 pub struct Interpreter {
     pub env: Box<Environment>,
     // Store class definitions separately (fields metadata and methods)
-    pub classes: HashMap<String, (Vec<String>, HashMap<String, ClassMethod>)>,
+    pub classes: HashMap<String, (Vec<Field>, HashMap<String, ClassMethod>)>,
+    // Static fields: class_name -> fields
+    pub static_fields: HashMap<String, Rc<RefCell<HashMap<String, Value>>>>,
+    pub pending_exception: Option<Value>,
 }
 
 impl Interpreter {
@@ -63,6 +67,8 @@ impl Interpreter {
         let mut interp = Self {
             env: Box::new(Environment::new(None)),
             classes: HashMap::new(),
+            static_fields: HashMap::new(),
+            pending_exception: None,
         };
         // Register built-in Promise class (methods are handled as special cases in eval_expr)
         interp
@@ -86,8 +92,16 @@ impl Interpreter {
                     if let Ok(source) = std::fs::read_to_string(&path) {
                         let mut lexer = crate::compiler::frontend::lexer::Lexer::new(&source);
                         let tokens = lexer.lex_all();
+                        if !lexer.diagnostics.diagnostics.is_empty() {
+                            eprintln!("Lexer errors in stdlib file {:?}:", path);
+                            lexer.diagnostics.report();
+                        }
                         let mut parser = crate::compiler::frontend::parser::Parser::new(tokens);
                         let program = parser.parse_program();
+                        if !parser.diagnostics.diagnostics.is_empty() {
+                            eprintln!("Syntax errors in stdlib file {:?}:", path);
+                            parser.diagnostics.report();
+                        }
                         self.interpret(program);
                     }
                 }
@@ -127,6 +141,9 @@ impl Interpreter {
     }
 
     fn execute_statement(&mut self, stmt: Statement) -> StatementResult {
+        if self.pending_exception.is_some() {
+            return StatementResult::Throw(self.pending_exception.take().unwrap());
+        }
         match stmt {
             Statement::VarDeclaration {
                 name,
@@ -176,8 +193,24 @@ impl Interpreter {
                 if let Some(cons) = constructor {
                     method_map.insert("constructor".to_string(), cons);
                 }
-                let field_names = fields.iter().map(|f| f.name.clone()).collect();
-                self.classes.insert(name, (field_names, method_map));
+
+                // Initialize static fields
+                let mut s_fields = HashMap::new();
+                for f in &fields {
+                    if f.is_static {
+                        let val = if let Some(init) = &f.value {
+                            self.eval_expr(init.clone())
+                        } else {
+                            Value::Null
+                        };
+                        s_fields.insert(f.name.clone(), val);
+                    }
+                }
+                self.static_fields
+                    .insert(name.clone(), Rc::new(RefCell::new(s_fields)));
+
+                self.classes.insert(name.clone(), (fields, method_map));
+                self.env.insert(name.clone(), Value::Class(name));
                 StatementResult::None
             }
             Statement::Return(expr, _) => {
@@ -186,37 +219,14 @@ impl Interpreter {
             }
             Statement::Print(expr, _) => {
                 let val = self.eval_expr(expr);
-                match val {
-                    Value::Int(i) => println!("{}", i),
-                    Value::String(s) => println!("{}", s),
-                    Value::Boolean(b) => println!("{}", b),
-                    Value::Void => (),
-                    Value::Null => println!("null"),
-                    Value::Instance(c, _) => println!("<Instance of {}>", c),
-                    Value::Function { name, .. } => println!("<Function {}>", name),
-                    Value::Class(name) => println!("<Class {}>", name),
-                    Value::Array(elements) => {
-                        print!("[");
-                        for (i, el) in elements.iter().enumerate() {
-                            match el {
-                                Value::Int(n) => print!("{}", n),
-                                Value::String(s) => print!("\"{}\"", s),
-                                Value::Boolean(b) => print!("{}", b),
-                                Value::Null => print!("null"),
-                                Value::Array(_) => print!("[...]"),
-                                Value::Promise(_) => print!("<Promise>"),
-                                _ => print!("{:?}", el),
-                            }
-                            if i < elements.len() - 1 {
-                                print!(", ");
-                            }
-                        }
-                        println!("]");
-                    }
-                    Value::Promise(val) => {
-                        println!("<Promise: resolved to {:?}>", val);
-                    }
+                if self.pending_exception.is_some() {
+                    return StatementResult::Throw(self.pending_exception.take().unwrap());
                 }
+                let s = self.stringify(val);
+                if let Some(e) = self.pending_exception.take() {
+                    return StatementResult::Throw(e);
+                }
+                println!("{}", s);
                 StatementResult::None
             }
             Statement::If {
@@ -241,7 +251,7 @@ impl Interpreter {
             } => {
                 while self.eval_expr(condition.clone()).is_truthy() {
                     let res = self.execute_statement((*body).clone());
-                    if let StatementResult::Return(_) = res {
+                    if let StatementResult::Return(_) | StatementResult::Throw(_) = res {
                         return res;
                     }
                 }
@@ -252,7 +262,7 @@ impl Interpreter {
                 let mut final_res = StatementResult::None;
                 for s in stmts {
                     let res = self.execute_statement(s);
-                    if let StatementResult::Return(_) = res {
+                    if let StatementResult::Return(_) | StatementResult::Throw(_) = res {
                         final_res = res;
                         break;
                     }
@@ -261,25 +271,65 @@ impl Interpreter {
                 final_res
             }
             Statement::Expression(expr, _) => {
-                self.eval_expr(expr);
-                StatementResult::None
+                let _val = self.eval_expr(expr);
+                if let Some(e) = self.pending_exception.take() {
+                    StatementResult::Throw(e)
+                } else {
+                    StatementResult::None
+                }
             }
             Statement::Error => StatementResult::None,
-            Statement::Import { .. } | Statement::Export { .. } => {
-                todo!("Imports/exports are not supported in interpreter yet")
+            Statement::Import { .. } => StatementResult::None,
+            Statement::TryCatch {
+                try_block,
+                catch_param,
+                catch_block,
+                finally_block,
+                ..
+            } => {
+                let mut res = self.execute_statement(*try_block);
+                res = match res {
+                    StatementResult::Throw(e) => {
+                        if let Some(cb) = catch_block {
+                            self.push_scope();
+                            if let Some((name, _)) = catch_param {
+                                self.env.insert(name, e);
+                            }
+                            let cb_res = self.execute_statement(*cb);
+                            self.pop_scope();
+                            cb_res
+                        } else {
+                            StatementResult::Throw(e)
+                        }
+                    }
+                    other => other,
+                };
+
+                if let Some(fb) = finally_block {
+                    let f_res = self.execute_statement(*fb);
+                    if let StatementResult::Return(_) | StatementResult::Throw(_) = f_res {
+                        res = f_res;
+                    }
+                }
+                res
             }
+            Statement::Export { decl, .. } => self.execute_statement(*decl),
         }
     }
 
     fn eval_expr(&mut self, expr: Expr) -> Value {
+        if self.pending_exception.is_some() {
+            return Value::Void;
+        }
         match expr {
             Expr::Number(n, _) => Value::Int(n),
+            Expr::Null(_) => Value::Null,
             Expr::ArrayLiteral(elements, _) => {
                 let mut vals = Vec::new();
                 for e in elements {
                     vals.push(self.eval_expr(e));
                 }
-                Value::Array(vals)
+                Value::Array(Rc::new(RefCell::new(vals)))
             }
             Expr::StringLiteral(s, _) => Value::String(s),
             Expr::Template(parts, _) => {
@@ -317,6 +367,18 @@ impl Interpreter {
             }
             Expr::BinaryOp(lhs, op, rhs, _) => {
                 let left = self.eval_expr(*lhs);
+                if op == "&&" {
+                    if !left.is_truthy() {
+                        return left;
+                    }
+                    return self.eval_expr(*rhs);
+                } else if op == "||" {
+                    if left.is_truthy() {
+                        return left;
+                    }
+                    return self.eval_expr(*rhs);
+                }
+
                 let right = self.eval_expr(*rhs);
                 match (&left, &right) {
                     (Value::Int(l), Value::Int(r)) => match op.as_str() {
@@ -331,6 +393,7 @@ impl Interpreter {
                         "<=" => Value::Boolean(l <= r),
                         ">" => Value::Boolean(l > r),
                         ">=" => Value::Boolean(l >= r),
+                        "|" => Value::Int(l | r),
                         _ => panic!("Unsupported operator {} for integers", op),
                     },
                     (Value::String(l), Value::String(r)) => match op.as_str() {
@@ -339,6 +402,16 @@ impl Interpreter {
                         "!=" => Value::Boolean(l != r),
                         _ => panic!("Unsupported operator {} for strings", op),
                     },
+                    (Value::Null, Value::Null) => match op.as_str() {
+                        "==" => Value::Boolean(true),
+                        "!=" => Value::Boolean(false),
+                        _ => panic!("Unsupported operator {} for null", op),
+                    }
+                    (Value::Null, _) | (_, Value::Null) => match op.as_str() {
+                        "==" => Value::Boolean(false),
+                        "!=" => Value::Boolean(true),
+                        _ => panic!("Unsupported operator {} for null comparison", op),
+                    }
                     (l, r) => panic!("Operands must be same type (integers or strings) for binary op, got {:?} and {:?}", l, r),
                 }
             }
@@ -369,9 +442,18 @@ impl Interpreter {
                     self.pop_scope();
                     if let StatementResult::Return(v) = res {
                         v
+                    } else if let StatementResult::Throw(e) = res {
+                        self.pending_exception = Some(e);
+                        Value::Void
                     } else {
                         Value::Void
                     }
+                } else if let Value::NativeFunction(f) = func {
+                    let mut arg_vals = Vec::new();
+                    for a in args {
+                        arg_vals.push(self.eval_expr(a));
+                    }
+                    f(arg_vals)
                 } else {
                     panic!("Not a function");
                 }
@@ -425,21 +507,23 @@ impl Interpreter {
                                 "all" => {
                                     if let Some(Value::Array(promises)) = arg_vals.get(0) {
                                         let mut resolved = Vec::new();
-                                        for p in promises {
+                                        for p in promises.borrow().iter() {
                                             if let Value::Promise(v) = p {
                                                 resolved.push((**v).clone());
                                             } else {
                                                 resolved.push(p.clone());
                                             }
                                         }
-                                        return Value::Promise(Box::new(Value::Array(resolved)));
+                                        return Value::Promise(Box::new(Value::Array(Rc::new(
+                                            RefCell::new(resolved),
+                                        ))));
                                     }
                                     panic!("Promise.all expects an array");
                                 }
                                 "allSettled" => {
                                     if let Some(Value::Array(promises)) = arg_vals.get(0) {
                                         let mut results = Vec::new();
-                                        for p in promises {
+                                        for p in promises.borrow().iter() {
                                             let mut map = HashMap::new();
                                             map.insert(
                                                 "status".to_string(),
@@ -455,13 +539,15 @@ impl Interpreter {
                                                 Rc::new(RefCell::new(map)),
                                             ));
                                         }
-                                        return Value::Promise(Box::new(Value::Array(results)));
+                                        return Value::Promise(Box::new(Value::Array(Rc::new(
+                                            RefCell::new(results),
+                                        ))));
                                     }
                                     panic!("Promise.allSettled expects an array");
                                 }
                                 "any" => {
                                     if let Some(Value::Array(promises)) = arg_vals.get(0) {
-                                        for p in promises {
+                                        for p in promises.borrow().iter() {
                                             // In our synchronous interpreter, we just pick the first one
                                             if let Value::Promise(v) = p {
                                                 return Value::Promise(v.clone());
@@ -474,7 +560,7 @@ impl Interpreter {
                                 }
                                 "race" => {
                                     if let Some(Value::Array(promises)) = arg_vals.get(0) {
-                                        if let Some(p) = promises.get(0) {
+                                        if let Some(p) = promises.borrow().get(0) {
                                             if let Value::Promise(v) = p {
                                                 return Value::Promise(v.clone());
                                             }
@@ -520,6 +606,30 @@ impl Interpreter {
                             Value::Void
                         }
                     }
+                    Value::String(s) => {
+                        let mut arg_vals = vec![Value::String(s)];
+                        for a in args {
+                            arg_vals.push(self.eval_expr(a));
+                        }
+                        let intrinsic_name = format!("__str_{}", method);
+                        if let Some(Value::NativeFunction(f)) = self.env.lookup(&intrinsic_name) {
+                            f(arg_vals)
+                        } else {
+                            panic!("String method {} not found", method);
+                        }
+                    }
+                    Value::Array(a) => {
+                        let mut arg_vals = vec![Value::Array(a)];
+                        for a in args {
+                            arg_vals.push(self.eval_expr(a));
+                        }
+                        let intrinsic_name = format!("__arr_{}", method);
+                        if let Some(Value::NativeFunction(f)) = self.env.lookup(&intrinsic_name) {
+                            f(arg_vals)
+                        } else {
+                            panic!("Array method {} not found", method);
+                        }
+                    }
                     _ => panic!("Method call on non-instance and non-class: {:?}", obj),
                 }
             }
@@ -538,7 +648,14 @@ impl Interpreter {
 
                 let mut instance_fields = HashMap::new();
                 for f in field_names {
-                    instance_fields.insert(f, Value::Null);
+                    if !f.is_static {
+                        let val = if let Some(init) = &f.value {
+                            self.eval_expr(init.clone())
+                        } else {
+                            Value::Null
+                        };
+                        instance_fields.insert(f.name.clone(), val);
+                    }
                 }
 
                 let instance =
@@ -556,7 +673,13 @@ impl Interpreter {
                         self.env.insert(pname.clone(), arg_vals[i].clone());
                     }
 
-                    self.execute_statement((*cons.body).clone());
+                    let res = self.execute_statement((*cons.body).clone());
+
+                    if let StatementResult::Throw(e) = res {
+                        self.pending_exception = Some(e);
+                        self.pop_scope();
+                        return Value::Void;
+                    }
 
                     // After constructor, 'this' might have changed fields
                     let updated_instance = self.env.lookup("this").unwrap();
@@ -568,24 +691,43 @@ impl Interpreter {
             }
             Expr::MemberAccess(obj_expr, member, _) => {
                 let obj = self.eval_expr(*obj_expr);
-                if let Value::Instance(_, fields) = obj {
-                    fields
+                match obj {
+                    Value::Instance(_, fields) => fields
                         .borrow()
                         .get(&member)
                         .cloned()
-                        .expect("Field not found")
-                } else {
-                    panic!("Not an instance");
+                        .expect("Field not found"),
+                    Value::Class(class_name) => {
+                        let fields = self
+                            .static_fields
+                            .get(&class_name)
+                            .expect("Class static fields not found");
+                        fields
+                            .borrow()
+                            .get(&member)
+                            .cloned()
+                            .expect("Static field not found")
+                    }
+                    _ => panic!("Not an instance or class for member access: {:?}", obj),
                 }
             }
             Expr::MemberAssign(obj_expr, member, val_expr, _) => {
                 let obj = self.eval_expr(*obj_expr);
                 let val = self.eval_expr(*val_expr);
-                if let Value::Instance(_, fields) = obj {
-                    fields.borrow_mut().insert(member, val.clone());
-                    val
-                } else {
-                    panic!("Not an instance");
+                match obj {
+                    Value::Instance(_, fields) => {
+                        fields.borrow_mut().insert(member, val.clone());
+                        val
+                    }
+                    Value::Class(class_name) => {
+                        let fields = self
+                            .static_fields
+                            .get(&class_name)
+                            .expect("Class static fields not found");
+                        fields.borrow_mut().insert(member, val.clone());
+                        val
+                    }
+                    _ => panic!("Not an instance or class for member assign: {:?}", obj),
                 }
             }
             Expr::TypeTest(expr, ty_expr, _) => {
@@ -610,7 +752,90 @@ impl Interpreter {
                     _ => panic!("Unary operator {} only supported for integers", op),
                 }
             }
+            Expr::Throw(expr, _) => {
+                let val = self.eval_expr(*expr);
+                self.pending_exception = Some(val);
+                Value::Void
+            }
+            Expr::Index(obj_expr, index_expr, _) => {
+                let obj = self.eval_expr(*obj_expr);
+                let index = self.eval_expr(*index_expr);
+                match (obj, index) {
+                    (Value::Array(a), Value::Int(i)) => {
+                        let borrowed = a.borrow();
+                        if i < 0 || i as usize >= borrowed.len() {
+                            panic!("Array index out of bounds: {}", i);
+                        }
+                        borrowed[i as usize].clone()
+                    }
+                    (Value::String(s), Value::Int(i)) => {
+                        if i < 0 || i as usize >= s.len() {
+                            panic!("String index out of bounds: {}", i);
+                        }
+                        Value::String(s.chars().nth(i as usize).unwrap().to_string())
+                    }
+                    _ => panic!("Index operation not supported for these types"),
+                }
+            }
             Expr::Error(_) => panic!("Compiler bug: reaching error node in interpreter"),
+        }
+    }
+    fn stringify(&mut self, val: Value) -> String {
+        match val {
+            Value::Int(i) => i.to_string(),
+            Value::String(s) => s,
+            Value::Boolean(b) => (if b { "true" } else { "false" }).to_string(),
+            Value::Void => "void".to_string(),
+            Value::Null => "null".to_string(),
+            Value::Instance(class_name, fields_ref) => {
+                let m = self
+                    .classes
+                    .get(&class_name)
+                    .and_then(|(_, methods)| methods.get("toString").cloned());
+
+                if let Some(m) = m {
+                    self.push_scope();
+                    self.env.insert(
+                        "this".to_string(),
+                        Value::Instance(class_name.clone(), fields_ref),
+                    );
+                    let res = self.execute_statement((*m.body).clone());
+                    self.pop_scope();
+
+                    match res {
+                        StatementResult::Return(v) => self.stringify(v),
+                        StatementResult::Throw(e) => {
+                            self.pending_exception = Some(e);
+                            "<error in toString>".to_string()
+                        }
+                        _ => format!("<Instance of {}>", class_name),
+                    }
+                } else {
+                    format!("<Instance of {}>", class_name)
+                }
+            }
+            Value::Array(elements) => {
+                let mut s = "[".to_string();
+                let borrowed = elements.borrow();
+                for (i, el) in borrowed.iter().enumerate() {
+                    if i > 0 {
+                        s.push_str(", ");
+                    }
+                    if let Value::String(str_val) = el {
+                        s.push('"');
+                        s.push_str(&str_val);
+                        s.push('"');
+                    } else {
+                        s.push_str(&self.stringify(el.clone()));
+                    }
+                }
+                s.push(']');
+                s
+            }
+            Value::Function { name, .. } => format!("<Function {}>", name),
+            Value::Class(name) => format!("<Class {}>", name),
+            Value::Promise(val) => format!("<Promise: resolved to {:?}>", val),
+            Value::NativeFunction(_) => "<NativeFunction>".to_string(),
         }
     }
 }

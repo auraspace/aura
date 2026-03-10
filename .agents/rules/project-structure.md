@@ -29,6 +29,7 @@ aura-rust/
 │   │   ├── ir/            # Intermediate Representation (SSA style)
 │   │   │   ├── builder.rs # IR construction utilities
 │   │   │   └── instr.rs   # Instruction set architecture-agnostic
+│   │   ├── intrinsic/     # Built-in compiler intrinsics
 │   │   └── backend/       # Native code generators
 │   │       ├── codegen.rs # Common backend traits and logic
 │   │       ├── arm64/     # Primary: AArch64 registers & instructions (Priority)

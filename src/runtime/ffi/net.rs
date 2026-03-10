@@ -43,6 +43,75 @@ pub fn close_socket(fd: RawFd) -> Result<(), IoError> {
     }
 }
 
+/// Listen for incoming TCP connections on a port.
+pub fn listen_tcp(port: u16) -> Result<RawFd, IoError> {
+    let fd = create_tcp_socket()?;
+
+    // Set SO_REUSEADDR
+    let on: libc::c_int = 1;
+    unsafe {
+        libc::setsockopt(
+            fd,
+            libc::SOL_SOCKET,
+            libc::SO_REUSEADDR,
+            &on as *const _ as *const libc::c_void,
+            std::mem::size_of::<libc::c_int>() as libc::socklen_t,
+        );
+    }
+
+    bind_socket_localhost(fd, port)?;
+
+    let res = unsafe { libc::listen(fd, 128) };
+    if res < 0 {
+        let err = IoError::last_os_error();
+        let _ = close_socket(fd);
+        Err(err)
+    } else {
+        Ok(fd)
+    }
+}
+
+/// Accept a new TCP connection.
+pub fn accept_tcp(fd: RawFd) -> Result<RawFd, IoError> {
+    let res = unsafe { libc::accept(fd, std::ptr::null_mut(), std::ptr::null_mut()) };
+    if res < 0 {
+        Err(IoError::last_os_error())
+    } else {
+        Ok(res)
+    }
+}
+
+/// Connect to a remote TCP host.
+pub fn connect_tcp(host: &str, port: u16) -> Result<RawFd, IoError> {
+    let fd = create_tcp_socket()?;
+
+    let mut addr: libc::sockaddr_in = unsafe { std::mem::zeroed() };
+    addr.sin_family = libc::AF_INET as libc::sa_family_t;
+    addr.sin_port = port.to_be();
+
+    let addr_ipv4: std::net::Ipv4Addr = host.parse().map_err(|_| {
+        let _ = close_socket(fd);
+        IoError::new(std::io::ErrorKind::InvalidInput, "Invalid IP address")
+    })?;
+    addr.sin_addr.s_addr = u32::from_be_bytes(addr_ipv4.octets()).to_be();
+
+    let res = unsafe {
+        libc::connect(
+            fd,
+            &addr as *const _ as *const libc::sockaddr,
+            std::mem::size_of::<libc::sockaddr_in>() as libc::socklen_t,
+        )
+    };
+
+    if res < 0 {
+        let err = IoError::last_os_error();
+        let _ = close_socket(fd);
+        Err(err)
+    } else {
+        Ok(fd)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

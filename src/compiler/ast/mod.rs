@@ -47,12 +47,15 @@ pub enum Expr {
     MemberAccess(Box<Expr>, String, Span),
     MemberAssign(Box<Expr>, String, Box<Expr>, Span),
     UnaryOp(String, Box<Expr>, Span),
+    Throw(Box<Expr>, Span),
     TypeTest(Box<Expr>, TypeExpr, Span),
     /// Template literal: `` `Hello, ${name}!` ``
     /// Parts are alternating Str / Expr segments.
     Template(Vec<TemplatePart>, Span),
     Await(Box<Expr>, Span),
     ArrayLiteral(Vec<Expr>, Span),
+    Index(Box<Expr>, Box<Expr>, Span),
+    Null(Span),
     Error(Span),
 }
 
@@ -78,10 +81,13 @@ impl Expr {
             Expr::MemberAccess(_, _, s) => *s,
             Expr::MemberAssign(_, _, _, s) => *s,
             Expr::UnaryOp(_, _, s) => *s,
+            Expr::Throw(_, s) => *s,
             Expr::TypeTest(_, _, s) => *s,
             Expr::Template(_, s) => *s,
             Expr::Await(_, s) => *s,
             Expr::ArrayLiteral(_, s) => *s,
+            Expr::Index(_, _, s) => *s,
+            Expr::Null(s) => *s,
             Expr::Error(s) => *s,
         }
     }
@@ -91,6 +97,7 @@ impl Expr {
 pub struct Field {
     pub name: String,
     pub ty: TypeExpr,
+    pub value: Option<Expr>,
     pub is_static: bool,
     pub span: Span,
     pub doc: Option<String>,
@@ -164,6 +171,13 @@ pub enum Statement {
         decl: Box<Statement>,
         span: Span,
     },
+    TryCatch {
+        try_block: Box<Statement>,
+        catch_param: Option<(String, TypeExpr)>,
+        catch_block: Option<Box<Statement>>,
+        finally_block: Option<Box<Statement>>,
+        span: Span,
+    },
     Error,
 }
 
@@ -181,6 +195,7 @@ impl Statement {
             Statement::Expression(_, s) => *s,
             Statement::Import { span, .. } => *span,
             Statement::Export { span, .. } => *span,
+            Statement::TryCatch { span, .. } => *span,
             Statement::Error => Span::new(0, 0),
         }
     }

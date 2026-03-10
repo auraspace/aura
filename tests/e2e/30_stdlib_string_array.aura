@@ -1,0 +1,60 @@
+// Test: Stdlib String and Array
+// Expected output:
+// --- String Tests ---
+// 15
+// hello world
+// 11
+// HELLO WORLD
+// h
+// hello
+// 6
+// 3
+// --- Array Tests ---
+// 2
+// 3
+// [1, 2, 3]
+// 3
+// [1, 2]
+// 1-2
+// [1, 2, 4]
+
+import { String } from "std/string";
+import { Array } from "std/array";
+
+function testStrings() {
+    print("--- String Tests ---");
+    let s = "  hello world  ";
+    print(s.len()); // 15
+    let trimmed = s.trim();
+    print(trimmed); // "hello world"
+    print(trimmed.len()); // 11
+    print(trimmed.toUpper()); // "HELLO WORLD"
+    print(trimmed.charAt(0)); // "h"
+    print(trimmed.substring(0, 5)); // "hello"
+    print(trimmed.indexOf("world")); // 6
+
+    // Static methods
+    print(String.len("abc")); // 3
+}
+
+function testArrays() {
+    print("--- Array Tests ---");
+    let arr = [1, 2];
+    print(arr.len()); // 2
+    arr.push(3);
+    print(arr.len()); // 3
+    print(arr); // [1, 2, 3]
+    let last = arr.pop();
+    print(last); // 3
+    print(arr); // [1, 2]
+    
+    let joined = arr.join("-");
+    print(joined); // "1-2"
+
+    // Static methods
+    Array.push(arr, 4);
+    print(arr); // [1, 2, 4]
+}
+
+testStrings();
+testArrays();

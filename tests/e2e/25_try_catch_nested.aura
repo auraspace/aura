@@ -1,0 +1,29 @@
+// Expected output:
+// Outer try
+// Inner try
+// In fail
+// Inner finally
+// Caught in outer:
+// Fail
+
+function fail() {
+    print("In fail");
+    throw new Error("Fail");
+}
+
+function outer() {
+    try {
+        print("Outer try");
+        try {
+            print("Inner try");
+            fail();
+        } finally {
+            print("Inner finally");
+        }
+    } catch (e) {
+        print("Caught in outer:");
+        print(e);
+    }
+}
+
+outer();

@@ -1,0 +1,259 @@
+import { TCPStream, TCPServer } from "std/net.aura";
+
+export class HTTPHeader {
+    name: string;
+    value: string;
+
+    constructor(name: string, value: string) {
+        this.name = name;
+        this.value = value;
+    }
+
+    toString(): string {
+        return this.name + ": " + this.value;
+    }
+}
+
+export class HTTPStatus {
+    static OK: i32 = 200;
+    static CREATED: i32 = 201;
+    static BAD_REQUEST: i32 = 400;
+    static NOT_FOUND: i32 = 404;
+    static INTERNAL_SERVER_ERROR: i32 = 500;
+
+    static getStatusText(code: i32): string {
+        if (code == 200) return "OK";
+        if (code == 201) return "Created";
+        if (code == 400) return "Bad Request";
+        if (code == 404) return "Not Found";
+        if (code == 500) return "Internal Server Error";
+        return "Unknown";
+    }
+}
+
+export class HTTPRequest {
+    method: string;
+    path: string;
+    headers: HTTPHeader[];
+    body: string;
+
+    constructor(method: string, path: string, headers: HTTPHeader[], body: string) {
+        this.method = method;
+        this.path = path;
+        this.headers = headers;
+        this.body = body;
+    }
+
+    getHeader(name: string): string {
+        let i = 0;
+        while (i < this.headers.len()) {
+            if (this.headers[i].name == name) {
+                return this.headers[i].value;
+            }
+            i = i + 1;
+        }
+        return null;
+    }
+
+    toString(): string {
+        let headerStr = "";
+        let i = 0;
+        while (i < this.headers.len()) {
+            headerStr = headerStr + this.headers[i].toString() + "\r\n";
+            i = i + 1;
+        }
+
+        return this.method + " " + this.path + " HTTP/1.1\r\n" +
+               headerStr + "\r\n" +
+               this.body;
+    }
+}
+
+export class HTTPResponse {
+    statusCode: i32;
+    statusText: string;
+    headers: HTTPHeader[];
+    body: string;
+
+    constructor(statusCode: i32, statusText: string, headers: HTTPHeader[], body: string) {
+        this.statusCode = statusCode;
+        this.statusText = statusText;
+        this.headers = headers;
+        this.body = body;
+    }
+
+    getHeader(name: string): string {
+        let i = 0;
+        while (i < this.headers.len()) {
+            if (this.headers[i].name == name) {
+                return this.headers[i].value;
+            }
+            i = i + 1;
+        }
+        return null;
+    }
+
+    toString(): string {
+        let headerStr = "";
+        let i = 0;
+        while (i < this.headers.len()) {
+            headerStr = headerStr + this.headers[i].toString() + "\r\n";
+            i = i + 1;
+        }
+
+        let response = "HTTP/1.1 " + this.statusCode + " " + this.statusText + "\r\n" +
+                       headerStr + "\r\n" +
+                       this.body;
+        return response;
+    }
+}
+
+export class HTTPClient {
+    static get(host: string, port: i32, path: string): HTTPResponse {
+        return HTTPClient.request(host, port, "GET", path, "");
+    }
+
+    static request(host: string, port: i32, method: string, path: string, body: string): HTTPResponse {
+        let stream = TCPStream.connect(host, port);
+        if (stream == null) {
+            return new HTTPResponse(500, "Internal Error", [], "Connection failed");
+        }
+
+        let headers: HTTPHeader[] = [];
+        headers.push(new HTTPHeader("Host", host));
+        let contentLength = `${body.len()}`;
+        headers.push(new HTTPHeader("Content-Length", contentLength));
+        headers.push(new HTTPHeader("Connection", "close"));
+        
+        let request = new HTTPRequest(method, path, headers, body);
+        stream.write(request.toString());
+
+        let responseText = "";
+        let chunk = stream.read(4096);
+        while (chunk.len() > 0) {
+            responseText = responseText + chunk;
+            chunk = stream.read(4096);
+        }
+        stream.close();
+
+        // Basic parsing
+        let headerEnd = responseText.indexOf("\r\n\r\n");
+        if (headerEnd < 0) return new HTTPResponse(500, "Internal Error", [], "Invalid response");
+
+        let headerPart = responseText.substring(0, headerEnd);
+        let bodyPart = responseText.substring(headerEnd + 4, responseText.len());
+
+        let firstLineEnd = headerPart.indexOf("\r\n");
+        let firstLine = headerPart.substring(0, firstLineEnd);
+        
+        // Parse status line: HTTP/1.1 200 OK
+        let space1 = firstLine.indexOf(" ");
+        let space2 = firstLine.indexOf(" ", space1 + 1);
+        
+        let statusCode = 200;
+        let statusText = "OK";
+        
+        if (space1 > 0 && space2 > space1) {
+            // TODO: String to Int conversion if available
+            // For now assume 200
+        }
+
+        let responseHeaders: HTTPHeader[] = [];
+        let remainingHeaders = headerPart.substring(firstLineEnd + 2, headerPart.len());
+        
+        while (remainingHeaders.len() > 0) {
+            let nextLineEnd = remainingHeaders.indexOf("\r\n");
+            let line = "";
+            if (nextLineEnd < 0) {
+                line = remainingHeaders;
+                remainingHeaders = "";
+            } else {
+                line = remainingHeaders.substring(0, nextLineEnd);
+                remainingHeaders = remainingHeaders.substring(nextLineEnd + 2, remainingHeaders.len());
+            }
+
+            if (line.len() > 0) {
+                let colonPos = line.indexOf(":");
+                if (colonPos > 0) {
+                    let name = line.substring(0, colonPos).trim();
+                    let value = line.substring(colonPos + 1, line.len()).trim();
+                    responseHeaders.push(new HTTPHeader(name, value));
+                }
+            }
+        }
+
+        return new HTTPResponse(statusCode, statusText, responseHeaders, bodyPart);
+    }
+}
+
+export class HTTPServer {
+    server: TCPServer;
+
+    constructor(port: i32) {
+        this.server = TCPServer.listen(port);
+    }
+
+    listen(handler: function): void {
+        if (this.server == null) {
+            print("Failed to start server");
+            return;
+        }
+
+        print("Aura HTTP Server listening...");
+        while (true) {
+            let stream = this.server.accept();
+            if (stream != null) {
+                let requestText = stream.read(4096);
+                
+                let headerEnd = requestText.indexOf("\r\n\r\n");
+                if (headerEnd > 0) {
+                    let headerPart = requestText.substring(0, headerEnd);
+                    let bodyPart = requestText.substring(headerEnd + 4, requestText.len());
+                    
+                    let firstLineEnd = headerPart.indexOf("\r\n");
+                    let firstLine = headerPart.substring(0, firstLineEnd);
+                    
+                    let space1 = firstLine.indexOf(" ");
+                    let space2 = firstLine.indexOf(" ", space1 + 1);
+                    
+                    if (space1 > 0 && space2 > space1) {
+                        let method = firstLine.substring(0, space1);
+                        let path = firstLine.substring(space1 + 1, space2);
+                        
+                        let requestHeaders: HTTPHeader[] = [];
+                        let remainingHeaders = headerPart.substring(firstLineEnd + 2, headerPart.len());
+                        
+                        while (remainingHeaders.len() > 0) {
+                            let nextLineEnd = remainingHeaders.indexOf("\r\n");
+                            let line = "";
+                            if (nextLineEnd < 0) {
+                                line = remainingHeaders;
+                                remainingHeaders = "";
+                            } else {
+                                line = remainingHeaders.substring(0, nextLineEnd);
+                                remainingHeaders = remainingHeaders.substring(nextLineEnd + 2, remainingHeaders.len());
+                            }
+
+                            if (line.len() > 0) {
+                                let colonPos = line.indexOf(":");
+                                if (colonPos > 0) {
+                                    let name = line.substring(0, colonPos).trim();
+                                    let value = line.substring(colonPos + 1, line.len()).trim();
+                                    requestHeaders.push(new HTTPHeader(name, value));
+                                }
+                            }
+                        }
+
+                        let req = new HTTPRequest(method, path, requestHeaders, bodyPart);
+                        let res = handler(req);
+                        
+                        if (res != null) {
+                            stream.write(res.toString());
+                        }
+                    }
+                }
+                stream.close();
+            }
+        }
+    }
+}

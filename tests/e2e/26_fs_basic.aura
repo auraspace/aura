@@ -1,0 +1,19 @@
+// Expected output:
+// File written: Hello from FS std!
+// File content: Hello from FS std!
+import { FS } from "std/fs";
+
+function test_fs() {
+    let path = "/tmp/aura_fs_test.txt";
+    let content = "Hello from FS std!";
+    
+    // Test writeFileSync
+    FS.writeFileSync(path, content);
+    print "File written: " + content;
+
+    // Test readFileSync
+    let readBack = FS.readFileSync(path);
+    print "File content: " + readBack;
+}
+
+test_fs();

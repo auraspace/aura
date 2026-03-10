@@ -467,7 +467,16 @@ impl Lowerer {
                 let val = self.lower_expr(expr);
                 self.builder.ret(Some(val));
             }
-            Statement::Error | _ => {}
+            Statement::FunctionDeclaration { .. } | Statement::ClassDeclaration { .. } => {
+                // These are handled in lower_program
+            }
+            Statement::TryCatch { .. } => {
+                todo!("Try-catch lowering to IR is not implemented yet")
+            }
+            Statement::Error => {}
+            Statement::Import { .. } | Statement::Export { .. } => {
+                todo!("Imports/exports lowering to IR is not implemented yet")
+            }
         }
     }
 
@@ -476,6 +485,10 @@ impl Lowerer {
             Expr::Number(n, _) => {
                 self.last_expr_ty = Type::Int32;
                 Operand::Constant(n as i64)
+            }
+            Expr::Null(_) => {
+                self.last_expr_ty = Type::Null;
+                Operand::Constant(0)
             }
             Expr::Template(_, _) => {
                 todo!("Template lowering")
@@ -699,6 +712,18 @@ impl Lowerer {
                     vec![val_op, Operand::Constant(1)],
                 )
             }
+            Expr::Throw(expr, _) => {
+                let val = self.lower_expr(*expr);
+                self.builder.call("aura_throw".to_string(), vec![val]);
+                Operand::Constant(0)
+            }
+            Expr::Index(obj, index, _) => {
+                let obj_op = self.lower_expr(*obj);
+                let index_op = self.lower_expr(*index);
+                // Lower to intrinsic call for now
+                self.builder
+                    .call("__arr_get".to_string(), vec![obj_op, index_op])
+            }
         }
     }
 
@@ -739,6 +764,7 @@ mod tests {
                     fields: vec![crate::compiler::ast::Field {
                         name: "next".to_string(),
                         ty: TypeExpr::Name("Node".to_string(), span),
+                        value: None,
                         is_static: false,
                         span,
                         doc: None,

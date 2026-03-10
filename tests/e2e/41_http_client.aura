@@ -1,0 +1,13 @@
+import { HTTPClient, HTTPResponse } from "std/http.aura";
+
+// Test basic HTTPClient structure
+// Expected output:
+// HTTP Client test
+// Connection failed
+
+print("HTTP Client test");
+
+// Since we don't have a server running, this should fail with 500 "Internal Error"
+// depending on how HTTPClient.request handles it.
+let response = HTTPClient.request("127.0.0.1", 45679, "GET", "/", "");
+print(response.body);

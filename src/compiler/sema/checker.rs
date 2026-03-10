@@ -155,6 +155,11 @@ impl SemanticAnalyzer {
 
     pub fn collect_classes(&mut self, program: &Program) {
         for stmt in &program.statements {
+            let actual_stmt = match stmt {
+                Statement::Export { decl, .. } => &**decl,
+                _ => stmt,
+            };
+
             if let Statement::ClassDeclaration {
                 name,
                 fields,
@@ -162,7 +167,7 @@ impl SemanticAnalyzer {
                 constructor: _,
                 span,
                 doc,
-            } = stmt
+            } = actual_stmt
             {
                 let mut field_map = HashMap::new();
                 let mut static_field_map = HashMap::new();
@@ -453,13 +458,30 @@ impl SemanticAnalyzer {
             }
             Statement::ClassDeclaration {
                 name,
-                fields: _,
+                fields,
                 methods,
                 constructor,
                 span: _,
                 doc: _,
             } => {
                 self.current_class = Some(name.clone());
+
+                for f in fields {
+                    if let Some(init) = &f.value {
+                        let init_ty = self.check_expr(init.clone());
+                        let expected_ty = self.resolve_type(f.ty.clone());
+                        if init_ty != expected_ty {
+                            self.diagnostics.push(Diagnostic::error(
+                                format!(
+                                    "Type mismatch in field initializer for {}: expected {}, found {}",
+                                    f.name, expected_ty, init_ty
+                                ),
+                                f.span.line,
+                                f.span.column,
+                            ));
+                        }
+                    }
+                }
 
                 if let Some(ctor) = constructor {
                     self.push_scope();
@@ -497,8 +519,43 @@ impl SemanticAnalyzer {
                 self.current_class = None;
             }
             Statement::Error => {}
-            Statement::Import { .. } | Statement::Export { .. } => {
-                todo!("Imports/exports are not supported in semantic analyzer yet")
+            Statement::Import { .. } => {
+                // Ignore imports as we load stdlib in advance
+            }
+            Statement::TryCatch {
+                try_block,
+                catch_param,
+                catch_block,
+                finally_block,
+                ..
+            } => {
+                self.check_statement(*try_block);
+
+                if let Some(cb) = catch_block {
+                    self.push_scope();
+
+                    if let Some((name, ty_expr)) = catch_param {
+                        let ty = self.resolve_type(ty_expr);
+                        // If type is Unknown (not provided), we might want to default to Error
+                        let final_ty = if matches!(ty, Type::Unknown) {
+                            Type::Class("Error".to_string())
+                        } else {
+                            ty
+                        };
+                        self.scope
+                            .insert(name.clone(), final_ty, true, Span::new(0, 0), None);
+                    }
+
+                    self.check_statement(*cb);
+                    self.pop_scope();
+                }
+
+                if let Some(fb) = finally_block {
+                    self.check_statement(*fb);
+                }
+            }
+            Statement::Export { decl, .. } => {
+                self.check_statement(*decl);
             }
         }
     }
@@ -544,6 +601,7 @@ impl SemanticAnalyzer {
                 };
                 Type::Array(Box::new(base_ty))
             }
+            Expr::Null(_) => Type::Null,
             Expr::Error(_s) => Type::Unknown,
             Expr::Variable(name, span) => {
                 if let Some(sym) = self.scope.lookup(&name) {
@@ -562,20 +620,64 @@ impl SemanticAnalyzer {
             Expr::BinaryOp(left, op, right, span) => {
                 let lhs = self.check_expr(*left);
                 let rhs = self.check_expr(*right);
-                if lhs.is_numeric() && rhs.is_numeric() {
-                    lhs
-                } else if op == "+" && lhs == Type::String && rhs == Type::String {
-                    Type::String
-                } else {
-                    self.error(
-                        SemanticErrorKind::IncompatibleBinaryOperators(
-                            format!("{:?}", lhs),
-                            op,
-                            format!("{:?}", rhs),
-                        ),
-                        span,
-                    );
-                    Type::Unknown
+                match op.as_str() {
+                    "==" | "!=" | "<" | "<=" | ">" | ">=" => {
+                        // Allow comparison between same types, or classes and null
+                        let ok = if lhs == rhs {
+                            true
+                        } else if (matches!(lhs, Type::Class(_)) || lhs == Type::Null)
+                            && (matches!(rhs, Type::Class(_)) || rhs == Type::Null)
+                        {
+                            true
+                        } else {
+                            false
+                        };
+
+                        if !ok {
+                            self.error(
+                                SemanticErrorKind::IncompatibleBinaryOperators(
+                                    lhs.to_string(),
+                                    op,
+                                    rhs.to_string(),
+                                ),
+                                span,
+                            );
+                        }
+                        Type::Boolean
+                    }
+                    "&&" | "||" => {
+                        if lhs.is_boolean() && rhs.is_boolean() {
+                            Type::Boolean
+                        } else {
+                            self.error(
+                                SemanticErrorKind::IncompatibleBinaryOperators(
+                                    lhs.to_string(),
+                                    op,
+                                    rhs.to_string(),
+                                ),
+                                span,
+                            );
+                            Type::Boolean
+                        }
+                    }
+                    "+" | "-" | "*" | "/" | "%" | "|" => {
+                        if lhs.is_numeric() && rhs.is_numeric() {
+                            lhs
+                        } else if op == "+" && lhs == Type::String && rhs == Type::String {
+                            Type::String
+                        } else {
+                            self.error(
+                                SemanticErrorKind::IncompatibleBinaryOperators(
+                                    lhs.to_string(),
+                                    op,
+                                    rhs.to_string(),
+                                ),
+                                span,
+                            );
+                            Type::Unknown
+                        }
+                    }
+                    _ => Type::Unknown,
                 }
             }
             Expr::Assign(name, value, span) => {
@@ -747,6 +849,36 @@ impl SemanticAnalyzer {
                         self.error(SemanticErrorKind::UndefinedMethod(class_name, method), span);
                         Type::Unknown
                     }
+                } else if obj_ty == Type::String {
+                    match method.as_str() {
+                        "len" => Type::Int32,
+                        "charAt" => Type::String,
+                        "substring" => Type::String,
+                        "indexOf" => Type::Int32,
+                        "toUpper" | "toLower" | "trim" => Type::String,
+                        _ => {
+                            self.error(
+                                SemanticErrorKind::UndefinedMethod("string".to_string(), method),
+                                span,
+                            );
+                            Type::Unknown
+                        }
+                    }
+                } else if let Type::Array(inner) = obj_ty {
+                    match method.as_str() {
+                        "len" => Type::Int32,
+                        "push" => Type::Void,
+                        "pop" => (*inner).clone(),
+                        "join" => Type::String,
+                        "get" => (*inner).clone(),
+                        _ => {
+                            self.error(
+                                SemanticErrorKind::UndefinedMethod("array".to_string(), method),
+                                span,
+                            );
+                            Type::Unknown
+                        }
+                    }
                 } else {
                     self.error(SemanticErrorKind::NotAClass(format!("{:?}", obj_ty)), span);
                     Type::Unknown
@@ -767,6 +899,47 @@ impl SemanticAnalyzer {
                 self.check_expr(*expr);
                 self.resolve_type(ty_expr);
                 Type::Boolean
+            }
+            Expr::Throw(expr, span) => {
+                let expr_ty = self.check_expr(*expr);
+                let error_ty = Type::Class("Error".to_string());
+                if !self.is_assignable(&expr_ty, &error_ty) {
+                    self.error(
+                        SemanticErrorKind::TypeMismatch(
+                            "Error".to_string(),
+                            format!("{:?}", expr_ty),
+                        ),
+                        span,
+                    );
+                }
+                Type::Unknown // throw doesn't "return" a value to its context
+            }
+            Expr::Index(obj, index, span) => {
+                let obj_ty = self.check_expr(*obj);
+                let index_ty = self.check_expr(*index);
+                if index_ty != Type::Int32 {
+                    self.error(
+                        SemanticErrorKind::TypeMismatch(
+                            "i32".to_string(),
+                            format!("{:?}", index_ty),
+                        ),
+                        span,
+                    );
+                }
+                if let Type::Array(inner) = obj_ty {
+                    *inner
+                } else if obj_ty == Type::String {
+                    Type::String
+                } else {
+                    self.error(
+                        SemanticErrorKind::TypeMismatch(
+                            "array or string".to_string(),
+                            format!("{:?}", obj_ty),
+                        ),
+                        span,
+                    );
+                    Type::Unknown
+                }
             }
             Expr::UnaryOp(op, expr, span) => {
                 let expr_ty = self.check_expr(*expr);

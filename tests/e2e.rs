@@ -150,3 +150,10 @@ e2e_test!(
 e2e_test!(test_20_class_method_chain, "20_class_method_chain.aura");
 e2e_test!(test_21_template_literal, "21_template_literal.aura");
 e2e_test!(test_22_async_test, "22_async_test.aura");
+e2e_test!(test_23_math, "23_math.aura");
+e2e_test!(test_24_try_catch_basic, "24_try_catch_basic.aura");
+e2e_test!(test_25_try_catch_nested, "25_try_catch_nested.aura");
+e2e_test!(test_26_fs_basic, "26_fs_basic.aura");
+e2e_test!(test_30_stdlib_string_array, "30_stdlib_string_array.aura");
+e2e_test!(test_40_net_tcp, "40_net_tcp.aura");
+e2e_test!(test_41_http_client, "41_http_client.aura");

@@ -1,0 +1,49 @@
+export class TCPStream {
+    fd: i32;
+
+    constructor(fd: i32) {
+        this.fd = fd;
+    }
+
+    static connect(host: string, port: i32): TCPStream {
+        let fd = __net_connect(host, port);
+        if (fd < 0) return null;
+        return new TCPStream(fd);
+    }
+
+    read(size: i32): string {
+        return __fs_read(this.fd, size);
+    }
+
+    write(content: string): i32 {
+        return __fs_write(this.fd, content);
+    }
+
+    close(): void {
+        __fs_close(this.fd);
+    }
+}
+
+export class TCPServer {
+    fd: i32;
+
+    constructor(fd: i32) {
+        this.fd = fd;
+    }
+
+    static listen(port: i32): TCPServer {
+        let fd = __net_listen(port);
+        if (fd < 0) return null;
+        return new TCPServer(fd);
+    }
+
+    accept(): TCPStream {
+        let conn_fd = __net_accept(this.fd);
+        if (conn_fd < 0) return null;
+        return new TCPStream(conn_fd);
+    }
+
+    close(): void {
+        __fs_close(this.fd);
+    }
+}

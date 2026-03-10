@@ -1,0 +1,35 @@
+export class FS {
+    static open(path: string, flags: i32, mode: i32): i32 {
+        return __fs_open(path, flags, mode);
+    }
+
+    static close(fd: i32): void {
+        __fs_close(fd);
+    }
+
+    static read(fd: i32, size: i32): string {
+        return __fs_read(fd, size);
+    }
+
+    static write(fd: i32, content: string): i32 {
+        return __fs_write(fd, content);
+    }
+
+    // High level helpers
+    static readFileSync(path: string): string {
+        let fd = __fs_open(path, O_RDONLY, 0);
+        if (fd < 0) return "";
+        let content = __fs_read(fd, 4096);
+        __fs_close(fd);
+        return content;
+    }
+
+    static writeFileSync(path: string, content: string): void {
+        // O_CREAT | O_WRONLY | O_TRUNC = 64 | 1 | 1024 = 1089
+        // 0o644 is 420
+        let fd = __fs_open(path, O_CREAT | O_WRONLY | O_TRUNC, 420);
+        if (fd < 0) return;
+        __fs_write(fd, content);
+        __fs_close(fd);
+    }
+}

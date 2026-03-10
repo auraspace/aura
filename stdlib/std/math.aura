@@ -1,5 +1,5 @@
 /// Mathematical utilities for Aura
-class Math {
+export class Math {
     /// Returns the absolute value of an integer
     static function abs(n: Int32) : Int32 {
         if (n < 0) {

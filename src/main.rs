@@ -4,6 +4,9 @@ use aura_rust::compiler::backend::arm64::ir_codegen::IrCodegen;
 use aura_rust::compiler::frontend::lexer::Lexer;
 use aura_rust::compiler::frontend::parser::Parser;
 use aura_rust::compiler::interp::Interpreter;
+use aura_rust::compiler::intrinsic::{
+    register_analyzer_intrinsics, register_interpreter_intrinsics,
+};
 use aura_rust::compiler::ir::lower::Lowerer;
 use aura_rust::compiler::ir::opt::Optimizer;
 use aura_rust::compiler::sema::checker::SemanticAnalyzer;
@@ -42,7 +45,14 @@ fn main() {
             path.clone(),
         )
     } else {
-        ("function fib(n: i32): i32 { if (n <= 1) { return n; } return fib(n - 1) + fib(n - 2); } print(fib(10));".to_string(), "fib_example".to_string())
+        println!("Usage: aura-rust [options] <input_file>");
+        println!("Options:");
+        println!("  --ir       Use IR backend");
+        println!("  --interp   Use interpreter");
+        println!("  --emit-ir  Print IR and exit");
+        println!("  --lsp      Start LSP server");
+        println!("  --target   Target architecture (arm64, x86_64)");
+        std::process::exit(1);
     };
 
     if use_interp {
@@ -73,6 +83,7 @@ fn main() {
 
     // Semantic Analysis
     let mut analyzer = SemanticAnalyzer::new();
+    register_analyzer_intrinsics(&mut analyzer);
     analyzer.load_stdlib();
     analyzer.analyze(program.clone());
     if analyzer.diagnostics.has_errors() {
@@ -83,6 +94,9 @@ fn main() {
     if use_interp {
         println!("--- Starting Interpreter ---");
         let mut interpreter = Interpreter::new();
+        register_interpreter_intrinsics(&mut |name, val| {
+            interpreter.env.insert(name, val);
+        });
         interpreter.load_stdlib();
         interpreter.interpret(program);
         return;

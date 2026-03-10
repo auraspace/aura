@@ -94,3 +94,59 @@ impl Type {
         }
     }
 }
+impl std::fmt::Display for Type {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Type::Int32 => write!(f, "i32"),
+            Type::Int64 => write!(f, "i64"),
+            Type::Float32 => write!(f, "f32"),
+            Type::Float64 => write!(f, "f64"),
+            Type::String => write!(f, "string"),
+            Type::Boolean => write!(f, "boolean"),
+            Type::Void => write!(f, "void"),
+            Type::Class(name) => write!(f, "{}", name),
+            Type::Function(params, ret) => {
+                write!(f, "function(")?;
+                for (i, p) in params.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", p)?;
+                }
+                write!(f, "): {}", ret)
+            }
+            Type::Null => write!(f, "null"),
+            Type::Union(options) => {
+                for (i, opt) in options.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, " | ")?;
+                    }
+                    write!(f, "{}", opt)?;
+                }
+                Ok(())
+            }
+            Type::Generic(name, args) => {
+                write!(f, "{}<", name)?;
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", arg)?;
+                }
+                write!(f, ">")
+            }
+            Type::Array(inner) => write!(f, "{}[]", inner),
+            Type::Object(fields) => {
+                write!(f, "{{ ")?;
+                for (i, (name, ty)) in fields.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}: {}", name, ty)?;
+                }
+                write!(f, " }}")
+            }
+            Type::Unknown => write!(f, "unknown"),
+        }
+    }
+}

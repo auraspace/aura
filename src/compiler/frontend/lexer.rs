@@ -103,7 +103,21 @@ impl<'a> Lexer<'a> {
             }
             '|' => {
                 self.advance();
-                Token::new(TokenKind::Pipe, current_line, current_column)
+                if self.peek() == '|' {
+                    self.advance();
+                    Token::new(TokenKind::Or, current_line, current_column)
+                } else {
+                    Token::new(TokenKind::Pipe, current_line, current_column)
+                }
+            }
+            '&' => {
+                self.advance();
+                if self.peek() == '&' {
+                    self.advance();
+                    Token::new(TokenKind::And, current_line, current_column)
+                } else {
+                    Token::new(TokenKind::Unknown('&'), current_line, current_column)
+                }
             }
             ',' => {
                 self.advance();
@@ -343,6 +357,11 @@ impl<'a> Lexer<'a> {
             "as" => TokenKind::As,
             "async" => TokenKind::Async,
             "await" => TokenKind::Await,
+            "try" => TokenKind::Try,
+            "catch" => TokenKind::Catch,
+            "throw" => TokenKind::Throw,
+            "finally" => TokenKind::Finally,
+            "null" => TokenKind::Null,
             _ => TokenKind::Identifier(literal.to_string()),
         };
         Token::new(kind, line, column)

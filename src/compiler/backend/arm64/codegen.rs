@@ -291,6 +291,9 @@ impl Codegen {
                 self.current_class = old_class;
             }
             Statement::Error => panic!("Compiler bug: reaching error node in codegen"),
+            Statement::TryCatch { .. } => {
+                todo!("Try-catch is not supported in ARM64 backend yet")
+            }
             Statement::Import { .. } | Statement::Export { .. } => {
                 todo!("Imports/exports are not supported in codegen yet")
             }
@@ -301,6 +304,9 @@ impl Codegen {
         match expr {
             Expr::Number(val, _) => {
                 self.emitter.mov_imm(Register::X0, val);
+            }
+            Expr::Null(_) => {
+                self.emitter.mov_imm(Register::X0, 0);
             }
             Expr::StringLiteral(_, _) => {
                 self.emitter.mov_imm(Register::X0, 0); // TODO: String support
@@ -490,6 +496,18 @@ impl Codegen {
                 self.generate_expr(*expr);
             }
             Expr::ArrayLiteral(_, _) => todo!("Implement codegen for array literals"),
+            Expr::Throw(expr, _) => {
+                self.generate_expr(*expr);
+                self.emitter.call("_aura_throw");
+            }
+            Expr::Index(obj, index, _) => {
+                self.generate_expr(*obj);
+                self.emitter.push(Register::X0);
+                self.generate_expr(*index);
+                self.emitter.mov_reg(Register::X1, Register::X0);
+                self.emitter.pop(Register::X0);
+                self.emitter.call("__arr_get");
+            }
             Expr::Error(_) => panic!("Compiler bug: reaching error node in codegen"),
         }
     }
