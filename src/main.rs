@@ -4,9 +4,7 @@ use aura::compiler::backend::arm64::ir_codegen::IrCodegen;
 use aura::compiler::frontend::lexer::Lexer;
 use aura::compiler::frontend::parser::Parser;
 use aura::compiler::interp::Interpreter;
-use aura::compiler::intrinsic::{
-    register_analyzer_intrinsics, register_interpreter_intrinsics,
-};
+use aura::compiler::intrinsic::{register_analyzer_intrinsics, register_interpreter_intrinsics};
 use aura::compiler::ir::lower::Lowerer;
 use aura::compiler::ir::opt::Optimizer;
 use aura::compiler::sema::checker::SemanticAnalyzer;
@@ -32,8 +30,9 @@ fn print_help() {
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    
-    if args.len() <= 1 || args.contains(&"help".to_string()) || args.contains(&"--help".to_string()) {
+
+    if args.len() <= 1 || args.contains(&"help".to_string()) || args.contains(&"--help".to_string())
+    {
         print_help();
     }
 
@@ -81,31 +80,39 @@ fn main() {
     }
 
     // stdlib and runtime resolution
-    let (stdlib_path, runtime_path) = std::env::var("AURA_STDLIB").map(|s| (s, std::env::var("AURA_RUNTIME").unwrap_or_else(|_| "src/runtime/runtime.c".to_string()))).unwrap_or_else(|_| {
-        let mut s_path = "stdlib/std".to_string();
-        let mut r_path = "src/runtime/runtime.c".to_string();
+    let (stdlib_path, runtime_path) = std::env::var("AURA_STDLIB")
+        .map(|s| {
+            (
+                s,
+                std::env::var("AURA_RUNTIME")
+                    .unwrap_or_else(|_| "src/runtime/runtime.c".to_string()),
+            )
+        })
+        .unwrap_or_else(|_| {
+            let mut s_path = "stdlib/std".to_string();
+            let mut r_path = "src/runtime/runtime.c".to_string();
 
-        if let Ok(exe_path) = std::env::current_exe() {
-            if let Some(exe_dir) = exe_path.parent() {
-                // Try relative to exe
-                let p1_s = exe_dir.join("stdlib/std");
-                let p1_r = exe_dir.join("src/runtime/runtime.c");
-                if p1_s.exists() && p1_r.exists() {
-                    s_path = p1_s.to_string_lossy().to_string();
-                    r_path = p1_r.to_string_lossy().to_string();
-                } else {
-                    // Try dev environment (target/debug)
-                    let p2_s = exe_dir.join("../../stdlib/std");
-                    let p2_r = exe_dir.join("../../src/runtime/runtime.c");
-                    if p2_s.exists() && p2_r.exists() {
-                        s_path = p2_s.to_string_lossy().to_string();
-                        r_path = p2_r.to_string_lossy().to_string();
+            if let Ok(exe_path) = std::env::current_exe() {
+                if let Some(exe_dir) = exe_path.parent() {
+                    // Try relative to exe
+                    let p1_s = exe_dir.join("stdlib/std");
+                    let p1_r = exe_dir.join("src/runtime/runtime.c");
+                    if p1_s.exists() && p1_r.exists() {
+                        s_path = p1_s.to_string_lossy().to_string();
+                        r_path = p1_r.to_string_lossy().to_string();
+                    } else {
+                        // Try dev environment (target/debug)
+                        let p2_s = exe_dir.join("../../stdlib/std");
+                        let p2_r = exe_dir.join("../../src/runtime/runtime.c");
+                        if p2_s.exists() && p2_r.exists() {
+                            s_path = p2_s.to_string_lossy().to_string();
+                            r_path = p2_r.to_string_lossy().to_string();
+                        }
                     }
                 }
             }
-        }
-        (s_path, r_path)
-    });
+            (s_path, r_path)
+        });
 
     if is_lsp {
         let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
@@ -130,7 +137,16 @@ fn main() {
     if use_interp {
         println!("Interpreting: {}", input_name);
     } else {
-        println!("{}: {} (IR: {})", if command == "build" { "Building" } else { "Compiling" }, input_name, use_ir);
+        println!(
+            "{}: {} (IR: {})",
+            if command == "build" {
+                "Building"
+            } else {
+                "Compiling"
+            },
+            input_name,
+            use_ir
+        );
     }
 
     let mut lexer = Lexer::new(&source);

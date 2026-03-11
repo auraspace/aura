@@ -104,8 +104,6 @@ pub struct Field {
     pub doc: Option<String>,
 }
 
-
-
 #[derive(Debug, Clone)]
 pub struct ClassMethod {
     pub name: String,

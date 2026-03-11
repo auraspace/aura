@@ -444,8 +444,6 @@ impl LanguageServer for Backend {
                 let col = position.character as usize + 1;
 
                 if span.line == line && span.column <= col {
-
-                    
                     if let Some(prev_span) = best_span {
                         if span.column > prev_span.column {
                             best_span = Some(*span);
@@ -493,7 +491,12 @@ impl Backend {
         let mut lexer = Lexer::new(source);
         let tokens = lexer.lex_all();
 
-        let path_str = params.uri.to_file_path().unwrap_or_default().to_string_lossy().to_string();
+        let path_str = params
+            .uri
+            .to_file_path()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
         let mut parser = Parser::new(tokens, path_str.clone());
         let program = parser.parse_program();
 
@@ -557,9 +560,21 @@ impl Backend {
         // Update document state
         {
             let mut docs = self.documents.lock().unwrap();
-            let file_node_types = analyzer.node_types.get(&path_str).cloned().unwrap_or_default();
-            let file_node_definitions = analyzer.node_definitions.get(&path_str).cloned().unwrap_or_default();
-            let file_node_docs = analyzer.node_docs.get(&path_str).cloned().unwrap_or_default();
+            let file_node_types = analyzer
+                .node_types
+                .get(&path_str)
+                .cloned()
+                .unwrap_or_default();
+            let file_node_definitions = analyzer
+                .node_definitions
+                .get(&path_str)
+                .cloned()
+                .unwrap_or_default();
+            let file_node_docs = analyzer
+                .node_docs
+                .get(&path_str)
+                .cloned()
+                .unwrap_or_default();
 
             docs.insert(
                 params.uri.clone(),

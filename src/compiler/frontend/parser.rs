@@ -315,7 +315,12 @@ impl Parser {
     ) -> Result<Statement, ()> {
         let s = self.span();
         self.consume(TokenKind::Function)?;
-        let (name, name_span) = if let Token { kind: TokenKind::Identifier(name), line, column } = self.peek().clone() {
+        let (name, name_span) = if let Token {
+            kind: TokenKind::Identifier(name),
+            line,
+            column,
+        } = self.peek().clone()
+        {
             self.advance();
             (name, Span::new(line, column))
         } else {
@@ -369,7 +374,12 @@ impl Parser {
     fn parse_let_statement(&mut self, doc: Option<String>) -> Result<Statement, ()> {
         let s = self.span();
         self.consume(TokenKind::Let)?;
-        let (name, name_span) = if let Token { kind: TokenKind::Identifier(name), line, column } = self.peek().clone() {
+        let (name, name_span) = if let Token {
+            kind: TokenKind::Identifier(name),
+            line,
+            column,
+        } = self.peek().clone()
+        {
             self.advance();
             (name, Span::new(line, column))
         } else {
@@ -484,7 +494,12 @@ impl Parser {
     fn parse_class_declaration(&mut self, doc: Option<String>) -> Result<Statement, ()> {
         let s = self.span();
         self.consume(TokenKind::Class)?;
-        let (name, name_span) = if let Token { kind: TokenKind::Identifier(name), line, column } = self.peek().clone() {
+        let (name, name_span) = if let Token {
+            kind: TokenKind::Identifier(name),
+            line,
+            column,
+        } = self.peek().clone()
+        {
             self.advance();
             (name, Span::new(line, column))
         } else {
@@ -558,7 +573,12 @@ impl Parser {
                 }
                 TokenKind::Function => {
                     self.advance();
-                    let (mname, mname_span) = if let Token { kind: TokenKind::Identifier(mname), line, column } = self.peek().clone() {
+                    let (mname, mname_span) = if let Token {
+                        kind: TokenKind::Identifier(mname),
+                        line,
+                        column,
+                    } = self.peek().clone()
+                    {
                         self.advance();
                         (mname, Span::new(line, column))
                     } else {
@@ -908,7 +928,12 @@ impl Parser {
             TokenKind::New => {
                 let ns = self.span();
                 self.advance();
-                let (name, name_span) = if let Token { kind: TokenKind::Identifier(name), line, column } = self.peek().clone() {
+                let (name, name_span) = if let Token {
+                    kind: TokenKind::Identifier(name),
+                    line,
+                    column,
+                } = self.peek().clone()
+                {
                     self.advance();
                     (name, Span::new(line, column))
                 } else {

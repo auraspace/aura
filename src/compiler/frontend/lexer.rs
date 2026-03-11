@@ -178,7 +178,7 @@ impl<'a> Lexer<'a> {
                 } else if self.peek() == '*' {
                     self.advance();
                     let is_doc = if self.peek() == '*' {
-                        // Check next char to avoid treating /**/ as doc if desired, 
+                        // Check next char to avoid treating /**/ as doc if desired,
                         // but usually /** starts a doc comment.
                         self.advance();
                         true

@@ -56,4 +56,8 @@ impl Scope {
             None
         }
     }
+
+    pub fn lookup_local(&self, name: &str) -> Option<&Symbol> {
+        self.symbols.get(name)
+    }
 }

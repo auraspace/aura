@@ -126,16 +126,79 @@ impl SemanticAnalyzer {
             },
         );
 
-        analyzer.scope.insert("true".to_string(), Type::Boolean, false, Span::new(0, 0), "".to_string(), None);
-        analyzer.scope.insert("false".to_string(), Type::Boolean, false, Span::new(0, 0), "".to_string(), None);
-        analyzer.scope.insert("null".to_string(), Type::Null, false, Span::new(0, 0), "".to_string(), None);
-        
-        analyzer.scope.insert("O_RDONLY".to_string(), Type::Int32, false, Span::new(0, 0), "".to_string(), None);
-        analyzer.scope.insert("O_WRONLY".to_string(), Type::Int32, false, Span::new(0, 0), "".to_string(), None);
-        analyzer.scope.insert("O_RDWR".to_string(), Type::Int32, false, Span::new(0, 0), "".to_string(), None);
-        analyzer.scope.insert("O_CREAT".to_string(), Type::Int32, false, Span::new(0, 0), "".to_string(), None);
-        analyzer.scope.insert("O_TRUNC".to_string(), Type::Int32, false, Span::new(0, 0), "".to_string(), None);
-        analyzer.scope.insert("O_APPEND".to_string(), Type::Int32, false, Span::new(0, 0), "".to_string(), None);
+        analyzer.scope.insert(
+            "true".to_string(),
+            Type::Boolean,
+            false,
+            Span::new(0, 0),
+            "".to_string(),
+            None,
+        );
+        analyzer.scope.insert(
+            "false".to_string(),
+            Type::Boolean,
+            false,
+            Span::new(0, 0),
+            "".to_string(),
+            None,
+        );
+        analyzer.scope.insert(
+            "null".to_string(),
+            Type::Null,
+            false,
+            Span::new(0, 0),
+            "".to_string(),
+            None,
+        );
+
+        analyzer.scope.insert(
+            "O_RDONLY".to_string(),
+            Type::Int32,
+            false,
+            Span::new(0, 0),
+            "".to_string(),
+            None,
+        );
+        analyzer.scope.insert(
+            "O_WRONLY".to_string(),
+            Type::Int32,
+            false,
+            Span::new(0, 0),
+            "".to_string(),
+            None,
+        );
+        analyzer.scope.insert(
+            "O_RDWR".to_string(),
+            Type::Int32,
+            false,
+            Span::new(0, 0),
+            "".to_string(),
+            None,
+        );
+        analyzer.scope.insert(
+            "O_CREAT".to_string(),
+            Type::Int32,
+            false,
+            Span::new(0, 0),
+            "".to_string(),
+            None,
+        );
+        analyzer.scope.insert(
+            "O_TRUNC".to_string(),
+            Type::Int32,
+            false,
+            Span::new(0, 0),
+            "".to_string(),
+            None,
+        );
+        analyzer.scope.insert(
+            "O_APPEND".to_string(),
+            Type::Int32,
+            false,
+            Span::new(0, 0),
+            "".to_string(),
+            None,
+        );
 
         analyzer
     }
@@ -177,7 +240,7 @@ impl SemanticAnalyzer {
     pub fn analyze(&mut self, program: Program) {
         self.record_node_info = true;
         self.current_file = program.file_path.clone();
-        
+
         // Pass 1: Collect declarations from current program
         self.collect_definitions(&program);
 
@@ -207,6 +270,12 @@ impl SemanticAnalyzer {
                 doc,
             } = actual_stmt
             {
+                if self.classes.contains_key(name) || self.scope.lookup_local(name).is_some() {
+                    self.error(
+                        SemanticErrorKind::DuplicateDeclaration(name.clone()),
+                        *name_span,
+                    );
+                }
                 let mut field_map = HashMap::new();
                 let mut static_field_map = HashMap::new();
                 for f in fields {
@@ -257,29 +326,50 @@ impl SemanticAnalyzer {
                 return_ty,
                 body: _,
                 is_async: _,
-                span,
+                span: _,
                 doc,
             } = actual_stmt
             {
+                if self.classes.contains_key(name) || self.scope.lookup_local(name).is_some() {
+                    self.error(
+                        SemanticErrorKind::DuplicateDeclaration(name.clone()),
+                        *name_span,
+                    );
+                }
                 let param_tys = params
                     .iter()
                     .map(|(_, ty)| self.resolve_type(ty.clone()))
                     .collect();
                 let ret_ty = self.resolve_type(return_ty.clone());
-                self.scope
-                    .insert(name.clone(), Type::Function(param_tys, Box::new(ret_ty)), false, *name_span, self.current_file.clone(), doc.clone());
+                self.scope.insert(
+                    name.clone(),
+                    Type::Function(param_tys, Box::new(ret_ty)),
+                    false,
+                    *name_span,
+                    self.current_file.clone(),
+                    doc.clone(),
+                );
             } else if let Statement::VarDeclaration {
                 name,
                 name_span,
                 ty,
                 value: _,
-                span,
+                span: _,
                 doc,
-            } = actual_stmt 
+            } = actual_stmt
             {
+                if self.classes.contains_key(name) || self.scope.lookup_local(name).is_some() {
+                    self.error(
+                        SemanticErrorKind::DuplicateDeclaration(name.clone()),
+                        *name_span,
+                    );
+                }
                 // In pass 1, we try to use the declared type if available.
                 // Otherwise we use Unknown, and it will be properly inferred in pass 2.
-                let var_ty = ty.as_ref().map(|t| self.resolve_type(t.clone())).unwrap_or(Type::Unknown);
+                let var_ty = ty
+                    .as_ref()
+                    .map(|t| self.resolve_type(t.clone()))
+                    .unwrap_or(Type::Unknown);
                 self.scope.insert(
                     name.clone(),
                     var_ty,
@@ -288,7 +378,13 @@ impl SemanticAnalyzer {
                     self.current_file.clone(),
                     doc.clone(),
                 );
-            } else if let Statement::Import { path, path_span, item, .. } = actual_stmt {
+            } else if let Statement::Import {
+                path,
+                path_span,
+                item,
+                ..
+            } = actual_stmt
+            {
                 self.load_import(path.clone(), *path_span);
                 match item {
                     ImportItem::Named(names) => {
@@ -302,7 +398,11 @@ impl SemanticAnalyzer {
                     }
                     ImportItem::Namespace((_ns, ns_span)) => {
                         if let Ok(abs_p) = self.resolve_import_path(path) {
-                            self.record_definition(*ns_span, abs_p.to_string_lossy().to_string(), Span::new(1, 1));
+                            self.record_definition(
+                                *ns_span,
+                                abs_p.to_string_lossy().to_string(),
+                                Span::new(1, 1),
+                            );
                         }
                     }
                 }
@@ -341,13 +441,6 @@ impl SemanticAnalyzer {
             .insert(span, doc);
     }
 
-    fn find_definition(&self, span: &Span) -> Option<(String, Span)> {
-        self.node_definitions
-            .get(&self.current_file)
-            .and_then(|m| m.get(span))
-            .cloned()
-    }
-
     fn resolve_import_path(&self, path: &str) -> Result<std::path::PathBuf, std::io::Error> {
         if path.starts_with("std/") {
             if let Some(ref std_path) = self.stdlib_path {
@@ -357,9 +450,14 @@ impl SemanticAnalyzer {
                 } else {
                     format!("{}.aura", sub_path)
                 };
-                std::path::Path::new(std_path).join(aura_path).canonicalize()
+                std::path::Path::new(std_path)
+                    .join(aura_path)
+                    .canonicalize()
             } else {
-                Err(std::io::Error::new(std::io::ErrorKind::NotFound, "Stdlib path not set"))
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "Stdlib path not set",
+                ))
             }
         } else {
             let actual_path = if path.ends_with(".aura") {
@@ -393,7 +491,10 @@ impl SemanticAnalyzer {
 
             if let Ok(source) = std::fs::read_to_string(&abs_p) {
                 let mut lexer = crate::compiler::frontend::lexer::Lexer::new(&source);
-                let mut parser = crate::compiler::frontend::parser::Parser::new(lexer.lex_all(), path_str.clone());
+                let mut parser = crate::compiler::frontend::parser::Parser::new(
+                    lexer.lex_all(),
+                    path_str.clone(),
+                );
                 let program = parser.parse_program();
 
                 let saved_dir = self.current_dir.clone();
@@ -422,9 +523,12 @@ impl SemanticAnalyzer {
             if let Ok(source) = std::fs::read_to_string(&core_path) {
                 let path_str = core_path.to_string_lossy().to_string();
                 let mut lexer = crate::compiler::frontend::lexer::Lexer::new(&source);
-                let mut parser = crate::compiler::frontend::parser::Parser::new(lexer.lex_all(), path_str.clone());
+                let mut parser = crate::compiler::frontend::parser::Parser::new(
+                    lexer.lex_all(),
+                    path_str.clone(),
+                );
                 let program = parser.parse_program();
-                
+
                 self.collect_definitions(&program);
 
                 let saved_file = self.current_file.clone();
@@ -554,6 +658,14 @@ impl SemanticAnalyzer {
                 span,
                 doc,
             } => {
+                if self.scope.parent.is_some() {
+                    if self.scope.lookup_local(&name).is_some() {
+                        self.error(
+                            SemanticErrorKind::DuplicateDeclaration(name.clone()),
+                            name_span,
+                        );
+                    }
+                }
                 let val_ty = self.check_expr(value);
                 let declared_ty = ty
                     .map(|t| self.resolve_type(t))
@@ -573,7 +685,14 @@ impl SemanticAnalyzer {
                     }
                     self.record_type(name_span, declared_ty.clone());
                 }
-                self.scope.insert(name, declared_ty, false, span, self.current_file.clone(), doc);
+                self.scope.insert(
+                    name,
+                    declared_ty,
+                    false,
+                    span,
+                    self.current_file.clone(),
+                    doc,
+                );
             }
             Statement::Expression(expr, _) => {
                 self.check_expr(expr);
@@ -601,8 +720,14 @@ impl SemanticAnalyzer {
                         let narrowed_ty = self.resolve_type(ty_expr.clone());
 
                         self.push_scope();
-                        self.scope
-                            .insert(name.clone(), narrowed_ty.clone(), false, span, self.current_file.clone(), None);
+                        self.scope.insert(
+                            name.clone(),
+                            narrowed_ty.clone(),
+                            false,
+                            span,
+                            self.current_file.clone(),
+                            None,
+                        );
                         self.check_statement(*then_branch);
                         self.pop_scope();
 
@@ -615,8 +740,14 @@ impl SemanticAnalyzer {
                             let excluded_ty = original_ty.exclude(&narrowed_ty);
 
                             self.push_scope();
-                            self.scope
-                                .insert(name.clone(), excluded_ty, false, span, self.current_file.clone(), None);
+                            self.scope.insert(
+                                name.clone(),
+                                excluded_ty,
+                                false,
+                                span,
+                                self.current_file.clone(),
+                                None,
+                            );
                             self.check_statement(*eb);
                             self.pop_scope();
                         }
@@ -648,6 +779,14 @@ impl SemanticAnalyzer {
                 span,
                 doc,
             } => {
+                if self.scope.parent.is_some() {
+                    if self.scope.lookup_local(&name).is_some() {
+                        self.error(
+                            SemanticErrorKind::DuplicateDeclaration(name.clone()),
+                            name_span,
+                        );
+                    }
+                }
                 let param_tys: Vec<Type> = params
                     .iter()
                     .map(|(_, ty)| self.resolve_type(ty.clone()))
@@ -675,7 +814,8 @@ impl SemanticAnalyzer {
                 self.push_scope();
                 for (pname, pty) in params {
                     let ty = self.resolve_type(pty.clone());
-                    self.scope.insert(pname, ty, true, pty.span(), self.current_file.clone(), None);
+                    self.scope
+                        .insert(pname, ty, true, pty.span(), self.current_file.clone(), None);
                 }
                 self.check_statement(*body);
                 self.pop_scope();
@@ -720,7 +860,14 @@ impl SemanticAnalyzer {
                     );
                     for (pname, pty) in ctor.params {
                         let ty = self.resolve_type(pty.clone());
-                        self.scope.insert(pname, ty, true, pty.span(), self.current_file.clone(), None);
+                        self.scope.insert(
+                            pname,
+                            ty,
+                            true,
+                            pty.span(),
+                            self.current_file.clone(),
+                            None,
+                        );
                     }
                     self.check_statement(*ctor.body);
                     self.pop_scope();
@@ -738,7 +885,14 @@ impl SemanticAnalyzer {
                     );
                     for (pname, pty) in m.params {
                         let ty = self.resolve_type(pty.clone());
-                        self.scope.insert(pname, ty, true, pty.span(), self.current_file.clone(), None);
+                        self.scope.insert(
+                            pname,
+                            ty,
+                            true,
+                            pty.span(),
+                            self.current_file.clone(),
+                            None,
+                        );
                     }
                     self.check_statement(*m.body);
                     self.pop_scope();
@@ -773,8 +927,14 @@ impl SemanticAnalyzer {
                         } else {
                             ty
                         };
-                        self.scope
-                            .insert(name.clone(), final_ty, true, Span::new(0, 0), self.current_file.clone(), None);
+                        self.scope.insert(
+                            name.clone(),
+                            final_ty,
+                            true,
+                            Span::new(0, 0),
+                            self.current_file.clone(),
+                            None,
+                        );
                     }
 
                     self.check_statement(*cb);
@@ -960,7 +1120,10 @@ impl SemanticAnalyzer {
                                 self.record_doc(name_span, d);
                             }
                             self.record_definition(name_span, defined_in, sym_span);
-                            self.record_type(name_span, Type::Function(param_tys.clone(), ret_ty.clone()));
+                            self.record_type(
+                                name_span,
+                                Type::Function(param_tys.clone(), ret_ty.clone()),
+                            );
                         }
                         // Also record return type for the whole call span
                         self.record_type(span, (*ret_ty).clone());
@@ -1029,7 +1192,11 @@ impl SemanticAnalyzer {
                                 if let Some(d) = doc {
                                     self.record_doc(name_span, d);
                                 }
-                                self.record_definition(name_span, self.current_file.clone(), field_span); // Same file for simplicity now
+                                self.record_definition(
+                                    name_span,
+                                    self.current_file.clone(),
+                                    field_span,
+                                ); // Same file for simplicity now
                                 self.record_type(name_span, field_ty.clone());
                                 self.record_type(span, field_ty.clone());
                             }

@@ -60,17 +60,27 @@ impl Codegen {
 
     fn store_local(&mut self, reg: &str, offset: usize) {
         if offset <= 255 {
-            self.emitter.output.push_str(&format!("    str {}, [x29, -{}]\n", reg, offset));
+            self.emitter
+                .output
+                .push_str(&format!("    str {}, [x29, -{}]\n", reg, offset));
         } else {
-            self.emitter.output.push_str(&format!("    mov x16, {}\n    sub x16, x29, x16\n    str {}, [x16]\n", offset, reg));
+            self.emitter.output.push_str(&format!(
+                "    mov x16, {}\n    sub x16, x29, x16\n    str {}, [x16]\n",
+                offset, reg
+            ));
         }
     }
 
     fn load_local(&mut self, reg: &str, offset: usize) {
         if offset <= 255 {
-            self.emitter.output.push_str(&format!("    ldr {}, [x29, -{}]\n", reg, offset));
+            self.emitter
+                .output
+                .push_str(&format!("    ldr {}, [x29, -{}]\n", reg, offset));
         } else {
-            self.emitter.output.push_str(&format!("    mov x16, {}\n    sub x16, x29, x16\n    ldr {}, [x16]\n", offset, reg));
+            self.emitter.output.push_str(&format!(
+                "    mov x16, {}\n    sub x16, x29, x16\n    ldr {}, [x16]\n",
+                offset, reg
+            ));
         }
     }
 
@@ -84,7 +94,16 @@ impl Codegen {
         // Register built-in Promise class (still needed as it's not in stdlib yet)
         self.classes.insert(
             "Promise".to_string(),
-            (vec![], vec!["all".to_string(), "then".to_string(), "any".to_string(), "race".to_string(), "allSettled".to_string()]),
+            (
+                vec![],
+                vec![
+                    "all".to_string(),
+                    "then".to_string(),
+                    "any".to_string(),
+                    "race".to_string(),
+                    "allSettled".to_string(),
+                ],
+            ),
         );
 
         let mut classes: Vec<(String, Statement)> = Vec::new();
@@ -155,7 +174,6 @@ impl Codegen {
         fns: &mut Vec<(String, Statement)>,
         global_stmts: &mut Vec<(String, Statement)>,
     ) {
-        let saved_file = self.current_file.clone();
         self.current_file = program.file_path.clone();
         for stmt in program.statements {
             let actual_stmt = match stmt {
@@ -164,8 +182,12 @@ impl Codegen {
             };
 
             match actual_stmt {
-                Statement::ClassDeclaration { .. } => classes.push((program.file_path.clone(), actual_stmt)),
-                Statement::FunctionDeclaration { .. } => fns.push((program.file_path.clone(), actual_stmt)),
+                Statement::ClassDeclaration { .. } => {
+                    classes.push((program.file_path.clone(), actual_stmt))
+                }
+                Statement::FunctionDeclaration { .. } => {
+                    fns.push((program.file_path.clone(), actual_stmt))
+                }
                 Statement::Import { path, .. } => {
                     let absolute_path = if path.starts_with("std/") {
                         if let Some(ref std_path) = self.stdlib_path {
@@ -175,7 +197,9 @@ impl Codegen {
                             } else {
                                 format!("{}.aura", sub_path)
                             };
-                            std::path::Path::new(std_path).join(aura_path).canonicalize()
+                            std::path::Path::new(std_path)
+                                .join(aura_path)
+                                .canonicalize()
                         } else {
                             continue;
                         }
@@ -207,7 +231,8 @@ impl Codegen {
                         if let Ok(source) = std::fs::read_to_string(&abs_p) {
                             let mut lexer = crate::compiler::frontend::lexer::Lexer::new(&source);
                             let tokens = lexer.lex_all();
-                            let mut parser = crate::compiler::frontend::parser::Parser::new(tokens, path_str);
+                            let mut parser =
+                                crate::compiler::frontend::parser::Parser::new(tokens, path_str);
                             let program = parser.parse_program();
 
                             let saved_dir = self.current_dir.clone();
@@ -246,7 +271,10 @@ impl Codegen {
             if let Ok(source) = std::fs::read_to_string(&core_path) {
                 let mut lexer = crate::compiler::frontend::lexer::Lexer::new(&source);
                 let tokens = lexer.lex_all();
-                let mut parser = crate::compiler::frontend::parser::Parser::new(tokens, core_path.to_string_lossy().to_string());
+                let mut parser = crate::compiler::frontend::parser::Parser::new(
+                    tokens,
+                    core_path.to_string_lossy().to_string(),
+                );
                 let program = parser.parse_program();
                 self.core_program = Some(program.clone());
                 for stmt in program.statements {
@@ -285,7 +313,13 @@ impl Codegen {
                         Expr::MethodCall(_, ref member, _, _, _) => {
                             if matches!(
                                 member.as_str(),
-                                "trim" | "len" | "toUpper" | "toLower" | "charAt" | "substring" | "join"
+                                "trim"
+                                    | "len"
+                                    | "toUpper"
+                                    | "toLower"
+                                    | "charAt"
+                                    | "substring"
+                                    | "join"
                             ) {
                                 var_ty = Type::String;
                             }
@@ -434,12 +468,23 @@ impl Codegen {
                     match &expr {
                         Expr::StringLiteral(_, _) => is_str = true,
                         Expr::BinaryOp(ref left, ref op, ref right, _) if op == "+" => {
-                            if matches!(&**left, Expr::StringLiteral(_, _)) || matches!(&**right, Expr::StringLiteral(_, _)) {
+                            if matches!(&**left, Expr::StringLiteral(_, _))
+                                || matches!(&**right, Expr::StringLiteral(_, _))
+                            {
                                 is_str = true;
                             }
                         }
                         Expr::MethodCall(_, ref member, _, _, _) => {
-                            if matches!(member.as_str(), "charAt" | "substring" | "toUpper" | "toLower" | "trim" | "toString" | "join") {
+                            if matches!(
+                                member.as_str(),
+                                "charAt"
+                                    | "substring"
+                                    | "toUpper"
+                                    | "toLower"
+                                    | "trim"
+                                    | "toString"
+                                    | "join"
+                            ) {
                                 is_str = true;
                             }
                         }
@@ -656,7 +701,9 @@ impl Codegen {
                     }
                 }
                 if !is_string_concat && op == "+" {
-                    if matches!(&*left, Expr::StringLiteral(_, _)) || matches!(&*right, Expr::StringLiteral(_, _)) {
+                    if matches!(&*left, Expr::StringLiteral(_, _))
+                        || matches!(&*right, Expr::StringLiteral(_, _))
+                    {
                         is_string_concat = true;
                     }
                 }
@@ -713,13 +760,21 @@ impl Codegen {
                             .push_str("    cmp x0, x1\n    cset x0, ge\n");
                     }
                     "&&" => {
-                        self.emitter.output.push_str("    cmp x0, #0\n    cset x0, ne\n");
-                        self.emitter.output.push_str("    cmp x1, #0\n    cset x1, ne\n");
+                        self.emitter
+                            .output
+                            .push_str("    cmp x0, #0\n    cset x0, ne\n");
+                        self.emitter
+                            .output
+                            .push_str("    cmp x1, #0\n    cset x1, ne\n");
                         self.emitter.output.push_str("    and x0, x0, x1\n");
                     }
                     "||" => {
-                        self.emitter.output.push_str("    cmp x0, #0\n    cset x0, ne\n");
-                        self.emitter.output.push_str("    cmp x1, #0\n    cset x1, ne\n");
+                        self.emitter
+                            .output
+                            .push_str("    cmp x0, #0\n    cset x0, ne\n");
+                        self.emitter
+                            .output
+                            .push_str("    cmp x1, #0\n    cset x1, ne\n");
                         self.emitter.output.push_str("    orr x0, x0, x1\n");
                     }
                     "|" => {
@@ -790,7 +845,10 @@ impl Codegen {
             Expr::MemberAccess(obj, member, _, _span) => {
                 let obj_span = obj.span();
                 let mut offset = 0;
-                let mut ty = self.get_node_type(&obj_span).cloned().unwrap_or(Type::Unknown);
+                let mut ty = self
+                    .get_node_type(&obj_span)
+                    .cloned()
+                    .unwrap_or(Type::Unknown);
                 if matches!(ty, Type::Unknown) {
                     if let Expr::Variable(ref name, _) = *obj {
                         if let Some((_, var_ty)) = self.variables.get(name) {
@@ -825,7 +883,10 @@ impl Codegen {
                 self.generate_expr(*value);
                 self.emitter.push(Register::X0);
                 let mut offset = 0;
-                let mut ty = self.get_node_type(&obj_span).cloned().unwrap_or(Type::Unknown);
+                let mut ty = self
+                    .get_node_type(&obj_span)
+                    .cloned()
+                    .unwrap_or(Type::Unknown);
                 if matches!(ty, Type::Unknown) {
                     if let Expr::Variable(ref name, _) = *obj {
                         if let Some((_, var_ty)) = self.variables.get(name) {
@@ -874,7 +935,7 @@ impl Codegen {
                         .get_node_type(&obj_span)
                         .cloned()
                         .unwrap_or(Type::Unknown);
-                        
+
                     if matches!(ty, Type::Unknown) {
                         match &*obj {
                             Expr::StringLiteral(_, _) => ty = Type::String,
@@ -893,14 +954,21 @@ impl Codegen {
                     if matches!(ty, Type::Unknown) {
                         if matches!(
                             member.as_str(),
-                            "charAt" | "substring" | "indexOf" | "toUpper" | "toLower" | "trim" | "len"
+                            "charAt"
+                                | "substring"
+                                | "indexOf"
+                                | "toUpper"
+                                | "toLower"
+                                | "trim"
+                                | "len"
                         ) {
                             ty = Type::String;
-                        } else if matches!(member.as_str(), "push" | "pop" | "join" | "get" | "len") {
+                        } else if matches!(member.as_str(), "push" | "pop" | "join" | "get" | "len")
+                        {
                             ty = Type::Array(Box::new(Type::Unknown));
                         }
                     }
-                    
+
                     if matches!(ty, Type::String | Type::Array(_)) {
                         is_primitive = true;
                     }
@@ -958,10 +1026,17 @@ impl Codegen {
                     if matches!(ty, Type::Unknown) {
                         if matches!(
                             member.as_str(),
-                            "charAt" | "substring" | "indexOf" | "toUpper" | "toLower" | "trim" | "len"
+                            "charAt"
+                                | "substring"
+                                | "indexOf"
+                                | "toUpper"
+                                | "toLower"
+                                | "trim"
+                                | "len"
                         ) {
                             ty = Type::String;
-                        } else if matches!(member.as_str(), "push" | "pop" | "join" | "get" | "len") {
+                        } else if matches!(member.as_str(), "push" | "pop" | "join" | "get" | "len")
+                        {
                             ty = Type::Array(Box::new(Type::Unknown));
                         }
                     }
@@ -1013,29 +1088,43 @@ impl Codegen {
                 }
             }
             Expr::TypeTest(expr, ty_expr, _) => {
-                let check_type_name = if let crate::compiler::ast::TypeExpr::Name(ref name, _) = ty_expr {
-                    name.as_str()
-                } else {
-                    ""
-                };
-                
+                let check_type_name =
+                    if let crate::compiler::ast::TypeExpr::Name(ref name, _) = ty_expr {
+                        name.as_str()
+                    } else {
+                        ""
+                    };
+
                 self.generate_expr(*expr);
-                
-                if check_type_name == "i64" || check_type_name == "i32" || check_type_name == "number" {
+
+                if check_type_name == "i64"
+                    || check_type_name == "i32"
+                    || check_type_name == "number"
+                {
                     // Check if x0 != 0 AND not in string pointer range.
-                    self.emitter.output.push_str("    cmp x0, #0\n    cset x1, ne\n");
+                    self.emitter
+                        .output
+                        .push_str("    cmp x0, #0\n    cset x1, ne\n");
                     self.emitter.mov_imm(Register::X2, 0x100000000); // 4GB
-                    self.emitter.output.push_str("    cmp x0, x2\n    cset x2, ge\n");
+                    self.emitter
+                        .output
+                        .push_str("    cmp x0, x2\n    cset x2, ge\n");
                     self.emitter.mov_imm(Register::X3, 0x200000000); // 8GB
-                    self.emitter.output.push_str("    cmp x0, x3\n    cset x3, lt\n");
+                    self.emitter
+                        .output
+                        .push_str("    cmp x0, x3\n    cset x3, lt\n");
                     self.emitter.output.push_str("    and x2, x2, x3\n"); // 1 if in range (string)
                     self.emitter.output.push_str("    eor x2, x2, #1\n"); // 1 if NOT in range
                     self.emitter.output.push_str("    and x0, x1, x2\n"); // x0 = not null AND not string
                 } else if check_type_name == "string" {
                     self.emitter.mov_imm(Register::X2, 0x100000000);
-                    self.emitter.output.push_str("    cmp x0, x2\n    cset x2, ge\n");
+                    self.emitter
+                        .output
+                        .push_str("    cmp x0, x2\n    cset x2, ge\n");
                     self.emitter.mov_imm(Register::X3, 0x200000000);
-                    self.emitter.output.push_str("    cmp x0, x3\n    cset x3, lt\n");
+                    self.emitter
+                        .output
+                        .push_str("    cmp x0, x3\n    cset x3, lt\n");
                     self.emitter.output.push_str("    and x0, x2, x3\n");
                 } else {
                     // Fail fallback
