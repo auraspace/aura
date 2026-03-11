@@ -42,6 +42,8 @@ pub struct SemanticAnalyzer {
     pub node_definitions: HashMap<Span, Span>,
     pub node_docs: HashMap<Span, String>,
     pub record_node_info: bool,
+    pub loaded_files: std::collections::HashSet<String>,
+    pub current_dir: Option<String>,
 }
 
 impl SemanticAnalyzer {
@@ -55,6 +57,8 @@ impl SemanticAnalyzer {
             node_definitions: HashMap::new(),
             node_docs: HashMap::new(),
             record_node_info: false,
+            loaded_files: std::collections::HashSet::new(),
+            current_dir: None,
         };
 
         // Register built-in Promise class
@@ -149,10 +153,14 @@ impl SemanticAnalyzer {
             .push(Diagnostic::error(msg, span.line, span.column));
     }
 
+    pub fn set_current_dir(&mut self, dir: String) {
+        self.current_dir = Some(dir);
+    }
+
     pub fn analyze(&mut self, program: Program) {
         self.record_node_info = true;
-        // Pass 1: Collect class info from current program
-        self.collect_classes(&program);
+        // Pass 1: Collect declarations from current program
+        self.collect_definitions(&program);
 
         // Pass 2: Check statements
         for stmt in program.statements {
@@ -160,7 +168,7 @@ impl SemanticAnalyzer {
         }
     }
 
-    pub fn collect_classes(&mut self, program: &Program) {
+    pub fn collect_definitions(&mut self, program: &Program) {
         for stmt in &program.statements {
             let actual_stmt = match stmt {
                 Statement::Export { decl, .. } => &**decl,
@@ -258,6 +266,61 @@ impl SemanticAnalyzer {
                         doc: doc.clone(),
                     },
                 );
+            } else if let Statement::FunctionDeclaration {
+                name,
+                params,
+                return_ty,
+                span,
+                doc,
+                ..
+            } = actual_stmt
+            {
+                let param_tys = params
+                    .iter()
+                    .map(|(_, ty)| self.resolve_type(ty.clone()))
+                    .collect();
+                let ret_ty = self.resolve_type(return_ty.clone());
+                let func_ty = Type::Function(param_tys, Box::new(ret_ty));
+                self.scope
+                    .insert(name.clone(), func_ty, false, *span, doc.clone());
+            } else if let Statement::Import { path, .. } = actual_stmt {
+                self.load_import(path.clone());
+            }
+        }
+    }
+
+    fn load_import(&mut self, path: String) {
+        let absolute_path = if path.starts_with(".") {
+            if let Some(ref dir) = self.current_dir {
+                std::path::Path::new(dir).join(path).canonicalize()
+            } else {
+                std::path::Path::new(&path).canonicalize()
+            }
+        } else {
+            std::path::Path::new(&path).canonicalize()
+        };
+
+        if let Ok(abs_p) = absolute_path {
+            let path_str = abs_p.to_string_lossy().to_string();
+            if self.loaded_files.contains(&path_str) {
+                return;
+            }
+            self.loaded_files.insert(path_str.clone());
+
+            if let Ok(source) = std::fs::read_to_string(&abs_p) {
+                let mut lexer = crate::compiler::frontend::lexer::Lexer::new(&source);
+                let tokens = lexer.lex_all();
+                let mut parser = crate::compiler::frontend::parser::Parser::new(tokens);
+                let program = parser.parse_program();
+
+                let saved_dir = self.current_dir.clone();
+                if let Some(parent) = abs_p.parent() {
+                    self.current_dir = Some(parent.to_string_lossy().to_string());
+                }
+
+                self.collect_definitions(&program);
+
+                self.current_dir = saved_dir;
             }
         }
     }
@@ -272,7 +335,7 @@ impl SemanticAnalyzer {
                         let tokens = lexer.lex_all();
                         let mut parser = crate::compiler::frontend::parser::Parser::new(tokens);
                         let program = parser.parse_program();
-                        self.collect_classes(&program);
+                        self.collect_definitions(&program);
                     }
                 }
             }
@@ -586,7 +649,11 @@ impl SemanticAnalyzer {
             }
             Statement::Error => {}
             Statement::Import { .. } => {
-                // Ignore imports as we load stdlib in advance
+                // Symbols should be loaded in Pass 1 (collect_definitions)
+                // But we should also check the body of the imported file for errors
+                // However, we need to be careful not to check it multiple times.
+                // For now, Pass 1 loading is enough for symbols.
+                // To support full error checking of dependencies, we'd need a more robust module system.
             }
             Statement::TryCatch {
                 try_block,

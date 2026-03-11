@@ -127,6 +127,11 @@ fn main() {
     let mut analyzer = SemanticAnalyzer::new();
     register_analyzer_intrinsics(&mut analyzer);
     analyzer.load_stdlib(&stdlib_path);
+    let input_dir = std::path::Path::new(&input_name)
+        .parent()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|| ".".to_string());
+    analyzer.set_current_dir(input_dir.clone());
     analyzer.analyze(program.clone());
     if analyzer.diagnostics.has_errors() {
         analyzer.diagnostics.report();
@@ -165,6 +170,7 @@ fn main() {
         let mut cg = Codegen::new();
         cg.set_node_types(analyzer.node_types);
         cg.load_stdlib(&stdlib_path);
+        cg.set_current_dir(input_dir);
         cg.generate(program)
     };
 

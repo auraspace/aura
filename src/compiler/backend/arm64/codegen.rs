@@ -15,6 +15,8 @@ pub struct Codegen {
     current_fn_end: Option<String>,
     current_class: Option<String>,
     is_global_scope: bool,
+    loaded_files: std::collections::HashSet<String>,
+    current_dir: Option<String>,
 }
 
 impl Codegen {
@@ -31,7 +33,13 @@ impl Codegen {
             current_fn_end: None,
             current_class: None,
             is_global_scope: true,
+            loaded_files: std::collections::HashSet::new(),
+            current_dir: None,
         }
+    }
+
+    pub fn set_current_dir(&mut self, dir: String) {
+        self.current_dir = Some(dir);
     }
 
     pub fn set_node_types(&mut self, node_types: HashMap<Span, Type>) {
@@ -152,24 +160,7 @@ impl Codegen {
         let mut fns = Vec::new();
         let mut global_stmts = Vec::new();
 
-        for stmt in &program.statements {
-            match stmt {
-                Statement::ClassDeclaration { .. } => classes.push(stmt.clone()),
-                Statement::FunctionDeclaration { .. } => fns.push(stmt.clone()),
-                Statement::VarDeclaration { name, value, .. } => {
-                    let var_ty = self
-                        .node_types
-                        .get(&value.span())
-                        .cloned()
-                        .unwrap_or(Type::Unknown);
-                    let label = format!("_g_{}", name);
-                    self.global_variables
-                        .insert(name.clone(), (label, var_ty));
-                    global_stmts.push(stmt.clone());
-                }
-                _ => global_stmts.push(stmt.clone()),
-            }
-        }
+        self.collect_all_definitions(program, &mut classes, &mut fns, &mut global_stmts);
 
         for c in classes {
             self.generate_statement(c);
@@ -217,6 +208,76 @@ impl Codegen {
         let l = self.label_count;
         self.label_count += 1;
         format!("_{}_{}", prefix, l)
+    }
+
+    fn collect_all_definitions(
+        &mut self,
+        program: Program,
+        classes: &mut Vec<Statement>,
+        fns: &mut Vec<Statement>,
+        global_stmts: &mut Vec<Statement>,
+    ) {
+        for stmt in program.statements {
+            let actual_stmt = match stmt {
+                Statement::Export { decl, .. } => *decl,
+                _ => stmt,
+            };
+
+            match actual_stmt {
+                Statement::ClassDeclaration { .. } => classes.push(actual_stmt),
+                Statement::FunctionDeclaration { .. } => fns.push(actual_stmt),
+                Statement::Import { path, .. } => {
+                    let absolute_path = if path.starts_with(".") {
+                        if let Some(ref dir) = self.current_dir {
+                            std::path::Path::new(dir).join(path).canonicalize()
+                        } else {
+                            std::path::Path::new(&path).canonicalize()
+                        }
+                    } else {
+                        std::path::Path::new(&path).canonicalize()
+                    };
+
+                    if let Ok(abs_p) = absolute_path {
+                        let path_str = abs_p.to_string_lossy().to_string();
+                        if self.loaded_files.contains(&path_str) {
+                            continue;
+                        }
+                        self.loaded_files.insert(path_str.clone());
+
+                        if let Ok(source) = std::fs::read_to_string(&abs_p) {
+                            let mut lexer = crate::compiler::frontend::lexer::Lexer::new(&source);
+                            let tokens = lexer.lex_all();
+                            let mut parser = crate::compiler::frontend::parser::Parser::new(tokens);
+                            let program = parser.parse_program();
+
+                            let saved_dir = self.current_dir.clone();
+                            if let Some(parent) = abs_p.parent() {
+                                self.current_dir = Some(parent.to_string_lossy().to_string());
+                            }
+
+                            self.collect_all_definitions(program, classes, fns, global_stmts);
+
+                            self.current_dir = saved_dir;
+                        }
+                    }
+                }
+                Statement::VarDeclaration {
+                    ref name,
+                    ref value,
+                    ..
+                } => {
+                    let var_ty = self
+                        .node_types
+                        .get(&value.span())
+                        .cloned()
+                        .unwrap_or(Type::Unknown);
+                    let label = format!("_g_{}", name);
+                    self.global_variables.insert(name.clone(), (label, var_ty));
+                    global_stmts.push(actual_stmt);
+                }
+                _ => global_stmts.push(actual_stmt),
+            }
+        }
     }
 
     pub fn load_stdlib(&mut self, stdlib_path: &str) {
@@ -551,8 +612,11 @@ impl Codegen {
                 // For now, just generate the try block to avoid panics
                 self.generate_statement(*try_block);
             }
-            Statement::Import { .. } | Statement::Export { .. } => {
-                // Ignore for now in ARM64 backend as we link Everything together
+            Statement::Import { .. } => {
+                // Handled in collect_all_definitions
+            }
+            Statement::Export { decl, .. } => {
+                self.generate_statement(*decl);
             }
         }
     }
