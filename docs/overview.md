@@ -2,7 +2,7 @@
 
 Aura is a modern, high-performance, strictly-typed programming language inspired by **TypeScript** and **Rust**. It aims to provide the developer-friendly syntax and OOP features of TypeScript with the safety and performance of a systems language.
 
-This repository (`aura-rust`) contains the core toolchain for Aura, including the compiler, runtime, and standard library, all written in **Rust**.
+This repository (`aura`) contains the core toolchain for Aura, including the compiler, runtime, and standard library, all written in **Rust**.
 
 ---
 
@@ -57,7 +57,7 @@ Aura's custom backend is designed for cross-platform portability. Our roadmap in
 The Aura toolchain is designed with a modular architecture in Rust. Each component is isolated to allow independent development and testing:
 
 ```text
-aura-rust/
+aura/
 ├── Cargo.toml             # Project manifest and dependencies
 ├── src/
 │   ├── main.rs            # CLI entry point (driver for compiler, lsp, etc.)

@@ -2,3 +2,5 @@ target/
 aura_program
 *.s
 .DS_Store
+node_modules
+out

@@ -6,12 +6,12 @@ description: "Rules for maintaining the Aura Project Structure"
 
 # Project Structure Rules
 
-All development within the `aura-rust` project must adhere to the following directory structure. Any new modules or files must be placed according to these definitions.
+All development within the `aura` project must adhere to the following directory structure. Any new modules or files must be placed according to these definitions.
 
 ## 🛠 Directory Layout
 
 ```text
-aura-rust/
+aura/
 ├── Cargo.toml             # Project manifest and dependencies
 ├── src/
 │   ├── main.rs            # CLI entry point (driver for compiler, lsp, etc.)

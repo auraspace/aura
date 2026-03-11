@@ -1,0 +1,79 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Aura",
+  "scopeName": "source.aura",
+  "patterns": [
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#keywords"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#numbers"
+    },
+    {
+      "include": "#types"
+    }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.aura",
+          "match": "//.*$"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.aura",
+          "match": "\\b(if|else|while|for|return|try|catch|new|import)\\b"
+        },
+        {
+          "name": "keyword.declaration.aura",
+          "match": "\\b(class|fn|let|constructor)\\b"
+        },
+        {
+          "name": "keyword.other.aura",
+          "match": "\\b(this|print)\\b"
+        },
+        {
+          "name": "constant.language.aura",
+          "match": "\\b(true|false|null)\\b"
+        }
+      ]
+    },
+    "strings": {
+      "name": "string.quoted.double.aura",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.aura",
+          "match": "\\\\."
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.aura",
+          "match": "\\b\\d+(\\.\\d+)?\\b"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "entity.name.type.aura",
+          "match": "\\b(i32|f64|bool|string|void|Promise|TCPStream|TCPServer|HTTPClient|HTTPRequest|HTTPResponse|Date)\\b"
+        }
+      ]
+    }
+  }
+}

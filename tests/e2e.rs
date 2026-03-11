@@ -54,8 +54,8 @@ fn run_test(aura_file: &Path) {
 
     // Build the path to the binary (use CARGO_BIN_EXE when available, else
     // fall back to a known debug location).
-    let binary = std::env::var("CARGO_BIN_EXE_aura-rust")
-        .unwrap_or_else(|_| "target/debug/aura-rust".to_string());
+    let binary = std::env::var("CARGO_BIN_EXE_aura")
+        .unwrap_or_else(|_| "target/debug/aura".to_string());
 
     let mode = std::env::var("AURA_TEST_MODE").unwrap_or_else(|_| "interp".to_string());
 

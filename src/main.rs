@@ -1,15 +1,15 @@
-use aura_rust::compiler::backend::arm64::codegen::Codegen;
-use aura_rust::compiler::backend::arm64::driver::Driver;
-use aura_rust::compiler::backend::arm64::ir_codegen::IrCodegen;
-use aura_rust::compiler::frontend::lexer::Lexer;
-use aura_rust::compiler::frontend::parser::Parser;
-use aura_rust::compiler::interp::Interpreter;
-use aura_rust::compiler::intrinsic::{
+use aura::compiler::backend::arm64::codegen::Codegen;
+use aura::compiler::backend::arm64::driver::Driver;
+use aura::compiler::backend::arm64::ir_codegen::IrCodegen;
+use aura::compiler::frontend::lexer::Lexer;
+use aura::compiler::frontend::parser::Parser;
+use aura::compiler::interp::Interpreter;
+use aura::compiler::intrinsic::{
     register_analyzer_intrinsics, register_interpreter_intrinsics,
 };
-use aura_rust::compiler::ir::lower::Lowerer;
-use aura_rust::compiler::ir::opt::Optimizer;
-use aura_rust::compiler::sema::checker::SemanticAnalyzer;
+use aura::compiler::ir::lower::Lowerer;
+use aura::compiler::ir::opt::Optimizer;
+use aura::compiler::sema::checker::SemanticAnalyzer;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -27,7 +27,7 @@ fn main() {
 
     if is_lsp {
         let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
-        rt.block_on(aura_rust::lsp::server::run_server());
+        rt.block_on(aura::lsp::server::run_server());
         return;
     }
 
@@ -45,7 +45,7 @@ fn main() {
             path.clone(),
         )
     } else {
-        println!("Usage: aura-rust [options] <input_file>");
+        println!("Usage: aura [options] <input_file>");
         println!("Options:");
         println!("  --ir       Use IR backend");
         println!("  --interp   Use interpreter");
@@ -113,7 +113,7 @@ fn main() {
         let module = opt.optimize(module);
 
         if target == "x86_64" {
-            let mut cg = aura_rust::compiler::backend::x86_64::ir_codegen::IrCodegen::new();
+            let mut cg = aura::compiler::backend::x86_64::ir_codegen::IrCodegen::new();
             cg.generate(module)
         } else {
             let mut cg = IrCodegen::new();
