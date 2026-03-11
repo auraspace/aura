@@ -179,14 +179,22 @@ impl Codegen {
                         } else {
                             continue;
                         }
-                    } else if path.starts_with(".") {
-                        if let Some(ref dir) = self.current_dir {
-                            std::path::Path::new(dir).join(path).canonicalize()
-                        } else {
-                            std::path::Path::new(&path).canonicalize()
-                        }
                     } else {
-                        std::path::Path::new(&path).canonicalize()
+                        let actual_path = if path.ends_with(".aura") {
+                            path.to_string()
+                        } else {
+                            format!("{}.aura", path)
+                        };
+
+                        if path.starts_with(".") {
+                            if let Some(ref dir) = self.current_dir {
+                                std::path::Path::new(dir).join(actual_path).canonicalize()
+                            } else {
+                                std::path::Path::new(&actual_path).canonicalize()
+                            }
+                        } else {
+                            std::path::Path::new(&actual_path).canonicalize()
+                        }
                     };
 
                     if let Ok(abs_p) = absolute_path {

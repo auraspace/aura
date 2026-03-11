@@ -126,6 +126,17 @@ impl SemanticAnalyzer {
             },
         );
 
+        analyzer.scope.insert("true".to_string(), Type::Boolean, false, Span::new(0, 0), "".to_string(), None);
+        analyzer.scope.insert("false".to_string(), Type::Boolean, false, Span::new(0, 0), "".to_string(), None);
+        analyzer.scope.insert("null".to_string(), Type::Null, false, Span::new(0, 0), "".to_string(), None);
+        
+        analyzer.scope.insert("O_RDONLY".to_string(), Type::Int32, false, Span::new(0, 0), "".to_string(), None);
+        analyzer.scope.insert("O_WRONLY".to_string(), Type::Int32, false, Span::new(0, 0), "".to_string(), None);
+        analyzer.scope.insert("O_RDWR".to_string(), Type::Int32, false, Span::new(0, 0), "".to_string(), None);
+        analyzer.scope.insert("O_CREAT".to_string(), Type::Int32, false, Span::new(0, 0), "".to_string(), None);
+        analyzer.scope.insert("O_TRUNC".to_string(), Type::Int32, false, Span::new(0, 0), "".to_string(), None);
+        analyzer.scope.insert("O_APPEND".to_string(), Type::Int32, false, Span::new(0, 0), "".to_string(), None);
+
         analyzer
     }
 
@@ -257,6 +268,26 @@ impl SemanticAnalyzer {
                 let ret_ty = self.resolve_type(return_ty.clone());
                 self.scope
                     .insert(name.clone(), Type::Function(param_tys, Box::new(ret_ty)), false, *name_span, self.current_file.clone(), doc.clone());
+            } else if let Statement::VarDeclaration {
+                name,
+                name_span,
+                ty,
+                value: _,
+                span,
+                doc,
+            } = actual_stmt 
+            {
+                // In pass 1, we try to use the declared type if available.
+                // Otherwise we use Unknown, and it will be properly inferred in pass 2.
+                let var_ty = ty.as_ref().map(|t| self.resolve_type(t.clone())).unwrap_or(Type::Unknown);
+                self.scope.insert(
+                    name.clone(),
+                    var_ty,
+                    false,
+                    *name_span,
+                    self.current_file.clone(),
+                    doc.clone(),
+                );
             } else if let Statement::Import { path, path_span, item, .. } = actual_stmt {
                 self.load_import(path.clone(), *path_span);
                 match item {
@@ -330,14 +361,22 @@ impl SemanticAnalyzer {
             } else {
                 Err(std::io::Error::new(std::io::ErrorKind::NotFound, "Stdlib path not set"))
             }
-        } else if path.starts_with(".") {
-            if let Some(ref dir) = self.current_dir {
-                std::path::Path::new(dir).join(path).canonicalize()
-            } else {
-                std::path::Path::new(path).canonicalize()
-            }
         } else {
-            std::path::Path::new(path).canonicalize()
+            let actual_path = if path.ends_with(".aura") {
+                path.to_string()
+            } else {
+                format!("{}.aura", path)
+            };
+
+            if path.starts_with(".") {
+                if let Some(ref dir) = self.current_dir {
+                    std::path::Path::new(dir).join(actual_path).canonicalize()
+                } else {
+                    std::path::Path::new(&actual_path).canonicalize()
+                }
+            } else {
+                std::path::Path::new(&actual_path).canonicalize()
+            }
         }
     }
 
@@ -354,7 +393,7 @@ impl SemanticAnalyzer {
 
             if let Ok(source) = std::fs::read_to_string(&abs_p) {
                 let mut lexer = crate::compiler::frontend::lexer::Lexer::new(&source);
-                let mut parser = crate::compiler::frontend::parser::Parser::new(lexer.lex_all(), path_str);
+                let mut parser = crate::compiler::frontend::parser::Parser::new(lexer.lex_all(), path_str.clone());
                 let program = parser.parse_program();
 
                 let saved_dir = self.current_dir.clone();
@@ -363,6 +402,13 @@ impl SemanticAnalyzer {
                 }
 
                 self.collect_definitions(&program);
+
+                let saved_file = self.current_file.clone();
+                self.current_file = path_str;
+                for stmt in program.statements {
+                    self.check_statement(stmt);
+                }
+                self.current_file = saved_file;
 
                 self.current_dir = saved_dir;
             }
@@ -374,10 +420,19 @@ impl SemanticAnalyzer {
         let core_path = std::path::Path::new(stdlib_path).join("core.aura");
         if core_path.exists() {
             if let Ok(source) = std::fs::read_to_string(&core_path) {
+                let path_str = core_path.to_string_lossy().to_string();
                 let mut lexer = crate::compiler::frontend::lexer::Lexer::new(&source);
-                let mut parser = crate::compiler::frontend::parser::Parser::new(lexer.lex_all(), core_path.to_string_lossy().to_string());
+                let mut parser = crate::compiler::frontend::parser::Parser::new(lexer.lex_all(), path_str.clone());
                 let program = parser.parse_program();
+                
                 self.collect_definitions(&program);
+
+                let saved_file = self.current_file.clone();
+                self.current_file = path_str;
+                for stmt in program.statements {
+                    self.check_statement(stmt);
+                }
+                self.current_file = saved_file;
             }
         }
     }
