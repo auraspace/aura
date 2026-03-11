@@ -279,6 +279,9 @@ impl SemanticAnalyzer {
                 let mut field_map = HashMap::new();
                 let mut static_field_map = HashMap::new();
                 for f in fields {
+                    if field_map.contains_key(&f.name) || static_field_map.contains_key(&f.name) {
+                        self.error(SemanticErrorKind::DuplicateDeclaration(f.name.clone()), f.name_span);
+                    }
                     let ty = self.resolve_type(f.ty.clone());
                     if f.is_static {
                         static_field_map.insert(f.name.clone(), (ty, f.name_span, f.doc.clone()));
@@ -289,6 +292,9 @@ impl SemanticAnalyzer {
                 let mut method_map = HashMap::new();
                 let mut static_method_map = HashMap::new();
                 for m in methods {
+                    if method_map.contains_key(&m.name) || static_method_map.contains_key(&m.name) || field_map.contains_key(&m.name) || static_field_map.contains_key(&m.name) {
+                        self.error(SemanticErrorKind::DuplicateDeclaration(m.name.clone()), m.name_span);
+                    }
                     let param_tys = m
                         .params
                         .iter()
