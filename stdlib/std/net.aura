@@ -1,48 +1,81 @@
+/**
+ * Represents a TCP stream socket client.
+ */
 export class TCPStream {
     fd: i32;
 
+    /**
+     * Internal constructor for TCPStream.
+     */
     constructor(fd: i32) {
         this.fd = fd;
     }
 
+    /**
+     * Connects to a remote host and port.
+     */
     static connect(host: string, port: i32): TCPStream {
         let fd = __net_connect(host, port);
         if (fd < 0) return null;
         return new TCPStream(fd);
     }
 
+    /**
+     * Reads up to `size` bytes from the stream.
+     */
     read(size: i32): string {
         return __fs_read(this.fd, size);
     }
 
+    /**
+     * Writes a string to the stream.
+     */
     write(content: string): i32 {
         return __fs_write(this.fd, content);
     }
 
+    /**
+     * Closes the stream.
+     */
     close(): void {
         __fs_close(this.fd);
     }
 }
 
+/**
+ * Represents a TCP server socket that listens for incoming connections.
+ */
 export class TCPServer {
     fd: i32;
 
+    /**
+     * Internal constructor for TCPServer.
+     */
     constructor(fd: i32) {
         this.fd = fd;
     }
 
+    /**
+     * Starts listening on the specified port.
+     */
     static listen(port: i32): TCPServer {
         let fd = __net_listen(port);
         if (fd < 0) return null;
         return new TCPServer(fd);
     }
 
+    /**
+     * Accepts a new incoming connection.
+     */
     accept(): TCPStream {
         let conn_fd = __net_accept(this.fd);
         if (conn_fd < 0) return null;
         return new TCPStream(conn_fd);
     }
 
+    /**
+     * Closes the server socket.
+     */
     close(): void {
         __fs_close(this.fd);
     }

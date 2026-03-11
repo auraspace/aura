@@ -1,19 +1,31 @@
 import { TCPStream, TCPServer } from "std/net.aura";
 
+/**
+ * Represents an HTTP header field.
+ */
 export class HTTPHeader {
     name: string;
     value: string;
 
+    /**
+     * Creates a new HTTPHeader.
+     */
     constructor(name: string, value: string) {
         this.name = name;
         this.value = value;
     }
 
+    /**
+     * Returns the header as a string (e.g., "Content-Type: text/plain").
+     */
     toString(): string {
         return this.name + ": " + this.value;
     }
 }
 
+/**
+ * Common HTTP status codes and utilities.
+ */
 export class HTTPStatus {
     static OK: i32 = 200;
     static CREATED: i32 = 201;
@@ -21,6 +33,9 @@ export class HTTPStatus {
     static NOT_FOUND: i32 = 404;
     static INTERNAL_SERVER_ERROR: i32 = 500;
 
+    /**
+     * Returns the standard reason phrase for an HTTP status code.
+     */
     static getStatusText(code: i32): string {
         if (code == 200) return "OK";
         if (code == 201) return "Created";
@@ -31,12 +46,18 @@ export class HTTPStatus {
     }
 }
 
+/**
+ * Represents an HTTP request.
+ */
 export class HTTPRequest {
     method: string;
     path: string;
     headers: HTTPHeader[];
     body: string;
 
+    /**
+     * Creates a new HTTPRequest.
+     */
     constructor(method: string, path: string, headers: HTTPHeader[], body: string) {
         this.method = method;
         this.path = path;
@@ -44,6 +65,9 @@ export class HTTPRequest {
         this.body = body;
     }
 
+    /**
+     * Returns the value of the specified header, or null if not found.
+     */
     getHeader(name: string): string {
         let i = 0;
         while (i < this.headers.len()) {
@@ -55,6 +79,9 @@ export class HTTPRequest {
         return null;
     }
 
+    /**
+     * Returns the request as a raw string.
+     */
     toString(): string {
         let headerStr = "";
         let i = 0;
@@ -69,12 +96,18 @@ export class HTTPRequest {
     }
 }
 
+/**
+ * Represents an HTTP response.
+ */
 export class HTTPResponse {
     statusCode: i32;
     statusText: string;
     headers: HTTPHeader[];
     body: string;
 
+    /**
+     * Creates a new HTTPResponse.
+     */
     constructor(statusCode: i32, statusText: string, headers: HTTPHeader[], body: string) {
         this.statusCode = statusCode;
         this.statusText = statusText;
@@ -82,6 +115,9 @@ export class HTTPResponse {
         this.body = body;
     }
 
+    /**
+     * Returns the value of the specified header, or null if not found.
+     */
     getHeader(name: string): string {
         let i = 0;
         while (i < this.headers.len()) {
@@ -93,6 +129,9 @@ export class HTTPResponse {
         return null;
     }
 
+    /**
+     * Returns the response as a raw string.
+     */
     toString(): string {
         let headerStr = "";
         let i = 0;
@@ -108,11 +147,20 @@ export class HTTPResponse {
     }
 }
 
+/**
+ * A client for making HTTP requests.
+ */
 export class HTTPClient {
+    /**
+     * Performs a simple GET request.
+     */
     static get(host: string, port: i32, path: string): HTTPResponse {
         return HTTPClient.request(host, port, "GET", path, "");
     }
 
+    /**
+     * Performs an HTTP request with the specified method, path, and body.
+     */
     static request(host: string, port: i32, method: string, path: string, body: string): HTTPResponse {
         let stream = TCPStream.connect(host, port);
         if (stream == null) {
@@ -186,13 +234,22 @@ export class HTTPClient {
     }
 }
 
+/**
+ * A simple HTTP server.
+ */
 export class HTTPServer {
     server: TCPServer;
 
+    /**
+     * Creates a new HTTPServer listening on the specified port.
+     */
     constructor(port: i32) {
         this.server = TCPServer.listen(port);
     }
 
+    /**
+     * Starts listening for requests and handles them using the provided handler function.
+     */
     listen(handler: function): void {
         if (this.server == null) {
             print("Failed to start server");

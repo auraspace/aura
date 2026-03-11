@@ -1,26 +1,38 @@
-/// Array utilities for Aura
+/**
+ * Array utilities for Aura.
+ */
 export class Array {
-    /// Returns the length of an array
+    /**
+     * Returns the length of an array.
+     */
     static function len(a: any[]): i32 {
         return a.len();
     }
 
-    /// Pushes an item to the end of an array
+    /**
+     * Pushes an item to the end of an array.
+     */
     static function push(a: any[], item: any): void {
         a.push(item);
     }
 
-    /// Pops an item from the end of an array
+    /**
+     * Pops an item from the end of an array.
+     */
     static function pop(a: any[]): any {
         return a.pop();
     }
 
-    /// Joins elements of an array into a string
+    /**
+     * Joins elements of an array into a string.
+     */
     static function join(a: any[], sep: string): string {
         return a.join(sep);
     }
 
-    /// Returns the element at the given index
+    /**
+     * Returns the element at the given index.
+     */
     static function get(a: any[], i: i32): any {
         return a.get(i);
     }

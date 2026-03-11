@@ -1,10 +1,19 @@
+/**
+ * Base class for all errors in Aura.
+ */
 class Error {
     message: string;
 
+    /**
+     * Creates a new Error with the given message.
+     */
     constructor(message: string) {
         this.message = message;
     }
 
+    /**
+     * Returns the error message.
+     */
     toString(): string {
         return this.message;
     }

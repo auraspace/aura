@@ -1,36 +1,52 @@
-/// String utilities for Aura
+/**
+ * String utilities for Aura.
+ */
 export class String {
-    /// Returns the length of a string
+    /**
+     * Returns the length of a string.
+     */
     static function len(s: string): i32 {
         return s.len();
     }
 
-    /// Returns the character at the given index
+    /**
+     * Returns the character at the given index.
+     */
     static function charAt(s: string, i: i32): string {
         return s.charAt(i);
     }
 
-    /// Returns a substring
+    /**
+     * Returns a substring from `start` to `end` (exclusive).
+     */
     static function substring(s: string, start: i32, end: i32): string {
         return s.substring(start, end);
     }
 
-    /// Returns the index of a target substring
+    /**
+     * Returns the index of a target substring, or -1 if not found.
+     */
     static function indexOf(s: string, target: string): i32 {
         return s.indexOf(target);
     }
 
-    /// Converts a string to uppercase
+    /**
+     * Converts a string to uppercase.
+     */
     static function toUpper(s: string): string {
         return s.toUpper();
     }
 
-    /// Converts a string to lowercase
+    /**
+     * Converts a string to lowercase.
+     */
     static function toLower(s: string): string {
         return s.toLower();
     }
 
-    /// Trims whitespace from both ends of a string
+    /**
+     * Trims whitespace from both ends of a string.
+     */
     static function trim(s: string): string {
         return s.trim();
     }
