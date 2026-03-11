@@ -1,4 +1,4 @@
-use crate::compiler::ast::{Expr, Program, Span, Statement, TypeExpr};
+use crate::compiler::ast::{Expr, ImportItem, Program, Span, Statement, TypeExpr};
 use crate::compiler::frontend::error::{Diagnostic, DiagnosticList};
 use crate::compiler::sema::scope::Scope;
 use crate::compiler::sema::ty::Type;
@@ -40,7 +40,7 @@ pub struct SemanticAnalyzer {
     pub current_class: Option<String>,
     pub diagnostics: DiagnosticList,
     pub node_types: HashMap<String, HashMap<Span, Type>>,
-    pub node_definitions: HashMap<String, HashMap<Span, Span>>,
+    pub node_definitions: HashMap<String, HashMap<Span, (String, Span)>>,
     pub node_docs: HashMap<String, HashMap<Span, String>>,
     pub record_node_info: bool,
     pub current_file: String,
@@ -256,9 +256,25 @@ impl SemanticAnalyzer {
                     .collect();
                 let ret_ty = self.resolve_type(return_ty.clone());
                 self.scope
-                    .insert(name.clone(), Type::Function(param_tys, Box::new(ret_ty)), false, *name_span, doc.clone());
-            } else if let Statement::Import { path, .. } = actual_stmt {
-                self.load_import(path.clone());
+                    .insert(name.clone(), Type::Function(param_tys, Box::new(ret_ty)), false, *name_span, self.current_file.clone(), doc.clone());
+            } else if let Statement::Import { path, path_span, item, .. } = actual_stmt {
+                self.load_import(path.clone(), *path_span);
+                match item {
+                    ImportItem::Named(names) => {
+                        for (name, name_span) in names {
+                            if let Some(sym) = self.scope.lookup(name) {
+                                let def_file = sym.defined_in.clone();
+                                let def_span = sym.span;
+                                self.record_definition(*name_span, def_file, def_span);
+                            }
+                        }
+                    }
+                    ImportItem::Namespace((_ns, ns_span)) => {
+                        if let Ok(abs_p) = self.resolve_import_path(path) {
+                            self.record_definition(*ns_span, abs_p.to_string_lossy().to_string(), Span::new(1, 1));
+                        }
+                    }
+                }
             }
         }
         self.current_file = saved_file;
@@ -274,14 +290,14 @@ impl SemanticAnalyzer {
             .insert(span, ty);
     }
 
-    fn record_definition(&mut self, span: Span, def_span: Span) {
+    fn record_definition(&mut self, span: Span, def_file: String, def_span: Span) {
         if !self.record_node_info {
             return;
         }
         self.node_definitions
             .entry(self.current_file.clone())
             .or_insert_with(HashMap::new)
-            .insert(span, def_span);
+            .insert(span, (def_file, def_span));
     }
 
     fn record_doc(&mut self, span: Span, doc: String) {
@@ -294,15 +310,15 @@ impl SemanticAnalyzer {
             .insert(span, doc);
     }
 
-    fn find_definition(&self, span: &Span) -> Option<Span> {
+    fn find_definition(&self, span: &Span) -> Option<(String, Span)> {
         self.node_definitions
             .get(&self.current_file)
             .and_then(|m| m.get(span))
             .cloned()
     }
 
-    fn load_import(&mut self, path: String) {
-        let absolute_path = if path.starts_with("std/") {
+    fn resolve_import_path(&self, path: &str) -> Result<std::path::PathBuf, std::io::Error> {
+        if path.starts_with("std/") {
             if let Some(ref std_path) = self.stdlib_path {
                 let sub_path = &path[4..]; // remove "std/"
                 let aura_path = if sub_path.ends_with(".aura") {
@@ -312,17 +328,21 @@ impl SemanticAnalyzer {
                 };
                 std::path::Path::new(std_path).join(aura_path).canonicalize()
             } else {
-                return;
+                Err(std::io::Error::new(std::io::ErrorKind::NotFound, "Stdlib path not set"))
             }
         } else if path.starts_with(".") {
             if let Some(ref dir) = self.current_dir {
                 std::path::Path::new(dir).join(path).canonicalize()
             } else {
-                std::path::Path::new(&path).canonicalize()
+                std::path::Path::new(path).canonicalize()
             }
         } else {
-            std::path::Path::new(&path).canonicalize()
-        };
+            std::path::Path::new(path).canonicalize()
+        }
+    }
+
+    fn load_import(&mut self, path: String, span: Span) {
+        let absolute_path = self.resolve_import_path(&path);
 
         if let Ok(abs_p) = absolute_path {
             let path_str = abs_p.to_string_lossy().to_string();
@@ -330,6 +350,7 @@ impl SemanticAnalyzer {
                 return;
             }
             self.loaded_files.insert(path_str.clone());
+            self.record_definition(span, path_str.clone(), Span::new(1, 1));
 
             if let Ok(source) = std::fs::read_to_string(&abs_p) {
                 let mut lexer = crate::compiler::frontend::lexer::Lexer::new(&source);
@@ -497,7 +518,7 @@ impl SemanticAnalyzer {
                     }
                     self.record_type(name_span, declared_ty.clone());
                 }
-                self.scope.insert(name, declared_ty, false, span, doc);
+                self.scope.insert(name, declared_ty, false, span, self.current_file.clone(), doc);
             }
             Statement::Expression(expr, _) => {
                 self.check_expr(expr);
@@ -526,7 +547,7 @@ impl SemanticAnalyzer {
 
                         self.push_scope();
                         self.scope
-                            .insert(name.clone(), narrowed_ty.clone(), false, span, None);
+                            .insert(name.clone(), narrowed_ty.clone(), false, span, self.current_file.clone(), None);
                         self.check_statement(*then_branch);
                         self.pop_scope();
 
@@ -540,7 +561,7 @@ impl SemanticAnalyzer {
 
                             self.push_scope();
                             self.scope
-                                .insert(name.clone(), excluded_ty, false, span, None);
+                                .insert(name.clone(), excluded_ty, false, span, self.current_file.clone(), None);
                             self.check_statement(*eb);
                             self.pop_scope();
                         }
@@ -586,6 +607,7 @@ impl SemanticAnalyzer {
                     func_ty.clone(),
                     false,
                     span,
+                    self.current_file.clone(),
                     doc_clone,
                 );
                 if self.record_node_info {
@@ -598,7 +620,7 @@ impl SemanticAnalyzer {
                 self.push_scope();
                 for (pname, pty) in params {
                     let ty = self.resolve_type(pty.clone());
-                    self.scope.insert(pname, ty, true, pty.span(), None);
+                    self.scope.insert(pname, ty, true, pty.span(), self.current_file.clone(), None);
                 }
                 self.check_statement(*body);
                 self.pop_scope();
@@ -638,11 +660,12 @@ impl SemanticAnalyzer {
                         Type::Class(name.clone()),
                         false,
                         ctor.span,
+                        self.current_file.clone(),
                         None,
                     );
                     for (pname, pty) in ctor.params {
                         let ty = self.resolve_type(pty.clone());
-                        self.scope.insert(pname, ty, true, pty.span(), None);
+                        self.scope.insert(pname, ty, true, pty.span(), self.current_file.clone(), None);
                     }
                     self.check_statement(*ctor.body);
                     self.pop_scope();
@@ -655,11 +678,12 @@ impl SemanticAnalyzer {
                         Type::Class(name.clone()),
                         false,
                         m.span,
+                        self.current_file.clone(),
                         None,
                     );
                     for (pname, pty) in m.params {
                         let ty = self.resolve_type(pty.clone());
-                        self.scope.insert(pname, ty, true, pty.span(), None);
+                        self.scope.insert(pname, ty, true, pty.span(), self.current_file.clone(), None);
                     }
                     self.check_statement(*m.body);
                     self.pop_scope();
@@ -695,7 +719,7 @@ impl SemanticAnalyzer {
                             ty
                         };
                         self.scope
-                            .insert(name.clone(), final_ty, true, Span::new(0, 0), None);
+                            .insert(name.clone(), final_ty, true, Span::new(0, 0), self.current_file.clone(), None);
                     }
 
                     self.check_statement(*cb);
@@ -759,12 +783,13 @@ impl SemanticAnalyzer {
                 if let Some(sym) = self.scope.lookup(&name) {
                     let ty = sym.ty.clone();
                     if self.record_node_info {
-                        let doc_opt = sym.doc.clone();
+                        let doc = sym.doc.clone();
                         let sym_span = sym.span;
-                        if let Some(doc) = doc_opt {
-                            self.record_doc(span, doc);
+                        let defined_in = sym.defined_in.clone();
+                        if let Some(d) = doc {
+                            self.record_doc(span, d);
                         }
-                        self.record_definition(span, sym_span);
+                        self.record_definition(span, defined_in, sym_span);
                     }
                     ty
                 } else if self.classes.contains_key(&name) {
@@ -873,12 +898,13 @@ impl SemanticAnalyzer {
                 if let Some(Type::Function(param_tys, ret_ty)) = function_ty {
                     if self.record_node_info {
                         if let Some(sym) = self.scope.lookup(&name) {
-                            let doc_opt = sym.doc.clone();
+                            let doc = sym.doc.clone();
                             let sym_span = sym.span;
-                            if let Some(doc) = doc_opt {
-                                self.record_doc(name_span, doc);
+                            let defined_in = sym.defined_in.clone();
+                            if let Some(d) = doc {
+                                self.record_doc(name_span, d);
                             }
-                            self.record_definition(name_span, sym_span);
+                            self.record_definition(name_span, defined_in, sym_span);
                             self.record_type(name_span, Type::Function(param_tys.clone(), ret_ty.clone()));
                         }
                         // Also record return type for the whole call span
@@ -920,7 +946,7 @@ impl SemanticAnalyzer {
                         if let Some(doc) = doc_opt {
                             self.record_doc(name_span, doc);
                         }
-                        self.record_definition(name_span, class_span);
+                        self.record_definition(name_span, self.current_file.clone(), class_span); // Class defined in same file for now if simple
                         self.record_type(name_span, Type::Class(class_name.clone()));
                         // Also record for the whole expression
                         self.record_type(span, Type::Class(class_name.clone()));
@@ -948,7 +974,7 @@ impl SemanticAnalyzer {
                                 if let Some(d) = doc {
                                     self.record_doc(name_span, d);
                                 }
-                                self.record_definition(name_span, field_span);
+                                self.record_definition(name_span, self.current_file.clone(), field_span); // Same file for simplicity now
                                 self.record_type(name_span, field_ty.clone());
                                 self.record_type(span, field_ty.clone());
                             }
@@ -997,7 +1023,7 @@ impl SemanticAnalyzer {
                         if let Some(d) = doc {
                             self.record_doc(name_span, d);
                         }
-                        self.record_definition(name_span, field_span);
+                        self.record_definition(name_span, self.current_file.clone(), field_span);
                         self.record_type(name_span, field_ty.clone());
                         self.record_type(span, field_ty.clone());
                     }
@@ -1040,7 +1066,7 @@ impl SemanticAnalyzer {
                             if let Some(d) = doc {
                                 self.record_doc(name_span, d.clone());
                             }
-                            self.record_definition(name_span, mspan);
+                            self.record_definition(name_span, self.current_file.clone(), mspan);
                             self.record_type(
                                 name_span,
                                 Type::Function(param_tys.clone(), Box::new(ret_ty.clone())),

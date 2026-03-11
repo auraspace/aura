@@ -149,20 +149,22 @@ impl Parser {
         let item = if self.peek().kind == TokenKind::Star {
             self.advance();
             self.consume(TokenKind::As)?;
+            let ns_span = self.span();
             let ns = if let TokenKind::Identifier(name) = self.peek().kind.clone() {
                 self.advance();
                 name
             } else {
                 return Err(());
             };
-            ImportItem::Namespace(ns)
+            ImportItem::Namespace((ns, ns_span))
         } else if self.peek().kind == TokenKind::OpenBrace {
             self.advance();
             let mut names = Vec::new();
             while self.peek().kind != TokenKind::CloseBrace && !self.is_at_end() {
+                let name_span = self.span();
                 if let TokenKind::Identifier(name) = self.peek().kind.clone() {
                     self.advance();
-                    names.push(name);
+                    names.push((name, name_span));
                     if self.peek().kind == TokenKind::Comma {
                         self.advance();
                     }
@@ -178,6 +180,7 @@ impl Parser {
 
         self.consume(TokenKind::From)?;
 
+        let path_span = self.span();
         let path = if let TokenKind::StringLiteral(p) = self.peek().kind.clone() {
             self.advance();
             p
@@ -190,6 +193,7 @@ impl Parser {
         Ok(Statement::Import {
             item,
             path,
+            path_span,
             span: s,
         })
     }

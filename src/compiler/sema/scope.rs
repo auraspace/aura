@@ -8,6 +8,7 @@ pub struct Symbol {
     pub ty: Type,
     pub is_param: bool,
     pub span: Span,
+    pub defined_in: String,
     pub doc: Option<String>,
 }
 
@@ -30,6 +31,7 @@ impl Scope {
         ty: Type,
         is_param: bool,
         span: Span,
+        defined_in: String,
         doc: Option<String>,
     ) {
         self.symbols.insert(
@@ -39,6 +41,7 @@ impl Scope {
                 ty,
                 is_param,
                 span,
+                defined_in,
                 doc,
             },
         );

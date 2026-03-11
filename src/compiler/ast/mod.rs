@@ -104,6 +104,8 @@ pub struct Field {
     pub doc: Option<String>,
 }
 
+
+
 #[derive(Debug, Clone)]
 pub struct ClassMethod {
     pub name: String,
@@ -119,8 +121,8 @@ pub struct ClassMethod {
 
 #[derive(Debug, Clone)]
 pub enum ImportItem {
-    Named(Vec<String>),
-    Namespace(String),
+    Named(Vec<(String, Span)>),
+    Namespace((String, Span)),
 }
 
 #[derive(Debug, Clone)]
@@ -170,6 +172,7 @@ pub enum Statement {
     Import {
         item: ImportItem,
         path: String,
+        path_span: Span,
         span: Span,
     },
     Export {

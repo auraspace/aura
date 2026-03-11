@@ -14,7 +14,7 @@ pub struct DocumentState {
     pub source: String,
     pub program: Option<Program>,
     pub node_types: HashMap<Span, Type>,
-    pub node_definitions: HashMap<Span, Span>,
+    pub node_definitions: HashMap<Span, (String, Span)>,
     pub node_docs: HashMap<Span, String>,
     pub classes: HashMap<String, ClassInfo>,
 }
@@ -437,31 +437,38 @@ impl LanguageServer for Backend {
         let docs = self.documents.lock().unwrap();
         if let Some(state) = docs.get(&uri) {
             let mut best_span: Option<Span> = None;
-            let mut best_def: Option<Span> = None;
+            let mut best_def: Option<(String, Span)> = None;
 
             for (span, def) in &state.node_definitions {
                 let line = position.line as usize + 1;
                 let col = position.character as usize + 1;
 
                 if span.line == line && span.column <= col {
+
+                    
                     if let Some(prev_span) = best_span {
                         if span.column > prev_span.column {
                             best_span = Some(*span);
-                            best_def = Some(*def);
+                            best_def = Some(def.clone());
                         }
                     } else {
                         best_span = Some(*span);
-                        best_def = Some(*def);
+                        best_def = Some(def.clone());
                     }
                 }
             }
 
-            if let Some(def) = best_def {
+            if let Some((def_file, def_span)) = best_def {
+                let target_uri = if def_file.is_empty() {
+                    uri.clone()
+                } else {
+                    Url::from_file_path(&def_file).unwrap_or(uri.clone())
+                };
                 return Ok(Some(GotoDefinitionResponse::Scalar(Location {
-                    uri: uri.clone(),
+                    uri: target_uri,
                     range: Range {
-                        start: Position::new(def.line as u32 - 1, def.column as u32 - 1),
-                        end: Position::new(def.line as u32 - 1, def.column as u32),
+                        start: Position::new(def_span.line as u32 - 1, def_span.column as u32 - 1),
+                        end: Position::new(def_span.line as u32 - 1, def_span.column as u32),
                     },
                 })));
             }
