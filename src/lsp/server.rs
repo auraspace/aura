@@ -486,7 +486,8 @@ impl Backend {
         let mut lexer = Lexer::new(source);
         let tokens = lexer.lex_all();
 
-        let mut parser = Parser::new(tokens);
+        let path_str = params.uri.to_file_path().unwrap_or_default().to_string_lossy().to_string();
+        let mut parser = Parser::new(tokens, path_str.clone());
         let program = parser.parse_program();
 
         let mut analyzer = SemanticAnalyzer::new();
@@ -549,14 +550,18 @@ impl Backend {
         // Update document state
         {
             let mut docs = self.documents.lock().unwrap();
+            let file_node_types = analyzer.node_types.get(&path_str).cloned().unwrap_or_default();
+            let file_node_definitions = analyzer.node_definitions.get(&path_str).cloned().unwrap_or_default();
+            let file_node_docs = analyzer.node_docs.get(&path_str).cloned().unwrap_or_default();
+
             docs.insert(
                 params.uri.clone(),
                 DocumentState {
                     source: params.text,
                     program: Some(program),
-                    node_types: analyzer.node_types,
-                    node_definitions: analyzer.node_definitions,
-                    node_docs: analyzer.node_docs,
+                    node_types: file_node_types,
+                    node_definitions: file_node_definitions,
+                    node_docs: file_node_docs,
                     classes: analyzer.classes,
                 },
             );

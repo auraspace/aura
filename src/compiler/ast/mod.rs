@@ -209,4 +209,5 @@ impl Statement {
 #[derive(Debug, Clone)]
 pub struct Program {
     pub statements: Vec<Statement>,
+    pub file_path: String,
 }

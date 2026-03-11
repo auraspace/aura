@@ -54,7 +54,7 @@ impl Lowerer {
                     if let Ok(source) = std::fs::read_to_string(&path) {
                         let mut lexer = crate::compiler::frontend::lexer::Lexer::new(&source);
                         let tokens = lexer.lex_all();
-                        let mut parser = crate::compiler::frontend::parser::Parser::new(tokens);
+                        let mut parser = crate::compiler::frontend::parser::Parser::new(tokens, "ir_lowering".to_string());
                         let program = parser.parse_program();
 
                         // Pass 1: Layouts
@@ -761,6 +761,7 @@ mod tests {
         let mut lowerer = Lowerer::new();
 
         let program = Program {
+            file_path: "test".to_string(),
             statements: vec![
                 Statement::ClassDeclaration {
                     name: "Node".to_string(),

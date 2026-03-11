@@ -9,15 +9,17 @@ pub struct Codegen {
     global_variables: HashMap<String, (String, Type)>, // name -> (label, type)
     classes: HashMap<String, (Vec<String>, Vec<String>)>, // name -> (fields, methods)
     string_constants: HashMap<String, String>, // value -> label
-    node_types: HashMap<Span, Type>,
+    node_types: HashMap<String, HashMap<Span, Type>>,
     stack_offset: usize,
     label_count: usize,
+    current_file: String,
     current_fn_end: Option<String>,
     current_class: Option<String>,
     is_global_scope: bool,
     loaded_files: std::collections::HashSet<String>,
     current_dir: Option<String>,
     pub stdlib_path: Option<String>,
+    core_program: Option<Program>,
 }
 
 impl Codegen {
@@ -31,12 +33,14 @@ impl Codegen {
             node_types: HashMap::new(),
             stack_offset: 0,
             label_count: 0,
+            current_file: String::new(),
             current_fn_end: None,
             current_class: None,
             is_global_scope: true,
             loaded_files: std::collections::HashSet::new(),
             current_dir: None,
             stdlib_path: None,
+            core_program: None,
         }
     }
 
@@ -44,11 +48,34 @@ impl Codegen {
         self.current_dir = Some(dir);
     }
 
-    pub fn set_node_types(&mut self, node_types: HashMap<Span, Type>) {
+    pub fn set_node_types(&mut self, node_types: HashMap<String, HashMap<Span, Type>>) {
         self.node_types = node_types;
     }
 
+    fn get_node_type(&self, span: &Span) -> Option<&Type> {
+        self.node_types
+            .get(&self.current_file)
+            .and_then(|m| m.get(span))
+    }
+
+    fn store_local(&mut self, reg: &str, offset: usize) {
+        if offset <= 255 {
+            self.emitter.output.push_str(&format!("    str {}, [x29, -{}]\n", reg, offset));
+        } else {
+            self.emitter.output.push_str(&format!("    mov x16, {}\n    sub x16, x29, x16\n    str {}, [x16]\n", offset, reg));
+        }
+    }
+
+    fn load_local(&mut self, reg: &str, offset: usize) {
+        if offset <= 255 {
+            self.emitter.output.push_str(&format!("    ldr {}, [x29, -{}]\n", reg, offset));
+        } else {
+            self.emitter.output.push_str(&format!("    mov x16, {}\n    sub x16, x29, x16\n    ldr {}, [x16]\n", offset, reg));
+        }
+    }
+
     pub fn generate(mut self, program: Program) -> String {
+        self.current_file = program.file_path.clone();
         // Register built-in classes
         self.classes.insert(
             "Promise".to_string(),
@@ -60,23 +87,30 @@ impl Codegen {
             (vec![], vec!["all".to_string(), "then".to_string(), "any".to_string(), "race".to_string(), "allSettled".to_string()]),
         );
 
-        let mut classes = Vec::new();
-        let mut fns = Vec::new();
-        let mut global_stmts = Vec::new();
+        let mut classes: Vec<(String, Statement)> = Vec::new();
+        let mut fns: Vec<(String, Statement)> = Vec::new();
+        let mut global_stmts: Vec<(String, Statement)> = Vec::new();
+
+        if let Some(core_prog) = self.core_program.take() {
+            self.collect_all_definitions(core_prog, &mut classes, &mut fns, &mut global_stmts);
+        }
 
         self.collect_all_definitions(program, &mut classes, &mut fns, &mut global_stmts);
 
-        for c in classes {
+        for (path, c) in classes {
+            self.current_file = path;
             self.generate_statement(c);
         }
 
-        for f in fns {
+        for (path, f) in fns {
+            self.current_file = path;
             self.generate_statement(f);
         }
 
         self.emitter.emit_header();
         self.is_global_scope = true;
-        for stmt in global_stmts {
+        for (path, stmt) in global_stmts {
+            self.current_file = path;
             self.generate_statement(stmt);
         }
         self.emitter.emit_footer();
@@ -117,10 +151,12 @@ impl Codegen {
     fn collect_all_definitions(
         &mut self,
         program: Program,
-        classes: &mut Vec<Statement>,
-        fns: &mut Vec<Statement>,
-        global_stmts: &mut Vec<Statement>,
+        classes: &mut Vec<(String, Statement)>,
+        fns: &mut Vec<(String, Statement)>,
+        global_stmts: &mut Vec<(String, Statement)>,
     ) {
+        let saved_file = self.current_file.clone();
+        self.current_file = program.file_path.clone();
         for stmt in program.statements {
             let actual_stmt = match stmt {
                 Statement::Export { decl, .. } => *decl,
@@ -128,8 +164,8 @@ impl Codegen {
             };
 
             match actual_stmt {
-                Statement::ClassDeclaration { .. } => classes.push(actual_stmt),
-                Statement::FunctionDeclaration { .. } => fns.push(actual_stmt),
+                Statement::ClassDeclaration { .. } => classes.push((program.file_path.clone(), actual_stmt)),
+                Statement::FunctionDeclaration { .. } => fns.push((program.file_path.clone(), actual_stmt)),
                 Statement::Import { path, .. } => {
                     let absolute_path = if path.starts_with("std/") {
                         if let Some(ref std_path) = self.stdlib_path {
@@ -163,7 +199,7 @@ impl Codegen {
                         if let Ok(source) = std::fs::read_to_string(&abs_p) {
                             let mut lexer = crate::compiler::frontend::lexer::Lexer::new(&source);
                             let tokens = lexer.lex_all();
-                            let mut parser = crate::compiler::frontend::parser::Parser::new(tokens);
+                            let mut parser = crate::compiler::frontend::parser::Parser::new(tokens, path_str);
                             let program = parser.parse_program();
 
                             let saved_dir = self.current_dir.clone();
@@ -183,15 +219,14 @@ impl Codegen {
                     ..
                 } => {
                     let var_ty = self
-                        .node_types
-                        .get(&value.span())
+                        .get_node_type(&value.span())
                         .cloned()
                         .unwrap_or(Type::Unknown);
                     let label = format!("_g_{}", name);
                     self.global_variables.insert(name.clone(), (label, var_ty));
-                    global_stmts.push(actual_stmt);
+                    global_stmts.push((program.file_path.clone(), actual_stmt));
                 }
-                _ => global_stmts.push(actual_stmt),
+                _ => global_stmts.push((program.file_path.clone(), actual_stmt)),
             }
         }
     }
@@ -203,19 +238,20 @@ impl Codegen {
             if let Ok(source) = std::fs::read_to_string(&core_path) {
                 let mut lexer = crate::compiler::frontend::lexer::Lexer::new(&source);
                 let tokens = lexer.lex_all();
-                let mut parser = crate::compiler::frontend::parser::Parser::new(tokens);
+                let mut parser = crate::compiler::frontend::parser::Parser::new(tokens, core_path.to_string_lossy().to_string());
                 let program = parser.parse_program();
+                self.core_program = Some(program.clone());
                 for stmt in program.statements {
                     if let Statement::ClassDeclaration {
-                        name,
-                        fields,
-                        methods,
+                        ref name,
+                        ref fields,
+                        ref methods,
                         ..
                     } = stmt
                     {
-                        let fnames = fields.into_iter().map(|f| f.name).collect();
-                        let mnames = methods.into_iter().map(|m| m.name).collect();
-                        self.classes.insert(name, (fnames, mnames));
+                        let fnames = fields.iter().map(|f| f.name.clone()).collect();
+                        let mnames = methods.iter().map(|m| m.name.clone()).collect();
+                        self.classes.insert(name.clone(), (fnames, mnames));
                     }
                 }
             }
@@ -228,8 +264,7 @@ impl Codegen {
                 name, ty: _, value, ..
             } => {
                 let mut var_ty = self
-                    .node_types
-                    .get(&value.span())
+                    .get_node_type(&value.span())
                     .cloned()
                     .unwrap_or(Type::Unknown);
                 if matches!(var_ty, Type::Unknown | Type::Int64) {
@@ -237,6 +272,15 @@ impl Codegen {
                         Expr::StringLiteral(_, _) => var_ty = Type::String,
                         Expr::Variable(ref n, _) if n == "true" || n == "false" => {
                             var_ty = Type::Boolean
+                        }
+                        Expr::ArrayLiteral(_, _) => var_ty = Type::Array(Box::new(Type::Unknown)),
+                        Expr::MethodCall(_, ref member, _, _, _) => {
+                            if matches!(
+                                member.as_str(),
+                                "trim" | "len" | "toUpper" | "toLower" | "charAt" | "substring" | "join"
+                            ) {
+                                var_ty = Type::String;
+                            }
                         }
                         _ => {}
                     }
@@ -257,9 +301,7 @@ impl Codegen {
                     self.stack_offset += 16;
                     self.variables
                         .insert(name.clone(), (self.stack_offset, var_ty));
-                    self.emitter
-                        .output
-                        .push_str(&format!("    str x0, [x29, -{}]\n", self.stack_offset));
+                    self.store_local("x0", self.stack_offset);
                 }
             }
             Statement::FunctionDeclaration {
@@ -304,27 +346,21 @@ impl Codegen {
                     let class_ty = Type::Class(self.current_class.clone().unwrap());
                     self.variables
                         .insert("this".to_string(), (self.stack_offset, class_ty));
-                    self.emitter
-                        .output
-                        .push_str(&format!("    str x0, [x29, -{}]\n", self.stack_offset));
+                    self.store_local("x0", self.stack_offset);
                     current_arg_reg += 1;
                 }
 
                 // Map params to stack
                 for (pname, ty_expr) in params {
                     let pty = self
-                        .node_types
-                        .get(&ty_expr.span())
+                        .get_node_type(&ty_expr.span())
                         .cloned()
                         .unwrap_or(Type::Unknown);
                     self.stack_offset += 16;
                     self.variables
                         .insert(pname.clone(), (self.stack_offset, pty));
                     if current_arg_reg < 8 {
-                        self.emitter.output.push_str(&format!(
-                            "    str x{}, [x29, -{}]\n",
-                            current_arg_reg, self.stack_offset
-                        ));
+                        self.store_local(&format!("x{}", current_arg_reg), self.stack_offset);
                         current_arg_reg += 1;
                     }
                 }
@@ -375,13 +411,30 @@ impl Codegen {
                         }
                     }
                 }
-                if let Some(ty) = self.node_types.get(&expr.span()) {
+                if let Some(ty) = self.get_node_type(&expr.span()) {
                     match ty {
                         Type::String => is_str = true,
                         Type::Boolean => is_bool = true,
                         Type::Array(_) => is_array = true,
                         Type::Generic(ref name, _) if name == "Promise" => is_promise = true,
                         Type::Null => is_null = true,
+                        _ => {}
+                    }
+                }
+
+                if !is_str && !is_bool && !is_array && !is_promise && !is_null {
+                    match &expr {
+                        Expr::StringLiteral(_, _) => is_str = true,
+                        Expr::BinaryOp(ref left, ref op, ref right, _) if op == "+" => {
+                            if matches!(&**left, Expr::StringLiteral(_, _)) || matches!(&**right, Expr::StringLiteral(_, _)) {
+                                is_str = true;
+                            }
+                        }
+                        Expr::MethodCall(_, ref member, _, _, _) => {
+                            if matches!(member.as_str(), "charAt" | "substring" | "toUpper" | "toLower" | "trim" | "toString" | "join") {
+                                is_str = true;
+                            }
+                        }
                         _ => {}
                     }
                 }
@@ -396,8 +449,7 @@ impl Codegen {
                 } else if is_promise {
                     self.emitter.call("_print_promise");
                 } else if is_null {
-                    // No print_null yet, maybe use print_str with "null"?
-                    // For now skip or handle as needed
+                    // No print_null yet
                 } else {
                     self.emitter.call("_print_num");
                 }
@@ -559,9 +611,7 @@ impl Codegen {
             }
             Expr::Variable(name, _) => {
                 if let Some((offset, _)) = self.variables.get(&name) {
-                    self.emitter
-                        .output
-                        .push_str(&format!("    ldr x0, [x29, -{}]\n", offset));
+                    self.load_local("x0", *offset);
                 } else if let Some((label, _)) = self.global_variables.get(&name) {
                     self.emitter
                         .output
@@ -572,24 +622,45 @@ impl Codegen {
                 } else if self.classes.contains_key(&name) {
                     self.emitter.mov_imm(Register::X0, 0); // Class reference is null for now
                 } else {
-                    panic!("Undefined variable {}", name);
+                    match name.as_str() {
+                        "true" => self.emitter.mov_imm(Register::X0, 1),
+                        "false" => self.emitter.mov_imm(Register::X0, 0),
+                        "null" => self.emitter.mov_imm(Register::X0, 0),
+                        "O_RDONLY" => self.emitter.mov_imm(Register::X0, 0),
+                        "O_WRONLY" => self.emitter.mov_imm(Register::X0, 1),
+                        "O_RDWR" => self.emitter.mov_imm(Register::X0, 2),
+                        "O_CREAT" => self.emitter.mov_imm(Register::X0, 512),
+                        "O_TRUNC" => self.emitter.mov_imm(Register::X0, 1024),
+                        "O_APPEND" => self.emitter.mov_imm(Register::X0, 8),
+                        _ => panic!("Undefined variable {}", name),
+                    }
                 }
             }
             Expr::BinaryOp(left, op, right, _) => {
-                let left_ty = self.node_types.get(&left.span()).cloned();
-                let right_ty = self.node_types.get(&right.span()).cloned();
+                let left_ty = self.get_node_type(&left.span()).cloned();
+                let right_ty = self.get_node_type(&right.span()).cloned();
+
+                // String concatenation
+                let mut is_string_concat = false;
+                if let (Some(lty), Some(rty)) = (&left_ty, &right_ty) {
+                    if (matches!(lty, Type::String) || matches!(rty, Type::String)) && op == "+" {
+                        is_string_concat = true;
+                    }
+                }
+                if !is_string_concat && op == "+" {
+                    if matches!(&*left, Expr::StringLiteral(_, _)) || matches!(&*right, Expr::StringLiteral(_, _)) {
+                        is_string_concat = true;
+                    }
+                }
 
                 self.generate_expr(*right);
                 self.emitter.push(Register::X0);
                 self.generate_expr(*left);
                 self.emitter.pop(Register::X1);
 
-                // String concatenation
-                if let (Some(lty), Some(rty)) = (left_ty, right_ty) {
-                    if (matches!(lty, Type::String) || matches!(rty, Type::String)) && op == "+" {
-                        self.emitter.call("_aura_str_concat");
-                        return;
-                    }
+                if is_string_concat {
+                    self.emitter.call("_aura_str_concat");
+                    return;
                 }
 
                 match op.as_str() {
@@ -633,15 +704,29 @@ impl Codegen {
                             .output
                             .push_str("    cmp x0, x1\n    cset x0, ge\n");
                     }
+                    "&&" => {
+                        self.emitter.output.push_str("    cmp x0, #0\n    cset x0, ne\n");
+                        self.emitter.output.push_str("    cmp x1, #0\n    cset x1, ne\n");
+                        self.emitter.output.push_str("    and x0, x0, x1\n");
+                    }
+                    "||" => {
+                        self.emitter.output.push_str("    cmp x0, #0\n    cset x0, ne\n");
+                        self.emitter.output.push_str("    cmp x1, #0\n    cset x1, ne\n");
+                        self.emitter.output.push_str("    orr x0, x0, x1\n");
+                    }
+                    "|" => {
+                        self.emitter.output.push_str("    orr x0, x0, x1\n");
+                    }
+                    "&" => {
+                        self.emitter.output.push_str("    and x0, x0, x1\n");
+                    }
                     _ => panic!("Unsupported operator {}", op),
                 }
             }
             Expr::Assign(name, value, _) => {
                 self.generate_expr(*value);
                 if let Some((offset, _)) = self.variables.get(&name) {
-                    self.emitter
-                        .output
-                        .push_str(&format!("    str x0, [x29, -{}]\n", offset));
+                    self.store_local("x0", *offset);
                 } else if let Some((label, _)) = self.global_variables.get(&name) {
                     self.emitter.push(Register::X0); // Save value
                     self.emitter
@@ -660,9 +745,7 @@ impl Codegen {
                     .variables
                     .get("this")
                     .expect("'this' used outside of method");
-                self.emitter
-                    .output
-                    .push_str(&format!("    ldr x0, [x29, -{}]\n", offset));
+                self.load_local("x0", *offset);
             }
             Expr::New(class_name, _, args, _) => {
                 let (fields, _) = self
@@ -698,9 +781,19 @@ impl Codegen {
             }
             Expr::MemberAccess(obj, member, _, _span) => {
                 let obj_span = obj.span();
-                self.generate_expr(*obj);
                 let mut offset = 0;
-                if let Some(Type::Class(ref class_name)) = self.node_types.get(&obj_span) {
+                let mut ty = self.get_node_type(&obj_span).cloned().unwrap_or(Type::Unknown);
+                if matches!(ty, Type::Unknown) {
+                    if let Expr::Variable(ref name, _) = *obj {
+                        if let Some((_, var_ty)) = self.variables.get(name) {
+                            ty = var_ty.clone();
+                        } else if let Some((_, var_ty)) = self.global_variables.get(name) {
+                            ty = var_ty.clone();
+                        }
+                    }
+                }
+
+                if let Type::Class(ref class_name) = ty {
                     if let Some((fields, _)) = self.classes.get(class_name) {
                         if let Some(idx) = fields.iter().position(|f| f == &member) {
                             offset = idx * 8;
@@ -714,6 +807,7 @@ impl Codegen {
                         }
                     }
                 }
+                self.generate_expr(*obj);
                 self.emitter
                     .output
                     .push_str(&format!("    ldr x0, [x0, #{}]\n", offset));
@@ -722,9 +816,19 @@ impl Codegen {
                 let obj_span = obj.span();
                 self.generate_expr(*value);
                 self.emitter.push(Register::X0);
-                self.generate_expr(*obj);
                 let mut offset = 0;
-                if let Some(Type::Class(ref class_name)) = self.node_types.get(&obj_span) {
+                let mut ty = self.get_node_type(&obj_span).cloned().unwrap_or(Type::Unknown);
+                if matches!(ty, Type::Unknown) {
+                    if let Expr::Variable(ref name, _) = *obj {
+                        if let Some((_, var_ty)) = self.variables.get(name) {
+                            ty = var_ty.clone();
+                        } else if let Some((_, var_ty)) = self.global_variables.get(name) {
+                            ty = var_ty.clone();
+                        }
+                    }
+                }
+
+                if let Type::Class(ref class_name) = ty {
                     if let Some((fields, _)) = self.classes.get(class_name) {
                         if let Some(idx) = fields.iter().position(|f| f == &member) {
                             offset = idx * 8;
@@ -737,6 +841,7 @@ impl Codegen {
                         }
                     }
                 }
+                self.generate_expr(*obj);
                 self.emitter.pop(Register::X1);
                 self.emitter
                     .output
@@ -757,25 +862,50 @@ impl Codegen {
                 }
 
                 if !is_static {
-                    let ty = self
-                        .node_types
-                        .get(&obj_span)
+                    let mut ty = self
+                        .get_node_type(&obj_span)
                         .cloned()
                         .unwrap_or(Type::Unknown);
+                        
+                    if matches!(ty, Type::Unknown) {
+                        match &*obj {
+                            Expr::StringLiteral(_, _) => ty = Type::String,
+                            Expr::ArrayLiteral(_, _) => ty = Type::Array(Box::new(Type::Unknown)),
+                            Expr::Variable(ref name, _) => {
+                                if let Some((_, var_ty)) = self.variables.get(name) {
+                                    ty = var_ty.clone();
+                                } else if let Some((_, var_ty)) = self.global_variables.get(name) {
+                                    ty = var_ty.clone();
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    if matches!(ty, Type::Unknown) {
+                        if matches!(
+                            member.as_str(),
+                            "charAt" | "substring" | "indexOf" | "toUpper" | "toLower" | "trim" | "len"
+                        ) {
+                            ty = Type::String;
+                        } else if matches!(member.as_str(), "push" | "pop" | "join" | "get" | "len") {
+                            ty = Type::Array(Box::new(Type::Unknown));
+                        }
+                    }
+                    
                     if matches!(ty, Type::String | Type::Array(_)) {
                         is_primitive = true;
                     }
                 }
 
-                if is_static || is_primitive {
+                if is_static {
                     self.emitter.mov_imm(Register::X0, 0); // dummy this
-                } else {
+                    self.emitter.push(Register::X0);
+                } else if is_primitive {
+                    // Object IS the this for primitives
                     self.generate_expr((*obj).clone());
-                }
-                self.emitter.push(Register::X0);
-
-                if is_primitive {
-                    // Prepend object as first explicit argument
+                    self.emitter.push(Register::X0);
+                } else {
                     self.generate_expr((*obj).clone());
                     self.emitter.push(Register::X0);
                 }
@@ -785,7 +915,7 @@ impl Codegen {
                     self.emitter.push(Register::X0);
                 }
 
-                let num_args = args.len() + 1 + (if is_primitive { 1 } else { 0 });
+                let num_args = args.len() + 1;
                 for i in (0..num_args.min(8)).rev() {
                     self.emitter
                         .output
@@ -796,18 +926,41 @@ impl Codegen {
 
                 if let Some(cname) = class_name_found {
                     method_label = format!("_{}_{}", cname, member);
-                } else if let Some(Type::Class(ref class_name)) = self.node_types.get(&obj_span) {
+                } else if let Some(Type::Class(ref class_name)) = self.get_node_type(&obj_span) {
                     method_label = format!("_{}_{}", class_name, member);
                 } else if is_primitive {
-                    let ty = self
-                        .node_types
-                        .get(&obj_span)
+                    let mut ty = self
+                        .get_node_type(&obj_span)
                         .cloned()
                         .unwrap_or(Type::Unknown);
+                    if matches!(ty, Type::Unknown) {
+                        match &*obj {
+                            Expr::StringLiteral(_, _) => ty = Type::String,
+                            Expr::ArrayLiteral(_, _) => ty = Type::Array(Box::new(Type::Unknown)),
+                            Expr::Variable(ref name, _) => {
+                                if let Some((_, var_ty)) = self.variables.get(name) {
+                                    ty = var_ty.clone();
+                                } else if let Some((_, var_ty)) = self.global_variables.get(name) {
+                                    ty = var_ty.clone();
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    if matches!(ty, Type::Unknown) {
+                        if matches!(
+                            member.as_str(),
+                            "charAt" | "substring" | "indexOf" | "toUpper" | "toLower" | "trim" | "len"
+                        ) {
+                            ty = Type::String;
+                        } else if matches!(member.as_str(), "push" | "pop" | "join" | "get" | "len") {
+                            ty = Type::Array(Box::new(Type::Unknown));
+                        }
+                    }
                     if matches!(ty, Type::String) {
-                        method_label = format!("_String_{}", member);
+                        method_label = format!("_aura_string_{}", member);
                     } else {
-                        method_label = format!("_Array_{}", member);
+                        method_label = format!("_aura_array_{}", member);
                     }
                 } else {
                     // Fallback search
@@ -831,12 +984,19 @@ impl Codegen {
                         .output
                         .push_str(&format!("    ldr x{}, [sp], 16\n", i));
                 }
-                let call_label = if name == "main" {
-                    "_main_aura".to_string()
+                if self.variables.contains_key(&name) {
+                    if let Some((offset, _)) = self.variables.get(&name) {
+                        self.load_local("x16", *offset);
+                        self.emitter.output.push_str("    blr x16\n");
+                    }
                 } else {
-                    format!("_{}", name)
-                };
-                self.emitter.call(&call_label);
+                    let call_label = if name == "main" {
+                        "_main_aura".to_string()
+                    } else {
+                        format!("_{}", name)
+                    };
+                    self.emitter.call(&call_label);
+                }
             }
             Expr::UnaryOp(op, expr, _) => {
                 self.generate_expr(*expr);
@@ -844,9 +1004,35 @@ impl Codegen {
                     self.emitter.sub(Register::X0, Register::XZR, Register::X0);
                 }
             }
-            Expr::TypeTest(_, _, _) => {
-                // TODO: Implement type test codegen in Phase 4/5
-                self.emitter.mov_imm(Register::X0, 0);
+            Expr::TypeTest(expr, ty_expr, _) => {
+                let check_type_name = if let crate::compiler::ast::TypeExpr::Name(ref name, _) = ty_expr {
+                    name.as_str()
+                } else {
+                    ""
+                };
+                
+                self.generate_expr(*expr);
+                
+                if check_type_name == "i64" || check_type_name == "i32" || check_type_name == "number" {
+                    // Check if x0 != 0 AND not in string pointer range.
+                    self.emitter.output.push_str("    cmp x0, #0\n    cset x1, ne\n");
+                    self.emitter.mov_imm(Register::X2, 0x100000000); // 4GB
+                    self.emitter.output.push_str("    cmp x0, x2\n    cset x2, ge\n");
+                    self.emitter.mov_imm(Register::X3, 0x200000000); // 8GB
+                    self.emitter.output.push_str("    cmp x0, x3\n    cset x3, lt\n");
+                    self.emitter.output.push_str("    and x2, x2, x3\n"); // 1 if in range (string)
+                    self.emitter.output.push_str("    eor x2, x2, #1\n"); // 1 if NOT in range
+                    self.emitter.output.push_str("    and x0, x1, x2\n"); // x0 = not null AND not string
+                } else if check_type_name == "string" {
+                    self.emitter.mov_imm(Register::X2, 0x100000000);
+                    self.emitter.output.push_str("    cmp x0, x2\n    cset x2, ge\n");
+                    self.emitter.mov_imm(Register::X3, 0x200000000);
+                    self.emitter.output.push_str("    cmp x0, x3\n    cset x3, lt\n");
+                    self.emitter.output.push_str("    and x0, x2, x3\n");
+                } else {
+                    // Fail fallback
+                    self.emitter.mov_imm(Register::X0, 0);
+                }
             }
             Expr::Template(parts, _) => {
                 for (i, part) in parts.into_iter().enumerate() {
@@ -869,7 +1055,7 @@ impl Codegen {
                         TemplatePart::Expr(expr) => {
                             let span = expr.span();
                             let mut ty =
-                                self.node_types.get(&span).cloned().unwrap_or(Type::Unknown);
+                                self.get_node_type(&span).cloned().unwrap_or(Type::Unknown);
                             if matches!(ty, Type::Unknown | Type::Int64) {
                                 if let Expr::Variable(ref name, _) = *expr {
                                     if name == "true" || name == "false" {
@@ -931,7 +1117,7 @@ impl Codegen {
                 self.generate_expr(*index);
                 self.emitter.mov_reg(Register::X1, Register::X0);
                 self.emitter.pop(Register::X0);
-                self.emitter.call("__arr_get");
+                self.emitter.call("_aura_array_get");
             }
             Expr::Error(_) => panic!("Compiler bug: reaching error node in codegen"),
         }

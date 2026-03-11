@@ -39,10 +39,11 @@ pub struct SemanticAnalyzer {
     pub classes: HashMap<String, ClassInfo>,
     pub current_class: Option<String>,
     pub diagnostics: DiagnosticList,
-    pub node_types: HashMap<Span, Type>,
-    pub node_definitions: HashMap<Span, Span>,
-    pub node_docs: HashMap<Span, String>,
+    pub node_types: HashMap<String, HashMap<Span, Type>>,
+    pub node_definitions: HashMap<String, HashMap<Span, Span>>,
+    pub node_docs: HashMap<String, HashMap<Span, String>>,
     pub record_node_info: bool,
+    pub current_file: String,
     pub loaded_files: std::collections::HashSet<String>,
     pub current_dir: Option<String>,
     pub stdlib_path: Option<String>,
@@ -59,6 +60,7 @@ impl SemanticAnalyzer {
             node_definitions: HashMap::new(),
             node_docs: HashMap::new(),
             record_node_info: false,
+            current_file: String::new(),
             loaded_files: std::collections::HashSet::new(),
             current_dir: None,
             stdlib_path: None,
@@ -163,16 +165,21 @@ impl SemanticAnalyzer {
 
     pub fn analyze(&mut self, program: Program) {
         self.record_node_info = true;
+        self.current_file = program.file_path.clone();
+        
         // Pass 1: Collect declarations from current program
         self.collect_definitions(&program);
 
         // Pass 2: Check statements
+        self.current_file = program.file_path.clone(); // Ensure it's correct after potentially recursive calls
         for stmt in program.statements {
             self.check_statement(stmt);
         }
     }
 
     pub fn collect_definitions(&mut self, program: &Program) {
+        let saved_file = self.current_file.clone();
+        self.current_file = program.file_path.clone();
         for stmt in &program.statements {
             let actual_stmt = match stmt {
                 Statement::Export { decl, .. } => &**decl,
@@ -220,44 +227,6 @@ impl SemanticAnalyzer {
                         );
                     }
                 }
-                if self.record_node_info {
-                    if let Some(d) = doc {
-                        self.node_docs.insert(*name_span, d.clone());
-                    }
-                    self.node_types.insert(*name_span, Type::Class(name.clone()));
-                }
-                for f in fields {
-                    if self.record_node_info {
-                        if let Some(d) = &f.doc {
-                            self.node_docs.insert(f.name_span, d.clone());
-                        }
-                        let fty_info = field_map
-                            .get(&f.name)
-                            .or(static_field_map.get(&f.name))
-                            .cloned();
-                        if let Some((t, _, _)) = fty_info {
-                            self.node_types.insert(f.name_span, t);
-                        }
-                    }
-                }
-                for m in methods {
-                    if self.record_node_info {
-                        if let Some(d) = &m.doc {
-                            self.node_docs.insert(m.name_span, d.clone());
-                        }
-                        let mty_info = method_map
-                            .get(&m.name)
-                            .or(static_method_map.get(&m.name))
-                            .cloned();
-                        if let Some((params, ret, _, _)) = mty_info {
-                            self.node_types.insert(
-                                m.name_span,
-                                Type::Function(params, Box::new(ret)),
-                            );
-                        }
-                    }
-                }
-
                 self.classes.insert(
                     name.clone(),
                     ClassInfo {
@@ -272,11 +241,13 @@ impl SemanticAnalyzer {
                 );
             } else if let Statement::FunctionDeclaration {
                 name,
+                name_span,
                 params,
                 return_ty,
+                body: _,
+                is_async: _,
                 span,
                 doc,
-                ..
             } = actual_stmt
             {
                 let param_tys = params
@@ -284,13 +255,50 @@ impl SemanticAnalyzer {
                     .map(|(_, ty)| self.resolve_type(ty.clone()))
                     .collect();
                 let ret_ty = self.resolve_type(return_ty.clone());
-                let func_ty = Type::Function(param_tys, Box::new(ret_ty));
                 self.scope
-                    .insert(name.clone(), func_ty, false, *span, doc.clone());
+                    .insert(name.clone(), Type::Function(param_tys, Box::new(ret_ty)), false, *name_span, doc.clone());
             } else if let Statement::Import { path, .. } = actual_stmt {
                 self.load_import(path.clone());
             }
         }
+        self.current_file = saved_file;
+    }
+
+    fn record_type(&mut self, span: Span, ty: Type) {
+        if !self.record_node_info {
+            return;
+        }
+        self.node_types
+            .entry(self.current_file.clone())
+            .or_insert_with(HashMap::new)
+            .insert(span, ty);
+    }
+
+    fn record_definition(&mut self, span: Span, def_span: Span) {
+        if !self.record_node_info {
+            return;
+        }
+        self.node_definitions
+            .entry(self.current_file.clone())
+            .or_insert_with(HashMap::new)
+            .insert(span, def_span);
+    }
+
+    fn record_doc(&mut self, span: Span, doc: String) {
+        if !self.record_node_info {
+            return;
+        }
+        self.node_docs
+            .entry(self.current_file.clone())
+            .or_insert_with(HashMap::new)
+            .insert(span, doc);
+    }
+
+    fn find_definition(&self, span: &Span) -> Option<Span> {
+        self.node_definitions
+            .get(&self.current_file)
+            .and_then(|m| m.get(span))
+            .cloned()
     }
 
     fn load_import(&mut self, path: String) {
@@ -325,8 +333,7 @@ impl SemanticAnalyzer {
 
             if let Ok(source) = std::fs::read_to_string(&abs_p) {
                 let mut lexer = crate::compiler::frontend::lexer::Lexer::new(&source);
-                let tokens = lexer.lex_all();
-                let mut parser = crate::compiler::frontend::parser::Parser::new(tokens);
+                let mut parser = crate::compiler::frontend::parser::Parser::new(lexer.lex_all(), path_str);
                 let program = parser.parse_program();
 
                 let saved_dir = self.current_dir.clone();
@@ -347,8 +354,7 @@ impl SemanticAnalyzer {
         if core_path.exists() {
             if let Ok(source) = std::fs::read_to_string(&core_path) {
                 let mut lexer = crate::compiler::frontend::lexer::Lexer::new(&source);
-                let tokens = lexer.lex_all();
-                let mut parser = crate::compiler::frontend::parser::Parser::new(tokens);
+                let mut parser = crate::compiler::frontend::parser::Parser::new(lexer.lex_all(), core_path.to_string_lossy().to_string());
                 let program = parser.parse_program();
                 self.collect_definitions(&program);
             }
@@ -487,9 +493,9 @@ impl SemanticAnalyzer {
                 }
                 if self.record_node_info {
                     if let Some(d) = &doc {
-                        self.node_docs.insert(name_span, d.clone());
+                        self.record_doc(name_span, d.clone());
                     }
-                    self.node_types.insert(name_span, declared_ty.clone());
+                    self.record_type(name_span, declared_ty.clone());
                 }
                 self.scope.insert(name, declared_ty, false, span, doc);
             }
@@ -584,9 +590,9 @@ impl SemanticAnalyzer {
                 );
                 if self.record_node_info {
                     if let Some(d) = &doc {
-                        self.node_docs.insert(name_span, d.clone());
+                        self.record_doc(name_span, d.clone());
                     }
-                    self.node_types.insert(name_span, func_ty);
+                    self.record_type(name_span, func_ty);
                 }
 
                 self.push_scope();
@@ -751,13 +757,16 @@ impl SemanticAnalyzer {
             Expr::Error(_s) => Type::Unknown,
             Expr::Variable(name, span) => {
                 if let Some(sym) = self.scope.lookup(&name) {
+                    let ty = sym.ty.clone();
                     if self.record_node_info {
-                        if let Some(doc) = &sym.doc {
-                            self.node_docs.insert(span, doc.clone());
+                        let doc_opt = sym.doc.clone();
+                        let sym_span = sym.span;
+                        if let Some(doc) = doc_opt {
+                            self.record_doc(span, doc);
                         }
-                        self.node_definitions.insert(span, sym.span);
+                        self.record_definition(span, sym_span);
                     }
-                    sym.ty.clone()
+                    ty
                 } else if self.classes.contains_key(&name) {
                     Type::Class(name)
                 } else {
@@ -864,14 +873,16 @@ impl SemanticAnalyzer {
                 if let Some(Type::Function(param_tys, ret_ty)) = function_ty {
                     if self.record_node_info {
                         if let Some(sym) = self.scope.lookup(&name) {
-                            if let Some(doc) = &sym.doc {
-                                self.node_docs.insert(name_span, doc.clone());
+                            let doc_opt = sym.doc.clone();
+                            let sym_span = sym.span;
+                            if let Some(doc) = doc_opt {
+                                self.record_doc(name_span, doc);
                             }
-                            self.node_definitions.insert(name_span, sym.span);
-                            self.node_types.insert(name_span, Type::Function(param_tys.clone(), ret_ty.clone()));
+                            self.record_definition(name_span, sym_span);
+                            self.record_type(name_span, Type::Function(param_tys.clone(), ret_ty.clone()));
                         }
                         // Also record return type for the whole call span
-                        self.node_types.insert(span, (*ret_ty).clone());
+                        self.record_type(span, (*ret_ty).clone());
                     }
                     if param_tys.len() != arg_tys.len() {
                         self.error(
@@ -904,13 +915,15 @@ impl SemanticAnalyzer {
             Expr::New(class_name, name_span, args, span) => {
                 if let Some(class_info) = self.classes.get(&class_name) {
                     if self.record_node_info {
-                        if let Some(doc) = &class_info.doc {
-                            self.node_docs.insert(name_span, doc.clone());
+                        let doc_opt = class_info.doc.clone();
+                        let class_span = class_info.span;
+                        if let Some(doc) = doc_opt {
+                            self.record_doc(name_span, doc);
                         }
-                        self.node_definitions.insert(name_span, class_info.span);
-                        self.node_types.insert(name_span, Type::Class(class_name.clone()));
+                        self.record_definition(name_span, class_span);
+                        self.record_type(name_span, Type::Class(class_name.clone()));
                         // Also record for the whole expression
-                        self.node_types.insert(span, Type::Class(class_name.clone()));
+                        self.record_type(span, Type::Class(class_name.clone()));
                     }
                 } else {
                     self.error(SemanticErrorKind::UndefinedClass(class_name.clone()), span);
@@ -933,10 +946,11 @@ impl SemanticAnalyzer {
                         if let Some((field_ty, field_span, doc)) = field_info {
                             if self.record_node_info {
                                 if let Some(d) = doc {
-                                    self.node_docs.insert(name_span, d);
+                                    self.record_doc(name_span, d);
                                 }
-                                self.node_definitions.insert(name_span, field_span);
-                                self.node_types.insert(name_span, field_ty.clone());
+                                self.record_definition(name_span, field_span);
+                                self.record_type(name_span, field_ty.clone());
+                                self.record_type(span, field_ty.clone());
                             }
                             field_ty
                         } else {
@@ -981,10 +995,11 @@ impl SemanticAnalyzer {
                     }
                     if self.record_node_info {
                         if let Some(d) = doc {
-                            self.node_docs.insert(name_span, d);
+                            self.record_doc(name_span, d);
                         }
-                        self.node_definitions.insert(name_span, field_span);
-                        self.node_types.insert(name_span, field_ty);
+                        self.record_definition(name_span, field_span);
+                        self.record_type(name_span, field_ty.clone());
+                        self.record_type(span, field_ty.clone());
                     }
                 } else {
                     if let Type::Class(class_name) = obj_ty {
@@ -1023,14 +1038,14 @@ impl SemanticAnalyzer {
                     if let Some((param_tys, ret_ty, doc, mspan)) = method_info {
                         if self.record_node_info {
                             if let Some(d) = doc {
-                                self.node_docs.insert(name_span, d.clone());
+                                self.record_doc(name_span, d.clone());
                             }
-                            self.node_definitions.insert(name_span, mspan);
-                            self.node_types.insert(
+                            self.record_definition(name_span, mspan);
+                            self.record_type(
                                 name_span,
                                 Type::Function(param_tys.clone(), Box::new(ret_ty.clone())),
                             );
-                            self.node_types.insert(span, ret_ty.clone());
+                            self.record_type(span, ret_ty.clone());
                         }
 
                         if param_tys.len() != arg_tys.len() {
@@ -1061,7 +1076,7 @@ impl SemanticAnalyzer {
                         Type::Unknown
                     }
                 } else if obj_ty == Type::String {
-                    match method.as_str() {
+                    let ret_ty = match method.as_str() {
                         "len" => Type::Int32,
                         "charAt" => Type::String,
                         "substring" => Type::String,
@@ -1074,9 +1089,13 @@ impl SemanticAnalyzer {
                             );
                             Type::Unknown
                         }
+                    };
+                    if self.record_node_info && !matches!(ret_ty, Type::Unknown) {
+                        self.record_type(span, ret_ty.clone());
                     }
+                    ret_ty
                 } else if let Type::Array(inner) = obj_ty {
-                    match method.as_str() {
+                    let ret_ty = match method.as_str() {
                         "len" => Type::Int32,
                         "push" => Type::Void,
                         "pop" => (*inner).clone(),
@@ -1089,7 +1108,11 @@ impl SemanticAnalyzer {
                             );
                             Type::Unknown
                         }
+                    };
+                    if self.record_node_info && !matches!(ret_ty, Type::Unknown) {
+                        self.record_type(span, ret_ty.clone());
                     }
+                    ret_ty
                 } else {
                     self.error(SemanticErrorKind::NotAClass(format!("{:?}", obj_ty)), span);
                     Type::Unknown
@@ -1170,7 +1193,7 @@ impl SemanticAnalyzer {
             }
         };
         if self.record_node_info {
-            self.node_types.insert(span, ty.clone());
+            self.record_type(span, ty.clone());
         }
         ty
     }

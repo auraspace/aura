@@ -9,15 +9,17 @@ pub struct Parser {
     pos: usize,
     pub diagnostics: DiagnosticList,
     panic_mode: bool,
+    file_path: String,
 }
 
 impl Parser {
-    pub fn new(tokens: Vec<Token>) -> Self {
+    pub fn new(tokens: Vec<Token>, file_path: String) -> Self {
         Self {
             tokens,
             pos: 0,
             diagnostics: DiagnosticList::new(),
             panic_mode: false,
+            file_path,
         }
     }
 
@@ -39,7 +41,10 @@ impl Parser {
                 }
             }
         }
-        Program { statements }
+        Program {
+            statements,
+            file_path: self.file_path.clone(),
+        }
     }
 
     fn parse_statement(&mut self) -> Result<Statement, ()> {
@@ -868,7 +873,7 @@ impl Parser {
                                     &src, line, col,
                                 );
                             let sub_tokens = sub_lexer.lex_all();
-                            let mut sub_parser = Parser::new(sub_tokens);
+                            let mut sub_parser = Parser::new(sub_tokens, self.file_path.clone());
                             let expr = sub_parser.parse_expression();
                             for mut d in sub_lexer.diagnostics.diagnostics {
                                 d.line += s.line - 1;

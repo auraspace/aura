@@ -79,11 +79,14 @@ fn main() {
     }
 
     let (source, input_name) = if let Some(path) = input_path {
-        let content = std::fs::read_to_string(path).unwrap_or_else(|e| {
+        let abs_p = std::path::Path::new(path)
+            .canonicalize()
+            .unwrap_or_else(|_| std::path::PathBuf::from(path));
+        let content = std::fs::read_to_string(&abs_p).unwrap_or_else(|e| {
             eprintln!("Error: Unable to read file '{}': {}", path, e);
             std::process::exit(1);
         });
-        (content, path.clone())
+        (content, abs_p.to_string_lossy().to_string())
     } else {
         println!("Usage: aura [options] <input_file>");
         println!("Options:");
@@ -104,7 +107,7 @@ fn main() {
     let mut lexer = Lexer::new(&source);
     let tokens = lexer.lex_all();
 
-    let mut parser = Parser::new(tokens);
+    let mut parser = Parser::new(tokens, input_name.clone());
     let program = parser.parse_program();
 
     let mut has_errors = false;

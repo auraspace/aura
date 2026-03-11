@@ -3,6 +3,7 @@
     "adrp",
     "asciz",
     "codegen",
+    "CREAT",
     "cset",
     "fnames",
     "interp",
@@ -11,7 +12,11 @@
     "PAGEOFF",
     "pname",
     "pnames",
+    "RDONLY",
+    "RDWR",
     "sdiv",
-    "sema"
+    "sema",
+    "TRUNC",
+    "WRONLY"
   ]
 }

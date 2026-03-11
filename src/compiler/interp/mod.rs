@@ -185,7 +185,7 @@ impl Interpreter {
             if let Ok(source) = std::fs::read_to_string(&core_path) {
                 let mut lexer = crate::compiler::frontend::lexer::Lexer::new(&source);
                 let tokens = lexer.lex_all();
-                let mut parser = crate::compiler::frontend::parser::Parser::new(tokens);
+                let mut parser = crate::compiler::frontend::parser::Parser::new(tokens, core_path.to_string_lossy().to_string());
                 let program = parser.parse_program();
                 self.interpret(program);
             }
@@ -225,7 +225,7 @@ impl Interpreter {
             if let Ok(source) = std::fs::read_to_string(&abs_p) {
                 let mut lexer = crate::compiler::frontend::lexer::Lexer::new(&source);
                 let tokens = lexer.lex_all();
-                let mut parser = crate::compiler::frontend::parser::Parser::new(tokens);
+                let mut parser = crate::compiler::frontend::parser::Parser::new(tokens, path_str);
                 let program = parser.parse_program();
                 self.interpret(program);
             }
