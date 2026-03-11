@@ -68,107 +68,9 @@ void aura_array_push(AuraArray* arr, int64_t val) {
     arr->data[arr->size++] = val;
 }
 
-// Array methods
-int64_t Array_len(int64_t this_ptr, AuraArray* arr) {
-    (void)this_ptr;
-    if (!arr) return 0;
-    return arr->size;
-}
 
-void Array_push(int64_t this_ptr, AuraArray* arr, int64_t val) {
-    (void)this_ptr;
-    if (arr) aura_array_push(arr, val);
-}
 
-int64_t Array_pop(int64_t this_ptr, AuraArray* arr) {
-    (void)this_ptr;
-    if (!arr || arr->size == 0) return 0;
-    return arr->data[--arr->size];
-}
 
-char* Array_join(int64_t this_ptr, AuraArray* arr, const char* sep) {
-    (void)this_ptr;
-    if (!arr || arr->size == 0) return strdup("");
-    char* res = malloc(4096);
-    if (!res) return strdup("");
-    res[0] = '\0';
-    for (int64_t i = 0; i < arr->size; i++) {
-        char val_str[32];
-        snprintf(val_str, 32, "%lld", arr->data[i]);
-        strcat(res, val_str);
-        if (i < arr->size - 1) strcat(res, sep);
-    }
-    return res;
-}
-
-// String methods
-int64_t String_len(int64_t this_ptr, const char* s) {
-    (void)this_ptr;
-    if (!s) return 0;
-    return (int64_t)strlen(s);
-}
-
-char* String_toUpper(int64_t this_ptr, const char* s) {
-    (void)this_ptr;
-    if (!s) return strdup("");
-    size_t len = strlen(s);
-    char* res = malloc(len + 1);
-    if (!res) return strdup("");
-    for (size_t i = 0; i < len; i++) {
-        if (s[i] >= 'a' && s[i] <= 'z') res[i] = s[i] - ('a' - 'A');
-        else res[i] = s[i];
-    }
-    res[len] = '\0';
-    return res;
-}
-
-char* String_trim(int64_t this_ptr, const char* s) {
-    (void)this_ptr;
-    if (!s) return strdup("");
-    const char* p = s;
-    while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
-    if (*p == 0) return strdup("");
-    char* end = (char*)p + strlen(p) - 1;
-    while (end > p && (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\r')) end--;
-    size_t len = end - p + 1;
-    char* res = malloc(len + 1);
-    if (!res) return strdup("");
-    strncpy(res, p, len);
-    res[len] = '\0';
-    return res;
-}
-
-char* String_charAt(int64_t this_ptr, const char* s, int64_t index) {
-    (void)this_ptr;
-    if (!s || index < 0 || index >= (int64_t)strlen(s)) return strdup("");
-    char* res = malloc(2);
-    if (!res) return strdup("");
-    res[0] = s[index];
-    res[1] = '\0';
-    return res;
-}
-
-char* String_substring(int64_t this_ptr, const char* s, int64_t start, int64_t end) {
-    (void)this_ptr;
-    if (!s) return strdup("");
-    int64_t len = strlen(s);
-    if (start < 0) start = 0;
-    if (end > len) end = len;
-    if (start >= end) return strdup("");
-    char* res = malloc(end - start + 1);
-    if (!res) return strdup("");
-    strncpy(res, s + start, end - start);
-    res[end - start] = '\0';
-    return res;
-}
-
-int64_t String_indexOf(int64_t this_ptr, const char* s, const char* sub) {
-    (void)this_ptr;
-    if (!s || !sub) return -1;
-    char* p = strstr(s, sub);
-    if (!p) return -1;
-    return p - s;
-}
 
 // Promise (Sync Implementation)
 #define AURA_PROMISE_MAGIC 0x50524F4D495345LL
@@ -208,18 +110,18 @@ void print_promise(AuraPromise* p) {
 }
 
 // Date Intrinsics for std/date.aura
-int64_t ___date_now() {
+int64_t __date_now() {
     return (int64_t)time(NULL) * 1000;
 }
 
-int64_t ___date_parse(const char* s) {
+int64_t __date_parse(const char* s) {
     if (!s) return 0;
     // Simple mock for "2024-03-10T13:00:00Z"
     if (s[0] == '2' && s[4] == '-') return 1710075600000LL;
     return 0;
 }
 
-int64_t ___date_get_part(int64_t ms, const char* part) {
+int64_t __date_get_part(int64_t ms, const char* part) {
     time_t t = (time_t)(ms / 1000);
     struct tm ts;
     gmtime_r(&t, &ts);
@@ -232,7 +134,7 @@ int64_t ___date_get_part(int64_t ms, const char* part) {
     return 0;
 }
 
-char* ___date_format(int64_t ms, const char* fmt) {
+char* __date_format(int64_t ms, const char* fmt) {
     time_t t = (time_t)(ms / 1000);
     struct tm ts;
     gmtime_r(&t, &ts);
@@ -378,59 +280,9 @@ void* HTTPClient_request(int64_t this_ptr, const char* host, int64_t port, const
     return resp;
 }
 
-// Math intrinsics
-int64_t Math_abs(int64_t this_ptr, int64_t n) {
-    (void)this_ptr;
-    return n < 0 ? -n : n;
-}
 
-int64_t Math_sqrt(int64_t this_ptr, int64_t n) {
-    (void)this_ptr;
-    return (int64_t)sqrt((double)n);
-}
 
-int64_t Math_pow(int64_t this_ptr, int64_t base, int64_t exp) {
-    (void)this_ptr;
-    return (int64_t)pow((double)base, (double)exp);
-}
 
-int64_t Math_max(int64_t this_ptr, int64_t a, int64_t b) {
-    (void)this_ptr;
-    return a > b ? a : b;
-}
-
-int64_t Math_min(int64_t this_ptr, int64_t a, int64_t b) {
-    (void)this_ptr;
-    return a < b ? a : b;
-}
-
-// FS intrinsics
-void FS_writeFileSync(int64_t this_ptr, const char* path, const char* content) {
-    (void)this_ptr;
-    FILE* f = fopen(path, "w");
-    if (f) {
-        fputs(content, f);
-        fclose(f);
-    }
-}
-
-char* FS_readFileSync(int64_t this_ptr, const char* path) {
-    (void)this_ptr;
-    FILE* f = fopen(path, "r");
-    if (!f) return strdup("");
-    fseek(f, 0, SEEK_END);
-    long size = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    char* buf = malloc(size + 1);
-    if (!buf) {
-        fclose(f);
-        return strdup("");
-    }
-    fread(buf, 1, size, f);
-    buf[size] = '\0';
-    fclose(f);
-    return buf;
-}
 
 // System logic
 void aura_throw(int64_t this_ptr, const char* msg) {
@@ -448,56 +300,9 @@ void aura_throw(int64_t this_ptr, const char* msg) {
     exit(0);
 }
 
-void* Error_ctor(int64_t this_ptr, const char* msg) {
-    (void)this_ptr;
-    return (void*)msg;
-}
 
-// Date Class Methods (Compatible with compiler allocation)
-void* Date_ctor(int64_t this_ptr, int64_t val) {
-    int64_t* ts = (int64_t*)this_ptr;
-    if (val > 0 && val < 5000000000LL) {
-        const char* s = (const char*)val;
-        // String literal parse for test case
-        if (val > 0x1000 && s[0] == '2') *ts = 1710075600000LL;
-        else *ts = val;
-    } else {
-        *ts = val;
-    }
-    return (void*)this_ptr;
-}
 
-int64_t Date_getFullYear(int64_t this_ptr) {
-    int64_t ms = *(int64_t*)this_ptr;
-    time_t t = (time_t)(ms / 1000);
-    struct tm ts;
-    gmtime_r(&t, &ts);
-    return ts.tm_year + 1900;
-}
 
-int64_t Date_getMonth(int64_t this_ptr) {
-    int64_t ms = *(int64_t*)this_ptr;
-    time_t t = (time_t)(ms / 1000);
-    struct tm ts;
-    gmtime_r(&t, &ts);
-    return ts.tm_mon;
-}
-
-int64_t Date_getDate(int64_t this_ptr) {
-    int64_t ms = *(int64_t*)this_ptr;
-    time_t t = (time_t)(ms / 1000);
-    struct tm ts;
-    gmtime_r(&t, &ts);
-    return ts.tm_mday;
-}
-
-int64_t Date_getHours(int64_t this_ptr) {
-    int64_t ms = *(int64_t*)this_ptr;
-    time_t t = (time_t)(ms / 1000);
-    struct tm ts;
-    gmtime_r(&t, &ts);
-    return ts.tm_hour;
-}
 
 
 void print_array(AuraArray* arr) {

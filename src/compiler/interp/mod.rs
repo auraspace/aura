@@ -66,6 +66,8 @@ pub struct Interpreter {
     pub next_timer_id: i32,
     pub env_stack: Vec<Rc<RefCell<HashMap<String, Value>>>>,
     pub cleared_timers: HashSet<i32>,
+    pub stdlib_path: Option<String>,
+    pub loaded_files: HashSet<String>,
 }
 
 pub struct Timer {
@@ -87,6 +89,8 @@ impl Interpreter {
             next_timer_id: 1,
             env_stack: vec![Rc::new(RefCell::new(HashMap::new()))],
             cleared_timers: HashSet::new(),
+            stdlib_path: None,
+            loaded_files: HashSet::new(),
         };
         // Register built-in Promise class (methods are handled as special cases in eval_expr)
         interp
@@ -175,26 +179,51 @@ impl Interpreter {
     }
 
     pub fn load_stdlib(&mut self, stdlib_path: &str) {
-        if let Ok(entries) = std::fs::read_dir(stdlib_path) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.extension().and_then(|s| s.to_str()) == Some("aura") {
-                    if let Ok(source) = std::fs::read_to_string(&path) {
-                        let mut lexer = crate::compiler::frontend::lexer::Lexer::new(&source);
-                        let tokens = lexer.lex_all();
-                        if !lexer.diagnostics.diagnostics.is_empty() {
-                            eprintln!("Lexer errors in stdlib file {:?}:", path);
-                            lexer.diagnostics.report();
-                        }
-                        let mut parser = crate::compiler::frontend::parser::Parser::new(tokens);
-                        let program = parser.parse_program();
-                        if !parser.diagnostics.diagnostics.is_empty() {
-                            eprintln!("Syntax errors in stdlib file {:?}:", path);
-                            parser.diagnostics.report();
-                        }
-                        self.interpret(program);
-                    }
-                }
+        self.stdlib_path = Some(stdlib_path.to_string());
+        let core_path = std::path::Path::new(stdlib_path).join("core.aura");
+        if core_path.exists() {
+            if let Ok(source) = std::fs::read_to_string(&core_path) {
+                let mut lexer = crate::compiler::frontend::lexer::Lexer::new(&source);
+                let tokens = lexer.lex_all();
+                let mut parser = crate::compiler::frontend::parser::Parser::new(tokens);
+                let program = parser.parse_program();
+                self.interpret(program);
+            }
+        }
+    }
+
+    fn load_import(&mut self, path: String) {
+        let absolute_path = if path.starts_with("std/") {
+            if let Some(ref std_path) = self.stdlib_path {
+                let sub_path = &path[4..]; // remove "std/"
+                let aura_path = format!("{}.aura", sub_path);
+                std::path::Path::new(std_path)
+                    .join(aura_path)
+                    .canonicalize()
+            } else {
+                return;
+            }
+        } else if path.starts_with(".") {
+            // How to get current file's directory in Interpreter?
+            // For now, assume relative to current working directory or add current_dir to Interpreter
+            std::path::Path::new(&path).canonicalize()
+        } else {
+            std::path::Path::new(&path).canonicalize()
+        };
+
+        if let Ok(abs_p) = absolute_path {
+            let path_str = abs_p.to_string_lossy().to_string();
+            if self.loaded_files.contains(&path_str) {
+                return;
+            }
+            self.loaded_files.insert(path_str.clone());
+
+            if let Ok(source) = std::fs::read_to_string(&abs_p) {
+                let mut lexer = crate::compiler::frontend::lexer::Lexer::new(&source);
+                let tokens = lexer.lex_all();
+                let mut parser = crate::compiler::frontend::parser::Parser::new(tokens);
+                let program = parser.parse_program();
+                self.interpret(program);
             }
         }
     }
@@ -374,7 +403,10 @@ impl Interpreter {
                 }
             }
             Statement::Error => StatementResult::None,
-            Statement::Import { .. } => StatementResult::None,
+            Statement::Import { path, .. } => {
+                self.load_import(path);
+                StatementResult::None
+            }
             Statement::TryCatch {
                 try_block,
                 catch_param,

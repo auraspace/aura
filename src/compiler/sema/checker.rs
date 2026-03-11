@@ -44,6 +44,7 @@ pub struct SemanticAnalyzer {
     pub record_node_info: bool,
     pub loaded_files: std::collections::HashSet<String>,
     pub current_dir: Option<String>,
+    pub stdlib_path: Option<String>,
 }
 
 impl SemanticAnalyzer {
@@ -59,6 +60,7 @@ impl SemanticAnalyzer {
             record_node_info: false,
             loaded_files: std::collections::HashSet::new(),
             current_dir: None,
+            stdlib_path: None,
         };
 
         // Register built-in Promise class
@@ -290,7 +292,15 @@ impl SemanticAnalyzer {
     }
 
     fn load_import(&mut self, path: String) {
-        let absolute_path = if path.starts_with(".") {
+        let absolute_path = if path.starts_with("std/") {
+            if let Some(ref std_path) = self.stdlib_path {
+                let sub_path = &path[4..]; // remove "std/"
+                let aura_path = format!("{}.aura", sub_path);
+                std::path::Path::new(std_path).join(aura_path).canonicalize()
+            } else {
+                return;
+            }
+        } else if path.starts_with(".") {
             if let Some(ref dir) = self.current_dir {
                 std::path::Path::new(dir).join(path).canonicalize()
             } else {
@@ -326,18 +336,15 @@ impl SemanticAnalyzer {
     }
 
     pub fn load_stdlib(&mut self, stdlib_path: &str) {
-        if let Ok(entries) = std::fs::read_dir(stdlib_path) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.extension().and_then(|s| s.to_str()) == Some("aura") {
-                    if let Ok(source) = std::fs::read_to_string(&path) {
-                        let mut lexer = crate::compiler::frontend::lexer::Lexer::new(&source);
-                        let tokens = lexer.lex_all();
-                        let mut parser = crate::compiler::frontend::parser::Parser::new(tokens);
-                        let program = parser.parse_program();
-                        self.collect_definitions(&program);
-                    }
-                }
+        self.stdlib_path = Some(stdlib_path.to_string());
+        let core_path = std::path::Path::new(stdlib_path).join("core.aura");
+        if core_path.exists() {
+            if let Ok(source) = std::fs::read_to_string(&core_path) {
+                let mut lexer = crate::compiler::frontend::lexer::Lexer::new(&source);
+                let tokens = lexer.lex_all();
+                let mut parser = crate::compiler::frontend::parser::Parser::new(tokens);
+                let program = parser.parse_program();
+                self.collect_definitions(&program);
             }
         }
     }

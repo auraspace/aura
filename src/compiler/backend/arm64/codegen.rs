@@ -17,6 +17,7 @@ pub struct Codegen {
     is_global_scope: bool,
     loaded_files: std::collections::HashSet<String>,
     current_dir: Option<String>,
+    pub stdlib_path: Option<String>,
 }
 
 impl Codegen {
@@ -35,6 +36,7 @@ impl Codegen {
             is_global_scope: true,
             loaded_files: std::collections::HashSet::new(),
             current_dir: None,
+            stdlib_path: None,
         }
     }
 
@@ -52,108 +54,10 @@ impl Codegen {
             "Promise".to_string(),
             (vec![], vec!["all".to_string(), "then".to_string()]),
         );
+        // Register built-in Promise class (still needed as it's not in stdlib yet)
         self.classes.insert(
-            "String".to_string(),
-            (
-                vec![],
-                vec![
-                    "len".to_string(),
-                    "trim".to_string(),
-                    "toUpper".to_string(),
-                    "charAt".to_string(),
-                    "substring".to_string(),
-                    "indexOf".to_string(),
-                ],
-            ),
-        );
-        self.classes.insert(
-            "Date".to_string(),
-            (
-                vec![],
-                vec![
-                    "now".to_string(),
-                    "toString".to_string(),
-                    "getDate".to_string(),
-                    "getMonth".to_string(),
-                    "getFullYear".to_string(),
-                    "getHours".to_string(),
-                ],
-            ),
-        );
-        self.classes.insert("Error".to_string(), (vec![], vec![]));
-        self.classes.insert(
-            "FS".to_string(),
-            (
-                vec![],
-                vec!["readFileSync".to_string(), "writeFileSync".to_string()],
-            ),
-        );
-        self.classes.insert(
-            "Math".to_string(),
-            (
-                vec![],
-                vec![
-                    "abs".to_string(),
-                    "sqrt".to_string(),
-                    "pow".to_string(),
-                    "max".to_string(),
-                    "min".to_string(),
-                ],
-            ),
-        );
-        self.classes.insert(
-            "Array".to_string(),
-            (
-                vec![],
-                vec![
-                    "len".to_string(),
-                    "push".to_string(),
-                    "pop".to_string(),
-                    "join".to_string(),
-                ],
-            ),
-        );
-        self.classes.insert(
-            "TCPServer".to_string(),
-            (
-                vec![],
-                vec![
-                    "listen".to_string(),
-                    "accept".to_string(),
-                    "close".to_string(),
-                ],
-            ),
-        );
-        self.classes.insert(
-            "TCPStream".to_string(),
-            (
-                vec![],
-                vec![
-                    "connect".to_string(),
-                    "read".to_string(),
-                    "write".to_string(),
-                    "close".to_string(),
-                ],
-            ),
-        );
-        self.classes.insert(
-            "HTTPClient".to_string(),
-            (
-                vec![],
-                vec![
-                    "new".to_string(),
-                    "get".to_string(),
-                    "post".to_string(),
-                    "request".to_string(),
-                ],
-            ),
-        );
-        self.classes.insert(
-            "TCPSocket".to_string(),
-            (
-                vec![],
-                vec!["read".to_string(), "write".to_string(), "close".to_string()],
-            ),
+            "Promise".to_string(),
+            (vec![], vec!["all".to_string(), "then".to_string(), "any".to_string(), "race".to_string(), "allSettled".to_string()]),
         );
 
         let mut classes = Vec::new();
@@ -227,7 +131,15 @@ impl Codegen {
                 Statement::ClassDeclaration { .. } => classes.push(actual_stmt),
                 Statement::FunctionDeclaration { .. } => fns.push(actual_stmt),
                 Statement::Import { path, .. } => {
-                    let absolute_path = if path.starts_with(".") {
+                    let absolute_path = if path.starts_with("std/") {
+                        if let Some(ref std_path) = self.stdlib_path {
+                            let sub_path = &path[4..]; // remove "std/"
+                            let aura_path = format!("{}.aura", sub_path);
+                            std::path::Path::new(std_path).join(aura_path).canonicalize()
+                        } else {
+                            continue;
+                        }
+                    } else if path.starts_with(".") {
                         if let Some(ref dir) = self.current_dir {
                             std::path::Path::new(dir).join(path).canonicalize()
                         } else {
@@ -281,28 +193,25 @@ impl Codegen {
     }
 
     pub fn load_stdlib(&mut self, stdlib_path: &str) {
-        if let Ok(entries) = std::fs::read_dir(stdlib_path) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.extension().and_then(|s| s.to_str()) == Some("aura") {
-                    if let Ok(source) = std::fs::read_to_string(&path) {
-                        let mut lexer = crate::compiler::frontend::lexer::Lexer::new(&source);
-                        let tokens = lexer.lex_all();
-                        let mut parser = crate::compiler::frontend::parser::Parser::new(tokens);
-                        let program = parser.parse_program();
-                        for stmt in program.statements {
-                            if let Statement::ClassDeclaration {
-                                name,
-                                fields,
-                                methods,
-                                ..
-                            } = stmt
-                            {
-                                let fnames = fields.into_iter().map(|f| f.name).collect();
-                                let mnames = methods.into_iter().map(|m| m.name).collect();
-                                self.classes.insert(name, (fnames, mnames));
-                            }
-                        }
+        self.stdlib_path = Some(stdlib_path.to_string());
+        let core_path = std::path::Path::new(stdlib_path).join("core.aura");
+        if core_path.exists() {
+            if let Ok(source) = std::fs::read_to_string(&core_path) {
+                let mut lexer = crate::compiler::frontend::lexer::Lexer::new(&source);
+                let tokens = lexer.lex_all();
+                let mut parser = crate::compiler::frontend::parser::Parser::new(tokens);
+                let program = parser.parse_program();
+                for stmt in program.statements {
+                    if let Statement::ClassDeclaration {
+                        name,
+                        fields,
+                        methods,
+                        ..
+                    } = stmt
+                    {
+                        let fnames = fields.into_iter().map(|f| f.name).collect();
+                        let mnames = methods.into_iter().map(|m| m.name).collect();
+                        self.classes.insert(name, (fnames, mnames));
                     }
                 }
             }
