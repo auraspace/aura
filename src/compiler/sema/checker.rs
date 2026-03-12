@@ -1128,12 +1128,13 @@ impl SemanticAnalyzer {
                 let rhs = self.check_expr(*right);
                 match op.as_str() {
                     "==" | "!=" | "<" | "<=" | ">" | ">=" => {
-                        // Allow comparison between same types, or classes and null
+                        // Allow comparison between same types, or classes/unions/unknown and null
+                        let is_nullable = |ty: &Type| {
+                            matches!(ty, Type::Class(_) | Type::Union(_) | Type::Unknown | Type::Null)
+                        };
                         let ok = if lhs == rhs {
                             true
-                        } else if (matches!(lhs, Type::Class(_)) || lhs == Type::Null)
-                            && (matches!(rhs, Type::Class(_)) || rhs == Type::Null)
-                        {
+                        } else if is_nullable(&lhs) && is_nullable(&rhs) {
                             true
                         } else {
                             false
