@@ -43,6 +43,7 @@ pub fn register_analyzer_intrinsics(sema_analyzer: &mut SemanticAnalyzer) {
         ),
         false,
         true,
+        true, // is_exported
         Span::new(0, 0),
         "".to_string(),
         Some("Open a file".to_string()),
@@ -54,6 +55,7 @@ pub fn register_analyzer_intrinsics(sema_analyzer: &mut SemanticAnalyzer) {
         Type::Function(vec![Type::Int32], Box::new(Type::Void)),
         false,
         true,
+        true, // is_exported
         Span::new(0, 0),
         "".to_string(),
         Some("Close a file".to_string()),
@@ -65,6 +67,7 @@ pub fn register_analyzer_intrinsics(sema_analyzer: &mut SemanticAnalyzer) {
         Type::Function(vec![Type::Int32, Type::Int32], Box::new(Type::String)),
         false,
         true,
+        true, // is_exported
         Span::new(0, 0),
         "".to_string(),
         Some("Read from a file".to_string()),
@@ -76,6 +79,7 @@ pub fn register_analyzer_intrinsics(sema_analyzer: &mut SemanticAnalyzer) {
         Type::Function(vec![Type::Int32, Type::String], Box::new(Type::Int32)),
         false,
         true,
+        true, // is_exported
         Span::new(0, 0),
         "".to_string(),
         Some("Write to a file".to_string()),
@@ -87,6 +91,7 @@ pub fn register_analyzer_intrinsics(sema_analyzer: &mut SemanticAnalyzer) {
         Type::Function(vec![Type::Int32], Box::new(Type::Int32)),
         false,
         true,
+        true, // is_exported
         Span::new(0, 0),
         "".to_string(),
         Some("Listen on a TCP port".to_string()),
@@ -98,6 +103,7 @@ pub fn register_analyzer_intrinsics(sema_analyzer: &mut SemanticAnalyzer) {
         Type::Function(vec![Type::Int32], Box::new(Type::Int32)),
         false,
         true,
+        true, // is_exported
         Span::new(0, 0),
         "".to_string(),
         Some("Accept a new TCP connection".to_string()),
@@ -109,6 +115,7 @@ pub fn register_analyzer_intrinsics(sema_analyzer: &mut SemanticAnalyzer) {
         Type::Function(vec![Type::String, Type::Int32], Box::new(Type::Int32)),
         false,
         true,
+        true, // is_exported
         Span::new(0, 0),
         "".to_string(),
         Some("Connect to a TCP host".to_string()),
@@ -120,6 +127,7 @@ pub fn register_analyzer_intrinsics(sema_analyzer: &mut SemanticAnalyzer) {
         Type::Function(vec![], Box::new(Type::Int64)),
         false,
         true,
+        true, // is_exported
         Span::new(0, 0),
         "".to_string(),
         Some("Get current timestamp in milliseconds".to_string()),
@@ -131,6 +139,7 @@ pub fn register_analyzer_intrinsics(sema_analyzer: &mut SemanticAnalyzer) {
         Type::Function(vec![Type::Int64, Type::String], Box::new(Type::Int32)),
         false,
         true,
+        true, // is_exported
         Span::new(0, 0),
         "".to_string(),
         Some("Get date part from timestamp".to_string()),
@@ -142,6 +151,7 @@ pub fn register_analyzer_intrinsics(sema_analyzer: &mut SemanticAnalyzer) {
         Type::Function(vec![Type::Int64, Type::String], Box::new(Type::String)),
         false,
         true,
+        true, // is_exported
         Span::new(0, 0),
         "".to_string(),
         Some("Format a timestamp".to_string()),
@@ -153,6 +163,7 @@ pub fn register_analyzer_intrinsics(sema_analyzer: &mut SemanticAnalyzer) {
         Type::Function(vec![Type::String], Box::new(Type::Int64)),
         false,
         true,
+        true, // is_exported
         Span::new(0, 0),
         "".to_string(),
         Some("Parse a date string into a timestamp".to_string()),
@@ -167,6 +178,7 @@ pub fn register_analyzer_intrinsics(sema_analyzer: &mut SemanticAnalyzer) {
         ),
         false,
         true,
+        true, // is_exported
         Span::new(0, 0),
         "".to_string(),
         Some("Set a timeout".to_string()),
@@ -181,6 +193,7 @@ pub fn register_analyzer_intrinsics(sema_analyzer: &mut SemanticAnalyzer) {
         ),
         false,
         true,
+        true, // is_exported
         Span::new(0, 0),
         "".to_string(),
         Some("Set an interval".to_string()),
@@ -192,6 +205,7 @@ pub fn register_analyzer_intrinsics(sema_analyzer: &mut SemanticAnalyzer) {
         Type::Function(vec![Type::Int32], Box::new(Type::Void)),
         false,
         true,
+        true, // is_exported
         Span::new(0, 0),
         "".to_string(),
         Some("Clear a timer".to_string()),
@@ -208,6 +222,7 @@ pub fn register_analyzer_intrinsics(sema_analyzer: &mut SemanticAnalyzer) {
             Type::Int32,
             false,
             true,
+            true, // is_exported
             Span::new(0, 0),
             "".to_string(),
             Some(format!("libc constant {}", name)),

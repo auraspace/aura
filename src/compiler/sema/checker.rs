@@ -10,6 +10,8 @@ pub struct ClassInfo {
     pub static_fields: HashMap<String, (Type, Span, Option<String>)>,
     pub methods: HashMap<String, (Vec<Type>, Type, Option<String>, Span)>, // params, ret, doc, span
     pub static_methods: HashMap<String, (Vec<Type>, Type, Option<String>, Span)>,
+    pub is_exported: bool,
+    pub defined_in: String,
     pub span: Span,
     pub doc: Option<String>,
 }
@@ -27,6 +29,8 @@ pub enum SemanticErrorKind {
     NotAClass(String),
     UndefinedFunction(String),
     CannotAssignToConstant(String),
+    UndefinedImport(String, String), // symbol, module
+    ExportRequired(String),         // symbol
 }
 
 #[derive(Debug, Clone)]
@@ -122,6 +126,8 @@ impl SemanticAnalyzer {
                 static_fields: HashMap::new(),
                 methods: HashMap::new(),
                 static_methods,
+                is_exported: true,
+                defined_in: "".to_string(),
                 span: Span::new(0, 0),
                 doc: Some("Built-in Promise class".to_string()),
             },
@@ -132,6 +138,7 @@ impl SemanticAnalyzer {
             Type::Boolean,
             false,
             true, // true is a constant
+            true, // exported
             Span::new(0, 0),
             "".to_string(),
             None,
@@ -141,6 +148,7 @@ impl SemanticAnalyzer {
             Type::Boolean,
             false,
             true, // false is a constant
+            true, // exported
             Span::new(0, 0),
             "".to_string(),
             None,
@@ -150,6 +158,7 @@ impl SemanticAnalyzer {
             Type::Null,
             false,
             true, // null is a constant
+            true, // exported
             Span::new(0, 0),
             "".to_string(),
             None,
@@ -160,6 +169,7 @@ impl SemanticAnalyzer {
             Type::Int32,
             false,
             true,
+            true,
             Span::new(0, 0),
             "".to_string(),
             None,
@@ -168,6 +178,7 @@ impl SemanticAnalyzer {
             "O_WRONLY".to_string(),
             Type::Int32,
             false,
+            true,
             true,
             Span::new(0, 0),
             "".to_string(),
@@ -178,6 +189,7 @@ impl SemanticAnalyzer {
             Type::Int32,
             false,
             true,
+            true,
             Span::new(0, 0),
             "".to_string(),
             None,
@@ -186,6 +198,7 @@ impl SemanticAnalyzer {
             "O_CREAT".to_string(),
             Type::Int32,
             false,
+            true,
             true,
             Span::new(0, 0),
             "".to_string(),
@@ -196,6 +209,7 @@ impl SemanticAnalyzer {
             Type::Int32,
             false,
             true,
+            true,
             Span::new(0, 0),
             "".to_string(),
             None,
@@ -204,6 +218,7 @@ impl SemanticAnalyzer {
             "O_APPEND".to_string(),
             Type::Int32,
             false,
+            true,
             true,
             Span::new(0, 0),
             "".to_string(),
@@ -241,6 +256,12 @@ impl SemanticAnalyzer {
             SemanticErrorKind::CannotAssignToConstant(n) => {
                 format!("Cannot assign to constant: {}", n)
             }
+            SemanticErrorKind::UndefinedImport(s, m) => {
+                format!("Symbol {} not found in module {}", s, m)
+            }
+            SemanticErrorKind::ExportRequired(s) => {
+                format!("Symbol {} is not exported", s)
+            }
         };
         self.diagnostics
             .push(Diagnostic::error(msg, span.line, span.column));
@@ -268,9 +289,9 @@ impl SemanticAnalyzer {
         let saved_file = self.current_file.clone();
         self.current_file = program.file_path.clone();
         for stmt in &program.statements {
-            let actual_stmt = match stmt {
-                Statement::Export { decl, .. } => &**decl,
-                _ => stmt,
+            let (actual_stmt, is_exported) = match stmt {
+                Statement::Export { decl, .. } => (&**decl, true),
+                _ => (stmt, false),
             };
 
             if let Statement::ClassDeclaration {
@@ -344,6 +365,8 @@ impl SemanticAnalyzer {
                         static_fields: static_field_map,
                         methods: method_map,
                         static_methods: static_method_map,
+                        is_exported,
+                        defined_in: self.current_file.clone(),
                         span: *span,
                         doc: doc.clone(),
                     },
@@ -375,6 +398,7 @@ impl SemanticAnalyzer {
                     Type::Function(param_tys, Box::new(ret_ty)),
                     false,
                     true, // function declarations are constant
+                    is_exported,
                     *name_span,
                     self.current_file.clone(),
                     doc.clone(),
@@ -406,6 +430,7 @@ impl SemanticAnalyzer {
                     var_ty,
                     false,
                     *is_const,
+                    is_exported,
                     *name_span,
                     self.current_file.clone(),
                     doc.clone(),
@@ -421,10 +446,41 @@ impl SemanticAnalyzer {
                 match item {
                     ImportItem::Named(names) => {
                         for (name, name_span) in names {
-                            if let Some(sym) = self.scope.lookup(name) {
-                                let def_file = sym.defined_in.clone();
-                                let def_span = sym.span;
+                            let sym_info = self.scope.lookup(name).map(|s| (s.is_exported, s.defined_in.clone(), s.span));
+                            let class_info = self.classes.get(name).map(|c| (c.is_exported, self.current_file.clone(), c.span)); // simplified defined_in for classes
+                            
+                            let export_check = if let Some(info) = sym_info {
+                                Some(info)
+                            } else {
+                                class_info
+                            };
+
+                            if let Some((is_exported, def_file, def_span)) = export_check {
+                                if !is_exported {
+                                    self.error(SemanticErrorKind::ExportRequired(name.clone()), *name_span);
+                                }
                                 self.record_definition(*name_span, def_file, def_span);
+                                
+                                // Insert placeholder with correct is_exported flag if it was a symbol
+                                // (Classes are already in self.classes)
+                                if self.scope.lookup_local(name).is_none() && self.classes.get(name).is_none() {
+                                     // Placeholder insert for variables/functions
+                                     self.scope.insert(
+                                        name.clone(),
+                                        Type::Unknown,
+                                        false,
+                                        false,
+                                        is_exported,
+                                        *name_span,
+                                        self.current_file.clone(),
+                                        None,
+                                    );
+                                }
+                            } else {
+                                self.error(
+                                    SemanticErrorKind::UndefinedImport(name.clone(), path.clone()),
+                                    *name_span,
+                                );
                             }
                         }
                     }
@@ -473,7 +529,7 @@ impl SemanticAnalyzer {
             .insert(span, doc);
     }
 
-    fn resolve_import_path(&self, path: &str) -> Result<std::path::PathBuf, std::io::Error> {
+    pub fn resolve_import_path(&self, path: &str) -> Result<std::path::PathBuf, std::io::Error> {
         if path.starts_with("std/") {
             if let Some(ref std_path) = self.stdlib_path {
                 let sub_path = &path[4..]; // remove "std/"
@@ -718,11 +774,13 @@ impl SemanticAnalyzer {
                     }
                     self.record_type(name_span, declared_ty.clone());
                 }
+                let is_exported_flag = self.scope.lookup_local(&name).map(|s| s.is_exported).unwrap_or(false);
                 self.scope.insert(
                     name,
                     declared_ty,
                     false,
                     is_const,
+                    is_exported_flag,
                     span,
                     self.current_file.clone(),
                     doc,
@@ -759,6 +817,7 @@ impl SemanticAnalyzer {
                             narrowed_ty.clone(),
                             false,
                             false,
+                            false, // narrowed type in block
                             span,
                             self.current_file.clone(),
                             None,
@@ -780,6 +839,7 @@ impl SemanticAnalyzer {
                                 excluded_ty,
                                 false,
                                 false,
+                                false, // narrowed type in block
                                 span,
                                 self.current_file.clone(),
                                 None,
@@ -832,11 +892,13 @@ impl SemanticAnalyzer {
 
                 // Register function before checking body for recursion
                 let func_ty = Type::Function(param_tys.clone(), Box::new(ret_ty.clone()));
+                let is_exported_flag = self.scope.lookup_local(&name).map(|s| s.is_exported).unwrap_or(false);
                 self.scope.insert(
                     name.clone(),
                     func_ty.clone(),
                     false,
                     true, // functions are constant
+                    is_exported_flag,
                     span,
                     self.current_file.clone(),
                     doc_clone,
@@ -852,7 +914,7 @@ impl SemanticAnalyzer {
                 for (pname, pty) in params {
                     let ty = self.resolve_type(pty.clone());
                     self.scope
-                        .insert(pname, ty, true, false, pty.span(), self.current_file.clone(), None);
+                        .insert(pname, ty, true, false, false, pty.span(), self.current_file.clone(), None);
                 }
                 self.check_statement(*body);
                 self.pop_scope();
@@ -892,6 +954,7 @@ impl SemanticAnalyzer {
                             Type::Class(name.clone()),
                             false,
                             true, // this is constant
+                            false, // this is not exported
                             ctor.span,
                             self.current_file.clone(),
                             None,
@@ -903,6 +966,7 @@ impl SemanticAnalyzer {
                             ty,
                             true,
                             false,
+                            false, // param not exported
                             pty.span(),
                             self.current_file.clone(),
                             None,
@@ -919,6 +983,7 @@ impl SemanticAnalyzer {
                         Type::Class(name.clone()),
                         false,
                         true, // this is constant
+                        false, // this is not exported
                         m.span,
                         self.current_file.clone(),
                         None,
@@ -930,6 +995,7 @@ impl SemanticAnalyzer {
                             ty,
                             true,
                             false,
+                            false, // param not exported
                             pty.span(),
                             self.current_file.clone(),
                             None,
@@ -973,6 +1039,7 @@ impl SemanticAnalyzer {
                             final_ty,
                             true,
                             false,
+                            false, // catch param not exported
                             Span::new(0, 0),
                             self.current_file.clone(),
                             None,

@@ -8,6 +8,7 @@ pub struct Symbol {
     pub ty: Type,
     pub is_param: bool,
     pub is_const: bool,
+    pub is_exported: bool,
     pub span: Span,
     pub defined_in: String,
     pub doc: Option<String>,
@@ -32,22 +33,22 @@ impl Scope {
         ty: Type,
         is_param: bool,
         is_const: bool,
+        is_exported: bool,
         span: Span,
         defined_in: String,
         doc: Option<String>,
     ) {
-        self.symbols.insert(
-            name.clone(),
-            Symbol {
-                name,
-                ty,
-                is_param,
-                is_const,
-                span,
-                defined_in,
-                doc,
-            },
-        );
+        let sym = Symbol {
+            name: name.clone(),
+            ty,
+            is_param,
+            is_const,
+            is_exported,
+            span,
+            defined_in,
+            doc,
+        };
+        self.symbols.insert(name, sym);
     }
 
     pub fn lookup(&self, name: &str) -> Option<&Symbol> {

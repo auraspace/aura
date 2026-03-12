@@ -306,6 +306,86 @@ impl LanguageServer for Backend {
                 let col = position.character as usize;
                 if col > 0 {
                     let before = &line[..col];
+
+                    let open_brace = before.rfind('{');
+                    let close_brace = before.rfind('}');
+                    let is_in_braces = before.contains("import") && open_brace.is_some() && (close_brace.is_none() || open_brace > close_brace);
+                    
+                    if is_in_braces && (line.contains("} from") || line.contains("from")) {
+                        // Extract path
+                        let mut path = String::new();
+                        if let Some(from_pos) = line.find("from") {
+                            let after_from = &line[from_pos + 4..].trim();
+                            if (after_from.starts_with('\'') && after_from.len() > 1) || (after_from.starts_with('"') && after_from.len() > 1) {
+                                let quote = after_from.chars().next().unwrap();
+                                let mut end_quote_idx = None;
+                                for (i, c) in after_from[1..].chars().enumerate() {
+                                    if c == quote {
+                                        end_quote_idx = Some(i + 1);
+                                        break;
+                                    }
+                                }
+                                if let Some(eq) = end_quote_idx {
+                                    path = after_from[1..eq].to_string();
+                                }
+                            }
+                        }
+
+                        if !path.is_empty() {
+                            let mut analyzer = SemanticAnalyzer::new();
+                            let file_path = uri.to_file_path().unwrap_or_default();
+                            if let Some(parent) = file_path.parent() {
+                                analyzer.set_current_dir(parent.to_string_lossy().to_string());
+                            }
+                            analyzer.load_stdlib(&self.stdlib_path);
+                            
+                            if let Ok(abs_p) = analyzer.resolve_import_path(&path) {
+                                let abs_p_str = abs_p.to_string_lossy().to_string();
+                                if let Ok(source) = std::fs::read_to_string(&abs_p) {
+                                    let mut lexer = Lexer::new(&source);
+                                    let tokens = lexer.lex_all();
+                                    let mut parser = Parser::new(tokens, abs_p_str.clone());
+                                    let program = parser.parse_program();
+                                    
+                                    let mut target_analyzer = SemanticAnalyzer::new();
+                                    if let Some(parent) = abs_p.parent() {
+                                        target_analyzer.set_current_dir(parent.to_string_lossy().to_string());
+                                    }
+                                    target_analyzer.load_stdlib(&self.stdlib_path);
+                                    target_analyzer.analyze(program);
+                                    
+                                    for sym in target_analyzer.scope.symbols.values() {
+                                        // Only suggest if exported AND defined in that file (exclude built-ins)
+                                        if sym.is_exported && sym.defined_in == abs_p_str {
+                                            items.push(CompletionItem {
+                                                label: sym.name.clone(),
+                                                kind: Some(match sym.ty {
+                                                    Type::Function(_, _) => CompletionItemKind::FUNCTION,
+                                                    Type::Class(_) => CompletionItemKind::CLASS,
+                                                    _ => CompletionItemKind::VARIABLE,
+                                                }),
+                                                detail: Some(format!("{}", sym.ty)), // Use format! for nicer type display
+                                                documentation: sym.doc.as_ref().map(|d| Documentation::String(d.clone())),
+                                                ..Default::default()
+                                            });
+                                        }
+                                    }
+                                    for class in target_analyzer.classes.values() {
+                                        if class.is_exported && class.defined_in == abs_p_str {
+                                            items.push(CompletionItem {
+                                                label: class.name.clone(),
+                                                kind: Some(CompletionItemKind::CLASS),
+                                                documentation: class.doc.as_ref().map(|d| Documentation::String(d.clone())),
+                                                ..Default::default()
+                                            });
+                                        }
+                                    }
+                                    return Ok(Some(CompletionResponse::Array(items)));
+                                }
+                            }
+                        }
+                    }
+
                     if before.ends_with('.') {
                         let parts: Vec<&str> = before[..before.len() - 1]
                             .split(|c: char| !c.is_alphanumeric() && c != '_')
