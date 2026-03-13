@@ -26,7 +26,10 @@ fn print_help() {
     println!("  --ir       Use the Intermediate Representation (IR) backend");
     println!("  --interp   Use the interpreter for execution");
     println!("  --emit-ir  Print the generated IR and exit");
-    println!("  --target   Specify the target architecture (default: {})", get_default_target());
+    println!(
+        "  --target   Specify the target architecture (default: {})",
+        get_default_target()
+    );
     println!("             Supported targets: aarch64-apple-darwin, x86_64-unknown-linux-gnu, x86_64-pc-windows-msvc");
     std::process::exit(0);
 }

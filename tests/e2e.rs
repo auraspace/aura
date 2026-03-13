@@ -57,11 +57,20 @@ fn run_test(aura_file: &Path) {
     let binary =
         std::env::var("CARGO_BIN_EXE_aura").unwrap_or_else(|_| "target/debug/aura".to_string());
 
-    let modes_env = std::env::var("AURA_TEST_MODE").unwrap_or_else(|_| "interp".to_string());
-    let modes: Vec<&str> = if modes_env.is_empty() {
-        vec!["interp"]
-    } else {
+    let args: Vec<String> = std::env::args().collect();
+    let modes_env = std::env::var("AURA_TEST_MODE").unwrap_or_default();
+
+    // Check for modes in command-line arguments (after --)
+    let modes_arg = args
+        .iter()
+        .find(|arg| arg.contains("interp") || arg.contains("compiler") || arg.contains("ir"));
+
+    let modes: Vec<&str> = if let Some(arg) = modes_arg {
+        arg.split(',').map(|s| s.trim()).collect()
+    } else if !modes_env.is_empty() {
         modes_env.split(',').map(|s| s.trim()).collect()
+    } else {
+        vec!["interp"]
     };
 
     for mode in modes {
@@ -80,9 +89,12 @@ fn run_test(aura_file: &Path) {
         }
         cmd.arg(aura_file);
 
-        let output = cmd
-            .output()
-            .unwrap_or_else(|e| panic!("Failed to run binary '{}' for mode '{}': {}", binary, mode, e));
+        let output = cmd.output().unwrap_or_else(|e| {
+            panic!(
+                "Failed to run binary '{}' for mode '{}': {}",
+                binary, mode, e
+            )
+        });
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -140,7 +152,6 @@ fn run_test(aura_file: &Path) {
             actual_trimmed.join("\n")
         );
     }
-
 }
 
 // ───────────────────────────────────────── test cases ─────────────────────────
