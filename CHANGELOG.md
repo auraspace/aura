@@ -2,6 +2,20 @@
 
 ### 🚀 Features
 
+- Add scripts for installing and uninstalling the Aura application.
+- Embed C runtime code directly into the binary and update build drivers to compile it from an in-memory string.
+
+### 🚜 Refactor
+
+- Centralize Aura language server path resolution into a new helper function, improving discovery and updating configuration description.
+
+### ⚙️ Miscellaneous Tasks
+
+- Remove legacy raw binary asset creation from the release workflow.
+## [0.2.4] - 2026-03-13
+
+### 🚀 Features
+
 - Add x86_64-unknown-linux-gnu placehoder (#4)
 
 ### ⚙️ Miscellaneous Tasks
@@ -9,6 +23,8 @@
 - Enhance release workflow to package binaries with stdlib and c… (#1)
 - Complete (#2)
 - Remove push trigger for master branch. (#3)
+- Update changelog
+- Release aura version 0.2.4
 ## [0.2.3] - 2026-03-13
 
 ### ⚙️ Miscellaneous Tasks
