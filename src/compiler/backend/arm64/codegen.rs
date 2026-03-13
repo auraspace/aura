@@ -62,7 +62,9 @@ impl Codegen {
 
     fn is_string_enum(&self, enum_name: &str) -> bool {
         if let Some(members) = self.enums.get(enum_name) {
-            members.values().any(|v| matches!(v, Expr::StringLiteral(_, _)))
+            members
+                .values()
+                .any(|v| matches!(v, Expr::StringLiteral(_, _)))
         } else {
             false
         }
@@ -289,7 +291,10 @@ impl Codegen {
                             }
                             members.insert(member.name.clone(), expr.clone());
                         } else {
-                            members.insert(member.name.clone(), Expr::Number(next_int, member.name_span));
+                            members.insert(
+                                member.name.clone(),
+                                Expr::Number(next_int, member.name_span),
+                            );
                             next_int += 1;
                         }
                     }
@@ -1168,7 +1173,7 @@ impl Codegen {
                             break;
                         }
                     }
-                    
+
                     if method_label.starts_with("_METHOD_") {
                         if matches!(
                             member.as_str(),

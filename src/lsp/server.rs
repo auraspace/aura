@@ -303,7 +303,9 @@ impl LanguageServer for Backend {
                                         ),
                                         end: Position::new(
                                             member.name_span.line as u32 - 1,
-                                            member.name_span.column as u32 + member.name.len() as u32 - 1,
+                                            member.name_span.column as u32
+                                                + member.name.len() as u32
+                                                - 1,
                                         ),
                                     },
                                     selection_range: Range {
@@ -313,7 +315,9 @@ impl LanguageServer for Backend {
                                         ),
                                         end: Position::new(
                                             member.name_span.line as u32 - 1,
-                                            member.name_span.column as u32 + member.name.len() as u32 - 1,
+                                            member.name_span.column as u32
+                                                + member.name.len() as u32
+                                                - 1,
                                         ),
                                     },
                                     children: None,
@@ -330,14 +334,20 @@ impl LanguageServer for Backend {
                                         decl.span.line as u32 - 1,
                                         decl.span.column as u32 - 1,
                                     ),
-                                    end: Position::new(decl.span.line as u32 - 1, decl.span.column as u32),
+                                    end: Position::new(
+                                        decl.span.line as u32 - 1,
+                                        decl.span.column as u32,
+                                    ),
                                 },
                                 selection_range: Range {
                                     start: Position::new(
                                         decl.span.line as u32 - 1,
                                         decl.span.column as u32 - 1,
                                     ),
-                                    end: Position::new(decl.span.line as u32 - 1, decl.span.column as u32),
+                                    end: Position::new(
+                                        decl.span.line as u32 - 1,
+                                        decl.span.column as u32,
+                                    ),
                                 },
                                 #[allow(deprecated)]
                                 deprecated: None,
@@ -370,14 +380,18 @@ impl LanguageServer for Backend {
 
                     let open_brace = before.rfind('{');
                     let close_brace = before.rfind('}');
-                    let is_in_braces = before.contains("import") && open_brace.is_some() && (close_brace.is_none() || open_brace > close_brace);
-                    
+                    let is_in_braces = before.contains("import")
+                        && open_brace.is_some()
+                        && (close_brace.is_none() || open_brace > close_brace);
+
                     if is_in_braces && (line.contains("} from") || line.contains("from")) {
                         // Extract path
                         let mut path = String::new();
                         if let Some(from_pos) = line.find("from") {
                             let after_from = &line[from_pos + 4..].trim();
-                            if (after_from.starts_with('\'') && after_from.len() > 1) || (after_from.starts_with('"') && after_from.len() > 1) {
+                            if (after_from.starts_with('\'') && after_from.len() > 1)
+                                || (after_from.starts_with('"') && after_from.len() > 1)
+                            {
                                 let quote = after_from.chars().next().unwrap();
                                 let mut end_quote_idx = None;
                                 for (i, c) in after_from[1..].chars().enumerate() {
@@ -399,7 +413,7 @@ impl LanguageServer for Backend {
                                 analyzer.set_current_dir(parent.to_string_lossy().to_string());
                             }
                             analyzer.load_stdlib(&self.stdlib_path);
-                            
+
                             if let Ok(abs_p) = analyzer.resolve_import_path(&path) {
                                 let abs_p_str = abs_p.to_string_lossy().to_string();
                                 if let Ok(source) = std::fs::read_to_string(&abs_p) {
@@ -407,27 +421,33 @@ impl LanguageServer for Backend {
                                     let tokens = lexer.lex_all();
                                     let mut parser = Parser::new(tokens, abs_p_str.clone());
                                     let program = parser.parse_program();
-                                    
+
                                     let mut target_analyzer = SemanticAnalyzer::new();
                                     if let Some(parent) = abs_p.parent() {
-                                        target_analyzer.set_current_dir(parent.to_string_lossy().to_string());
+                                        target_analyzer
+                                            .set_current_dir(parent.to_string_lossy().to_string());
                                     }
                                     target_analyzer.load_stdlib(&self.stdlib_path);
                                     target_analyzer.analyze(program);
-                                    
+
                                     for sym in target_analyzer.scope.symbols.values() {
                                         // Only suggest if exported AND defined in that file (exclude built-ins)
                                         if sym.is_exported && sym.defined_in == abs_p_str {
                                             items.push(CompletionItem {
                                                 label: sym.name.clone(),
                                                 kind: Some(match sym.ty {
-                                                    Type::Function(_, _) => CompletionItemKind::FUNCTION,
+                                                    Type::Function(_, _) => {
+                                                        CompletionItemKind::FUNCTION
+                                                    }
                                                     Type::Class(_) => CompletionItemKind::CLASS,
                                                     Type::Enum(_) => CompletionItemKind::ENUM,
                                                     _ => CompletionItemKind::VARIABLE,
                                                 }),
                                                 detail: Some(format!("{}", sym.ty)), // Use format! for nicer type display
-                                                documentation: sym.doc.as_ref().map(|d| Documentation::String(d.clone())),
+                                                documentation: sym
+                                                    .doc
+                                                    .as_ref()
+                                                    .map(|d| Documentation::String(d.clone())),
                                                 ..Default::default()
                                             });
                                         }
@@ -437,7 +457,10 @@ impl LanguageServer for Backend {
                                             items.push(CompletionItem {
                                                 label: class.name.clone(),
                                                 kind: Some(CompletionItemKind::CLASS),
-                                                documentation: class.doc.as_ref().map(|d| Documentation::String(d.clone())),
+                                                documentation: class
+                                                    .doc
+                                                    .as_ref()
+                                                    .map(|d| Documentation::String(d.clone())),
                                                 ..Default::default()
                                             });
                                         }
@@ -520,7 +543,11 @@ impl LanguageServer for Backend {
                                                     label: member_name.to_string(),
                                                     kind: Some(CompletionItemKind::ENUM_MEMBER),
                                                     detail: Some(format!("{:?}", sym.ty)),
-                                                    documentation: sym.doc.as_ref().map(|d: &String| Documentation::String(d.clone())),
+                                                    documentation: sym.doc.as_ref().map(
+                                                        |d: &String| {
+                                                            Documentation::String(d.clone())
+                                                        },
+                                                    ),
                                                     ..Default::default()
                                                 });
                                             }
