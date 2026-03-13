@@ -32,7 +32,7 @@ aura/
 │   │   ├── intrinsic/     # Built-in compiler intrinsics
 │   │   └── backend/       # Native code generators
 │   │       ├── codegen.rs # Common backend traits and logic
-│   │       ├── arm64/     # Primary: AArch64 registers & instructions (Priority)
+│   │       ├── aarch64_apple_darwin/ # Primary: AArch64 registers & instructions (Priority)
 │   │       │   ├── reg.rs # Register allocator for ARM64
 │   │       │   └── asm.rs # Assembler/Emitter for ARM64
 │   │       └── x86_64/    # Secondary: Intel/AMD backend
@@ -53,7 +53,7 @@ aura/
 ## ⚠️ Important Constraints
 
 1.  **Strict Typing**: No `any` or `unknown` types are permitted in the Aura language design.
-2.  **ARM64 First**: The `backend/arm64` module is the primary focus and must be implemented before `x86_64`.
+2.  **AArch64 First**: The `backend/aarch64_apple_darwin` module is the primary focus and must be implemented before `x86_64`.
 3.  **Self-Contained**: The compiler must generate a single binary including the `runtime` (statically linked).
 4.  **Custom Backend**: Avoid heavy external frameworks; use a custom backend infrastructure similar to Go's approach.
 5.  **LSP Support**: All core language features must be exposed via the `lsp/` module for IDE support.

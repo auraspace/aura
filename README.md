@@ -11,7 +11,7 @@
   - **Interpreter** (`--interp`)
   - **Compiler** (native codegen)
   - **IR pipeline** (`--ir`) with optional `--emit-ir`
-- **Targets**: `arm64` and `x86_64` (via `--target`)
+- **Targets**: `aarch64-apple-darwin` and `x86_64` (via `--target`)
 - **LSP server**: `aura lsp` (hover, completion, go-to-definition, formatting, symbols)
 - **VS Code extension**: `editors/vscode/`
 

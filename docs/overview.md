@@ -15,7 +15,7 @@ This repository (`aura`) contains the core toolchain for Aura, including the com
 - **Zero-Cost Abstractions**: Leveraging Rust and a custom backend infrastructure to provide high performance without sacrificing expressiveness.
 - **Custom Backend Architecture**: Similar to Go, Aura uses its own specialized backend and code generator, optimized for fast compilation and efficient execution.
 - **Self-Contained Binaries**: Compiles into a single, standalone executable. The runtime is statically linked, allowing you to run the application anywhere without external dependencies.
-- **Multi-Architecture Support**: Designed to target both **ARM64** and **x86_64** natively.
+- **Multi-Architecture Support**: Designed to target both **aarch64-apple-darwin** and **x86_64** natively.
 - **First-Class Tooling**: Designed from the ground up with a focus on Language Server Protocol (LSP) support and modern build tools.
 
 ---
@@ -47,7 +47,7 @@ Inspired by the Go deployment model, Aura targets simplicity in distribution. By
 
 Aura's custom backend is designed for cross-platform portability. Our roadmap includes:
 
-- **ARM64 (Priority)**: The immediate focus is providing a world-class experience on ARM64 architecture (Apple Silicon, AWS Graviton), leveraging its efficiency and modern instruction set.
+- **aarch64-apple-darwin (Priority)**: The immediate focus is providing a world-class experience on aarch64-apple-darwin architecture (Apple Silicon), leveraging its efficiency and modern instruction set.
 - **x86_64**: Full support for standard 64-bit Intel/AMD systems is planned as the next milestone.
 
 ---
@@ -77,7 +77,7 @@ aura/
 │   │   │   └── instr.rs   # Instruction set architecture-agnostic
 │   │   └── backend/       # Native code generators
 │   │       ├── codegen.rs # Common backend traits and logic
-│   │       ├── arm64/     # Primary: AArch64 registers & instructions
+│   │       ├── aarch64_apple_darwin/ # Primary: AArch64 registers & instructions
 │   │       │   ├── reg.rs # Register allocator for ARM64
 │   │       │   └── asm.rs # Assembler/Emitter for ARM64
 │   │       └── x86_64/    # Secondary: Intel/AMD backend

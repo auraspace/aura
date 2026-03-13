@@ -1,5 +1,5 @@
 use crate::compiler::ast::{Expr, Program, Span, Statement, TemplatePart};
-use crate::compiler::backend::arm64::asm::{Emitter, Register};
+use crate::compiler::backend::aarch64_apple_darwin::asm::{Emitter, Register};
 use crate::compiler::sema::ty::Type;
 use std::collections::HashMap;
 
