@@ -100,8 +100,26 @@ impl Interpreter {
     }
 
     pub fn interpret(&mut self, program: Program) {
+        let mut has_explicit_main_call = false;
+        for stmt in &program.statements {
+            if let Statement::Expression(Expr::Call(ref name, _, _, _), _) = stmt {
+                if name == "main" {
+                    has_explicit_main_call = true;
+                }
+            }
+        }
+
         for stmt in program.statements {
             self.execute_statement(stmt);
+        }
+
+        // Call main if it exists and wasn't already called explicitly
+        if !has_explicit_main_call {
+            if let Some(main_val) = self.env.lookup("main") {
+                if matches!(main_val, Value::Function { .. } | Value::NativeFunction(_)) {
+                    self.call_value(&main_val, vec![]);
+                }
+            }
         }
 
         // Event loop for timers
