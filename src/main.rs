@@ -1,6 +1,6 @@
-use aura::compiler::backend::arm64::codegen::Codegen;
-use aura::compiler::backend::arm64::driver::Driver;
-use aura::compiler::backend::arm64::ir_codegen::IrCodegen;
+use aura::compiler::backend::aarch64_apple_darwin::codegen::Codegen;
+use aura::compiler::backend::aarch64_apple_darwin::driver::Driver;
+use aura::compiler::backend::aarch64_apple_darwin::ir_codegen::IrCodegen;
 use aura::compiler::frontend::lexer::Lexer;
 use aura::compiler::frontend::parser::Parser;
 use aura::compiler::interp::Interpreter;
@@ -24,7 +24,7 @@ fn print_help() {
     println!("  --ir       Use the Intermediate Representation (IR) backend");
     println!("  --interp   Use the interpreter for execution");
     println!("  --emit-ir  Print the generated IR and exit");
-    println!("  --target   Specify the target architecture (arm64, x86_64)");
+    println!("  --target   Specify the target architecture (aarch64-apple-darwin, x86_64-unknown-linux-gnu, x86_64-pc-windows-msvc)");
     std::process::exit(0);
 }
 
@@ -42,7 +42,7 @@ fn main() {
     let mut use_interp = false;
     let mut emit_ir = false;
     let mut is_lsp = false;
-    let mut target = "arm64".to_string();
+    let mut target = "aarch64-apple-darwin".to_string();
 
     let mut skip_next = false;
     for (i, arg) in args.iter().enumerate().skip(1) {
@@ -205,8 +205,11 @@ fn main() {
         let mut opt = Optimizer::new();
         let module = opt.optimize(module);
 
-        if target == "x86_64" {
-            let mut cg = aura::compiler::backend::x86_64::ir_codegen::IrCodegen::new();
+        if target == "x86_64-unknown-linux-gnu" {
+            let mut cg = aura::compiler::backend::x86_64_unknown_linux_gnu::ir_codegen::IrCodegen::new();
+            cg.generate(module)
+        } else if target == "x86_64-pc-windows-msvc" {
+            let mut cg = aura::compiler::backend::x86_64_pc_windows_msvc::ir_codegen::IrCodegen::new();
             cg.generate(module)
         } else {
             let mut cg = IrCodegen::new();

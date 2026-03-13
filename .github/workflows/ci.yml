@@ -7,7 +7,18 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      matrix:
+        test_mode: [interp, compiler]
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          # - os: ubuntu-latest
+          #   target: x86_64-unknown-linux-gnu
+          # - os: windows-latest
+          #   target: x86_64-pc-windows-msvc
 
     # strategy:
     #   matrix:
@@ -24,8 +35,7 @@ jobs:
       - name: lint
         run: cargo clippy -- -A warnings
 
-      # skip test because currently we only support arm64
-      # - name: test
-      #   env:
-      #     AURA_TEST_MODE: ${{ matrix.test_mode }}
-      #   run: cargo test
+      - name: test
+        env:
+          AURA_TEST_MODE: ${{ matrix.test_mode }}
+        run: cargo test

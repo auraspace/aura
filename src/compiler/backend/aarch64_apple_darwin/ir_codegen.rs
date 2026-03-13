@@ -1,4 +1,4 @@
-use crate::compiler::backend::arm64::asm::{Emitter, Register};
+use crate::compiler::backend::aarch64_apple_darwin::asm::{Emitter, Register};
 use crate::compiler::ir::instr::{Instruction, IrFunction, IrModule, Operand};
 use std::collections::HashMap;
 
