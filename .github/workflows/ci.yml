@@ -3,15 +3,15 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [master]
 
 jobs:
   test:
     runs-on: ubuntu-latest
 
-    strategy:
-      matrix:
-        test_mode: [interp, compiler]
+    # strategy:
+    #   matrix:
+    #     test_mode: [interp, compiler]
 
     steps:
       - uses: actions/checkout@v4
@@ -24,7 +24,8 @@ jobs:
       - name: lint
         run: cargo clippy -- -A warnings
 
-      - name: test
-        env:
-          AURA_TEST_MODE: ${{ matrix.test_mode }}
-        run: cargo test
+      # skip test because currently we only support arm64
+      # - name: test
+      #   env:
+      #     AURA_TEST_MODE: ${{ matrix.test_mode }}
+      #   run: cargo test
