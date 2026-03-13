@@ -48,9 +48,6 @@ jobs:
           mkdir -p dist pkg
           rm -rf pkg/*
 
-          # Keep the legacy "raw binary" asset name.
-          cp "${{ matrix.bin_path }}" "dist/${{ matrix.artifact_name }}"
-
           # Create an archive that includes stdlib/ alongside the binary.
           cp "${{ matrix.bin_path }}" "pkg/aura"
           cp -R "stdlib" "pkg/stdlib"
