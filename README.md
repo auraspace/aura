@@ -84,14 +84,14 @@ cargo test --test e2e
 ```
 
 You can switch the test execution mode:
- 
+
 ```bash
 cargo test --test e2e -- interp
 cargo test --test e2e -- compiler
 cargo test --test e2e -- ir
-cargo test --test e2e -- interp,compiler
+cargo test --test e2e -- interp compiler
 ```
- 
+
 (Previously used `AURA_TEST_MODE` environment variable, which is still supported as a fallback.)
 
 ## License

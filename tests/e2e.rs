@@ -40,7 +40,7 @@ fn parse_expected(source: &str) -> Vec<String> {
 }
 
 /// Run a single `.aura` file with the selected mode and compare output.
-fn run_test(aura_file: &Path) {
+fn run_test(aura_file: &Path, mode_override: Option<&str>) {
     let source = std::fs::read_to_string(aura_file)
         .unwrap_or_else(|e| panic!("Cannot read {:?}: {}", aura_file, e));
 
@@ -65,7 +65,9 @@ fn run_test(aura_file: &Path) {
         .iter()
         .find(|arg| arg.contains("interp") || arg.contains("compiler") || arg.contains("ir"));
 
-    let modes: Vec<&str> = if let Some(arg) = modes_arg {
+    let modes: Vec<&str> = if let Some(m) = mode_override {
+        vec![m]
+    } else if let Some(arg) = modes_arg {
         arg.split(',').map(|s| s.trim()).collect()
     } else if !modes_env.is_empty() {
         modes_env.split(',').map(|s| s.trim()).collect()
@@ -158,13 +160,26 @@ fn run_test(aura_file: &Path) {
 
 macro_rules! e2e_test {
     ($test_name:ident, $file:literal) => {
-        #[test]
-        fn $test_name() {
-            let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("tests")
-                .join("e2e")
-                .join($file);
-            run_test(&path);
+        mod $test_name {
+            use super::*;
+
+            #[test]
+            fn interp() {
+                let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("tests")
+                    .join("e2e")
+                    .join($file);
+                run_test(&path, Some("interp"));
+            }
+
+            #[test]
+            fn compiler() {
+                let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("tests")
+                    .join("e2e")
+                    .join($file);
+                run_test(&path, Some("compiler"));
+            }
         }
     };
 }

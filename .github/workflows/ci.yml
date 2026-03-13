@@ -31,7 +31,8 @@ jobs:
       - name: lint
         run: cargo clippy -- -A warnings
 
-      - name: test
-        env:
-          AURA_TEST_MODE: interp,compiler
-        run: cargo test
+      - name: lib tests
+        run: cargo test --lib
+
+      - name: e2e tests
+        run: cargo test --test e2e -- interp compiler
