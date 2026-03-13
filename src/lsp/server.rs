@@ -689,7 +689,7 @@ impl LanguageServer for Backend {
 
         if let Some(state) = docs.get(&uri) {
             if let Some(program) = &state.program {
-                let formatter = Formatter::new();
+                let formatter = Formatter::new().with_source(state.source.clone());
                 let formatted = formatter.format_program(program);
 
                 let lines: Vec<&str> = state.source.lines().collect();

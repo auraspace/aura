@@ -3,6 +3,7 @@ use crate::compiler::ast::*;
 pub struct Formatter {
     indent_level: usize,
     result: String,
+    source: Option<String>,
 }
 
 impl Formatter {
@@ -10,18 +11,66 @@ impl Formatter {
         Self {
             indent_level: 0,
             result: String::new(),
+            source: None,
         }
+    }
+
+    pub fn with_source(mut self, source: String) -> Self {
+        self.source = Some(source);
+        self
     }
 
     pub fn format_program(mut self, program: &Program) -> String {
         for (i, stmt) in program.statements.iter().enumerate() {
-            if i > 0 {
+            if i > 0 && self.needs_blank_line(&program.statements[i - 1], stmt) {
                 self.result.push('\n');
             }
             self.format_statement(stmt);
             self.result.push('\n');
         }
         self.result.trim_end().to_string() + "\n"
+    }
+
+    fn needs_blank_line(&self, prev: &Statement, next: &Statement) -> bool {
+        let next_is_comment = matches!(
+            next,
+            Statement::Comment(_, _) | Statement::RegularBlockComment(_, _)
+        );
+        let prev_is_comment = matches!(
+            prev,
+            Statement::Comment(_, _) | Statement::RegularBlockComment(_, _)
+        );
+
+        let next_has_doc = match next {
+            Statement::VarDeclaration { doc, .. } => doc.is_some(),
+            Statement::FunctionDeclaration { doc, .. } => doc.is_some(),
+            Statement::ClassDeclaration { doc, .. } => doc.is_some(),
+            Statement::Enum(d) => d.doc.is_some(),
+            Statement::Export { decl, .. } => match decl.as_ref() {
+                Statement::VarDeclaration { doc, .. } => doc.is_some(),
+                Statement::FunctionDeclaration { doc, .. } => doc.is_some(),
+                Statement::ClassDeclaration { doc, .. } => doc.is_some(),
+                Statement::Enum(d) => d.doc.is_some(),
+                _ => false,
+            },
+            _ => false,
+        };
+
+        if (next_is_comment || next_has_doc) && !prev_is_comment {
+            return true;
+        }
+
+        if let Some(source) = &self.source {
+            let next_line = next.span().line;
+            if next_line > 1 {
+                let lines: Vec<&str> = source.lines().collect();
+                // Check if the line immediately before the next statement is empty
+                if let Some(prev_line_text) = lines.get(next_line - 2) {
+                    return prev_line_text.trim().is_empty();
+                }
+            }
+        }
+        false
     }
 
     fn format_statement(&mut self, stmt: &Statement) {
@@ -31,7 +80,9 @@ impl Formatter {
     fn format_statement_internal(&mut self, stmt: &Statement, include_doc: bool) {
         match stmt {
             Statement::Enum(decl) => {
-                self.format_doc(&decl.doc);
+                if include_doc {
+                    self.format_doc(&decl.doc);
+                }
                 self.indent();
                 self.result.push_str("enum ");
                 self.result.push_str(&decl.name);
@@ -286,10 +337,7 @@ impl Formatter {
                 self.indent();
                 self.result.push_str("export ");
                 // Format declaration without its doc
-                let mut sub_formatter = Formatter {
-                    indent_level: 0,
-                    result: String::new(),
-                };
+                let mut sub_formatter = Formatter::new();
                 sub_formatter.format_statement_internal(decl, false);
                 self.result.push_str(sub_formatter.result.trim_start());
             }
@@ -564,7 +612,6 @@ function main ( ) : void {
     this.x = a;
   }
 }
-
 function main(): void {
   let t = new Test(5);
   print t.x;
@@ -675,7 +722,7 @@ enum Status { Ok = "ok", Err = "err" }
         let formatter = Formatter::new();
         let formatted = formatter.format_program(&program);
 
-        let expected = "enum Direction {\n  Up = 1,\n  Down,\n}\n\nenum Status {\n  Ok = \"ok\",\n  Err = \"err\",\n}\n";
+        let expected = "enum Direction {\n  Up = 1,\n  Down,\n}\nenum Status {\n  Ok = \"ok\",\n  Err = \"err\",\n}\n";
         assert_eq!(formatted, expected);
     }
 
@@ -695,6 +742,107 @@ function main(): void {
         let formatted = formatter.format_program(&program);
 
         let expected = "function main(): void {\n  // test cmt\n}\n";
+        assert_eq!(formatted, expected);
+    }
+
+    #[test]
+    fn test_consecutive_comments_no_blank_line() {
+        let source = r#"
+// comment 1
+// comment 2
+/* block 1 */
+/* block 2 */
+"#;
+        let mut lexer = Lexer::new(source);
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens, "test.aura".to_string());
+        let program = parser.parse_program();
+
+        let formatter = Formatter::new().with_source(source.to_string());
+        let formatted = formatter.format_program(&program);
+
+        let expected = "// comment 1\n// comment 2\n/* block 1 */\n/* block 2 */\n";
+        assert_eq!(formatted, expected);
+    }
+
+    #[test]
+    fn test_consecutive_imports_vars_no_blank_line() {
+        let source = r#"
+import { a } from "b";
+import { c } from "d";
+let x = 1;
+let y = 2;
+"#;
+        let mut lexer = Lexer::new(source);
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens, "test.aura".to_string());
+        let program = parser.parse_program();
+
+        let formatter = Formatter::new();
+        let formatted = formatter.format_program(&program);
+
+        let expected = "import { a } from \"b\";\nimport { c } from \"d\";\nlet x = 1;\nlet y = 2;\n";
+        assert_eq!(formatted, expected);
+    }
+
+    #[test]
+    fn test_export_enum_doc_formatter() {
+        let source = r#"
+/**
+ * Test Enum
+ */
+export enum Test {
+  A,
+  B
+}
+"#;
+        let mut lexer = Lexer::new(source);
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens, "test.aura".to_string());
+        let program = parser.parse_program();
+
+        let formatter = Formatter::new();
+        let formatted = formatter.format_program(&program);
+
+        let expected = "/**\n * Test Enum\n */\nexport enum Test {\n  A,\n  B,\n}\n";
+        assert_eq!(formatted, expected);
+    }
+
+    #[test]
+    fn test_preserve_manual_blank_lines() {
+        let source = r#"
+function a() {}
+
+function b() {}
+"#;
+        let mut lexer = Lexer::new(source);
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens, "test.aura".to_string());
+        let program = parser.parse_program();
+
+        let formatter = Formatter::new().with_source(source.to_string());
+        let formatted = formatter.format_program(&program);
+
+        let expected = "function a(): void {\n}\n\nfunction b(): void {\n}\n";
+        assert_eq!(formatted, expected);
+    }
+
+    #[test]
+    fn test_always_breakline_before_comment() {
+        let source = r#"
+let x = 1;
+// comment
+function f() {}
+"#;
+        let mut lexer = Lexer::new(source);
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens, "test.aura".to_string());
+        let program = parser.parse_program();
+
+        let formatter = Formatter::new().with_source(source.to_string());
+        let formatted = formatter.format_program(&program);
+
+        let expected = "let x = 1;\n\n// comment\nfunction f(): void {\n}\n";
         assert_eq!(formatted, expected);
     }
 }
