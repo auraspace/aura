@@ -80,3 +80,15 @@ export class TCPServer {
     __fs_close(this.fd);
   }
 }
+
+/**
+ * Provides DNS resolution utilities.
+ */
+export class DNS {
+  /**
+   * Resolves a hostname to an IP address.
+   */
+  static resolve(host: string): string {
+    return __net_resolve(host);
+  }
+}

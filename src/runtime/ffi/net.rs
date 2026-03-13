@@ -112,6 +112,45 @@ pub fn connect_tcp(host: &str, port: u16) -> Result<RawFd, IoError> {
     }
 }
 
+/// Resolves a hostname to an IP address.
+pub fn resolve_host(host: &str) -> Result<String, IoError> {
+    use std::ffi::CString;
+    use std::ptr;
+
+    let host_cstr = CString::new(host)
+        .map_err(|_| IoError::new(std::io::ErrorKind::InvalidInput, "Invalid hostname"))?;
+
+    let mut hints: libc::addrinfo = unsafe { std::mem::zeroed() };
+    hints.ai_family = libc::AF_INET;
+    hints.ai_socktype = libc::SOCK_STREAM;
+
+    let mut res: *mut libc::addrinfo = ptr::null_mut();
+    let err = unsafe { libc::getaddrinfo(host_cstr.as_ptr(), ptr::null(), &hints, &mut res) };
+
+    if err != 0 {
+        return Err(IoError::new(
+            std::io::ErrorKind::Other,
+            format!("DNS resolution failed: {}", err),
+        ));
+    }
+
+    let ip = unsafe {
+        let addr_in = (*res).ai_addr as *const libc::sockaddr_in;
+        let s_addr = (*addr_in).sin_addr.s_addr;
+        let ip_bytes = s_addr.to_ne_bytes();
+        format!(
+            "{}.{}.{}.{}",
+            ip_bytes[0], ip_bytes[1], ip_bytes[2], ip_bytes[3]
+        )
+    };
+
+    unsafe {
+        libc::freeaddrinfo(res);
+    }
+
+    Ok(ip)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

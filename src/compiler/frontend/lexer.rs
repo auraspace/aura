@@ -368,6 +368,13 @@ impl<'a> Lexer<'a> {
         let start_pos = self.pos;
 
         while !self.is_at_end() && self.peek() != '"' {
+            if self.peek() == '\\' {
+                self.advance(); // skip \
+                if !self.is_at_end() {
+                    self.advance(); // skip escaped char
+                }
+                continue;
+            }
             if self.peek() == '\n' {
                 self.line += 1;
                 self.column = 1;

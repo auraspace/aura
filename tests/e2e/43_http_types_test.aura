@@ -1,6 +1,6 @@
 import { HTTPRequest, HTTPHeader, HTTPResponse } from "std/http.aura";
 
-print("Testing HTTP classes...");
+print "Testing HTTP classes...";
 
 let h1 = new HTTPHeader("Content-Type", "application/json");
 let h2 = new HTTPHeader("Authorization", "Bearer token123");
@@ -8,17 +8,17 @@ let headers = [h1, h2];
 
 let req = new HTTPRequest("POST", "/api/data", headers, "{\"key\": \"value\"}");
 
-print("Request method: " + req.method);
-print("Request path: " + req.path);
-print("Header Content-Type: " + req.getHeader("Content-Type"));
-print("Header Authorization: " + req.getHeader("Authorization"));
-print("Full request:");
-print(req.toString());
+print "Request method: " + req.method;
+print "Request path: " + req.path;
+print "Header Content-Type: " + req.getHeader("Content-Type");
+print "Header Authorization: " + req.getHeader("Authorization");
+print "Full request:";
+print req.toString();
 
 let resHeaders = [new HTTPHeader("Server", "Aura/1.0")];
 let res = new HTTPResponse(200, "OK", resHeaders, "Success");
 
-print("Response status: " + res.statusCode);
-print("Header Server: " + res.getHeader("Server"));
-print("Full response:");
-print(res.toString());
+print "Response status: " + res.statusCode;
+print "Header Server: " + res.getHeader("Server");
+print "Full response:";
+print res.toString();

@@ -73,7 +73,25 @@ pub fn register_net_intrinsics(register: &mut dyn FnMut(String, Value)) {
         })),
     );
 
-    // Reuse __fs_read for sockets
-    // Reuse __fs_write for sockets
-    // Reuse __fs_close for sockets (aliased as __net_close if needed)
+    // __net_resolve(host: string) -> string
+    register(
+        "__net_resolve".to_string(),
+        Value::NativeFunction(Rc::new(|args| {
+            if args.is_empty() {
+                panic!("__net_resolve expects 1 argument");
+            }
+            let host = match &args[0] {
+                Value::String(s) => s,
+                _ => panic!("__net_resolve: arg 0 must be string"),
+            };
+
+            match net::resolve_host(host) {
+                Ok(ip) => Value::String(ip),
+                Err(e) => {
+                    eprintln!("__net_resolve error: {}", e);
+                    Value::String("".to_string())
+                }
+            }
+        })),
+    );
 }

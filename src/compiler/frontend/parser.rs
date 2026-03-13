@@ -108,22 +108,26 @@ impl Parser {
     }
 
     fn parse_doc_comments(&mut self) -> Option<DocComment> {
-        match self.peek().kind.clone() {
-            TokenKind::LineDoc(content) => {
-                let mut docs = vec![content];
-                self.advance();
-                while let TokenKind::LineDoc(content) = self.peek().kind.clone() {
-                    docs.push(content);
+        let mut last_doc = None;
+        loop {
+            match self.peek().kind.clone() {
+                TokenKind::LineDoc(content) => {
+                    let mut docs = vec![content];
                     self.advance();
+                    while let TokenKind::LineDoc(content) = self.peek().kind.clone() {
+                        docs.push(content);
+                        self.advance();
+                    }
+                    last_doc = Some(DocComment::Line(docs.join("\n")));
                 }
-                Some(DocComment::Line(docs.join("\n")))
+                TokenKind::BlockDoc(content) => {
+                    self.advance();
+                    last_doc = Some(DocComment::Block(content));
+                }
+                _ => break,
             }
-            TokenKind::BlockDoc(content) => {
-                self.advance();
-                Some(DocComment::Block(content))
-            }
-            _ => None,
         }
+        last_doc
     }
 
     fn parse_block(&mut self) -> Statement {

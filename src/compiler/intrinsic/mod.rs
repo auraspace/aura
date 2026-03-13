@@ -121,6 +121,18 @@ pub fn register_analyzer_intrinsics(sema_analyzer: &mut SemanticAnalyzer) {
         Some("Connect to a TCP host".to_string()),
     );
 
+    // __net_resolve(host: string) -> string
+    sema_analyzer.scope.insert(
+        "__net_resolve".to_string(),
+        Type::Function(vec![Type::String], Box::new(Type::String)),
+        false,
+        true,
+        true, // is_exported
+        Span::new(0, 0),
+        "".to_string(),
+        Some("Resolve a hostname to an IP address".to_string()),
+    );
+
     // __date_now() -> i64
     sema_analyzer.scope.insert(
         "__date_now".to_string(),

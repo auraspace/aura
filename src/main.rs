@@ -59,6 +59,7 @@ fn main() {
     let mut emit_ir = false;
     let mut is_lsp = false;
     let mut is_fmt = false;
+    #[allow(unused_assignments)]
     let mut target = get_default_target();
 
     let mut skip_next = false;
