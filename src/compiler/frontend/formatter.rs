@@ -637,7 +637,8 @@ function main(): void {}
         let formatter = Formatter::new();
         let formatted = formatter.format_program(&program);
 
-        let expected = "/**\n * Main function\n * with multiple lines\n */\nfunction main(): void {\n}\n";
+        let expected =
+            "/**\n * Main function\n * with multiple lines\n */\nfunction main(): void {\n}\n";
         assert_eq!(formatted, expected);
     }
 
@@ -781,7 +782,8 @@ let y = 2;
         let formatter = Formatter::new();
         let formatted = formatter.format_program(&program);
 
-        let expected = "import { a } from \"b\";\nimport { c } from \"d\";\nlet x = 1;\nlet y = 2;\n";
+        let expected =
+            "import { a } from \"b\";\nimport { c } from \"d\";\nlet x = 1;\nlet y = 2;\n";
         assert_eq!(formatted, expected);
     }
 

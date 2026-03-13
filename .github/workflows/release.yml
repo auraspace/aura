@@ -45,8 +45,16 @@ jobs:
 
       - name: Package artifact
         run: |
-          mkdir -p dist
-          cp ${{ matrix.bin_path }} dist/${{ matrix.artifact_name }}
+          mkdir -p dist pkg
+          rm -rf pkg/*
+
+          # Keep the legacy "raw binary" asset name.
+          cp "${{ matrix.bin_path }}" "dist/${{ matrix.artifact_name }}"
+
+          # Create an archive that includes stdlib/ alongside the binary.
+          cp "${{ matrix.bin_path }}" "pkg/aura"
+          cp -R "stdlib" "pkg/stdlib"
+          tar -czf "dist/${{ matrix.artifact_name }}.tar.gz" -C pkg aura stdlib
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

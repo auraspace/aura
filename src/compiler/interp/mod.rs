@@ -297,7 +297,7 @@ impl Interpreter {
                 let mut members = HashMap::new();
                 let mut next_int_val = 0;
                 let mut is_string_enum = false;
-                
+
                 for member in &decl.members {
                     let val = if let Some(ref expr) = member.value {
                         let evaled = self.eval_expr(expr.clone());
@@ -320,10 +320,12 @@ impl Interpreter {
                     };
                     members.insert(member.name.clone(), val);
                 }
-                
-                self.static_fields.insert(decl.name.clone(), Rc::new(RefCell::new(members)));
-                self.env.insert(decl.name.clone(), Value::Class(decl.name.clone()));
-                StatementResult::None 
+
+                self.static_fields
+                    .insert(decl.name.clone(), Rc::new(RefCell::new(members)));
+                self.env
+                    .insert(decl.name.clone(), Value::Class(decl.name.clone()));
+                StatementResult::None
             }
             Statement::VarDeclaration {
                 name,
@@ -499,7 +501,9 @@ impl Interpreter {
                 res
             }
             Statement::Export { decl, .. } => self.execute_statement(*decl),
-            Statement::Comment(_, _) | Statement::RegularBlockComment(_, _) => StatementResult::None,
+            Statement::Comment(_, _) | Statement::RegularBlockComment(_, _) => {
+                StatementResult::None
+            }
         }
     }
 
@@ -801,7 +805,7 @@ impl Interpreter {
                                 }
                                 "any" => {
                                     if let Some(Value::Array(promises)) = arg_vals.get(0) {
-                                        for p in promises.borrow().iter() {
+                                        if let Some(p) = promises.borrow().iter().next() {
                                             // In our synchronous interpreter, we just pick the first one
                                             if let Value::Promise(v) = p {
                                                 return Value::Promise(v.clone());

@@ -31,7 +31,7 @@ pub enum SemanticErrorKind {
     UndefinedFunction(String),
     CannotAssignToConstant(String),
     UndefinedImport(String, String), // symbol, module
-    ExportRequired(String),         // symbol
+    ExportRequired(String),          // symbol
 }
 
 #[derive(Debug, Clone)]
@@ -323,9 +323,15 @@ impl SemanticAnalyzer {
                     }
                     let ty = self.resolve_type(f.ty.clone());
                     if f.is_static {
-                        static_field_map.insert(f.name.clone(), (ty, f.name_span, f.doc.as_ref().map(|d| d.content())));
+                        static_field_map.insert(
+                            f.name.clone(),
+                            (ty, f.name_span, f.doc.as_ref().map(|d| d.content())),
+                        );
                     } else {
-                        field_map.insert(f.name.clone(), (ty, f.name_span, f.doc.as_ref().map(|d| d.content())));
+                        field_map.insert(
+                            f.name.clone(),
+                            (ty, f.name_span, f.doc.as_ref().map(|d| d.content())),
+                        );
                     }
                 }
                 let mut method_map = HashMap::new();
@@ -350,12 +356,22 @@ impl SemanticAnalyzer {
                     if m.is_static {
                         static_method_map.insert(
                             m.name.clone(),
-                            (param_tys, ret_ty, m.doc.as_ref().map(|d| d.content()), m.name_span),
+                            (
+                                param_tys,
+                                ret_ty,
+                                m.doc.as_ref().map(|d| d.content()),
+                                m.name_span,
+                            ),
                         );
                     } else {
                         method_map.insert(
                             m.name.clone(),
-                            (param_tys, ret_ty, m.doc.as_ref().map(|d| d.content()), m.name_span),
+                            (
+                                param_tys,
+                                ret_ty,
+                                m.doc.as_ref().map(|d| d.content()),
+                                m.name_span,
+                            ),
                         );
                     }
                 }
@@ -438,13 +454,15 @@ impl SemanticAnalyzer {
                     doc.as_ref().map(|d| d.content()),
                 );
             } else if let Statement::Enum(decl) = actual_stmt {
-                if self.classes.contains_key(&decl.name) || self.scope.lookup_local(&decl.name).is_some() {
+                if self.classes.contains_key(&decl.name)
+                    || self.scope.lookup_local(&decl.name).is_some()
+                {
                     self.error(
                         SemanticErrorKind::DuplicateDeclaration(decl.name.clone()),
                         decl.name_span,
                     );
                 }
-                
+
                 self.scope.insert(
                     decl.name.clone(),
                     Type::Enum(decl.name.clone()),
@@ -466,9 +484,15 @@ impl SemanticAnalyzer {
                 match item {
                     ImportItem::Named(names) => {
                         for (name, name_span) in names {
-                            let sym_info = self.scope.lookup(name).map(|s| (s.is_exported, s.defined_in.clone(), s.span));
-                            let class_info = self.classes.get(name).map(|c| (c.is_exported, self.current_file.clone(), c.span)); // simplified defined_in for classes
-                            
+                            let sym_info = self
+                                .scope
+                                .lookup(name)
+                                .map(|s| (s.is_exported, s.defined_in.clone(), s.span));
+                            let class_info = self
+                                .classes
+                                .get(name)
+                                .map(|c| (c.is_exported, self.current_file.clone(), c.span)); // simplified defined_in for classes
+
                             let export_check = if let Some(info) = sym_info {
                                 Some(info)
                             } else {
@@ -477,15 +501,20 @@ impl SemanticAnalyzer {
 
                             if let Some((is_exported, def_file, def_span)) = export_check {
                                 if !is_exported {
-                                    self.error(SemanticErrorKind::ExportRequired(name.clone()), *name_span);
+                                    self.error(
+                                        SemanticErrorKind::ExportRequired(name.clone()),
+                                        *name_span,
+                                    );
                                 }
                                 self.record_definition(*name_span, def_file, def_span);
-                                
+
                                 // Insert placeholder with correct is_exported flag if it was a symbol
                                 // (Classes are already in self.classes)
-                                if self.scope.lookup_local(name).is_none() && self.classes.get(name).is_none() {
-                                     // Placeholder insert for variables/functions
-                                     self.scope.insert(
+                                if self.scope.lookup_local(name).is_none()
+                                    && self.classes.get(name).is_none()
+                                {
+                                    // Placeholder insert for variables/functions
+                                    self.scope.insert(
                                         name.clone(),
                                         Type::Unknown,
                                         false,
@@ -799,8 +828,16 @@ impl SemanticAnalyzer {
 
                     if let Some(ref first) = first_ty {
                         // Check if all members have the same primitive type base
-                        let base_first = if matches!(first, Type::Int64 | Type::Int32) { Type::Int64 } else { first.clone() };
-                        let base_current = if matches!(member_ty, Type::Int64 | Type::Int32) { Type::Int64 } else { member_ty.clone() };
+                        let base_first = if matches!(first, Type::Int64 | Type::Int32) {
+                            Type::Int64
+                        } else {
+                            first.clone()
+                        };
+                        let base_current = if matches!(member_ty, Type::Int64 | Type::Int32) {
+                            Type::Int64
+                        } else {
+                            member_ty.clone()
+                        };
 
                         if base_first != base_current && base_current != Type::Unknown {
                             self.error(
@@ -818,7 +855,11 @@ impl SemanticAnalyzer {
                     // Register enum member as a constant
                     // E.g., `Direction.Up` will be registered as `Direction.Up` in the scope
                     let fqn = format!("{}.{}", decl.name, member.name);
-                    let is_exported = self.scope.lookup_local(&decl.name).map(|s| s.is_exported).unwrap_or(false);
+                    let is_exported = self
+                        .scope
+                        .lookup_local(&decl.name)
+                        .map(|s| s.is_exported)
+                        .unwrap_or(false);
                     self.scope.insert(
                         fqn,
                         Type::Enum(decl.name.clone()),
@@ -832,7 +873,11 @@ impl SemanticAnalyzer {
                 }
 
                 // Register the Enum type itself
-                let is_exported = self.scope.lookup_local(&decl.name).map(|s| s.is_exported).unwrap_or(false);
+                let is_exported = self
+                    .scope
+                    .lookup_local(&decl.name)
+                    .map(|s| s.is_exported)
+                    .unwrap_or(false);
                 self.scope.insert(
                     decl.name.clone(),
                     Type::Enum(decl.name.clone()),
@@ -880,7 +925,11 @@ impl SemanticAnalyzer {
                     }
                     self.record_type(name_span, declared_ty.clone());
                 }
-                let is_exported_flag = self.scope.lookup_local(&name).map(|s| s.is_exported).unwrap_or(false);
+                let is_exported_flag = self
+                    .scope
+                    .lookup_local(&name)
+                    .map(|s| s.is_exported)
+                    .unwrap_or(false);
                 self.scope.insert(
                     name,
                     declared_ty,
@@ -997,7 +1046,11 @@ impl SemanticAnalyzer {
 
                 // Register function before checking body for recursion
                 let func_ty = Type::Function(param_tys.clone(), Box::new(ret_ty.clone()));
-                let is_exported_flag = self.scope.lookup_local(&name).map(|s| s.is_exported).unwrap_or(false);
+                let is_exported_flag = self
+                    .scope
+                    .lookup_local(&name)
+                    .map(|s| s.is_exported)
+                    .unwrap_or(false);
                 self.scope.insert(
                     name.clone(),
                     func_ty.clone(),
@@ -1018,8 +1071,16 @@ impl SemanticAnalyzer {
                 self.push_scope();
                 for (pname, pty) in params {
                     let ty = self.resolve_type(pty.clone());
-                    self.scope
-                        .insert(pname, ty, true, false, false, pty.span(), self.current_file.clone(), None);
+                    self.scope.insert(
+                        pname,
+                        ty,
+                        true,
+                        false,
+                        false,
+                        pty.span(),
+                        self.current_file.clone(),
+                        None,
+                    );
                 }
                 self.check_statement(*body);
                 self.pop_scope();
@@ -1054,16 +1115,16 @@ impl SemanticAnalyzer {
 
                 if let Some(ctor) = constructor {
                     self.push_scope();
-                        self.scope.insert(
-                            "this".to_string(),
-                            Type::Class(name.clone()),
-                            false,
-                            true, // this is constant
-                            false, // this is not exported
-                            ctor.span,
-                            self.current_file.clone(),
-                            None,
-                        );
+                    self.scope.insert(
+                        "this".to_string(),
+                        Type::Class(name.clone()),
+                        false,
+                        true,  // this is constant
+                        false, // this is not exported
+                        ctor.span,
+                        self.current_file.clone(),
+                        None,
+                    );
                     for (pname, pty) in ctor.params {
                         let ty = self.resolve_type(pty.clone());
                         self.scope.insert(
@@ -1087,7 +1148,7 @@ impl SemanticAnalyzer {
                         "this".to_string(),
                         Type::Class(name.clone()),
                         false,
-                        true, // this is constant
+                        true,  // this is constant
                         false, // this is not exported
                         m.span,
                         self.current_file.clone(),
@@ -1236,7 +1297,10 @@ impl SemanticAnalyzer {
                     "==" | "!=" | "<" | "<=" | ">" | ">=" => {
                         // Allow comparison between same types, or classes/unions/unknown and null
                         let is_nullable = |ty: &Type| {
-                            matches!(ty, Type::Class(_) | Type::Union(_) | Type::Unknown | Type::Null)
+                            matches!(
+                                ty,
+                                Type::Class(_) | Type::Union(_) | Type::Unknown | Type::Null
+                            )
                         };
                         let ok = if lhs == rhs {
                             true
@@ -1276,13 +1340,7 @@ impl SemanticAnalyzer {
                     "+" | "-" | "*" | "/" | "%" | "|" => {
                         if lhs.is_numeric() && rhs.is_numeric() {
                             lhs
-                        } else if op == "+"
-                            && (lhs == Type::String || rhs == Type::String)
-                            && (lhs.is_numeric()
-                                || rhs.is_numeric()
-                                || lhs == Type::String
-                                || rhs == Type::String)
-                        {
+                        } else if op == "+" && (lhs == Type::String || rhs == Type::String) {
                             Type::String
                         } else {
                             self.error(
@@ -1309,7 +1367,10 @@ impl SemanticAnalyzer {
 
                 if let Some(expected_ty) = sym_ty {
                     if sym_is_const {
-                        self.error(SemanticErrorKind::CannotAssignToConstant(name.clone()), span);
+                        self.error(
+                            SemanticErrorKind::CannotAssignToConstant(name.clone()),
+                            span,
+                        );
                     }
                     if !self.is_assignable(&val_ty, &expected_ty) {
                         self.error(
@@ -1440,11 +1501,7 @@ impl SemanticAnalyzer {
                                         if let Some(d) = sym_doc {
                                             self.record_doc(name_span, d);
                                         }
-                                        self.record_definition(
-                                            name_span,
-                                            sym_defined_in,
-                                            sym_span,
-                                        );
+                                        self.record_definition(name_span, sym_defined_in, sym_span);
                                         self.record_type(name_span, sym_ty.clone());
                                         self.record_type(span, sym_ty.clone());
                                         return sym_ty;
@@ -1477,11 +1534,7 @@ impl SemanticAnalyzer {
                                     if let Some(d) = sym_doc {
                                         self.record_doc(name_span, d);
                                     }
-                                    self.record_definition(
-                                        name_span,
-                                        sym_defined_in,
-                                        sym_span,
-                                    );
+                                    self.record_definition(name_span, sym_defined_in, sym_span);
                                     self.record_type(name_span, sym_ty.clone());
                                     self.record_type(span, sym_ty.clone());
                                     return sym_ty;

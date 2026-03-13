@@ -1,5 +1,6 @@
 use crate::compiler::ast::{
-    ClassMethod, DocComment, Expr, Field, ImportItem, Program, Span, Statement, TemplatePart, TplPart, TypeExpr,
+    ClassMethod, DocComment, Expr, Field, ImportItem, Program, Span, Statement, TemplatePart,
+    TplPart, TypeExpr,
 };
 use crate::compiler::frontend::error::{Diagnostic, DiagnosticList};
 use crate::compiler::frontend::token::{Token, TokenKind};
@@ -414,11 +415,8 @@ impl Parser {
             } else {
                 "Expected variable name after let"
             };
-            self.diagnostics.push(Diagnostic::error(
-                msg.to_string(),
-                token.line,
-                token.column,
-            ));
+            self.diagnostics
+                .push(Diagnostic::error(msg.to_string(), token.line, token.column));
             return Err(());
         };
 
