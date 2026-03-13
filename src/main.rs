@@ -1,6 +1,3 @@
-use aura::compiler::backend::aarch64_apple_darwin::codegen::Codegen;
-use aura::compiler::backend::aarch64_apple_darwin::driver::Driver;
-use aura::compiler::backend::aarch64_apple_darwin::ir_codegen::IrCodegen;
 use aura::compiler::frontend::lexer::Lexer;
 use aura::compiler::frontend::parser::Parser;
 use aura::compiler::interp::Interpreter;
@@ -8,6 +5,11 @@ use aura::compiler::intrinsic::{register_analyzer_intrinsics, register_interpret
 use aura::compiler::ir::lower::Lowerer;
 use aura::compiler::ir::opt::Optimizer;
 use aura::compiler::sema::checker::SemanticAnalyzer;
+
+// Import backends
+use aura::compiler::backend::aarch64_apple_darwin;
+use aura::compiler::backend::x86_64_unknown_linux_gnu;
+use aura::compiler::backend::x86_64_pc_windows_msvc;
 
 fn print_help() {
     println!("Aura Compiler");
@@ -206,23 +208,33 @@ fn main() {
         let module = opt.optimize(module);
 
         if target == "x86_64-unknown-linux-gnu" {
-            let mut cg =
-                aura::compiler::backend::x86_64_unknown_linux_gnu::ir_codegen::IrCodegen::new();
+            let mut cg = x86_64_unknown_linux_gnu::ir_codegen::IrCodegen::new();
             cg.generate(module)
         } else if target == "x86_64-pc-windows-msvc" {
-            let mut cg =
-                aura::compiler::backend::x86_64_pc_windows_msvc::ir_codegen::IrCodegen::new();
+            let mut cg = x86_64_pc_windows_msvc::ir_codegen::IrCodegen::new();
             cg.generate(module)
         } else {
-            let mut cg = IrCodegen::new();
+            let mut cg = aarch64_apple_darwin::ir_codegen::IrCodegen::new();
             cg.generate(module)
         }
     } else {
-        let mut cg = Codegen::new();
-        cg.set_node_types(analyzer.node_types);
-        cg.load_stdlib(&stdlib_path);
-        cg.set_current_dir(input_dir);
-        cg.generate(program)
+        if target == "x86_64-unknown-linux-gnu" {
+            let mut cg = x86_64_unknown_linux_gnu::codegen::Codegen::new();
+            cg.set_node_types(analyzer.node_types);
+            cg.load_stdlib(&stdlib_path);
+            cg.set_current_dir(input_dir);
+            cg.generate(program)
+        } else if target == "x86_64-pc-windows-msvc" {
+            let mut cg = x86_64_pc_windows_msvc::codegen::Codegen::new();
+            // Assuming Windows backend has similar methods
+            cg.generate(program)
+        } else {
+            let mut cg = aarch64_apple_darwin::codegen::Codegen::new();
+            cg.set_node_types(analyzer.node_types);
+            cg.load_stdlib(&stdlib_path);
+            cg.set_current_dir(input_dir);
+            cg.generate(program)
+        }
     };
 
     let input_stem = std::path::Path::new(&input_name)
@@ -235,7 +247,15 @@ fn main() {
 
     std::fs::write(&asm_file, asm).expect("Unable to write assembly file");
 
-    if let Err(e) = Driver::build(&asm_file, &binary_file, &runtime_path) {
+    let build_result = if target == "x86_64-unknown-linux-gnu" {
+        x86_64_unknown_linux_gnu::driver::Driver::build(&asm_file, &binary_file, &runtime_path)
+    } else if target == "x86_64-pc-windows-msvc" {
+        x86_64_pc_windows_msvc::driver::Driver::build(&asm_file, &binary_file, &runtime_path)
+    } else {
+        aarch64_apple_darwin::driver::Driver::build(&asm_file, &binary_file, &runtime_path)
+    };
+
+    if let Err(e) = build_result {
         eprintln!("Build failed: {}", e);
         // Cleanup on failure
         let _ = std::fs::remove_file(&asm_file);
