@@ -8,8 +8,6 @@ use aura::compiler::sema::checker::SemanticAnalyzer;
 
 // Import backends
 use aura::compiler::backend::aarch64_apple_darwin;
-use aura::compiler::backend::x86_64_pc_windows_msvc;
-use aura::compiler::backend::x86_64_unknown_linux_gnu;
 
 fn print_help() {
     println!("Aura Compiler");
@@ -31,21 +29,12 @@ fn print_help() {
         "  --target   Specify the target architecture (default: {})",
         get_default_target()
     );
-    println!("             Supported targets: aarch64-apple-darwin, x86_64-unknown-linux-gnu, x86_64-pc-windows-msvc");
+    println!("             Supported targets: aarch64-apple-darwin");
     std::process::exit(0);
 }
 
 fn get_default_target() -> String {
-    if cfg!(all(target_arch = "aarch64", target_os = "macos")) {
-        "aarch64-apple-darwin".to_string()
-    } else if cfg!(all(target_arch = "x86_64", target_os = "linux")) {
-        "x86_64-unknown-linux-gnu".to_string()
-    } else if cfg!(all(target_arch = "x86_64", target_os = "windows")) {
-        "x86_64-pc-windows-msvc".to_string()
-    } else {
-        // Fallback for other systems
-        "aarch64-apple-darwin".to_string()
-    }
+    "aarch64-apple-darwin".to_string()
 }
 
 fn main() {
@@ -94,6 +83,10 @@ fn main() {
             "--target" => {
                 if i + 1 < args.len() {
                     target = args[i + 1].clone();
+                    if target != "aarch64-apple-darwin" {
+                        eprintln!("Error: Target '{}' is not supported. Currently only 'aarch64-apple-darwin' is supported.", target);
+                        std::process::exit(1);
+                    }
                     skip_next = true;
                 }
             }
@@ -220,34 +213,14 @@ fn main() {
         let mut opt = Optimizer::new();
         let module = opt.optimize(module);
 
-        if target == "x86_64-unknown-linux-gnu" {
-            let mut cg = x86_64_unknown_linux_gnu::ir_codegen::IrCodegen::new();
-            cg.generate(module)
-        } else if target == "x86_64-pc-windows-msvc" {
-            let mut cg = x86_64_pc_windows_msvc::ir_codegen::IrCodegen::new();
-            cg.generate(module)
-        } else {
-            let mut cg = aarch64_apple_darwin::ir_codegen::IrCodegen::new();
-            cg.generate(module)
-        }
+        let mut cg = aarch64_apple_darwin::ir_codegen::IrCodegen::new();
+        cg.generate(module)
     } else {
-        if target == "x86_64-unknown-linux-gnu" {
-            let mut cg = x86_64_unknown_linux_gnu::codegen::Codegen::new();
-            cg.set_node_types(analyzer.node_types);
-            cg.load_stdlib(&stdlib_path);
-            cg.set_current_dir(input_dir);
-            cg.generate(program)
-        } else if target == "x86_64-pc-windows-msvc" {
-            let mut cg = x86_64_pc_windows_msvc::codegen::Codegen::new();
-            // Assuming Windows backend has similar methods
-            cg.generate(program)
-        } else {
-            let mut cg = aarch64_apple_darwin::codegen::Codegen::new();
-            cg.set_node_types(analyzer.node_types);
-            cg.load_stdlib(&stdlib_path);
-            cg.set_current_dir(input_dir);
-            cg.generate(program)
-        }
+        let mut cg = aarch64_apple_darwin::codegen::Codegen::new();
+        cg.set_node_types(analyzer.node_types);
+        cg.load_stdlib(&stdlib_path);
+        cg.set_current_dir(input_dir);
+        cg.generate(program)
     };
 
     let input_stem = std::path::Path::new(&input_name)
@@ -261,13 +234,8 @@ fn main() {
     std::fs::write(&asm_file, asm).expect("Unable to write assembly file");
 
     let runtime_code = aura::runtime::embedded::RUNTIME_C;
-    let build_result = if target == "x86_64-unknown-linux-gnu" {
-        x86_64_unknown_linux_gnu::driver::Driver::build(&asm_file, &binary_file, runtime_code)
-    } else if target == "x86_64-pc-windows-msvc" {
-        x86_64_pc_windows_msvc::driver::Driver::build(&asm_file, &binary_file, runtime_code)
-    } else {
-        aarch64_apple_darwin::driver::Driver::build(&asm_file, &binary_file, runtime_code)
-    };
+    let build_result =
+        aarch64_apple_darwin::driver::Driver::build(&asm_file, &binary_file, runtime_code);
 
     if let Err(e) = build_result {
         eprintln!("Build failed: {}", e);

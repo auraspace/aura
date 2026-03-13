@@ -31,7 +31,7 @@ impl Driver {
             .arg(&runtime_obj)
             .arg(&runtime_src)
             .status()?;
-        
+
         // Cleanup runtime source immediately after compilation
         let _ = std::fs::remove_file(&runtime_src);
 
