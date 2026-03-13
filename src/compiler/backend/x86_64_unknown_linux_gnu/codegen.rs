@@ -1,6 +1,6 @@
 use crate::compiler::ast::{Expr, Program, Span, Statement};
-use crate::compiler::backend::x86_64_unknown_linux_gnu::reg::Register;
 use crate::compiler::backend::x86_64_unknown_linux_gnu::asm::Emitter;
+use crate::compiler::backend::x86_64_unknown_linux_gnu::reg::Register;
 use crate::compiler::sema::ty::Type;
 use std::collections::HashMap;
 
@@ -72,16 +72,20 @@ impl Codegen {
     }
 
     fn store_local(&mut self, reg: Register, offset: usize) {
-        self.emitter.output.push_str(&format!("    mov %{}, -{}(%rbp)\n", reg.name(), offset));
+        self.emitter
+            .output
+            .push_str(&format!("    mov %{}, -{}(%rbp)\n", reg.name(), offset));
     }
 
     fn load_local(&mut self, reg: Register, offset: usize) {
-        self.emitter.output.push_str(&format!("    mov -{}(%rbp), %{}\n", offset, reg.name()));
+        self.emitter
+            .output
+            .push_str(&format!("    mov -{}(%rbp), %{}\n", offset, reg.name()));
     }
 
     pub fn generate(mut self, program: Program) -> String {
         self.current_file = program.file_path.clone();
-        
+
         // Register built-in classes (same as aarch64)
         self.classes.insert(
             "Promise".to_string(),
@@ -205,7 +209,7 @@ impl Codegen {
                     fns.push((program.file_path.clone(), actual_stmt))
                 }
                 Statement::Import { path, .. } => {
-                     let absolute_path = if path.starts_with("std/") {
+                    let absolute_path = if path.starts_with("std/") {
                         if let Some(ref std_path) = self.stdlib_path {
                             let sub_path = &path[4..]; // remove "std/"
                             let aura_path = if sub_path.ends_with(".aura") {
@@ -392,10 +396,7 @@ impl Codegen {
                 }
             }
             Statement::FunctionDeclaration {
-                name,
-                params,
-                body,
-                ..
+                name, params, body, ..
             } => {
                 let saved_vars = self.variables.clone();
                 let saved_offset = self.stack_offset;
@@ -422,7 +423,14 @@ impl Codegen {
                 self.emitter.output.push_str("    sub $256, %rsp\n");
 
                 let mut current_arg_reg = 0;
-                let arg_regs = [Register::RDI, Register::RSI, Register::RDX, Register::RCX, Register::R8, Register::R9];
+                let arg_regs = [
+                    Register::RDI,
+                    Register::RSI,
+                    Register::RDX,
+                    Register::RCX,
+                    Register::R8,
+                    Register::R9,
+                ];
 
                 if is_method {
                     self.stack_offset += 8;
@@ -502,7 +510,7 @@ impl Codegen {
                         }
                     }
                 }
-                
+
                 // ... same type deduction logic as aarch64 ...
                 if let Some(ty) = self.get_node_type(&expr.span()) {
                     match ty {
@@ -519,9 +527,9 @@ impl Codegen {
                         _ => {}
                     }
                 }
-                
+
                 self.generate_expr(expr);
-                
+
                 // x86_64 uses %rdi for the first argument to print functions
                 self.emitter.mov_reg(Register::RDI, Register::RAX);
 
@@ -556,9 +564,13 @@ impl Codegen {
                 let end_label = self.new_label("end");
                 self.generate_expr(condition);
                 self.emitter.output.push_str("    cmp $0, %rax\n");
-                self.emitter.output.push_str(&format!("    je {}\n", else_label));
+                self.emitter
+                    .output
+                    .push_str(&format!("    je {}\n", else_label));
                 self.generate_statement(*then_branch);
-                self.emitter.output.push_str(&format!("    jmp {}\n", end_label));
+                self.emitter
+                    .output
+                    .push_str(&format!("    jmp {}\n", end_label));
                 self.emitter.output.push_str(&format!("{}:\n", else_label));
                 if let Some(eb) = else_branch {
                     self.generate_statement(*eb);
@@ -566,18 +578,20 @@ impl Codegen {
                 self.emitter.output.push_str(&format!("{}:\n", end_label));
             }
             Statement::While {
-                condition,
-                body,
-                ..
+                condition, body, ..
             } => {
                 let start_label = self.new_label("while_start");
                 let end_label = self.new_label("while_end");
                 self.emitter.output.push_str(&format!("{}:\n", start_label));
                 self.generate_expr(condition);
                 self.emitter.output.push_str("    cmp $0, %rax\n");
-                self.emitter.output.push_str(&format!("    je {}\n", end_label));
+                self.emitter
+                    .output
+                    .push_str(&format!("    je {}\n", end_label));
                 self.generate_statement(*body);
-                self.emitter.output.push_str(&format!("    jmp {}\n", start_label));
+                self.emitter
+                    .output
+                    .push_str(&format!("    jmp {}\n", start_label));
                 self.emitter.output.push_str(&format!("{}:\n", end_label));
             }
             Statement::ClassDeclaration {
@@ -671,13 +685,17 @@ impl Codegen {
                     self.string_constants.insert(val, l.clone());
                     l
                 };
-                self.emitter.output.push_str(&format!("    lea {}(%rip), %rax\n", label));
+                self.emitter
+                    .output
+                    .push_str(&format!("    lea {}(%rip), %rax\n", label));
             }
             Expr::Variable(name, _) => {
                 if let Some((offset, _)) = self.variables.get(&name) {
                     self.load_local(Register::RAX, *offset);
                 } else if let Some((label, _)) = self.global_variables.get(&name) {
-                    self.emitter.output.push_str(&format!("    mov {}(%rip), %rax\n", label));
+                    self.emitter
+                        .output
+                        .push_str(&format!("    mov {}(%rip), %rax\n", label));
                 } else if self.classes.contains_key(&name) {
                     self.emitter.mov_imm(Register::RAX, 0);
                 } else {
@@ -696,10 +714,18 @@ impl Codegen {
                 self.emitter.mov_reg(Register::RBX, Register::RAX);
                 self.emitter.pop(Register::RAX);
                 match op.as_str() {
-                    "+" => self.emitter.add(Register::RAX, Register::RAX, Register::RBX),
-                    "-" => self.emitter.sub(Register::RAX, Register::RAX, Register::RBX),
-                    "*" => self.emitter.mul(Register::RAX, Register::RAX, Register::RBX),
-                    "/" => self.emitter.sdiv(Register::RAX, Register::RAX, Register::RBX),
+                    "+" => self
+                        .emitter
+                        .add(Register::RAX, Register::RAX, Register::RBX),
+                    "-" => self
+                        .emitter
+                        .sub(Register::RAX, Register::RAX, Register::RBX),
+                    "*" => self
+                        .emitter
+                        .mul(Register::RAX, Register::RAX, Register::RBX),
+                    "/" => self
+                        .emitter
+                        .sdiv(Register::RAX, Register::RAX, Register::RBX),
                     "==" => {
                         self.emitter.output.push_str("    cmp %rbx, %rax\n");
                         self.emitter.output.push_str("    sete %al\n");
@@ -734,7 +760,14 @@ impl Codegen {
                 }
             }
             Expr::Call(name, _, args, _) => {
-                let arg_regs = [Register::RDI, Register::RSI, Register::RDX, Register::RCX, Register::R8, Register::R9];
+                let arg_regs = [
+                    Register::RDI,
+                    Register::RSI,
+                    Register::RDX,
+                    Register::RCX,
+                    Register::R8,
+                    Register::R9,
+                ];
                 for (i, arg) in args.into_iter().enumerate() {
                     self.generate_expr(arg);
                     if i < arg_regs.len() {

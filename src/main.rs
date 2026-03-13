@@ -8,8 +8,8 @@ use aura::compiler::sema::checker::SemanticAnalyzer;
 
 // Import backends
 use aura::compiler::backend::aarch64_apple_darwin;
-use aura::compiler::backend::x86_64_unknown_linux_gnu;
 use aura::compiler::backend::x86_64_pc_windows_msvc;
+use aura::compiler::backend::x86_64_unknown_linux_gnu;
 
 fn print_help() {
     println!("Aura Compiler");
