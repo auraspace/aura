@@ -24,7 +24,7 @@ fn print_help() {
     println!("  --ir       Use the Intermediate Representation (IR) backend");
     println!("  --interp   Use the interpreter for execution");
     println!("  --emit-ir  Print the generated IR and exit");
-    println!("  --target   Specify the target architecture (aarch64-apple-darwin, x86_64-unknown-linux-gnu, x86_64-pc-windows-msvc)");
+    println!("  --target   Specify the target architecture (aarch64-apple-darwin, x86_64)");
     std::process::exit(0);
 }
 
@@ -205,11 +205,8 @@ fn main() {
         let mut opt = Optimizer::new();
         let module = opt.optimize(module);
 
-        if target == "x86_64-unknown-linux-gnu" {
-            let mut cg = aura::compiler::backend::x86_64_unknown_linux_gnu::ir_codegen::IrCodegen::new();
-            cg.generate(module)
-        } else if target == "x86_64-pc-windows-msvc" {
-            let mut cg = aura::compiler::backend::x86_64_pc_windows_msvc::ir_codegen::IrCodegen::new();
+        if target == "x86_64" {
+            let mut cg = aura::compiler::backend::x86_64::ir_codegen::IrCodegen::new();
             cg.generate(module)
         } else {
             let mut cg = IrCodegen::new();

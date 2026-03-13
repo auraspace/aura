@@ -35,8 +35,7 @@ aura/
 │   │       ├── aarch64_apple_darwin/ # Primary: AArch64 registers & instructions (Priority)
 │   │       │   ├── reg.rs # Register allocator for ARM64
 │   │       │   └── asm.rs # Assembler/Emitter for ARM64
-│   │       ├── x86_64_unknown_linux_gnu/ # Secondary: Intel/AMD Linux
-│       └── x86_64_pc_windows_msvc/    # Secondary: Intel/AMD Windows
+│   │       └── x86_64/    # Secondary: Intel/AMD backend
 │   ├── runtime/           # Language Runtime (statically linked)
 │   │   ├── gc/            # Generational Garbage Collector
 │   │   │   ├── heap.rs    # Allocation and management
@@ -54,7 +53,7 @@ aura/
 ## ⚠️ Important Constraints
 
 1.  **Strict Typing**: No `any` or `unknown` types are permitted in the Aura language design.
-2.  **AArch64 First**: The `backend/aarch64_apple_darwin` module is the primary focus and must be implemented before `x86_64` variants.
+2.  **AArch64 First**: The `backend/aarch64_apple_darwin` module is the primary focus and must be implemented before `x86_64`.
 3.  **Self-Contained**: The compiler must generate a single binary including the `runtime` (statically linked).
 4.  **Custom Backend**: Avoid heavy external frameworks; use a custom backend infrastructure similar to Go's approach.
 5.  **LSP Support**: All core language features must be exposed via the `lsp/` module for IDE support.
