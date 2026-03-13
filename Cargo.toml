@@ -10,6 +10,9 @@ edition = "2021"
 description = "Aura programming language toolchain (compiler, interpreter, LSP)"
 license = "MIT"
 readme = "README.md"
+repository = "https://github.com/phamtanminhtien/aura"
+homepage = "https://github.com/phamtanminhtien/aura"
+documentation = "https://github.com/phamtanminhtien/aura#readme"
 
 [dependencies]
 clap = { version = "4.0", features = ["derive"] }
