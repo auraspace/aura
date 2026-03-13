@@ -23,7 +23,8 @@ fn print_help() {
     println!("  help       Show this help message");
     println!("");
     println!("Options:");
-    println!("  --ir       Use the Intermediate Representation (IR) backend");
+    println!("  -v, --version  Show version information and exit");
+    println!("  --ir           Use the Intermediate Representation (IR) backend");
     println!("  --interp   Use the interpreter for execution");
     println!("  --emit-ir  Print the generated IR and exit");
     println!(
@@ -53,6 +54,11 @@ fn main() {
     if args.len() <= 1 || args.contains(&"help".to_string()) || args.contains(&"--help".to_string())
     {
         print_help();
+    }
+
+    if args.contains(&"--version".to_string()) || args.contains(&"-v".to_string()) {
+        println!("Aura version {}", env!("CARGO_PKG_VERSION"));
+        std::process::exit(0);
     }
 
     let mut command = "run";
