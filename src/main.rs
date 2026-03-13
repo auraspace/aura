@@ -26,8 +26,22 @@ fn print_help() {
     println!("  --ir       Use the Intermediate Representation (IR) backend");
     println!("  --interp   Use the interpreter for execution");
     println!("  --emit-ir  Print the generated IR and exit");
-    println!("  --target   Specify the target architecture (aarch64-apple-darwin, x86_64-unknown-linux-gnu, x86_64-pc-windows-msvc)");
+    println!("  --target   Specify the target architecture (default: {})", get_default_target());
+    println!("             Supported targets: aarch64-apple-darwin, x86_64-unknown-linux-gnu, x86_64-pc-windows-msvc");
     std::process::exit(0);
+}
+
+fn get_default_target() -> String {
+    if cfg!(all(target_arch = "aarch64", target_os = "macos")) {
+        "aarch64-apple-darwin".to_string()
+    } else if cfg!(all(target_arch = "x86_64", target_os = "linux")) {
+        "x86_64-unknown-linux-gnu".to_string()
+    } else if cfg!(all(target_arch = "x86_64", target_os = "windows")) {
+        "x86_64-pc-windows-msvc".to_string()
+    } else {
+        // Fallback for other systems
+        "aarch64-apple-darwin".to_string()
+    }
 }
 
 fn main() {
@@ -44,7 +58,7 @@ fn main() {
     let mut use_interp = false;
     let mut emit_ir = false;
     let mut is_lsp = false;
-    let mut target = "aarch64-apple-darwin".to_string();
+    let mut target = get_default_target();
 
     let mut skip_next = false;
     for (i, arg) in args.iter().enumerate().skip(1) {
