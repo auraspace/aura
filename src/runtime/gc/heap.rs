@@ -199,7 +199,7 @@ impl GcHeap {
     /// Copies `total_bytes` starting at `src` into the old arena and returns
     /// the new address.  Returns `None` if the old generation is full
     /// (triggering should invoke major_gc first).
-    pub fn promote(&mut self, src: *const u8, total_bytes: usize) -> Option<*mut u8> {
+    pub unsafe fn promote(&mut self, src: *const u8, total_bytes: usize) -> Option<*mut u8> {
         let dst = self.old.alloc(total_bytes)?;
         unsafe {
             std::ptr::copy_nonoverlapping(src, dst, total_bytes);
@@ -309,7 +309,7 @@ mod tests {
         assert!(!obj.is_null());
         let header_size = std::mem::size_of::<GcObject>();
         let total = header_size + 16;
-        let new_ptr = heap.promote(obj as *const u8, total);
+        let new_ptr = unsafe { heap.promote(obj as *const u8, total) };
         assert!(new_ptr.is_some());
         assert_eq!(heap.old.used(), (total + 7) & !7);
     }

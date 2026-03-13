@@ -805,7 +805,7 @@ impl Interpreter {
                                 }
                                 "any" => {
                                     if let Some(Value::Array(promises)) = arg_vals.get(0) {
-                                        for p in promises.borrow().iter() {
+                                        if let Some(p) = promises.borrow().iter().next() {
                                             // In our synchronous interpreter, we just pick the first one
                                             if let Value::Promise(v) = p {
                                                 return Value::Promise(v.clone());

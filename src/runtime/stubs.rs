@@ -30,7 +30,7 @@ pub extern "C" fn print_num(val: i64) {
 }
 
 #[no_mangle]
-pub extern "C" fn print_str(ptr: *const c_char) {
+pub unsafe extern "C" fn print_str(ptr: *const c_char) {
     if ptr.is_null() {
         println!("null");
     } else {

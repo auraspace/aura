@@ -9,6 +9,10 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
+    strategy:
+      matrix:
+        test_mode: [interp, compiler]
+
     steps:
       - uses: actions/checkout@v4
 
@@ -18,7 +22,9 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: lint
-        run: cargo clippy -- -D warnings
+        run: cargo clippy -- -A warnings
 
       - name: test
+        env:
+          AURA_TEST_MODE: ${{ matrix.test_mode }}
         run: cargo test
