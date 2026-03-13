@@ -1,8 +1,21 @@
 ## [unreleased]
 
+### 🚀 Features
+
+- Add x86_64-unknown-linux-gnu placehoder (#4)
+
+### ⚙️ Miscellaneous Tasks
+
+- Enhance release workflow to package binaries with stdlib and c… (#1)
+- Complete (#2)
+- Remove push trigger for master branch. (#3)
+## [0.2.3] - 2026-03-13
+
 ### ⚙️ Miscellaneous Tasks
 
 - Update GitHub Actions workflow to add write permissions for contents
+- Update changelog
+- Release aura version 0.2.3
 ## [0.2.2] - 2026-03-13
 
 ### ⚙️ Miscellaneous Tasks
