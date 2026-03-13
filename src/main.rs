@@ -98,40 +98,30 @@ fn main() {
         }
     }
 
-    // stdlib and runtime resolution
-    let (stdlib_path, runtime_path) = std::env::var("AURA_STDLIB")
-        .map(|s| {
-            (
-                s,
-                std::env::var("AURA_RUNTIME")
-                    .unwrap_or_else(|_| "src/runtime/runtime.c".to_string()),
-            )
-        })
-        .unwrap_or_else(|_| {
-            let mut s_path = "stdlib/std".to_string();
-            let mut r_path = "src/runtime/runtime.c".to_string();
+    // stdlib resolution
+    let stdlib_path = std::env::var("AURA_STDLIB").unwrap_or_else(|_| {
+        let mut s_path = "stdlib/std".to_string();
 
-            if let Ok(exe_path) = std::env::current_exe() {
-                if let Some(exe_dir) = exe_path.parent() {
-                    // Try relative to exe
-                    let p1_s = exe_dir.join("stdlib/std");
-                    let p1_r = exe_dir.join("src/runtime/runtime.c");
-                    if p1_s.exists() && p1_r.exists() {
-                        s_path = p1_s.to_string_lossy().to_string();
-                        r_path = p1_r.to_string_lossy().to_string();
-                    } else {
-                        // Try dev environment (target/debug)
-                        let p2_s = exe_dir.join("../../stdlib/std");
-                        let p2_r = exe_dir.join("../../src/runtime/runtime.c");
-                        if p2_s.exists() && p2_r.exists() {
-                            s_path = p2_s.to_string_lossy().to_string();
-                            r_path = p2_r.to_string_lossy().to_string();
-                        }
-                    }
+        if let Ok(exe_path) = std::env::current_exe() {
+            if let Some(exe_dir) = exe_path.parent() {
+                // Try relative to exe (installed layout: bin/aura -> ../stdlib/std)
+                let p1_s = exe_dir.join("../stdlib/std");
+                // Try relative to exe (running from project root: ./stdlib/std)
+                let p2_s = exe_dir.join("stdlib/std");
+                // Try dev environment (target/debug/aura -> ../../stdlib/std)
+                let p3_s = exe_dir.join("../../stdlib/std");
+
+                if p1_s.exists() {
+                    s_path = p1_s.to_string_lossy().to_string();
+                } else if p2_s.exists() {
+                    s_path = p2_s.to_string_lossy().to_string();
+                } else if p3_s.exists() {
+                    s_path = p3_s.to_string_lossy().to_string();
                 }
             }
-            (s_path, r_path)
-        });
+        }
+        s_path
+    });
 
     if is_lsp {
         let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
@@ -264,12 +254,13 @@ fn main() {
 
     std::fs::write(&asm_file, asm).expect("Unable to write assembly file");
 
+    let runtime_code = aura::runtime::embedded::RUNTIME_C;
     let build_result = if target == "x86_64-unknown-linux-gnu" {
-        x86_64_unknown_linux_gnu::driver::Driver::build(&asm_file, &binary_file, &runtime_path)
+        x86_64_unknown_linux_gnu::driver::Driver::build(&asm_file, &binary_file, runtime_code)
     } else if target == "x86_64-pc-windows-msvc" {
-        x86_64_pc_windows_msvc::driver::Driver::build(&asm_file, &binary_file, &runtime_path)
+        x86_64_pc_windows_msvc::driver::Driver::build(&asm_file, &binary_file, runtime_code)
     } else {
-        aarch64_apple_darwin::driver::Driver::build(&asm_file, &binary_file, &runtime_path)
+        aarch64_apple_darwin::driver::Driver::build(&asm_file, &binary_file, runtime_code)
     };
 
     if let Err(e) = build_result {

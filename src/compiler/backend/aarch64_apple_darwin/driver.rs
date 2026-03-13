@@ -3,8 +3,9 @@ use std::process::Command;
 pub struct Driver;
 
 impl Driver {
-    pub fn build(asm_path: &str, output_path: &str, runtime_path: &str) -> std::io::Result<()> {
+    pub fn build(asm_path: &str, output_path: &str, runtime_code: &str) -> std::io::Result<()> {
         let obj_path = format!("{}.o", asm_path);
+        let runtime_src = format!("{}_runtime.c", asm_path);
         let runtime_obj = format!("{}_runtime.o", asm_path);
 
         // 1. Assemble Aura code
@@ -23,12 +24,17 @@ impl Driver {
 
         // 2. Compile Runtime
         println!("Compiling runtime for {}...", asm_path);
+        std::fs::write(&runtime_src, runtime_code)?;
         let status = Command::new("clang")
             .arg("-c")
             .arg("-o")
             .arg(&runtime_obj)
-            .arg(runtime_path)
+            .arg(&runtime_src)
             .status()?;
+        
+        // Cleanup runtime source immediately after compilation
+        let _ = std::fs::remove_file(&runtime_src);
+
         if !status.success() {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::Other,
