@@ -10,7 +10,6 @@ jobs:
 
     strategy:
       matrix:
-        test_mode: [interp, compiler]
         os: [macos-latest, ubuntu-latest]
         include:
           - os: macos-latest
@@ -33,5 +32,5 @@ jobs:
 
       - name: test
         env:
-          AURA_TEST_MODE: ${{ matrix.test_mode }}
+          AURA_TEST_MODE: interp,compiler
         run: cargo test
