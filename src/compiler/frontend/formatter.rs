@@ -563,7 +563,40 @@ impl Formatter {
                 DocComment::Block(content) => {
                     self.indent();
                     self.result.push_str("/**");
-                    self.result.push_str(content);
+
+                    let lines: Vec<&str> = content.lines().collect();
+                    if lines.len() <= 1 {
+                        self.result.push_str(content);
+                    } else {
+                        // For multi-line block comments, we need to normalize indentation.
+                        // We skip the first line (if it's just the newline after /**)
+                        // and determine the common indentation of the rest.
+
+                        // First, just output the lines with corrected indentation
+                        for (i, line) in lines.iter().enumerate() {
+                            if i == 0 && line.trim().is_empty() {
+                                self.result.push('\n');
+                                continue;
+                            }
+
+                            if i == lines.len() - 1 && line.trim().is_empty() {
+                                continue;
+                            }
+
+                            self.indent();
+                            let trimmed = line.trim_start();
+                            if trimmed.starts_with('*') {
+                                self.result.push_str(" ");
+                                self.result.push_str(trimmed);
+                            } else {
+                                self.result.push_str(trimmed);
+                            }
+                            self.result.push('\n');
+                        }
+                        // Prepare for final */
+                        self.indent();
+                        self.result.push(' ');
+                    }
                     self.result.push_str("*/\n");
                 }
             }
@@ -845,6 +878,32 @@ function f() {}
         let formatted = formatter.format_program(&program);
 
         let expected = "let x = 1;\n\n// comment\nfunction f(): void {\n}\n";
+        assert_eq!(formatted, expected);
+    }
+
+    #[test]
+    fn test_class_method_doc_indentation() {
+        let source = r#"
+export class Array {
+    /**
+     * Returns the length of an array.
+     */
+    static function len(a: any[]): i32 {
+        return a.len();
+    }
+}
+"#;
+        let mut lexer = Lexer::new(source);
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens, "test.aura".to_string());
+        let program = parser.parse_program();
+
+        let formatter = Formatter::new();
+        let formatted = formatter.format_program(&program);
+
+        // Note: 'function' keyword is currently removed by formatter, which user said is OK.
+        // The focus here is on indentation of the doc comment.
+        let expected = "export class Array {\n  /**\n   * Returns the length of an array.\n   */\n  static len(a: any[]): i32 {\n    return a.len();\n  }\n}\n";
         assert_eq!(formatted, expected);
     }
 }
