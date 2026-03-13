@@ -533,14 +533,14 @@ impl Formatter {
                 self.result.push_str("[]");
             }
             TypeExpr::Function(params, ret, _) => {
-                self.result.push_str("fn(");
+                self.result.push_str("function(");
                 for (i, p) in params.iter().enumerate() {
                     if i > 0 {
                         self.result.push_str(", ");
                     }
                     self.format_type_expr(p);
                 }
-                self.result.push_str(") -> ");
+                self.result.push_str("): ");
                 self.format_type_expr(ret);
             }
         }
