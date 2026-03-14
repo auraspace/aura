@@ -306,7 +306,18 @@ impl SemanticAnalyzer {
                 doc,
             } = actual_stmt
             {
-                if self.classes.contains_key(name) || self.scope.lookup_local(name).is_some() {
+                if let Some(existing) = self.classes.get(name) {
+                    if existing.defined_in == self.current_file && existing.span == *span {
+                        continue;
+                    }
+                    self.error(
+                        SemanticErrorKind::DuplicateDeclaration(name.clone()),
+                        *name_span,
+                    );
+                } else if let Some(existing) = self.scope.lookup_local(name) {
+                    if existing.defined_in == self.current_file && existing.span == *name_span {
+                        continue;
+                    }
                     self.error(
                         SemanticErrorKind::DuplicateDeclaration(name.clone()),
                         *name_span,
@@ -400,7 +411,18 @@ impl SemanticAnalyzer {
                 doc,
             } = actual_stmt
             {
-                if self.classes.contains_key(name) || self.scope.lookup_local(name).is_some() {
+                if let Some(existing) = self.classes.get(name) {
+                    if existing.defined_in == self.current_file && existing.span == *name_span {
+                        continue;
+                    }
+                    self.error(
+                        SemanticErrorKind::DuplicateDeclaration(name.clone()),
+                        *name_span,
+                    );
+                } else if let Some(existing) = self.scope.lookup_local(name) {
+                    if existing.defined_in == self.current_file && existing.span == *name_span {
+                        continue;
+                    }
                     self.error(
                         SemanticErrorKind::DuplicateDeclaration(name.clone()),
                         *name_span,
@@ -431,7 +453,18 @@ impl SemanticAnalyzer {
                 doc,
             } = actual_stmt
             {
-                if self.classes.contains_key(name) || self.scope.lookup_local(name).is_some() {
+                if let Some(existing) = self.classes.get(name) {
+                    if existing.defined_in == self.current_file && existing.span == *name_span {
+                        continue;
+                    }
+                    self.error(
+                        SemanticErrorKind::DuplicateDeclaration(name.clone()),
+                        *name_span,
+                    );
+                } else if let Some(existing) = self.scope.lookup_local(name) {
+                    if existing.defined_in == self.current_file && existing.span == *name_span {
+                        continue;
+                    }
                     self.error(
                         SemanticErrorKind::DuplicateDeclaration(name.clone()),
                         *name_span,
@@ -454,9 +487,18 @@ impl SemanticAnalyzer {
                     doc.as_ref().map(|d| d.content()),
                 );
             } else if let Statement::Enum(decl) = actual_stmt {
-                if self.classes.contains_key(&decl.name)
-                    || self.scope.lookup_local(&decl.name).is_some()
-                {
+                if let Some(existing) = self.classes.get(&decl.name) {
+                    if existing.defined_in == self.current_file && existing.span == decl.span {
+                        continue;
+                    }
+                    self.error(
+                        SemanticErrorKind::DuplicateDeclaration(decl.name.clone()),
+                        decl.name_span,
+                    );
+                } else if let Some(existing) = self.scope.lookup_local(&decl.name) {
+                    if existing.defined_in == self.current_file && existing.span == decl.name_span {
+                        continue;
+                    }
                     self.error(
                         SemanticErrorKind::DuplicateDeclaration(decl.name.clone()),
                         decl.name_span,
@@ -655,10 +697,20 @@ impl SemanticAnalyzer {
 
     pub fn load_stdlib(&mut self, stdlib_path: &str) {
         self.stdlib_path = Some(stdlib_path.to_string());
-        let core_path = std::path::Path::new(stdlib_path).join("core.aura");
+        let core_path = match std::path::Path::new(stdlib_path)
+            .join("core.aura")
+            .canonicalize()
+        {
+            Ok(p) => p,
+            Err(_) => return,
+        };
         if core_path.exists() {
+            let path_str = core_path.to_string_lossy().to_string();
+            if self.loaded_files.contains(&path_str) {
+                return;
+            }
             if let Ok(source) = std::fs::read_to_string(&core_path) {
-                let path_str = core_path.to_string_lossy().to_string();
+                self.loaded_files.insert(path_str.clone());
                 let mut lexer = crate::compiler::frontend::lexer::Lexer::new(&source);
                 let mut parser = crate::compiler::frontend::parser::Parser::new(
                     lexer.lex_all(),

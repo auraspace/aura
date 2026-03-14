@@ -123,10 +123,15 @@ impl Codegen {
         let mut global_stmts: Vec<(String, Statement)> = Vec::new();
 
         if let Some(core_prog) = self.core_program.take() {
+            let path = core_prog.file_path.clone();
+            self.loaded_files.insert(path);
             self.collect_all_definitions(core_prog, &mut classes, &mut fns, &mut global_stmts);
         }
 
-        self.collect_all_definitions(program, &mut classes, &mut fns, &mut global_stmts);
+        if !self.loaded_files.contains(&program.file_path) {
+            self.loaded_files.insert(program.file_path.clone());
+            self.collect_all_definitions(program, &mut classes, &mut fns, &mut global_stmts);
+        }
 
         let has_main = fns.iter().any(|(_, stmt)| {
             if let Statement::FunctionDeclaration { name, .. } = stmt {
@@ -330,7 +335,13 @@ impl Codegen {
 
     pub fn load_stdlib(&mut self, stdlib_path: &str) {
         self.stdlib_path = Some(stdlib_path.to_string());
-        let core_path = std::path::Path::new(stdlib_path).join("core.aura");
+        let core_path = match std::path::Path::new(stdlib_path)
+            .join("core.aura")
+            .canonicalize()
+        {
+            Ok(p) => p,
+            Err(_) => return,
+        };
         if core_path.exists() {
             if let Ok(source) = std::fs::read_to_string(&core_path) {
                 let mut lexer = crate::compiler::frontend::lexer::Lexer::new(&source);
