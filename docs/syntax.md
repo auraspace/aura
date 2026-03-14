@@ -182,6 +182,8 @@ type Callback = (data: string) => void;
 
 ### Union & Intersection
 
+See: [Union Types](union-types.md).
+
 ```typescript
 // Union: value can be one of several types
 function printId(id: string | number) { ... }
@@ -258,6 +260,8 @@ function greet(name: string, age?: i32): string {
 ---
 
 ## Classes & Inheritance
+
+See: [Full OOP Support](oop.md).
 
 ```typescript
 class Animal {
@@ -554,11 +558,15 @@ Aura's standard library is modular and provides essential primitives:
 - `json`: Fast serialization and parsing.
 
 ```typescript
-import { readFile } from "fs";
-import { parse } from "json";
+import { readFile } from "std/fs.aura";
+import { parse } from "std/json.aura";
 
 const content = await readFile("data.json");
-const data = parse(content);
+try {
+  const data = parse(content); // throws Error (JsonError)
+} catch (e: Error) {
+  console.error("Invalid JSON: " + e.message);
+}
 ```
 
 ---
