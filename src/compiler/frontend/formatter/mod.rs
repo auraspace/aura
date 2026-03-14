@@ -133,9 +133,9 @@ function main ( ) : void {
         let formatted = formatter.format_program(&program);
 
         let expected = r#"class Test {
-  static x: number = 10;
+  public static x: number = 10;
 
-  constructor(a: number) {
+  public constructor(a: number) {
     this.x = a;
   }
 }
@@ -382,7 +382,8 @@ class T {
         let program = parser.parse_program();
         let formatter = Formatter::new();
         let formatted = formatter.format_program(&program);
-        let expected = "class T {\n  /**\n   * multi\n   * line\n   */\n  m(): void {\n  }\n}\n";
+        let expected =
+            "class T {\n  /**\n   * multi\n   * line\n   */\n  public m(): void {\n  }\n}\n";
         assert_eq!(formatted, expected);
     }
 }

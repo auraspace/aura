@@ -376,6 +376,8 @@ mod tests {
                         ty: TypeExpr::Name("Node".to_string(), span),
                         value: None,
                         is_static: false,
+                        is_readonly: false,
+                        access: crate::compiler::ast::AccessModifier::Public,
                         span,
                         doc: None,
                     }],

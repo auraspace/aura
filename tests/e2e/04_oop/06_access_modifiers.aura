@@ -1,0 +1,46 @@
+// Test: Access Modifiers
+// Expected output:
+// 10
+// 11
+// 12
+// 13
+// 20
+// 30
+
+class AccessTest {
+  public x: i32;
+  private y: i32;
+  protected z: i32;
+  public readonly r: i32;
+
+  public constructor(v: i32) {
+    this.x = v;
+    this.y = v + 1;
+    this.z = v + 2;
+    this.r = v + 3;
+  }
+
+  public getPrivY(): i32 {
+    return this.y;
+  }
+
+  public getProtZ(): i32 {
+    return this.z;
+  }
+
+  public setY(v: i32): void {
+    this.y = v;
+  }
+}
+
+let t = new AccessTest(10);
+print t.x;
+print t.getPrivY();
+print t.getProtZ();
+print t.r;
+
+t.x = 20;
+print t.x;
+
+t.setY(30);
+print t.getPrivY();

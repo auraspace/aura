@@ -122,24 +122,36 @@ pub fn handle_completion(
                 if let Some(obj_name) = parts.last() {
                     // 1. Static Access
                     if let Some(class_info) = state.classes.get(*obj_name) {
-                        for (mname, (p_tys, r_ty, mdoc, _)) in &class_info.static_methods {
-                            items.push(CompletionItem {
-                                label: mname.clone(),
-                                kind: Some(CompletionItemKind::METHOD),
-                                detail: Some(format!("fn({:?}) -> {:?}", p_tys, r_ty)),
-                                documentation: mdoc
-                                    .as_ref()
-                                    .map(|d| Documentation::String(d.clone())),
-                                ..Default::default()
-                            });
+                        for (mname, minfo) in &class_info.methods {
+                            if minfo.is_static {
+                                items.push(CompletionItem {
+                                    label: mname.clone(),
+                                    kind: Some(CompletionItemKind::METHOD),
+                                    detail: Some(format!(
+                                        "fn({:?}) -> {:?}",
+                                        minfo.params, minfo.ret_ty
+                                    )),
+                                    documentation: minfo
+                                        .doc
+                                        .as_ref()
+                                        .map(|d| Documentation::String(d.clone())),
+                                    ..Default::default()
+                                });
+                            }
                         }
-                        for (fname, (f_ty, _, _)) in &class_info.static_fields {
-                            items.push(CompletionItem {
-                                label: fname.clone(),
-                                kind: Some(CompletionItemKind::FIELD),
-                                detail: Some(format!("{:?}", f_ty)),
-                                ..Default::default()
-                            });
+                        for (fname, finfo) in &class_info.fields {
+                            if finfo.is_static {
+                                items.push(CompletionItem {
+                                    label: fname.clone(),
+                                    kind: Some(CompletionItemKind::FIELD),
+                                    detail: Some(format!("{:?}", finfo.ty)),
+                                    documentation: finfo
+                                        .doc
+                                        .as_ref()
+                                        .map(|d| Documentation::String(d.clone())),
+                                    ..Default::default()
+                                });
+                            }
                         }
                         return Some(CompletionResponse::Array(items));
                     }
@@ -152,24 +164,36 @@ pub fn handle_completion(
                         {
                             if let Type::Class(class_name) = ty {
                                 if let Some(class_info) = state.classes.get(class_name) {
-                                    for (mname, (p_tys, r_ty, mdoc, _)) in &class_info.methods {
-                                        items.push(CompletionItem {
-                                            label: mname.clone(),
-                                            kind: Some(CompletionItemKind::METHOD),
-                                            detail: Some(format!("fn({:?}) -> {:?}", p_tys, r_ty)),
-                                            documentation: mdoc
-                                                .as_ref()
-                                                .map(|d| Documentation::String(d.clone())),
-                                            ..Default::default()
-                                        });
+                                    for (mname, minfo) in &class_info.methods {
+                                        if !minfo.is_static {
+                                            items.push(CompletionItem {
+                                                label: mname.clone(),
+                                                kind: Some(CompletionItemKind::METHOD),
+                                                detail: Some(format!(
+                                                    "fn({:?}) -> {:?}",
+                                                    minfo.params, minfo.ret_ty
+                                                )),
+                                                documentation: minfo
+                                                    .doc
+                                                    .as_ref()
+                                                    .map(|d| Documentation::String(d.clone())),
+                                                ..Default::default()
+                                            });
+                                        }
                                     }
-                                    for (fname, (f_ty, _, _)) in &class_info.fields {
-                                        items.push(CompletionItem {
-                                            label: fname.clone(),
-                                            kind: Some(CompletionItemKind::FIELD),
-                                            detail: Some(format!("{:?}", f_ty)),
-                                            ..Default::default()
-                                        });
+                                    for (fname, finfo) in &class_info.fields {
+                                        if !finfo.is_static {
+                                            items.push(CompletionItem {
+                                                label: fname.clone(),
+                                                kind: Some(CompletionItemKind::FIELD),
+                                                detail: Some(format!("{:?}", finfo.ty)),
+                                                documentation: finfo
+                                                    .doc
+                                                    .as_ref()
+                                                    .map(|d| Documentation::String(d.clone())),
+                                                ..Default::default()
+                                            });
+                                        }
                                     }
                                 }
                             } else if let Type::Enum(enum_name) = ty {

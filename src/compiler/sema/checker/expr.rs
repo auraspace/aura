@@ -1,4 +1,4 @@
-use crate::compiler::ast::Expr;
+use crate::compiler::ast::{AccessModifier, Expr, Span};
 use crate::compiler::sema::checker::SemanticAnalyzer;
 use crate::compiler::sema::checker::SemanticErrorKind;
 use crate::compiler::sema::ty::Type;
@@ -242,201 +242,214 @@ impl SemanticAnalyzer {
             Expr::MemberAccess(obj, field, name_span, span) => {
                 let obj_ty = self.check_expr(*obj);
 
-                if let Type::Class(ref class_name) | Type::Enum(ref class_name) = obj_ty {
-                    if let Some(class_info) = self.classes.get(class_name) {
-                        let field_info = class_info
-                            .fields
-                            .get(&field)
-                            .or(class_info.static_fields.get(&field))
-                            .cloned();
-
-                        if let Some((field_ty, field_span, doc)) = field_info {
-                            if self.record_node_info {
-                                if let Some(d) = doc {
-                                    self.record_doc(name_span, d);
-                                }
-                                self.record_definition(
-                                    name_span,
-                                    self.current_file.clone(),
-                                    field_span,
-                                ); // Same file for simplicity now
-                                self.record_type(name_span, field_ty.clone());
-                                self.record_type(span, field_ty.clone());
-                            }
-                            field_ty
+                if let Type::Class(ref class_name) = obj_ty {
+                    let (field_info, class_defined_in, class_span) =
+                        if let Some(class_info) = self.classes.get(class_name) {
+                            (
+                                class_info.fields.get(&field).cloned(),
+                                Some(class_info.defined_in.clone()),
+                                Some(class_info.span),
+                            )
                         } else {
-                            if matches!(obj_ty, Type::Enum(_)) {
-                                // For enums, members are registered directly in the scope as Name.Member
-                                let fqn = format!("{}.{}", class_name, field);
-                                if let Some(sym) = self.scope.lookup(&fqn) {
-                                    if self.record_node_info {
-                                        let sym_ty = sym.ty.clone();
-                                        let sym_doc = sym.doc.clone();
-                                        let sym_defined_in = sym.defined_in.clone();
-                                        let sym_span = sym.span;
+                            (None, None, None)
+                        };
 
-                                        if let Some(d) = sym_doc {
-                                            self.record_doc(name_span, d);
-                                        }
-                                        self.record_definition(name_span, sym_defined_in, sym_span);
-                                        self.record_type(name_span, sym_ty.clone());
-                                        self.record_type(span, sym_ty.clone());
-                                        return sym_ty;
-                                    }
-                                    return sym.ty.clone();
-                                }
-                                self.error(
-                                    SemanticErrorKind::UndefinedField(class_name.clone(), field),
-                                    name_span,
-                                );
-                                return Type::Unknown;
-                            }
-                            self.error(
-                                SemanticErrorKind::UndefinedField(class_name.clone(), field),
+                    if let Some(finfo) = field_info {
+                        self.check_access(class_name, &field, finfo.access, name_span);
+
+                        if self.record_node_info {
+                            self.record_definition(
                                 name_span,
+                                class_defined_in.unwrap(),
+                                class_span.unwrap(),
                             );
-                            Type::Unknown
+                            self.record_type(name_span, finfo.ty.clone());
+                            self.record_type(span, finfo.ty.clone());
                         }
+                        return finfo.ty;
                     } else {
-                        if matches!(obj_ty, Type::Enum(_)) {
-                            // Enum itself is just a namespace for its members
-                            let fqn = format!("{}.{}", class_name, field);
-                            if let Some(sym) = self.scope.lookup(&fqn) {
-                                if self.record_node_info {
-                                    let sym_ty = sym.ty.clone();
-                                    let sym_doc = sym.doc.clone();
-                                    let sym_defined_in = sym.defined_in.clone();
-                                    let sym_span = sym.span;
-
-                                    if let Some(d) = sym_doc {
-                                        self.record_doc(name_span, d);
-                                    }
-                                    self.record_definition(name_span, sym_defined_in, sym_span);
-                                    self.record_type(name_span, sym_ty.clone());
-                                    self.record_type(span, sym_ty.clone());
-                                    return sym_ty;
-                                }
-                                return sym.ty.clone();
-                            }
+                        if class_defined_in.is_none() {
+                            self.error(SemanticErrorKind::UndefinedClass(class_name.clone()), span);
+                        } else {
                             self.error(
                                 SemanticErrorKind::UndefinedField(class_name.clone(), field),
                                 name_span,
                             );
-                        } else {
-                            self.error(SemanticErrorKind::UndefinedClass(class_name.clone()), span);
                         }
-                        Type::Unknown
+                        return Type::Unknown;
                     }
+                } else if let Type::Enum(ref enum_name) = obj_ty {
+                    // For enums, members are registered directly in the scope as Name.Member
+                    let fqn = format!("{}.{}", enum_name, field);
+                    if let Some(sym) = self.scope.lookup(&fqn) {
+                        if self.record_node_info {
+                            let sym_ty = sym.ty.clone();
+                            let sym_doc = sym.doc.clone();
+                            let sym_defined_in = sym.defined_in.clone();
+                            let sym_span = sym.span;
+
+                            if let Some(d) = sym_doc {
+                                self.record_doc(name_span, d);
+                            }
+                            self.record_definition(name_span, sym_defined_in, sym_span);
+                            self.record_type(name_span, sym_ty.clone());
+                            self.record_type(span, sym_ty.clone());
+                            return sym_ty;
+                        }
+                        return sym.ty.clone();
+                    }
+                    self.error(
+                        SemanticErrorKind::UndefinedField(enum_name.clone(), field),
+                        name_span,
+                    );
+                    Type::Unknown
                 } else {
                     self.error(SemanticErrorKind::NotAClass(format!("{:?}", obj_ty)), span);
                     Type::Unknown
                 }
             }
             Expr::MemberAssign(obj, field, value, name_span, span) => {
-                let obj_ty = self.check_expr(*obj);
+                let obj_ty = self.check_expr(*obj.clone());
                 let val_ty = self.check_expr(*value);
 
-                let field_info = if let Type::Class(ref class_name) = obj_ty {
-                    if let Some(class_info) = self.classes.get(class_name) {
-                        class_info.fields.get(&field).cloned()
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                };
-
-                if let Some((field_ty, field_span, doc)) = field_info {
-                    if !self.is_assignable(&val_ty, &field_ty) {
-                        self.error(
-                            SemanticErrorKind::TypeMismatch(
-                                format!("{:?}", field_ty),
-                                format!("{:?}", val_ty),
-                            ),
-                            span,
-                        );
-                    }
-                    if self.record_node_info {
-                        if let Some(d) = doc {
-                            self.record_doc(name_span, d);
-                        }
-                        self.record_definition(name_span, self.current_file.clone(), field_span);
-                        self.record_type(name_span, field_ty.clone());
-                        self.record_type(span, field_ty.clone());
-                    }
-                } else {
-                    if let Type::Class(class_name) = obj_ty {
-                        if self.classes.contains_key(&class_name) {
-                            self.error(
-                                SemanticErrorKind::UndefinedField(class_name, field),
-                                name_span,
-                            );
+                if let Type::Class(ref class_name) = obj_ty {
+                    let (field_info, class_defined_in, class_span) =
+                        if let Some(class_info) = self.classes.get(class_name) {
+                            (
+                                class_info.fields.get(&field).cloned(),
+                                Some(class_info.defined_in.clone()),
+                                Some(class_info.span),
+                            )
                         } else {
-                            self.error(SemanticErrorKind::UndefinedClass(class_name), span);
-                        }
-                    } else {
-                        self.error(SemanticErrorKind::NotAClass(format!("{:?}", obj_ty)), span);
-                    }
-                }
-                val_ty
-            }
-            Expr::MethodCall(obj, method, name_span, args, span) => {
-                let obj_ty = self.check_expr(*obj);
-                let mut arg_tys = Vec::new();
-                for arg in args {
-                    arg_tys.push(self.check_expr(arg));
-                }
+                            (None, None, None)
+                        };
 
-                if let Type::Class(class_name) = obj_ty {
-                    let method_info = if let Some(class_info) = self.classes.get(&class_name) {
-                        if let Some(m) = class_info.methods.get(&method) {
-                            Some(m.clone())
-                        } else {
-                            class_info.static_methods.get(&method).cloned()
-                        }
-                    } else {
-                        None
-                    };
+                    if let Some(finfo) = field_info {
+                        self.check_access(class_name, &field, finfo.access, name_span);
 
-                    if let Some((param_tys, ret_ty, doc, mspan)) = method_info {
-                        if self.record_node_info {
-                            if let Some(d) = doc {
-                                self.record_doc(name_span, d.clone());
+                        if finfo.is_readonly {
+                            let mut allowed = false;
+                            if let Expr::This(_) = *obj {
+                                if self.current_method.as_deref() == Some("constructor")
+                                    && self.current_class.as_ref() == Some(class_name)
+                                {
+                                    allowed = true;
+                                }
                             }
-                            self.record_definition(name_span, self.current_file.clone(), mspan);
-                            self.record_type(
-                                name_span,
-                                Type::Function(param_tys.clone(), Box::new(ret_ty.clone())),
-                            );
-                            self.record_type(span, ret_ty.clone());
-                        }
-
-                        if param_tys.len() != arg_tys.len() {
-                            self.error(
-                                SemanticErrorKind::WrongArgumentCount(
-                                    method,
-                                    param_tys.len(),
-                                    arg_tys.len(),
-                                ),
-                                span,
-                            );
-                            return ret_ty;
-                        }
-                        for (i, arg_ty) in arg_tys.iter().enumerate() {
-                            if !self.is_assignable(arg_ty, &param_tys[i]) {
+                            if !allowed {
                                 self.error(
-                                    SemanticErrorKind::TypeMismatch(
-                                        format!("{:?}", param_tys[i]),
-                                        format!("{:?}", arg_ty),
-                                    ),
+                                    SemanticErrorKind::ReadonlyViolation(field.clone()),
                                     span,
                                 );
                             }
                         }
-                        ret_ty
+
+                        if !self.is_assignable(&val_ty, &finfo.ty) {
+                            self.error(
+                                SemanticErrorKind::TypeMismatch(
+                                    finfo.ty.to_string(),
+                                    val_ty.to_string(),
+                                ),
+                                span,
+                            );
+                        }
+                        if self.record_node_info {
+                            self.record_definition(
+                                name_span,
+                                class_defined_in.unwrap(),
+                                class_span.unwrap(),
+                            );
+                            self.record_type(name_span, finfo.ty.clone());
+                            self.record_type(span, finfo.ty.clone());
+                        }
+                        return finfo.ty;
                     } else {
-                        self.error(SemanticErrorKind::UndefinedMethod(class_name, method), span);
-                        Type::Unknown
+                        if class_defined_in.is_none() {
+                            self.error(SemanticErrorKind::UndefinedClass(class_name.clone()), span);
+                        } else {
+                            self.error(
+                                SemanticErrorKind::UndefinedField(class_name.clone(), field),
+                                name_span,
+                            );
+                        }
+                        return Type::Unknown;
+                    }
+                } else {
+                    self.error(SemanticErrorKind::NotAClass(format!("{:?}", obj_ty)), span);
+                    Type::Unknown
+                }
+            }
+            Expr::MethodCall(obj, method, name_span, args, span) => {
+                let obj_ty = self.check_expr(*obj);
+                let mut arg_tys = Vec::new();
+                for arg in args.iter() {
+                    // Iterate over args to check their types
+                    arg_tys.push(self.check_expr(arg.clone()));
+                }
+
+                if let Type::Class(ref class_name) = obj_ty {
+                    let (method_info, class_defined_in, class_span) =
+                        if let Some(class_info) = self.classes.get(class_name) {
+                            (
+                                class_info.methods.get(&method).cloned(),
+                                Some(class_info.defined_in.clone()),
+                                Some(class_info.span),
+                            )
+                        } else {
+                            (None, None, None)
+                        };
+
+                    if let Some(minfo) = method_info {
+                        self.check_access(class_name, &method, minfo.access, name_span);
+
+                        if arg_tys.len() != minfo.params.len() {
+                            self.error(
+                                SemanticErrorKind::ArgumentCountMismatch(
+                                    minfo.params.len(),
+                                    arg_tys.len(),
+                                ),
+                                span,
+                            );
+                        } else {
+                            for (i, arg_ty) in arg_tys.iter().enumerate() {
+                                if !self.is_assignable(arg_ty, &minfo.params[i]) {
+                                    self.error(
+                                        SemanticErrorKind::TypeMismatch(
+                                            minfo.params[i].to_string(),
+                                            arg_ty.to_string(),
+                                        ),
+                                        args[i].span(),
+                                    );
+                                }
+                            }
+                        }
+
+                        if self.record_node_info {
+                            self.record_definition(
+                                name_span,
+                                class_defined_in.unwrap(),
+                                class_span.unwrap(),
+                            );
+                            self.record_type(
+                                name_span,
+                                Type::Function(
+                                    minfo.params.clone(),
+                                    Box::new(minfo.ret_ty.clone()),
+                                ),
+                            );
+                            self.record_type(span, minfo.ret_ty.clone());
+                        }
+                        return minfo.ret_ty;
+                    } else {
+                        if class_defined_in.is_none() {
+                            self.error(SemanticErrorKind::UndefinedClass(class_name.clone()), span);
+                        } else {
+                            self.error(
+                                SemanticErrorKind::UndefinedMethod(class_name.clone(), method),
+                                span,
+                            );
+                        }
+                        return Type::Unknown;
                     }
                 } else if obj_ty == Type::String {
                     let ret_ty = match method.as_str() {
@@ -559,5 +572,42 @@ impl SemanticAnalyzer {
             self.record_type(span, ty.clone());
         }
         ty
+    }
+
+    fn check_access(
+        &mut self,
+        class_name: &str,
+        member_name: &str,
+        access: AccessModifier,
+        span: Span,
+    ) {
+        match access {
+            AccessModifier::Public => {}
+            AccessModifier::Private => {
+                if self.current_class.as_deref() != Some(class_name) {
+                    self.error(
+                        SemanticErrorKind::AccessDenied(
+                            member_name.to_string(),
+                            class_name.to_string(),
+                            "private".to_string(),
+                        ),
+                        span,
+                    );
+                }
+            }
+            AccessModifier::Protected => {
+                // For now, treat as private until inheritance is checked
+                if self.current_class.as_deref() != Some(class_name) {
+                    self.error(
+                        SemanticErrorKind::AccessDenied(
+                            member_name.to_string(),
+                            class_name.to_string(),
+                            "protected".to_string(),
+                        ),
+                        span,
+                    );
+                }
+            }
+        }
     }
 }

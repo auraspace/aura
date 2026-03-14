@@ -107,8 +107,13 @@ pub(crate) fn format_statement_internal(f: &mut Formatter, stmt: &Statement, inc
             for field in fields {
                 f.format_doc(&field.doc);
                 f.indent();
+                f.result.push_str(field.access.as_str());
+                f.result.push(' ');
                 if field.is_static {
                     f.result.push_str("static ");
+                }
+                if field.is_readonly {
+                    f.result.push_str("readonly ");
                 }
                 f.result.push_str(&field.name);
                 f.result.push_str(": ");
@@ -126,7 +131,8 @@ pub(crate) fn format_statement_internal(f: &mut Formatter, stmt: &Statement, inc
                 }
                 f.format_doc(&ctor.doc);
                 f.indent();
-                f.result.push_str("constructor(");
+                f.result.push_str(ctor.access.as_str());
+                f.result.push_str(" constructor(");
                 for (i, (pname, pty)) in ctor.params.iter().enumerate() {
                     if i > 0 {
                         f.result.push_str(", ");
@@ -146,6 +152,8 @@ pub(crate) fn format_statement_internal(f: &mut Formatter, stmt: &Statement, inc
                 }
                 f.format_doc(&method.doc);
                 f.indent();
+                f.result.push_str(method.access.as_str());
+                f.result.push(' ');
                 if method.is_static {
                     f.result.push_str("static ");
                 }

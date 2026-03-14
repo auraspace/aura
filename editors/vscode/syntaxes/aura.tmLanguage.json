@@ -68,7 +68,11 @@
         },
         {
           "name": "keyword.declaration.aura",
-          "match": "\\b(class|constructor|interface|type|enum|abstract|override|static|readonly|protected|private)\\b"
+          "match": "\\b(class|constructor|interface|type|enum|abstract|override)\\b"
+        },
+        {
+          "name": "storage.modifier.aura",
+          "match": "\\b(static|readonly|public|protected|private)\\b"
         },
         {
           "name": "storage.type.aura",

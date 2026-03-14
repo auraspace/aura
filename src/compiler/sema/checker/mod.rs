@@ -1,4 +1,4 @@
-use crate::compiler::ast::{Program, Span, TypeExpr};
+use crate::compiler::ast::{AccessModifier, Program, Span, TypeExpr};
 use crate::compiler::frontend::error::{Diagnostic, DiagnosticList};
 use crate::compiler::sema::scope::Scope;
 use crate::compiler::sema::ty::Type;
@@ -8,12 +8,33 @@ pub mod decl;
 pub mod expr;
 pub mod stmt;
 
+#[derive(Debug, Clone)]
+pub struct FieldInfo {
+    pub ty: Type,
+    pub is_static: bool,
+    pub is_readonly: bool,
+    pub access: AccessModifier,
+    pub span: Span,
+    pub doc: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct MethodInfo {
+    pub params: Vec<Type>,
+    pub ret_ty: Type,
+    pub is_static: bool,
+    pub is_async: bool,
+    pub access: AccessModifier,
+    pub span: Span,
+    pub doc: Option<String>,
+}
+
+#[derive(Debug, Clone)]
 pub struct ClassInfo {
     pub name: String,
-    pub fields: HashMap<String, (Type, Span, Option<String>)>, // Type, Span, Doc
-    pub static_fields: HashMap<String, (Type, Span, Option<String>)>,
-    pub methods: HashMap<String, (Vec<Type>, Type, Option<String>, Span)>, // params, ret, doc, span
-    pub static_methods: HashMap<String, (Vec<Type>, Type, Option<String>, Span)>,
+    pub fields: HashMap<String, FieldInfo>,
+    pub methods: HashMap<String, MethodInfo>,
+    pub constructor: Option<(Vec<Type>, AccessModifier)>,
     pub is_exported: bool,
     pub defined_in: String,
     pub span: Span,
@@ -36,6 +57,10 @@ pub enum SemanticErrorKind {
     CannotAssignToConstant(String),
     UndefinedImport(String, String), // symbol, module
     ExportRequired(String),          // symbol
+    StaticMethodAsync(String),
+    AccessDenied(String, String, String), // member, class, required_access
+    ReadonlyViolation(String),
+    ArgumentCountMismatch(usize, usize), // expected, found
 }
 
 #[derive(Debug, Clone)]
@@ -48,6 +73,7 @@ pub struct SemanticAnalyzer {
     pub scope: Box<Scope>,
     pub classes: HashMap<String, ClassInfo>,
     pub current_class: Option<String>,
+    pub current_method: Option<String>,
     pub diagnostics: DiagnosticList,
     pub node_types: HashMap<String, HashMap<Span, Type>>,
     pub node_definitions: HashMap<String, HashMap<Span, (String, Span)>>,
@@ -65,6 +91,7 @@ impl SemanticAnalyzer {
             scope: Box::new(Scope::new(None)),
             classes: HashMap::new(),
             current_class: None,
+            current_method: None,
             diagnostics: DiagnosticList::new(),
             node_types: HashMap::new(),
             node_definitions: HashMap::new(),
@@ -77,50 +104,66 @@ impl SemanticAnalyzer {
         };
 
         // Register built-in Promise class
-        let mut static_methods = HashMap::new();
+        let mut promise_methods = HashMap::new();
+        let span = Span::new(0, 0);
+
         // Promise.all<T>(values: Array<Promise<T>>): Promise<Array<T>>
-        // For simplicity, we use Unknown for now as we don't have generics in methods yet
-        static_methods.insert(
+        promise_methods.insert(
             "all".to_string(),
-            (
-                vec![Type::Array(Box::new(Type::Unknown))],
-                Type::Generic(
+            MethodInfo {
+                params: vec![Type::Array(Box::new(Type::Unknown))],
+                ret_ty: Type::Generic(
                     "Promise".to_string(),
                     vec![Type::Array(Box::new(Type::Unknown))],
                 ),
-                Some("Waits for all promises to be resolved".to_string()),
-                Span::new(0, 0),
-            ),
+                is_static: true,
+                is_async: false,
+                access: AccessModifier::Public,
+                span,
+                doc: Some("Waits for all promises to be resolved".to_string()),
+            },
         );
-        static_methods.insert(
+
+        promise_methods.insert(
             "allSettled".to_string(),
-            (
-                vec![Type::Array(Box::new(Type::Unknown))],
-                Type::Generic(
+            MethodInfo {
+                params: vec![Type::Array(Box::new(Type::Unknown))],
+                ret_ty: Type::Generic(
                     "Promise".to_string(),
                     vec![Type::Array(Box::new(Type::Unknown))],
                 ),
-                Some("Waits for all promises to be settled".to_string()),
-                Span::new(0, 0),
-            ),
+                is_static: true,
+                is_async: false,
+                access: AccessModifier::Public,
+                span,
+                doc: Some("Waits for all promises to be settled".to_string()),
+            },
         );
-        static_methods.insert(
+
+        promise_methods.insert(
             "any".to_string(),
-            (
-                vec![Type::Array(Box::new(Type::Unknown))],
-                Type::Generic("Promise".to_string(), vec![Type::Unknown]),
-                Some("Waits for any promise to be resolved".to_string()),
-                Span::new(0, 0),
-            ),
+            MethodInfo {
+                params: vec![Type::Array(Box::new(Type::Unknown))],
+                ret_ty: Type::Generic("Promise".to_string(), vec![Type::Unknown]),
+                is_static: true,
+                is_async: false,
+                access: AccessModifier::Public,
+                span,
+                doc: Some("Waits for any promise to be resolved".to_string()),
+            },
         );
-        static_methods.insert(
+
+        promise_methods.insert(
             "race".to_string(),
-            (
-                vec![Type::Array(Box::new(Type::Unknown))],
-                Type::Generic("Promise".to_string(), vec![Type::Unknown]),
-                Some("Waits for the first promise to be settled".to_string()),
-                Span::new(0, 0),
-            ),
+            MethodInfo {
+                params: vec![Type::Array(Box::new(Type::Unknown))],
+                ret_ty: Type::Generic("Promise".to_string(), vec![Type::Unknown]),
+                is_static: true,
+                is_async: false,
+                access: AccessModifier::Public,
+                span,
+                doc: Some("Waits for the first promise to be settled".to_string()),
+            },
         );
 
         analyzer.classes.insert(
@@ -128,9 +171,8 @@ impl SemanticAnalyzer {
             ClassInfo {
                 name: "Promise".to_string(),
                 fields: HashMap::new(),
-                static_fields: HashMap::new(),
-                methods: HashMap::new(),
-                static_methods,
+                methods: promise_methods,
+                constructor: None,
                 is_exported: true,
                 defined_in: "".to_string(),
                 span: Span::new(0, 0),
@@ -267,6 +309,21 @@ impl SemanticAnalyzer {
             }
             SemanticErrorKind::ExportRequired(s) => {
                 format!("Symbol {} is not exported", s)
+            }
+            SemanticErrorKind::StaticMethodAsync(n) => {
+                format!("Static method '{}' cannot be async", n)
+            }
+            SemanticErrorKind::AccessDenied(member, class, req) => {
+                format!(
+                    "Access to {} member '{}' of class '{}' is denied",
+                    req, member, class
+                )
+            }
+            SemanticErrorKind::ReadonlyViolation(n) => {
+                format!("Cannot assign to readonly field '{}'", n)
+            }
+            SemanticErrorKind::ArgumentCountMismatch(e, f) => {
+                format!("Argument count mismatch: expected {}, found {}", e, f)
             }
         };
         self.diagnostics
@@ -510,19 +567,39 @@ impl SemanticAnalyzer {
                 let tgt_info = self.classes.get(tgt_name);
 
                 if let (Some(si), Some(ti)) = (src_info, tgt_info) {
-                    let mut all_match = true;
-                    for (name, (tgt_ty, _, _)) in &ti.fields {
-                        if let Some((src_ty, _, _)) = si.fields.get(name) {
-                            if !self.is_assignable_internal(src_ty, tgt_ty, history) {
-                                all_match = false;
-                                break;
+                    // Check fields
+                    for (fname, finfo) in &ti.fields {
+                        if let Some(src_finfo) = si.fields.get(fname) {
+                            if !self.is_assignable_internal(&src_finfo.ty, &finfo.ty, history) {
+                                return false;
                             }
                         } else {
-                            all_match = false;
-                            break;
+                            return false; // Target has a field that source doesn't
                         }
                     }
-                    all_match
+                    // Check methods
+                    for (mname, minfo) in &ti.methods {
+                        if let Some(src_minfo) = si.methods.get(mname) {
+                            if minfo.params.len() != src_minfo.params.len() {
+                                return false;
+                            }
+                            for (src_p, tgt_p) in src_minfo.params.iter().zip(minfo.params.iter()) {
+                                if !self.is_assignable_internal(src_p, tgt_p, history) {
+                                    return false;
+                                }
+                            }
+                            if !self.is_assignable_internal(
+                                &src_minfo.ret_ty,
+                                &minfo.ret_ty,
+                                history,
+                            ) {
+                                return false;
+                            }
+                        } else {
+                            return false; // Target has a method that source doesn't
+                        }
+                    }
+                    true
                 } else {
                     false
                 }

@@ -1,5 +1,5 @@
 use crate::compiler::ast::{
-    ClassMethod, DocComment, Expr, Field, ImportItem, Span, Statement, TypeExpr,
+    AccessModifier, ClassMethod, DocComment, Expr, Field, ImportItem, Span, Statement, TypeExpr,
 };
 use crate::compiler::frontend::error::Diagnostic;
 use crate::compiler::frontend::parser::Parser;
@@ -518,8 +518,28 @@ impl Parser {
         while self.peek().kind != TokenKind::CloseBrace && !self.is_at_end() {
             let member_doc = self.parse_doc_comments();
             let mut ms = self.span();
-            let mut is_static = false;
 
+            let mut access = AccessModifier::Public;
+            match self.peek().kind {
+                TokenKind::Public => {
+                    self.advance();
+                    access = AccessModifier::Public;
+                    ms = self.span();
+                }
+                TokenKind::Private => {
+                    self.advance();
+                    access = AccessModifier::Private;
+                    ms = self.span();
+                }
+                TokenKind::Protected => {
+                    self.advance();
+                    access = AccessModifier::Protected;
+                    ms = self.span();
+                }
+                _ => {}
+            }
+
+            let mut is_static = false;
             if self.peek().kind == TokenKind::Static {
                 self.advance();
                 is_static = true;
@@ -530,6 +550,13 @@ impl Parser {
             if self.peek().kind == TokenKind::Async {
                 self.advance();
                 is_async = true;
+                ms = self.span();
+            }
+
+            let mut is_readonly = false;
+            if self.peek().kind == TokenKind::Readonly {
+                self.advance();
+                is_readonly = true;
                 ms = self.span();
             }
 
@@ -562,6 +589,7 @@ impl Parser {
                         body,
                         is_static: false,
                         is_async: false,
+                        access,
                         span: ms,
                         doc: member_doc,
                     });
@@ -627,6 +655,7 @@ impl Parser {
                         body,
                         is_static,
                         is_async,
+                        access,
                         span: ms,
                         doc: member_doc,
                     });
@@ -668,6 +697,7 @@ impl Parser {
                             body,
                             is_static,
                             is_async,
+                            access,
                             span: ms,
                             doc: member_doc,
                         });
@@ -687,6 +717,8 @@ impl Parser {
                             ty: fty,
                             value,
                             is_static,
+                            is_readonly,
+                            access,
                             span: fs,
                             doc: member_doc,
                         });

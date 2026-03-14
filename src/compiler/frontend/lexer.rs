@@ -432,6 +432,10 @@ impl<'a> Lexer<'a> {
             "throw" => TokenKind::Throw,
             "finally" => TokenKind::Finally,
             "null" => TokenKind::Null,
+            "public" => TokenKind::Public,
+            "private" => TokenKind::Private,
+            "protected" => TokenKind::Protected,
+            "readonly" => TokenKind::Readonly,
             _ => TokenKind::Identifier(literal.to_string()),
         };
         Token::new(kind, line, column)

@@ -282,6 +282,7 @@ impl SemanticAnalyzer {
                 }
 
                 self.push_scope();
+                self.current_method = Some(name.clone());
                 for (pname, pty) in params {
                     let ty = self.resolve_type(pty.clone());
                     self.scope.insert(
@@ -296,6 +297,7 @@ impl SemanticAnalyzer {
                     );
                 }
                 self.check_statement(*body);
+                self.current_method = None;
                 self.pop_scope();
             }
             Statement::ClassDeclaration {
@@ -328,6 +330,7 @@ impl SemanticAnalyzer {
 
                 if let Some(ctor) = constructor {
                     self.push_scope();
+                    self.current_method = Some("constructor".to_string());
                     self.scope.insert(
                         "this".to_string(),
                         Type::Class(name.clone()),
@@ -352,21 +355,25 @@ impl SemanticAnalyzer {
                         );
                     }
                     self.check_statement(*ctor.body);
+                    self.current_method = None;
                     self.pop_scope();
                 }
 
                 for m in methods {
                     self.push_scope();
-                    self.scope.insert(
-                        "this".to_string(),
-                        Type::Class(name.clone()),
-                        false,
-                        true,  // this is constant
-                        false, // this is not exported
-                        m.span,
-                        self.current_file.clone(),
-                        None,
-                    );
+                    self.current_method = Some(m.name.clone());
+                    if !m.is_static {
+                        self.scope.insert(
+                            "this".to_string(),
+                            Type::Class(name.clone()),
+                            false,
+                            true,  // this is constant
+                            false, // this is not exported
+                            m.span,
+                            self.current_file.clone(),
+                            None,
+                        );
+                    }
                     for (pname, pty) in m.params {
                         let ty = self.resolve_type(pty.clone());
                         self.scope.insert(
@@ -381,6 +388,7 @@ impl SemanticAnalyzer {
                         );
                     }
                     self.check_statement(*m.body);
+                    self.current_method = None;
                     self.pop_scope();
                 }
                 self.current_class = None;

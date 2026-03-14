@@ -14,6 +14,29 @@ impl DocComment {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AccessModifier {
+    Public,
+    Private,
+    Protected,
+}
+
+impl AccessModifier {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            AccessModifier::Public => "public",
+            AccessModifier::Private => "private",
+            AccessModifier::Protected => "protected",
+        }
+    }
+}
+
+impl Default for AccessModifier {
+    fn default() -> Self {
+        AccessModifier::Public
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Span {
     pub line: usize,
@@ -114,6 +137,8 @@ pub struct Field {
     pub ty: TypeExpr,
     pub value: Option<Expr>,
     pub is_static: bool,
+    pub is_readonly: bool,
+    pub access: AccessModifier,
     pub span: Span,
     pub doc: Option<DocComment>,
 }
@@ -127,6 +152,7 @@ pub struct ClassMethod {
     pub body: Box<Statement>,
     pub is_static: bool,
     pub is_async: bool,
+    pub access: AccessModifier,
     pub span: Span,
     pub doc: Option<DocComment>,
 }

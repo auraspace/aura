@@ -19,7 +19,7 @@ impl SemanticAnalyzer {
                 name_span,
                 fields,
                 methods,
-                constructor: _,
+                constructor,
                 span,
                 doc,
             } = actual_stmt
@@ -31,35 +31,29 @@ impl SemanticAnalyzer {
                     );
                 }
                 let mut field_map = HashMap::new();
-                let mut static_field_map = HashMap::new();
                 for f in fields {
-                    if field_map.contains_key(&f.name) || static_field_map.contains_key(&f.name) {
+                    if field_map.contains_key(&f.name) {
                         self.error(
                             SemanticErrorKind::DuplicateDeclaration(f.name.clone()),
                             f.name_span,
                         );
                     }
                     let ty = self.resolve_type(f.ty.clone());
-                    if f.is_static {
-                        static_field_map.insert(
-                            f.name.clone(),
-                            (ty, f.name_span, f.doc.as_ref().map(|d| d.content())),
-                        );
-                    } else {
-                        field_map.insert(
-                            f.name.clone(),
-                            (ty, f.name_span, f.doc.as_ref().map(|d| d.content())),
-                        );
-                    }
+                    field_map.insert(
+                        f.name.clone(),
+                        crate::compiler::sema::checker::FieldInfo {
+                            ty,
+                            is_static: f.is_static,
+                            is_readonly: f.is_readonly,
+                            access: f.access,
+                            span: f.name_span,
+                            doc: f.doc.as_ref().map(|d| d.content()),
+                        },
+                    );
                 }
                 let mut method_map = HashMap::new();
-                let mut static_method_map = HashMap::new();
                 for m in methods {
-                    if method_map.contains_key(&m.name)
-                        || static_method_map.contains_key(&m.name)
-                        || field_map.contains_key(&m.name)
-                        || static_field_map.contains_key(&m.name)
-                    {
+                    if method_map.contains_key(&m.name) || field_map.contains_key(&m.name) {
                         self.error(
                             SemanticErrorKind::DuplicateDeclaration(m.name.clone()),
                             m.name_span,
@@ -71,36 +65,36 @@ impl SemanticAnalyzer {
                         .map(|(_, ty)| self.resolve_type(ty.clone()))
                         .collect();
                     let ret_ty = self.resolve_type(m.return_ty.clone());
-                    if m.is_static {
-                        static_method_map.insert(
-                            m.name.clone(),
-                            (
-                                param_tys,
-                                ret_ty,
-                                m.doc.as_ref().map(|d| d.content()),
-                                m.name_span,
-                            ),
-                        );
-                    } else {
-                        method_map.insert(
-                            m.name.clone(),
-                            (
-                                param_tys,
-                                ret_ty,
-                                m.doc.as_ref().map(|d| d.content()),
-                                m.name_span,
-                            ),
-                        );
-                    }
+                    method_map.insert(
+                        m.name.clone(),
+                        crate::compiler::sema::checker::MethodInfo {
+                            params: param_tys,
+                            ret_ty,
+                            is_static: m.is_static,
+                            is_async: m.is_async,
+                            access: m.access,
+                            span: m.name_span,
+                            doc: m.doc.as_ref().map(|d| d.content()),
+                        },
+                    );
                 }
+
+                let ctor_info = constructor.as_ref().map(|c| {
+                    let param_tys = c
+                        .params
+                        .iter()
+                        .map(|(_, ty)| self.resolve_type(ty.clone()))
+                        .collect();
+                    (param_tys, c.access)
+                });
+
                 self.classes.insert(
                     name.clone(),
                     ClassInfo {
                         name: name.clone(),
                         fields: field_map,
-                        static_fields: static_field_map,
                         methods: method_map,
-                        static_methods: static_method_map,
+                        constructor: ctor_info,
                         is_exported,
                         defined_in: self.current_file.clone(),
                         span: *span,
