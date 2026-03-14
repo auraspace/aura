@@ -1,7 +1,7 @@
-use crate::compiler::ast::Expr;
-use crate::compiler::ir::instr::{Operand};
-use crate::compiler::sema::ty::Type;
 use super::Lowerer;
+use crate::compiler::ast::Expr;
+use crate::compiler::ir::instr::Operand;
+use crate::compiler::sema::ty::Type;
 
 impl Lowerer {
     pub fn lower_expr(&mut self, expr: Expr) -> Operand {
