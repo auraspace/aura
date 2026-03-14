@@ -5,7 +5,7 @@ pub mod net;
 pub mod string;
 
 use crate::compiler::ast::Span;
-use crate::compiler::interp::value::Value;
+use crate::compiler::interp::Value;
 use crate::compiler::sema::checker::SemanticAnalyzer;
 use crate::compiler::sema::ty::Type;
 
