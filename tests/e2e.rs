@@ -234,5 +234,3 @@ e2e_test!(std_http_client, "08_stdlib/05_http_client.aura");
 e2e_test!(std_http_server, "08_stdlib/06_http_server.aura");
 e2e_test!(std_http_types, "08_stdlib/07_http_types.aura");
 e2e_test!(std_date, "08_stdlib/08_date.aura");
-e2e_test!(std_timer, "08_stdlib/09_timer.aura");
-e2e_test!(std_interval, "08_stdlib/10_interval.aura");

@@ -5,7 +5,7 @@ use crate::compiler::sema::ty::Type;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use value::Value;
 
 #[derive(Debug, Clone)]
@@ -61,21 +61,9 @@ pub struct Interpreter {
     // Static fields: class_name -> fields
     pub static_fields: HashMap<String, Rc<RefCell<HashMap<String, Value>>>>,
     pub pending_exception: Option<Value>,
-    // Timer support
-    pub timers: HashMap<i32, Timer>,
-    pub next_timer_id: i32,
     pub env_stack: Vec<Rc<RefCell<HashMap<String, Value>>>>,
-    pub cleared_timers: HashSet<i32>,
     pub stdlib_path: Option<String>,
     pub loaded_files: HashSet<String>,
-}
-
-pub struct Timer {
-    pub id: i32,
-    pub callback: Value,
-    pub delay: Duration,
-    pub next_run: Instant,
-    pub interval: bool,
 }
 
 impl Interpreter {
@@ -85,10 +73,7 @@ impl Interpreter {
             classes: HashMap::new(),
             static_fields: HashMap::new(),
             pending_exception: None,
-            timers: HashMap::new(),
-            next_timer_id: 1,
             env_stack: vec![Rc::new(RefCell::new(HashMap::new()))],
-            cleared_timers: HashSet::new(),
             stdlib_path: None,
             loaded_files: HashSet::new(),
         };
@@ -118,43 +103,6 @@ impl Interpreter {
             if let Some(main_val) = self.env.lookup("main") {
                 if matches!(main_val, Value::Function { .. } | Value::NativeFunction(_)) {
                     self.call_value(&main_val, vec![]);
-                }
-            }
-        }
-
-        // Event loop for timers
-        while !self.timers.is_empty() {
-            let now = Instant::now();
-            let mut to_run = Vec::new();
-
-            // Find timers that are ready
-            for (id, timer) in &self.timers {
-                if now >= timer.next_run {
-                    to_run.push(*id);
-                }
-            }
-
-            if to_run.is_empty() {
-                // Sleep until the next timer is ready
-                if let Some(min_next) = self.timers.values().map(|t| t.next_run).min() {
-                    let sleep_dur = min_next.duration_since(now);
-                    std::thread::sleep(sleep_dur);
-                }
-                continue;
-            }
-
-            for id in to_run {
-                if let Some(mut timer) = self.timers.remove(&id) {
-                    self.cleared_timers.remove(&id); // Reset for this run
-                                                     // Execute callback
-                    self.call_value(&timer.callback.clone(), vec![]);
-
-                    // Only re-insert if it wasn't cleared during execution
-                    if timer.interval && !self.cleared_timers.contains(&id) {
-                        timer.next_run = Instant::now() + timer.delay;
-                        self.timers.insert(id, timer);
-                    }
-                    self.cleared_timers.remove(&id); // Clean up
                 }
             }
         }
@@ -670,43 +618,6 @@ impl Interpreter {
                         Value::Void
                     }
                 } else if let Value::NativeFunction(f) = func {
-                    // Intercept timer intrinsics
-                    match name.as_str() {
-                        "__timer_set_timeout" | "__timer_set_interval" => {
-                            let mut arg_vals = Vec::new();
-                            for a in args {
-                                arg_vals.push(self.eval_expr(a));
-                            }
-                            let callback = arg_vals.get(0).cloned().unwrap_or(Value::Null);
-                            let delay_ms = match arg_vals.get(1) {
-                                Some(Value::Int(n)) => *n as u64,
-                                _ => 0,
-                            };
-                            let id = self.next_timer_id;
-                            self.next_timer_id += 1;
-                            let timer = Timer {
-                                id,
-                                callback,
-                                delay: Duration::from_millis(delay_ms),
-                                next_run: Instant::now() + Duration::from_millis(delay_ms),
-                                interval: name == "__timer_set_interval",
-                            };
-                            self.timers.insert(id, timer);
-                            return Value::Int(id);
-                        }
-                        "__timer_clear" => {
-                            let mut arg_vals = Vec::new();
-                            for a in args {
-                                arg_vals.push(self.eval_expr(a));
-                            }
-                            if let Some(Value::Int(id)) = arg_vals.get(0) {
-                                self.timers.remove(id);
-                                self.cleared_timers.insert(*id);
-                            }
-                            return Value::Void;
-                        }
-                        _ => {}
-                    }
                     let mut arg_vals = Vec::new();
                     for a in args {
                         arg_vals.push(self.eval_expr(a));

@@ -3,7 +3,6 @@ pub mod date;
 pub mod fs;
 pub mod net;
 pub mod string;
-pub mod timer;
 
 use crate::compiler::ast::Span;
 use crate::compiler::interp::value::Value;
@@ -16,7 +15,6 @@ pub fn register_interpreter_intrinsics(interp_env: &mut dyn FnMut(String, Value)
     array::register_array_intrinsics(interp_env);
     net::register_net_intrinsics(interp_env);
     date::register_date_intrinsics(interp_env);
-    timer::register_timer_intrinsics(interp_env);
 
     // Register common constants (macOS values for now)
     let constants = vec![
@@ -179,48 +177,6 @@ pub fn register_analyzer_intrinsics(sema_analyzer: &mut SemanticAnalyzer) {
         Span::new(0, 0),
         "".to_string(),
         Some("Parse a date string into a timestamp".to_string()),
-    );
-
-    // __timer_set_timeout(callback: function, delay: i32) -> i32
-    sema_analyzer.scope.insert(
-        "__timer_set_timeout".to_string(),
-        Type::Function(
-            vec![Type::Function(vec![], Box::new(Type::Void)), Type::Int32],
-            Box::new(Type::Int32),
-        ),
-        false,
-        true,
-        true, // is_exported
-        Span::new(0, 0),
-        "".to_string(),
-        Some("Set a timeout".to_string()),
-    );
-
-    // __timer_set_interval(callback: function, delay: i32) -> i32
-    sema_analyzer.scope.insert(
-        "__timer_set_interval".to_string(),
-        Type::Function(
-            vec![Type::Function(vec![], Box::new(Type::Void)), Type::Int32],
-            Box::new(Type::Int32),
-        ),
-        false,
-        true,
-        true, // is_exported
-        Span::new(0, 0),
-        "".to_string(),
-        Some("Set an interval".to_string()),
-    );
-
-    // __timer_clear(id: i32) -> void
-    sema_analyzer.scope.insert(
-        "__timer_clear".to_string(),
-        Type::Function(vec![Type::Int32], Box::new(Type::Void)),
-        false,
-        true,
-        true, // is_exported
-        Span::new(0, 0),
-        "".to_string(),
-        Some("Clear a timer".to_string()),
     );
 
     // Register common constants
