@@ -4,6 +4,13 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
+#[derive(Debug, Clone)]
+pub enum StatementResult {
+    None,
+    Return(Value),
+    Throw(Value),
+}
+
 pub enum Value {
     Int(i32),
     Int64(i64),
@@ -86,6 +93,45 @@ impl Value {
             Value::Boolean(b) => *b,
             Value::Null => false,
             _ => true,
+        }
+    }
+}
+
+pub struct Environment {
+    pub symbols: Rc<RefCell<HashMap<String, Value>>>,
+    pub parent: Option<Box<Environment>>,
+}
+
+impl Environment {
+    pub fn new(parent: Option<Box<Environment>>) -> Self {
+        Self {
+            symbols: Rc::new(RefCell::new(HashMap::new())),
+            parent,
+        }
+    }
+
+    pub fn insert(&mut self, name: String, val: Value) {
+        self.symbols.borrow_mut().insert(name, val);
+    }
+
+    pub fn lookup(&self, name: &str) -> Option<Value> {
+        if let Some(val) = self.symbols.borrow().get(name) {
+            Some(val.clone())
+        } else if let Some(ref parent) = self.parent {
+            parent.lookup(name)
+        } else {
+            None
+        }
+    }
+
+    pub fn assign(&mut self, name: &str, val: Value) -> bool {
+        if self.symbols.borrow().contains_key(name) {
+            self.symbols.borrow_mut().insert(name.to_string(), val);
+            true
+        } else if let Some(ref mut parent) = self.parent {
+            parent.assign(name, val)
+        } else {
+            false
         }
     }
 }

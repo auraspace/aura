@@ -1,4 +1,4 @@
-use crate::compiler::interp::value::Value;
+use crate::compiler::interp::Value;
 use std::rc::Rc;
 
 pub fn register_string_intrinsics(register: &mut dyn FnMut(String, Value)) {
