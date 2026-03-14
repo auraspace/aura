@@ -188,9 +188,10 @@ impl Codegen {
         // Emit string constants
         for (value, label) in &self.string_constants {
             self.emitter.output.push_str(&format!("{}:\n", label));
-            self.emitter
-                .output
-                .push_str(&format!("    .asciz \"{}\"\n", value.replace("\"", "\\\"")));
+            self.emitter.output.push_str(&format!(
+                "    .asciz \"{}\"\n",
+                value.replace("\\", "\\\\").replace("\"", "\\\"")
+            ));
         }
 
         self.emitter.finalize()
