@@ -2,6 +2,56 @@
 
 ### 🚀 Features
 
+- Introduce pre-commit hooks for Rust formatting and clippy, and add a comment clarifying a known error in `core.aura`.
+- Remove timer intrinsic functions, interpreter event loop, and associated stdlib and tests.
+- Add new binaries for various language constructs and fix AArch64 string literal escaping.
+- Add GitHub issue handling skill documentation detailing steps from information gathering to PR creation.
+- Implement access modifiers (public, private, protected) and readonly properties for class members.
+- Implement inheritance and virtual method dispatch, including `super` calls and vtable generation.
+- Implement interfaces across the compiler pipeline, including lexing, parsing, semantic analysis, and IR lowering.
+- Add support for `implements`, `extends`, and `override` keywords with corresponding formatter and syntax highlighting updates.
+
+### 🐛 Bug Fixes
+
+- Add missing expected output to 06_http_server.aura and remove unused import (#10)
+- Bump missing version to 0.2.8.
+
+### 💼 Other
+
+- Split checker.rs into smaller modules
+- Modularize LSP server handlers (formatted)
+- Split formatter.rs into smaller modules. Closes #20
+- Split parser.rs into smaller modules (#16)
+
+### 🚜 Refactor
+
+- Reorder `use` statements in `lsp/server.rs`.
+- Reorganize e2e tests into categorized groups and update their file paths.
+- Split interpreter into env and eval modules
+- Split codegen.rs into a module and dedicated emit_expr/emit_stmt files
+
+### 📚 Documentation
+
+- Add documentation for union types, JSON handling design, and OOP concepts, and update existing syntax documentation.
+- Remove documentation for Aura union types
+
+### ◀️ Revert
+
+- Rollback to 43f268a296f026057561efde84c301df00cdeccf
+## [0.2.8] - 2026-03-14
+
+### 🐛 Bug Fixes
+
+- Prevent redundant file processing and refine duplicate declaration checks. (#5)
+
+### ⚙️ Miscellaneous Tasks
+
+- Update changelog
+- Release aura version 0.2.8
+## [0.2.7] - 2026-03-13
+
+### 🚀 Features
+
 - Implement esbuild for extension bundling and enhance activation logging with detailed context and error information.
 - Register intrinsic functions with the semantic analyzer in LSP handlers for opened and changed documents.
 - Implement network host resolution and update `print` statement syntax.
@@ -14,6 +64,8 @@
 ### ⚙️ Miscellaneous Tasks
 
 - Add path filtering to the pull request CI workflow trigger.
+- Update changelog
+- Release aura version 0.2.7
 ## [0.2.6] - 2026-03-13
 
 ### 🚀 Features
