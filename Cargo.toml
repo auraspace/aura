@@ -2,6 +2,8 @@
 tag-name = "v{{version}}"
 push = true
 publish = false
+commit-message = "chore(release): v{{version}}"
+pre-release-hook = ["git", "cliff", "-o", "CHANGELOG.md"]
 
 [package]
 name = "aura"
