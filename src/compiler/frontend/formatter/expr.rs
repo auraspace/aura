@@ -119,6 +119,17 @@ pub(crate) fn format_expr(f: &mut Formatter, expr: &Expr) {
             f.result.push(']');
         }
         Expr::Null(_) => f.result.push_str("null"),
+        Expr::Super(_) => f.result.push_str("super"),
+        Expr::SuperCall(args, _) => {
+            f.result.push_str("super(");
+            for (i, arg) in args.iter().enumerate() {
+                if i > 0 {
+                    f.result.push_str(", ");
+                }
+                format_expr(f, arg);
+            }
+            f.result.push(')');
+        }
         Expr::Error(_) => f.result.push_str("/* ERROR */"),
     }
 }

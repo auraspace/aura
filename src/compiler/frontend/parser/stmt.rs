@@ -510,6 +510,22 @@ impl Parser {
             return Err(());
         };
 
+        let mut extends = None;
+        if self.peek().kind == TokenKind::Extends {
+            self.advance();
+            if let TokenKind::Identifier(base_name) = self.peek().kind.clone() {
+                self.advance();
+                extends = Some(base_name);
+            } else {
+                let token = self.peek();
+                self.diagnostics.push(Diagnostic::error(
+                    "Expected base class name after extends keyword".to_string(),
+                    token.line,
+                    token.column,
+                ));
+            }
+        }
+
         self.consume(TokenKind::OpenBrace)?;
         let mut fields = Vec::new();
         let mut methods = Vec::new();
@@ -560,6 +576,13 @@ impl Parser {
                 ms = self.span();
             }
 
+            let mut is_override = false;
+            if self.peek().kind == TokenKind::Override {
+                self.advance();
+                is_override = true;
+                ms = self.span();
+            }
+
             let kind = self.peek().kind.clone();
             match kind {
                 TokenKind::Constructor => {
@@ -589,6 +612,7 @@ impl Parser {
                         body,
                         is_static: false,
                         is_async: false,
+                        is_override: false,
                         access,
                         span: ms,
                         doc: member_doc,
@@ -655,6 +679,7 @@ impl Parser {
                         body,
                         is_static,
                         is_async,
+                        is_override,
                         access,
                         span: ms,
                         doc: member_doc,
@@ -697,6 +722,7 @@ impl Parser {
                             body,
                             is_static,
                             is_async,
+                            is_override,
                             access,
                             span: ms,
                             doc: member_doc,
@@ -744,6 +770,7 @@ impl Parser {
         Ok(Statement::ClassDeclaration {
             name,
             name_span,
+            extends,
             fields,
             methods,
             constructor,

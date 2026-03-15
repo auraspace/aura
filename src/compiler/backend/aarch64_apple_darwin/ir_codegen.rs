@@ -38,6 +38,23 @@ impl IrCodegen {
             self.emitter.output.push_str(".text\n");
         }
 
+        // Emit VTables
+        if !module.vtables.is_empty() {
+            self.emitter.output.push_str(".data\n");
+            self.emitter.output.push_str(".align 3\n");
+            for (class, methods) in &module.vtables {
+                self.emitter
+                    .output
+                    .push_str(&format!("vtable_{}:\n", class));
+                for method in methods {
+                    self.emitter
+                        .output
+                        .push_str(&format!("    .quad _{}\n", method));
+                }
+            }
+            self.emitter.output.push_str(".text\n");
+        }
+
         self.emitter.emit_header();
 
         // Call main_aura if it exists
@@ -188,6 +205,40 @@ impl IrCodegen {
                 self.emitter.call(&format!("_{}", name));
                 self.store_reg(dest, Register::X0);
             }
+            Instruction::CallVirtual(dest, obj, idx, args) => {
+                // obj is the receiver object
+                // VTable pointer is at offset 0
+                self.load_operand(Register::X0, obj);
+                // Load VTable pointer: x16 = [x0]
+                self.emitter.output.push_str("    ldr x16, [x0]\n");
+                // Load function pointer: x16 = [x16, idx * 8]
+                self.emitter
+                    .output
+                    .push_str(&format!("    ldr x16, [x16, #{}]\n", idx * 8));
+
+                // Prepare arguments (x0-x7)
+                // Receiver must be in x0 (already there)
+                for (i, arg) in args.iter().enumerate() {
+                    if i < 8 {
+                        self.load_operand(Register::from_u8(i as u8), arg.clone());
+                    }
+                }
+
+                // Call function pointer
+                self.emitter.output.push_str("    blr x16\n");
+                self.store_reg(dest, Register::X0);
+            }
+            Instruction::SetVTable(obj, class_name) => {
+                self.load_operand(Register::X16, obj);
+                self.emitter
+                    .output
+                    .push_str(&format!("    adrp x17, vtable_{}@PAGE\n", class_name));
+                self.emitter.output.push_str(&format!(
+                    "    add x17, x17, vtable_{}@PAGEOFF\n",
+                    class_name
+                ));
+                self.emitter.output.push_str("    str x17, [x16]\n");
+            }
             Instruction::Alloc(dest, size) => {
                 // Call aura_alloc(size)
                 self.emitter.mov_imm(Register::X0, size as i64);
@@ -228,6 +279,18 @@ impl IrCodegen {
                 self.emitter
                     .output
                     .push_str(&format!("    b L_{}_{}\n", func_name, else_label));
+            }
+            Instruction::Move(dest, src) => {
+                self.load_operand(Register::X16, src);
+                self.store_reg(dest, Register::X16);
+            }
+            Instruction::StackAlloc(dest, size) => {
+                self.stack_offset += size as usize;
+                let data_offset = self.stack_offset;
+                self.emitter
+                    .output
+                    .push_str(&format!("    sub x16, x29, #{}\n", data_offset));
+                self.store_reg(dest, Register::X16);
             }
         }
     }
@@ -280,6 +343,7 @@ mod tests {
         let mut codegen = IrCodegen::new();
         let module = IrModule {
             globals: vec![],
+            vtables: HashMap::new(),
             functions: vec![IrFunction {
                 name: "test_func".to_string(),
                 params: vec![],

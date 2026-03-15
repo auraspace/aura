@@ -120,6 +120,11 @@ impl Lowerer {
                     "aura_alloc".to_string(),
                     vec![Operand::Constant(size as i64)],
                 );
+                self.builder
+                    .emit(crate::compiler::ir::instr::Instruction::SetVTable(
+                        obj_reg.clone(),
+                        class_name.clone(),
+                    ));
 
                 // Call constructor if exists
                 let ctor_name = format!("{}_ctor", class_name);
@@ -195,15 +200,46 @@ impl Lowerer {
                 }
             }
             Expr::MethodCall(obj, method, _, args, _) => {
-                let obj_op = self.lower_expr(*obj);
+                let obj_op = self.lower_expr(*obj.clone());
                 let obj_ty = self.last_expr_ty.clone();
+
+                if let Expr::Super(_) = *obj {
+                    // super.method(...) is a static call to parent's method
+                    if let Some(cls_name) = &self.current_class {
+                        if let Some(parent) = self.parent_classes.get(cls_name) {
+                            let mangled_name = format!("{}_{}", parent, method);
+                            let mut ir_args = vec![obj_op]; // obj_op is 'this' for super
+                            ir_args.extend(args.into_iter().map(|a| self.lower_expr(a)));
+                            // TODO: Lookup correct return type
+                            self.last_expr_ty = Type::Unknown;
+                            return self.builder.call(mangled_name, ir_args);
+                        }
+                    }
+                }
+
                 let mut is_static = false;
+                let mut vtable_idx = None;
+                let mut return_ty = Type::Unknown;
+
                 let mangled_name = if let Type::Class(cls_name) = obj_ty {
                     if let Some(statics) = self.static_methods.get(&cls_name) {
                         if statics.contains(&method) {
                             is_static = true;
                         }
                     }
+                    if !is_static {
+                        if let Some(layout) = self.class_layouts.get(&cls_name) {
+                            vtable_idx = layout.vtable_index.get(&method).cloned();
+                        }
+                    }
+
+                    // Try to find return type
+                    if let Some((_, r_ty)) =
+                        self.function_tys.get(&format!("{}_{}", cls_name, method))
+                    {
+                        return_ty = r_ty.clone();
+                    }
+
                     format!("{}_{}", cls_name, method)
                 } else {
                     method
@@ -211,11 +247,67 @@ impl Lowerer {
 
                 let mut ir_args = Vec::new();
                 if !is_static {
-                    ir_args.push(obj_op);
+                    ir_args.push(obj_op.clone());
                 }
                 ir_args.extend(args.into_iter().map(|a| self.lower_expr(a)));
-                self.last_expr_ty = Type::Unknown; // TODO: Lookup method return type
-                self.builder.call(mangled_name, ir_args)
+                self.last_expr_ty = return_ty;
+
+                if let Some(idx) = vtable_idx {
+                    self.builder.call_virtual(obj_op, idx, ir_args)
+                } else {
+                    self.builder.call(mangled_name, ir_args)
+                }
+            }
+            Expr::Super(_) => {
+                // super as a value is just 'this' cast to parent type
+                let (ptr_reg, _, _) = self
+                    .mem_vars
+                    .get("this")
+                    .cloned()
+                    .expect("this not in scope");
+                self.last_expr_ty = self
+                    .current_class
+                    .as_ref()
+                    .and_then(|c| self.parent_classes.get(c))
+                    .map(|p| Type::Class(p.clone()))
+                    .unwrap_or(Type::Unknown);
+                let dest = self.builder.new_reg();
+                self.builder
+                    .emit(crate::compiler::ir::instr::Instruction::Load(
+                        dest,
+                        Operand::Value(ptr_reg),
+                        0,
+                    ));
+                Operand::Value(dest)
+            }
+            Expr::SuperCall(args, _) => {
+                // super(...) in constructor
+                let (ptr_reg, _, _) = self
+                    .mem_vars
+                    .get("this")
+                    .cloned()
+                    .expect("this not in scope");
+                let this_op = {
+                    let dest = self.builder.new_reg();
+                    self.builder
+                        .emit(crate::compiler::ir::instr::Instruction::Load(
+                            dest,
+                            Operand::Value(ptr_reg),
+                            0,
+                        ));
+                    Operand::Value(dest)
+                };
+
+                if let Some(cls_name) = &self.current_class {
+                    if let Some(parent) = self.parent_classes.get(cls_name) {
+                        let ctor_name = format!("{}_ctor", parent);
+                        let mut ir_args = vec![this_op];
+                        ir_args.extend(args.into_iter().map(|a| self.lower_expr(a)));
+                        self.builder.call(ctor_name, ir_args);
+                    }
+                }
+                self.last_expr_ty = Type::Void;
+                Operand::Constant(0)
             }
             Expr::UnaryOp(op, expr, _) => {
                 let val = self.lower_expr(*expr);

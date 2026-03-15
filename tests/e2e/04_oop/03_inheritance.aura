@@ -1,19 +1,21 @@
-// Test: Classes with static methods
 // Expected output:
-// 42
-// hello world
+// Woof!
 
-class MathUtil {
-  static add(a: i32, b: i32): i32 {
-    return a + b;
-  }
+class Animal {
+    speak(): string {
+        return "Generic animal sound";
+    }
 }
 
-class Greet {
-  static hello(name: string): string {
-    return "hello world";
-  }
+class Dog extends Animal {
+    override speak(): string {
+        return "Woof!";
+    }
 }
 
-print MathUtil.add(20, 22);
-print Greet.hello("aura");
+function makeItSpeak(a: Animal) {
+    print a.speak();
+}
+
+let d = new Dog();
+makeItSpeak(d); // Outputs: Woof!

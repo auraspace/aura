@@ -30,6 +30,9 @@ pub enum TokenKind {
     Catch,
     Throw,
     Finally,
+    Extends,
+    Super,
+    Override,
     Null,
 
     // Identifiers & Literals

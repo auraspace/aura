@@ -169,6 +169,29 @@ impl Optimizer {
                                 off,
                             ));
                         }
+                        Instruction::CallVirtual(dest, obj, idx, args) => {
+                            let new_obj = self.resolve_operand(&obj, &constants);
+                            let new_args = args
+                                .into_iter()
+                                .map(|a| self.resolve_operand(&a, &constants))
+                                .collect();
+                            new_instrs.push(Instruction::CallVirtual(dest, new_obj, idx, new_args));
+                        }
+                        Instruction::SetVTable(obj, class) => {
+                            new_instrs.push(Instruction::SetVTable(
+                                self.resolve_operand(&obj, &constants),
+                                class,
+                            ));
+                        }
+                        Instruction::Move(dest, src) => {
+                            new_instrs.push(Instruction::Move(
+                                dest,
+                                self.resolve_operand(&src, &constants),
+                            ));
+                        }
+                        Instruction::StackAlloc(dest, size) => {
+                            new_instrs.push(Instruction::StackAlloc(dest, size));
+                        }
                     }
                 }
                 block.instructions = new_instrs;

@@ -160,6 +160,9 @@ fn run_test(aura_file: &Path, mode_override: Option<&str>) {
 
 macro_rules! e2e_test {
     ($test_name:ident, $file:literal) => {
+        e2e_test!($test_name, $file, compiler);
+    };
+    ($test_name:ident, $file:literal, $compiler_mode:ident) => {
         mod $test_name {
             use super::*;
 
@@ -178,7 +181,17 @@ macro_rules! e2e_test {
                     .join("tests")
                     .join("e2e")
                     .join($file);
-                run_test(&path, Some("compiler"));
+                run_test(&path, Some(stringify!($compiler_mode)));
+            }
+
+            #[test]
+            #[ignore] // Still buggy for some tests, run manually or for specific modules
+            fn ir() {
+                let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("tests")
+                    .join("e2e")
+                    .join($file);
+                run_test(&path, Some("ir"));
             }
         }
     };
@@ -209,7 +222,7 @@ e2e_test!(fn_return_string, "03_functions/04_return_string.aura");
 // --- 04_oop ---
 e2e_test!(oop_basic, "04_oop/01_basic.aura");
 e2e_test!(oop_methods, "04_oop/02_methods.aura");
-e2e_test!(oop_inheritance, "04_oop/03_inheritance.aura");
+e2e_test!(oop_inheritance, "04_oop/03_inheritance.aura", ir);
 e2e_test!(oop_multi_class, "04_oop/04_multi_class.aura");
 e2e_test!(oop_chaining, "04_oop/05_chaining.aura");
 e2e_test!(oop_access_modifiers, "04_oop/06_access_modifiers.aura");

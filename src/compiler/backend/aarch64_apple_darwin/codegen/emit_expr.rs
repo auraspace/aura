@@ -615,6 +615,16 @@ impl Codegen {
                 self.emitter.pop(AsmRegister::X0);
                 self.emitter.call("_aura_array_get");
             }
+            Expr::Super(_) => {
+                let (offset, _) = self
+                    .variables
+                    .get("this")
+                    .expect("'super' used outside of method");
+                self.load_local("x0", *offset);
+            }
+            Expr::SuperCall(_, _) => {
+                // Not fully supported in AST-based codegen, but needs to be exhaustive
+            }
             Expr::Error(_) => panic!("Compiler bug: reaching error node in codegen"),
         }
     }

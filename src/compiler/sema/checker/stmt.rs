@@ -306,6 +306,7 @@ impl SemanticAnalyzer {
                 fields,
                 methods,
                 constructor,
+                extends: _,
                 span: _,
                 doc: _,
             } => {
