@@ -49,7 +49,12 @@ impl Lowerer {
                     8
                 };
 
-                let val_op = self.lower_expr(value);
+                let mut val_op = self.lower_expr(value);
+                if let Some(target_ty) = &sem_ty {
+                    if target_ty.is_float() && self.last_expr_ty.is_integer() {
+                        val_op = self.builder.itof(val_op);
+                    }
+                }
                 let ptr_reg = self.builder.new_reg();
                 self.builder
                     .emit(crate::compiler::ir::instr::Instruction::Alloc(
@@ -87,8 +92,13 @@ impl Lowerer {
             }
             Statement::Print(expr, _) => {
                 let val = self.lower_expr(expr);
-                if self.last_expr_ty == Type::String {
+                let ty = self.last_expr_ty.clone();
+                if ty.is_float() {
+                    self.builder.fcall("print_float".to_string(), vec![val]);
+                } else if ty == Type::String {
                     self.builder.call("print_str".to_string(), vec![val]);
+                } else if ty == Type::Boolean {
+                    self.builder.call("print_bool".to_string(), vec![val]);
                 } else {
                     self.builder.call("print_num".to_string(), vec![val]);
                 }

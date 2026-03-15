@@ -641,6 +641,8 @@ impl SemanticAnalyzer {
                 .all(|opt| self.is_assignable_internal(opt, t, history)),
 
             (Type::Int32, Type::Int64) => true,
+            (Type::Int32 | Type::Int64, Type::Float32 | Type::Float64) => true,
+            (Type::Float32, Type::Float64) => true,
 
             // Array types
             (Type::Array(s), Type::Array(t)) => self.is_assignable_internal(s, t, history),

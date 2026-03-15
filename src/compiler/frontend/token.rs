@@ -42,6 +42,7 @@ pub enum TokenKind {
     Identifier(String),
     StringLiteral(String),
     Number(i64),
+    Float(f64),
     LineDoc(String),
     BlockDoc(String),
     Comment(String),

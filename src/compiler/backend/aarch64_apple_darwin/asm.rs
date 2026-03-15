@@ -33,6 +33,38 @@ pub enum Register {
     X30,
     SP,
     XZR,
+    D0,
+    D1,
+    D2,
+    D3,
+    D4,
+    D5,
+    D6,
+    D7,
+    D8,
+    D9,
+    D10,
+    D11,
+    D12,
+    D13,
+    D14,
+    D15,
+    D16,
+    D17,
+    D18,
+    D19,
+    D20,
+    D21,
+    D22,
+    D23,
+    D24,
+    D25,
+    D26,
+    D27,
+    D28,
+    D29,
+    D30,
+    D31,
 }
 
 impl Register {
@@ -71,6 +103,38 @@ impl Register {
             Self::X30 => "x30",
             Self::SP => "sp",
             Self::XZR => "xzr",
+            Self::D0 => "d0",
+            Self::D1 => "d1",
+            Self::D2 => "d2",
+            Self::D3 => "d3",
+            Self::D4 => "d4",
+            Self::D5 => "d5",
+            Self::D6 => "d6",
+            Self::D7 => "d7",
+            Self::D8 => "d8",
+            Self::D9 => "d9",
+            Self::D10 => "d10",
+            Self::D11 => "d11",
+            Self::D12 => "d12",
+            Self::D13 => "d13",
+            Self::D14 => "d14",
+            Self::D15 => "d15",
+            Self::D16 => "d16",
+            Self::D17 => "d17",
+            Self::D18 => "d18",
+            Self::D19 => "d19",
+            Self::D20 => "d20",
+            Self::D21 => "d21",
+            Self::D22 => "d22",
+            Self::D23 => "d23",
+            Self::D24 => "d24",
+            Self::D25 => "d25",
+            Self::D26 => "d26",
+            Self::D27 => "d27",
+            Self::D28 => "d28",
+            Self::D29 => "d29",
+            Self::D30 => "d30",
+            Self::D31 => "d31",
         }
     }
 
@@ -107,7 +171,39 @@ impl Register {
             Self::X28 => 28,
             Self::X29 => 29,
             Self::X30 => 30,
-            _ => panic!("Not a general purpose register"),
+            Self::D0 => 0,
+            Self::D1 => 1,
+            Self::D2 => 2,
+            Self::D3 => 3,
+            Self::D4 => 4,
+            Self::D5 => 5,
+            Self::D6 => 6,
+            Self::D7 => 7,
+            Self::D8 => 8,
+            Self::D9 => 9,
+            Self::D10 => 10,
+            Self::D11 => 11,
+            Self::D12 => 12,
+            Self::D13 => 13,
+            Self::D14 => 14,
+            Self::D15 => 15,
+            Self::D16 => 16,
+            Self::D17 => 17,
+            Self::D18 => 18,
+            Self::D19 => 19,
+            Self::D20 => 20,
+            Self::D21 => 21,
+            Self::D22 => 22,
+            Self::D23 => 23,
+            Self::D24 => 24,
+            Self::D25 => 25,
+            Self::D26 => 26,
+            Self::D27 => 27,
+            Self::D28 => 28,
+            Self::D29 => 29,
+            Self::D30 => 30,
+            Self::D31 => 31,
+            _ => panic!("Not a general purpose or floating point register"),
         }
     }
 
@@ -142,9 +238,46 @@ impl Register {
             26 => Self::X26,
             27 => Self::X27,
             28 => Self::X28,
-            29 => Self::X29,
             30 => Self::X30,
             _ => panic!("Invalid register number"),
+        }
+    }
+
+    pub fn from_d_u8(n: u8) -> Self {
+        match n {
+            0 => Self::D0,
+            1 => Self::D1,
+            2 => Self::D2,
+            3 => Self::D3,
+            4 => Self::D4,
+            5 => Self::D5,
+            6 => Self::D6,
+            7 => Self::D7,
+            8 => Self::D8,
+            9 => Self::D9,
+            10 => Self::D10,
+            11 => Self::D11,
+            12 => Self::D12,
+            13 => Self::D13,
+            14 => Self::D14,
+            15 => Self::D15,
+            16 => Self::D16,
+            17 => Self::D17,
+            18 => Self::D18,
+            19 => Self::D19,
+            20 => Self::D20,
+            21 => Self::D21,
+            22 => Self::D22,
+            23 => Self::D23,
+            24 => Self::D24,
+            25 => Self::D25,
+            26 => Self::D26,
+            27 => Self::D27,
+            28 => Self::D28,
+            29 => Self::D29,
+            30 => Self::D30,
+            31 => Self::D31,
+            _ => panic!("Invalid float register number"),
         }
     }
 }
@@ -228,6 +361,79 @@ impl Emitter {
             src1.name(),
             src2.name()
         ));
+    }
+
+    pub fn fadd(&mut self, dst: Register, src1: Register, src2: Register) {
+        self.output.push_str(&format!(
+            "    fadd {}, {}, {}\n",
+            dst.name(),
+            src1.name(),
+            src2.name()
+        ));
+    }
+
+    pub fn fsub(&mut self, dst: Register, src1: Register, src2: Register) {
+        self.output.push_str(&format!(
+            "    fsub {}, {}, {}\n",
+            dst.name(),
+            src1.name(),
+            src2.name()
+        ));
+    }
+
+    pub fn fmul(&mut self, dst: Register, src1: Register, src2: Register) {
+        self.output.push_str(&format!(
+            "    fmul {}, {}, {}\n",
+            dst.name(),
+            src1.name(),
+            src2.name()
+        ));
+    }
+
+    pub fn fdiv(&mut self, dst: Register, src1: Register, src2: Register) {
+        self.output.push_str(&format!(
+            "    fdiv {}, {}, {}\n",
+            dst.name(),
+            src1.name(),
+            src2.name()
+        ));
+    }
+
+    pub fn fmov(&mut self, dst: Register, src: Register) {
+        self.output
+            .push_str(&format!("    fmov {}, {}\n", dst.name(), src.name()));
+    }
+
+    pub fn fcmp(&mut self, src1: Register, src2: Register) {
+        self.output
+            .push_str(&format!("    fcmp {}, {}\n", src1.name(), src2.name()));
+    }
+
+    pub fn scvtf(&mut self, dst: Register, src: Register) {
+        // Integer to floating-point
+        self.output
+            .push_str(&format!("    scvtf {}, {}\n", dst.name(), src.name()));
+    }
+
+    pub fn fcvtzs(&mut self, dst: Register, src: Register) {
+        // Floating-point to integer (signed, towards zero)
+        self.output
+            .push_str(&format!("    fcvtzs {}, {}\n", dst.name(), src.name()));
+    }
+
+    pub fn fmov_imm(&mut self, reg: Register, val: f64) {
+        // Simple heuristic: if it's 0.0, use fmov reg, #0.0
+        if val == 0.0 {
+            self.output
+                .push_str(&format!("    fmov {}, #0.0\n", reg.name()));
+        } else {
+            // Otherwise, load via ldr from literal pool or similar
+            // For now, let's use a trick: load as i64 then fmov
+            let bits = val.to_bits();
+            self.output.push_str(&format!("    ldr x16, ={}\n", bits));
+            self.output
+                .push_str(&format!("    fmov {}, x16\n", reg.name()));
+        }
     }
 
     pub fn call(&mut self, label: &str) {

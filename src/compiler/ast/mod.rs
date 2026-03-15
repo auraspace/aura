@@ -73,6 +73,7 @@ impl TypeExpr {
 #[derive(Debug, Clone)]
 pub enum Expr {
     Number(i64, Span),
+    Float(f64, Span),
     StringLiteral(String, Span),
     Variable(String, Span),
     BinaryOp(Box<Expr>, String, Box<Expr>, Span),
@@ -109,6 +110,7 @@ impl Expr {
     pub fn span(&self) -> Span {
         match self {
             Expr::Number(_, s) => *s,
+            Expr::Float(_, s) => *s,
             Expr::StringLiteral(_, s) => *s,
             Expr::Variable(_, s) => *s,
             Expr::BinaryOp(_, _, _, s) => *s,

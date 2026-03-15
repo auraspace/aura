@@ -207,6 +207,7 @@ e2e_test!(core_unary, "01_core/06_unary.aura");
 e2e_test!(core_assignment, "01_core/07_assignment.aura");
 e2e_test!(core_template, "01_core/08_template.aura");
 e2e_test!(core_bitwise, "01_core/09_bitwise.aura");
+e2e_test!(core_float, "01_core/10_float.aura");
 
 // --- 02_control_flow ---
 e2e_test!(flow_if_else, "02_control_flow/01_if_else.aura");

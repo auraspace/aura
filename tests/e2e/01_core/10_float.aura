@@ -1,0 +1,27 @@
+// Test: Floating point numbers
+// Expected output:
+// 3.14
+// 6.28
+// 5.5
+// 5.5
+// true
+// false
+// 15.5
+// result: 15.5
+
+let pi: f64 = 3.14;
+print pi;
+print pi * 2;
+
+let a: f64 = 10.5;
+let b: f64 = 5;
+print a - b;
+print (a + b) / 2 - 2.25;
+
+print a > b;
+print a == b;
+
+let i: i32 = 5;
+print a + i;
+
+print `result: ${a + i}`;

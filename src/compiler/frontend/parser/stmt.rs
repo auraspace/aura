@@ -425,18 +425,7 @@ impl Parser {
         let s = self.span();
         self.consume(TokenKind::Print)?;
 
-        let has_paren = if self.peek().kind == TokenKind::OpenParen {
-            self.advance();
-            true
-        } else {
-            false
-        };
-
         let expr = self.parse_expression();
-
-        if has_paren {
-            self.consume(TokenKind::CloseParen)?;
-        }
         self.consume(TokenKind::Semicolon)?;
 
         Ok(Statement::Print(expr, s))

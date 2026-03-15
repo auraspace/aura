@@ -248,6 +248,9 @@ impl Codegen {
                     }
                 }
 
+                let is_float = self
+                    .get_node_type(&expr.span())
+                    .map_or(false, |t| t.is_float());
                 self.generate_expr(expr);
                 if is_str {
                     self.emitter.call("_print_str");
@@ -259,6 +262,9 @@ impl Codegen {
                     self.emitter.call("_print_promise");
                 } else if is_null {
                     // No print_null yet
+                } else if is_float {
+                    self.emitter.output.push_str("    fmov d0, x0\n");
+                    self.emitter.call("_print_float");
                 } else {
                     self.emitter.call("_print_num");
                 }

@@ -14,12 +14,13 @@ pub enum StatementResult {
 pub enum Value {
     Int(i32),
     Int64(i64),
+    Float(f64),
     String(String),
     Boolean(bool),
     Instance(String, Rc<RefCell<HashMap<String, Value>>>), // class_name, fields
     Function {
         name: Option<String>,
-        params: Vec<String>,
+        params: Vec<(String, Type)>,
         return_ty: Type,
         body: Statement,
         is_async: bool,
@@ -40,6 +41,7 @@ impl Clone for Value {
         match self {
             Value::Int(i) => Value::Int(*i),
             Value::Int64(i) => Value::Int64(*i),
+            Value::Float(f) => Value::Float(*f),
             Value::String(s) => Value::String(s.clone()),
             Value::Boolean(b) => Value::Boolean(*b),
             Value::Instance(name, fields) => Value::Instance(name.clone(), fields.clone()),
@@ -73,6 +75,7 @@ impl std::fmt::Debug for Value {
         match self {
             Value::Int(i) => write!(f, "Int({})", i),
             Value::Int64(i) => write!(f, "Int64({})", i),
+            Value::Float(val) => write!(f, "Float({})", val),
             Value::String(s) => write!(f, "String({:?})", s),
             Value::Boolean(b) => write!(f, "Boolean({})", b),
             Value::Instance(name, fields) => write!(f, "Instance({}, {:?})", name, fields),

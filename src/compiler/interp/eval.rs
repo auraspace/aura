@@ -70,13 +70,23 @@ impl Interpreter {
             Statement::VarDeclaration {
                 name,
                 name_span: _,
-                ty: _,
+                ty,
                 value,
                 is_const: _,
                 span: _,
                 doc: _,
             } => {
-                let val = self.eval_expr(value);
+                let mut val = self.eval_expr(value);
+                if let Some(t_expr) = ty {
+                    let expected_ty = self.resolve_type(t_expr);
+                    if expected_ty == Type::Float64 || expected_ty == Type::Float32 {
+                        if let Value::Int(i) = val {
+                            val = Value::Float(i as f64);
+                        } else if let Value::Int64(i) = val {
+                            val = Value::Float(i as f64);
+                        }
+                    }
+                }
                 self.env.insert(name, val);
                 StatementResult::None
             }
@@ -92,7 +102,10 @@ impl Interpreter {
             } => {
                 let func_val = Value::Function {
                     name: Some(name.clone()),
-                    params: params.into_iter().map(|(p, _)| p).collect(),
+                    params: params
+                        .into_iter()
+                        .map(|(p, t)| (p, self.resolve_type(t)))
+                        .collect(),
                     return_ty: self.resolve_type(return_ty),
                     body: *body,
                     is_async,
@@ -263,6 +276,7 @@ impl Interpreter {
                     Value::Int64(n)
                 }
             }
+            Expr::Float(f, _) => Value::Float(f),
             Expr::Null(_) => Value::Null,
             Expr::ArrayLiteral(elements, _) => {
                 let mut vals = Vec::new();
@@ -284,6 +298,7 @@ impl Interpreter {
                                 Value::String(s) => out.push_str(&s),
                                 Value::Int(n) => out.push_str(&n.to_string()),
                                 Value::Int64(n) => out.push_str(&n.to_string()),
+                                Value::Float(f) => out.push_str(&f.to_string()),
                                 Value::Boolean(b) => out.push_str(if b { "true" } else { "false" }),
                                 Value::Null => out.push_str("null"),
                                 _ => panic!("Cannot interpolate {:?}", val),
@@ -360,6 +375,42 @@ impl Interpreter {
                         ">>" => Value::Int64(l >> r),
                         _ => panic!("Unsupported operator {} for i64", op),
                     },
+                    (Value::Float(l), Value::Float(r)) => match op.as_str() {
+                        "+" => Value::Float(*l + *r),
+                        "-" => Value::Float(*l - *r),
+                        "*" => Value::Float(*l * *r),
+                        "/" => Value::Float(*l / *r),
+                        "%" => Value::Float(*l % *r),
+                        "==" => Value::Boolean(*l == *r),
+                        "!=" => Value::Boolean(*l != *r),
+                        "<" => Value::Boolean(*l < *r),
+                        "<=" => Value::Boolean(*l <= *r),
+                        ">" => Value::Boolean(*l > *r),
+                        ">=" => Value::Boolean(*l >= *r),
+                        _ => panic!("Unsupported operator {} for floats", op),
+                    },
+                    (Value::Float(l), Value::Int(r)) => match op.as_str() {
+                        "+" => Value::Float(*l + *r as f64),
+                        "-" => Value::Float(*l - *r as f64),
+                        "*" => Value::Float(*l * *r as f64),
+                        "/" => Value::Float(*l / *r as f64),
+                        "==" => Value::Boolean(*l == *r as f64),
+                        "!=" => Value::Boolean(*l != *r as f64),
+                        "<" => Value::Boolean(*l < *r as f64),
+                        ">" => Value::Boolean(*l > *r as f64),
+                        _ => panic!("Unsupported mixed float/int op"),
+                    },
+                    (Value::Int(l), Value::Float(r)) => match op.as_str() {
+                        "+" => Value::Float(*l as f64 + *r),
+                        "-" => Value::Float(*l as f64 - *r),
+                        "*" => Value::Float(*l as f64 * *r),
+                        "/" => Value::Float(*l as f64 / *r),
+                        "==" => Value::Boolean(*l as f64 == *r),
+                        "!=" => Value::Boolean(*l as f64 != *r),
+                        "<" => Value::Boolean((*l as f64) < *r),
+                        ">" => Value::Boolean((*l as f64) > *r),
+                        _ => panic!("Unsupported mixed int/float op"),
+                    },
                     (Value::String(l), Value::String(r)) => match op.as_str() {
                         "+" => Value::String(format!("{}{}", l, r)),
                         "==" => Value::Boolean(l == r),
@@ -388,7 +439,16 @@ impl Interpreter {
                 }
             }
             Expr::Assign(name, val_expr, _) => {
-                let val = self.eval_expr(*val_expr);
+                let mut val = self.eval_expr(*val_expr);
+                if let Some(existing) = self.env.lookup(&name) {
+                    if let Value::Float(_) = existing {
+                        if let Value::Int(i) = val {
+                            val = Value::Float(i as f64);
+                        } else if let Value::Int64(i) = val {
+                            val = Value::Float(i as f64);
+                        }
+                    }
+                }
                 self.env.assign(&name, val.clone());
                 val
             }
@@ -408,8 +468,16 @@ impl Interpreter {
                         arg_vals.push(self.eval_expr(a));
                     }
                     self.push_scope();
-                    for (i, pname) in params.iter().enumerate() {
-                        self.env.insert(pname.clone(), arg_vals[i].clone());
+                    for (i, (pname, pty)) in params.iter().enumerate() {
+                        let mut val = arg_vals[i].clone();
+                        if *pty == Type::Float64 || *pty == Type::Float32 {
+                            if let Value::Int(v) = val {
+                                val = Value::Float(v as f64);
+                            } else if let Value::Int64(v) = val {
+                                val = Value::Float(v as f64);
+                            }
+                        }
+                        self.env.insert(pname.clone(), val);
                     }
                     let res = self.execute_statement(body);
                     self.pop_scope();
@@ -457,8 +525,17 @@ impl Interpreter {
                         self.push_scope();
                         self.env
                             .insert("this".to_string(), Value::Instance(class_name, fields_ref));
-                        for (i, (pname, _)) in m.params.iter().enumerate() {
-                            self.env.insert(pname.clone(), arg_vals[i].clone());
+                        for (i, (pname, p_te)) in m.params.iter().enumerate() {
+                            let pty = self.resolve_type(p_te.clone());
+                            let mut val = arg_vals[i].clone();
+                            if pty == Type::Float64 || pty == Type::Float32 {
+                                if let Value::Int(v) = val {
+                                    val = Value::Float(v as f64);
+                                } else if let Value::Int64(v) = val {
+                                    val = Value::Float(v as f64);
+                                }
+                            }
+                            self.env.insert(pname.clone(), val);
                         }
 
                         let res = self.execute_statement((*m.body).clone());
@@ -567,8 +644,17 @@ impl Interpreter {
                         }
 
                         self.push_scope();
-                        for (i, (pname, _)) in m.params.iter().enumerate() {
-                            self.env.insert(pname.clone(), arg_vals[i].clone());
+                        for (i, (pname, p_te)) in m.params.iter().enumerate() {
+                            let pty = self.resolve_type(p_te.clone());
+                            let mut val = arg_vals[i].clone();
+                            if pty == Type::Float64 || pty == Type::Float32 {
+                                if let Value::Int(v) = val {
+                                    val = Value::Float(v as f64);
+                                } else if let Value::Int64(v) = val {
+                                    val = Value::Float(v as f64);
+                                }
+                            }
+                            self.env.insert(pname.clone(), val);
                         }
 
                         let res = self.execute_statement((*m.body).clone());
@@ -642,12 +728,20 @@ impl Interpreter {
 
                     self.push_scope();
                     self.env.insert("this".to_string(), instance.clone());
-                    for (i, (pname, _)) in cons.params.iter().enumerate() {
-                        let val = if i < arg_vals.len() {
+                    for (i, (pname, p_te)) in cons.params.iter().enumerate() {
+                        let pty = self.resolve_type(p_te.clone());
+                        let mut val = if i < arg_vals.len() {
                             arg_vals[i].clone()
                         } else {
                             Value::Null
                         };
+                        if pty == Type::Float64 || pty == Type::Float32 {
+                            if let Value::Int(v) = val {
+                                val = Value::Float(v as f64);
+                            } else if let Value::Int64(v) = val {
+                                val = Value::Float(v as f64);
+                            }
+                        }
                         self.env.insert(pname.clone(), val);
                     }
 
@@ -784,6 +878,7 @@ impl Interpreter {
         match val {
             Value::Int(i) => i.to_string(),
             Value::Int64(i) => i.to_string(),
+            Value::Float(f) => f.to_string(),
             Value::String(s) => s,
             Value::Boolean(b) => (if b { "true" } else { "false" }).to_string(),
             Value::Void => "void".to_string(),

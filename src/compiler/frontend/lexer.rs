@@ -360,6 +360,34 @@ impl<'a> Lexer<'a> {
             self.advance();
         }
 
+        if !self.is_at_end() && self.peek() == '.' {
+            // Check if next char is a digit to avoid confusing with member access (e.g. 1.toString())
+            // But in Aura, 1. is a valid float. However, we need to be careful.
+            // If we have 1.toString(), it's better to treat 1 as Int and . as Dot.
+            // However, typical languages treat 1. as float.
+            // Let's check the next character.
+            let next_pos = self.pos + 1;
+            if next_pos < self.source.len() && self.source.as_bytes()[next_pos].is_ascii_digit() {
+                self.advance(); // skip .
+                while !self.is_at_end() && self.peek().is_ascii_digit() {
+                    self.advance();
+                }
+                let literal = &self.source[start_pos..self.pos];
+                let val: f64 = match literal.parse() {
+                    Ok(v) => v,
+                    Err(_) => {
+                        self.diagnostics.push(Diagnostic::error(
+                            format!("Float literal invalid: '{}'", literal),
+                            line,
+                            column,
+                        ));
+                        0.0
+                    }
+                };
+                return Token::new(TokenKind::Float(val), line, column);
+            }
+        }
+
         let literal = &self.source[start_pos..self.pos];
         let val: i64 = match literal.parse() {
             Ok(v) => v,

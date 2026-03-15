@@ -6,8 +6,18 @@ use crate::compiler::sema::ty::Type;
 impl Codegen {
     pub fn generate_expr(&mut self, expr: Expr) {
         match expr {
-            Expr::Number(val, _) => {
+            Expr::Number(val, span) => {
                 self.emitter.mov_imm(AsmRegister::X0, val);
+                if let Some(ty) = self.get_node_type(&span) {
+                    if ty.is_float() {
+                        self.emitter.scvtf(AsmRegister::D0, AsmRegister::X0);
+                        self.emitter.output.push_str("    fmov x0, d0\n");
+                    }
+                }
+            }
+            Expr::Float(val, _) => {
+                self.emitter.fmov_imm(AsmRegister::D0, val);
+                self.emitter.output.push_str("    fmov x0, d0\n");
             }
             Expr::Null(_) => {
                 self.emitter.mov_imm(AsmRegister::X0, 0);
@@ -27,7 +37,7 @@ impl Codegen {
                     .output
                     .push_str(&format!("    add x0, x0, {}@PAGEOFF\n", label));
             }
-            Expr::Variable(name, _) => {
+            Expr::Variable(name, span) => {
                 if let Some((offset, _)) = self.variables.get(&name) {
                     self.load_local("x0", *offset);
                 } else if let Some((label, _)) = self.global_variables.get(&name) {
@@ -51,6 +61,22 @@ impl Codegen {
                         "O_TRUNC" => self.emitter.mov_imm(AsmRegister::X0, 1024),
                         "O_APPEND" => self.emitter.mov_imm(AsmRegister::X0, 8),
                         _ => panic!("Undefined variable {}", name),
+                    }
+                }
+                if let Some(ty) = self.get_node_type(&span) {
+                    if ty.is_float() {
+                        // Only convert if it was originally an integer
+                        let original_ty = self
+                            .variables
+                            .get(&name)
+                            .map(|(_, t)| t)
+                            .or_else(|| self.global_variables.get(&name).map(|(_, t)| t));
+                        if let Some(oty) = original_ty {
+                            if !oty.is_float() {
+                                self.emitter.scvtf(AsmRegister::D0, AsmRegister::X0);
+                                self.emitter.output.push_str("    fmov x0, d0\n");
+                            }
+                        }
                     }
                 }
             }
@@ -80,6 +106,73 @@ impl Codegen {
 
                 if is_string_concat {
                     self.emitter.call("_aura_str_concat");
+                    return;
+                }
+
+                let is_float = left_ty.as_ref().map(|t| t.is_float()).unwrap_or(false)
+                    || right_ty.as_ref().map(|t| t.is_float()).unwrap_or(false);
+
+                if is_float {
+                    // Prepare D0 (left) and D1 (right)
+                    if left_ty.as_ref().map(|t| t.is_float()).unwrap_or(false) {
+                        self.emitter.output.push_str("    fmov d0, x0\n");
+                    } else {
+                        self.emitter.scvtf(AsmRegister::D0, AsmRegister::X0);
+                    }
+
+                    if right_ty.as_ref().map(|t| t.is_float()).unwrap_or(false) {
+                        self.emitter.output.push_str("    fmov d1, x1\n");
+                    } else {
+                        self.emitter.scvtf(AsmRegister::D1, AsmRegister::X1);
+                    }
+
+                    match op.as_str() {
+                        "+" => {
+                            self.emitter
+                                .fadd(AsmRegister::D0, AsmRegister::D0, AsmRegister::D1);
+                            self.emitter.output.push_str("    fmov x0, d0\n");
+                        }
+                        "-" => {
+                            self.emitter
+                                .fsub(AsmRegister::D0, AsmRegister::D0, AsmRegister::D1);
+                            self.emitter.output.push_str("    fmov x0, d0\n");
+                        }
+                        "*" => {
+                            self.emitter
+                                .fmul(AsmRegister::D0, AsmRegister::D0, AsmRegister::D1);
+                            self.emitter.output.push_str("    fmov x0, d0\n");
+                        }
+                        "/" => {
+                            self.emitter
+                                .fdiv(AsmRegister::D0, AsmRegister::D0, AsmRegister::D1);
+                            self.emitter.output.push_str("    fmov x0, d0\n");
+                        }
+                        "==" => {
+                            self.emitter.fcmp(AsmRegister::D0, AsmRegister::D1);
+                            self.emitter.output.push_str("    cset x0, eq\n");
+                        }
+                        "!=" => {
+                            self.emitter.fcmp(AsmRegister::D0, AsmRegister::D1);
+                            self.emitter.output.push_str("    cset x0, ne\n");
+                        }
+                        "<" => {
+                            self.emitter.fcmp(AsmRegister::D0, AsmRegister::D1);
+                            self.emitter.output.push_str("    cset x0, mi\n");
+                        }
+                        "<=" => {
+                            self.emitter.fcmp(AsmRegister::D0, AsmRegister::D1);
+                            self.emitter.output.push_str("    cset x0, ls\n");
+                        }
+                        ">" => {
+                            self.emitter.fcmp(AsmRegister::D0, AsmRegister::D1);
+                            self.emitter.output.push_str("    cset x0, gt\n");
+                        }
+                        ">=" => {
+                            self.emitter.fcmp(AsmRegister::D0, AsmRegister::D1);
+                            self.emitter.output.push_str("    cset x0, ge\n");
+                        }
+                        _ => panic!("Unsupported float operator {}", op),
+                    }
                     return;
                 }
 
@@ -584,6 +677,10 @@ impl Codegen {
                                     self.emitter.call("_aura_bool_to_str");
                                 }
                                 Type::String => {}
+                                Type::Float32 | Type::Float64 => {
+                                    self.emitter.output.push_str("    fmov d0, x0\n");
+                                    self.emitter.call("_aura_float_to_str");
+                                }
                                 _ => {
                                     self.emitter.call("_aura_num_to_str");
                                 }

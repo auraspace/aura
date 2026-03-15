@@ -25,7 +25,7 @@ impl IrCodegen {
             for (name, content) in &module.globals {
                 self.emitter
                     .output
-                    .push_str(&format!("{}: .asciz \"{}\"\n", name, content));
+                    .push_str(&format!("_{}: .asciz \"{}\"\n", name, content));
             }
             self.emitter.output.push_str(".align 3\n");
         }
@@ -37,7 +37,7 @@ impl IrCodegen {
             for (name, _) in &module.globals {
                 self.emitter
                     .output
-                    .push_str(&format!("    .quad {}\n", name));
+                    .push_str(&format!("    .quad _{}\n", name));
             }
         } else {
             self.emitter.output.push_str("    .quad 0\n");
@@ -89,12 +89,69 @@ impl IrCodegen {
             .push_str(&format!(".global _{}\n", func.name));
         self.emitter.output.push_str(&format!("_{}:\n", func.name));
 
-        // Prologue
+        // Calculate max register ID to determine stack size
+        let mut max_reg = 0;
+        for block in &func.blocks {
+            for instr in &block.instructions {
+                // This is a bit simplified, but Instruction variants that have a dest u32
+                // are where new regs are created.
+                let dest = match instr {
+                    Instruction::Add(d, _, _)
+                    | Instruction::Sub(d, _, _)
+                    | Instruction::Mul(d, _, _)
+                    | Instruction::Div(d, _, _)
+                    | Instruction::Rem(d, _, _)
+                    | Instruction::FAdd(d, _, _)
+                    | Instruction::FSub(d, _, _)
+                    | Instruction::FMul(d, _, _)
+                    | Instruction::FDiv(d, _, _)
+                    | Instruction::FRem(d, _, _)
+                    | Instruction::BitAnd(d, _, _)
+                    | Instruction::BitOr(d, _, _)
+                    | Instruction::BitXor(d, _, _)
+                    | Instruction::Shl(d, _, _)
+                    | Instruction::Shr(d, _, _)
+                    | Instruction::BitNot(d, _)
+                    | Instruction::Eq(d, _, _)
+                    | Instruction::Ne(d, _, _)
+                    | Instruction::Lt(d, _, _)
+                    | Instruction::Le(d, _, _)
+                    | Instruction::Gt(d, _, _)
+                    | Instruction::Ge(d, _, _)
+                    | Instruction::FEq(d, _, _)
+                    | Instruction::FNe(d, _, _)
+                    | Instruction::FLt(d, _, _)
+                    | Instruction::FLe(d, _, _)
+                    | Instruction::FGt(d, _, _)
+                    | Instruction::FGe(d, _, _)
+                    | Instruction::Move(d, _)
+                    | Instruction::Load(d, _, _)
+                    | Instruction::Alloc(d, _)
+                    | Instruction::StackAlloc(d, _)
+                    | Instruction::Call(d, _, _)
+                    | Instruction::FCall(d, _, _)
+                    | Instruction::CallVirtual(d, _, _, _)
+                    | Instruction::IToF(d, _)
+                    | Instruction::FToI(d, _) => Some(*d),
+                    _ => None,
+                };
+                if let Some(d) = dest {
+                    if d > max_reg {
+                        max_reg = d;
+                    }
+                }
+            }
+        }
+        let required_stack = (max_reg as usize + 1) * 8 + 64; // +64 for safety/spill
+        let required_stack = (required_stack + 15) & !15; // Align to 16 bytes
+
         self.emitter
             .output
             .push_str("    stp x29, x30, [sp, -16]!\n");
         self.emitter.output.push_str("    mov x29, sp\n");
-        self.emitter.output.push_str("    sub sp, sp, #256\n"); // Space for local variables and spill
+        self.emitter
+            .output
+            .push_str(&format!("    sub sp, sp, #{}\n", required_stack));
 
         // Simplified: push all params to stack locations for SSA to find
         // Wait, for now let's just use x0-x7 directly if they are operands.
@@ -149,6 +206,42 @@ impl IrCodegen {
                 self.emitter.output.push_str("    mul x18, x18, x17\n");
                 self.emitter.output.push_str("    sub x16, x16, x18\n");
                 self.store_reg(dest, Register::X16);
+            }
+            Instruction::FAdd(dest, lhs, rhs) => {
+                self.load_operand(Register::D0, lhs);
+                self.load_operand(Register::D1, rhs);
+                self.emitter.fadd(Register::D0, Register::D0, Register::D1);
+                self.store_reg(dest, Register::D0);
+            }
+            Instruction::FSub(dest, lhs, rhs) => {
+                self.load_operand(Register::D0, lhs);
+                self.load_operand(Register::D1, rhs);
+                self.emitter.fsub(Register::D0, Register::D0, Register::D1);
+                self.store_reg(dest, Register::D0);
+            }
+            Instruction::FMul(dest, lhs, rhs) => {
+                self.load_operand(Register::D0, lhs);
+                self.load_operand(Register::D1, rhs);
+                self.emitter.fmul(Register::D0, Register::D0, Register::D1);
+                self.store_reg(dest, Register::D0);
+            }
+            Instruction::FDiv(dest, lhs, rhs) => {
+                self.load_operand(Register::D0, lhs);
+                self.load_operand(Register::D1, rhs);
+                self.emitter.fdiv(Register::D0, Register::D0, Register::D1);
+                self.store_reg(dest, Register::D0);
+            }
+            Instruction::FRem(dest, lhs, rhs) => {
+                // FRem is tricky in AArch64. For now, let's just use fmod from C or similar if we have it,
+                // but let's just do a simple implementation: a - floor(a/b)*b
+                // Actually, let's just panic for now or do a placeholder.
+                self.load_operand(Register::D0, lhs);
+                self.load_operand(Register::D1, rhs);
+                self.emitter.output.push_str("    fdiv d2, d0, d1\n");
+                self.emitter.output.push_str("    frintz d2, d2\n");
+                self.emitter.output.push_str("    fmul d2, d2, d1\n");
+                self.emitter.output.push_str("    fsub d0, d0, d2\n");
+                self.store_reg(dest, Register::D0);
             }
             Instruction::BitAnd(dest, lhs, rhs) => {
                 self.load_operand(Register::X16, lhs);
@@ -233,6 +326,48 @@ impl IrCodegen {
                     .push_str("    cmp x16, x17\n    cset x16, ge\n");
                 self.store_reg(dest, Register::X16);
             }
+            Instruction::FEq(dest, lhs, rhs) => {
+                self.load_operand(Register::D0, lhs);
+                self.load_operand(Register::D1, rhs);
+                self.emitter.fcmp(Register::D0, Register::D1);
+                self.emitter.output.push_str("    cset x16, eq\n");
+                self.store_reg(dest, Register::X16);
+            }
+            Instruction::FNe(dest, lhs, rhs) => {
+                self.load_operand(Register::D0, lhs);
+                self.load_operand(Register::D1, rhs);
+                self.emitter.fcmp(Register::D0, Register::D1);
+                self.emitter.output.push_str("    cset x16, ne\n");
+                self.store_reg(dest, Register::X16);
+            }
+            Instruction::FLt(dest, lhs, rhs) => {
+                self.load_operand(Register::D0, lhs);
+                self.load_operand(Register::D1, rhs);
+                self.emitter.fcmp(Register::D0, Register::D1);
+                self.emitter.output.push_str("    cset x16, mi\n"); // Minus (less than)
+                self.store_reg(dest, Register::X16);
+            }
+            Instruction::FLe(dest, lhs, rhs) => {
+                self.load_operand(Register::D0, lhs);
+                self.load_operand(Register::D1, rhs);
+                self.emitter.fcmp(Register::D0, Register::D1);
+                self.emitter.output.push_str("    cset x16, ls\n"); // Lower or Same
+                self.store_reg(dest, Register::X16);
+            }
+            Instruction::FGt(dest, lhs, rhs) => {
+                self.load_operand(Register::D0, lhs);
+                self.load_operand(Register::D1, rhs);
+                self.emitter.fcmp(Register::D0, Register::D1);
+                self.emitter.output.push_str("    cset x16, gt\n");
+                self.store_reg(dest, Register::X16);
+            }
+            Instruction::FGe(dest, lhs, rhs) => {
+                self.load_operand(Register::D0, lhs);
+                self.load_operand(Register::D1, rhs);
+                self.emitter.fcmp(Register::D0, Register::D1);
+                self.emitter.output.push_str("    cset x16, ge\n");
+                self.store_reg(dest, Register::X16);
+            }
             Instruction::Return(val) => {
                 if let Some(op) = val {
                     self.load_operand(Register::X0, op);
@@ -248,6 +383,18 @@ impl IrCodegen {
                     }
                 }
                 self.emitter.call(&format!("_{}", name));
+                self.store_reg(dest, Register::X0);
+            }
+            Instruction::FCall(dest, name, args) => {
+                for (i, arg) in args.iter().enumerate() {
+                    if i < 8 {
+                        self.load_operand(Register::from_d_u8(i as u8), arg.clone());
+                    }
+                }
+                self.emitter.call(&format!("_{}", name));
+                // If the return type is float, it will be in D0, but we currently store destiny in X0
+                // For print_float it returns void so it's fine.
+                // For float_to_str it returns char* in X0, so it's also fine.
                 self.store_reg(dest, Register::X0);
             }
             Instruction::CallVirtual(dest, obj, idx, args) => {
@@ -337,36 +484,65 @@ impl IrCodegen {
                     .push_str(&format!("    sub x16, x29, #{}\n", data_offset));
                 self.store_reg(dest, Register::X16);
             }
+            Instruction::IToF(dest, src) => {
+                self.load_operand(Register::X16, src);
+                self.emitter.scvtf(Register::D0, Register::X16);
+                self.store_reg(dest, Register::D0);
+            }
+            Instruction::FToI(dest, src) => {
+                self.load_operand(Register::D0, src);
+                self.emitter.fcvtzs(Register::X16, Register::D0);
+                self.store_reg(dest, Register::X16);
+            }
         }
     }
 
     fn load_operand(&mut self, reg: Register, op: Operand) {
+        let is_d_reg = reg.name().starts_with('d');
         match op {
             Operand::Constant(c) => {
-                self.emitter.mov_imm(reg, c);
+                if is_d_reg {
+                    self.emitter.mov_imm(Register::X16, c);
+                    self.emitter.scvtf(reg, Register::X16);
+                } else {
+                    self.emitter.mov_imm(reg, c);
+                }
+            }
+            Operand::FloatingConstant(f) => {
+                if !is_d_reg {
+                    // Constant float into X register - bit-level move
+                    let bits = f.to_bits() as i64;
+                    self.emitter.mov_imm(reg, bits);
+                } else {
+                    self.emitter.fmov_imm(reg, f);
+                }
             }
             Operand::Value(id) => {
                 let offset = *self
                     .reg_offsets
                     .get(&id)
                     .unwrap_or_else(|| panic!("Reg {} not found in IR codegen for function", id));
+                let reg_name = reg.name();
                 if offset <= 255 {
-                    self.emitter.output.push_str(&format!(
-                        "    ldr {}, [x29, -{}]\n",
-                        reg.name(),
-                        offset
-                    ));
+                    self.emitter
+                        .output
+                        .push_str(&format!("    ldr {}, [x29, -{}]\n", reg_name, offset));
                 } else {
                     self.emitter.output.push_str(&format!(
                         "    mov x9, {}\n    sub x9, x29, x9\n    ldr {}, [x9]\n",
-                        offset,
-                        reg.name()
+                        offset, reg_name
                     ));
                 }
             }
             Operand::Parameter(idx) => {
                 if idx < 8 {
-                    self.emitter.mov_reg(reg, Register::from_u8(idx as u8));
+                    // Check if we should use X or D register based on what 'reg' is
+                    let reg_name = reg.name();
+                    if reg_name.starts_with('d') {
+                        self.emitter.fmov(reg, Register::from_d_u8(idx as u8));
+                    } else {
+                        self.emitter.mov_reg(reg, Register::from_u8(idx as u8));
+                    }
                 } else {
                     panic!("More than 8 parameters not supported yet");
                 }
@@ -380,17 +556,15 @@ impl IrCodegen {
             self.reg_offsets.insert(id, self.stack_offset);
         }
         let offset = self.reg_offsets.get(&id).unwrap();
+        let reg_name = reg.name();
         if *offset <= 255 {
-            self.emitter.output.push_str(&format!(
-                "    str x{}, [x29, -{}]\n",
-                reg.index(),
-                offset
-            ));
+            self.emitter
+                .output
+                .push_str(&format!("    str {}, [x29, -{}]\n", reg_name, offset));
         } else {
             self.emitter.output.push_str(&format!(
-                "    mov x9, {}\n    sub x9, x29, x9\n    str x{}, [x9]\n",
-                offset,
-                reg.index()
+                "    mov x9, {}\n    sub x9, x29, x9\n    str {}, [x9]\n",
+                offset, reg_name
             ));
         }
     }

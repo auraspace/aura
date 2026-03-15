@@ -8,6 +8,7 @@ impl SemanticAnalyzer {
         let span = expr.span();
         let ty = match expr {
             Expr::Number(_, _) => Type::Int32,
+            Expr::Float(_, _) => Type::Float64,
             Expr::StringLiteral(_, _) => Type::String,
             Expr::Template(parts, _s) => {
                 for part in parts {
@@ -116,7 +117,15 @@ impl SemanticAnalyzer {
                     }
                     "+" | "-" | "*" | "/" | "%" => {
                         if lhs.is_numeric() && rhs.is_numeric() {
-                            lhs
+                            if lhs == Type::Float64 || rhs == Type::Float64 {
+                                Type::Float64
+                            } else if lhs == Type::Float32 || rhs == Type::Float32 {
+                                Type::Float32
+                            } else if lhs == Type::Int64 || rhs == Type::Int64 {
+                                Type::Int64
+                            } else {
+                                Type::Int32
+                            }
                         } else if op == "+" && (lhs == Type::String || rhs == Type::String) {
                             Type::String
                         } else {
@@ -150,6 +159,7 @@ impl SemanticAnalyzer {
                 }
             }
             Expr::Assign(name, value, span) => {
+                let val_span = value.span();
                 let val_ty = self.check_expr(*value);
                 let (sym_is_const, sym_ty) = if let Some(sym) = self.scope.lookup(&name) {
                     (sym.is_const, Some(sym.ty.clone()))
@@ -172,13 +182,17 @@ impl SemanticAnalyzer {
                             ),
                             span,
                         );
+                    } else if val_ty != expected_ty && self.record_node_info {
+                        self.record_type(val_span, expected_ty.clone());
                     }
+                    return expected_ty;
                 } else {
                     self.error(SemanticErrorKind::UndefinedVariable(name), span);
                 }
                 val_ty
             }
             Expr::Call(name, name_span, args, span) => {
+                let arg_spans: Vec<_> = args.iter().map(|a| a.span()).collect();
                 let mut arg_tys = Vec::new();
                 for arg in args {
                     arg_tys.push(self.check_expr(arg));
@@ -225,6 +239,8 @@ impl SemanticAnalyzer {
                                 ),
                                 span,
                             );
+                        } else if arg_ty != &param_tys[i] && self.record_node_info {
+                            self.record_type(arg_spans[i], param_tys[i].clone());
                         }
                     }
                     *ret_ty
@@ -323,6 +339,7 @@ impl SemanticAnalyzer {
                 }
             }
             Expr::MemberAssign(obj, field, value, name_span, span) => {
+                let val_span = value.span();
                 let obj_ty = self.check_expr(*obj.clone());
                 let val_ty = self.check_expr(*value);
 
@@ -357,6 +374,8 @@ impl SemanticAnalyzer {
                                 ),
                                 span,
                             );
+                        } else if val_ty != finfo.ty && self.record_node_info {
+                            self.record_type(val_span, finfo.ty.clone());
                         }
                         if self.record_node_info {
                             self.record_definition(name_span, class_defined_in, class_span);
@@ -381,11 +400,12 @@ impl SemanticAnalyzer {
                 }
             }
             Expr::MethodCall(obj, method, name_span, args, span) => {
+                let arg_spans: Vec<_> = args.iter().map(|a| a.span()).collect();
                 let obj_ty = self.check_expr(*obj);
                 let mut arg_tys = Vec::new();
-                for arg in args.iter() {
+                for arg in args {
                     // Iterate over args to check their types
-                    arg_tys.push(self.check_expr(arg.clone()));
+                    arg_tys.push(self.check_expr(arg));
                 }
 
                 if let Type::Class(ref class_name) = obj_ty {
@@ -415,8 +435,10 @@ impl SemanticAnalyzer {
                                             minfo.params[i].to_string(),
                                             arg_ty.to_string(),
                                         ),
-                                        args[i].span(),
+                                        arg_spans[i],
                                     );
+                                } else if arg_ty != &minfo.params[i] && self.record_node_info {
+                                    self.record_type(arg_spans[i], minfo.params[i].clone());
                                 }
                             }
                         }
@@ -616,6 +638,13 @@ impl SemanticAnalyzer {
                                                         arg_ty.to_string(),
                                                     ),
                                                     args[i].span(),
+                                                );
+                                            } else if arg_ty != &param_tys[i]
+                                                && self.record_node_info
+                                            {
+                                                self.record_type(
+                                                    args[i].span(),
+                                                    param_tys[i].clone(),
                                                 );
                                             }
                                         }

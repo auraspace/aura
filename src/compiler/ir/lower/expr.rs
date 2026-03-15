@@ -10,12 +10,54 @@ impl Lowerer {
                 self.last_expr_ty = Type::Int32;
                 Operand::Constant(n as i64)
             }
+            Expr::Float(f, _) => {
+                self.last_expr_ty = Type::Float64;
+                Operand::FloatingConstant(f)
+            }
             Expr::Null(_) => {
                 self.last_expr_ty = Type::Null;
                 Operand::Constant(0)
             }
-            Expr::Template(_, _) => {
-                todo!("Template lowering")
+            Expr::Template(parts, _) => {
+                let mut res_op: Option<Operand> = None;
+                for part in parts {
+                    let part_op = match part {
+                        crate::compiler::ast::TemplatePart::Str(s) => {
+                            let name = format!("str_{}", self.globals.len());
+                            self.globals.push((name.clone(), s));
+                            self.builder.call(
+                                "aura_get_string".to_string(),
+                                vec![Operand::Constant(self.globals.len() as i64 - 1)],
+                            )
+                        }
+                        crate::compiler::ast::TemplatePart::Expr(expr) => {
+                            let op = self.lower_expr(*expr);
+                            let ty = self.last_expr_ty.clone();
+                            if ty.is_float() {
+                                self.builder
+                                    .fcall("aura_float_to_str".to_string(), vec![op])
+                            } else if ty.is_integer() {
+                                self.builder.call("aura_num_to_str".to_string(), vec![op])
+                            } else if matches!(ty, Type::String) {
+                                op
+                            } else if matches!(ty, Type::Boolean) {
+                                self.builder.call("aura_bool_to_str".to_string(), vec![op])
+                            } else {
+                                op
+                            }
+                        }
+                    };
+
+                    res_op = match res_op {
+                        Some(prev) => Some(
+                            self.builder
+                                .call("aura_str_concat".to_string(), vec![prev, part_op]),
+                        ),
+                        None => Some(part_op),
+                    };
+                }
+                self.last_expr_ty = Type::String;
+                res_op.expect("Empty template literal")
             }
             Expr::Await(_, _) => todo!("Await in IR lower"),
             Expr::ArrayLiteral(_, _) => todo!("Array literals in IR lower"),
@@ -55,10 +97,25 @@ impl Lowerer {
                 }
             }
             Expr::BinaryOp(left, op, right, _) => {
-                let lhs = self.lower_expr(*left);
+                let mut lhs = self.lower_expr(*left);
                 let lhs_ty = self.last_expr_ty.clone();
-                let rhs = self.lower_expr(*right);
-                // Binary ops currently assume numeric for simplicity
+                let mut rhs = self.lower_expr(*right);
+                let rhs_ty = self.last_expr_ty.clone();
+
+                let is_float = lhs_ty.is_float() || rhs_ty.is_float();
+
+                // Numeric promotion
+                if is_float {
+                    if lhs_ty.is_integer() {
+                        lhs = self.builder.itof(lhs);
+                    }
+                    if rhs_ty.is_integer() {
+                        rhs = self.builder.itof(rhs);
+                    }
+                }
+
+                let op_str = op.as_str();
+
                 self.last_expr_ty = if op == "=="
                     || op == "!="
                     || op == "<"
@@ -68,45 +125,81 @@ impl Lowerer {
                 {
                     Type::Boolean
                 } else {
-                    lhs_ty
+                    if is_float {
+                        Type::Float64
+                    } else {
+                        lhs_ty
+                    }
                 };
-                match op.as_str() {
-                    "+" => self.builder.add(lhs, rhs),
-                    "-" => self.builder.sub(lhs, rhs),
-                    "*" => self.builder.mul(lhs, rhs),
-                    "/" => self.builder.div(lhs, rhs),
-                    "%" => self.builder.rem(lhs, rhs),
-                    "==" => self.builder.eq(lhs, rhs),
-                    "!=" => self.builder.ne(lhs, rhs),
-                    "<" => self.builder.lt(lhs, rhs),
-                    "<=" => self.builder.le(lhs, rhs),
-                    ">" => self.builder.gt(lhs, rhs),
-                    ">=" => self.builder.ge(lhs, rhs),
-                    "&" => self.builder.bit_and(lhs, rhs),
-                    "|" => self.builder.bit_or(lhs, rhs),
-                    "^" => self.builder.bit_xor(lhs, rhs),
-                    "<<" => self.builder.shl(lhs, rhs),
-                    ">>" => self.builder.shr(lhs, rhs),
-                    _ => panic!("Unsupported operator {}", op),
+
+                if is_float {
+                    match op_str {
+                        "+" => self.builder.fadd(lhs, rhs),
+                        "-" => self.builder.fsub(lhs, rhs),
+                        "*" => self.builder.fmul(lhs, rhs),
+                        "/" => self.builder.fdiv(lhs, rhs),
+                        "%" => self.builder.frem(lhs, rhs),
+                        "==" => self.builder.feq(lhs, rhs),
+                        "!=" => self.builder.fne(lhs, rhs),
+                        "<" => self.builder.flt(lhs, rhs),
+                        "<=" => self.builder.fle(lhs, rhs),
+                        ">" => self.builder.fgt(lhs, rhs),
+                        ">=" => self.builder.fge(lhs, rhs),
+                        _ => panic!("Unsupported float operator {}", op),
+                    }
+                } else {
+                    match op_str {
+                        "+" => self.builder.add(lhs, rhs),
+                        "-" => self.builder.sub(lhs, rhs),
+                        "*" => self.builder.mul(lhs, rhs),
+                        "/" => self.builder.div(lhs, rhs),
+                        "%" => self.builder.rem(lhs, rhs),
+                        "==" => self.builder.eq(lhs, rhs),
+                        "!=" => self.builder.ne(lhs, rhs),
+                        "<" => self.builder.lt(lhs, rhs),
+                        "<=" => self.builder.le(lhs, rhs),
+                        ">" => self.builder.gt(lhs, rhs),
+                        ">=" => self.builder.ge(lhs, rhs),
+                        "&" => self.builder.bit_and(lhs, rhs),
+                        "|" => self.builder.bit_or(lhs, rhs),
+                        "^" => self.builder.bit_xor(lhs, rhs),
+                        "<<" => self.builder.shl(lhs, rhs),
+                        ">>" => self.builder.shr(lhs, rhs),
+                        _ => panic!("Unsupported operator {}", op),
+                    }
                 }
             }
             Expr::Call(name, _, args, _) => {
-                let (_, r_ty) = self
+                let (p_tys, r_ty) = self
                     .function_tys
                     .get(&name)
                     .cloned()
                     .unwrap_or((vec![], Type::Unknown));
-                let ir_args = args.into_iter().map(|a| self.lower_expr(a)).collect();
+                let mut ir_args = Vec::new();
+                for (i, a) in args.into_iter().enumerate() {
+                    let mut op = self.lower_expr(a);
+                    if let Some(pty) = p_tys.get(i) {
+                        if pty.is_float() && self.last_expr_ty.is_integer() {
+                            op = self.builder.itof(op);
+                        }
+                    }
+                    ir_args.push(op);
+                }
                 self.last_expr_ty = r_ty;
                 self.builder.call(name, ir_args)
             }
             Expr::Assign(name, value, _) => {
-                let val_op = self.lower_expr(*value);
-                let (ptr_reg, _, _) = self
+                let mut val_op = self.lower_expr(*value);
+                let (ptr_reg, _, v_ty) = self
                     .mem_vars
                     .get(&name)
                     .cloned()
                     .expect("Undefined variable");
+                if let Some(target_ty) = v_ty {
+                    if target_ty.is_float() && self.last_expr_ty.is_integer() {
+                        val_op = self.builder.itof(val_op);
+                    }
+                }
                 self.builder
                     .emit(crate::compiler::ir::instr::Instruction::Store(
                         val_op.clone(),
@@ -133,8 +226,23 @@ impl Lowerer {
 
                 // Call constructor if exists
                 let ctor_name = format!("{}_ctor", class_name);
+                let (p_tys, _) = self
+                    .function_tys
+                    .get(&ctor_name)
+                    .cloned()
+                    .unwrap_or((vec![], Type::Unknown));
+
                 let mut ctor_args = vec![obj_reg.clone()];
-                ctor_args.extend(args.into_iter().map(|a| self.lower_expr(a)));
+                for (i, a) in args.into_iter().enumerate() {
+                    let mut op = self.lower_expr(a);
+                    // constructor p_tys[0] is 'this'
+                    if let Some(pty) = p_tys.get(i + 1) {
+                        if pty.is_float() && self.last_expr_ty.is_integer() {
+                            op = self.builder.itof(op);
+                        }
+                    }
+                    ctor_args.push(op);
+                }
                 self.builder.call(ctor_name, ctor_args);
 
                 self.last_expr_ty = Type::Class(class_name);
@@ -185,9 +293,20 @@ impl Lowerer {
             Expr::MemberAssign(obj, field, value, _, _) => {
                 let obj_op = self.lower_expr(*obj);
                 let obj_ty = self.last_expr_ty.clone();
-                let val_op = self.lower_expr(*value);
+                let mut val_op = self.lower_expr(*value);
                 if let Type::Class(cls_name) = obj_ty {
                     let offset = self.get_field_offset(&cls_name, &field);
+                    let field_ty = self
+                        .class_structures
+                        .get(&cls_name)
+                        .and_then(|s| s.get(&field))
+                        .cloned()
+                        .unwrap_or(Type::Unknown);
+
+                    if field_ty.is_float() && self.last_expr_ty.is_integer() {
+                        val_op = self.builder.itof(val_op);
+                    }
+
                     self.builder
                         .emit(crate::compiler::ir::instr::Instruction::Store(
                             val_op.clone(),
@@ -250,11 +369,29 @@ impl Lowerer {
                     method.clone()
                 };
 
+                let (p_tys, _) = self
+                    .function_tys
+                    .get(&mangled_name)
+                    .cloned()
+                    .unwrap_or((vec![], Type::Unknown));
+
                 let mut ir_args = Vec::new();
                 if !is_static {
                     ir_args.push(obj_op.clone());
                 }
-                ir_args.extend(args.into_iter().map(|a| self.lower_expr(a)));
+
+                for (i, a) in args.into_iter().enumerate() {
+                    let mut op = self.lower_expr(a);
+                    // For instance methods, p_tys[0] is 'this', so we check p_tys[i+1]
+                    // For static methods, p_tys[i] is correct
+                    let p_idx = if is_static { i } else { i + 1 };
+                    if let Some(pty) = p_tys.get(p_idx) {
+                        if pty.is_float() && self.last_expr_ty.is_integer() {
+                            op = self.builder.itof(op);
+                        }
+                    }
+                    ir_args.push(op);
+                }
                 self.last_expr_ty = return_ty;
 
                 if let Some(idx) = vtable_idx {
@@ -309,8 +446,22 @@ impl Lowerer {
                 if let Some(cls_name) = &self.current_class {
                     if let Some(parent) = self.parent_classes.get(cls_name) {
                         let ctor_name = format!("{}_ctor", parent);
+                        let (p_tys, _) = self
+                            .function_tys
+                            .get(&ctor_name)
+                            .cloned()
+                            .unwrap_or((vec![], Type::Unknown));
+
                         let mut ir_args = vec![this_op];
-                        ir_args.extend(args.into_iter().map(|a| self.lower_expr(a)));
+                        for (i, a) in args.into_iter().enumerate() {
+                            let mut op = self.lower_expr(a);
+                            if let Some(pty) = p_tys.get(i + 1) {
+                                if pty.is_float() && self.last_expr_ty.is_integer() {
+                                    op = self.builder.itof(op);
+                                }
+                            }
+                            ir_args.push(op);
+                        }
                         self.builder.call(ctor_name, ir_args);
                     }
                 }

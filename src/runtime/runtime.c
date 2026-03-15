@@ -26,6 +26,15 @@ void print_num(int64_t n) {
   fflush(stdout);
 }
 
+void print_float(double n) {
+  if (n == (int64_t)n) {
+    printf("%.1f\n", n);
+  } else {
+    printf("%g\n", n);
+  }
+  fflush(stdout);
+}
+
 int64_t aura_check_tag(int64_t val_tag, int64_t expected_tag) {
   return val_tag == expected_tag;
 }
@@ -438,6 +447,16 @@ char *aura_str_concat(const char *s1, const char *s2) {
 char *aura_num_to_str(int64_t n) {
   char *buf = malloc(32);
   snprintf(buf, 32, "%lld", n);
+  return buf;
+}
+
+char *aura_float_to_str(double n) {
+  char *buf = malloc(32);
+  if (n == (int64_t)n) {
+    snprintf(buf, 32, "%.1f", n);
+  } else {
+    snprintf(buf, 32, "%g", n);
+  }
   return buf;
 }
 

@@ -119,6 +119,7 @@ impl SemanticAnalyzer {
                         );
                     }
                 }
+                let val_span = value.span();
                 let val_ty = self.check_expr(value);
                 let declared_ty = ty
                     .map(|t| self.resolve_type(t))
@@ -131,6 +132,8 @@ impl SemanticAnalyzer {
                         ),
                         span,
                     );
+                } else if val_ty != declared_ty && self.record_node_info {
+                    self.record_type(val_span, declared_ty.clone());
                 }
                 if self.record_node_info {
                     if let Some(d) = &doc {

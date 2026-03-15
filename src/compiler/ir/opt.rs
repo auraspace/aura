@@ -198,6 +198,13 @@ impl Optimizer {
                                 .collect();
                             new_instrs.push(Instruction::Call(dest, name, new_args));
                         }
+                        Instruction::FCall(dest, name, args) => {
+                            let new_args = args
+                                .into_iter()
+                                .map(|a| self.resolve_operand(&a, &constants))
+                                .collect();
+                            new_instrs.push(Instruction::FCall(dest, name, new_args));
+                        }
                         Instruction::Return(val) => {
                             new_instrs.push(Instruction::Return(
                                 val.map(|v| self.resolve_operand(&v, &constants)),
@@ -253,6 +260,95 @@ impl Optimizer {
                         Instruction::StackAlloc(dest, size) => {
                             new_instrs.push(Instruction::StackAlloc(dest, size));
                         }
+                        Instruction::FAdd(dest, lhs, rhs) => {
+                            new_instrs.push(Instruction::FAdd(
+                                dest,
+                                self.resolve_operand(&lhs, &constants),
+                                self.resolve_operand(&rhs, &constants),
+                            ));
+                        }
+                        Instruction::FSub(dest, lhs, rhs) => {
+                            new_instrs.push(Instruction::FSub(
+                                dest,
+                                self.resolve_operand(&lhs, &constants),
+                                self.resolve_operand(&rhs, &constants),
+                            ));
+                        }
+                        Instruction::FMul(dest, lhs, rhs) => {
+                            new_instrs.push(Instruction::FMul(
+                                dest,
+                                self.resolve_operand(&lhs, &constants),
+                                self.resolve_operand(&rhs, &constants),
+                            ));
+                        }
+                        Instruction::FDiv(dest, lhs, rhs) => {
+                            new_instrs.push(Instruction::FDiv(
+                                dest,
+                                self.resolve_operand(&lhs, &constants),
+                                self.resolve_operand(&rhs, &constants),
+                            ));
+                        }
+                        Instruction::FRem(dest, lhs, rhs) => {
+                            new_instrs.push(Instruction::FRem(
+                                dest,
+                                self.resolve_operand(&lhs, &constants),
+                                self.resolve_operand(&rhs, &constants),
+                            ));
+                        }
+                        Instruction::FEq(dest, lhs, rhs) => {
+                            new_instrs.push(Instruction::FEq(
+                                dest,
+                                self.resolve_operand(&lhs, &constants),
+                                self.resolve_operand(&rhs, &constants),
+                            ));
+                        }
+                        Instruction::FNe(dest, lhs, rhs) => {
+                            new_instrs.push(Instruction::FNe(
+                                dest,
+                                self.resolve_operand(&lhs, &constants),
+                                self.resolve_operand(&rhs, &constants),
+                            ));
+                        }
+                        Instruction::FLt(dest, lhs, rhs) => {
+                            new_instrs.push(Instruction::FLt(
+                                dest,
+                                self.resolve_operand(&lhs, &constants),
+                                self.resolve_operand(&rhs, &constants),
+                            ));
+                        }
+                        Instruction::FLe(dest, lhs, rhs) => {
+                            new_instrs.push(Instruction::FLe(
+                                dest,
+                                self.resolve_operand(&lhs, &constants),
+                                self.resolve_operand(&rhs, &constants),
+                            ));
+                        }
+                        Instruction::FGt(dest, lhs, rhs) => {
+                            new_instrs.push(Instruction::FGt(
+                                dest,
+                                self.resolve_operand(&lhs, &constants),
+                                self.resolve_operand(&rhs, &constants),
+                            ));
+                        }
+                        Instruction::FGe(dest, lhs, rhs) => {
+                            new_instrs.push(Instruction::FGe(
+                                dest,
+                                self.resolve_operand(&lhs, &constants),
+                                self.resolve_operand(&rhs, &constants),
+                            ));
+                        }
+                        Instruction::IToF(dest, src) => {
+                            new_instrs.push(Instruction::IToF(
+                                dest,
+                                self.resolve_operand(&src, &constants),
+                            ));
+                        }
+                        Instruction::FToI(dest, src) => {
+                            new_instrs.push(Instruction::FToI(
+                                dest,
+                                self.resolve_operand(&src, &constants),
+                            ));
+                        }
                     }
                 }
                 block.instructions = new_instrs;
@@ -270,6 +366,7 @@ impl Optimizer {
                     op.clone()
                 }
             }
+            Operand::FloatingConstant(_) => op.clone(),
             _ => op.clone(),
         }
     }

@@ -85,6 +85,36 @@ impl IrBuilder {
         Operand::Value(dest)
     }
 
+    pub fn fadd(&mut self, lhs: Operand, rhs: Operand) -> Operand {
+        let dest = self.new_reg();
+        self.emit(Instruction::FAdd(dest, lhs, rhs));
+        Operand::Value(dest)
+    }
+
+    pub fn fsub(&mut self, lhs: Operand, rhs: Operand) -> Operand {
+        let dest = self.new_reg();
+        self.emit(Instruction::FSub(dest, lhs, rhs));
+        Operand::Value(dest)
+    }
+
+    pub fn fmul(&mut self, lhs: Operand, rhs: Operand) -> Operand {
+        let dest = self.new_reg();
+        self.emit(Instruction::FMul(dest, lhs, rhs));
+        Operand::Value(dest)
+    }
+
+    pub fn fdiv(&mut self, lhs: Operand, rhs: Operand) -> Operand {
+        let dest = self.new_reg();
+        self.emit(Instruction::FDiv(dest, lhs, rhs));
+        Operand::Value(dest)
+    }
+
+    pub fn frem(&mut self, lhs: Operand, rhs: Operand) -> Operand {
+        let dest = self.new_reg();
+        self.emit(Instruction::FRem(dest, lhs, rhs));
+        Operand::Value(dest)
+    }
+
     pub fn bit_and(&mut self, lhs: Operand, rhs: Operand) -> Operand {
         let dest = self.new_reg();
         self.emit(Instruction::BitAnd(dest, lhs, rhs));
@@ -157,6 +187,42 @@ impl IrBuilder {
         Operand::Value(dest)
     }
 
+    pub fn feq(&mut self, lhs: Operand, rhs: Operand) -> Operand {
+        let dest = self.new_reg();
+        self.emit(Instruction::FEq(dest, lhs, rhs));
+        Operand::Value(dest)
+    }
+
+    pub fn fne(&mut self, lhs: Operand, rhs: Operand) -> Operand {
+        let dest = self.new_reg();
+        self.emit(Instruction::FNe(dest, lhs, rhs));
+        Operand::Value(dest)
+    }
+
+    pub fn flt(&mut self, lhs: Operand, rhs: Operand) -> Operand {
+        let dest = self.new_reg();
+        self.emit(Instruction::FLt(dest, lhs, rhs));
+        Operand::Value(dest)
+    }
+
+    pub fn fle(&mut self, lhs: Operand, rhs: Operand) -> Operand {
+        let dest = self.new_reg();
+        self.emit(Instruction::FLe(dest, lhs, rhs));
+        Operand::Value(dest)
+    }
+
+    pub fn fgt(&mut self, lhs: Operand, rhs: Operand) -> Operand {
+        let dest = self.new_reg();
+        self.emit(Instruction::FGt(dest, lhs, rhs));
+        Operand::Value(dest)
+    }
+
+    pub fn fge(&mut self, lhs: Operand, rhs: Operand) -> Operand {
+        let dest = self.new_reg();
+        self.emit(Instruction::FGe(dest, lhs, rhs));
+        Operand::Value(dest)
+    }
+
     pub fn jump(&mut self, target: String) {
         self.emit(Instruction::Jump(target));
     }
@@ -184,6 +250,24 @@ impl IrBuilder {
     pub fn mov(&mut self, src: Operand) -> Operand {
         let dest = self.new_reg();
         self.emit(Instruction::Move(dest, src));
+        Operand::Value(dest)
+    }
+
+    pub fn itof(&mut self, src: Operand) -> Operand {
+        let dest = self.new_reg();
+        self.emit(Instruction::IToF(dest, src));
+        Operand::Value(dest)
+    }
+
+    pub fn ftoi(&mut self, src: Operand) -> Operand {
+        let dest = self.new_reg();
+        self.emit(Instruction::FToI(dest, src));
+        Operand::Value(dest)
+    }
+
+    pub fn fcall(&mut self, name: String, args: Vec<Operand>) -> Operand {
+        let dest = self.new_reg();
+        self.emit(Instruction::FCall(dest, name, args));
         Operand::Value(dest)
     }
 

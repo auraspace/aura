@@ -175,7 +175,7 @@ impl Parser {
             }
             .to_string();
             self.advance();
-            let right = self.parse_primary();
+            let right = self.parse_unary();
             node = Expr::BinaryOp(Box::new(node), op, Box::new(right), s);
         }
 
@@ -203,6 +203,10 @@ impl Parser {
             TokenKind::Number(val) => {
                 self.advance();
                 Expr::Number(val, s)
+            }
+            TokenKind::Float(val) => {
+                self.advance();
+                Expr::Float(val, s)
             }
             TokenKind::StringLiteral(ls) => {
                 self.advance();

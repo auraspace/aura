@@ -4,6 +4,7 @@ pub mod eval;
 pub use env::{Environment, StatementResult, Value};
 
 use crate::compiler::ast::{Expr, Field, Program, Statement};
+use crate::compiler::sema::ty::Type;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
@@ -82,8 +83,15 @@ impl Interpreter {
                 let original_env_stack =
                     std::mem::replace(&mut self.env_stack, captured_env.clone());
                 self.push_scope();
-                for (i, pname) in params.iter().enumerate() {
-                    let val = args.get(i).cloned().unwrap_or(Value::Null);
+                for (i, (pname, pty)) in params.iter().enumerate() {
+                    let mut val = args.get(i).cloned().unwrap_or(Value::Null);
+                    if *pty == Type::Float64 || *pty == Type::Float32 {
+                        if let Value::Int(i) = val {
+                            val = Value::Float(i as f64);
+                        } else if let Value::Int64(i) = val {
+                            val = Value::Float(i as f64);
+                        }
+                    }
                     self.env.insert(pname.clone(), val);
                 }
                 let res = self.execute_statement(body.clone());
