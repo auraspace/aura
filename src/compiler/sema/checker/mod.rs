@@ -36,9 +36,21 @@ pub struct MethodInfo {
 pub struct ClassInfo {
     pub name: String,
     pub parent: Option<String>,
+    pub implements: Vec<String>,
     pub fields: HashMap<String, FieldInfo>,
     pub methods: HashMap<String, MethodInfo>,
     pub constructor: Option<(Vec<Type>, AccessModifier)>,
+    pub is_exported: bool,
+    pub defined_in: String,
+    pub span: Span,
+    pub doc: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct InterfaceInfo {
+    pub name: String,
+    pub fields: HashMap<String, FieldInfo>,
+    pub methods: HashMap<String, MethodInfo>,
     pub is_exported: bool,
     pub defined_in: String,
     pub span: Span,
@@ -83,6 +95,7 @@ pub struct SemanticError {
 pub struct SemanticAnalyzer {
     pub scope: Box<Scope>,
     pub classes: HashMap<String, ClassInfo>,
+    pub interfaces: HashMap<String, InterfaceInfo>,
     pub current_class: Option<String>,
     pub current_method: Option<String>,
     pub diagnostics: DiagnosticList,
@@ -101,6 +114,7 @@ impl SemanticAnalyzer {
         let mut analyzer = Self {
             scope: Box::new(Scope::new(None)),
             classes: HashMap::new(),
+            interfaces: HashMap::new(),
             current_class: None,
             current_method: None,
             diagnostics: DiagnosticList::new(),
@@ -190,6 +204,7 @@ impl SemanticAnalyzer {
             ClassInfo {
                 name: "Promise".to_string(),
                 parent: None,
+                implements: Vec::new(),
                 fields: HashMap::new(),
                 methods: promise_methods,
                 constructor: None,
@@ -384,6 +399,9 @@ impl SemanticAnalyzer {
 
         // Pass 1: Collect declarations from current program
         self.collect_definitions(&program);
+
+        // Pass 1.2: Validate interfaces
+        self.validate_interfaces();
 
         // Pass 1.5: Validate inheritance hierarchies
         self.validate_inheritance();
@@ -608,6 +626,60 @@ impl SemanticAnalyzer {
                 true
             }
 
+            // Interface structural typing
+            (src_ty, Type::Class(tgt_name)) if self.interfaces.contains_key(tgt_name) => {
+                let tgt_iface = self.interfaces.get(tgt_name).unwrap();
+
+                // Get source structure (either class or interface)
+                let (src_fields, src_methods) = if let Type::Class(src_name) = src_ty {
+                    if let Some(src_class) = self.classes.get(src_name) {
+                        (Some(&src_class.fields), Some(&src_class.methods))
+                    } else if let Some(src_iface) = self.interfaces.get(src_name) {
+                        (Some(&src_iface.fields), Some(&src_iface.methods))
+                    } else {
+                        (None, None)
+                    }
+                } else {
+                    (None, None)
+                };
+
+                if let (Some(fields), Some(methods)) = (src_fields, src_methods) {
+                    let fields: &HashMap<String, FieldInfo> = fields;
+                    let methods: &HashMap<String, MethodInfo> = methods;
+                    // Check fields
+                    for (name, tgt_f) in &tgt_iface.fields {
+                        if let Some(src_f) = fields.get(name) {
+                            if !self.is_assignable_internal(&src_f.ty, &tgt_f.ty, history) {
+                                return false;
+                            }
+                        } else {
+                            return false;
+                        }
+                    }
+                    // Check methods
+                    for (name, tgt_m) in &tgt_iface.methods {
+                        if let Some(src_m) = methods.get(name) {
+                            if src_m.params.len() != tgt_m.params.len() {
+                                return false;
+                            }
+                            for (p1, p2) in src_m.params.iter().zip(tgt_m.params.iter()) {
+                                if !self.is_assignable_internal(p2, p1, history) {
+                                    return false;
+                                }
+                            }
+                            if !self.is_assignable_internal(&src_m.ret_ty, &tgt_m.ret_ty, history) {
+                                return false;
+                            }
+                        } else {
+                            return false;
+                        }
+                    }
+                    true
+                } else {
+                    false
+                }
+            }
+
             // Structural identity for classes
             (Type::Class(src_name), Type::Class(tgt_name)) => {
                 if src_name == tgt_name {
@@ -625,7 +697,6 @@ impl SemanticAnalyzer {
 
                 false
             }
-
             _ => false,
         };
 
@@ -655,6 +726,11 @@ impl SemanticAnalyzer {
                     return Some((f.clone(), info.defined_in.clone(), info.span));
                 }
                 curr = info.parent.clone();
+            } else if let Some(info) = self.interfaces.get(&name) {
+                if let Some(f) = info.fields.get(field) {
+                    return Some((f.clone(), info.defined_in.clone(), info.span));
+                }
+                break;
             } else {
                 break;
             }
@@ -674,6 +750,11 @@ impl SemanticAnalyzer {
                     return Some((m.clone(), info.defined_in.clone(), info.span));
                 }
                 curr = info.parent.clone();
+            } else if let Some(info) = self.interfaces.get(&name) {
+                if let Some(m) = info.methods.get(method) {
+                    return Some((m.clone(), info.defined_in.clone(), info.span));
+                }
+                break;
             } else {
                 break;
             }
@@ -776,6 +857,81 @@ impl SemanticAnalyzer {
                             minfo.span,
                         );
                     }
+                }
+            }
+        }
+    }
+
+    fn validate_interfaces(&mut self) {
+        let class_names: Vec<String> = self.classes.keys().cloned().collect();
+        for name in class_names {
+            let info = self.classes.get(&name).unwrap().clone();
+            for iface_name in &info.implements {
+                if let Some(iface_info) = self.interfaces.get(iface_name) {
+                    // Check if class structurally implements the interface
+                    for (fname, f_info) in &iface_info.fields {
+                        if let Some(cf_info) = info.fields.get(fname) {
+                            if !self.is_assignable(&cf_info.ty, &f_info.ty) {
+                                let msg = format!("Class '{}' incorrectly implements interface '{}': field '{}' has incompatible type", name, iface_name, fname);
+                                self.diagnostics.push(Diagnostic::error(
+                                    msg,
+                                    info.span.line,
+                                    info.span.column,
+                                ));
+                            }
+                        } else {
+                            let msg = format!(
+                                "Class '{}' does not implement interface '{}': missing field '{}'",
+                                name, iface_name, fname
+                            );
+                            self.diagnostics.push(Diagnostic::error(
+                                msg,
+                                info.span.line,
+                                info.span.column,
+                            ));
+                        }
+                    }
+                    for (mname, m_info) in &iface_info.methods {
+                        if let Some(cm_info) = info.methods.get(mname) {
+                            // Check signature compatibility
+                            let mut compatible = cm_info.params.len() == m_info.params.len();
+                            if compatible {
+                                for (p1, p2) in cm_info.params.iter().zip(m_info.params.iter()) {
+                                    if p1 != p2 {
+                                        compatible = false;
+                                        break;
+                                    }
+                                }
+                            }
+                            if compatible && cm_info.ret_ty != m_info.ret_ty {
+                                compatible = false;
+                            }
+
+                            if !compatible {
+                                let msg = format!("Class '{}' incorrectly implements interface '{}': method '{}' has incompatible signature", name, iface_name, mname);
+                                self.diagnostics.push(Diagnostic::error(
+                                    msg,
+                                    info.span.line,
+                                    info.span.column,
+                                ));
+                            }
+                        } else {
+                            let msg = format!(
+                                "Class '{}' does not implement interface '{}': missing method '{}'",
+                                name, iface_name, mname
+                            );
+                            self.diagnostics.push(Diagnostic::error(
+                                msg,
+                                info.span.line,
+                                info.span.column,
+                            ));
+                        }
+                    }
+                } else {
+                    self.error(
+                        SemanticErrorKind::UndefinedClass(iface_name.clone()),
+                        info.span,
+                    );
                 }
             }
         }

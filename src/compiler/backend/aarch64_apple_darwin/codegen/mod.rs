@@ -11,6 +11,7 @@ pub struct Codegen {
     variables: HashMap<String, (usize, Type)>, // name -> (stack offset, type)
     global_variables: HashMap<String, (String, Type)>, // name -> (label, type)
     classes: HashMap<String, (Vec<String>, Vec<String>)>, // name -> (fields, methods)
+    interfaces: std::collections::HashSet<String>, // name
     enums: HashMap<String, HashMap<String, Expr>>, // name -> (member -> value)
     string_constants: HashMap<String, String>, // value -> label
     node_types: HashMap<String, HashMap<Span, Type>>,
@@ -33,6 +34,7 @@ impl Codegen {
             variables: HashMap::new(),
             global_variables: HashMap::new(),
             classes: HashMap::new(),
+            interfaces: std::collections::HashSet::new(),
             enums: HashMap::new(),
             string_constants: HashMap::new(),
             node_types: HashMap::new(),
@@ -223,6 +225,9 @@ impl Codegen {
             match actual_stmt {
                 Statement::ClassDeclaration { .. } => {
                     classes.push((program.file_path.clone(), actual_stmt))
+                }
+                Statement::Interface(decl) => {
+                    self.interfaces.insert(decl.name.clone());
                 }
                 Statement::FunctionDeclaration { .. } => {
                     fns.push((program.file_path.clone(), actual_stmt))

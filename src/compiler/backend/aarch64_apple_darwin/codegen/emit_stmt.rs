@@ -318,6 +318,7 @@ impl Codegen {
                 methods,
                 constructor,
                 extends: _,
+                implements: _,
                 span,
                 doc: _,
             } => {
@@ -382,6 +383,7 @@ impl Codegen {
                 self.current_class = old_class;
                 self.is_global_scope = saved_global_scope;
             }
+            Statement::Interface(_) => {}
             Statement::Error => panic!("Compiler bug: reaching error node in codegen"),
             Statement::TryCatch { try_block, .. } => {
                 // For now, just generate the try block to avoid panics

@@ -14,6 +14,8 @@ pub enum TokenKind {
     Constructor,
     New,
     Enum,
+    Interface,
+    Implements,
     Public,
     Private,
     Protected,

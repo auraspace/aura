@@ -315,6 +315,50 @@ pub(crate) fn format_statement_internal(f: &mut Formatter, stmt: &Statement, inc
             f.result.push_str(content);
             f.result.push_str("*/");
         }
+        Statement::Interface(decl) => {
+            if include_doc {
+                f.format_doc(&decl.doc);
+            }
+            f.indent();
+            f.result.push_str("interface ");
+            f.result.push_str(&decl.name);
+            f.result.push_str(" {\n");
+            f.indent_level += 1;
+            for field in &decl.fields {
+                f.format_doc(&field.doc);
+                f.indent();
+                if field.is_readonly {
+                    f.result.push_str("readonly ");
+                }
+                f.result.push_str(&field.name);
+                f.result.push_str(": ");
+                f.format_type_expr(&field.ty);
+                f.result.push_str(";\n");
+            }
+            for (i, method) in decl.methods.iter().enumerate() {
+                if i > 0 || !decl.fields.is_empty() {
+                    f.result.push('\n');
+                }
+                f.format_doc(&method.doc);
+                f.indent();
+                f.result.push_str(&method.name);
+                f.result.push('(');
+                for (j, (pname, pty)) in method.params.iter().enumerate() {
+                    if j > 0 {
+                        f.result.push_str(", ");
+                    }
+                    f.result.push_str(pname);
+                    f.result.push_str(": ");
+                    f.format_type_expr(pty);
+                }
+                f.result.push_str("): ");
+                f.format_type_expr(&method.return_ty);
+                f.result.push_str(";\n");
+            }
+            f.indent_level -= 1;
+            f.indent();
+            f.result.push('}');
+        }
         Statement::Error => {
             f.indent();
             f.result.push_str("// ERROR");

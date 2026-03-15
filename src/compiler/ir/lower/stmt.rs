@@ -160,6 +160,7 @@ impl Lowerer {
                 todo!("Imports/exports lowering to IR is not implemented yet")
             }
             Statement::Comment(_, _) | Statement::RegularBlockComment(_, _) => {}
+            Statement::Interface(_) => {}
         }
     }
 }

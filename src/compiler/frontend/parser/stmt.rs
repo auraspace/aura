@@ -43,6 +43,7 @@ impl Parser {
             TokenKind::Return => self.parse_return_statement(),
             TokenKind::Class => self.parse_class_declaration(doc),
             TokenKind::Enum => self.parse_enum_declaration(doc),
+            TokenKind::Interface => self.parse_interface_declaration(doc),
             TokenKind::Import => self.parse_import_statement(),
             TokenKind::Export => self.parse_export_statement(doc),
             TokenKind::Try => self.parse_try_statement(),
@@ -193,6 +194,7 @@ impl Parser {
             }
             TokenKind::Class => self.parse_class_declaration(doc)?,
             TokenKind::Enum => self.parse_enum_declaration(doc)?,
+            TokenKind::Interface => self.parse_interface_declaration(doc)?,
             _ => {
                 if !self.panic_mode {
                     let token = self.peek();
@@ -526,6 +528,30 @@ impl Parser {
             }
         }
 
+        let mut implements = Vec::new();
+        if self.peek().kind == TokenKind::Implements {
+            self.advance();
+            loop {
+                if let TokenKind::Identifier(interface_name) = self.peek().kind.clone() {
+                    self.advance();
+                    implements.push(interface_name);
+                    if self.peek().kind == TokenKind::Comma {
+                        self.advance();
+                    } else {
+                        break;
+                    }
+                } else {
+                    let token = self.peek();
+                    self.diagnostics.push(Diagnostic::error(
+                        "Expected interface name after implements keyword".to_string(),
+                        token.line,
+                        token.column,
+                    ));
+                    break;
+                }
+            }
+        }
+
         self.consume(TokenKind::OpenBrace)?;
         let mut fields = Vec::new();
         let mut methods = Vec::new();
@@ -771,12 +797,143 @@ impl Parser {
             name,
             name_span,
             extends,
+            implements,
             fields,
             methods,
             constructor,
             span: s,
             doc,
         })
+    }
+
+    pub(crate) fn parse_interface_declaration(
+        &mut self,
+        doc: Option<DocComment>,
+    ) -> Result<Statement, ()> {
+        let s = self.span();
+        self.consume(TokenKind::Interface)?;
+        let (name, name_span) = if let Token {
+            kind: TokenKind::Identifier(name),
+            line,
+            column,
+        } = self.peek().clone()
+        {
+            self.advance();
+            (name, Span::new(line, column))
+        } else {
+            if !self.panic_mode {
+                let token = self.peek();
+                self.diagnostics.push(Diagnostic::error(
+                    "Expected interface name after interface keyword".to_string(),
+                    token.line,
+                    token.column,
+                ));
+                self.panic_mode = true;
+            }
+            return Err(());
+        };
+
+        self.consume(TokenKind::OpenBrace)?;
+        let mut fields = Vec::new();
+        let mut methods = Vec::new();
+
+        while self.peek().kind != TokenKind::CloseBrace && !self.is_at_end() {
+            let member_doc = self.parse_doc_comments();
+            let mut ms = self.span();
+
+            let mut is_readonly = false;
+            if self.peek().kind == TokenKind::Readonly {
+                self.advance();
+                is_readonly = true;
+                ms = self.span();
+            }
+
+            let kind = self.peek().kind.clone();
+            match kind {
+                TokenKind::Identifier(fname) => {
+                    let fs = self.span();
+                    self.advance();
+                    if self.peek().kind == TokenKind::OpenParen {
+                        self.advance();
+                        let mut params = Vec::new();
+                        while self.peek().kind != TokenKind::CloseParen && !self.is_at_end() {
+                            if let TokenKind::Identifier(pname) = self.peek().kind.clone() {
+                                self.advance();
+                                let _ = self.consume(TokenKind::Colon);
+                                let pty = self.parse_type_expr();
+                                params.push((pname, pty));
+                                if self.peek().kind == TokenKind::Comma {
+                                    self.advance();
+                                }
+                            } else {
+                                break;
+                            }
+                        }
+                        let _ = self.consume(TokenKind::CloseParen);
+
+                        let return_ty = if self.peek().kind == TokenKind::Colon {
+                            self.advance();
+                            self.parse_type_expr()
+                        } else {
+                            TypeExpr::Name("void".to_string(), ms)
+                        };
+
+                        let _ = self.consume(TokenKind::Semicolon);
+                        methods.push(ClassMethod {
+                            name: fname,
+                            name_span: fs,
+                            params,
+                            return_ty,
+                            body: Box::new(Statement::Error), // Interfaces have no bodies
+                            is_static: false,
+                            is_async: false,
+                            is_override: false,
+                            access: AccessModifier::Public,
+                            span: ms,
+                            doc: member_doc,
+                        });
+                    } else {
+                        let _ = self.consume(TokenKind::Colon);
+                        let fty = self.parse_type_expr();
+                        let _ = self.consume(TokenKind::Semicolon);
+                        fields.push(Field {
+                            name: fname,
+                            name_span: fs,
+                            ty: fty,
+                            value: None,
+                            is_static: false,
+                            is_readonly,
+                            access: AccessModifier::Public,
+                            span: fs,
+                            doc: member_doc,
+                        });
+                    }
+                }
+                _ => {
+                    if !self.panic_mode {
+                        let token = self.peek();
+                        self.diagnostics.push(Diagnostic::error(
+                            format!("Unexpected token in interface body: {:?}", token.kind),
+                            token.line,
+                            token.column,
+                        ));
+                        self.panic_mode = true;
+                    }
+                    self.advance();
+                    self.synchronize();
+                }
+            }
+        }
+        self.consume(TokenKind::CloseBrace)?;
+
+        Ok(Statement::Interface(crate::compiler::ast::InterfaceDecl {
+            name,
+            name_span,
+            fields,
+            methods,
+            span: s,
+            doc,
+        }))
     }
 
     pub(crate) fn parse_enum_declaration(

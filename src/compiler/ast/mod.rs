@@ -179,6 +179,16 @@ pub struct EnumDecl {
 }
 
 #[derive(Debug, Clone)]
+pub struct InterfaceDecl {
+    pub name: String,
+    pub name_span: Span,
+    pub fields: Vec<Field>,
+    pub methods: Vec<ClassMethod>,
+    pub span: Span,
+    pub doc: Option<DocComment>,
+}
+
+#[derive(Debug, Clone)]
 pub enum ImportItem {
     Named(Vec<(String, Span)>),
     Namespace((String, Span)),
@@ -187,6 +197,7 @@ pub enum ImportItem {
 #[derive(Debug, Clone)]
 pub enum Statement {
     Enum(EnumDecl),
+    Interface(InterfaceDecl),
     VarDeclaration {
         name: String,
         name_span: Span,
@@ -210,6 +221,7 @@ pub enum Statement {
         name: String,
         name_span: Span,
         extends: Option<String>,
+        implements: Vec<String>,
         fields: Vec<Field>,
         methods: Vec<ClassMethod>,
         constructor: Option<ClassMethod>,
@@ -257,6 +269,7 @@ impl Statement {
     pub fn span(&self) -> Span {
         match self {
             Statement::Enum(d) => d.span,
+            Statement::Interface(d) => d.span,
             Statement::VarDeclaration { span, .. } => *span,
             Statement::FunctionDeclaration { span, .. } => *span,
             Statement::ClassDeclaration { span, .. } => *span,

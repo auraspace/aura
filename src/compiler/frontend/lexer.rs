@@ -418,6 +418,8 @@ impl<'a> Lexer<'a> {
             "constructor" => TokenKind::Constructor,
             "new" => TokenKind::New,
             "enum" => TokenKind::Enum,
+            "interface" => TokenKind::Interface,
+            "implements" => TokenKind::Implements,
             "static" => TokenKind::Static,
             "this" => TokenKind::This,
             "is" => TokenKind::Is,

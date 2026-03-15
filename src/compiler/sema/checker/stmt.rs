@@ -307,6 +307,7 @@ impl SemanticAnalyzer {
                 methods,
                 constructor,
                 extends: _,
+                implements: _,
                 span: _,
                 doc: _,
             } => {
@@ -445,6 +446,7 @@ impl SemanticAnalyzer {
             Statement::Export { decl, .. } => {
                 self.check_statement(*decl);
             }
+            Statement::Interface(_) => {}
             Statement::Comment(_, _) | Statement::RegularBlockComment(_, _) => {}
         }
     }

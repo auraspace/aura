@@ -407,7 +407,9 @@ impl SemanticAnalyzer {
                         }
                         return minfo.ret_ty;
                     } else {
-                        if !self.classes.contains_key(class_name) {
+                        if !self.classes.contains_key(class_name)
+                            && !self.interfaces.contains_key(class_name)
+                        {
                             self.error(SemanticErrorKind::UndefinedClass(class_name.clone()), span);
                         } else {
                             self.error(

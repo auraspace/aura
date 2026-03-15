@@ -1,5 +1,5 @@
 use crate::compiler::ast::Span;
-use crate::compiler::ast::{ImportItem, Program, Statement};
+use crate::compiler::ast::{AccessModifier, ImportItem, Program, Statement};
 use crate::compiler::sema::checker::{ClassInfo, SemanticAnalyzer, SemanticErrorKind};
 use crate::compiler::sema::ty::Type;
 use std::collections::HashMap;
@@ -18,6 +18,7 @@ impl SemanticAnalyzer {
                 name,
                 name_span,
                 extends,
+                implements,
                 fields,
                 methods,
                 constructor,
@@ -25,7 +26,10 @@ impl SemanticAnalyzer {
                 doc,
             } = actual_stmt
             {
-                if self.classes.contains_key(name) || self.scope.lookup_local(name).is_some() {
+                if self.classes.contains_key(name)
+                    || self.interfaces.contains_key(name)
+                    || self.scope.lookup_local(name).is_some()
+                {
                     self.error(
                         SemanticErrorKind::DuplicateDeclaration(name.clone()),
                         *name_span,
@@ -97,6 +101,7 @@ impl SemanticAnalyzer {
                     ClassInfo {
                         name: name.clone(),
                         parent: extends.clone(),
+                        implements: implements.clone(),
                         fields: field_map,
                         methods: method_map,
                         constructor: ctor_info,
@@ -116,6 +121,68 @@ impl SemanticAnalyzer {
                         );
                     }
                 }
+            } else if let Statement::Interface(decl) = actual_stmt {
+                if self.classes.contains_key(&decl.name)
+                    || self.interfaces.contains_key(&decl.name)
+                    || self.scope.lookup_local(&decl.name).is_some()
+                {
+                    self.error(
+                        SemanticErrorKind::DuplicateDeclaration(decl.name.clone()),
+                        decl.name_span,
+                    );
+                }
+                let mut field_map = HashMap::new();
+                for f in &decl.fields {
+                    let ty = self.resolve_type(f.ty.clone());
+                    field_map.insert(
+                        f.name.clone(),
+                        crate::compiler::sema::checker::FieldInfo {
+                            ty,
+                            is_static: false,
+                            is_readonly: f.is_readonly,
+                            defined_in_class: decl.name.clone(),
+                            access: AccessModifier::Public,
+                            span: f.name_span,
+                            doc: f.doc.as_ref().map(|d| d.content()),
+                        },
+                    );
+                }
+                let mut method_map = HashMap::new();
+                for m in &decl.methods {
+                    let param_tys = m
+                        .params
+                        .iter()
+                        .map(|(_, ty)| self.resolve_type(ty.clone()))
+                        .collect();
+                    let ret_ty = self.resolve_type(m.return_ty.clone());
+                    method_map.insert(
+                        m.name.clone(),
+                        crate::compiler::sema::checker::MethodInfo {
+                            params: param_tys,
+                            ret_ty,
+                            is_static: false,
+                            is_async: false,
+                            is_override: false,
+                            defined_in_class: decl.name.clone(),
+                            access: AccessModifier::Public,
+                            span: m.name_span,
+                            doc: m.doc.as_ref().map(|d| d.content()),
+                        },
+                    );
+                }
+
+                self.interfaces.insert(
+                    decl.name.clone(),
+                    crate::compiler::sema::checker::InterfaceInfo {
+                        name: decl.name.clone(),
+                        fields: field_map,
+                        methods: method_map,
+                        is_exported,
+                        defined_in: self.current_file.clone(),
+                        span: decl.span,
+                        doc: decl.doc.as_ref().map(|d| d.content()),
+                    },
+                );
             } else if let Statement::FunctionDeclaration {
                 name,
                 name_span,

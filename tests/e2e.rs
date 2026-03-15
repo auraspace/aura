@@ -226,6 +226,7 @@ e2e_test!(oop_inheritance, "04_oop/03_inheritance.aura", ir);
 e2e_test!(oop_multi_class, "04_oop/04_multi_class.aura");
 e2e_test!(oop_chaining, "04_oop/05_chaining.aura");
 e2e_test!(oop_access_modifiers, "04_oop/06_access_modifiers.aura");
+e2e_test!(oop_interfaces, "04_oop/07_interfaces.aura");
 
 // --- 05_enums ---
 e2e_test!(enum_numeric, "05_enums/01_numeric.aura");

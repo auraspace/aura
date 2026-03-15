@@ -89,6 +89,7 @@ impl Parser {
 
             match self.peek().kind {
                 TokenKind::Class
+                | TokenKind::Interface
                 | TokenKind::Function
                 | TokenKind::Let
                 | TokenKind::If

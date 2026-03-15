@@ -76,6 +76,7 @@ impl Lowerer {
                                 fields,
                                 methods,
                                 extends: _,
+                                implements: _,
                                 ..
                             } = stmt
                             {
@@ -115,6 +116,7 @@ impl Lowerer {
                                 methods,
                                 constructor,
                                 extends: _,
+                                implements: _,
                                 ..
                             } = stmt
                             {
@@ -176,6 +178,9 @@ impl Lowerer {
                     self.parent_classes.insert(name.clone(), parent.clone());
                 }
             }
+            if let Statement::Interface(_decl) = stmt {
+                // Collect interface info if needed for IR lowering (currently not used)
+            }
         }
 
         // Pass 1: Collect class layouts, structures and function types
@@ -192,6 +197,7 @@ impl Lowerer {
                     fields,
                     methods,
                     extends,
+                    implements: _,
                     ..
                 } = pending_classes[i]
                 {
@@ -373,6 +379,7 @@ impl Lowerer {
                         ));
                     }
                 }
+                Statement::Interface(_) => {}
                 _ => global_stmts.push(stmt),
             }
         }
@@ -485,6 +492,7 @@ mod tests {
                     methods: vec![],
                     constructor: None,
                     extends: None,
+                    implements: vec![],
                     span,
                     doc: None,
                 },

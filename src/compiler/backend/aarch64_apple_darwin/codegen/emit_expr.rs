@@ -388,67 +388,79 @@ impl Codegen {
                 if let Some(cname) = class_name_found {
                     method_label = format!("_{}_{}", cname, member);
                 } else if let Some(Type::Class(ref class_name)) = self.get_node_type(&obj_span) {
-                    method_label = format!("_{}_{}", class_name, member);
-                } else if is_primitive {
-                    let mut ty = self
-                        .get_node_type(&obj_span)
-                        .cloned()
-                        .unwrap_or(Type::Unknown);
-                    if matches!(ty, Type::Unknown) {
-                        match &*obj {
-                            Expr::StringLiteral(_, _) => ty = Type::String,
-                            Expr::ArrayLiteral(_, _) => ty = Type::Array(Box::new(Type::Unknown)),
-                            Expr::Variable(ref name, _) => {
-                                if let Some((_, var_ty)) = self.variables.get(name) {
-                                    ty = var_ty.clone();
-                                } else if let Some((_, var_ty)) = self.global_variables.get(name) {
-                                    ty = var_ty.clone();
-                                }
-                            }
-                            _ => {}
-                        }
+                    if !self.interfaces.contains(class_name) {
+                        method_label = format!("_{}_{}", class_name, member);
                     }
-                    if matches!(ty, Type::Unknown) {
-                        if matches!(
-                            member.as_str(),
-                            "charAt"
-                                | "substring"
-                                | "indexOf"
-                                | "toUpper"
-                                | "toLower"
-                                | "trim"
-                                | "len"
-                        ) {
-                            ty = Type::String;
-                        } else if matches!(member.as_str(), "push" | "pop" | "join" | "get" | "len")
-                        {
-                            ty = Type::Array(Box::new(Type::Unknown));
-                        }
-                    }
-                    if matches!(ty, Type::String) {
-                        method_label = format!("_aura_string_{}", member);
-                    } else {
-                        method_label = format!("_aura_array_{}", member);
-                    }
-                } else {
-                    // Fallback search
-                    for (class_name, (_, methods)) in &self.classes {
-                        if methods.contains(&member) {
-                            method_label = format!("_{}_{}", class_name, member);
-                            break;
-                        }
-                    }
+                }
 
-                    if method_label.starts_with("_METHOD_") {
-                        if matches!(
-                            member.as_str(),
-                            "charAt" | "substring" | "indexOf" | "toUpper" | "toLower" | "trim"
-                        ) {
+                if method_label.starts_with("_METHOD_") {
+                    if is_primitive {
+                        let mut ty = self
+                            .get_node_type(&obj_span)
+                            .cloned()
+                            .unwrap_or(Type::Unknown);
+                        if matches!(ty, Type::Unknown) {
+                            match &*obj {
+                                Expr::StringLiteral(_, _) => ty = Type::String,
+                                Expr::ArrayLiteral(_, _) => {
+                                    ty = Type::Array(Box::new(Type::Unknown))
+                                }
+                                Expr::Variable(ref name, _) => {
+                                    if let Some((_, var_ty)) = self.variables.get(name) {
+                                        ty = var_ty.clone();
+                                    } else if let Some((_, var_ty)) =
+                                        self.global_variables.get(name)
+                                    {
+                                        ty = var_ty.clone();
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                        if matches!(ty, Type::Unknown) {
+                            if matches!(
+                                member.as_str(),
+                                "charAt"
+                                    | "substring"
+                                    | "indexOf"
+                                    | "toUpper"
+                                    | "toLower"
+                                    | "trim"
+                                    | "len"
+                            ) {
+                                ty = Type::String;
+                            } else if matches!(
+                                member.as_str(),
+                                "push" | "pop" | "join" | "get" | "len"
+                            ) {
+                                ty = Type::Array(Box::new(Type::Unknown));
+                            }
+                        }
+                        if matches!(ty, Type::String) {
                             method_label = format!("_aura_string_{}", member);
-                        } else if matches!(member.as_str(), "push" | "pop" | "join" | "get") {
+                        } else {
                             method_label = format!("_aura_array_{}", member);
-                        } else if member == "len" {
-                            method_label = format!("_aura_string_{}", member);
+                        }
+                    } else {
+                        // Fallback search
+                        for (class_name, (_, methods)) in &self.classes {
+                            if methods.contains(&member) {
+                                method_label = format!("_{}_{}", class_name, member);
+                                break;
+                            }
+                        }
+
+                        if method_label.starts_with("_METHOD_") {
+                            if matches!(
+                                member.as_str(),
+                                "charAt" | "substring" | "indexOf" | "toUpper" | "toLower" | "trim"
+                            ) {
+                                method_label = format!("_aura_string_{}", member);
+                            } else if matches!(member.as_str(), "push" | "pop" | "join" | "get") {
+                                method_label = format!("_aura_array_{}", member);
+                            } else if member == "len" {
+                                method_label = format!("_aura_string_{}", member);
+                            }
                         }
                     }
                 }
