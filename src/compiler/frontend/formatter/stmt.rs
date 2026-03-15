@@ -94,6 +94,7 @@ pub(crate) fn format_statement_internal(f: &mut Formatter, stmt: &Statement, inc
             constructor,
             extends,
             implements,
+            is_abstract,
             doc,
             ..
         } => {
@@ -101,6 +102,9 @@ pub(crate) fn format_statement_internal(f: &mut Formatter, stmt: &Statement, inc
                 f.format_doc(doc);
             }
             f.indent();
+            if *is_abstract {
+                f.result.push_str("abstract ");
+            }
             f.result.push_str("class ");
             f.result.push_str(name);
             if let Some(ext) = extends {
@@ -169,6 +173,9 @@ pub(crate) fn format_statement_internal(f: &mut Formatter, stmt: &Statement, inc
                 f.indent();
                 f.result.push_str(method.access.as_str());
                 f.result.push(' ');
+                if method.is_abstract {
+                    f.result.push_str("abstract ");
+                }
                 if method.is_static {
                     f.result.push_str("static ");
                 }
@@ -190,9 +197,13 @@ pub(crate) fn format_statement_internal(f: &mut Formatter, stmt: &Statement, inc
                 }
                 f.result.push_str("): ");
                 f.format_type_expr(&method.return_ty);
-                f.result.push_str(" ");
-                format_statement_internal(f, &method.body, true);
-                f.result.push('\n');
+                if method.is_abstract {
+                    f.result.push_str(";\n");
+                } else {
+                    f.result.push_str(" ");
+                    format_statement_internal(f, &method.body, true);
+                    f.result.push('\n');
+                }
             }
 
             f.indent_level -= 1;
