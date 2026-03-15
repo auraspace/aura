@@ -3,19 +3,19 @@
  * This report error "Duplicate declaration: Error" because in compiler, it was declared in std/core.aura and. Ignore it.
  */
 class Error {
-  message: string;
+  public message: string;
 
   /**
    * Creates a new Error with the given message.
    */
-  constructor(message: string) {
+  public constructor(message: string) {
     this.message = message;
   }
 
   /**
    * Returns the error message.
    */
-  toString(): string {
+  public toString(): string {
     return this.message;
   }
 }

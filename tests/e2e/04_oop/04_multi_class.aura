@@ -5,27 +5,27 @@
 // 5
 
 class Vec2 {
-  x: i32;
-  y: i32;
+  public x: i32;
+  public y: i32;
 
-  constructor(x: i32, y: i32) {
+  public constructor(x: i32, y: i32) {
     this.x = x;
     this.y = y;
   }
 }
 
 class Triangle {
-  a: i32;
-  b: i32;
-  c: i32;
+  public a: i32;
+  public b: i32;
+  public c: i32;
 
-  constructor(a: i32, b: i32, c: i32) {
+  public constructor(a: i32, b: i32, c: i32) {
     this.a = a;
     this.b = b;
     this.c = c;
   }
 
-  sides(): i32 {
+  public sides(): i32 {
     return this.a + this.b + this.c;
   }
 }

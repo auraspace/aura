@@ -3,18 +3,18 @@
 // 10
 
 class Counter {
-  count: i32;
+  public count: i32;
 
-  constructor() {
+  public constructor() {
     this.count = 0;
   }
 
-  increment(): i32 {
+  public increment(): i32 {
     this.count = this.count + 1;
     return this.count;
   }
 
-  get(): i32 {
+  public get(): i32 {
     return this.count;
   }
 }

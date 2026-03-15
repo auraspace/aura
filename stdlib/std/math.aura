@@ -5,7 +5,7 @@ export class Math {
   /**
    * Returns the absolute value of an integer.
    */
-  static abs(n: Int32): Int32 {
+  public static abs(n: Int32): Int32 {
     if (n < 0) {
       return 0 - n;
     }
@@ -15,7 +15,7 @@ export class Math {
   /**
    * Returns the maximum of two integers.
    */
-  static max(a: Int32, b: Int32): Int32 {
+  public static max(a: Int32, b: Int32): Int32 {
     if (a > b) {
       return a;
     }

@@ -5,35 +5,35 @@ export class FS {
   /**
    * Opens a file and returns a file descriptor.
    */
-  static open(path: string, flags: i32, mode: i32): i32 {
+  public static open(path: string, flags: i32, mode: i32): i32 {
     return __fs_open(path, flags, mode);
   }
 
   /**
    * Closes an open file descriptor.
    */
-  static close(fd: i32): void {
+  public static close(fd: i32): void {
     __fs_close(fd);
   }
 
   /**
    * Reads up to `size` bytes from a file descriptor.
    */
-  static read(fd: i32, size: i32): string {
+  public static read(fd: i32, size: i32): string {
     return __fs_read(fd, size);
   }
 
   /**
    * Writes a string to a file descriptor.
    */
-  static write(fd: i32, content: string): i32 {
+  public static write(fd: i32, content: string): i32 {
     return __fs_write(fd, content);
   }
 
   /**
    * Synchronously reads the entire contents of a file as a string.
    */
-  static readFileSync(path: string): string {
+  public static readFileSync(path: string): string {
     let fd = __fs_open(path, O_RDONLY, 0);
     if (fd < 0)     return "";
     let content = __fs_read(fd, 4096);
@@ -44,7 +44,7 @@ export class FS {
   /**
    * Synchronously writes a string to a file, creating it if it doesn't exist.
    */
-  static writeFileSync(path: string, content: string): void {
+  public static writeFileSync(path: string, content: string): void {
     // O_CREAT | O_WRONLY | O_TRUNC = 64 | 1 | 1024 = 1089
     // 0o644 is 420
     let fd = __fs_open(path, O_CREAT | O_WRONLY | O_TRUNC, 420);

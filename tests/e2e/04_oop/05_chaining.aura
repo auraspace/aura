@@ -4,18 +4,18 @@
 // 200
 
 class Acc {
-  total: i32;
+  public total: i32;
 
-  constructor(start: i32) {
+  public constructor(start: i32) {
     this.total = start;
   }
 
-  add(n: i32): i32 {
+  public add(n: i32): i32 {
     this.total = this.total + n;
     return this.total;
   }
 
-  val(): i32 {
+  public val(): i32 {
     return this.total;
   }
 }

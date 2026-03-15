@@ -2,11 +2,11 @@
 // Woof!
 
 abstract class Animal {
-  abstract function makeSound(): void;
+  public abstract makeSound(): void;
 }
 
 class Dog extends Animal {
-  public override function makeSound(): void {
+  public override makeSound(): void {
     print "Woof!";
   }
 }

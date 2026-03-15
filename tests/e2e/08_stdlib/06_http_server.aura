@@ -4,7 +4,6 @@
 
 import { HTTPServer, HTTPResponse, HTTPRequest } from "std/http.aura";
 
-
 // Test basic HTTPServer structure
 // This test starts a server and prints a message.
 // Since it's a while(true) loop, we can't easily test it in E2E automated suite
