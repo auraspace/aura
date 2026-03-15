@@ -3,15 +3,15 @@
 // Barking...
 
 abstract class Animal {
-  abstract function makeSound(): void;
-  
+  public abstract makeSound(): void;
+
   public move(): void {
     print "Moving...";
   }
 }
 
 class Dog extends Animal {
-  public override function makeSound(): void {
+  public override makeSound(): void {
     print "Woof!";
   }
 }
@@ -21,37 +21,38 @@ dog.makeSound();
 
 // Test abstract method implementation in a chain
 abstract class Mammal extends Animal {
-  abstract function breathe(): void;
+  public abstract breathe(): void;
 }
 
 class Human extends Mammal {
-  public override function makeSound(): void {
+  public override makeSound(): void {
     print "Hello!";
   }
-  
-  public override function breathe(): void {
+
+  public override breathe(): void {
     print "Breathing...";
   }
 }
 
 // Test multiple abstract methods
 abstract class Shape {
-  abstract function area(): i32;
-  abstract function perimeter(): i32;
+  public abstract area(): i32;
+
+  public abstract perimeter(): i32;
 }
 
 class Square extends Shape {
   private side: i32;
-  
-  constructor(side: i32) {
+
+  public constructor(side: i32) {
     this.side = side;
   }
-  
-  public override function area(): i32 {
+
+  public override area(): i32 {
     return this.side * this.side;
   }
-  
-  public override function perimeter(): i32 {
+
+  public override perimeter(): i32 {
     return 4 * this.side;
   }
 }
