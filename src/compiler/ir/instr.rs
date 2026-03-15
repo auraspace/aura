@@ -22,6 +22,14 @@ pub enum Instruction {
     Div(u32, Operand, Operand),
     Rem(u32, Operand, Operand),
 
+    BitAnd(u32, Operand, Operand),
+    BitOr(u32, Operand, Operand),
+    BitXor(u32, Operand, Operand),
+    Shl(u32, Operand, Operand),
+    Shr(u32, Operand, Operand),
+
+    BitNot(u32, Operand),
+
     // Comparison
     Eq(u32, Operand, Operand),
     Ne(u32, Operand, Operand),
@@ -99,6 +107,12 @@ impl std::fmt::Display for Instruction {
             Instruction::Mul(d, l, r) => write!(f, "  %{} = mul {}, {}", d, l, r),
             Instruction::Div(d, l, r) => write!(f, "  %{} = div {}, {}", d, l, r),
             Instruction::Rem(d, l, r) => write!(f, "  %{} = rem {}, {}", d, l, r),
+            Instruction::BitAnd(d, l, r) => write!(f, "  %{} = and {}, {}", d, l, r),
+            Instruction::BitOr(d, l, r) => write!(f, "  %{} = or {}, {}", d, l, r),
+            Instruction::BitXor(d, l, r) => write!(f, "  %{} = xor {}, {}", d, l, r),
+            Instruction::Shl(d, l, r) => write!(f, "  %{} = shl {}, {}", d, l, r),
+            Instruction::Shr(d, l, r) => write!(f, "  %{} = shr {}, {}", d, l, r),
+            Instruction::BitNot(d, s) => write!(f, "  %{} = not {}", d, s),
             Instruction::Eq(d, l, r) => write!(f, "  %{} = eq {}, {}", d, l, r),
             Instruction::Ne(d, l, r) => write!(f, "  %{} = ne {}, {}", d, l, r),
             Instruction::Lt(d, l, r) => write!(f, "  %{} = lt {}, {}", d, l, r),

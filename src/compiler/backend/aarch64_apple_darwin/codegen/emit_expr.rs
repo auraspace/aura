@@ -159,6 +159,15 @@ impl Codegen {
                     "&" => {
                         self.emitter.output.push_str("    and x0, x0, x1\n");
                     }
+                    "^" => {
+                        self.emitter.output.push_str("    eor x0, x0, x1\n");
+                    }
+                    "<<" => {
+                        self.emitter.output.push_str("    lsl x0, x0, x1\n");
+                    }
+                    ">>" => {
+                        self.emitter.output.push_str("    lsr x0, x0, x1\n");
+                    }
                     _ => panic!("Unsupported operator {}", op),
                 }
             }
@@ -487,6 +496,8 @@ impl Codegen {
                 if op == "-" {
                     self.emitter
                         .sub(AsmRegister::X0, AsmRegister::XZR, AsmRegister::X0);
+                } else if op == "~" {
+                    self.emitter.output.push_str("    mvn x0, x0\n");
                 }
             }
             Expr::TypeTest(expr, ty_expr, _) => {

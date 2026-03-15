@@ -82,6 +82,11 @@ impl Lowerer {
                     "<=" => self.builder.le(lhs, rhs),
                     ">" => self.builder.gt(lhs, rhs),
                     ">=" => self.builder.ge(lhs, rhs),
+                    "&" => self.builder.bit_and(lhs, rhs),
+                    "|" => self.builder.bit_or(lhs, rhs),
+                    "^" => self.builder.bit_xor(lhs, rhs),
+                    "<<" => self.builder.shl(lhs, rhs),
+                    ">>" => self.builder.shr(lhs, rhs),
                     _ => panic!("Unsupported operator {}", op),
                 }
             }
@@ -316,6 +321,8 @@ impl Lowerer {
                 let val = self.lower_expr(*expr);
                 if op == "-" {
                     self.builder.sub(Operand::Constant(0), val)
+                } else if op == "~" {
+                    self.builder.bit_not(val)
                 } else {
                     val
                 }

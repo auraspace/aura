@@ -114,11 +114,26 @@ impl SemanticAnalyzer {
                             Type::Boolean
                         }
                     }
-                    "+" | "-" | "*" | "/" | "%" | "|" => {
+                    "+" | "-" | "*" | "/" | "%" => {
                         if lhs.is_numeric() && rhs.is_numeric() {
                             lhs
                         } else if op == "+" && (lhs == Type::String || rhs == Type::String) {
                             Type::String
+                        } else {
+                            self.error(
+                                SemanticErrorKind::IncompatibleBinaryOperators(
+                                    lhs.to_string(),
+                                    op,
+                                    rhs.to_string(),
+                                ),
+                                span,
+                            );
+                            Type::Unknown
+                        }
+                    }
+                    "&" | "|" | "^" | "<<" | ">>" => {
+                        if lhs.is_integer() && rhs.is_integer() {
+                            lhs
                         } else {
                             self.error(
                                 SemanticErrorKind::IncompatibleBinaryOperators(
@@ -534,6 +549,8 @@ impl SemanticAnalyzer {
             Expr::UnaryOp(op, expr, span) => {
                 let expr_ty = self.check_expr(*expr);
                 if op == "-" && expr_ty.is_numeric() {
+                    expr_ty
+                } else if op == "~" && expr_ty.is_integer() {
                     expr_ty
                 } else {
                     self.error(

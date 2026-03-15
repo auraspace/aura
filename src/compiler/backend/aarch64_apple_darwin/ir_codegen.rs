@@ -150,6 +150,41 @@ impl IrCodegen {
                 self.emitter.output.push_str("    sub x16, x16, x18\n");
                 self.store_reg(dest, Register::X16);
             }
+            Instruction::BitAnd(dest, lhs, rhs) => {
+                self.load_operand(Register::X16, lhs);
+                self.load_operand(Register::X17, rhs);
+                self.emitter.output.push_str("    and x16, x16, x17\n");
+                self.store_reg(dest, Register::X16);
+            }
+            Instruction::BitOr(dest, lhs, rhs) => {
+                self.load_operand(Register::X16, lhs);
+                self.load_operand(Register::X17, rhs);
+                self.emitter.output.push_str("    orr x16, x16, x17\n");
+                self.store_reg(dest, Register::X16);
+            }
+            Instruction::BitXor(dest, lhs, rhs) => {
+                self.load_operand(Register::X16, lhs);
+                self.load_operand(Register::X17, rhs);
+                self.emitter.output.push_str("    eor x16, x16, x17\n");
+                self.store_reg(dest, Register::X16);
+            }
+            Instruction::Shl(dest, lhs, rhs) => {
+                self.load_operand(Register::X16, lhs);
+                self.load_operand(Register::X17, rhs);
+                self.emitter.output.push_str("    lsl x16, x16, x17\n");
+                self.store_reg(dest, Register::X16);
+            }
+            Instruction::Shr(dest, lhs, rhs) => {
+                self.load_operand(Register::X16, lhs);
+                self.load_operand(Register::X17, rhs);
+                self.emitter.output.push_str("    lsr x16, x16, x17\n");
+                self.store_reg(dest, Register::X16);
+            }
+            Instruction::BitNot(dest, src) => {
+                self.load_operand(Register::X16, src);
+                self.emitter.output.push_str("    mvn x16, x16\n");
+                self.store_reg(dest, Register::X16);
+            }
             Instruction::Eq(dest, lhs, rhs) => {
                 self.load_operand(Register::X16, lhs);
                 self.load_operand(Register::X17, rhs);
@@ -315,11 +350,19 @@ impl IrCodegen {
                     .reg_offsets
                     .get(&id)
                     .unwrap_or_else(|| panic!("Reg {} not found in IR codegen for function", id));
-                self.emitter.output.push_str(&format!(
-                    "    ldr {}, [x29, -{}]\n",
-                    reg.name(),
-                    offset
-                ));
+                if offset <= 255 {
+                    self.emitter.output.push_str(&format!(
+                        "    ldr {}, [x29, -{}]\n",
+                        reg.name(),
+                        offset
+                    ));
+                } else {
+                    self.emitter.output.push_str(&format!(
+                        "    mov x9, {}\n    sub x9, x29, x9\n    ldr {}, [x9]\n",
+                        offset,
+                        reg.name()
+                    ));
+                }
             }
             Operand::Parameter(idx) => {
                 if idx < 8 {
@@ -337,9 +380,19 @@ impl IrCodegen {
             self.reg_offsets.insert(id, self.stack_offset);
         }
         let offset = self.reg_offsets.get(&id).unwrap();
-        self.emitter
-            .output
-            .push_str(&format!("    str x{}, [x29, -{}]\n", reg.index(), offset));
+        if *offset <= 255 {
+            self.emitter.output.push_str(&format!(
+                "    str x{}, [x29, -{}]\n",
+                reg.index(),
+                offset
+            ));
+        } else {
+            self.emitter.output.push_str(&format!(
+                "    mov x9, {}\n    sub x9, x29, x9\n    str x{}, [x9]\n",
+                offset,
+                reg.index()
+            ));
+        }
     }
 }
 

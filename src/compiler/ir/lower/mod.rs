@@ -364,8 +364,13 @@ impl Lowerer {
                 Statement::FunctionDeclaration {
                     name, params, body, ..
                 } => {
+                    let mangled_name = if name == "main" {
+                        "main_aura".to_string()
+                    } else {
+                        name
+                    };
                     let pnames = params.clone();
-                    functions.push(self.lower_function(name, pnames, *body, None));
+                    functions.push(self.lower_function(mangled_name, pnames, *body, None));
                 }
                 Statement::ClassDeclaration {
                     name,
@@ -430,7 +435,9 @@ impl Lowerer {
                         ));
                     }
                 }
-                Statement::Interface(_) => {}
+                Statement::Interface(_)
+                | Statement::Comment(_, _)
+                | Statement::RegularBlockComment(_, _) => {}
                 _ => global_stmts.push(stmt),
             }
         }

@@ -124,6 +124,67 @@ impl Optimizer {
                                 new_instrs.push(Instruction::Ge(dest, left, right));
                             }
                         }
+                        Instruction::BitAnd(dest, lhs, rhs) => {
+                            let left = self.resolve_operand(&lhs, &constants);
+                            let right = self.resolve_operand(&rhs, &constants);
+                            if let (Operand::Constant(l), Operand::Constant(r)) = (&left, &right) {
+                                constants.insert(dest, l & r);
+                            } else {
+                                new_instrs.push(Instruction::BitAnd(dest, left, right));
+                            }
+                        }
+                        Instruction::BitOr(dest, lhs, rhs) => {
+                            let left = self.resolve_operand(&lhs, &constants);
+                            let right = self.resolve_operand(&rhs, &constants);
+                            if let (Operand::Constant(l), Operand::Constant(r)) = (&left, &right) {
+                                constants.insert(dest, l | r);
+                            } else {
+                                new_instrs.push(Instruction::BitOr(dest, left, right));
+                            }
+                        }
+                        Instruction::BitXor(dest, lhs, rhs) => {
+                            let left = self.resolve_operand(&lhs, &constants);
+                            let right = self.resolve_operand(&rhs, &constants);
+                            if let (Operand::Constant(l), Operand::Constant(r)) = (&left, &right) {
+                                constants.insert(dest, l ^ r);
+                            } else {
+                                new_instrs.push(Instruction::BitXor(dest, left, right));
+                            }
+                        }
+                        Instruction::Shl(dest, lhs, rhs) => {
+                            let left = self.resolve_operand(&lhs, &constants);
+                            let right = self.resolve_operand(&rhs, &constants);
+                            if let (Operand::Constant(l), Operand::Constant(r)) = (&left, &right) {
+                                if *r >= 0 && *r < 64 {
+                                    constants.insert(dest, l << r);
+                                } else {
+                                    new_instrs.push(Instruction::Shl(dest, left, right));
+                                }
+                            } else {
+                                new_instrs.push(Instruction::Shl(dest, left, right));
+                            }
+                        }
+                        Instruction::Shr(dest, lhs, rhs) => {
+                            let left = self.resolve_operand(&lhs, &constants);
+                            let right = self.resolve_operand(&rhs, &constants);
+                            if let (Operand::Constant(l), Operand::Constant(r)) = (&left, &right) {
+                                if *r >= 0 && *r < 64 {
+                                    constants.insert(dest, l >> r);
+                                } else {
+                                    new_instrs.push(Instruction::Shr(dest, left, right));
+                                }
+                            } else {
+                                new_instrs.push(Instruction::Shr(dest, left, right));
+                            }
+                        }
+                        Instruction::BitNot(dest, src) => {
+                            let val = self.resolve_operand(&src, &constants);
+                            if let Operand::Constant(v) = val {
+                                constants.insert(dest, !v);
+                            } else {
+                                new_instrs.push(Instruction::BitNot(dest, val));
+                            }
+                        }
                         Instruction::Alloc(dest, s) => {
                             new_instrs.push(Instruction::Alloc(dest, s));
                         }

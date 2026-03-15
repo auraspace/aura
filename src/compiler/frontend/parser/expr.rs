@@ -42,10 +42,10 @@ impl Parser {
 
     pub(crate) fn parse_logical_and(&mut self) -> Expr {
         let s = self.span();
-        let mut node = self.parse_comparison();
+        let mut node = self.parse_bitwise_or();
         while self.peek().kind == TokenKind::And {
             self.advance();
-            let right = self.parse_comparison();
+            let right = self.parse_bitwise_or();
             node = Expr::BinaryOp(Box::new(node), "&&".to_string(), Box::new(right), s);
         }
         node
@@ -53,7 +53,7 @@ impl Parser {
 
     pub(crate) fn parse_comparison(&mut self) -> Expr {
         let s = self.span();
-        let mut node = self.parse_bitwise_or();
+        let mut node = self.parse_shift();
 
         while let TokenKind::Less
         | TokenKind::LessEqual
@@ -73,7 +73,7 @@ impl Parser {
             }
             .to_string();
             self.advance();
-            let right = self.parse_bitwise_or();
+            let right = self.parse_shift();
             node = Expr::BinaryOp(Box::new(node), op, Box::new(right), s);
         }
 
@@ -82,12 +82,53 @@ impl Parser {
 
     pub(crate) fn parse_bitwise_or(&mut self) -> Expr {
         let s = self.span();
-        let mut node = self.parse_type_test();
+        let mut node = self.parse_bitwise_xor();
         while self.peek().kind == TokenKind::Pipe {
             self.advance();
-            let right = self.parse_type_test();
+            let right = self.parse_bitwise_xor();
             node = Expr::BinaryOp(Box::new(node), "|".to_string(), Box::new(right), s);
         }
+        node
+    }
+
+    pub(crate) fn parse_bitwise_xor(&mut self) -> Expr {
+        let s = self.span();
+        let mut node = self.parse_bitwise_and();
+        while self.peek().kind == TokenKind::Caret {
+            self.advance();
+            let right = self.parse_bitwise_and();
+            node = Expr::BinaryOp(Box::new(node), "^".to_string(), Box::new(right), s);
+        }
+        node
+    }
+
+    pub(crate) fn parse_bitwise_and(&mut self) -> Expr {
+        let s = self.span();
+        let mut node = self.parse_comparison();
+        while self.peek().kind == TokenKind::Ampersand {
+            self.advance();
+            let right = self.parse_comparison();
+            node = Expr::BinaryOp(Box::new(node), "&".to_string(), Box::new(right), s);
+        }
+        node
+    }
+
+    pub(crate) fn parse_shift(&mut self) -> Expr {
+        let s = self.span();
+        let mut node = self.parse_type_test();
+
+        while let TokenKind::LessLess | TokenKind::GreaterGreater = self.peek().kind {
+            let op = match self.peek().kind {
+                TokenKind::LessLess => "<<",
+                TokenKind::GreaterGreater => ">>",
+                _ => unreachable!(),
+            }
+            .to_string();
+            self.advance();
+            let right = self.parse_type_test();
+            node = Expr::BinaryOp(Box::new(node), op, Box::new(right), s);
+        }
+
         node
     }
 
@@ -147,6 +188,11 @@ impl Parser {
             self.advance();
             let expr = self.parse_unary();
             return Expr::UnaryOp("-".to_string(), Box::new(expr), s);
+        }
+        if self.peek().kind == TokenKind::Tilde {
+            self.advance();
+            let expr = self.parse_unary();
+            return Expr::UnaryOp("~".to_string(), Box::new(expr), s);
         }
         self.parse_primary()
     }

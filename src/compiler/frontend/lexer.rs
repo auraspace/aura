@@ -75,11 +75,22 @@ impl<'a> Lexer<'a> {
                     Token::new(TokenKind::Unknown('!'), current_line, current_column)
                 }
             }
+            '^' => {
+                self.advance();
+                Token::new(TokenKind::Caret, current_line, current_column)
+            }
+            '~' => {
+                self.advance();
+                Token::new(TokenKind::Tilde, current_line, current_column)
+            }
             '<' => {
                 self.advance();
                 if self.peek() == '=' {
                     self.advance();
                     Token::new(TokenKind::LessEqual, current_line, current_column)
+                } else if self.peek() == '<' {
+                    self.advance();
+                    Token::new(TokenKind::LessLess, current_line, current_column)
                 } else {
                     Token::new(TokenKind::Less, current_line, current_column)
                 }
@@ -89,6 +100,9 @@ impl<'a> Lexer<'a> {
                 if self.peek() == '=' {
                     self.advance();
                     Token::new(TokenKind::GreaterEqual, current_line, current_column)
+                } else if self.peek() == '>' {
+                    self.advance();
+                    Token::new(TokenKind::GreaterGreater, current_line, current_column)
                 } else {
                     Token::new(TokenKind::Greater, current_line, current_column)
                 }
@@ -120,7 +134,7 @@ impl<'a> Lexer<'a> {
                     self.advance();
                     Token::new(TokenKind::And, current_line, current_column)
                 } else {
-                    Token::new(TokenKind::Unknown('&'), current_line, current_column)
+                    Token::new(TokenKind::Ampersand, current_line, current_column)
                 }
             }
             ',' => {

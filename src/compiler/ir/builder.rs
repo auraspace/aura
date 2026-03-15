@@ -85,6 +85,42 @@ impl IrBuilder {
         Operand::Value(dest)
     }
 
+    pub fn bit_and(&mut self, lhs: Operand, rhs: Operand) -> Operand {
+        let dest = self.new_reg();
+        self.emit(Instruction::BitAnd(dest, lhs, rhs));
+        Operand::Value(dest)
+    }
+
+    pub fn bit_or(&mut self, lhs: Operand, rhs: Operand) -> Operand {
+        let dest = self.new_reg();
+        self.emit(Instruction::BitOr(dest, lhs, rhs));
+        Operand::Value(dest)
+    }
+
+    pub fn bit_xor(&mut self, lhs: Operand, rhs: Operand) -> Operand {
+        let dest = self.new_reg();
+        self.emit(Instruction::BitXor(dest, lhs, rhs));
+        Operand::Value(dest)
+    }
+
+    pub fn shl(&mut self, lhs: Operand, rhs: Operand) -> Operand {
+        let dest = self.new_reg();
+        self.emit(Instruction::Shl(dest, lhs, rhs));
+        Operand::Value(dest)
+    }
+
+    pub fn shr(&mut self, lhs: Operand, rhs: Operand) -> Operand {
+        let dest = self.new_reg();
+        self.emit(Instruction::Shr(dest, lhs, rhs));
+        Operand::Value(dest)
+    }
+
+    pub fn bit_not(&mut self, src: Operand) -> Operand {
+        let dest = self.new_reg();
+        self.emit(Instruction::BitNot(dest, src));
+        Operand::Value(dest)
+    }
+
     pub fn eq(&mut self, lhs: Operand, rhs: Operand) -> Operand {
         let dest = self.new_reg();
         self.emit(Instruction::Eq(dest, lhs, rhs));

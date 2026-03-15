@@ -51,22 +51,27 @@ pub enum TokenKind {
     TemplateLiteral(Vec<TplPart>),
 
     // Operators
-    Plus,         // +
-    Minus,        // -
-    Equal,        // =
-    EqEqual,      // ==
-    BangEqual,    // !=
-    Less,         // <
-    LessEqual,    // <=
-    Greater,      // >
-    GreaterEqual, // >=
-    And,          // &&
-    Or,           // ||
-    Dot,          // .
-    Pipe,         // |
-    Slash,        // /
-    Star,         // *
-    Percent,      // %
+    Plus,           // +
+    Minus,          // -
+    Equal,          // =
+    EqEqual,        // ==
+    BangEqual,      // !=
+    Less,           // <
+    LessEqual,      // <=
+    Greater,        // >
+    GreaterEqual,   // >=
+    And,            // &&
+    Or,             // ||
+    Dot,            // .
+    Pipe,           // |
+    Slash,          // /
+    Star,           // *
+    Percent,        // %
+    Ampersand,      // &
+    Caret,          // ^
+    Tilde,          // ~
+    LessLess,       // <<
+    GreaterGreater, // >>
 
     // Punctuation
     Colon,        // :

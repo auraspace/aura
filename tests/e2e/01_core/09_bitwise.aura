@@ -1,0 +1,40 @@
+// Expected output:
+// AND:
+// 1
+// OR:
+// 7
+// XOR:
+// 6
+// SHL:
+// 10
+// SHR:
+// 2
+// NOT:
+// -6
+
+function main() {
+    let a = 5;  // 0101
+    let b = 3;  // 0011
+
+    print("AND:");
+    print(a & b); // 0001 = 1
+
+    print("OR:");
+    print(a | b); // 0111 = 7
+
+    print("XOR:");
+    print(a ^ b); // 0110 = 6
+
+    print("SHL:");
+    print(a << 1); // 1010 = 10
+
+    print("SHR:");
+    print(a >> 1); // 0010 = 2
+
+    print("NOT:");
+    // Bitwise NOT of 5 (32-bit): ~00...00101 = 11...11010
+    // In i64/i32 signed: ~5 = -6
+    print(~a);
+}
+
+main();

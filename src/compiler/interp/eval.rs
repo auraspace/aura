@@ -334,7 +334,11 @@ impl Interpreter {
                         "<=" => Value::Boolean(l <= r),
                         ">" => Value::Boolean(l > r),
                         ">=" => Value::Boolean(l >= r),
+                        "&" => Value::Int(l & r),
                         "|" => Value::Int(l | r),
+                        "^" => Value::Int(l ^ r),
+                        "<<" => Value::Int(l << r),
+                        ">>" => Value::Int(l >> r),
                         _ => panic!("Unsupported operator {} for integers", op),
                     },
                     (Value::Int64(l), Value::Int64(r)) => match op.as_str() {
@@ -349,7 +353,11 @@ impl Interpreter {
                         "<=" => Value::Boolean(l <= r),
                         ">" => Value::Boolean(l > r),
                         ">=" => Value::Boolean(l >= r),
+                        "&" => Value::Int64(l & r),
                         "|" => Value::Int64(l | r),
+                        "^" => Value::Int64(l ^ r),
+                        "<<" => Value::Int64(l << r),
+                        ">>" => Value::Int64(l >> r),
                         _ => panic!("Unsupported operator {} for i64", op),
                     },
                     (Value::String(l), Value::String(r)) => match op.as_str() {
@@ -717,6 +725,17 @@ impl Interpreter {
                     Value::Int(i) => {
                         if op == "-" {
                             Value::Int(-i)
+                        } else if op == "~" {
+                            Value::Int(!i)
+                        } else {
+                            panic!("Unsupported unary operator {}", op);
+                        }
+                    }
+                    Value::Int64(i) => {
+                        if op == "-" {
+                            Value::Int64(-i)
+                        } else if op == "~" {
+                            Value::Int64(!i)
                         } else {
                             panic!("Unsupported unary operator {}", op);
                         }
