@@ -4,3 +4,6 @@ aura_program
 .DS_Store
 node_modules
 out
+.env
+dist/
+pkg/
