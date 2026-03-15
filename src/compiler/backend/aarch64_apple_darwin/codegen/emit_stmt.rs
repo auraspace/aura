@@ -317,6 +317,7 @@ impl Codegen {
                 fields,
                 methods,
                 constructor,
+                extends: _,
                 span,
                 doc: _,
             } => {

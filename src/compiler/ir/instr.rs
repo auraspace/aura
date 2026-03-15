@@ -41,8 +41,11 @@ pub enum Instruction {
     Store(Operand, Operand, u32),   // src_value, base_ptr, offset
     WriteBarrier(Operand, Operand), // object_ptr, field_ptr
 
-    // Calls
     Call(u32, String, Vec<Operand>), // dest, function_name, args
+    CallVirtual(u32, Operand, u32, Vec<Operand>), // dest, object_ptr, vtable_index, args
+    SetVTable(Operand, String),      // object_ptr, class_name
+    Move(u32, Operand),              // dest, src
+    StackAlloc(u32, u32),            // dest, size
 }
 
 #[derive(Debug, Clone)]
@@ -63,6 +66,7 @@ pub struct IrFunction {
 pub struct IrModule {
     pub functions: Vec<IrFunction>,
     pub globals: Vec<(String, String)>, // (name, content)
+    pub vtables: std::collections::HashMap<String, Vec<String>>, // class_name -> list of function names
 }
 
 impl std::fmt::Display for IrType {
@@ -117,6 +121,17 @@ impl std::fmt::Display for Instruction {
                     .join(", ");
                 write!(f, "  %{} = call {} {}", d, func, args_str)
             }
+            Instruction::CallVirtual(d, obj, idx, args) => {
+                let args_str = args
+                    .iter()
+                    .map(|a| a.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                write!(f, "  %{} = call_virtual {}, {}, {}", d, obj, idx, args_str)
+            }
+            Instruction::SetVTable(obj, class) => write!(f, "  set_vtable {}, {}", obj, class),
+            Instruction::Move(d, s) => write!(f, "  %{} = move {}", d, s),
+            Instruction::StackAlloc(d, s) => write!(f, "  %{} = salloc {}", d, s),
         }
     }
 }
@@ -162,6 +177,13 @@ impl std::fmt::Display for IrModule {
         for func in &self.functions {
             writeln!(f, "{}", func)?;
         }
+        for (class, methods) in &self.vtables {
+            writeln!(f, "vtable {} {{", class)?;
+            for (i, method) in methods.iter().enumerate() {
+                writeln!(f, "  {}: {}", i, method)?;
+            }
+            writeln!(f, "}}")?;
+        }
         Ok(())
     }
 }
@@ -174,6 +196,7 @@ mod tests {
     fn test_ir_text_format() {
         let module = IrModule {
             globals: vec![("msg".to_string(), "Hello World".to_string())],
+            vtables: std::collections::HashMap::new(),
             functions: vec![IrFunction {
                 name: "main".to_string(),
                 params: vec![IrType::I32, IrType::I32],

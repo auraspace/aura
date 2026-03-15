@@ -92,6 +92,7 @@ pub(crate) fn format_statement_internal(f: &mut Formatter, stmt: &Statement, inc
             fields,
             methods,
             constructor,
+            extends,
             doc,
             ..
         } => {
@@ -101,6 +102,10 @@ pub(crate) fn format_statement_internal(f: &mut Formatter, stmt: &Statement, inc
             f.indent();
             f.result.push_str("class ");
             f.result.push_str(name);
+            if let Some(ext) = extends {
+                f.result.push_str(" extends ");
+                f.result.push_str(ext);
+            }
             f.result.push_str(" {\n");
             f.indent_level += 1;
 

@@ -17,6 +17,7 @@ impl SemanticAnalyzer {
             if let Statement::ClassDeclaration {
                 name,
                 name_span,
+                extends,
                 fields,
                 methods,
                 constructor,
@@ -45,6 +46,7 @@ impl SemanticAnalyzer {
                             ty,
                             is_static: f.is_static,
                             is_readonly: f.is_readonly,
+                            defined_in_class: name.clone(),
                             access: f.access,
                             span: f.name_span,
                             doc: f.doc.as_ref().map(|d| d.content()),
@@ -72,6 +74,8 @@ impl SemanticAnalyzer {
                             ret_ty,
                             is_static: m.is_static,
                             is_async: m.is_async,
+                            is_override: m.is_override,
+                            defined_in_class: name.clone(),
                             access: m.access,
                             span: m.name_span,
                             doc: m.doc.as_ref().map(|d| d.content()),
@@ -92,6 +96,7 @@ impl SemanticAnalyzer {
                     name.clone(),
                     ClassInfo {
                         name: name.clone(),
+                        parent: extends.clone(),
                         fields: field_map,
                         methods: method_map,
                         constructor: ctor_info,
@@ -101,6 +106,16 @@ impl SemanticAnalyzer {
                         doc: doc.as_ref().map(|d| d.content()),
                     },
                 );
+
+                // Basic validation for parent existence
+                if let Some(parent_name) = extends {
+                    if parent_name == name {
+                        self.error(
+                            SemanticErrorKind::CircularInheritance(name.clone()),
+                            *name_span,
+                        );
+                    }
+                }
             } else if let Statement::FunctionDeclaration {
                 name,
                 name_span,

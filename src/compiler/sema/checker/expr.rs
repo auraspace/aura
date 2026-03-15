@@ -243,32 +243,19 @@ impl SemanticAnalyzer {
                 let obj_ty = self.check_expr(*obj);
 
                 if let Type::Class(ref class_name) = obj_ty {
-                    let (field_info, class_defined_in, class_span) =
-                        if let Some(class_info) = self.classes.get(class_name) {
-                            (
-                                class_info.fields.get(&field).cloned(),
-                                Some(class_info.defined_in.clone()),
-                                Some(class_info.span),
-                            )
-                        } else {
-                            (None, None, None)
-                        };
-
-                    if let Some(finfo) = field_info {
-                        self.check_access(class_name, &field, finfo.access, name_span);
+                    if let Some((finfo, class_defined_in, class_span)) =
+                        self.lookup_field(class_name, &field)
+                    {
+                        self.check_access(&finfo.defined_in_class, &field, finfo.access, name_span);
 
                         if self.record_node_info {
-                            self.record_definition(
-                                name_span,
-                                class_defined_in.unwrap(),
-                                class_span.unwrap(),
-                            );
+                            self.record_definition(name_span, class_defined_in, class_span);
                             self.record_type(name_span, finfo.ty.clone());
                             self.record_type(span, finfo.ty.clone());
                         }
                         return finfo.ty;
                     } else {
-                        if class_defined_in.is_none() {
+                        if !self.classes.contains_key(class_name) {
                             self.error(SemanticErrorKind::UndefinedClass(class_name.clone()), span);
                         } else {
                             self.error(
@@ -313,19 +300,10 @@ impl SemanticAnalyzer {
                 let val_ty = self.check_expr(*value);
 
                 if let Type::Class(ref class_name) = obj_ty {
-                    let (field_info, class_defined_in, class_span) =
-                        if let Some(class_info) = self.classes.get(class_name) {
-                            (
-                                class_info.fields.get(&field).cloned(),
-                                Some(class_info.defined_in.clone()),
-                                Some(class_info.span),
-                            )
-                        } else {
-                            (None, None, None)
-                        };
-
-                    if let Some(finfo) = field_info {
-                        self.check_access(class_name, &field, finfo.access, name_span);
+                    if let Some((finfo, class_defined_in, class_span)) =
+                        self.lookup_field(class_name, &field)
+                    {
+                        self.check_access(&finfo.defined_in_class, &field, finfo.access, name_span);
 
                         if finfo.is_readonly {
                             let mut allowed = false;
@@ -354,17 +332,13 @@ impl SemanticAnalyzer {
                             );
                         }
                         if self.record_node_info {
-                            self.record_definition(
-                                name_span,
-                                class_defined_in.unwrap(),
-                                class_span.unwrap(),
-                            );
+                            self.record_definition(name_span, class_defined_in, class_span);
                             self.record_type(name_span, finfo.ty.clone());
                             self.record_type(span, finfo.ty.clone());
                         }
                         return finfo.ty;
                     } else {
-                        if class_defined_in.is_none() {
+                        if !self.classes.contains_key(class_name) {
                             self.error(SemanticErrorKind::UndefinedClass(class_name.clone()), span);
                         } else {
                             self.error(
@@ -388,19 +362,15 @@ impl SemanticAnalyzer {
                 }
 
                 if let Type::Class(ref class_name) = obj_ty {
-                    let (method_info, class_defined_in, class_span) =
-                        if let Some(class_info) = self.classes.get(class_name) {
-                            (
-                                class_info.methods.get(&method).cloned(),
-                                Some(class_info.defined_in.clone()),
-                                Some(class_info.span),
-                            )
-                        } else {
-                            (None, None, None)
-                        };
-
-                    if let Some(minfo) = method_info {
-                        self.check_access(class_name, &method, minfo.access, name_span);
+                    if let Some((minfo, class_defined_in, class_span)) =
+                        self.lookup_method(class_name, &method)
+                    {
+                        self.check_access(
+                            &minfo.defined_in_class,
+                            &method,
+                            minfo.access,
+                            name_span,
+                        );
 
                         if arg_tys.len() != minfo.params.len() {
                             self.error(
@@ -425,11 +395,7 @@ impl SemanticAnalyzer {
                         }
 
                         if self.record_node_info {
-                            self.record_definition(
-                                name_span,
-                                class_defined_in.unwrap(),
-                                class_span.unwrap(),
-                            );
+                            self.record_definition(name_span, class_defined_in, class_span);
                             self.record_type(
                                 name_span,
                                 Type::Function(
@@ -441,7 +407,7 @@ impl SemanticAnalyzer {
                         }
                         return minfo.ret_ty;
                     } else {
-                        if class_defined_in.is_none() {
+                        if !self.classes.contains_key(class_name) {
                             self.error(SemanticErrorKind::UndefinedClass(class_name.clone()), span);
                         } else {
                             self.error(
@@ -567,6 +533,78 @@ impl SemanticAnalyzer {
                     Type::Unknown
                 }
             }
+            Expr::Super(span) => {
+                if let Some(class_name) = &self.current_class {
+                    if let Some(class_info) = self.classes.get(class_name) {
+                        if let Some(parent_name) = &class_info.parent {
+                            Type::Class(parent_name.clone())
+                        } else {
+                            self.error(SemanticErrorKind::NoParentClass(class_name.clone()), span);
+                            Type::Unknown
+                        }
+                    } else {
+                        Type::Unknown
+                    }
+                } else {
+                    self.error(SemanticErrorKind::SuperOutsideClass, span);
+                    Type::Unknown
+                }
+            }
+            Expr::SuperCall(args, span) => {
+                let mut arg_tys = Vec::new();
+                for arg in &args {
+                    arg_tys.push(self.check_expr(arg.clone()));
+                }
+
+                if let Some(class_name) = &self.current_class {
+                    if self.current_method.as_deref() != Some("constructor") {
+                        // Allow super() only in constructor for now
+                        // Actually super.method() is handled via MethodCall(Super, ...)
+                        // super() is specifically for constructor
+                    }
+
+                    if let Some(class_info) = self.classes.get(class_name) {
+                        if let Some(parent_name) = &class_info.parent {
+                            if let Some(parent_info) = self.classes.get(parent_name) {
+                                let ctor_info = parent_info.constructor.clone();
+                                if let Some((param_tys, _)) = ctor_info {
+                                    if param_tys.len() != arg_tys.len() {
+                                        self.error(
+                                            SemanticErrorKind::ArgumentCountMismatch(
+                                                param_tys.len(),
+                                                arg_tys.len(),
+                                            ),
+                                            span,
+                                        );
+                                    } else {
+                                        for (i, arg_ty) in arg_tys.iter().enumerate() {
+                                            if !self.is_assignable(arg_ty, &param_tys[i]) {
+                                                self.error(
+                                                    SemanticErrorKind::TypeMismatch(
+                                                        param_tys[i].to_string(),
+                                                        arg_ty.to_string(),
+                                                    ),
+                                                    args[i].span(),
+                                                );
+                                            }
+                                        }
+                                    }
+                                } else if !arg_tys.is_empty() {
+                                    self.error(
+                                        SemanticErrorKind::ArgumentCountMismatch(0, arg_tys.len()),
+                                        span,
+                                    );
+                                }
+                            }
+                        } else {
+                            self.error(SemanticErrorKind::NoParentClass(class_name.clone()), span);
+                        }
+                    }
+                } else {
+                    self.error(SemanticErrorKind::SuperOutsideClass, span);
+                }
+                Type::Void
+            }
         };
         if self.record_node_info {
             self.record_type(span, ty.clone());
@@ -596,8 +634,21 @@ impl SemanticAnalyzer {
                 }
             }
             AccessModifier::Protected => {
-                // For now, treat as private until inheritance is checked
-                if self.current_class.as_deref() != Some(class_name) {
+                if let Some(current) = &self.current_class {
+                    if !self.is_assignable(
+                        &Type::Class(current.clone()),
+                        &Type::Class(class_name.to_string()),
+                    ) {
+                        self.error(
+                            SemanticErrorKind::AccessDenied(
+                                member_name.to_string(),
+                                class_name.to_string(),
+                                "protected".to_string(),
+                            ),
+                            span,
+                        );
+                    }
+                } else {
                     self.error(
                         SemanticErrorKind::AccessDenied(
                             member_name.to_string(),

@@ -599,6 +599,7 @@ impl Codegen {
                 fields,
                 methods,
                 constructor,
+                extends: _,
                 span,
                 ..
             } => {
@@ -783,6 +784,9 @@ impl Codegen {
             }
             Expr::MethodCall(_obj, _member, _args, _, _) => {
                 // Placeholder for method call
+            }
+            Expr::Super(_) | Expr::SuperCall(_, _) => {
+                // Not supported in x86_64 yet
             }
             _ => {
                 // Implement other expressions as needed

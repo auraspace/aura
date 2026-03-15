@@ -139,6 +139,38 @@ impl IrBuilder {
         Operand::Value(dest)
     }
 
+    pub fn call_virtual(&mut self, obj: Operand, idx: u32, args: Vec<Operand>) -> Operand {
+        let dest = self.new_reg();
+        self.emit(Instruction::CallVirtual(dest, obj, idx, args));
+        Operand::Value(dest)
+    }
+
+    pub fn mov(&mut self, src: Operand) -> Operand {
+        let dest = self.new_reg();
+        self.emit(Instruction::Move(dest, src));
+        Operand::Value(dest)
+    }
+
+    pub fn salloc(&mut self, size: u32) -> Operand {
+        let dest = self.new_reg();
+        self.emit(Instruction::StackAlloc(dest, size));
+        Operand::Value(dest)
+    }
+
+    pub fn store(&mut self, src: Operand, base: Operand, offset: u32) {
+        self.emit(Instruction::Store(src, base, offset));
+    }
+
+    pub fn load(&mut self, base: Operand, offset: u32) -> Operand {
+        let dest = self.new_reg();
+        self.emit(Instruction::Load(dest, base, offset));
+        Operand::Value(dest)
+    }
+
+    pub fn set_vtable(&mut self, obj: Operand, class_name: String) {
+        self.emit(Instruction::SetVTable(obj, class_name));
+    }
+
     pub fn finish_function(
         &mut self,
         name: String,

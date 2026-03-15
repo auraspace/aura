@@ -107,6 +107,7 @@ impl Interpreter {
                 fields,
                 methods,
                 constructor,
+                extends: _,
                 span: _,
                 doc: _,
             } => {
@@ -744,6 +745,14 @@ impl Interpreter {
                     }
                     _ => panic!("Index operation not supported for these types"),
                 }
+            }
+            Expr::Super(_) => self
+                .env
+                .lookup("this")
+                .expect("Usage of super outside of class context"),
+            Expr::SuperCall(_, _) => {
+                // Not fully supported in interpreter yet, but needs to be exhaustive
+                Value::Void
             }
             Expr::Error(_) => panic!("Compiler bug: reaching error node in interpreter"),
         }

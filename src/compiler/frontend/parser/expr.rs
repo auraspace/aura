@@ -202,6 +202,23 @@ impl Parser {
                 self.advance();
                 Expr::This(s)
             }
+            TokenKind::Super => {
+                self.advance();
+                if self.peek().kind == TokenKind::OpenParen {
+                    self.advance();
+                    let mut args = Vec::new();
+                    while self.peek().kind != TokenKind::CloseParen && !self.is_at_end() {
+                        args.push(self.parse_expression());
+                        if self.peek().kind == TokenKind::Comma {
+                            self.advance();
+                        }
+                    }
+                    let _ = self.consume(TokenKind::CloseParen);
+                    Expr::SuperCall(args, s)
+                } else {
+                    Expr::Super(s)
+                }
+            }
             TokenKind::New => {
                 let ns = self.span();
                 self.advance();

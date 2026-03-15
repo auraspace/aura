@@ -92,6 +92,8 @@ pub enum Expr {
     Await(Box<Expr>, Span),
     ArrayLiteral(Vec<Expr>, Span),
     Index(Box<Expr>, Box<Expr>, Span),
+    SuperCall(Vec<Expr>, Span),
+    Super(Span),
     Null(Span),
     Error(Span),
 }
@@ -124,6 +126,8 @@ impl Expr {
             Expr::Await(_, s) => *s,
             Expr::ArrayLiteral(_, s) => *s,
             Expr::Index(_, _, s) => *s,
+            Expr::SuperCall(_, s) => *s,
+            Expr::Super(s) => *s,
             Expr::Null(s) => *s,
             Expr::Error(s) => *s,
         }
@@ -152,6 +156,7 @@ pub struct ClassMethod {
     pub body: Box<Statement>,
     pub is_static: bool,
     pub is_async: bool,
+    pub is_override: bool,
     pub access: AccessModifier,
     pub span: Span,
     pub doc: Option<DocComment>,
@@ -204,6 +209,7 @@ pub enum Statement {
     ClassDeclaration {
         name: String,
         name_span: Span,
+        extends: Option<String>,
         fields: Vec<Field>,
         methods: Vec<ClassMethod>,
         constructor: Option<ClassMethod>,

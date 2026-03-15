@@ -1,4 +1,4 @@
-use crate::compiler::ast::{Program, Statement, TypeExpr};
+use crate::compiler::ast::{Expr, Program, Statement, TypeExpr};
 use crate::compiler::ir::builder::IrBuilder;
 use crate::compiler::ir::instr::{IrFunction, IrModule, IrType, Operand};
 use crate::compiler::sema::ty::Type;
@@ -10,6 +10,7 @@ mod stmt;
 pub(crate) struct ClassLayout {
     pub(crate) field_offsets: HashMap<String, u32>,
     pub(crate) size: u32,
+    pub(crate) vtable_index: HashMap<String, u32>,
 }
 
 pub struct Lowerer {
@@ -22,6 +23,8 @@ pub struct Lowerer {
     pub(crate) static_methods: HashMap<String, std::collections::HashSet<String>>,
     pub(crate) current_class: Option<String>,
     pub(crate) globals: Vec<(String, String)>, // (name, content) for strings
+    pub(crate) vtables: HashMap<String, Vec<String>>, // class_name -> list of mangled method names
+    pub(crate) parent_classes: HashMap<String, String>, // subclass -> parent
     pub(crate) last_expr_ty: Type,
 }
 
@@ -36,6 +39,8 @@ impl Lowerer {
             static_methods: HashMap::new(),
             current_class: None,
             globals: Vec::new(),
+            vtables: HashMap::new(),
+            parent_classes: HashMap::new(),
             last_expr_ty: Type::Unknown,
         }
     }
@@ -70,12 +75,13 @@ impl Lowerer {
                                 name,
                                 fields,
                                 methods,
+                                extends: _,
                                 ..
                             } = stmt
                             {
                                 let mut field_offsets = HashMap::new();
                                 let mut field_tys = HashMap::new();
-                                let mut current_offset = 0;
+                                let mut current_offset = 8;
                                 for f in fields.iter() {
                                     field_offsets.insert(f.name.clone(), current_offset);
                                     let ty = self.resolve_type(f.ty.clone());
@@ -87,6 +93,7 @@ impl Lowerer {
                                     ClassLayout {
                                         field_offsets,
                                         size: current_offset,
+                                        vtable_index: HashMap::new(), // Pass 1 doesn't have vtable yet
                                     },
                                 );
                                 self.class_structures.insert(name.clone(), field_tys);
@@ -107,6 +114,7 @@ impl Lowerer {
                                 name,
                                 methods,
                                 constructor,
+                                extends: _,
                                 ..
                             } = stmt
                             {
@@ -161,55 +169,139 @@ impl Lowerer {
         let mut functions = self.load_stdlib();
         let mut global_stmts = Vec::new();
 
-        // Pass 1: Collect class layouts, structures and function types
+        // Pass 0: Collect all class names and parents
         for stmt in &program.statements {
-            match stmt {
-                Statement::ClassDeclaration {
+            if let Statement::ClassDeclaration { name, extends, .. } = stmt {
+                if let Some(parent) = extends {
+                    self.parent_classes.insert(name.clone(), parent.clone());
+                }
+            }
+        }
+
+        // Pass 1: Collect class layouts, structures and function types
+        // Need to process parents before children for layouts
+        let mut pending_classes: Vec<&Statement> = program.statements.iter().collect();
+        let mut processed_classes = std::collections::HashSet::new();
+
+        while !pending_classes.is_empty() {
+            let mut made_progress = false;
+            let mut i = 0;
+            while i < pending_classes.len() {
+                if let Statement::ClassDeclaration {
                     name,
                     fields,
                     methods,
+                    extends,
                     ..
-                } => {
-                    let mut field_offsets = HashMap::new();
-                    let mut field_tys = HashMap::new();
-                    let mut current_offset = 0;
-                    for f in fields.iter() {
-                        field_offsets.insert(f.name.clone(), current_offset);
-                        let ty = self.resolve_type(f.ty.clone());
-                        field_tys.insert(f.name.clone(), ty);
-                        current_offset += 8;
-                    }
-                    self.class_layouts.insert(
-                        name.clone(),
-                        ClassLayout {
-                            field_offsets,
-                            size: current_offset,
-                        },
-                    );
-                    self.class_structures.insert(name.clone(), field_tys);
-
-                    let mut statics = std::collections::HashSet::new();
-                    for m in methods.iter() {
-                        if m.is_static {
-                            statics.insert(m.name.clone());
+                } = pending_classes[i]
+                {
+                    let can_process = match extends {
+                        Some(p) => {
+                            processed_classes.contains(p) || self.class_layouts.contains_key(p)
                         }
+                        None => true,
+                    };
+
+                    if can_process {
+                        let mut field_offsets = HashMap::new();
+                        let mut field_tys = HashMap::new();
+                        let mut current_offset = 8; // Offset 0 is VTable pointer
+                        let mut vtable_index = HashMap::new();
+                        let mut vtable_methods = Vec::new();
+
+                        if let Some(parent_name) = extends {
+                            if let Some(parent_layout) = self.class_layouts.get(parent_name) {
+                                field_offsets = parent_layout.field_offsets.clone();
+                                current_offset = parent_layout.size;
+                                vtable_index = parent_layout.vtable_index.clone();
+                                vtable_methods =
+                                    self.vtables.get(parent_name).cloned().unwrap_or_default();
+                            }
+                        }
+
+                        for f in fields.iter() {
+                            if !field_offsets.contains_key(&f.name) {
+                                field_offsets.insert(f.name.clone(), current_offset);
+                                current_offset += 8;
+                            }
+                            let ty = self.resolve_type(f.ty.clone());
+                            field_tys.insert(f.name.clone(), ty);
+                        }
+
+                        let mut statics = std::collections::HashSet::new();
+                        for m in methods.iter() {
+                            let m_name = if m.is_static {
+                                format!("{}_{}", name, m.name)
+                            } else {
+                                format!("{}_{}", name, m.name)
+                            };
+                            let mut p_tys: Vec<Type> = Vec::new();
+                            if !m.is_static {
+                                p_tys.push(Type::Class(name.clone()));
+                            }
+                            p_tys
+                                .extend(m.params.iter().map(|(_, t)| self.resolve_type(t.clone())));
+                            let r_ty = self.resolve_type(m.return_ty.clone());
+                            self.function_tys.insert(m_name, (p_tys, r_ty));
+
+                            if !m.is_static {
+                                if let Some(idx) = vtable_index.get(&m.name) {
+                                    // Override
+                                    vtable_methods[*idx as usize] = format!("{}_{}", name, m.name);
+                                } else {
+                                    // New virtual method
+                                    vtable_index
+                                        .insert(m.name.clone(), vtable_methods.len() as u32);
+                                    vtable_methods.push(format!("{}_{}", name, m.name));
+                                }
+                            } else {
+                                statics.insert(m.name.clone());
+                            }
+                        }
+
+                        self.class_layouts.insert(
+                            name.clone(),
+                            ClassLayout {
+                                field_offsets,
+                                size: current_offset,
+                                vtable_index,
+                            },
+                        );
+                        self.class_structures.insert(name.clone(), field_tys);
+                        self.vtables.insert(name.clone(), vtable_methods);
+                        self.static_methods.insert(name.clone(), statics);
+
+                        processed_classes.insert(name.clone());
+                        pending_classes.remove(i);
+                        made_progress = true;
+                    } else {
+                        i += 1;
                     }
-                    self.static_methods.insert(name.clone(), statics);
+                } else {
+                    if let Statement::FunctionDeclaration {
+                        name,
+                        params,
+                        return_ty,
+                        ..
+                    } = pending_classes[i]
+                    {
+                        let p_tys = params
+                            .iter()
+                            .map(|(_, t)| self.resolve_type(t.clone()))
+                            .collect();
+                        let r_ty = self.resolve_type(return_ty.clone());
+                        self.function_tys.insert(name.clone(), (p_tys, r_ty));
+                    }
+                    if !matches!(pending_classes[i], Statement::ClassDeclaration { .. }) {
+                        pending_classes.remove(i);
+                    } else {
+                        i += 1;
+                    }
                 }
-                Statement::FunctionDeclaration {
-                    name,
-                    params,
-                    return_ty,
-                    ..
-                } => {
-                    let p_tys = params
-                        .iter()
-                        .map(|(_, t)| self.resolve_type(t.clone()))
-                        .collect();
-                    let r_ty = self.resolve_type(return_ty.clone());
-                    self.function_tys.insert(name.clone(), (p_tys, r_ty));
-                }
-                _ => {}
+            }
+            if !made_progress && !pending_classes.is_empty() {
+                // Break circular dependency if any (should be caught by sema)
+                break;
             }
         }
 
@@ -217,26 +309,17 @@ impl Lowerer {
         for stmt in program.statements {
             match stmt {
                 Statement::FunctionDeclaration {
-                    name,
-                    name_span: _,
-                    params,
-                    return_ty: _,
-                    body,
-                    is_async: _is_async,
-                    span: _,
-                    doc: _,
+                    name, params, body, ..
                 } => {
                     let pnames = params.clone();
                     functions.push(self.lower_function(name, pnames, *body, None));
                 }
                 Statement::ClassDeclaration {
                     name,
-                    name_span: _,
-                    fields: _,
                     methods,
                     constructor,
-                    span: _,
-                    doc: _,
+                    extends,
+                    ..
                 } => {
                     for m in methods {
                         let mangled_name = format!("{}_{}", name, m.name);
@@ -269,6 +352,25 @@ impl Lowerer {
                             *ctor.body,
                             Some(name.clone()),
                         ));
+                    } else {
+                        // Generate default constructor
+                        let mangled_name = format!("{}_ctor", name);
+                        let span = crate::compiler::ast::Span { line: 0, column: 0 };
+                        let pnames = vec![("this".to_string(), TypeExpr::Name(name.clone(), span))];
+
+                        // Default body: call super() if it exists
+                        let mut body_stmts = Vec::new();
+                        if let Some(_parent) = extends {
+                            body_stmts
+                                .push(Statement::Expression(Expr::SuperCall(vec![], span), span));
+                        }
+
+                        functions.push(self.lower_function(
+                            mangled_name,
+                            pnames,
+                            Statement::Block(body_stmts, span),
+                            Some(name.clone()),
+                        ));
                     }
                 }
                 _ => global_stmts.push(stmt),
@@ -291,6 +393,7 @@ impl Lowerer {
         IrModule {
             functions,
             globals: self.globals.clone(),
+            vtables: self.vtables.clone(),
         }
     }
 
@@ -306,15 +409,13 @@ impl Lowerer {
 
         let ir_params = vec![IrType::I64; params.len()];
         for (i, (param_name, ty_expr)) in params.iter().enumerate() {
-            let ptr_reg = self.builder.new_reg();
+            let ptr_reg_op = self.builder.salloc(8);
+            let ptr_reg = match ptr_reg_op {
+                Operand::Value(v) => v,
+                _ => unreachable!(),
+            };
             self.builder
-                .emit(crate::compiler::ir::instr::Instruction::Alloc(ptr_reg, 8));
-            self.builder
-                .emit(crate::compiler::ir::instr::Instruction::Store(
-                    Operand::Parameter(i as u32),
-                    Operand::Value(ptr_reg),
-                    0,
-                ));
+                .store(Operand::Parameter(i as u32), ptr_reg_op, 0);
             let cls = if param_name == "this" {
                 class_name.clone()
             } else {
@@ -383,6 +484,7 @@ mod tests {
                     }],
                     methods: vec![],
                     constructor: None,
+                    extends: None,
                     span,
                     doc: None,
                 },

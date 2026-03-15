@@ -13,6 +13,7 @@ pub struct FieldInfo {
     pub ty: Type,
     pub is_static: bool,
     pub is_readonly: bool,
+    pub defined_in_class: String,
     pub access: AccessModifier,
     pub span: Span,
     pub doc: Option<String>,
@@ -24,6 +25,8 @@ pub struct MethodInfo {
     pub ret_ty: Type,
     pub is_static: bool,
     pub is_async: bool,
+    pub is_override: bool,
+    pub defined_in_class: String,
     pub access: AccessModifier,
     pub span: Span,
     pub doc: Option<String>,
@@ -32,6 +35,7 @@ pub struct MethodInfo {
 #[derive(Debug, Clone)]
 pub struct ClassInfo {
     pub name: String,
+    pub parent: Option<String>,
     pub fields: HashMap<String, FieldInfo>,
     pub methods: HashMap<String, MethodInfo>,
     pub constructor: Option<(Vec<Type>, AccessModifier)>,
@@ -61,6 +65,13 @@ pub enum SemanticErrorKind {
     AccessDenied(String, String, String), // member, class, required_access
     ReadonlyViolation(String),
     ArgumentCountMismatch(usize, usize), // expected, found
+    CircularInheritance(String),
+    MissingOverride(String, String),      // class, method
+    UnexpectedOverride(String, String),   // class, method
+    IncompatibleOverride(String, String), // class, method
+    SuperOutsideClass,
+    SuperInStaticMethod,
+    NoParentClass(String),
 }
 
 #[derive(Debug, Clone)]
@@ -118,6 +129,8 @@ impl SemanticAnalyzer {
                 ),
                 is_static: true,
                 is_async: false,
+                is_override: false,
+                defined_in_class: "Promise".to_string(),
                 access: AccessModifier::Public,
                 span,
                 doc: Some("Waits for all promises to be resolved".to_string()),
@@ -134,6 +147,8 @@ impl SemanticAnalyzer {
                 ),
                 is_static: true,
                 is_async: false,
+                is_override: false,
+                defined_in_class: "Promise".to_string(),
                 access: AccessModifier::Public,
                 span,
                 doc: Some("Waits for all promises to be settled".to_string()),
@@ -147,6 +162,8 @@ impl SemanticAnalyzer {
                 ret_ty: Type::Generic("Promise".to_string(), vec![Type::Unknown]),
                 is_static: true,
                 is_async: false,
+                is_override: false,
+                defined_in_class: "Promise".to_string(),
                 access: AccessModifier::Public,
                 span,
                 doc: Some("Waits for any promise to be resolved".to_string()),
@@ -160,6 +177,8 @@ impl SemanticAnalyzer {
                 ret_ty: Type::Generic("Promise".to_string(), vec![Type::Unknown]),
                 is_static: true,
                 is_async: false,
+                is_override: false,
+                defined_in_class: "Promise".to_string(),
                 access: AccessModifier::Public,
                 span,
                 doc: Some("Waits for the first promise to be settled".to_string()),
@@ -170,6 +189,7 @@ impl SemanticAnalyzer {
             "Promise".to_string(),
             ClassInfo {
                 name: "Promise".to_string(),
+                parent: None,
                 fields: HashMap::new(),
                 methods: promise_methods,
                 constructor: None,
@@ -325,6 +345,30 @@ impl SemanticAnalyzer {
             SemanticErrorKind::ArgumentCountMismatch(e, f) => {
                 format!("Argument count mismatch: expected {}, found {}", e, f)
             }
+            SemanticErrorKind::CircularInheritance(c) => {
+                format!("Circular inheritance detected for class '{}'", c)
+            }
+            SemanticErrorKind::MissingOverride(c, m) => {
+                format!("Method '{}' in class '{}' overrides a base class method but is missing the 'override' keyword", m, c)
+            }
+            SemanticErrorKind::UnexpectedOverride(c, m) => {
+                format!("Method '{}' in class '{}' has the 'override' keyword but doesn't override any base class method", m, c)
+            }
+            SemanticErrorKind::IncompatibleOverride(c, m) => {
+                format!("Method '{}' in class '{}' has an incompatible signature with the base class method it overrides", m, c)
+            }
+            SemanticErrorKind::SuperOutsideClass => {
+                "Keyword 'super' can only be used inside a class".to_string()
+            }
+            SemanticErrorKind::SuperInStaticMethod => {
+                "Keyword 'super' cannot be used in static methods".to_string()
+            }
+            SemanticErrorKind::NoParentClass(c) => {
+                format!(
+                    "Class '{}' does not have a parent class to call super on",
+                    c
+                )
+            }
         };
         self.diagnostics
             .push(Diagnostic::error(msg, span.line, span.column));
@@ -340,6 +384,9 @@ impl SemanticAnalyzer {
 
         // Pass 1: Collect declarations from current program
         self.collect_definitions(&program);
+
+        // Pass 1.5: Validate inheritance hierarchies
+        self.validate_inheritance();
 
         // Pass 2: Check statements
         self.current_file = program.file_path.clone(); // Ensure it's correct after potentially recursive calls
@@ -563,46 +610,20 @@ impl SemanticAnalyzer {
 
             // Structural identity for classes
             (Type::Class(src_name), Type::Class(tgt_name)) => {
-                let src_info = self.classes.get(src_name);
-                let tgt_info = self.classes.get(tgt_name);
-
-                if let (Some(si), Some(ti)) = (src_info, tgt_info) {
-                    // Check fields
-                    for (fname, finfo) in &ti.fields {
-                        if let Some(src_finfo) = si.fields.get(fname) {
-                            if !self.is_assignable_internal(&src_finfo.ty, &finfo.ty, history) {
-                                return false;
-                            }
-                        } else {
-                            return false; // Target has a field that source doesn't
-                        }
-                    }
-                    // Check methods
-                    for (mname, minfo) in &ti.methods {
-                        if let Some(src_minfo) = si.methods.get(mname) {
-                            if minfo.params.len() != src_minfo.params.len() {
-                                return false;
-                            }
-                            for (src_p, tgt_p) in src_minfo.params.iter().zip(minfo.params.iter()) {
-                                if !self.is_assignable_internal(src_p, tgt_p, history) {
-                                    return false;
-                                }
-                            }
-                            if !self.is_assignable_internal(
-                                &src_minfo.ret_ty,
-                                &minfo.ret_ty,
-                                history,
-                            ) {
-                                return false;
-                            }
-                        } else {
-                            return false; // Target has a method that source doesn't
-                        }
-                    }
-                    true
-                } else {
-                    false
+                if src_name == tgt_name {
+                    return true;
                 }
+
+                // Nominal subtyping: check if tgt_name is in the inheritance chain of src_name
+                let mut current = Some(src_name.clone());
+                while let Some(curr_name) = current {
+                    if curr_name == *tgt_name {
+                        return true;
+                    }
+                    current = self.classes.get(&curr_name).and_then(|i| i.parent.clone());
+                }
+
+                false
             }
 
             _ => false,
@@ -623,6 +644,140 @@ impl SemanticAnalyzer {
             self.scope = parent;
         } else {
             panic!("Popped root scope");
+        }
+    }
+
+    pub fn lookup_field(&self, class_name: &str, field: &str) -> Option<(FieldInfo, String, Span)> {
+        let mut curr = Some(class_name.to_string());
+        while let Some(name) = curr {
+            if let Some(info) = self.classes.get(&name) {
+                if let Some(f) = info.fields.get(field) {
+                    return Some((f.clone(), info.defined_in.clone(), info.span));
+                }
+                curr = info.parent.clone();
+            } else {
+                break;
+            }
+        }
+        None
+    }
+
+    pub fn lookup_method(
+        &self,
+        class_name: &str,
+        method: &str,
+    ) -> Option<(MethodInfo, String, Span)> {
+        let mut curr = Some(class_name.to_string());
+        while let Some(name) = curr {
+            if let Some(info) = self.classes.get(&name) {
+                if let Some(m) = info.methods.get(method) {
+                    return Some((m.clone(), info.defined_in.clone(), info.span));
+                }
+                curr = info.parent.clone();
+            } else {
+                break;
+            }
+        }
+        None
+    }
+
+    fn validate_inheritance(&mut self) {
+        let class_names: Vec<String> = self.classes.keys().cloned().collect();
+        for name in class_names {
+            // Check for circular inheritance
+            let mut visited = Vec::new();
+            let mut current = Some(name.clone());
+            while let Some(curr_name) = current {
+                if visited.contains(&curr_name) {
+                    let span = self.classes.get(&name).unwrap().span;
+                    self.error(SemanticErrorKind::CircularInheritance(name.clone()), span);
+                    break;
+                }
+                visited.push(curr_name.clone());
+                current = self.classes.get(&curr_name).and_then(|i| i.parent.clone());
+            }
+
+            // Validate parent existence
+            let info = self.classes.get(&name).unwrap().clone();
+            if let Some(ref parent_name) = info.parent {
+                if !self.classes.contains_key(parent_name) {
+                    self.error(
+                        SemanticErrorKind::UndefinedClass(parent_name.clone()),
+                        info.span,
+                    );
+                    continue;
+                }
+
+                // Validate overrides
+                for (mname, minfo) in &info.methods {
+                    if minfo.is_static {
+                        continue;
+                    }
+
+                    let mut overridden = None;
+                    let mut curr_parent = Some(parent_name.clone());
+                    while let Some(pn) = curr_parent {
+                        if let Some(pinfo) = self.classes.get(&pn) {
+                            if let Some(pmeta) = pinfo.methods.get(mname) {
+                                if !pmeta.is_static {
+                                    overridden = Some(pmeta.clone());
+                                    break;
+                                }
+                            }
+                            curr_parent = pinfo.parent.clone();
+                        } else {
+                            break;
+                        }
+                    }
+
+                    if let Some(pmeta) = overridden {
+                        if !minfo.is_override {
+                            self.error(
+                                SemanticErrorKind::MissingOverride(name.clone(), mname.clone()),
+                                minfo.span,
+                            );
+                        } else {
+                            // Check compatibility
+                            if minfo.params.len() != pmeta.params.len() {
+                                self.error(
+                                    SemanticErrorKind::IncompatibleOverride(
+                                        name.clone(),
+                                        mname.clone(),
+                                    ),
+                                    minfo.span,
+                                );
+                            } else {
+                                for (p1, p2) in minfo.params.iter().zip(pmeta.params.iter()) {
+                                    if p1 != p2 {
+                                        self.error(
+                                            SemanticErrorKind::IncompatibleOverride(
+                                                name.clone(),
+                                                mname.clone(),
+                                            ),
+                                            minfo.span,
+                                        );
+                                        break;
+                                    }
+                                }
+                                if minfo.ret_ty != pmeta.ret_ty {
+                                    self.error(
+                                        SemanticErrorKind::IncompatibleOverride(
+                                            name.clone(),
+                                            mname.clone(),
+                                        ),
+                                        minfo.span,
+                                    );
+                                }
+                            }
+                        }
+                    } else if minfo.is_override {
+                        self.error(
+                            SemanticErrorKind::UnexpectedOverride(name.clone(), mname.clone()),
+                            minfo.span,
+                        );
+                    }
+                }
+            }
         }
     }
 }

@@ -43,6 +43,12 @@ const char *aura_get_string(int64_t index) { return aura_string_table[index]; }
 
 void *aura_alloc(size_t size) { return malloc(size); }
 
+void aura_write_barrier(void *obj, void *val) {
+  // Placeholder for GC write barrier
+  (void)obj;
+  (void)val;
+}
+
 // Array intrinsics
 typedef struct {
   int64_t *data;
