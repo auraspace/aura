@@ -1,0 +1,62 @@
+// Expected output:
+// Woof!
+// Barking...
+
+abstract class Animal {
+  abstract function makeSound(): void;
+  
+  public move(): void {
+    print "Moving...";
+  }
+}
+
+class Dog extends Animal {
+  public override function makeSound(): void {
+    print "Woof!";
+  }
+}
+
+let dog = new Dog();
+dog.makeSound();
+
+// Test abstract method implementation in a chain
+abstract class Mammal extends Animal {
+  abstract function breathe(): void;
+}
+
+class Human extends Mammal {
+  public override function makeSound(): void {
+    print "Hello!";
+  }
+  
+  public override function breathe(): void {
+    print "Breathing...";
+  }
+}
+
+// Test multiple abstract methods
+abstract class Shape {
+  abstract function area(): i32;
+  abstract function perimeter(): i32;
+}
+
+class Square extends Shape {
+  private side: i32;
+  
+  constructor(side: i32) {
+    this.side = side;
+  }
+  
+  public override function area(): i32 {
+    return this.side * this.side;
+  }
+  
+  public override function perimeter(): i32 {
+    return 4 * this.side;
+  }
+}
+
+// Verification of errors (these should fail compilation, but we test the positive case here)
+// let a = new Animal(); // Error: Cannot instantiate abstract class 'Animal'
+
+print "Barking...";

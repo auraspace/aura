@@ -25,6 +25,8 @@ pub struct Lowerer {
     pub(crate) globals: Vec<(String, String)>, // (name, content) for strings
     pub(crate) vtables: HashMap<String, Vec<String>>, // class_name -> list of mangled method names
     pub(crate) parent_classes: HashMap<String, String>, // subclass -> parent
+    pub(crate) method_to_idx: HashMap<String, u32>,
+    pub(crate) next_method_idx: u32,
     pub(crate) last_expr_ty: Type,
 }
 
@@ -41,6 +43,8 @@ impl Lowerer {
             globals: Vec::new(),
             vtables: HashMap::new(),
             parent_classes: HashMap::new(),
+            method_to_idx: HashMap::new(),
+            next_method_idx: 0,
             last_expr_ty: Type::Unknown,
         }
     }
@@ -77,6 +81,7 @@ impl Lowerer {
                                 methods,
                                 extends: _,
                                 implements: _,
+                                is_abstract: _,
                                 ..
                             } = stmt
                             {
@@ -117,6 +122,7 @@ impl Lowerer {
                                 constructor,
                                 extends: _,
                                 implements: _,
+                                is_abstract: _,
                                 ..
                             } = stmt
                             {
@@ -171,15 +177,38 @@ impl Lowerer {
         let mut functions = self.load_stdlib();
         let mut global_stmts = Vec::new();
 
-        // Pass 0: Collect all class names and parents
+        // Pass 0: Collect all class names, parents and assign global indices to interface methods
         for stmt in &program.statements {
-            if let Statement::ClassDeclaration { name, extends, .. } = stmt {
-                if let Some(parent) = extends {
-                    self.parent_classes.insert(name.clone(), parent.clone());
+            match stmt {
+                Statement::ClassDeclaration {
+                    name,
+                    extends,
+                    methods,
+                    ..
+                } => {
+                    if let Some(parent) = extends {
+                        self.parent_classes.insert(name.clone(), parent.clone());
+                    }
+                    for m in methods {
+                        if !m.is_static {
+                            if !self.method_to_idx.contains_key(&m.name) {
+                                self.method_to_idx
+                                    .insert(m.name.clone(), self.next_method_idx);
+                                self.next_method_idx += 1;
+                            }
+                        }
+                    }
                 }
-            }
-            if let Statement::Interface(_decl) = stmt {
-                // Collect interface info if needed for IR lowering (currently not used)
+                Statement::Interface(decl) => {
+                    for m in &decl.methods {
+                        if !self.method_to_idx.contains_key(&m.name) {
+                            self.method_to_idx
+                                .insert(m.name.clone(), self.next_method_idx);
+                            self.next_method_idx += 1;
+                        }
+                    }
+                }
+                _ => {}
             }
         }
 
@@ -198,6 +227,7 @@ impl Lowerer {
                     methods,
                     extends,
                     implements: _,
+                    is_abstract: _,
                     ..
                 } = pending_classes[i]
                 {
@@ -251,14 +281,31 @@ impl Lowerer {
                             self.function_tys.insert(m_name, (p_tys, r_ty));
 
                             if !m.is_static {
-                                if let Some(idx) = vtable_index.get(&m.name) {
-                                    // Override
-                                    vtable_methods[*idx as usize] = format!("{}_{}", name, m.name);
+                                // 1. Determine the index for this method
+                                let idx = if let Some(inherited_idx) = vtable_index.get(&m.name) {
+                                    *inherited_idx
+                                } else if let Some(global_idx) = self.method_to_idx.get(&m.name) {
+                                    *global_idx
                                 } else {
-                                    // New virtual method
-                                    vtable_index
-                                        .insert(m.name.clone(), vtable_methods.len() as u32);
-                                    vtable_methods.push(format!("{}_{}", name, m.name));
+                                    let new_idx = self.next_method_idx;
+                                    self.method_to_idx.insert(m.name.clone(), new_idx);
+                                    self.next_method_idx += 1;
+                                    new_idx
+                                };
+
+                                // 2. Update vtable_index if not already there
+                                if !vtable_index.contains_key(&m.name) {
+                                    vtable_index.insert(m.name.clone(), idx);
+                                }
+
+                                // 3. Ensure vtable_methods is large enough and fill with mangled name
+                                while vtable_methods.len() <= idx as usize {
+                                    vtable_methods.push("aura_null".to_string());
+                                }
+                                if m.is_abstract {
+                                    vtable_methods[idx as usize] = "aura_null".to_string();
+                                } else {
+                                    vtable_methods[idx as usize] = format!("{}_{}", name, m.name);
                                 }
                             } else {
                                 statics.insert(m.name.clone());
@@ -325,9 +372,13 @@ impl Lowerer {
                     methods,
                     constructor,
                     extends,
+                    is_abstract: _,
                     ..
                 } => {
                     for m in methods {
+                        if m.is_abstract {
+                            continue;
+                        }
                         let mangled_name = format!("{}_{}", name, m.name);
                         let mut pnames = Vec::new();
                         if !m.is_static {
@@ -493,6 +544,7 @@ mod tests {
                     constructor: None,
                     extends: None,
                     implements: vec![],
+                    is_abstract: false,
                     span,
                     doc: None,
                 },

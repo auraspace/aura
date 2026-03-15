@@ -219,6 +219,18 @@ impl SemanticAnalyzer {
                 }
             }
             Expr::New(class_name, name_span, args, span) => {
+                let is_abs = self
+                    .classes
+                    .get(&class_name)
+                    .map(|c| c.is_abstract)
+                    .unwrap_or(false);
+                if is_abs {
+                    self.error(
+                        SemanticErrorKind::CannotInstantiateAbstractClass(class_name.clone()),
+                        span,
+                    );
+                }
+
                 if let Some(class_info) = self.classes.get(&class_name) {
                     if self.record_node_info {
                         let doc_opt = class_info.doc.clone();

@@ -28,15 +28,21 @@ impl IrCodegen {
                     .push_str(&format!("{}: .asciz \"{}\"\n", name, content));
             }
             self.emitter.output.push_str(".align 3\n");
-            self.emitter.output.push_str(".global _aura_string_table\n");
-            self.emitter.output.push_str("_aura_string_table:\n");
+        }
+        // Always emit _aura_string_table for linker satisfaction
+        self.emitter.output.push_str(".data\n");
+        self.emitter.output.push_str(".global _aura_string_table\n");
+        self.emitter.output.push_str("_aura_string_table:\n");
+        if !module.globals.is_empty() {
             for (name, _) in &module.globals {
                 self.emitter
                     .output
                     .push_str(&format!("    .quad {}\n", name));
             }
-            self.emitter.output.push_str(".text\n");
+        } else {
+            self.emitter.output.push_str("    .quad 0\n");
         }
+        self.emitter.output.push_str(".text\n");
 
         // Emit VTables
         if !module.vtables.is_empty() {
@@ -47,9 +53,13 @@ impl IrCodegen {
                     .output
                     .push_str(&format!("vtable_{}:\n", class));
                 for method in methods {
-                    self.emitter
-                        .output
-                        .push_str(&format!("    .quad _{}\n", method));
+                    if method == "aura_null" {
+                        self.emitter.output.push_str("    .quad 0\n");
+                    } else {
+                        self.emitter
+                            .output
+                            .push_str(&format!("    .quad _{}\n", method));
+                    }
                 }
             }
             self.emitter.output.push_str(".text\n");

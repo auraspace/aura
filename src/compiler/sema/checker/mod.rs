@@ -2,7 +2,7 @@ use crate::compiler::ast::{AccessModifier, Program, Span, TypeExpr};
 use crate::compiler::frontend::error::{Diagnostic, DiagnosticList};
 use crate::compiler::sema::scope::Scope;
 use crate::compiler::sema::ty::Type;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 pub mod decl;
 pub mod expr;
@@ -26,6 +26,7 @@ pub struct MethodInfo {
     pub is_static: bool,
     pub is_async: bool,
     pub is_override: bool,
+    pub is_abstract: bool,
     pub defined_in_class: String,
     pub access: AccessModifier,
     pub span: Span,
@@ -41,6 +42,7 @@ pub struct ClassInfo {
     pub methods: HashMap<String, MethodInfo>,
     pub constructor: Option<(Vec<Type>, AccessModifier)>,
     pub is_exported: bool,
+    pub is_abstract: bool,
     pub defined_in: String,
     pub span: Span,
     pub doc: Option<String>,
@@ -84,6 +86,10 @@ pub enum SemanticErrorKind {
     SuperOutsideClass,
     SuperInStaticMethod,
     NoParentClass(String),
+    CannotInstantiateAbstractClass(String),
+    AbstractMethodInConcreteClass(String, String), // class, method
+    AbstractMethodWithBody(String, String),        // class, method
+    ConcreteClassMissingImplementation(String, String), // class, method
 }
 
 #[derive(Debug, Clone)]
@@ -144,6 +150,7 @@ impl SemanticAnalyzer {
                 is_static: true,
                 is_async: false,
                 is_override: false,
+                is_abstract: false,
                 defined_in_class: "Promise".to_string(),
                 access: AccessModifier::Public,
                 span,
@@ -162,6 +169,7 @@ impl SemanticAnalyzer {
                 is_static: true,
                 is_async: false,
                 is_override: false,
+                is_abstract: false,
                 defined_in_class: "Promise".to_string(),
                 access: AccessModifier::Public,
                 span,
@@ -177,6 +185,7 @@ impl SemanticAnalyzer {
                 is_static: true,
                 is_async: false,
                 is_override: false,
+                is_abstract: false,
                 defined_in_class: "Promise".to_string(),
                 access: AccessModifier::Public,
                 span,
@@ -192,6 +201,7 @@ impl SemanticAnalyzer {
                 is_static: true,
                 is_async: false,
                 is_override: false,
+                is_abstract: false,
                 defined_in_class: "Promise".to_string(),
                 access: AccessModifier::Public,
                 span,
@@ -209,6 +219,7 @@ impl SemanticAnalyzer {
                 methods: promise_methods,
                 constructor: None,
                 is_exported: true,
+                is_abstract: false,
                 defined_in: "".to_string(),
                 span: Span::new(0, 0),
                 doc: Some("Built-in Promise class".to_string()),
@@ -382,6 +393,27 @@ impl SemanticAnalyzer {
                 format!(
                     "Class '{}' does not have a parent class to call super on",
                     c
+                )
+            }
+            SemanticErrorKind::CannotInstantiateAbstractClass(c) => {
+                format!("Cannot instantiate abstract class '{}'", c)
+            }
+            SemanticErrorKind::AbstractMethodInConcreteClass(c, m) => {
+                format!(
+                    "Abstract method '{}' cannot be declared in concrete class '{}'",
+                    m, c
+                )
+            }
+            SemanticErrorKind::AbstractMethodWithBody(c, m) => {
+                format!(
+                    "Abstract method '{}' in class '{}' cannot have a body",
+                    m, c
+                )
+            }
+            SemanticErrorKind::ConcreteClassMissingImplementation(c, m) => {
+                format!(
+                    "Concrete class '{}' must implement abstract method '{}'",
+                    c, m
                 )
             }
         };
@@ -787,6 +819,37 @@ impl SemanticAnalyzer {
                         info.span,
                     );
                     continue;
+                }
+
+                if !info.is_abstract {
+                    let mut abstract_methods = HashSet::new();
+                    let mut curr = info.parent.clone();
+                    while let Some(pn) = curr {
+                        if let Some(pinfo) = self.classes.get(&pn) {
+                            for (mname, m_info) in &pinfo.methods {
+                                if m_info.is_abstract {
+                                    abstract_methods.insert(mname.clone());
+                                }
+                            }
+                            curr = pinfo.parent.clone();
+                        } else {
+                            break;
+                        }
+                    }
+
+                    for mname in abstract_methods {
+                        if let Some((found_minfo, _, _)) = self.lookup_method(&name, &mname) {
+                            if found_minfo.is_abstract {
+                                self.error(
+                                    SemanticErrorKind::ConcreteClassMissingImplementation(
+                                        name.clone(),
+                                        mname.clone(),
+                                    ),
+                                    info.span,
+                                );
+                            }
+                        }
+                    }
                 }
 
                 // Validate overrides

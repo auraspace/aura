@@ -317,11 +317,40 @@ impl Codegen {
                 fields,
                 methods,
                 constructor,
-                extends: _,
+                extends,
                 implements: _,
+                is_abstract: _,
                 span,
                 doc: _,
             } => {
+                let mut vtable_methods = Vec::new();
+                if let Some(ref parent_name) = extends {
+                    if let Some(parent_vtable) = self.vtables.get(parent_name).cloned() {
+                        vtable_methods = parent_vtable;
+                    }
+                }
+
+                for m in &methods {
+                    if !m.is_static {
+                        let idx = self.method_to_idx.get(&m.name).cloned().unwrap_or_else(|| {
+                            let new_idx = self.next_method_idx;
+                            self.method_to_idx.insert(m.name.clone(), new_idx);
+                            self.next_method_idx += 1;
+                            new_idx
+                        });
+
+                        while vtable_methods.len() <= idx as usize {
+                            vtable_methods.push("aura_null".to_string());
+                        }
+                        if m.is_abstract {
+                            vtable_methods[idx as usize] = "aura_null".to_string();
+                        } else {
+                            vtable_methods[idx as usize] = format!("{}_{}", name, m.name);
+                        }
+                    }
+                }
+                self.vtables.insert(name.clone(), vtable_methods.clone());
+
                 let field_names: Vec<String> = fields
                     .iter()
                     .filter(|f| !f.is_static)
@@ -329,7 +358,7 @@ impl Codegen {
                     .collect();
                 let method_names: Vec<String> = methods
                     .iter()
-                    .filter(|m| !m.is_static)
+                    .filter(|m| !m.is_static && !m.is_abstract)
                     .map(|m| m.name.clone())
                     .collect();
                 self.classes
@@ -364,17 +393,16 @@ impl Codegen {
                     });
                 }
 
-                for method in methods {
+                for method in &methods {
+                    if method.is_abstract {
+                        continue;
+                    }
                     self.generate_statement(Statement::FunctionDeclaration {
-                        name: if method.is_static {
-                            format!("{}_{}", name, method.name)
-                        } else {
-                            format!("{}_{}", name, method.name) // Currently same mangling
-                        },
+                        name: format!("{}_{}", name, method.name),
                         name_span: method.name_span,
-                        params: method.params,
-                        return_ty: method.return_ty,
-                        body: method.body,
+                        params: method.params.clone(),
+                        return_ty: method.return_ty.clone(),
+                        body: method.body.clone(),
                         is_async: method.is_async,
                         span: method.span,
                         doc: None,

@@ -15,11 +15,17 @@ impl Parser {
             is_async = true;
         }
 
+        let mut is_abstract = false;
+        if self.peek().kind == TokenKind::Abstract {
+            self.advance();
+            is_abstract = true;
+        }
+
         match &self.peek().kind {
             TokenKind::Let | TokenKind::Const => {
-                if is_async {
+                if is_async || is_abstract {
                     self.diagnostics.push(Diagnostic::error(
-                        "Async is not allowed on variable declarations".to_string(),
+                        "Async or Abstract is not allowed on variable declarations".to_string(),
                         s.line,
                         s.column,
                     ));
@@ -27,9 +33,9 @@ impl Parser {
                 self.parse_var_declaration(doc)
             }
             TokenKind::Print => {
-                if is_async {
+                if is_async || is_abstract {
                     self.diagnostics.push(Diagnostic::error(
-                        "Async is not allowed on print statements".to_string(),
+                        "Async or Abstract is not allowed on print statements".to_string(),
                         s.line,
                         s.column,
                     ));
@@ -41,7 +47,7 @@ impl Parser {
             TokenKind::OpenBrace => Ok(self.parse_block()),
             TokenKind::Function => self.parse_function_declaration(doc, is_async),
             TokenKind::Return => self.parse_return_statement(),
-            TokenKind::Class => self.parse_class_declaration(doc),
+            TokenKind::Class => self.parse_class_declaration(doc, is_abstract),
             TokenKind::Enum => self.parse_enum_declaration(doc),
             TokenKind::Interface => self.parse_interface_declaration(doc),
             TokenKind::Import => self.parse_import_statement(),
@@ -192,7 +198,15 @@ impl Parser {
                 }
                 self.parse_function_declaration(doc, is_async)?
             }
-            TokenKind::Class => self.parse_class_declaration(doc)?,
+            TokenKind::Class => {
+                let mut is_abstract = false;
+                if self.peek().kind == TokenKind::Abstract {
+                    self.advance();
+                    is_abstract = true;
+                    // doc might have been passed in, but parse_export_statement is called with it.
+                }
+                self.parse_class_declaration(doc, is_abstract)?
+            }
             TokenKind::Enum => self.parse_enum_declaration(doc)?,
             TokenKind::Interface => self.parse_interface_declaration(doc)?,
             _ => {
@@ -488,6 +502,7 @@ impl Parser {
     pub(crate) fn parse_class_declaration(
         &mut self,
         doc: Option<DocComment>,
+        is_abstract: bool,
     ) -> Result<Statement, ()> {
         let s = self.span();
         self.consume(TokenKind::Class)?;
@@ -558,6 +573,13 @@ impl Parser {
         let mut constructor = None;
 
         while self.peek().kind != TokenKind::CloseBrace && !self.is_at_end() {
+            if matches!(
+                self.peek().kind,
+                TokenKind::Comment(_) | TokenKind::RegularBlockComment(_)
+            ) {
+                self.advance();
+                continue;
+            }
             let member_doc = self.parse_doc_comments();
             let mut ms = self.span();
 
@@ -609,6 +631,13 @@ impl Parser {
                 ms = self.span();
             }
 
+            let mut is_abstract_member = false;
+            if self.peek().kind == TokenKind::Abstract {
+                self.advance();
+                is_abstract_member = true;
+                ms = self.span();
+            }
+
             let kind = self.peek().kind.clone();
             match kind {
                 TokenKind::Constructor => {
@@ -639,6 +668,7 @@ impl Parser {
                         is_static: false,
                         is_async: false,
                         is_override: false,
+                        is_abstract: false,
                         access,
                         span: ms,
                         doc: member_doc,
@@ -696,7 +726,13 @@ impl Parser {
                         TypeExpr::Name("void".to_string(), ms)
                     };
 
-                    let body = Box::new(self.parse_block());
+                    let body = if is_abstract_member {
+                        let _ = self.consume(TokenKind::Semicolon);
+                        Box::new(Statement::Error) // Placeholder for abstract body
+                    } else {
+                        Box::new(self.parse_block())
+                    };
+
                     methods.push(ClassMethod {
                         name: mname,
                         name_span: mname_span,
@@ -706,6 +742,7 @@ impl Parser {
                         is_static,
                         is_async,
                         is_override,
+                        is_abstract: is_abstract_member,
                         access,
                         span: ms,
                         doc: member_doc,
@@ -739,7 +776,13 @@ impl Parser {
                             TypeExpr::Name("void".to_string(), ms)
                         };
 
-                        let body = Box::new(self.parse_block());
+                        let body = if is_abstract_member {
+                            let _ = self.consume(TokenKind::Semicolon);
+                            Box::new(Statement::Error) // Placeholder for abstract body
+                        } else {
+                            Box::new(self.parse_block())
+                        };
+
                         methods.push(ClassMethod {
                             name: fname,
                             name_span: fs,
@@ -749,11 +792,19 @@ impl Parser {
                             is_static,
                             is_async,
                             is_override,
+                            is_abstract: is_abstract_member,
                             access,
                             span: ms,
                             doc: member_doc,
                         });
                     } else {
+                        if is_abstract_member {
+                            self.diagnostics.push(Diagnostic::error(
+                                "Fields cannot be abstract".to_string(),
+                                fs.line,
+                                fs.column,
+                            ));
+                        }
                         let _ = self.consume(TokenKind::Colon);
                         let fty = self.parse_type_expr();
                         let value = if self.peek().kind == TokenKind::Equal {
@@ -801,6 +852,7 @@ impl Parser {
             fields,
             methods,
             constructor,
+            is_abstract,
             span: s,
             doc,
         })
@@ -888,6 +940,7 @@ impl Parser {
                             is_static: false,
                             is_async: false,
                             is_override: false,
+                            is_abstract: false,
                             access: AccessModifier::Public,
                             span: ms,
                             doc: member_doc,

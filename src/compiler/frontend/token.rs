@@ -35,6 +35,7 @@ pub enum TokenKind {
     Extends,
     Super,
     Override,
+    Abstract,
     Null,
 
     // Identifiers & Literals

@@ -12,6 +12,7 @@ pub struct Codegen {
     global_variables: HashMap<String, (String, Type)>, // name -> (label, type)
     classes: HashMap<String, (Vec<String>, Vec<String>)>, // name -> (fields, methods)
     interfaces: std::collections::HashSet<String>, // name
+    abstract_classes: std::collections::HashSet<String>, // name
     enums: HashMap<String, HashMap<String, Expr>>, // name -> (member -> value)
     string_constants: HashMap<String, String>, // value -> label
     node_types: HashMap<String, HashMap<Span, Type>>,
@@ -21,6 +22,9 @@ pub struct Codegen {
     current_fn_end: Option<String>,
     current_class: Option<String>,
     is_global_scope: bool,
+    method_to_idx: HashMap<String, u32>,
+    next_method_idx: u32,
+    vtables: HashMap<String, Vec<String>>, // class_name -> list of mangled method names
     loaded_files: std::collections::HashSet<String>,
     current_dir: Option<String>,
     pub stdlib_path: Option<String>,
@@ -35,6 +39,7 @@ impl Codegen {
             global_variables: HashMap::new(),
             classes: HashMap::new(),
             interfaces: std::collections::HashSet::new(),
+            abstract_classes: std::collections::HashSet::new(),
             enums: HashMap::new(),
             string_constants: HashMap::new(),
             node_types: HashMap::new(),
@@ -44,6 +49,9 @@ impl Codegen {
             current_fn_end: None,
             current_class: None,
             is_global_scope: true,
+            method_to_idx: HashMap::new(),
+            next_method_idx: 0,
+            vtables: HashMap::new(),
             loaded_files: std::collections::HashSet::new(),
             current_dir: None,
             stdlib_path: None,
@@ -60,9 +68,61 @@ impl Codegen {
     }
 
     fn get_node_type(&self, span: &Span) -> Option<&Type> {
-        self.node_types
-            .get(&self.current_file)
-            .and_then(|m| m.get(span))
+        if let Some(m) = self.node_types.get(&self.current_file) {
+            m.get(span)
+        } else {
+            // Try fallback without path if exact match fails
+            for map in self.node_types.values() {
+                if let Some(ty) = map.get(span) {
+                    return Some(ty);
+                }
+            }
+            None
+        }
+    }
+
+    fn resolve_obj_type(&self, obj: &Expr) -> Type {
+        match obj {
+            Expr::Variable(name, _) => {
+                if let Some((_, ty)) = self.variables.get(name) {
+                    if *ty != Type::Unknown {
+                        return ty.clone();
+                    }
+                }
+                if let Some((_, ty)) = self.global_variables.get(name) {
+                    if *ty != Type::Unknown {
+                        return ty.clone();
+                    }
+                }
+            }
+            Expr::This(_) => {
+                if let Some(ref class_name) = self.current_class {
+                    return Type::Class(class_name.clone());
+                }
+            }
+            _ => {}
+        }
+
+        let span = obj.span();
+        if let Some(ty) = self.get_node_type(&span) {
+            if *ty != Type::Unknown {
+                return ty.clone();
+            }
+        }
+
+        match obj {
+            Expr::MemberAccess(inner_obj, _member, _, _) => {
+                let inner_ty = self.resolve_obj_type(inner_obj);
+                if let Type::Class(ref _class_name) = inner_ty {
+                    // Note: We don't have field types here in Godegen classes Map,
+                    // but we should eventually add them or rely on node_types.
+                    // For now, let's just return Unknown and rely on span-based lookup
+                    // if it was a nested access.
+                }
+                Type::Unknown
+            }
+            _ => Type::Unknown,
+        }
     }
 
     fn is_string_enum(&self, enum_name: &str) -> bool {
@@ -174,6 +234,26 @@ impl Codegen {
 
         self.emitter.emit_footer();
 
+        // Emit vtables in .data section
+        if !self.vtables.is_empty() {
+            self.emitter.output.push_str("\n.data\n");
+            self.emitter.output.push_str(".align 8\n");
+            for (class, methods) in &self.vtables {
+                self.emitter
+                    .output
+                    .push_str(&format!("vtable_{}:\n", class));
+                for method in methods {
+                    if method == "aura_null" {
+                        self.emitter.output.push_str("    .quad 0\n");
+                    } else {
+                        self.emitter
+                            .output
+                            .push_str(&format!("    .quad _{}\n", method));
+                    }
+                }
+            }
+        }
+
         // Emit global variables in .data section
         if !self.global_variables.is_empty() {
             self.emitter.output.push_str("\n.data\n");
@@ -223,11 +303,25 @@ impl Codegen {
             };
 
             match actual_stmt {
-                Statement::ClassDeclaration { .. } => {
+                Statement::ClassDeclaration {
+                    ref name,
+                    is_abstract,
+                    ..
+                } => {
+                    if is_abstract {
+                        self.abstract_classes.insert(name.clone());
+                    }
                     classes.push((program.file_path.clone(), actual_stmt))
                 }
                 Statement::Interface(decl) => {
                     self.interfaces.insert(decl.name.clone());
+                    for m in &decl.methods {
+                        if !self.method_to_idx.contains_key(&m.name) {
+                            self.method_to_idx
+                                .insert(m.name.clone(), self.next_method_idx);
+                            self.next_method_idx += 1;
+                        }
+                    }
                 }
                 Statement::FunctionDeclaration { .. } => {
                     fns.push((program.file_path.clone(), actual_stmt))
@@ -320,7 +414,9 @@ impl Codegen {
                         .unwrap_or(Type::Unknown);
                     if matches!(var_ty, Type::Unknown) {
                         // Infer type from value expression when node_types aren't available
-                        if let Expr::MemberAccess(ref obj, _, _, _) = value {
+                        if let Expr::New(ref class_name, _, _, _) = value {
+                            var_ty = Type::Class(class_name.clone());
+                        } else if let Expr::MemberAccess(ref obj, _, _, _) = value {
                             if let Expr::Variable(ref enum_name, _) = **obj {
                                 if self.enums.contains_key(enum_name.as_str()) {
                                     var_ty = Type::Enum(enum_name.clone());
@@ -355,11 +451,19 @@ impl Codegen {
                         ref name,
                         ref fields,
                         ref methods,
+                        is_abstract,
                         ..
                     } = stmt
                     {
+                        if is_abstract {
+                            self.abstract_classes.insert(name.clone());
+                        }
                         let fnames = fields.iter().map(|f| f.name.clone()).collect();
-                        let mnames = methods.iter().map(|m| m.name.clone()).collect();
+                        let mnames = methods
+                            .iter()
+                            .filter(|m| !m.is_abstract)
+                            .map(|m| m.name.clone())
+                            .collect();
                         self.classes.insert(name.clone(), (fnames, mnames));
                     }
                 }

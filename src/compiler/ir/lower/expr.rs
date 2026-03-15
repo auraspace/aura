@@ -221,14 +221,14 @@ impl Lowerer {
                 let mut vtable_idx = None;
                 let mut return_ty = Type::Unknown;
 
-                let mangled_name = if let Type::Class(cls_name) = obj_ty {
-                    if let Some(statics) = self.static_methods.get(&cls_name) {
+                let mangled_name = if let Type::Class(ref cls_name) = obj_ty {
+                    if let Some(statics) = self.static_methods.get(cls_name) {
                         if statics.contains(&method) {
                             is_static = true;
                         }
                     }
                     if !is_static {
-                        if let Some(layout) = self.class_layouts.get(&cls_name) {
+                        if let Some(layout) = self.class_layouts.get(cls_name) {
                             vtable_idx = layout.vtable_index.get(&method).cloned();
                         }
                     }
@@ -242,7 +242,7 @@ impl Lowerer {
 
                     format!("{}_{}", cls_name, method)
                 } else {
-                    method
+                    method.clone()
                 };
 
                 let mut ir_args = Vec::new();
@@ -254,6 +254,9 @@ impl Lowerer {
 
                 if let Some(idx) = vtable_idx {
                     self.builder.call_virtual(obj_op, idx, ir_args)
+                } else if let Some(global_idx) = self.method_to_idx.get(&method) {
+                    // Fallback to global method index for interface/abstract calls
+                    self.builder.call_virtual(obj_op, *global_idx, ir_args)
                 } else {
                     self.builder.call(mangled_name, ir_args)
                 }

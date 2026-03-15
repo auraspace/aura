@@ -308,6 +308,7 @@ impl SemanticAnalyzer {
                 constructor,
                 extends: _,
                 implements: _,
+                is_abstract: _,
                 span: _,
                 doc: _,
             } => {

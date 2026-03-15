@@ -440,6 +440,7 @@ impl<'a> Lexer<'a> {
             "public" => TokenKind::Public,
             "private" => TokenKind::Private,
             "protected" => TokenKind::Protected,
+            "abstract" => TokenKind::Abstract,
             "readonly" => TokenKind::Readonly,
             _ => TokenKind::Identifier(literal.to_string()),
         };

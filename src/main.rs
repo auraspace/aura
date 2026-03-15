@@ -261,7 +261,7 @@ fn main() {
     }
 
     // Assembly file is always temporary unless we specifically want it (but we don't here)
-    let _ = std::fs::remove_file(&asm_file);
+    // let _ = std::fs::remove_file(&asm_file);
 
     if command == "run" {
         println!("--- Running Aura Program ---");

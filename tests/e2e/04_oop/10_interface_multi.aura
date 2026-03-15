@@ -1,0 +1,25 @@
+// Expected output:
+// Log1: Hello
+// Log2: World
+
+interface Logger {
+  log(message: string): void;
+}
+
+class Logger1 implements Logger {
+  public log(message: string): void {
+    print "Log1: " + message;
+  }
+}
+
+class Logger2 implements Logger {
+  public log(message: string): void {
+    print "Log2: " + message;
+  }
+}
+
+let l1: Logger = new Logger1();
+l1.log("Hello");
+
+let l2: Logger = new Logger2();
+l2.log("World");

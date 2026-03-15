@@ -22,6 +22,7 @@ impl SemanticAnalyzer {
                 fields,
                 methods,
                 constructor,
+                is_abstract,
                 span,
                 doc,
             } = actual_stmt
@@ -79,12 +80,32 @@ impl SemanticAnalyzer {
                             is_static: m.is_static,
                             is_async: m.is_async,
                             is_override: m.is_override,
+                            is_abstract: m.is_abstract,
                             defined_in_class: name.clone(),
                             access: m.access,
                             span: m.name_span,
                             doc: m.doc.as_ref().map(|d| d.content()),
                         },
                     );
+
+                    if m.is_abstract && !*is_abstract {
+                        self.error(
+                            crate::compiler::sema::checker::SemanticErrorKind::AbstractMethodInConcreteClass(
+                                name.clone(),
+                                m.name.clone(),
+                            ),
+                            m.name_span,
+                        );
+                    }
+                    if m.is_abstract && !matches!(*m.body, Statement::Error) {
+                        self.error(
+                            crate::compiler::sema::checker::SemanticErrorKind::AbstractMethodWithBody(
+                                name.clone(),
+                                m.name.clone(),
+                            ),
+                            m.name_span,
+                        );
+                    }
                 }
 
                 let ctor_info = constructor.as_ref().map(|c| {
@@ -106,6 +127,7 @@ impl SemanticAnalyzer {
                         methods: method_map,
                         constructor: ctor_info,
                         is_exported,
+                        is_abstract: *is_abstract,
                         defined_in: self.current_file.clone(),
                         span: *span,
                         doc: doc.as_ref().map(|d| d.content()),
@@ -163,6 +185,7 @@ impl SemanticAnalyzer {
                             is_static: false,
                             is_async: false,
                             is_override: false,
+                            is_abstract: true,
                             defined_in_class: decl.name.clone(),
                             access: AccessModifier::Public,
                             span: m.name_span,

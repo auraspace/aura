@@ -191,9 +191,18 @@ impl Codegen {
                     .classes
                     .get(&class_name)
                     .expect(&format!("Undefined class {}", class_name));
-                let size = fields.len() * 8;
+                let size = (fields.len() + 1) * 8; // +1 for VTable pointer at offset 0
                 self.emitter.mov_imm(AsmRegister::X0, size as i64);
                 self.emitter.call("_aura_alloc");
+
+                // Set VTable at offset 0
+                self.emitter
+                    .output
+                    .push_str(&format!("    adrp x1, vtable_{}@PAGE\n", class_name));
+                self.emitter
+                    .output
+                    .push_str(&format!("    add x1, x1, vtable_{}@PAGEOFF\n", class_name));
+                self.emitter.output.push_str("    str x1, [x0]\n");
 
                 // Push result (instance) to save it while evaluating args
                 self.emitter.push(AsmRegister::X0);
@@ -228,73 +237,41 @@ impl Codegen {
                     }
                 }
 
-                let obj_span = obj.span();
                 let mut offset = 0;
-                let mut ty = self
-                    .get_node_type(&obj_span)
-                    .cloned()
-                    .unwrap_or(Type::Unknown);
-                if matches!(ty, Type::Unknown) {
-                    if let Expr::Variable(ref name, _) = *obj {
-                        if let Some((_, var_ty)) = self.variables.get(name) {
-                            ty = var_ty.clone();
-                        } else if let Some((_, var_ty)) = self.global_variables.get(name) {
-                            ty = var_ty.clone();
-                        }
-                    }
-                }
+                let ty = self.resolve_obj_type(&obj);
 
                 if let Type::Class(ref class_name) = ty {
                     if let Some((fields, _)) = self.classes.get(class_name) {
                         if let Some(idx) = fields.iter().position(|f| f == &member) {
-                            offset = idx * 8;
+                            offset = (idx + 1) * 8;
                         }
                     }
                 } else if let Some(ref class_name) = self.current_class {
-                    // Fallback for 'this' if not in node_types for some reason
                     if let Some((fields, _)) = self.classes.get(class_name) {
                         if let Some(idx) = fields.iter().position(|f| f == &member) {
-                            offset = idx * 8;
+                            offset = (idx + 1) * 8;
                         }
                     }
                 }
+
                 self.generate_expr(*obj);
                 self.emitter
                     .output
                     .push_str(&format!("    ldr x0, [x0, #{}]\n", offset));
             }
             Expr::MemberAssign(obj, member, value, _, _span) => {
-                let obj_span = obj.span();
-                self.generate_expr(*value);
-                self.emitter.push(AsmRegister::X0);
+                let ty = self.resolve_obj_type(&obj);
                 let mut offset = 0;
-                let mut ty = self
-                    .get_node_type(&obj_span)
-                    .cloned()
-                    .unwrap_or(Type::Unknown);
-                if matches!(ty, Type::Unknown) {
-                    if let Expr::Variable(ref name, _) = *obj {
-                        if let Some((_, var_ty)) = self.variables.get(name) {
-                            ty = var_ty.clone();
-                        } else if let Some((_, var_ty)) = self.global_variables.get(name) {
-                            ty = var_ty.clone();
+                if let Type::Class(ref class_name) = ty {
+                    if let Some((fields, _)) = self.classes.get(class_name) {
+                        if let Some(idx) = fields.iter().position(|f| f == &member) {
+                            offset = (idx + 1) * 8;
                         }
                     }
                 }
 
-                if let Type::Class(ref class_name) = ty {
-                    if let Some((fields, _)) = self.classes.get(class_name) {
-                        if let Some(idx) = fields.iter().position(|f| f == &member) {
-                            offset = idx * 8;
-                        }
-                    }
-                } else if let Some(ref class_name) = self.current_class {
-                    if let Some((fields, _)) = self.classes.get(class_name) {
-                        if let Some(idx) = fields.iter().position(|f| f == &member) {
-                            offset = idx * 8;
-                        }
-                    }
-                }
+                self.generate_expr(*value);
+                self.emitter.push(AsmRegister::X0);
                 self.generate_expr(*obj);
                 self.emitter.pop(AsmRegister::X1);
                 self.emitter
@@ -388,7 +365,9 @@ impl Codegen {
                 if let Some(cname) = class_name_found {
                     method_label = format!("_{}_{}", cname, member);
                 } else if let Some(Type::Class(ref class_name)) = self.get_node_type(&obj_span) {
-                    if !self.interfaces.contains(class_name) {
+                    if !self.interfaces.contains(class_name)
+                        && !self.abstract_classes.contains(class_name)
+                    {
                         method_label = format!("_{}_{}", class_name, member);
                     }
                 }
@@ -465,7 +444,19 @@ impl Codegen {
                     }
                 }
 
-                self.emitter.call(&method_label);
+                if is_static || is_primitive {
+                    self.emitter.call(&method_label);
+                } else if let Some(idx) = self.method_to_idx.get(&member) {
+                    // Virtual call: x0 contains 'this'
+                    self.emitter.output.push_str("    ldr x16, [x0]\n"); // Load VTable pointer
+                    self.emitter
+                        .output
+                        .push_str(&format!("    ldr x16, [x16, #{}]\n", idx * 8)); // Load method
+                    self.emitter.output.push_str("    blr x16\n");
+                } else {
+                    // Fallback to direct call if not in vtable (e.g. private or non-virtual?)
+                    self.emitter.call(&method_label);
+                }
             }
             Expr::Call(name, _, args, _) => {
                 for arg in &args {

@@ -1,0 +1,15 @@
+// Expected output:
+// Woof!
+
+abstract class Animal {
+  abstract function makeSound(): void;
+}
+
+class Dog extends Animal {
+  public override function makeSound(): void {
+    print "Woof!";
+  }
+}
+
+let animal: Animal = new Dog();
+animal.makeSound();
