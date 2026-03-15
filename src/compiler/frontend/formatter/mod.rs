@@ -386,4 +386,36 @@ class T {
             "class T {\n  /**\n   * multi\n   * line\n   */\n  public m(): void {\n  }\n}\n";
         assert_eq!(formatted, expected);
     }
+
+    #[test]
+    fn test_oop_keywords_preservation() {
+        let source = r#"
+interface Printable {
+  print(): void;
+}
+
+class Base {
+  public m(): void {
+  }
+}
+
+class Test extends Base implements Printable {
+  public override m(): void {
+  }
+
+  public print(): void {
+  }
+}
+"#;
+        let mut lexer = Lexer::new(source);
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens, "test.aura".to_string());
+        let program = parser.parse_program();
+
+        let formatter = Formatter::new();
+        let formatted = formatter.format_program(&program);
+
+        assert!(formatted.contains("class Test extends Base implements Printable"));
+        assert!(formatted.contains("public override m(): void"));
+    }
 }

@@ -64,7 +64,7 @@
       "patterns": [
         {
           "name": "keyword.control.aura",
-          "match": "\\b(if|else|while|for|return|try|catch|throw|finally|match|new|import|from|export|as|async|await|is)\\b"
+          "match": "\\b(if|else|while|for|return|try|catch|throw|finally|match|new|import|from|export|as|async|await|is|implements|extends)\\b"
         },
         {
           "name": "keyword.declaration.aura",

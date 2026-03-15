@@ -3,17 +3,17 @@
 // Quack!
 
 interface Logger {
-    log(message: string): void;
+  log(message: string): void;
 }
 
 class MyLogger implements Logger {
-    log(message: string): void {
-        print("Log: " + message);
-    }
+  public log(message: string): void {
+    print "Log: " + message;
+  }
 }
 
-function doLog(l: Logger, msg: string) {
-    l.log(msg);
+function doLog(l: Logger, msg: string): void {
+  l.log(msg);
 }
 
 let logger: Logger = new MyLogger();
@@ -21,13 +21,13 @@ doLog(logger, "Hello world");
 
 // Structural typing check
 interface Quacker {
-    quack(): void;
+  quack(): void;
 }
 
 class Duck {
-    quack(): void {
-        print("Quack!");
-    }
+  public quack(): void {
+    print "Quack!";
+  }
 }
 
 let q: Quacker = new Duck();

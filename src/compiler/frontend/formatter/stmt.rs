@@ -93,6 +93,7 @@ pub(crate) fn format_statement_internal(f: &mut Formatter, stmt: &Statement, inc
             methods,
             constructor,
             extends,
+            implements,
             doc,
             ..
         } => {
@@ -105,6 +106,15 @@ pub(crate) fn format_statement_internal(f: &mut Formatter, stmt: &Statement, inc
             if let Some(ext) = extends {
                 f.result.push_str(" extends ");
                 f.result.push_str(ext);
+            }
+            if !implements.is_empty() {
+                f.result.push_str(" implements ");
+                for (i, interface) in implements.iter().enumerate() {
+                    if i > 0 {
+                        f.result.push_str(", ");
+                    }
+                    f.result.push_str(interface);
+                }
             }
             f.result.push_str(" {\n");
             f.indent_level += 1;
@@ -164,6 +174,9 @@ pub(crate) fn format_statement_internal(f: &mut Formatter, stmt: &Statement, inc
                 }
                 if method.is_async {
                     f.result.push_str("async ");
+                }
+                if method.is_override {
+                    f.result.push_str("override ");
                 }
                 f.result.push_str(&method.name);
                 f.result.push('(');

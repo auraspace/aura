@@ -2,20 +2,22 @@
 // Woof!
 
 class Animal {
-    speak(): string {
-        return "Generic animal sound";
-    }
+  public speak(): string {
+    return "Generic animal sound";
+  }
 }
 
 class Dog extends Animal {
-    override speak(): string {
-        return "Woof!";
-    }
+  public override speak(): string {
+    return "Woof!";
+  }
 }
 
-function makeItSpeak(a: Animal) {
-    print a.speak();
+function makeItSpeak(a: Animal): void {
+  print a.speak();
 }
 
 let d = new Dog();
-makeItSpeak(d); // Outputs: Woof!
+makeItSpeak(d);
+
+// Outputs: Woof!
