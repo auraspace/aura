@@ -21,6 +21,3 @@ print "Request path: " + req.path;
 print "Header Content-Type: " + req.getHeader("Content-Type");
 print "Header Authorization: " + req.getHeader("Authorization");
 print "Request body: " + req.body;
-
-
-

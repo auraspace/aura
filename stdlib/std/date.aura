@@ -2,12 +2,12 @@
  * Represents a date and time.
  */
 export class Date {
-  timestamp: i64;
+  public timestamp: i64;
 
   /**
    * Creates a new Date instance.
    */
-  constructor(val: i64 | string | void) {
+  public constructor(val: i64 | string | void) {
     if (val == null) {
       this.timestamp = __date_now();
     } else     if (val is i64) {
@@ -22,91 +22,91 @@ export class Date {
   /**
    * Returns the stored timestamp in milliseconds.
    */
-  getTime(): i64 {
+  public getTime(): i64 {
     return this.timestamp;
   }
 
   /**
    * Returns the full year (e.g., 2024).
    */
-  getFullYear(): i32 {
+  public getFullYear(): i32 {
     return __date_get_part(this.timestamp, "year");
   }
 
   /**
    * Returns the month (0-11).
    */
-  getMonth(): i32 {
+  public getMonth(): i32 {
     return __date_get_part(this.timestamp, "month");
   }
 
   /**
    * Returns the day of the month (1-31).
    */
-  getDate(): i32 {
+  public getDate(): i32 {
     return __date_get_part(this.timestamp, "day");
   }
 
   /**
    * Returns the hour (0-23).
    */
-  getHours(): i32 {
+  public getHours(): i32 {
     return __date_get_part(this.timestamp, "hours");
   }
 
   /**
    * Returns the minutes (0-59).
    */
-  getMinutes(): i32 {
+  public getMinutes(): i32 {
     return __date_get_part(this.timestamp, "minutes");
   }
 
   /**
    * Returns the seconds (0-59).
    */
-  getSeconds(): i32 {
+  public getSeconds(): i32 {
     return __date_get_part(this.timestamp, "seconds");
   }
 
   /**
    * Returns the milliseconds (0-999).
    */
-  getMilliseconds(): i32 {
+  public getMilliseconds(): i32 {
     return __date_get_part(this.timestamp, "milli");
   }
 
   /**
    * Returns the day of the week (0-6, where 0 is Sunday).
    */
-  getDay(): i32 {
+  public getDay(): i32 {
     return __date_get_part(this.timestamp, "weekday");
   }
 
   /**
    * Returns an ISO 8601 formatted string.
    */
-  toISOString(): string {
+  public toISOString(): string {
     return __date_format(this.timestamp, "%Y-%m-%dT%H:%M:%S%.3fZ");
   }
 
   /**
    * Returns a human-readable string representation of the date.
    */
-  toString(): string {
+  public toString(): string {
     return __date_format(this.timestamp, "%a %b %d %Y %H:%M:%S GMT+0000 (Coordinated Universal Time)");
   }
 
   /**
    * Returns the current timestamp in milliseconds.
    */
-  static now(): i64 {
+  public static now(): i64 {
     return __date_now();
   }
 
   /**
    * Parses a date string and returns the timestamp.
    */
-  static parse(s: string): i64 {
+  public static parse(s: string): i64 {
     return __date_parse(s);
   }
 }

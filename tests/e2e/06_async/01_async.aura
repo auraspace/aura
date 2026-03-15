@@ -11,7 +11,7 @@ async function fetchData(url: string): Promise<i32> {
 }
 
 class Api {
-  async get(path: string): Promise<i32> {
+  public async get(path: string): Promise<i32> {
     let result = await fetchData("https://api.example.com" + path);
     return result;
   }

@@ -2,19 +2,19 @@
  * Represents a TCP stream socket client.
  */
 export class TCPStream {
-  fd: i32;
+  public fd: i32;
 
   /**
    * Internal constructor for TCPStream.
    */
-  constructor(fd: i32) {
+  public constructor(fd: i32) {
     this.fd = fd;
   }
 
   /**
    * Connects to a remote host and port.
    */
-  static connect(host: string, port: i32): TCPStream {
+  public static connect(host: string, port: i32): TCPStream {
     let fd = __net_connect(host, port);
     if (fd < 0)     return null;
     return new TCPStream(fd);
@@ -23,21 +23,21 @@ export class TCPStream {
   /**
    * Reads up to `size` bytes from the stream.
    */
-  read(size: i32): string {
+  public read(size: i32): string {
     return __fs_read(this.fd, size);
   }
 
   /**
    * Writes a string to the stream.
    */
-  write(content: string): i32 {
+  public write(content: string): i32 {
     return __fs_write(this.fd, content);
   }
 
   /**
    * Closes the stream.
    */
-  close(): void {
+  public close(): void {
     __fs_close(this.fd);
   }
 }
@@ -46,19 +46,19 @@ export class TCPStream {
  * Represents a TCP server socket that listens for incoming connections.
  */
 export class TCPServer {
-  fd: i32;
+  public fd: i32;
 
   /**
    * Internal constructor for TCPServer.
    */
-  constructor(fd: i32) {
+  public constructor(fd: i32) {
     this.fd = fd;
   }
 
   /**
    * Starts listening on the specified port.
    */
-  static listen(port: i32): TCPServer {
+  public static listen(port: i32): TCPServer {
     let fd = __net_listen(port);
     if (fd < 0)     return null;
     return new TCPServer(fd);
@@ -67,7 +67,7 @@ export class TCPServer {
   /**
    * Accepts a new incoming connection.
    */
-  accept(): TCPStream {
+  public accept(): TCPStream {
     let conn_fd = __net_accept(this.fd);
     if (conn_fd < 0)     return null;
     return new TCPStream(conn_fd);
@@ -76,7 +76,7 @@ export class TCPServer {
   /**
    * Closes the server socket.
    */
-  close(): void {
+  public close(): void {
     __fs_close(this.fd);
   }
 }
@@ -88,7 +88,7 @@ export class DNS {
   /**
    * Resolves a hostname to an IP address.
    */
-  static resolve(host: string): string {
+  public static resolve(host: string): string {
     return __net_resolve(host);
   }
 }

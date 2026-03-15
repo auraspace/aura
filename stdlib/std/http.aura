@@ -4,13 +4,13 @@ import { TCPStream, TCPServer } from "std/net.aura";
  * Represents an HTTP header field.
  */
 export class HTTPHeader {
-  name: string;
-  value: string;
+  public name: string;
+  public value: string;
 
   /**
    * Creates a new HTTPHeader.
    */
-  constructor(name: string, value: string) {
+  public constructor(name: string, value: string) {
     this.name = name;
     this.value = value;
   }
@@ -18,7 +18,7 @@ export class HTTPHeader {
   /**
    * Returns the header as a string (e.g., "Content-Type: text/plain").
    */
-  toString(): string {
+  public toString(): string {
     return this.name + ": " + this.value;
   }
 }
@@ -27,16 +27,16 @@ export class HTTPHeader {
  * Common HTTP status codes and utilities.
  */
 export class HTTPStatus {
-  static OK: i32 = 200;
-  static CREATED: i32 = 201;
-  static BAD_REQUEST: i32 = 400;
-  static NOT_FOUND: i32 = 404;
-  static INTERNAL_SERVER_ERROR: i32 = 500;
+  public static OK: i32 = 200;
+  public static CREATED: i32 = 201;
+  public static BAD_REQUEST: i32 = 400;
+  public static NOT_FOUND: i32 = 404;
+  public static INTERNAL_SERVER_ERROR: i32 = 500;
 
   /**
    * Returns the standard reason phrase for an HTTP status code.
    */
-  static getStatusText(code: i32): string {
+  public static getStatusText(code: i32): string {
     if (code == 200)     return "OK";
     if (code == 201)     return "Created";
     if (code == 400)     return "Bad Request";
@@ -50,15 +50,15 @@ export class HTTPStatus {
  * Represents an HTTP request.
  */
 export class HTTPRequest {
-  method: string;
-  path: string;
-  headers: HTTPHeader[];
-  body: string;
+  public method: string;
+  public path: string;
+  public headers: HTTPHeader[];
+  public body: string;
 
   /**
    * Creates a new HTTPRequest.
    */
-  constructor(method: string, path: string, headers: HTTPHeader[], body: string) {
+  public constructor(method: string, path: string, headers: HTTPHeader[], body: string) {
     this.method = method;
     this.path = path;
     this.headers = headers;
@@ -68,7 +68,7 @@ export class HTTPRequest {
   /**
    * Returns the value of the specified header, or null if not found.
    */
-  getHeader(name: string): string {
+  public getHeader(name: string): string {
     let i = 0;
     while (i < this.headers.len()) {
       if (this.headers[i].name == name) {
@@ -82,7 +82,7 @@ export class HTTPRequest {
   /**
    * Returns the request as a raw string.
    */
-  toString(): string {
+  public toString(): string {
     let headerStr = "";
     let i = 0;
     while (i < this.headers.len()) {
@@ -97,15 +97,15 @@ export class HTTPRequest {
  * Represents an HTTP response.
  */
 export class HTTPResponse {
-  statusCode: i32;
-  statusText: string;
-  headers: HTTPHeader[];
-  body: string;
+  public statusCode: i32;
+  public statusText: string;
+  public headers: HTTPHeader[];
+  public body: string;
 
   /**
    * Creates a new HTTPResponse.
    */
-  constructor(statusCode: i32, statusText: string, headers: HTTPHeader[], body: string) {
+  public constructor(statusCode: i32, statusText: string, headers: HTTPHeader[], body: string) {
     this.statusCode = statusCode;
     this.statusText = statusText;
     this.headers = headers;
@@ -115,7 +115,7 @@ export class HTTPResponse {
   /**
    * Returns the value of the specified header, or null if not found.
    */
-  getHeader(name: string): string {
+  public getHeader(name: string): string {
     let i = 0;
     while (i < this.headers.len()) {
       if (this.headers[i].name == name) {
@@ -129,7 +129,7 @@ export class HTTPResponse {
   /**
    * Returns the response as a raw string.
    */
-  toString(): string {
+  public toString(): string {
     let headerStr = "";
     let i = 0;
     while (i < this.headers.len()) {
@@ -148,14 +148,14 @@ export class HTTPClient {
   /**
    * Performs a simple GET request.
    */
-  static get(host: string, port: i32, path: string): HTTPResponse {
+  public static get(host: string, port: i32, path: string): HTTPResponse {
     return HTTPClient.request(host, port, "GET", path, "");
   }
 
   /**
    * Performs an HTTP request with the specified method, path, and body.
    */
-  static request(host: string, port: i32, method: string, path: string, body: string): HTTPResponse {
+  public static request(host: string, port: i32, method: string, path: string, body: string): HTTPResponse {
     let stream = TCPStream.connect(host, port);
     if (stream == null) {
       return new HTTPResponse(500, "Internal Error", [], "Connection failed");
@@ -219,19 +219,19 @@ export class HTTPClient {
  * A simple HTTP server.
  */
 export class HTTPServer {
-  server: TCPServer;
+  public server: TCPServer;
 
   /**
    * Creates a new HTTPServer listening on the specified port.
    */
-  constructor(port: i32) {
+  public constructor(port: i32) {
     this.server = TCPServer.listen(port);
   }
 
   /**
    * Starts listening for requests and handles them using the provided handler function.
    */
-  listen(handler: function(HTTPRequest): HTTPResponse): void {
+  public listen(handler: function(HTTPRequest): HTTPResponse): void {
     if (this.server == null) {
       print "Failed to start server";
       return 0;
