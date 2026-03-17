@@ -342,16 +342,34 @@ impl Codegen {
                 let mut offset = 0;
                 let ty = self.resolve_obj_type(&obj);
 
+                if let Type::ClassType(ref class_name) = ty {
+                    let full_name = format!("{}.{}", class_name, member);
+                    if let Some((label, _)) = self.global_variables.get(&full_name) {
+                        let label = label.clone();
+                        self.emitter
+                            .output
+                            .push_str(&format!("    adrp x1, {}@PAGE\n", label));
+                        self.emitter
+                            .output
+                            .push_str(&format!("    ldr x0, [x1, {}@PAGEOFF]\n", label));
+                        return;
+                    }
+                }
+
                 if let Type::Class(ref class_name) = ty {
                     if let Some((fields, _)) = self.classes.get(class_name) {
                         if let Some(idx) = fields.iter().position(|f| f == &member) {
                             offset = (idx + 1) * 8;
                         }
                     }
-                } else if let Some(ref class_name) = self.current_class {
-                    if let Some((fields, _)) = self.classes.get(class_name) {
-                        if let Some(idx) = fields.iter().position(|f| f == &member) {
-                            offset = (idx + 1) * 8;
+                }
+
+                if offset == 0 {
+                    if let Some(ref class_name) = self.current_class {
+                        if let Some((fields, _)) = self.classes.get(class_name) {
+                            if let Some(idx) = fields.iter().position(|f| f == &member) {
+                                offset = (idx + 1) * 8;
+                            }
                         }
                     }
                 }
@@ -364,12 +382,45 @@ impl Codegen {
             Expr::MemberAssign(obj, member, value, _, _span) => {
                 let ty = self.resolve_obj_type(&obj);
                 let mut offset = 0;
+
+                if let Type::ClassType(ref class_name) = ty {
+                    let full_name = format!("{}.{}", class_name, member);
+                    if let Some((label, _)) = self.global_variables.get(&full_name) {
+                        let label = label.clone();
+                        self.generate_expr(*value);
+                        self.emitter
+                            .output
+                            .push_str(&format!("    adrp x1, {}@PAGE\n", label));
+                        self.emitter
+                            .output
+                            .push_str(&format!("    str x0, [x1, {}@PAGEOFF]\n", label));
+                        return;
+                    }
+                }
+
                 if let Type::Class(ref class_name) = ty {
                     if let Some((fields, _)) = self.classes.get(class_name) {
                         if let Some(idx) = fields.iter().position(|f| f == &member) {
                             offset = (idx + 1) * 8;
                         }
                     }
+                }
+
+                if offset == 0 {
+                    if let Some(ref class_name) = self.current_class {
+                        if let Some((fields, _)) = self.classes.get(class_name) {
+                            if let Some(idx) = fields.iter().position(|f| f == &member) {
+                                offset = (idx + 1) * 8;
+                            }
+                        }
+                    }
+                }
+
+                if offset == 0 {
+                    eprintln!(
+                        "DEBUG: offset is 0 for member assign {} with ty {:?}",
+                        member, ty
+                    );
                 }
 
                 self.generate_expr(*value);
@@ -387,11 +438,10 @@ impl Codegen {
                 let mut class_name_found = None;
                 let mut is_primitive = false;
 
-                if let Expr::Variable(ref name, _) = *obj {
-                    if self.classes.contains_key(name) {
-                        is_static = true;
-                        class_name_found = Some(name.clone());
-                    }
+                let obj_ty = self.resolve_obj_type(&obj);
+                if let Type::ClassType(ref name) = obj_ty {
+                    is_static = true;
+                    class_name_found = Some(name.clone());
                 }
 
                 if !is_static {
@@ -439,8 +489,7 @@ impl Codegen {
                 }
 
                 if is_static {
-                    self.emitter.mov_imm(AsmRegister::X0, 0); // dummy this
-                    self.emitter.push(AsmRegister::X0);
+                    // Static methods don't have 'this'
                 } else if is_primitive {
                     // Object IS the this for primitives
                     self.generate_expr((*obj).clone());
@@ -455,7 +504,11 @@ impl Codegen {
                     self.emitter.push(AsmRegister::X0);
                 }
 
-                let num_args = args.len() + 1;
+                let num_args = if is_static {
+                    args.len()
+                } else {
+                    args.len() + 1
+                };
                 for i in (0..num_args.min(8)).rev() {
                     self.emitter
                         .output

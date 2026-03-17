@@ -17,6 +17,7 @@ pub enum Type {
     Enum(String),
     Array(Box<Type>),
     Object(HashMap<String, Type>),
+    ClassType(String),
     Unknown,
 }
 
@@ -59,7 +60,6 @@ impl Type {
             (Type::Int32 | Type::Int64, Type::Float32 | Type::Float64) => true,
             (Type::Float32, Type::Float64) => true,
 
-            // Structural typing (Basic)
             (Type::Object(src_fields), Type::Object(tgt_fields)) => {
                 tgt_fields.iter().all(|(name, tgt_ty)| {
                     src_fields
@@ -68,6 +68,9 @@ impl Type {
                         .unwrap_or(false)
                 })
             }
+
+            // ClassType is only assignable to itself (handled by self == other at start)
+            (Type::ClassType(_), _) | (_, Type::ClassType(_)) => false,
 
             // TODO: Handle Class vs Object (if Class is nominal or structural)
             // If Aura is structural, a Class(name) should be resolved to its Object structure.
@@ -154,6 +157,7 @@ impl std::fmt::Display for Type {
                 }
                 write!(f, " }}")
             }
+            Type::ClassType(name) => write!(f, "Class<{}>", name),
             Type::Unknown => write!(f, "unknown"),
         }
     }

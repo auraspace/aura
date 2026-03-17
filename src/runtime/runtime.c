@@ -214,8 +214,7 @@ typedef struct {
   int is_resolved;
 } AuraPromise;
 
-void *Promise_all(int64_t this_ptr, AuraArray *promises) {
-  (void)this_ptr;
+void *Promise_all(AuraArray *promises) {
   AuraPromise *p = malloc(sizeof(AuraPromise));
   p->magic = AURA_PROMISE_MAGIC;
   p->value = promises;

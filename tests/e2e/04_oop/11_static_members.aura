@@ -1,0 +1,43 @@
+// Expected output:
+// Pi: 
+// 3.14159
+// Sum: 
+// 30
+// Initial count: 
+// 0
+// After increment: 
+// 1
+// Manual set: 
+// 100
+
+class Math {
+  public static pi: f64 = 3.14159;
+
+  public static add(a: number, b: number): number {
+    return a + b;
+  }
+}
+
+class Counter {
+  public static count: number = 0;
+
+  public static increment(): number {
+    Counter.count = Counter.count + 1;
+    return Counter.count;
+  }
+}
+
+function main(): void {
+  print "Pi: ";
+  print Math.pi;
+  print "Sum: ";
+  print Math.add(10, 20);
+  print "Initial count: ";
+  print Counter.count;
+  Counter.increment();
+  print "After increment: ";
+  print Counter.count;
+  Counter.count = 100;
+  print "Manual set: ";
+  print Counter.count;
+}

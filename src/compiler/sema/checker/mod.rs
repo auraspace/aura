@@ -85,6 +85,7 @@ pub enum SemanticErrorKind {
     IncompatibleOverride(String, String), // class, method
     SuperOutsideClass,
     SuperInStaticMethod,
+    ThisInStaticMethod,
     NoParentClass(String),
     CannotInstantiateAbstractClass(String),
     AbstractMethodInConcreteClass(String, String), // class, method
@@ -104,6 +105,7 @@ pub struct SemanticAnalyzer {
     pub interfaces: HashMap<String, InterfaceInfo>,
     pub current_class: Option<String>,
     pub current_method: Option<String>,
+    pub is_static_context: bool,
     pub diagnostics: DiagnosticList,
     pub node_types: HashMap<String, HashMap<Span, Type>>,
     pub node_definitions: HashMap<String, HashMap<Span, (String, Span)>>,
@@ -123,6 +125,7 @@ impl SemanticAnalyzer {
             interfaces: HashMap::new(),
             current_class: None,
             current_method: None,
+            is_static_context: false,
             diagnostics: DiagnosticList::new(),
             node_types: HashMap::new(),
             node_definitions: HashMap::new(),
@@ -388,6 +391,9 @@ impl SemanticAnalyzer {
             }
             SemanticErrorKind::SuperInStaticMethod => {
                 "Keyword 'super' cannot be used in static methods".to_string()
+            }
+            SemanticErrorKind::ThisInStaticMethod => {
+                "Keyword 'this' cannot be used in static methods".to_string()
             }
             SemanticErrorKind::NoParentClass(c) => {
                 format!(

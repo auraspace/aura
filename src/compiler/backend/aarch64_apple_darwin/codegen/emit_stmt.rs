@@ -95,7 +95,7 @@ impl Codegen {
                 self.emitter.output.push_str("    sub sp, sp, #256\n");
 
                 let mut current_arg_reg = 0;
-                if is_method {
+                if is_method && !self.is_static_context {
                     self.stack_offset += 16;
                     let class_ty = Type::Class(self.current_class.clone().unwrap());
                     self.variables
@@ -403,6 +403,7 @@ impl Codegen {
                     if method.is_abstract {
                         continue;
                     }
+                    self.is_static_context = method.is_static;
                     self.generate_statement(Statement::FunctionDeclaration {
                         name: format!("{}_{}", name, method.name),
                         name_span: method.name_span,
@@ -413,6 +414,7 @@ impl Codegen {
                         span: method.span,
                         doc: None,
                     });
+                    self.is_static_context = false;
                 }
                 self.current_class = old_class;
                 self.is_global_scope = saved_global_scope;

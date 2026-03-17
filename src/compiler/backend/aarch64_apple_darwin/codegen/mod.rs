@@ -22,6 +22,7 @@ pub struct Codegen {
     current_fn_end: Option<String>,
     current_class: Option<String>,
     is_global_scope: bool,
+    is_static_context: bool,
     method_to_idx: HashMap<String, u32>,
     next_method_idx: u32,
     vtables: HashMap<String, Vec<String>>, // class_name -> list of mangled method names
@@ -29,6 +30,7 @@ pub struct Codegen {
     current_dir: Option<String>,
     pub stdlib_path: Option<String>,
     core_program: Option<Program>,
+    has_aura_main: bool,
 }
 
 impl Codegen {
@@ -49,6 +51,7 @@ impl Codegen {
             current_fn_end: None,
             current_class: None,
             is_global_scope: true,
+            is_static_context: false,
             method_to_idx: HashMap::new(),
             next_method_idx: 0,
             vtables: HashMap::new(),
@@ -56,6 +59,7 @@ impl Codegen {
             current_dir: None,
             stdlib_path: None,
             core_program: None,
+            has_aura_main: false,
         }
     }
 
@@ -82,47 +86,54 @@ impl Codegen {
     }
 
     fn resolve_obj_type(&self, obj: &Expr) -> Type {
+        // 1. If it's a variable, check if it's a class name first (static access)
+        if let Expr::Variable(name, _) = obj {
+            if self.classes.contains_key(name) {
+                return Type::ClassType(name.clone());
+            }
+            if let Some((_, ty)) = self.variables.get(name) {
+                if *ty != Type::Unknown {
+                    return ty.clone();
+                }
+            }
+            if let Some((_, ty)) = self.global_variables.get(name) {
+                if *ty != Type::Unknown {
+                    return ty.clone();
+                }
+            }
+        }
+
+        // 2. First try node_types from semantic analysis
+        if let Some(ty) = self.get_node_type(&obj.span()) {
+            if *ty != Type::Unknown {
+                return ty.clone();
+            }
+        }
+
+        // Fallback for variables and simple expressions
         match obj {
             Expr::Variable(name, _) => {
-                if let Some((_, ty)) = self.variables.get(name) {
-                    if *ty != Type::Unknown {
-                        return ty.clone();
-                    }
-                }
-                if let Some((_, ty)) = self.global_variables.get(name) {
-                    if *ty != Type::Unknown {
-                        return ty.clone();
-                    }
-                }
+                // Fallback handled above
             }
             Expr::This(_) => {
                 if let Some(ref class_name) = self.current_class {
                     return Type::Class(class_name.clone());
                 }
             }
+            Expr::Super(_) => {
+                if let Some(ref class_name) = self.current_class {
+                    return Type::Class(class_name.clone());
+                }
+            }
+            Expr::MemberAccess(inner_obj, _, _, _) => {
+                let inner_ty = self.resolve_obj_type(inner_obj);
+                // Recursive lookup if needed, but usually node_types should have it
+                return inner_ty;
+            }
             _ => {}
         }
 
-        let span = obj.span();
-        if let Some(ty) = self.get_node_type(&span) {
-            if *ty != Type::Unknown {
-                return ty.clone();
-            }
-        }
-
-        match obj {
-            Expr::MemberAccess(inner_obj, _member, _, _) => {
-                let inner_ty = self.resolve_obj_type(inner_obj);
-                if let Type::Class(ref _class_name) = inner_ty {
-                    // Note: We don't have field types here in Godegen classes Map,
-                    // but we should eventually add them or rely on node_types.
-                    // For now, let's just return Unknown and rely on span-based lookup
-                    // if it was a nested access.
-                }
-                Type::Unknown
-            }
-            _ => Type::Unknown,
-        }
+        Type::Unknown
     }
 
     fn is_string_enum(&self, enum_name: &str) -> bool {
@@ -162,12 +173,6 @@ impl Codegen {
     }
 
     pub fn generate(mut self, program: Program) -> String {
-        self.current_file = program.file_path.clone();
-        // Register built-in classes
-        self.classes.insert(
-            "Promise".to_string(),
-            (vec![], vec!["all".to_string(), "then".to_string()]),
-        );
         // Register built-in Promise class (still needed as it's not in stdlib yet)
         self.classes.insert(
             "Promise".to_string(),
@@ -182,62 +187,88 @@ impl Codegen {
                 ],
             ),
         );
+        // Register built-in Error class
+        self.classes
+            .insert("Error".to_string(), (vec!["message".to_string()], vec![]));
 
-        let mut classes: Vec<(String, Statement)> = Vec::new();
-        let mut fns: Vec<(String, Statement)> = Vec::new();
-        let mut global_stmts: Vec<(String, Statement)> = Vec::new();
+        let mut class_decls = Vec::new();
+        let mut fn_decls = Vec::new();
+        let mut top_level = Vec::new();
 
-        if let Some(core_prog) = self.core_program.take() {
-            self.collect_all_definitions(core_prog, &mut classes, &mut fns, &mut global_stmts);
+        if let Some(core_p) = self.core_program.take() {
+            self.collect_all_definitions(core_p, &mut class_decls, &mut fn_decls, &mut top_level);
         }
+        self.collect_all_definitions(program, &mut class_decls, &mut fn_decls, &mut top_level);
 
-        self.collect_all_definitions(program, &mut classes, &mut fns, &mut global_stmts);
+        // 0. Emit built-in class stubs (Error, etc.)
+        self.emitter
+            .output
+            .push_str("\n; ---- built-in Error class ----\n");
+        self.emitter
+            .output
+            .push_str(".text\n.global _Error_ctor\n.align 4\n");
+        self.emitter.output.push_str("_Error_ctor:\n");
+        self.emitter
+            .output
+            .push_str("    stp x29, x30, [sp, -16]!\n");
+        self.emitter.output.push_str("    mov x29, sp\n");
+        // x0 = this, x1 = message
+        self.emitter.output.push_str("    str x1, [x0, #8]\n"); // store message at offset 8 (field 0)
+        self.emitter.output.push_str("    ldp x29, x30, [sp], 16\n");
+        self.emitter.output.push_str("    ret\n");
 
-        let has_main = fns.iter().any(|(_, stmt)| {
-            if let Statement::FunctionDeclaration { name, .. } = stmt {
-                name == "main"
-            } else {
-                false
-            }
-        });
-
-        for (path, c) in classes {
-            self.current_file = path;
-            self.generate_statement(c);
-        }
-
-        for (path, f) in fns {
-            self.current_file = path;
-            self.generate_statement(f);
-        }
-
-        // Check for explicit main() call before consuming global_stmts
-        let has_explicit_main_call = global_stmts.iter().any(|(_, stmt)| {
-            if let Statement::Expression(Expr::Call(ref name, _, _, _), _) = stmt {
-                name == "main"
-            } else {
-                false
-            }
-        });
-
-        self.emitter.emit_header();
-        self.is_global_scope = true;
-        for (path, stmt) in global_stmts {
+        // 1. Emit all class definitions (methods, constructors)
+        for (path, stmt) in class_decls {
             self.current_file = path;
             self.generate_statement(stmt);
         }
 
-        // Call main_aura if it exists and wasn't already called explicitly
-        if has_main && !has_explicit_main_call {
+        // 2. Emit all function definitions
+        for (path, stmt) in fn_decls {
+            self.current_file = path;
+            self.generate_statement(stmt);
+        }
+
+        // 3. Emit main entry point and top-level code
+        self.emitter.emit_header();
+        self.is_global_scope = true;
+
+        if !self.has_aura_main {
+            for (path, stmt) in top_level {
+                self.current_file = path;
+                self.generate_statement(stmt);
+            }
+        } else {
+            // Only emit static initializers if any, but in aura world we don't have static initializers yet
+            // except for globals which are handled in collect_all_definitions
+            for (path, stmt) in top_level {
+                if let Statement::Expression(Expr::MemberAssign(ref obj, _, _, _, _), _) = stmt {
+                    if let Expr::Variable(ref class_name, _) = **obj {
+                        if self.classes.contains_key(class_name) {
+                            // This is a static initializer, we must keep it
+                            self.current_file = path;
+                            self.generate_statement(stmt);
+                            continue;
+                        }
+                    }
+                }
+                // Skip other top level code if we have explicit main
+            }
+        }
+
+        // Call main_aura if it was defined
+        if self.has_aura_main {
             self.emitter.call("_main_aura");
         }
 
         self.emitter.emit_footer();
 
-        // Emit vtables in .data section
+        // 4. Data sections
+        // Always emit built-in vtables
+        self.emitter.output.push_str("\n.data\n.align 8\n");
+        self.emitter.output.push_str("vtable_Error:\n"); // empty vtable for built-in Error class
+
         if !self.vtables.is_empty() {
-            self.emitter.output.push_str("\n.data\n");
-            self.emitter.output.push_str(".align 8\n");
             for (class, methods) in &self.vtables {
                 self.emitter
                     .output
@@ -254,7 +285,6 @@ impl Codegen {
             }
         }
 
-        // Emit global variables in .data section
         if !self.global_variables.is_empty() {
             self.emitter.output.push_str("\n.data\n");
             self.emitter.output.push_str(".align 8\n");
@@ -264,13 +294,12 @@ impl Codegen {
             }
         }
 
-        // Define aura_string_table for linker
+        // String table
         self.emitter.output.push_str("\n.data\n");
         self.emitter.output.push_str(".global _aura_string_table\n");
         self.emitter.output.push_str("_aura_string_table:\n");
-        self.emitter.output.push_str("    .quad 0\n"); // Empty table
+        self.emitter.output.push_str("    .quad 0\n");
 
-        // Emit string constants
         for (value, label) in &self.string_constants {
             self.emitter.output.push_str(&format!("{}:\n", label));
             self.emitter.output.push_str(&format!(
@@ -295,7 +324,7 @@ impl Codegen {
         fns: &mut Vec<(String, Statement)>,
         global_stmts: &mut Vec<(String, Statement)>,
     ) {
-        self.current_file = program.file_path.clone();
+        let file_path = program.file_path.clone();
         for stmt in program.statements {
             let actual_stmt = match stmt {
                 Statement::Export { decl, .. } => *decl,
@@ -306,14 +335,61 @@ impl Codegen {
                 Statement::ClassDeclaration {
                     ref name,
                     is_abstract,
+                    ref fields,
+                    ref methods,
                     ..
                 } => {
                     if is_abstract {
                         self.abstract_classes.insert(name.clone());
                     }
-                    classes.push((program.file_path.clone(), actual_stmt))
+
+                    // Register static fields as global variables
+                    for field in fields {
+                        if field.is_static {
+                            let label = format!("_static_{}_{}", name, field.name);
+                            let ty = self
+                                .get_node_type(&field.name_span)
+                                .cloned()
+                                .unwrap_or(Type::Unknown);
+                            self.global_variables
+                                .insert(format!("{}.{}", name, field.name), (label, ty.clone()));
+
+                            // Extract initializer into global_stmts if it exists
+                            if let Some(ref value) = field.value {
+                                global_stmts.push((
+                                    file_path.clone(),
+                                    Statement::Expression(
+                                        Expr::MemberAssign(
+                                            Box::new(Expr::Variable(name.clone(), field.name_span)),
+                                            field.name.clone(),
+                                            Box::new(value.clone()),
+                                            field.name_span,
+                                            field.span,
+                                        ),
+                                        field.span,
+                                    ),
+                                ));
+                            }
+                        }
+                    }
+
+                    // Register class schema (for member offsets)
+                    let field_names: Vec<String> = fields
+                        .iter()
+                        .filter(|f| !f.is_static)
+                        .map(|f| f.name.clone())
+                        .collect();
+                    let method_names: Vec<String> = methods
+                        .iter()
+                        .filter(|m| !m.is_static && !m.is_abstract)
+                        .map(|m| m.name.clone())
+                        .collect();
+                    self.classes
+                        .insert(name.clone(), (field_names, method_names));
+
+                    classes.push((file_path.clone(), actual_stmt));
                 }
-                Statement::Interface(decl) => {
+                Statement::Interface(ref decl) => {
                     self.interfaces.insert(decl.name.clone());
                     for m in &decl.methods {
                         if !self.method_to_idx.contains_key(&m.name) {
@@ -322,9 +398,13 @@ impl Codegen {
                             self.next_method_idx += 1;
                         }
                     }
+                    // Interfaces don't generate code
                 }
-                Statement::FunctionDeclaration { .. } => {
-                    fns.push((program.file_path.clone(), actual_stmt))
+                Statement::FunctionDeclaration { ref name, .. } => {
+                    if name == "main" && self.current_class.is_none() {
+                        self.has_aura_main = true;
+                    }
+                    fns.push((file_path.clone(), actual_stmt));
                 }
                 Statement::Import { path, .. } => {
                     let absolute_path = if path.starts_with("std/") {
@@ -409,11 +489,13 @@ impl Codegen {
                     ..
                 } => {
                     let mut var_ty = self
-                        .get_node_type(&value.span())
+                        .node_types
+                        .get(&file_path)
+                        .and_then(|m| m.get(&value.span()))
                         .cloned()
                         .unwrap_or(Type::Unknown);
+
                     if matches!(var_ty, Type::Unknown) {
-                        // Infer type from value expression when node_types aren't available
                         if let Expr::New(ref class_name, _, _, _) = value {
                             var_ty = Type::Class(class_name.clone());
                         } else if let Expr::MemberAccess(ref obj, _, _, _) = value {
@@ -426,9 +508,9 @@ impl Codegen {
                     }
                     let label = format!("_g_{}", name);
                     self.global_variables.insert(name.clone(), (label, var_ty));
-                    global_stmts.push((program.file_path.clone(), actual_stmt));
+                    global_stmts.push((file_path.clone(), actual_stmt));
                 }
-                _ => global_stmts.push((program.file_path.clone(), actual_stmt)),
+                _ => global_stmts.push((file_path.clone(), actual_stmt)),
             }
         }
     }
@@ -445,28 +527,6 @@ impl Codegen {
                     core_path.to_string_lossy().to_string(),
                 );
                 let program = parser.parse_program();
-                self.core_program = Some(program.clone());
-                for stmt in program.statements {
-                    if let Statement::ClassDeclaration {
-                        ref name,
-                        ref fields,
-                        ref methods,
-                        is_abstract,
-                        ..
-                    } = stmt
-                    {
-                        if is_abstract {
-                            self.abstract_classes.insert(name.clone());
-                        }
-                        let fnames = fields.iter().map(|f| f.name.clone()).collect();
-                        let mnames = methods
-                            .iter()
-                            .filter(|m| !m.is_abstract)
-                            .map(|m| m.name.clone())
-                            .collect();
-                        self.classes.insert(name.clone(), (fnames, mnames));
-                    }
-                }
             }
         }
     }

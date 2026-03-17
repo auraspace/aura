@@ -368,6 +368,7 @@ impl SemanticAnalyzer {
                 for m in methods {
                     self.push_scope();
                     self.current_method = Some(m.name.clone());
+                    self.is_static_context = m.is_static;
                     if !m.is_static {
                         self.scope.insert(
                             "this".to_string(),
@@ -395,6 +396,7 @@ impl SemanticAnalyzer {
                     }
                     self.check_statement(*m.body);
                     self.current_method = None;
+                    self.is_static_context = false;
                     self.pop_scope();
                 }
                 self.current_class = None;
