@@ -31,6 +31,9 @@ pub struct Codegen {
     pub stdlib_path: Option<String>,
     core_program: Option<Program>,
     has_aura_main: bool,
+    generic_specializations: HashMap<String, Vec<Vec<Type>>>, // class_name -> list of concrete type argument vectors
+    current_specialization: Option<(String, Vec<Type>)>,      // (class_name, type_args)
+    generic_params: Vec<String>,                              // current class's T, U, etc.
 }
 
 impl Codegen {
@@ -60,6 +63,9 @@ impl Codegen {
             stdlib_path: None,
             core_program: None,
             has_aura_main: false,
+            generic_specializations: HashMap::new(),
+            current_specialization: None,
+            generic_params: Vec::new(),
         }
     }
 
@@ -112,7 +118,7 @@ impl Codegen {
 
         // Fallback for variables and simple expressions
         match obj {
-            Expr::Variable(name, _) => {
+            Expr::Variable(_name, _) => {
                 // Fallback handled above
             }
             Expr::This(_) => {
@@ -172,6 +178,96 @@ impl Codegen {
         }
     }
 
+    pub fn mangle_name(&self, name: &str, args: &[Type]) -> String {
+        if args.is_empty() {
+            return name.to_string();
+        }
+        let mut mangled = name.to_string();
+        for arg in args {
+            let arg_str = format!("{}", arg)
+                .replace("<", "_")
+                .replace(">", "_")
+                .replace(", ", "_")
+                .replace("[]", "_array");
+            mangled.push('_');
+            mangled.push_str(&arg_str);
+        }
+        mangled
+    }
+
+    fn collect_specializations(&mut self) {
+        let mut specs: HashMap<String, Vec<Vec<Type>>> = HashMap::new();
+        for map in self.node_types.values() {
+            for ty in map.values() {
+                self.extract_generics(ty, &mut specs);
+            }
+        }
+        self.generic_specializations = specs;
+    }
+
+    fn extract_generics(&self, ty: &Type, specs: &mut HashMap<String, Vec<Vec<Type>>>) {
+        match ty {
+            Type::Generic(name, args) => {
+                let entry = specs.entry(name.clone()).or_default();
+                if !entry.contains(args) {
+                    entry.push(args.clone());
+                }
+                for arg in args {
+                    self.extract_generics(arg, specs);
+                }
+            }
+            Type::Array(inner) => self.extract_generics(inner, specs),
+            _ => {}
+        }
+    }
+
+    pub fn get_specialized_type(&self, ty: &Type) -> Type {
+        if let Type::GenericParam(ref name) = ty {
+            if let Some((_, args)) = &self.current_specialization {
+                if let Some(pos) = self.generic_params.iter().position(|p| p == name) {
+                    if let Some(concrete_ty) = args.get(pos) {
+                        return concrete_ty.clone();
+                    }
+                }
+            }
+        }
+        ty.clone()
+    }
+
+    pub fn emit_string_conversion(&mut self, ty: &Option<Type>, expr_ast: &Expr) {
+        let mut actual_ty = ty.clone().unwrap_or(Type::Unknown);
+        actual_ty = self.get_specialized_type(&actual_ty);
+
+        if matches!(
+            actual_ty,
+            Type::Unknown | Type::Int64 | Type::GenericParam(_)
+        ) {
+            if let Expr::Variable(ref name, _) = expr_ast {
+                if name == "true" || name == "false" {
+                    actual_ty = Type::Boolean;
+                } else if let Some((_, var_ty)) = self.variables.get(name) {
+                    actual_ty = var_ty.clone();
+                }
+            }
+        }
+        match actual_ty {
+            Type::Int32 | Type::Int64 | Type::Unknown | Type::GenericParam(_) => {
+                self.emitter.call("_aura_num_to_str");
+            }
+            Type::Boolean => {
+                self.emitter.call("_aura_bool_to_str");
+            }
+            Type::String => {}
+            Type::Float32 | Type::Float64 => {
+                self.emitter.output.push_str("    fmov d0, x0\n");
+                self.emitter.call("_aura_float_to_str");
+            }
+            _ => {
+                self.emitter.call("_aura_num_to_str");
+            }
+        }
+    }
+
     pub fn generate(mut self, program: Program) -> String {
         // Register built-in Promise class (still needed as it's not in stdlib yet)
         self.classes.insert(
@@ -200,6 +296,9 @@ impl Codegen {
         }
         self.collect_all_definitions(program, &mut class_decls, &mut fn_decls, &mut top_level);
 
+        // Monomorphization Pass
+        self.collect_specializations();
+
         // 0. Emit built-in class stubs (Error, etc.)
         self.emitter
             .output
@@ -220,6 +319,28 @@ impl Codegen {
         // 1. Emit all class definitions (methods, constructors)
         for (path, stmt) in class_decls {
             self.current_file = path;
+
+            if let Statement::ClassDeclaration {
+                ref name,
+                ref type_params,
+                ..
+            } = stmt
+            {
+                if !type_params.is_empty() {
+                    // Generate specialized versions
+                    if let Some(specs) = self.generic_specializations.get(name).cloned() {
+                        for args in specs {
+                            self.current_specialization = Some((name.clone(), args.clone()));
+                            self.generic_params =
+                                type_params.iter().map(|tp| tp.name.clone()).collect();
+                            self.generate_statement(stmt.clone());
+                            self.current_specialization = None;
+                            self.generic_params.clear();
+                        }
+                    }
+                    continue; // Original generic class is not emitted directly
+                }
+            }
             self.generate_statement(stmt);
         }
 
@@ -496,7 +617,7 @@ impl Codegen {
                         .unwrap_or(Type::Unknown);
 
                     if matches!(var_ty, Type::Unknown) {
-                        if let Expr::New(ref class_name, _, _, _) = value {
+                        if let Expr::New(ref class_name, _, _, _, _) = value {
                             var_ty = Type::Class(class_name.clone());
                         } else if let Expr::MemberAccess(ref obj, _, _, _) = value {
                             if let Expr::Variable(ref enum_name, _) = **obj {
@@ -526,7 +647,7 @@ impl Codegen {
                     tokens,
                     core_path.to_string_lossy().to_string(),
                 );
-                let program = parser.parse_program();
+                let _program = parser.parse_program();
             }
         }
     }

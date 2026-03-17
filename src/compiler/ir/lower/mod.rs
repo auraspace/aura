@@ -27,6 +27,7 @@ pub struct Lowerer {
     pub(crate) parent_classes: HashMap<String, String>, // subclass -> parent
     pub(crate) method_to_idx: HashMap<String, u32>,
     pub(crate) next_method_idx: u32,
+    pub(crate) enums: HashMap<String, HashMap<String, (Operand, Type)>>,
     pub(crate) last_expr_ty: Type,
 }
 
@@ -45,6 +46,7 @@ impl Lowerer {
             parent_classes: HashMap::new(),
             method_to_idx: HashMap::new(),
             next_method_idx: 0,
+            enums: HashMap::new(),
             last_expr_ty: Type::Unknown,
         }
     }
@@ -57,124 +59,39 @@ impl Lowerer {
             .unwrap_or(0)
     }
 
-    pub fn load_stdlib(&mut self) -> Vec<IrFunction> {
-        let mut functions = Vec::new();
+    pub(crate) fn collect_stdlib_statements(&self) -> Vec<Statement> {
+        let mut all_statements = Vec::new();
         let stdlib_path = "stdlib/std";
         if let Ok(entries) = std::fs::read_dir(stdlib_path) {
-            for entry in entries.flatten() {
-                let path = entry.path();
+            let mut paths: Vec<_> = entries.flatten().map(|e| e.path()).collect();
+            paths.sort(); // Ensure deterministic order
+
+            for path in paths {
                 if path.extension().and_then(|s| s.to_str()) == Some("aura") {
                     if let Ok(source) = std::fs::read_to_string(&path) {
                         let mut lexer = crate::compiler::frontend::lexer::Lexer::new(&source);
                         let tokens = lexer.lex_all();
                         let mut parser = crate::compiler::frontend::parser::Parser::new(
                             tokens,
-                            "ir_lowering".to_string(),
+                            path.to_string_lossy().to_string(),
                         );
                         let program = parser.parse_program();
-
-                        // Pass 1: Layouts
-                        for stmt in &program.statements {
-                            if let Statement::ClassDeclaration {
-                                name,
-                                fields,
-                                methods,
-                                extends: _,
-                                implements: _,
-                                is_abstract: _,
-                                ..
-                            } = stmt
-                            {
-                                let mut field_offsets = HashMap::new();
-                                let mut field_tys = HashMap::new();
-                                let mut current_offset = 8;
-                                for f in fields.iter() {
-                                    field_offsets.insert(f.name.clone(), current_offset);
-                                    let ty = self.resolve_type(f.ty.clone());
-                                    field_tys.insert(f.name.clone(), ty);
-                                    current_offset += 8;
-                                }
-                                self.class_layouts.insert(
-                                    name.clone(),
-                                    ClassLayout {
-                                        field_offsets,
-                                        size: current_offset,
-                                        vtable_index: HashMap::new(), // Pass 1 doesn't have vtable yet
-                                    },
-                                );
-                                self.class_structures.insert(name.clone(), field_tys);
-
-                                let mut statics = std::collections::HashSet::new();
-                                for m in methods.iter() {
-                                    if m.is_static {
-                                        statics.insert(m.name.clone());
-                                    }
-                                }
-                                self.static_methods.insert(name.clone(), statics);
-                            }
-                        }
-
-                        // Pass 2: Methods
-                        for stmt in program.statements {
-                            if let Statement::ClassDeclaration {
-                                name,
-                                methods,
-                                constructor,
-                                extends: _,
-                                implements: _,
-                                is_abstract: _,
-                                ..
-                            } = stmt
-                            {
-                                for m in methods {
-                                    let mangled_name = format!("{}_{}", name, m.name);
-                                    let mut pnames = Vec::new();
-                                    if !m.is_static {
-                                        let span =
-                                            crate::compiler::ast::Span { line: 0, column: 0 };
-                                        pnames.push((
-                                            "this".to_string(),
-                                            TypeExpr::Name(name.clone(), span),
-                                        ));
-                                    }
-                                    pnames.extend(m.params.clone().into_iter());
-                                    functions.push(self.lower_function(
-                                        mangled_name,
-                                        pnames,
-                                        *m.body,
-                                        if m.is_static {
-                                            None
-                                        } else {
-                                            Some(name.clone())
-                                        },
-                                    ));
-                                }
-                                if let Some(ctor) = constructor {
-                                    let mangled_name = format!("{}_ctor", name);
-                                    let span = crate::compiler::ast::Span { line: 0, column: 0 };
-                                    let mut pnames = vec![(
-                                        "this".to_string(),
-                                        TypeExpr::Name(name.clone(), span),
-                                    )];
-                                    pnames.extend(ctor.params.clone().into_iter());
-                                    functions.push(self.lower_function(
-                                        mangled_name,
-                                        pnames,
-                                        *ctor.body,
-                                        Some(name.clone()),
-                                    ));
-                                }
-                            }
-                        }
+                        all_statements.extend(program.statements);
                     }
                 }
             }
         }
-        functions
+        all_statements
     }
 
-    pub fn lower_program(&mut self, program: Program) -> IrModule {
-        let mut functions = self.load_stdlib();
+    pub fn lower_program(&mut self, mut program: Program) -> IrModule {
+        let stdlib_stmts = self.collect_stdlib_statements();
+        // Prepend stdlib statements so they are processed before user code
+        let mut combined_stmts = stdlib_stmts;
+        combined_stmts.extend(program.statements);
+        program.statements = combined_stmts;
+
+        let mut functions = Vec::new();
         let mut global_stmts = Vec::new();
 
         // Pass 0: Collect all class names, parents and assign global indices to interface methods
@@ -184,10 +101,18 @@ impl Lowerer {
                     name,
                     extends,
                     methods,
+                    type_params: _,
                     ..
                 } => {
-                    if let Some(parent) = extends {
-                        self.parent_classes.insert(name.clone(), parent.clone());
+                    if let Some(parent_expr) = extends {
+                        let parent_name = match parent_expr {
+                            TypeExpr::Name(n, _) => Some(n.clone()),
+                            TypeExpr::Generic(n, _, _) => Some(n.clone()),
+                            _ => None,
+                        };
+                        if let Some(pn) = parent_name {
+                            self.parent_classes.insert(name.clone(), pn);
+                        }
                     }
                     for m in methods {
                         if !m.is_static {
@@ -207,6 +132,42 @@ impl Lowerer {
                             self.next_method_idx += 1;
                         }
                     }
+                }
+                Statement::Enum(decl) => {
+                    let mut current_val = 0;
+                    let mut is_string_enum = false;
+                    let mut members = HashMap::new();
+
+                    for member in &decl.members {
+                        let (op, ty) = if let Some(ref expr) = member.value {
+                            match expr {
+                                Expr::Number(n, _) => {
+                                    current_val = *n + 1;
+                                    (Operand::Constant(*n as i64), Type::Int32)
+                                }
+                                Expr::StringLiteral(s, _) => {
+                                    is_string_enum = true;
+                                    let name = format!("str_{}", self.globals.len());
+                                    self.globals.push((name.clone(), s.clone()));
+                                    (
+                                        Operand::Constant(self.globals.len() as i64 - 1),
+                                        Type::String,
+                                    )
+                                }
+                                _ => (Operand::Constant(0), Type::Int32),
+                            }
+                        } else {
+                            if is_string_enum {
+                                (Operand::Constant(0), Type::String)
+                            } else {
+                                let curr = current_val;
+                                current_val += 1;
+                                (Operand::Constant(curr as i64), Type::Int32)
+                            }
+                        };
+                        members.insert(member.name.clone(), (op, ty));
+                    }
+                    self.enums.insert(decl.name.clone(), members);
                 }
                 _ => {}
             }
@@ -232,8 +193,18 @@ impl Lowerer {
                 } = pending_classes[i]
                 {
                     let can_process = match extends {
-                        Some(p) => {
-                            processed_classes.contains(p) || self.class_layouts.contains_key(p)
+                        Some(p_expr) => {
+                            let p_name = match p_expr {
+                                TypeExpr::Name(n, _) => Some(n.clone()),
+                                TypeExpr::Generic(n, _, _) => Some(n.clone()),
+                                _ => None,
+                            };
+                            if let Some(pn) = p_name {
+                                processed_classes.contains(&pn)
+                                    || self.class_layouts.contains_key(&pn)
+                            } else {
+                                true
+                            }
                         }
                         None => true,
                     };
@@ -245,13 +216,20 @@ impl Lowerer {
                         let mut vtable_index = HashMap::new();
                         let mut vtable_methods = Vec::new();
 
-                        if let Some(parent_name) = extends {
-                            if let Some(parent_layout) = self.class_layouts.get(parent_name) {
-                                field_offsets = parent_layout.field_offsets.clone();
-                                current_offset = parent_layout.size;
-                                vtable_index = parent_layout.vtable_index.clone();
-                                vtable_methods =
-                                    self.vtables.get(parent_name).cloned().unwrap_or_default();
+                        if let Some(p_expr) = extends {
+                            let p_name = match p_expr {
+                                TypeExpr::Name(n, _) => Some(n.clone()),
+                                TypeExpr::Generic(n, _, _) => Some(n.clone()),
+                                _ => None,
+                            };
+                            if let Some(pn) = p_name {
+                                if let Some(parent_layout) = self.class_layouts.get(&pn) {
+                                    field_offsets = parent_layout.field_offsets.clone();
+                                    current_offset = parent_layout.size;
+                                    vtable_index = parent_layout.vtable_index.clone();
+                                    vtable_methods =
+                                        self.vtables.get(&pn).cloned().unwrap_or_default();
+                                }
                             }
                         }
 
@@ -266,11 +244,7 @@ impl Lowerer {
 
                         let mut statics = std::collections::HashSet::new();
                         for m in methods.iter() {
-                            let m_name = if m.is_static {
-                                format!("{}_{}", name, m.name)
-                            } else {
-                                format!("{}_{}", name, m.name)
-                            };
+                            let mangled_name = format!("{}_{}", name, m.name);
                             let mut p_tys: Vec<Type> = Vec::new();
                             if !m.is_static {
                                 p_tys.push(Type::Class(name.clone()));
@@ -278,7 +252,8 @@ impl Lowerer {
                             p_tys
                                 .extend(m.params.iter().map(|(_, t)| self.resolve_type(t.clone())));
                             let r_ty = self.resolve_type(m.return_ty.clone());
-                            self.function_tys.insert(m_name, (p_tys, r_ty));
+                            self.function_tys
+                                .insert(mangled_name.clone(), (p_tys, r_ty));
 
                             if !m.is_static {
                                 // 1. Determine the index for this method
@@ -436,6 +411,8 @@ impl Lowerer {
                     }
                 }
                 Statement::Interface(_)
+                | Statement::Import { .. }
+                | Statement::Export { .. }
                 | Statement::Comment(_, _)
                 | Statement::RegularBlockComment(_, _) => {}
                 _ => global_stmts.push(stmt),
@@ -490,9 +467,9 @@ impl Lowerer {
                     None
                 }
             };
-            let sem_ty = self.resolve_type(ty_expr.clone());
+            let _sem_ty = self.resolve_type(ty_expr.clone());
             self.mem_vars
-                .insert(param_name.clone(), (ptr_reg, cls, Some(sem_ty)));
+                .insert(param_name.clone(), (ptr_reg, cls, Some(_sem_ty)));
         }
 
         self.lower_statement(body);
@@ -512,9 +489,24 @@ impl Lowerer {
                 "void" | "Void" => Type::Void,
                 _ => Type::Class(n),
             },
+            TypeExpr::Generic(n, args, _) => {
+                let base = self.resolve_type(TypeExpr::Name(
+                    n,
+                    crate::compiler::ast::Span { line: 0, column: 0 },
+                ));
+                if let Type::Class(name) = base {
+                    Type::Generic(
+                        name,
+                        args.into_iter().map(|a| self.resolve_type(a)).collect(),
+                    )
+                } else {
+                    base
+                }
+            }
             TypeExpr::Union(tys, _) => {
                 Type::Union(tys.into_iter().map(|t| self.resolve_type(t)).collect())
             }
+            TypeExpr::Array(inner, _) => Type::Array(Box::new(self.resolve_type(*inner))),
             _ => Type::Unknown,
         }
     }
@@ -551,6 +543,7 @@ mod tests {
                     constructor: None,
                     extends: None,
                     implements: vec![],
+                    type_params: vec![],
                     is_abstract: false,
                     span,
                     doc: None,
@@ -558,6 +551,7 @@ mod tests {
                 Statement::FunctionDeclaration {
                     name: "set_next".to_string(),
                     name_span: span,
+                    type_params: vec![],
                     params: vec![
                         ("n1".to_string(), TypeExpr::Name("Node".to_string(), span)),
                         ("n2".to_string(), TypeExpr::Name("Node".to_string(), span)),

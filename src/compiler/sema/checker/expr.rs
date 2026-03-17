@@ -191,17 +191,23 @@ impl SemanticAnalyzer {
                 }
                 val_ty
             }
-            Expr::Call(name, name_span, args, span) => {
+            Expr::Call(name, type_args, name_span, args, span) => {
                 let arg_spans: Vec<_> = args.iter().map(|a| a.span()).collect();
                 let mut arg_tys = Vec::new();
                 for arg in args {
                     arg_tys.push(self.check_expr(arg));
                 }
 
+                let _resolved_type_args: Vec<Type> = type_args
+                    .into_iter()
+                    .map(|ta| self.resolve_type(ta))
+                    .collect();
+
                 let sym = self.scope.lookup(&name);
                 let function_ty = sym.map(|s| s.ty.clone());
 
-                if let Some(Type::Function(param_tys, ret_ty)) = function_ty {
+                if let Some(Type::Function(type_params, param_tys, ret_ty)) = function_ty {
+                    // TODO: Handle generic function instantiation if needed
                     if self.record_node_info {
                         if let Some(sym) = self.scope.lookup(&name) {
                             let doc = sym.doc.clone();
@@ -213,7 +219,11 @@ impl SemanticAnalyzer {
                             self.record_definition(name_span, defined_in, sym_span);
                             self.record_type(
                                 name_span,
-                                Type::Function(param_tys.clone(), ret_ty.clone()),
+                                Type::Function(
+                                    type_params.clone(),
+                                    param_tys.clone(),
+                                    ret_ty.clone(),
+                                ),
                             );
                         }
                         // Also record return type for the whole call span
@@ -249,131 +259,162 @@ impl SemanticAnalyzer {
                     Type::Unknown
                 }
             }
-            Expr::New(class_name, name_span, args, span) => {
-                let is_abs = self
-                    .classes
-                    .get(&class_name)
-                    .map(|c| c.is_abstract)
-                    .unwrap_or(false);
-                if is_abs {
-                    self.error(
-                        SemanticErrorKind::CannotInstantiateAbstractClass(class_name.clone()),
-                        span,
-                    );
-                }
+            Expr::New(class_name, type_args, name_span, args, span) => {
+                let info_opt = self.classes.get(&class_name).cloned();
+                if let Some(class_info) = info_opt {
+                    if class_info.is_abstract {
+                        self.error(
+                            SemanticErrorKind::CannotInstantiateAbstractClass(class_name.clone()),
+                            span,
+                        );
+                    }
 
-                if let Some(class_info) = self.classes.get(&class_name) {
+                    let resolved_type_args: Vec<Type> = type_args
+                        .into_iter()
+                        .map(|ta| self.resolve_type(ta))
+                        .collect();
+
+                    if resolved_type_args.len() != class_info.type_params.len() {
+                        self.error(
+                            SemanticErrorKind::ArgumentCountMismatch(
+                                class_info.type_params.len(),
+                                resolved_type_args.len(),
+                            ),
+                            span,
+                        );
+                    }
+
+                    let mut arg_tys = Vec::new();
+                    for arg in &args {
+                        arg_tys.push(self.check_expr(arg.clone()));
+                    }
+
+                    if let Some((params, _access)) = class_info.constructor.as_ref() {
+                        let mapping = self
+                            .get_substitution_mapping(&class_info.type_params, &resolved_type_args);
+                        let substituted_params: Vec<Type> = params
+                            .iter()
+                            .map(|p| self.substitute(p, &mapping))
+                            .collect();
+
+                        if arg_tys.len() != substituted_params.len() {
+                            self.error(
+                                SemanticErrorKind::ArgumentCountMismatch(
+                                    substituted_params.len(),
+                                    arg_tys.len(),
+                                ),
+                                span,
+                            );
+                        } else {
+                            for (i, arg_ty) in arg_tys.iter().enumerate() {
+                                if !self.is_assignable(arg_ty, &substituted_params[i]) {
+                                    self.error(
+                                        SemanticErrorKind::TypeMismatch(
+                                            substituted_params[i].to_string(),
+                                            arg_ty.to_string(),
+                                        ),
+                                        args[i].span(),
+                                    );
+                                }
+                            }
+                        }
+                    } else if !arg_tys.is_empty() {
+                        self.error(
+                            SemanticErrorKind::ArgumentCountMismatch(0, arg_tys.len()),
+                            span,
+                        );
+                    }
+
+                    let ret_ty = if resolved_type_args.is_empty() {
+                        Type::Class(class_name.clone())
+                    } else {
+                        Type::Generic(class_name.clone(), resolved_type_args.clone())
+                    };
+
                     if self.record_node_info {
                         let doc_opt = class_info.doc.clone();
                         let class_span = class_info.span;
                         if let Some(doc) = doc_opt {
                             self.record_doc(name_span, doc);
                         }
-                        self.record_definition(name_span, self.current_file.clone(), class_span); // Class defined in same file for now if simple
-                        self.record_type(name_span, Type::Class(class_name.clone()));
-                        // Also record for the whole expression
-                        self.record_type(span, Type::Class(class_name.clone()));
+                        self.record_definition(name_span, self.current_file.clone(), class_span);
+                        self.record_type(name_span, ret_ty.clone());
+                        self.record_type(span, ret_ty.clone());
                     }
+                    ret_ty
                 } else {
                     self.error(SemanticErrorKind::UndefinedClass(class_name.clone()), span);
+                    for arg in args {
+                        self.check_expr(arg);
+                    }
+                    Type::Unknown
                 }
-                for arg in args {
-                    self.check_expr(arg);
-                }
-                Type::Class(class_name)
             }
             Expr::MemberAccess(obj, field, name_span, span) => {
                 let obj_ty = self.check_expr(*obj);
 
-                if let Type::Class(ref class_name) = obj_ty {
-                    if let Some((finfo, class_defined_in, class_span)) =
-                        self.lookup_field(class_name, &field)
-                    {
+                if let Type::Enum(ref name) = obj_ty {
+                    if let Some(members) = self.enums.get(name) {
+                        if members.contains(&field) {
+                            if self.record_node_info {
+                                self.record_type(span, Type::Enum(name.clone()));
+                            }
+                            return Type::Enum(name.clone());
+                        }
+                    }
+                    self.error(
+                        SemanticErrorKind::UndefinedField(
+                            format!("Enum(\"{}\")", name),
+                            field.clone(),
+                        ),
+                        name_span,
+                    );
+                    return Type::Unknown;
+                }
+
+                if let Some((finfo, class_defined_in, class_span)) =
+                    self.lookup_field_for_type(&obj_ty, &field)
+                {
+                    if let Type::Class(_) | Type::Generic(_, _) = obj_ty {
                         if finfo.is_static {
                             self.error(
                                 SemanticErrorKind::AccessDenied(
                                     field.clone(),
-                                    class_name.clone(),
+                                    format!("{:?}", obj_ty),
                                     "instance".to_string(),
                                 ),
                                 name_span,
                             );
                         }
-                        self.check_access(&finfo.defined_in_class, &field, finfo.access, name_span);
-
-                        if self.record_node_info {
-                            self.record_definition(name_span, class_defined_in, class_span);
-                            self.record_type(name_span, finfo.ty.clone());
-                            self.record_type(span, finfo.ty.clone());
-                        }
-                        return finfo.ty;
-                    } else {
-                        if !self.classes.contains_key(class_name) {
-                            self.error(SemanticErrorKind::UndefinedClass(class_name.clone()), span);
-                        } else {
-                            self.error(
-                                SemanticErrorKind::UndefinedField(class_name.clone(), field),
-                                name_span,
-                            );
-                        }
-                        return Type::Unknown;
-                    }
-                } else if let Type::ClassType(ref class_name) = obj_ty {
-                    if let Some((finfo, class_defined_in, class_span)) =
-                        self.lookup_field(class_name, &field)
-                    {
+                    } else if let Type::ClassType(ref name) = obj_ty {
                         if !finfo.is_static {
                             self.error(
                                 SemanticErrorKind::AccessDenied(
                                     field.clone(),
-                                    class_name.clone(),
+                                    name.clone(),
                                     "static".to_string(),
                                 ),
                                 name_span,
                             );
                         }
-                        self.check_access(&finfo.defined_in_class, &field, finfo.access, name_span);
-
-                        if self.record_node_info {
-                            self.record_definition(name_span, class_defined_in, class_span);
-                            self.record_type(name_span, finfo.ty.clone());
-                            self.record_type(span, finfo.ty.clone());
-                        }
-                        return finfo.ty;
-                    } else {
-                        self.error(
-                            SemanticErrorKind::UndefinedField(class_name.clone(), field),
-                            name_span,
-                        );
-                        return Type::Unknown;
                     }
-                } else if let Type::Enum(ref enum_name) = obj_ty {
-                    // For enums, members are registered directly in the scope as Name.Member
-                    let fqn = format!("{}.{}", enum_name, field);
-                    if let Some(sym) = self.scope.lookup(&fqn) {
-                        if self.record_node_info {
-                            let sym_ty = sym.ty.clone();
-                            let sym_doc = sym.doc.clone();
-                            let sym_defined_in = sym.defined_in.clone();
-                            let sym_span = sym.span;
+                    self.check_access(&finfo.defined_in_class, &field, finfo.access, name_span);
 
-                            if let Some(d) = sym_doc {
-                                self.record_doc(name_span, d);
-                            }
-                            self.record_definition(name_span, sym_defined_in, sym_span);
-                            self.record_type(name_span, sym_ty.clone());
-                            self.record_type(span, sym_ty.clone());
-                            return sym_ty;
-                        }
-                        return sym.ty.clone();
+                    if self.record_node_info {
+                        self.record_definition(name_span, class_defined_in, class_span);
+                        self.record_type(name_span, finfo.ty.clone());
+                        self.record_type(span, finfo.ty.clone());
                     }
+                    return finfo.ty;
+                } else {
+                    let type_name = match obj_ty {
+                        Type::Class(ref n) | Type::Generic(ref n, _) => n.clone(),
+                        _ => format!("{:?}", obj_ty),
+                    };
                     self.error(
-                        SemanticErrorKind::UndefinedField(enum_name.clone(), field),
+                        SemanticErrorKind::UndefinedField(type_name, field),
                         name_span,
                     );
-                    Type::Unknown
-                } else {
-                    self.error(SemanticErrorKind::NotAClass(format!("{:?}", obj_ty)), span);
                     Type::Unknown
                 }
             }
@@ -382,257 +423,161 @@ impl SemanticAnalyzer {
                 let obj_ty = self.check_expr(*obj.clone());
                 let val_ty = self.check_expr(*value);
 
-                if let Type::Class(ref class_name) = obj_ty {
-                    if let Some((finfo, class_defined_in, class_span)) =
-                        self.lookup_field(class_name, &field)
-                    {
+                if let Some((finfo, class_defined_in, class_span)) =
+                    self.lookup_field_for_type(&obj_ty, &field)
+                {
+                    if let Type::Class(_) | Type::Generic(_, _) = obj_ty {
                         if finfo.is_static {
                             self.error(
                                 SemanticErrorKind::AccessDenied(
                                     field.clone(),
-                                    class_name.clone(),
+                                    format!("{:?}", obj_ty),
                                     "instance".to_string(),
                                 ),
                                 name_span,
                             );
                         }
-                        self.check_access(&finfo.defined_in_class, &field, finfo.access, name_span);
-
-                        if finfo.is_readonly {
-                            let mut allowed = false;
-                            if let Expr::This(_) = *obj {
-                                if self.current_method.as_deref() == Some("constructor")
-                                    && self.current_class.as_ref() == Some(class_name)
-                                {
-                                    allowed = true;
-                                }
-                            }
-                            if !allowed {
-                                self.error(
-                                    SemanticErrorKind::ReadonlyViolation(field.clone()),
-                                    span,
-                                );
-                            }
-                        }
-
-                        if !self.is_assignable(&val_ty, &finfo.ty) {
-                            self.error(
-                                SemanticErrorKind::TypeMismatch(
-                                    finfo.ty.to_string(),
-                                    val_ty.to_string(),
-                                ),
-                                span,
-                            );
-                        } else if val_ty != finfo.ty && self.record_node_info {
-                            self.record_type(val_span, finfo.ty.clone());
-                        }
-                        if self.record_node_info {
-                            self.record_definition(name_span, class_defined_in, class_span);
-                            self.record_type(name_span, finfo.ty.clone());
-                            self.record_type(span, finfo.ty.clone());
-                        }
-                        return finfo.ty;
-                    } else {
-                        if !self.classes.contains_key(class_name) {
-                            self.error(SemanticErrorKind::UndefinedClass(class_name.clone()), span);
-                        } else {
-                            self.error(
-                                SemanticErrorKind::UndefinedField(class_name.clone(), field),
-                                name_span,
-                            );
-                        }
-                        return Type::Unknown;
-                    }
-                } else if let Type::ClassType(ref class_name) = obj_ty {
-                    if let Some((finfo, class_defined_in, class_span)) =
-                        self.lookup_field(class_name, &field)
-                    {
+                    } else if let Type::ClassType(ref name) = obj_ty {
                         if !finfo.is_static {
                             self.error(
                                 SemanticErrorKind::AccessDenied(
                                     field.clone(),
-                                    class_name.clone(),
+                                    name.clone(),
                                     "static".to_string(),
                                 ),
                                 name_span,
                             );
                         }
-                        self.check_access(&finfo.defined_in_class, &field, finfo.access, name_span);
-
-                        if !self.is_assignable(&val_ty, &finfo.ty) {
-                            self.error(
-                                SemanticErrorKind::TypeMismatch(
-                                    finfo.ty.to_string(),
-                                    val_ty.to_string(),
-                                ),
-                                span,
-                            );
-                        } else if val_ty != finfo.ty && self.record_node_info {
-                            self.record_type(val_span, finfo.ty.clone());
-                        }
-                        if self.record_node_info {
-                            self.record_definition(name_span, class_defined_in, class_span);
-                            self.record_type(name_span, finfo.ty.clone());
-                            self.record_type(span, finfo.ty.clone());
-                        }
-                        return finfo.ty;
-                    } else {
-                        self.error(
-                            SemanticErrorKind::UndefinedField(class_name.clone(), field),
-                            name_span,
-                        );
-                        return Type::Unknown;
                     }
+                    self.check_access(&finfo.defined_in_class, &field, finfo.access, name_span);
+
+                    if finfo.is_readonly {
+                        let mut allowed = false;
+                        if let Expr::This(_) = *obj {
+                            if self.current_method.as_deref() == Some("constructor")
+                                && self.current_class.as_ref() == Some(&finfo.defined_in_class)
+                            {
+                                allowed = true;
+                            }
+                        }
+                        if !allowed {
+                            self.error(SemanticErrorKind::ReadonlyViolation(field.clone()), span);
+                        }
+                    }
+
+                    if !self.is_assignable(&val_ty, &finfo.ty) {
+                        self.error(
+                            SemanticErrorKind::TypeMismatch(
+                                finfo.ty.to_string(),
+                                val_ty.to_string(),
+                            ),
+                            span,
+                        );
+                    } else if val_ty != finfo.ty && self.record_node_info {
+                        self.record_type(val_span, finfo.ty.clone());
+                    }
+                    if self.record_node_info {
+                        self.record_definition(name_span, class_defined_in, class_span);
+                        self.record_type(name_span, finfo.ty.clone());
+                        self.record_type(span, finfo.ty.clone());
+                    }
+                    return finfo.ty;
                 } else {
-                    self.error(SemanticErrorKind::NotAClass(format!("{:?}", obj_ty)), span);
+                    let type_name = match obj_ty {
+                        Type::Class(ref n) | Type::Generic(ref n, _) => n.clone(),
+                        _ => format!("{:?}", obj_ty),
+                    };
+                    self.error(
+                        SemanticErrorKind::UndefinedField(type_name, field),
+                        name_span,
+                    );
                     Type::Unknown
                 }
             }
-            Expr::MethodCall(obj, method, name_span, args, span) => {
+            Expr::MethodCall(obj, method, type_args, name_span, args, span) => {
                 let arg_spans: Vec<_> = args.iter().map(|a| a.span()).collect();
                 let obj_ty = self.check_expr(*obj);
                 let mut arg_tys = Vec::new();
                 for arg in args {
-                    // Iterate over args to check their types
                     arg_tys.push(self.check_expr(arg));
                 }
 
-                if let Type::Class(ref class_name) = obj_ty {
-                    if let Some((minfo, class_defined_in, class_span)) =
-                        self.lookup_method(class_name, &method)
-                    {
+                let _resolved_type_args: Vec<Type> = type_args
+                    .into_iter()
+                    .map(|ta| self.resolve_type(ta))
+                    .collect();
+
+                if let Some((minfo, class_defined_in, class_span)) =
+                    self.lookup_method_for_type(&obj_ty, &method)
+                {
+                    if let Type::Class(_) | Type::Generic(_, _) = obj_ty {
                         if minfo.is_static {
                             self.error(
                                 SemanticErrorKind::AccessDenied(
                                     method.clone(),
-                                    class_name.clone(),
+                                    format!("{:?}", obj_ty),
                                     "instance".to_string(),
                                 ),
                                 name_span,
                             );
                         }
-                        self.check_access(
-                            &minfo.defined_in_class,
-                            &method,
-                            minfo.access,
-                            name_span,
-                        );
-
-                        if arg_tys.len() != minfo.params.len() {
-                            self.error(
-                                SemanticErrorKind::ArgumentCountMismatch(
-                                    minfo.params.len(),
-                                    arg_tys.len(),
-                                ),
-                                span,
-                            );
-                        } else {
-                            for (i, arg_ty) in arg_tys.iter().enumerate() {
-                                if !self.is_assignable(arg_ty, &minfo.params[i]) {
-                                    self.error(
-                                        SemanticErrorKind::TypeMismatch(
-                                            minfo.params[i].to_string(),
-                                            arg_ty.to_string(),
-                                        ),
-                                        arg_spans[i],
-                                    );
-                                } else if arg_ty != &minfo.params[i] && self.record_node_info {
-                                    self.record_type(arg_spans[i], minfo.params[i].clone());
-                                }
-                            }
-                        }
-
-                        if self.record_node_info {
-                            self.record_definition(name_span, class_defined_in, class_span);
-                            self.record_type(
-                                name_span,
-                                Type::Function(
-                                    minfo.params.clone(),
-                                    Box::new(minfo.ret_ty.clone()),
-                                ),
-                            );
-                            self.record_type(span, minfo.ret_ty.clone());
-                        }
-                        return minfo.ret_ty;
-                    } else {
-                        if !self.classes.contains_key(class_name)
-                            && !self.interfaces.contains_key(class_name)
-                        {
-                            self.error(SemanticErrorKind::UndefinedClass(class_name.clone()), span);
-                        } else {
-                            self.error(
-                                SemanticErrorKind::UndefinedMethod(class_name.clone(), method),
-                                span,
-                            );
-                        }
-                        return Type::Unknown;
-                    }
-                } else if let Type::ClassType(ref class_name) = obj_ty {
-                    if let Some((minfo, class_defined_in, class_span)) =
-                        self.lookup_method(class_name, &method)
-                    {
+                    } else if let Type::ClassType(ref name) = obj_ty {
                         if !minfo.is_static {
                             self.error(
                                 SemanticErrorKind::AccessDenied(
                                     method.clone(),
-                                    class_name.clone(),
+                                    name.clone(),
                                     "static".to_string(),
                                 ),
                                 name_span,
                             );
                         }
-                        self.check_access(
-                            &minfo.defined_in_class,
-                            &method,
-                            minfo.access,
-                            name_span,
-                        );
+                    }
 
-                        if arg_tys.len() != minfo.params.len() {
-                            self.error(
-                                SemanticErrorKind::ArgumentCountMismatch(
-                                    minfo.params.len(),
-                                    arg_tys.len(),
-                                ),
-                                span,
-                            );
-                        } else {
-                            for (i, arg_ty) in arg_tys.iter().enumerate() {
-                                if !self.is_assignable(arg_ty, &minfo.params[i]) {
-                                    self.error(
-                                        SemanticErrorKind::TypeMismatch(
-                                            minfo.params[i].to_string(),
-                                            arg_ty.to_string(),
-                                        ),
-                                        arg_spans[i],
-                                    );
-                                } else if arg_ty != &minfo.params[i] && self.record_node_info {
-                                    self.record_type(arg_spans[i], minfo.params[i].clone());
-                                }
-                            }
-                        }
+                    self.check_access(&minfo.defined_in_class, &method, minfo.access, name_span);
 
-                        if self.record_node_info {
-                            self.record_definition(name_span, class_defined_in, class_span);
-                            self.record_type(
-                                name_span,
-                                Type::Function(
-                                    minfo.params.clone(),
-                                    Box::new(minfo.ret_ty.clone()),
-                                ),
-                            );
-                            self.record_type(span, minfo.ret_ty.clone());
-                        }
-                        return minfo.ret_ty;
-                    } else {
+                    if arg_tys.len() != minfo.params.len() {
                         self.error(
-                            SemanticErrorKind::UndefinedMethod(class_name.clone(), method),
+                            SemanticErrorKind::ArgumentCountMismatch(
+                                minfo.params.len(),
+                                arg_tys.len(),
+                            ),
                             span,
                         );
-                        return Type::Unknown;
+                    } else {
+                        for (i, arg_ty) in arg_tys.iter().enumerate() {
+                            if !self.is_assignable(arg_ty, &minfo.params[i]) {
+                                self.error(
+                                    SemanticErrorKind::TypeMismatch(
+                                        minfo.params[i].to_string(),
+                                        arg_ty.to_string(),
+                                    ),
+                                    arg_spans[i],
+                                );
+                            } else if arg_ty != &minfo.params[i] && self.record_node_info {
+                                self.record_type(arg_spans[i], minfo.params[i].clone());
+                            }
+                        }
                     }
-                } else if obj_ty == Type::String {
-                    let ret_ty = match method.as_str() {
+
+                    if self.record_node_info {
+                        self.record_definition(name_span, class_defined_in, class_span);
+                        self.record_type(
+                            name_span,
+                            Type::Function(
+                                minfo.type_params.clone(),
+                                minfo.params.clone(),
+                                Box::new(minfo.ret_ty.clone()),
+                            ),
+                        );
+                        self.record_type(span, minfo.ret_ty.clone());
+                    }
+                    return minfo.ret_ty;
+                }
+
+                // Handle special types
+                let ret_ty = match obj_ty {
+                    Type::String => match method.as_str() {
                         "len" => Type::Int32,
                         "charAt" => Type::String,
                         "substring" => Type::String,
@@ -645,18 +590,13 @@ impl SemanticAnalyzer {
                             );
                             Type::Unknown
                         }
-                    };
-                    if self.record_node_info && !matches!(ret_ty, Type::Unknown) {
-                        self.record_type(span, ret_ty.clone());
-                    }
-                    ret_ty
-                } else if let Type::Array(inner) = obj_ty {
-                    let ret_ty = match method.as_str() {
+                    },
+                    Type::Array(ref inner) => match method.as_str() {
                         "len" => Type::Int32,
                         "push" => Type::Void,
-                        "pop" => (*inner).clone(),
+                        "pop" => (**inner).clone(),
                         "join" => Type::String,
-                        "get" => (*inner).clone(),
+                        "get" => (**inner).clone(),
                         _ => {
                             self.error(
                                 SemanticErrorKind::UndefinedMethod("array".to_string(), method),
@@ -664,15 +604,23 @@ impl SemanticAnalyzer {
                             );
                             Type::Unknown
                         }
-                    };
-                    if self.record_node_info && !matches!(ret_ty, Type::Unknown) {
-                        self.record_type(span, ret_ty.clone());
+                    },
+                    _ => {
+                        let type_name = match obj_ty {
+                            Type::Class(ref n)
+                            | Type::Generic(ref n, _)
+                            | Type::ClassType(ref n) => n.clone(),
+                            _ => format!("{:?}", obj_ty),
+                        };
+                        self.error(SemanticErrorKind::UndefinedMethod(type_name, method), span);
+                        Type::Unknown
                     }
-                    ret_ty
-                } else {
-                    self.error(SemanticErrorKind::NotAClass(format!("{:?}", obj_ty)), span);
-                    Type::Unknown
+                };
+
+                if self.record_node_info && !matches!(ret_ty, Type::Unknown) {
+                    self.record_type(span, ret_ty.clone());
                 }
+                ret_ty
             }
             Expr::This(span) => {
                 if self.is_static_context {
@@ -760,8 +708,8 @@ impl SemanticAnalyzer {
                 }
                 if let Some(class_name) = &self.current_class {
                     if let Some(class_info) = self.classes.get(class_name) {
-                        if let Some(parent_name) = &class_info.parent {
-                            Type::Class(parent_name.clone())
+                        if let Some(parent_expr) = &class_info.parent {
+                            self.resolve_type(parent_expr.clone())
                         } else {
                             self.error(SemanticErrorKind::NoParentClass(class_name.clone()), span);
                             Type::Unknown
@@ -788,43 +736,53 @@ impl SemanticAnalyzer {
                     }
 
                     if let Some(class_info) = self.classes.get(class_name) {
-                        if let Some(parent_name) = &class_info.parent {
-                            if let Some(parent_info) = self.classes.get(parent_name) {
-                                let ctor_info = parent_info.constructor.clone();
-                                if let Some((param_tys, _)) = ctor_info {
-                                    if param_tys.len() != arg_tys.len() {
+                        if let Some(parent_expr) = &class_info.parent {
+                            let parent_name = match parent_expr {
+                                crate::compiler::ast::TypeExpr::Name(n, _) => Some(n.clone()),
+                                crate::compiler::ast::TypeExpr::Generic(n, _, _) => Some(n.clone()),
+                                _ => None,
+                            };
+                            if let Some(pn) = parent_name {
+                                if let Some(parent_info) = self.classes.get(&pn) {
+                                    let ctor_info = parent_info.constructor.clone();
+                                    if let Some((param_tys, _)) = ctor_info {
+                                        if param_tys.len() != arg_tys.len() {
+                                            self.error(
+                                                SemanticErrorKind::ArgumentCountMismatch(
+                                                    param_tys.len(),
+                                                    arg_tys.len(),
+                                                ),
+                                                span,
+                                            );
+                                        } else {
+                                            for (i, arg_ty) in arg_tys.iter().enumerate() {
+                                                if !self.is_assignable(arg_ty, &param_tys[i]) {
+                                                    self.error(
+                                                        SemanticErrorKind::TypeMismatch(
+                                                            param_tys[i].to_string(),
+                                                            arg_ty.to_string(),
+                                                        ),
+                                                        args[i].span(),
+                                                    );
+                                                } else if arg_ty != &param_tys[i]
+                                                    && self.record_node_info
+                                                {
+                                                    self.record_type(
+                                                        args[i].span(),
+                                                        param_tys[i].clone(),
+                                                    );
+                                                }
+                                            }
+                                        }
+                                    } else if !arg_tys.is_empty() {
                                         self.error(
                                             SemanticErrorKind::ArgumentCountMismatch(
-                                                param_tys.len(),
+                                                0,
                                                 arg_tys.len(),
                                             ),
                                             span,
                                         );
-                                    } else {
-                                        for (i, arg_ty) in arg_tys.iter().enumerate() {
-                                            if !self.is_assignable(arg_ty, &param_tys[i]) {
-                                                self.error(
-                                                    SemanticErrorKind::TypeMismatch(
-                                                        param_tys[i].to_string(),
-                                                        arg_ty.to_string(),
-                                                    ),
-                                                    args[i].span(),
-                                                );
-                                            } else if arg_ty != &param_tys[i]
-                                                && self.record_node_info
-                                            {
-                                                self.record_type(
-                                                    args[i].span(),
-                                                    param_tys[i].clone(),
-                                                );
-                                            }
-                                        }
                                     }
-                                } else if !arg_tys.is_empty() {
-                                    self.error(
-                                        SemanticErrorKind::ArgumentCountMismatch(0, arg_tys.len()),
-                                        span,
-                                    );
                                 }
                             }
                         } else {

@@ -46,8 +46,18 @@ pub(crate) fn format_expr(f: &mut Formatter, expr: &Expr) {
             f.result.push_str(" = ");
             format_expr(f, val);
         }
-        Expr::Call(name, _, args, _) => {
+        Expr::Call(name, type_args, _, args, _) => {
             f.result.push_str(name);
+            if !type_args.is_empty() {
+                f.result.push('<');
+                for (i, ta) in type_args.iter().enumerate() {
+                    if i > 0 {
+                        f.result.push_str(", ");
+                    }
+                    f.format_type_expr(ta);
+                }
+                f.result.push('>');
+            }
             f.result.push('(');
             for (i, arg) in args.iter().enumerate() {
                 if i > 0 {
@@ -57,10 +67,20 @@ pub(crate) fn format_expr(f: &mut Formatter, expr: &Expr) {
             }
             f.result.push(')');
         }
-        Expr::MethodCall(obj, name, _, args, _) => {
+        Expr::MethodCall(obj, name, type_args, _, args, _) => {
             format_expr(f, obj);
             f.result.push('.');
             f.result.push_str(name);
+            if !type_args.is_empty() {
+                f.result.push('<');
+                for (i, ta) in type_args.iter().enumerate() {
+                    if i > 0 {
+                        f.result.push_str(", ");
+                    }
+                    f.format_type_expr(ta);
+                }
+                f.result.push('>');
+            }
             f.result.push('(');
             for (i, arg) in args.iter().enumerate() {
                 if i > 0 {
@@ -71,9 +91,19 @@ pub(crate) fn format_expr(f: &mut Formatter, expr: &Expr) {
             f.result.push(')');
         }
         Expr::This(_) => f.result.push_str("this"),
-        Expr::New(name, _, args, _) => {
+        Expr::New(name, type_args, _, args, _) => {
             f.result.push_str("new ");
             f.result.push_str(name);
+            if !type_args.is_empty() {
+                f.result.push('<');
+                for (i, ta) in type_args.iter().enumerate() {
+                    if i > 0 {
+                        f.result.push_str(", ");
+                    }
+                    f.format_type_expr(ta);
+                }
+                f.result.push('>');
+            }
             f.result.push('(');
             for (i, arg) in args.iter().enumerate() {
                 if i > 0 {
@@ -171,11 +201,11 @@ fn get_expr_precedence(expr: &Expr) -> i32 {
         Expr::Assign(_, _, _) => 2,
         Expr::TypeTest(_, _, _) => 10,
         Expr::UnaryOp(_, _, _) => 13, // Unary is stronger than binary
-        Expr::Call(_, _, _, _)
-        | Expr::MethodCall(_, _, _, _, _)
+        Expr::Call(_, _, _, _, _)
+        | Expr::MethodCall(_, _, _, _, _, _)
         | Expr::MemberAccess(_, _, _, _)
         | Expr::Index(_, _, _)
-        | Expr::New(_, _, _, _) => 14, // Postfix/Primary-like are strongest
+        | Expr::New(_, _, _, _, _) => 14, // Postfix/Primary-like are strongest
         _ => 15,                      // Primary (numbers, variables, etc.)
     }
 }

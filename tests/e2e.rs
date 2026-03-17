@@ -233,6 +233,8 @@ e2e_test!(oop_abstract_classes, "04_oop/08_abstract_classes.aura");
 e2e_test!(oop_polymorphism, "04_oop/09_polymorphism.aura");
 e2e_test!(oop_interface_multi, "04_oop/10_interface_multi.aura");
 e2e_test!(oop_static_members, "04_oop/11_static_members.aura");
+e2e_test!(oop_generics_basic, "04_oop/12_generics_basic.aura");
+e2e_test!(oop_generics_complex, "04_oop/13_generics_complex.aura");
 
 // --- 05_enums ---
 e2e_test!(enum_numeric, "05_enums/01_numeric.aura");

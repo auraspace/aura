@@ -36,6 +36,7 @@ pub fn register_analyzer_intrinsics(sema_analyzer: &mut SemanticAnalyzer) {
     sema_analyzer.scope.insert(
         "__fs_open".to_string(),
         Type::Function(
+            vec![],
             vec![Type::String, Type::Int32, Type::Int32],
             Box::new(Type::Int32),
         ),
@@ -50,7 +51,7 @@ pub fn register_analyzer_intrinsics(sema_analyzer: &mut SemanticAnalyzer) {
     // __fs_close(fd: i32) -> void
     sema_analyzer.scope.insert(
         "__fs_close".to_string(),
-        Type::Function(vec![Type::Int32], Box::new(Type::Void)),
+        Type::Function(vec![], vec![Type::Int32], Box::new(Type::Void)),
         false,
         true,
         true, // is_exported
@@ -62,7 +63,11 @@ pub fn register_analyzer_intrinsics(sema_analyzer: &mut SemanticAnalyzer) {
     // __fs_read(fd: i32, size: i32) -> string
     sema_analyzer.scope.insert(
         "__fs_read".to_string(),
-        Type::Function(vec![Type::Int32, Type::Int32], Box::new(Type::String)),
+        Type::Function(
+            vec![],
+            vec![Type::Int32, Type::Int32],
+            Box::new(Type::String),
+        ),
         false,
         true,
         true, // is_exported
@@ -74,7 +79,11 @@ pub fn register_analyzer_intrinsics(sema_analyzer: &mut SemanticAnalyzer) {
     // __fs_write(fd: i32, content: string) -> i32
     sema_analyzer.scope.insert(
         "__fs_write".to_string(),
-        Type::Function(vec![Type::Int32, Type::String], Box::new(Type::Int32)),
+        Type::Function(
+            vec![],
+            vec![Type::Int32, Type::String],
+            Box::new(Type::Int32),
+        ),
         false,
         true,
         true, // is_exported
@@ -86,7 +95,7 @@ pub fn register_analyzer_intrinsics(sema_analyzer: &mut SemanticAnalyzer) {
     // __net_listen(port: i32) -> i32
     sema_analyzer.scope.insert(
         "__net_listen".to_string(),
-        Type::Function(vec![Type::Int32], Box::new(Type::Int32)),
+        Type::Function(vec![], vec![Type::Int32], Box::new(Type::Int32)),
         false,
         true,
         true, // is_exported
@@ -98,7 +107,7 @@ pub fn register_analyzer_intrinsics(sema_analyzer: &mut SemanticAnalyzer) {
     // __net_accept(fd: i32) -> i32
     sema_analyzer.scope.insert(
         "__net_accept".to_string(),
-        Type::Function(vec![Type::Int32], Box::new(Type::Int32)),
+        Type::Function(vec![], vec![Type::Int32], Box::new(Type::Int32)),
         false,
         true,
         true, // is_exported
@@ -110,7 +119,11 @@ pub fn register_analyzer_intrinsics(sema_analyzer: &mut SemanticAnalyzer) {
     // __net_connect(host: string, port: i32) -> i32
     sema_analyzer.scope.insert(
         "__net_connect".to_string(),
-        Type::Function(vec![Type::String, Type::Int32], Box::new(Type::Int32)),
+        Type::Function(
+            vec![],
+            vec![Type::String, Type::Int32],
+            Box::new(Type::Int32),
+        ),
         false,
         true,
         true, // is_exported
@@ -122,7 +135,7 @@ pub fn register_analyzer_intrinsics(sema_analyzer: &mut SemanticAnalyzer) {
     // __net_resolve(host: string) -> string
     sema_analyzer.scope.insert(
         "__net_resolve".to_string(),
-        Type::Function(vec![Type::String], Box::new(Type::String)),
+        Type::Function(vec![], vec![Type::String], Box::new(Type::String)),
         false,
         true,
         true, // is_exported
@@ -134,7 +147,7 @@ pub fn register_analyzer_intrinsics(sema_analyzer: &mut SemanticAnalyzer) {
     // __date_now() -> i64
     sema_analyzer.scope.insert(
         "__date_now".to_string(),
-        Type::Function(vec![], Box::new(Type::Int64)),
+        Type::Function(vec![], vec![], Box::new(Type::Int64)),
         false,
         true,
         true, // is_exported
@@ -146,7 +159,11 @@ pub fn register_analyzer_intrinsics(sema_analyzer: &mut SemanticAnalyzer) {
     // __date_get_part(ts: i64, part: string) -> i32
     sema_analyzer.scope.insert(
         "__date_get_part".to_string(),
-        Type::Function(vec![Type::Int64, Type::String], Box::new(Type::Int32)),
+        Type::Function(
+            vec![],
+            vec![Type::Int64, Type::String],
+            Box::new(Type::Int32),
+        ),
         false,
         true,
         true, // is_exported
@@ -158,7 +175,11 @@ pub fn register_analyzer_intrinsics(sema_analyzer: &mut SemanticAnalyzer) {
     // __date_format(ts: i64, format: string) -> string
     sema_analyzer.scope.insert(
         "__date_format".to_string(),
-        Type::Function(vec![Type::Int64, Type::String], Box::new(Type::String)),
+        Type::Function(
+            vec![],
+            vec![Type::Int64, Type::String],
+            Box::new(Type::String),
+        ),
         false,
         true,
         true, // is_exported
@@ -170,7 +191,7 @@ pub fn register_analyzer_intrinsics(sema_analyzer: &mut SemanticAnalyzer) {
     // __date_parse(str: string) -> i64
     sema_analyzer.scope.insert(
         "__date_parse".to_string(),
-        Type::Function(vec![Type::String], Box::new(Type::Int64)),
+        Type::Function(vec![], vec![Type::String], Box::new(Type::Int64)),
         false,
         true,
         true, // is_exported

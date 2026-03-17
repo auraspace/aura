@@ -82,7 +82,7 @@ pub fn handle_completion(
                                     items.push(CompletionItem {
                                         label: sym.name.clone(),
                                         kind: Some(match sym.ty {
-                                            Type::Function(_, _) => CompletionItemKind::FUNCTION,
+                                            Type::Function(..) => CompletionItemKind::FUNCTION,
                                             Type::Class(_) => CompletionItemKind::CLASS,
                                             Type::Enum(_) => CompletionItemKind::ENUM,
                                             _ => CompletionItemKind::VARIABLE,

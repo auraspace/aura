@@ -1,3 +1,4 @@
+use crate::compiler::ast::TypeParam;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -10,7 +11,8 @@ pub enum Type {
     Boolean,
     Void,
     Class(String),
-    Function(Vec<Type>, Box<Type>),
+    GenericParam(String), // Added GenericParam(String) here
+    Function(Vec<TypeParam>, Vec<Type>, Box<Type>),
     Null,
     Union(Vec<Type>),
     Generic(String, Vec<Type>),
@@ -69,8 +71,20 @@ impl Type {
                 })
             }
 
-            // ClassType is only assignable to itself (handled by self == other at start)
-            (Type::ClassType(_), _) | (_, Type::ClassType(_)) => false,
+            (
+                Type::Function(src_tparams, src_params, src_ret),
+                Type::Function(tgt_tparams, tgt_params, tgt_ret),
+            ) => {
+                // For now, strict equality for type params and parameter types
+                // We should eventually implement proper variance and generic substitution check
+                src_tparams == tgt_tparams
+                    && src_params.len() == tgt_params.len()
+                    && src_params
+                        .iter()
+                        .zip(tgt_params.iter())
+                        .all(|(s, t)| s.is_assignable_to(t))
+                    && src_ret.is_assignable_to(tgt_ret)
+            }
 
             // TODO: Handle Class vs Object (if Class is nominal or structural)
             // If Aura is structural, a Class(name) should be resolved to its Object structure.
@@ -116,7 +130,18 @@ impl std::fmt::Display for Type {
             Type::Void => write!(f, "void"),
             Type::Class(name) => write!(f, "{}", name),
             Type::Enum(name) => write!(f, "enum {}", name),
-            Type::Function(params, ret) => {
+            Type::GenericParam(name) => write!(f, "{}", name),
+            Type::Function(tparams, params, ret) => {
+                if !tparams.is_empty() {
+                    write!(f, "<")?;
+                    for (i, tp) in tparams.iter().enumerate() {
+                        if i > 0 {
+                            write!(f, ", ")?;
+                        }
+                        write!(f, "{}", tp.name)?;
+                    }
+                    write!(f, ">")?;
+                }
                 write!(f, "function(")?;
                 for (i, p) in params.iter().enumerate() {
                     if i > 0 {

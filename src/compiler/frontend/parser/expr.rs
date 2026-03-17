@@ -293,6 +293,12 @@ impl Parser {
                     ("Error".to_string(), crate::compiler::ast::Span::new(0, 0))
                 };
 
+                let type_args = if self.peek().kind == TokenKind::Less {
+                    self.parse_generic_args()
+                } else {
+                    Vec::new()
+                };
+
                 let _ = self.consume(TokenKind::OpenParen);
                 let mut args = Vec::new();
                 while self.peek().kind != TokenKind::CloseParen && !self.is_at_end() {
@@ -302,7 +308,7 @@ impl Parser {
                     }
                 }
                 let _ = self.consume(TokenKind::CloseParen);
-                Expr::New(name, name_span, args, ns)
+                Expr::New(name, type_args, name_span, args, ns)
             }
             TokenKind::OpenParen => {
                 self.advance();
@@ -388,7 +394,13 @@ impl Parser {
                     }
                 }
                 TokenKind::OpenParen => {
-                    self.advance();
+                    let type_args = if self.peek().kind == TokenKind::Less {
+                        self.parse_generic_args()
+                    } else {
+                        Vec::new()
+                    };
+
+                    let _ = self.consume(TokenKind::OpenParen);
                     let mut args = Vec::new();
                     let mut sub_loop_count = 0;
                     while self.peek().kind != TokenKind::CloseParen && !self.is_at_end() {
@@ -408,9 +420,9 @@ impl Parser {
                     let _ = self.consume(TokenKind::CloseParen);
 
                     if let Expr::Variable(name, name_span) = node.clone() {
-                        node = Expr::Call(name, name_span, args, s);
+                        node = Expr::Call(name, type_args, name_span, args, s);
                     } else if let Expr::MemberAccess(obj, member, name_span, _) = node.clone() {
-                        node = Expr::MethodCall(obj, member, name_span, args, s);
+                        node = Expr::MethodCall(obj, member, type_args, name_span, args, s);
                     } else {
                         if !self.panic_mode {
                             let token = self.peek();

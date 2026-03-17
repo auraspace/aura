@@ -1,0 +1,53 @@
+// Expected output:
+// Key: User123, Value: 1000
+// Key: Score, Value: 95.5
+// true
+// false
+
+class Pair<K, V> {
+  public key: K;
+  public value: V;
+
+  public constructor(key: K, value: V) {
+    this.key = key;
+    this.value = value;
+  }
+
+  public getKey(): K {
+    return this.key;
+  }
+
+  public getValue(): V {
+    return this.value;
+  }
+
+  public toString(): string {
+    return "Key: " + this.key + ", Value: " + this.value;
+  }
+}
+
+interface Comparable<T> {
+  compareTo(other: T): bool;
+}
+
+class IntBox implements Comparable<i32> {
+  public value: i32;
+
+  public constructor(v: i32) {
+    this.value = v;
+  }
+
+  public compareTo(other: i32): bool {
+    return this.value > other;
+  }
+}
+
+let p1 = new Pair<string, number>("User123", 1000);
+print p1.toString();
+
+let p2 = new Pair<string, f64>("Score", 95.5);
+print p2.toString();
+
+let box = new IntBox(50);
+print box.compareTo(40);
+print box.compareTo(60);

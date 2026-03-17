@@ -93,6 +93,7 @@ impl Interpreter {
             Statement::FunctionDeclaration {
                 name,
                 name_span: _,
+                type_params: _,
                 params,
                 return_ty,
                 body,
@@ -117,11 +118,12 @@ impl Interpreter {
             Statement::ClassDeclaration {
                 name,
                 name_span: _,
+                type_params: _,
+                extends: _,
+                implements: _,
                 fields,
                 methods,
                 constructor,
-                extends: _,
-                implements: _,
                 is_abstract: _,
                 span: _,
                 doc: _,
@@ -425,6 +427,22 @@ impl Interpreter {
                         "+" => Value::String(format!("{}{}", l, r)),
                         _ => panic!("Unsupported operator {} for int and string", op),
                     },
+                    (Value::String(l), Value::Float(r)) => match op.as_str() {
+                        "+" => Value::String(format!("{}{}", l, r)),
+                        _ => panic!("Unsupported operator {} for string and float", op),
+                    },
+                    (Value::Float(l), Value::String(r)) => match op.as_str() {
+                        "+" => Value::String(format!("{}{}", l, r)),
+                        _ => panic!("Unsupported operator {} for float and string", op),
+                    },
+                    (Value::String(l), Value::Boolean(r)) => match op.as_str() {
+                        "+" => Value::String(format!("{}{}", l, r)),
+                        _ => panic!("Unsupported operator {} for string and bool", op),
+                    },
+                    (Value::Boolean(l), Value::String(r)) => match op.as_str() {
+                        "+" => Value::String(format!("{}{}", l, r)),
+                        _ => panic!("Unsupported operator {} for bool and string", op),
+                    },
                     (Value::Null, Value::Null) => match op.as_str() {
                         "==" => Value::Boolean(true),
                         "!=" => Value::Boolean(false),
@@ -452,7 +470,7 @@ impl Interpreter {
                 self.env.assign(&name, val.clone());
                 val
             }
-            Expr::Call(name, _, args, _) => {
+            Expr::Call(name, _, _, args, _) => {
                 let func = self.env.lookup(&name).expect("Function not found");
                 if let Value::Function {
                     name: _,
@@ -499,7 +517,7 @@ impl Interpreter {
                     panic!("Not a function");
                 }
             }
-            Expr::MethodCall(obj_expr, method, _, args, _) => {
+            Expr::MethodCall(obj_expr, method, _, _, args, _) => {
                 let obj = self.eval_expr(*obj_expr);
                 match obj {
                     Value::Instance(class_name, fields_ref) => {
@@ -548,7 +566,7 @@ impl Interpreter {
                     }
                     Value::Class(class_name) => {
                         if class_name == "Promise" {
-                            let mut arg_vals = Vec::new();
+                            let mut arg_vals: Vec<Value> = Vec::new();
                             for a in &args {
                                 arg_vals.push(self.eval_expr(a.clone()));
                             }
@@ -696,7 +714,7 @@ impl Interpreter {
                 .env
                 .lookup("this")
                 .expect("Usage of this outside of class context"),
-            Expr::New(class_name, _, args, _) => {
+            Expr::New(class_name, _, _, args, _) => {
                 let (field_names, methods) = {
                     let (fnms, mths) = self
                         .classes

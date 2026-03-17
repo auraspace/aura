@@ -1,6 +1,4 @@
-use crate::compiler::ast::{
-    AccessModifier, ClassMethod, DocComment, Expr, Field, ImportItem, Span, Statement, TypeExpr,
-};
+use crate::compiler::ast::*;
 use crate::compiler::frontend::error::Diagnostic;
 use crate::compiler::frontend::parser::Parser;
 use crate::compiler::frontend::token::{Token, TokenKind};
@@ -277,6 +275,7 @@ impl Parser {
             }
             TokenKind::Function => {
                 self.advance();
+                let type_params = self.parse_type_params();
                 let params = if self.peek().kind == TokenKind::OpenParen {
                     self.advance();
                     let mut p = Vec::new();
@@ -297,7 +296,7 @@ impl Parser {
                 } else {
                     Box::new(TypeExpr::Name("void".to_string(), s))
                 };
-                TypeExpr::Function(params, ret, s)
+                TypeExpr::Function(type_params, params, ret, s)
             }
             _ => TypeExpr::Name("unknown".to_string(), s),
         }
@@ -328,6 +327,8 @@ impl Parser {
             return Err(());
         };
 
+        let type_params = self.parse_type_params();
+
         self.consume(TokenKind::OpenParen)?;
         let mut params = Vec::new();
         while self.peek().kind != TokenKind::CloseParen && !self.is_at_end() {
@@ -357,6 +358,7 @@ impl Parser {
         Ok(Statement::FunctionDeclaration {
             name,
             name_span,
+            type_params,
             params,
             return_ty,
             body,
@@ -488,6 +490,51 @@ impl Parser {
         })
     }
 
+    pub(crate) fn parse_type_params(&mut self) -> Vec<TypeParam> {
+        let mut params = Vec::new();
+        if self.peek().kind == TokenKind::Less {
+            self.advance();
+            while self.peek().kind != TokenKind::Greater && !self.is_at_end() {
+                let s = self.span();
+                if let TokenKind::Identifier(name) = self.peek().kind.clone() {
+                    self.advance();
+                    let mut constraint = None;
+                    if self.peek().kind == TokenKind::Extends {
+                        self.advance();
+                        constraint = Some(self.parse_type_expr());
+                    }
+                    params.push(TypeParam {
+                        name,
+                        constraint,
+                        span: s,
+                    });
+                    if self.peek().kind == TokenKind::Comma {
+                        self.advance();
+                    }
+                } else {
+                    break;
+                }
+            }
+            let _ = self.consume(TokenKind::Greater);
+        }
+        params
+    }
+
+    pub(crate) fn parse_generic_args(&mut self) -> Vec<TypeExpr> {
+        let mut args = Vec::new();
+        if self.peek().kind == TokenKind::Less {
+            self.advance();
+            while self.peek().kind != TokenKind::Greater && !self.is_at_end() {
+                args.push(self.parse_type_expr());
+                if self.peek().kind == TokenKind::Comma {
+                    self.advance();
+                }
+            }
+            let _ = self.consume(TokenKind::Greater);
+        }
+        args
+    }
+
     pub(crate) fn parse_class_declaration(
         &mut self,
         doc: Option<DocComment>,
@@ -516,41 +563,22 @@ impl Parser {
             return Err(());
         };
 
+        let type_params = self.parse_type_params();
+
         let mut extends = None;
         if self.peek().kind == TokenKind::Extends {
             self.advance();
-            if let TokenKind::Identifier(base_name) = self.peek().kind.clone() {
-                self.advance();
-                extends = Some(base_name);
-            } else {
-                let token = self.peek();
-                self.diagnostics.push(Diagnostic::error(
-                    "Expected base class name after extends keyword".to_string(),
-                    token.line,
-                    token.column,
-                ));
-            }
+            extends = Some(self.parse_type_expr());
         }
 
         let mut implements = Vec::new();
         if self.peek().kind == TokenKind::Implements {
             self.advance();
             loop {
-                if let TokenKind::Identifier(interface_name) = self.peek().kind.clone() {
+                implements.push(self.parse_type_expr());
+                if self.peek().kind == TokenKind::Comma {
                     self.advance();
-                    implements.push(interface_name);
-                    if self.peek().kind == TokenKind::Comma {
-                        self.advance();
-                    } else {
-                        break;
-                    }
                 } else {
-                    let token = self.peek();
-                    self.diagnostics.push(Diagnostic::error(
-                        "Expected interface name after implements keyword".to_string(),
-                        token.line,
-                        token.column,
-                    ));
                     break;
                 }
             }
@@ -651,6 +679,7 @@ impl Parser {
                     constructor = Some(ClassMethod {
                         name: "constructor".to_string(),
                         name_span: ms,
+                        type_params: vec![],
                         params,
                         return_ty: TypeExpr::Name(name.clone(), ms),
                         body,
@@ -691,6 +720,8 @@ impl Parser {
                         continue;
                     }
 
+                    let type_params = self.parse_type_params();
+
                     let _ = self.consume(TokenKind::OpenParen);
                     let mut params = Vec::new();
                     while self.peek().kind != TokenKind::CloseParen && !self.is_at_end() {
@@ -725,6 +756,7 @@ impl Parser {
                     methods.push(ClassMethod {
                         name: mname,
                         name_span: mname_span,
+                        type_params,
                         params,
                         return_ty,
                         body,
@@ -740,8 +772,9 @@ impl Parser {
                 TokenKind::Identifier(fname) => {
                     let fs = self.span();
                     self.advance();
+                    let method_type_params = self.parse_type_params();
                     if self.peek().kind == TokenKind::OpenParen {
-                        let _ = self.consume(TokenKind::OpenParen);
+                        self.advance();
                         let mut params = Vec::new();
                         while self.peek().kind != TokenKind::CloseParen && !self.is_at_end() {
                             if let TokenKind::Identifier(pname) = self.peek().kind.clone() {
@@ -775,6 +808,7 @@ impl Parser {
                         methods.push(ClassMethod {
                             name: fname,
                             name_span: fs,
+                            type_params: method_type_params,
                             params,
                             return_ty,
                             body,
@@ -836,6 +870,7 @@ impl Parser {
         Ok(Statement::ClassDeclaration {
             name,
             name_span,
+            type_params,
             extends,
             implements,
             fields,
@@ -874,6 +909,8 @@ impl Parser {
             return Err(());
         };
 
+        let type_params = self.parse_type_params();
+
         self.consume(TokenKind::OpenBrace)?;
         let mut fields = Vec::new();
         let mut methods = Vec::new();
@@ -894,6 +931,7 @@ impl Parser {
                 TokenKind::Identifier(fname) => {
                     let fs = self.span();
                     self.advance();
+                    let method_type_params = self.parse_type_params();
                     if self.peek().kind == TokenKind::OpenParen {
                         self.advance();
                         let mut params = Vec::new();
@@ -923,6 +961,7 @@ impl Parser {
                         methods.push(ClassMethod {
                             name: fname,
                             name_span: fs,
+                            type_params: method_type_params,
                             params,
                             return_ty,
                             body: Box::new(Statement::Error), // Interfaces have no bodies
@@ -971,6 +1010,7 @@ impl Parser {
         Ok(Statement::Interface(crate::compiler::ast::InterfaceDecl {
             name,
             name_span,
+            type_params,
             fields,
             methods,
             span: s,

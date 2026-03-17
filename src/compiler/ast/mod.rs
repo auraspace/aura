@@ -49,13 +49,13 @@ impl Span {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TypeExpr {
     Name(String, Span),
     Union(Vec<TypeExpr>, Span),
     Generic(String, Vec<TypeExpr>, Span),
     Array(Box<TypeExpr>, Span),
-    Function(Vec<TypeExpr>, Box<TypeExpr>, Span),
+    Function(Vec<TypeParam>, Vec<TypeExpr>, Box<TypeExpr>, Span),
 }
 
 impl TypeExpr {
@@ -65,7 +65,7 @@ impl TypeExpr {
             TypeExpr::Union(_, s) => *s,
             TypeExpr::Generic(_, _, s) => *s,
             TypeExpr::Array(_, s) => *s,
-            TypeExpr::Function(_, _, s) => *s,
+            TypeExpr::Function(_, _, _, s) => *s,
         }
     }
 }
@@ -78,10 +78,10 @@ pub enum Expr {
     Variable(String, Span),
     BinaryOp(Box<Expr>, String, Box<Expr>, Span),
     Assign(String, Box<Expr>, Span),
-    Call(String, Span, Vec<Expr>, Span),
-    MethodCall(Box<Expr>, String, Span, Vec<Expr>, Span),
+    Call(String, Vec<TypeExpr>, Span, Vec<Expr>, Span),
+    MethodCall(Box<Expr>, String, Vec<TypeExpr>, Span, Vec<Expr>, Span),
     This(Span),
-    New(String, Span, Vec<Expr>, Span),
+    New(String, Vec<TypeExpr>, Span, Vec<Expr>, Span),
     MemberAccess(Box<Expr>, String, Span, Span),
     MemberAssign(Box<Expr>, String, Box<Expr>, Span, Span),
     UnaryOp(String, Box<Expr>, Span),
@@ -115,10 +115,10 @@ impl Expr {
             Expr::Variable(_, s) => *s,
             Expr::BinaryOp(_, _, _, s) => *s,
             Expr::Assign(_, _, s) => *s,
-            Expr::Call(_, _, _, s) => *s,
-            Expr::MethodCall(_, _, _, _, s) => *s,
+            Expr::Call(_, _, _, _, s) => *s,
+            Expr::MethodCall(_, _, _, _, _, s) => *s,
             Expr::This(s) => *s,
-            Expr::New(_, _, _, s) => *s,
+            Expr::New(_, _, _, _, s) => *s,
             Expr::MemberAccess(_, _, _, s) => *s,
             Expr::MemberAssign(_, _, _, _, s) => *s,
             Expr::UnaryOp(_, _, s) => *s,
@@ -153,6 +153,7 @@ pub struct Field {
 pub struct ClassMethod {
     pub name: String,
     pub name_span: Span,
+    pub type_params: Vec<TypeParam>,
     pub params: Vec<(String, TypeExpr)>,
     pub return_ty: TypeExpr,
     pub body: Box<Statement>,
@@ -181,10 +182,18 @@ pub struct EnumDecl {
     pub doc: Option<DocComment>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypeParam {
+    pub name: String,
+    pub constraint: Option<TypeExpr>,
+    pub span: Span,
+}
+
 #[derive(Debug, Clone)]
 pub struct InterfaceDecl {
     pub name: String,
     pub name_span: Span,
+    pub type_params: Vec<TypeParam>,
     pub fields: Vec<Field>,
     pub methods: Vec<ClassMethod>,
     pub span: Span,
@@ -213,6 +222,7 @@ pub enum Statement {
     FunctionDeclaration {
         name: String,
         name_span: Span,
+        type_params: Vec<TypeParam>,
         params: Vec<(String, TypeExpr)>,
         return_ty: TypeExpr,
         body: Box<Statement>,
@@ -223,8 +233,9 @@ pub enum Statement {
     ClassDeclaration {
         name: String,
         name_span: Span,
-        extends: Option<String>,
-        implements: Vec<String>,
+        type_params: Vec<TypeParam>,
+        extends: Option<TypeExpr>,
+        implements: Vec<TypeExpr>,
         fields: Vec<Field>,
         methods: Vec<ClassMethod>,
         constructor: Option<ClassMethod>,

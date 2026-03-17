@@ -17,6 +17,7 @@ impl SemanticAnalyzer {
             if let Statement::ClassDeclaration {
                 name,
                 name_span,
+                type_params,
                 extends,
                 implements,
                 fields,
@@ -36,6 +37,20 @@ impl SemanticAnalyzer {
                         *name_span,
                     );
                 }
+                self.push_scope();
+                for tp in type_params {
+                    self.scope.insert(
+                        tp.name.clone(),
+                        Type::GenericParam(tp.name.clone()),
+                        false,
+                        true,
+                        false,
+                        tp.span,
+                        self.current_file.clone(),
+                        None,
+                    );
+                }
+
                 let mut field_map = HashMap::new();
                 for f in fields {
                     if field_map.contains_key(&f.name) {
@@ -75,6 +90,7 @@ impl SemanticAnalyzer {
                     method_map.insert(
                         m.name.clone(),
                         crate::compiler::sema::checker::MethodInfo {
+                            type_params: m.type_params.clone(),
                             params: param_tys,
                             ret_ty,
                             is_static: m.is_static,
@@ -116,6 +132,7 @@ impl SemanticAnalyzer {
                         .collect();
                     (param_tys, c.access)
                 });
+                self.pop_scope();
 
                 self.classes.insert(
                     name.clone(),
@@ -123,6 +140,7 @@ impl SemanticAnalyzer {
                         name: name.clone(),
                         parent: extends.clone(),
                         implements: implements.clone(),
+                        type_params: type_params.clone(),
                         fields: field_map,
                         methods: method_map,
                         constructor: ctor_info,
@@ -135,7 +153,7 @@ impl SemanticAnalyzer {
                 );
 
                 // Basic validation for parent existence
-                if let Some(parent_name) = extends {
+                if let Some(crate::compiler::ast::TypeExpr::Name(parent_name, _)) = extends {
                     if parent_name == name {
                         self.error(
                             SemanticErrorKind::CircularInheritance(name.clone()),
@@ -153,6 +171,20 @@ impl SemanticAnalyzer {
                         decl.name_span,
                     );
                 }
+                self.push_scope();
+                for tp in &decl.type_params {
+                    self.scope.insert(
+                        tp.name.clone(),
+                        Type::GenericParam(tp.name.clone()),
+                        false,
+                        true,
+                        false,
+                        tp.span,
+                        self.current_file.clone(),
+                        None,
+                    );
+                }
+
                 let mut field_map = HashMap::new();
                 for f in &decl.fields {
                     let ty = self.resolve_type(f.ty.clone());
@@ -180,6 +212,7 @@ impl SemanticAnalyzer {
                     method_map.insert(
                         m.name.clone(),
                         crate::compiler::sema::checker::MethodInfo {
+                            type_params: m.type_params.clone(),
                             params: param_tys,
                             ret_ty,
                             is_static: false,
@@ -193,11 +226,13 @@ impl SemanticAnalyzer {
                         },
                     );
                 }
+                self.pop_scope();
 
                 self.interfaces.insert(
                     decl.name.clone(),
                     crate::compiler::sema::checker::InterfaceInfo {
                         name: decl.name.clone(),
+                        type_params: decl.type_params.clone(),
                         fields: field_map,
                         methods: method_map,
                         is_exported,
@@ -209,6 +244,7 @@ impl SemanticAnalyzer {
             } else if let Statement::FunctionDeclaration {
                 name,
                 name_span,
+                type_params,
                 params,
                 return_ty,
                 body: _,
@@ -223,14 +259,28 @@ impl SemanticAnalyzer {
                         *name_span,
                     );
                 }
+                self.push_scope();
+                for tp in type_params {
+                    self.scope.insert(
+                        tp.name.clone(),
+                        Type::GenericParam(tp.name.clone()),
+                        false,
+                        true,
+                        false,
+                        tp.span,
+                        self.current_file.clone(),
+                        None,
+                    );
+                }
                 let param_tys = params
                     .iter()
                     .map(|(_, ty)| self.resolve_type(ty.clone()))
                     .collect();
                 let ret_ty = self.resolve_type(return_ty.clone());
+                self.pop_scope();
                 self.scope.insert(
                     name.clone(),
-                    Type::Function(param_tys, Box::new(ret_ty)),
+                    Type::Function(type_params.clone(), param_tys, Box::new(ret_ty)),
                     false,
                     true, // function declarations are constant
                     is_exported,
@@ -279,6 +329,12 @@ impl SemanticAnalyzer {
                         decl.name_span,
                     );
                 }
+
+                let mut members = std::collections::HashSet::new();
+                for m in &decl.members {
+                    members.insert(m.name.clone());
+                }
+                self.enums.insert(decl.name.clone(), members);
 
                 self.scope.insert(
                     decl.name.clone(),

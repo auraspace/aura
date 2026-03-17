@@ -27,7 +27,17 @@ pub(crate) fn format_type_expr(f: &mut Formatter, ty: &TypeExpr) {
             format_type_expr(f, item);
             f.result.push_str("[]");
         }
-        TypeExpr::Function(params, ret, _) => {
+        TypeExpr::Function(tparams, params, ret, _) => {
+            if !tparams.is_empty() {
+                f.result.push('<');
+                for (i, tp) in tparams.iter().enumerate() {
+                    if i > 0 {
+                        f.result.push_str(", ");
+                    }
+                    f.result.push_str(&tp.name);
+                }
+                f.result.push('>');
+            }
             f.result.push_str("function(");
             for (i, p) in params.iter().enumerate() {
                 if i > 0 {

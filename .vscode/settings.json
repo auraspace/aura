@@ -1,10 +1,12 @@
 {
   "cSpell.words": [
     "adrp",
+    "alloca",
     "asciz",
     "codegen",
     "CREAT",
     "cset",
+    "evaled",
     "fnames",
     "fnms",
     "interp",
@@ -16,9 +18,12 @@
     "pnames",
     "RDONLY",
     "RDWR",
+    "salloc",
     "sdiv",
     "sema",
     "TRUNC",
+    "vtable",
+    "vtables",
     "WRONLY"
   ]
 }

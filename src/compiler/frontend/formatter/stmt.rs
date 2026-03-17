@@ -1,4 +1,4 @@
-use crate::compiler::ast::*;
+use crate::compiler::ast::{ImportItem, Statement};
 use crate::compiler::frontend::formatter::Formatter;
 
 pub(crate) fn format_statement(f: &mut Formatter, stmt: &Statement) {
@@ -96,6 +96,7 @@ pub(crate) fn format_statement_internal(f: &mut Formatter, stmt: &Statement, inc
             implements,
             is_abstract,
             doc,
+            type_params,
             ..
         } => {
             if include_doc {
@@ -107,9 +108,23 @@ pub(crate) fn format_statement_internal(f: &mut Formatter, stmt: &Statement, inc
             }
             f.result.push_str("class ");
             f.result.push_str(name);
+            if !type_params.is_empty() {
+                f.result.push('<');
+                for (i, tp) in type_params.iter().enumerate() {
+                    if i > 0 {
+                        f.result.push_str(", ");
+                    }
+                    f.result.push_str(&tp.name);
+                    if let Some(constraint) = &tp.constraint {
+                        f.result.push_str(" extends ");
+                        f.format_type_expr(constraint);
+                    }
+                }
+                f.result.push('>');
+            }
             if let Some(ext) = extends {
                 f.result.push_str(" extends ");
-                f.result.push_str(ext);
+                f.format_type_expr(ext);
             }
             if !implements.is_empty() {
                 f.result.push_str(" implements ");
@@ -117,7 +132,7 @@ pub(crate) fn format_statement_internal(f: &mut Formatter, stmt: &Statement, inc
                     if i > 0 {
                         f.result.push_str(", ");
                     }
-                    f.result.push_str(interface);
+                    f.format_type_expr(interface);
                 }
             }
             f.result.push_str(" {\n");
@@ -346,6 +361,20 @@ pub(crate) fn format_statement_internal(f: &mut Formatter, stmt: &Statement, inc
             f.indent();
             f.result.push_str("interface ");
             f.result.push_str(&decl.name);
+            if !decl.type_params.is_empty() {
+                f.result.push('<');
+                for (i, tp) in decl.type_params.iter().enumerate() {
+                    if i > 0 {
+                        f.result.push_str(", ");
+                    }
+                    f.result.push_str(&tp.name);
+                    if let Some(constraint) = &tp.constraint {
+                        f.result.push_str(" extends ");
+                        f.format_type_expr(constraint);
+                    }
+                }
+                f.result.push('>');
+            }
             f.result.push_str(" {\n");
             f.indent_level += 1;
             for field in &decl.fields {

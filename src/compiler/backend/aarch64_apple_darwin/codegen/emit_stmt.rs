@@ -21,7 +21,7 @@ impl Codegen {
                             var_ty = Type::Boolean
                         }
                         Expr::ArrayLiteral(_, _) => var_ty = Type::Array(Box::new(Type::Unknown)),
-                        Expr::MethodCall(_, ref member, _, _, _) => {
+                        Expr::MethodCall(_, ref member, _, _, _, _) => {
                             if matches!(
                                 member.as_str(),
                                 "trim"
@@ -61,6 +61,7 @@ impl Codegen {
             Statement::FunctionDeclaration {
                 name,
                 name_span: _,
+                type_params: _,
                 params,
                 return_ty: _,
                 body,
@@ -175,8 +176,10 @@ impl Codegen {
                         }
                     }
                 }
-                if let Some(ty) = self.get_node_type(&expr.span()) {
-                    match ty {
+                let node_ty = self.get_node_type(&expr.span());
+                if let Some(ty) = node_ty {
+                    let actual_ty = self.get_specialized_type(&ty);
+                    match actual_ty {
                         Type::String => is_str = true,
                         Type::Boolean => is_bool = true,
                         Type::Array(_) => is_array = true,
@@ -229,7 +232,7 @@ impl Codegen {
                                 is_str = true;
                             }
                         }
-                        Expr::MethodCall(_, ref member, _, _, _) => {
+                        Expr::MethodCall(_, ref member, _, _, _, _) => {
                             if matches!(
                                 member.as_str(),
                                 "charAt"
@@ -318,25 +321,44 @@ impl Codegen {
                 self.emitter.output.push_str(&format!("{}:\n", end_label));
             }
             Statement::ClassDeclaration {
-                name,
+                ref name,
                 name_span: _,
-                fields,
-                methods,
-                constructor,
-                extends,
+                type_params: _,
+                ref fields,
+                ref methods,
+                ref constructor,
+                ref extends,
                 implements: _,
                 is_abstract: _,
                 span,
                 doc: _,
             } => {
+                let specialized_name =
+                    if let Some((ref class_name, ref args)) = self.current_specialization {
+                        if class_name == name {
+                            self.mangle_name(class_name, args)
+                        } else {
+                            name.clone()
+                        }
+                    } else {
+                        name.clone()
+                    };
+
                 let mut vtable_methods = Vec::new();
-                if let Some(ref parent_name) = extends {
-                    if let Some(parent_vtable) = self.vtables.get(parent_name).cloned() {
-                        vtable_methods = parent_vtable;
+                if let Some(ext) = extends {
+                    let parent_name = match ext {
+                        TypeExpr::Name(n, _) => Some(n.clone()),
+                        TypeExpr::Generic(n, _, _) => Some(n.clone()),
+                        _ => None,
+                    };
+                    if let Some(pname) = parent_name {
+                        if let Some(parent_vtable) = self.vtables.get(&pname).cloned() {
+                            vtable_methods = parent_vtable;
+                        }
                     }
                 }
 
-                for m in &methods {
+                for m in methods {
                     if !m.is_static {
                         let idx = self.method_to_idx.get(&m.name).cloned().unwrap_or_else(|| {
                             let new_idx = self.next_method_idx;
@@ -351,11 +373,13 @@ impl Codegen {
                         if m.is_abstract {
                             vtable_methods[idx as usize] = "aura_null".to_string();
                         } else {
-                            vtable_methods[idx as usize] = format!("{}_{}", name, m.name);
+                            vtable_methods[idx as usize] =
+                                format!("{}_{}", specialized_name, m.name);
                         }
                     }
                 }
-                self.vtables.insert(name.clone(), vtable_methods.clone());
+                self.vtables
+                    .insert(specialized_name.clone(), vtable_methods.clone());
 
                 let field_names: Vec<String> = fields
                     .iter()
@@ -368,19 +392,20 @@ impl Codegen {
                     .map(|m| m.name.clone())
                     .collect();
                 self.classes
-                    .insert(name.clone(), (field_names, method_names));
+                    .insert(specialized_name.clone(), (field_names, method_names));
 
-                let old_class = self.current_class.replace(name.clone());
+                let old_class = self.current_class.replace(specialized_name.clone());
                 let saved_global_scope = self.is_global_scope;
                 self.is_global_scope = false;
 
                 if let Some(cons) = constructor {
                     self.generate_statement(Statement::FunctionDeclaration {
-                        name: format!("{}_ctor", name),
+                        name: format!("{}_ctor", specialized_name),
                         name_span: cons.name_span,
-                        params: cons.params,
-                        return_ty: cons.return_ty,
-                        body: cons.body,
+                        type_params: cons.type_params.clone(),
+                        params: cons.params.clone(),
+                        return_ty: cons.return_ty.clone(),
+                        body: cons.body.clone(),
                         is_async: cons.is_async,
                         span: cons.span,
                         doc: None,
@@ -388,8 +413,9 @@ impl Codegen {
                 } else {
                     // Default constructor
                     self.generate_statement(Statement::FunctionDeclaration {
-                        name: format!("{}_ctor", name),
+                        name: format!("{}_ctor", specialized_name),
                         name_span: span,
+                        type_params: vec![],
                         params: vec![],
                         return_ty: TypeExpr::Name("void".to_string(), span),
                         body: Box::new(Statement::Block(vec![], span)),
@@ -399,14 +425,15 @@ impl Codegen {
                     });
                 }
 
-                for method in &methods {
+                for method in methods {
                     if method.is_abstract {
                         continue;
                     }
                     self.is_static_context = method.is_static;
                     self.generate_statement(Statement::FunctionDeclaration {
-                        name: format!("{}_{}", name, method.name),
+                        name: format!("{}_{}", specialized_name, method.name),
                         name_span: method.name_span,
+                        type_params: method.type_params.clone(),
                         params: method.params.clone(),
                         return_ty: method.return_ty.clone(),
                         body: method.body.clone(),

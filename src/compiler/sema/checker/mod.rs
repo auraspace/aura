@@ -1,4 +1,4 @@
-use crate::compiler::ast::{AccessModifier, Program, Span, TypeExpr};
+use crate::compiler::ast::{AccessModifier, Program, Span, TypeExpr, TypeParam};
 use crate::compiler::frontend::error::{Diagnostic, DiagnosticList};
 use crate::compiler::sema::scope::Scope;
 use crate::compiler::sema::ty::Type;
@@ -21,6 +21,7 @@ pub struct FieldInfo {
 
 #[derive(Debug, Clone)]
 pub struct MethodInfo {
+    pub type_params: Vec<TypeParam>,
     pub params: Vec<Type>,
     pub ret_ty: Type,
     pub is_static: bool,
@@ -36,8 +37,9 @@ pub struct MethodInfo {
 #[derive(Debug, Clone)]
 pub struct ClassInfo {
     pub name: String,
-    pub parent: Option<String>,
-    pub implements: Vec<String>,
+    pub parent: Option<TypeExpr>,
+    pub implements: Vec<TypeExpr>,
+    pub type_params: Vec<TypeParam>,
     pub fields: HashMap<String, FieldInfo>,
     pub methods: HashMap<String, MethodInfo>,
     pub constructor: Option<(Vec<Type>, AccessModifier)>,
@@ -51,6 +53,7 @@ pub struct ClassInfo {
 #[derive(Debug, Clone)]
 pub struct InterfaceInfo {
     pub name: String,
+    pub type_params: Vec<TypeParam>,
     pub fields: HashMap<String, FieldInfo>,
     pub methods: HashMap<String, MethodInfo>,
     pub is_exported: bool,
@@ -103,6 +106,7 @@ pub struct SemanticAnalyzer {
     pub scope: Box<Scope>,
     pub classes: HashMap<String, ClassInfo>,
     pub interfaces: HashMap<String, InterfaceInfo>,
+    pub enums: HashMap<String, HashSet<String>>,
     pub current_class: Option<String>,
     pub current_method: Option<String>,
     pub is_static_context: bool,
@@ -123,6 +127,7 @@ impl SemanticAnalyzer {
             scope: Box::new(Scope::new(None)),
             classes: HashMap::new(),
             interfaces: HashMap::new(),
+            enums: HashMap::new(),
             current_class: None,
             current_method: None,
             is_static_context: false,
@@ -145,6 +150,7 @@ impl SemanticAnalyzer {
         promise_methods.insert(
             "all".to_string(),
             MethodInfo {
+                type_params: vec![],
                 params: vec![Type::Array(Box::new(Type::Unknown))],
                 ret_ty: Type::Generic(
                     "Promise".to_string(),
@@ -164,6 +170,7 @@ impl SemanticAnalyzer {
         promise_methods.insert(
             "allSettled".to_string(),
             MethodInfo {
+                type_params: vec![],
                 params: vec![Type::Array(Box::new(Type::Unknown))],
                 ret_ty: Type::Generic(
                     "Promise".to_string(),
@@ -183,6 +190,7 @@ impl SemanticAnalyzer {
         promise_methods.insert(
             "any".to_string(),
             MethodInfo {
+                type_params: vec![],
                 params: vec![Type::Array(Box::new(Type::Unknown))],
                 ret_ty: Type::Generic("Promise".to_string(), vec![Type::Unknown]),
                 is_static: true,
@@ -199,6 +207,7 @@ impl SemanticAnalyzer {
         promise_methods.insert(
             "race".to_string(),
             MethodInfo {
+                type_params: vec![],
                 params: vec![Type::Array(Box::new(Type::Unknown))],
                 ret_ty: Type::Generic("Promise".to_string(), vec![Type::Unknown]),
                 is_static: true,
@@ -218,6 +227,7 @@ impl SemanticAnalyzer {
                 name: "Promise".to_string(),
                 parent: None,
                 implements: Vec::new(),
+                type_params: Vec::new(), // TODO: Make Promise generic in stdlib
                 fields: HashMap::new(),
                 methods: promise_methods,
                 constructor: None,
@@ -581,6 +591,56 @@ impl SemanticAnalyzer {
         }
     }
 
+    pub fn get_substitution_mapping(
+        &self,
+        type_params: &[TypeParam],
+        args: &[Type],
+    ) -> HashMap<String, Type> {
+        let mut mapping = HashMap::new();
+        for (param, arg) in type_params.iter().zip(args.iter()) {
+            mapping.insert(param.name.clone(), arg.clone());
+        }
+        mapping
+    }
+
+    pub fn substitute(&self, ty: &Type, mapping: &HashMap<String, Type>) -> Type {
+        match ty {
+            Type::Class(name) => {
+                if let Some(substituted) = mapping.get(name) {
+                    substituted.clone()
+                } else {
+                    ty.clone()
+                }
+            }
+            Type::GenericParam(name) => {
+                if let Some(substituted) = mapping.get(name) {
+                    substituted.clone()
+                } else {
+                    ty.clone()
+                }
+            }
+            Type::Array(inner) => Type::Array(Box::new(self.substitute(inner, mapping))),
+            Type::Generic(name, args) => Type::Generic(
+                name.clone(),
+                args.iter()
+                    .map(|arg| self.substitute(arg, mapping))
+                    .collect(),
+            ),
+            Type::Function(tparams, params, ret) => Type::Function(
+                tparams.clone(),
+                params.iter().map(|p| self.substitute(p, mapping)).collect(),
+                Box::new(self.substitute(ret, mapping)),
+            ),
+            Type::Union(options) => Type::Union(
+                options
+                    .iter()
+                    .map(|opt| self.substitute(opt, mapping))
+                    .collect(),
+            ),
+            _ => ty.clone(),
+        }
+    }
+
     pub fn resolve_type(&self, te: TypeExpr) -> Type {
         match te {
             TypeExpr::Name(n, _) => match n.as_str() {
@@ -589,12 +649,12 @@ impl SemanticAnalyzer {
                 "f32" | "Float32" => Type::Float32,
                 "f64" | "Float64" => Type::Float64,
                 "string" | "String" => Type::String,
-                "boolean" | "Boolean" => Type::Boolean,
+                "boolean" | "Boolean" | "bool" => Type::Boolean,
                 "void" | "Void" => Type::Void,
                 "any" => Type::Unknown,
                 _ => {
                     if let Some(sym) = self.scope.lookup(&n) {
-                        if let Type::Enum(_) = sym.ty {
+                        if matches!(sym.ty, Type::Enum(_) | Type::GenericParam(_)) {
                             return sym.ty.clone();
                         }
                     }
@@ -609,7 +669,8 @@ impl SemanticAnalyzer {
                 args.into_iter().map(|t| self.resolve_type(t)).collect(),
             ),
             TypeExpr::Array(base, _) => Type::Array(Box::new(self.resolve_type(*base))),
-            TypeExpr::Function(params, ret, _) => Type::Function(
+            TypeExpr::Function(tparams, params, ret, _) => Type::Function(
+                tparams,
                 params.into_iter().map(|p| self.resolve_type(p)).collect(),
                 Box::new(self.resolve_type(*ret)),
             ),
@@ -720,21 +781,35 @@ impl SemanticAnalyzer {
                 }
             }
 
-            // Structural identity for classes
-            (Type::Class(src_name), Type::Class(tgt_name)) => {
-                if src_name == tgt_name {
-                    return true;
-                }
-
-                // Nominal subtyping: check if tgt_name is in the inheritance chain of src_name
-                let mut current = Some(src_name.clone());
-                while let Some(curr_name) = current {
-                    if curr_name == *tgt_name {
+            // Nominal inheritance
+            (src, Type::Class(tgt_name)) => {
+                let mut current_ty = src.clone();
+                while let Type::Class(ref name) | Type::Generic(ref name, _) = current_ty {
+                    if name == tgt_name {
                         return true;
                     }
-                    current = self.classes.get(&curr_name).and_then(|i| i.parent.clone());
-                }
 
+                    if let Some(class_info) = self.classes.get(name) {
+                        if let Some(parent_expr) = &class_info.parent {
+                            let mut parent_ty = self.resolve_type(parent_expr.clone());
+                            // If source is generic, substitute parent arguments
+                            if let Type::Generic(_, args) = &current_ty {
+                                let mut mapping = HashMap::new();
+                                for (i, param) in class_info.type_params.iter().enumerate() {
+                                    if i < args.len() {
+                                        mapping.insert(param.name.clone(), args[i].clone());
+                                    }
+                                }
+                                parent_ty = self.substitute(&parent_ty, &mapping);
+                            }
+                            current_ty = parent_ty;
+                        } else {
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                }
                 false
             }
             _ => false,
@@ -759,20 +834,67 @@ impl SemanticAnalyzer {
     }
 
     pub fn lookup_field(&self, class_name: &str, field: &str) -> Option<(FieldInfo, String, Span)> {
-        let mut curr = Some(class_name.to_string());
-        while let Some(name) = curr {
-            if let Some(info) = self.classes.get(&name) {
-                if let Some(f) = info.fields.get(field) {
-                    return Some((f.clone(), info.defined_in.clone(), info.span));
+        self.lookup_field_recursive(class_name, field, &HashMap::new())
+    }
+
+    pub fn lookup_field_with_mapping(
+        &self,
+        class_name: &str,
+        field: &str,
+        mapping: &HashMap<String, Type>,
+    ) -> Option<(FieldInfo, String, Span)> {
+        self.lookup_field_recursive(class_name, field, mapping)
+    }
+
+    fn lookup_field_recursive(
+        &self,
+        class_name: &str,
+        field: &str,
+        current_mapping: &HashMap<String, Type>,
+    ) -> Option<(FieldInfo, String, Span)> {
+        if let Some(info) = self.classes.get(class_name) {
+            if let Some(f) = info.fields.get(field) {
+                let mut substituted_f = f.clone();
+                if !current_mapping.is_empty() {
+                    substituted_f.ty = self.substitute(&substituted_f.ty, current_mapping);
                 }
-                curr = info.parent.clone();
-            } else if let Some(info) = self.interfaces.get(&name) {
-                if let Some(f) = info.fields.get(field) {
-                    return Some((f.clone(), info.defined_in.clone(), info.span));
+                return Some((substituted_f, info.defined_in.clone(), info.span));
+            }
+            if let Some(ref parent_expr) = info.parent {
+                match parent_expr {
+                    crate::compiler::ast::TypeExpr::Name(pn, _) => {
+                        return self.lookup_field_recursive(pn, field, current_mapping);
+                    }
+                    crate::compiler::ast::TypeExpr::Generic(pn, args, _) => {
+                        let resolved_args: Vec<Type> = args
+                            .iter()
+                            .map(|a| {
+                                let t = self.resolve_type(a.clone());
+                                if current_mapping.is_empty() {
+                                    t
+                                } else {
+                                    self.substitute(&t, current_mapping)
+                                }
+                            })
+                            .collect();
+                        if let Some(pinfo) = self.classes.get(pn) {
+                            let mut next_mapping = HashMap::new();
+                            for (param, arg) in pinfo.type_params.iter().zip(resolved_args.iter()) {
+                                next_mapping.insert(param.name.clone(), arg.clone());
+                            }
+                            return self.lookup_field_recursive(pn, field, &next_mapping);
+                        }
+                    }
+                    _ => {}
                 }
-                break;
-            } else {
-                break;
+            }
+        } else if let Some(info) = self.interfaces.get(class_name) {
+            if let Some(f) = info.fields.get(field) {
+                let mut substituted_f = f.clone();
+                if !current_mapping.is_empty() {
+                    substituted_f.ty = self.substitute(&substituted_f.ty, current_mapping);
+                }
+                return Some((substituted_f, info.defined_in.clone(), info.span));
             }
         }
         None
@@ -783,23 +905,138 @@ impl SemanticAnalyzer {
         class_name: &str,
         method: &str,
     ) -> Option<(MethodInfo, String, Span)> {
-        let mut curr = Some(class_name.to_string());
-        while let Some(name) = curr {
-            if let Some(info) = self.classes.get(&name) {
-                if let Some(m) = info.methods.get(method) {
-                    return Some((m.clone(), info.defined_in.clone(), info.span));
+        self.lookup_method_recursive(class_name, method, &HashMap::new())
+    }
+
+    pub fn lookup_method_with_mapping(
+        &self,
+        class_name: &str,
+        method: &str,
+        mapping: &HashMap<String, Type>,
+    ) -> Option<(MethodInfo, String, Span)> {
+        self.lookup_method_recursive(class_name, method, mapping)
+    }
+
+    fn lookup_method_recursive(
+        &self,
+        class_name: &str,
+        method: &str,
+        current_mapping: &HashMap<String, Type>,
+    ) -> Option<(MethodInfo, String, Span)> {
+        if let Some(info) = self.classes.get(class_name) {
+            if let Some(m) = info.methods.get(method) {
+                let mut substituted_m = m.clone();
+                if !current_mapping.is_empty() {
+                    substituted_m.params = substituted_m
+                        .params
+                        .iter()
+                        .map(|p| self.substitute(p, current_mapping))
+                        .collect();
+                    substituted_m.ret_ty = self.substitute(&substituted_m.ret_ty, current_mapping);
                 }
-                curr = info.parent.clone();
-            } else if let Some(info) = self.interfaces.get(&name) {
-                if let Some(m) = info.methods.get(method) {
-                    return Some((m.clone(), info.defined_in.clone(), info.span));
+                return Some((substituted_m, info.defined_in.clone(), info.span));
+            }
+            if let Some(ref parent_expr) = info.parent {
+                match parent_expr {
+                    crate::compiler::ast::TypeExpr::Name(pn, _) => {
+                        return self.lookup_method_recursive(pn, method, current_mapping);
+                    }
+                    crate::compiler::ast::TypeExpr::Generic(pn, args, _) => {
+                        let resolved_args: Vec<Type> = args
+                            .iter()
+                            .map(|a| {
+                                let t = self.resolve_type(a.clone());
+                                if current_mapping.is_empty() {
+                                    t
+                                } else {
+                                    self.substitute(&t, current_mapping)
+                                }
+                            })
+                            .collect();
+                        if let Some(pinfo) = self.classes.get(pn) {
+                            let mut next_mapping = HashMap::new();
+                            for (param, arg) in pinfo.type_params.iter().zip(resolved_args.iter()) {
+                                next_mapping.insert(param.name.clone(), arg.clone());
+                            }
+                            return self.lookup_method_recursive(pn, method, &next_mapping);
+                        }
+                    }
+                    _ => {}
                 }
-                break;
-            } else {
-                break;
+            }
+        } else if let Some(info) = self.interfaces.get(class_name) {
+            if let Some(m) = info.methods.get(method) {
+                let mut substituted_m = m.clone();
+                if !current_mapping.is_empty() {
+                    substituted_m.params = substituted_m
+                        .params
+                        .iter()
+                        .map(|p| self.substitute(p, current_mapping))
+                        .collect();
+                    substituted_m.ret_ty = self.substitute(&substituted_m.ret_ty, current_mapping);
+                }
+                return Some((substituted_m, info.defined_in.clone(), info.span));
             }
         }
         None
+    }
+
+    pub fn lookup_method_for_type(
+        &self,
+        ty: &Type,
+        method: &str,
+    ) -> Option<(MethodInfo, String, Span)> {
+        match ty {
+            Type::Class(name) => self.lookup_method(name, method),
+            Type::ClassType(name) => self.lookup_method(name, method),
+            Type::Generic(name, args) => {
+                if let Some(info) = self.classes.get(name) {
+                    let mut mapping = HashMap::new();
+                    for (param, arg) in info.type_params.iter().zip(args.iter()) {
+                        mapping.insert(param.name.clone(), arg.clone());
+                    }
+                    self.lookup_method_with_mapping(name, method, &mapping)
+                } else if let Some(info) = self.interfaces.get(name) {
+                    let mut mapping = HashMap::new();
+                    for (param, arg) in info.type_params.iter().zip(args.iter()) {
+                        mapping.insert(param.name.clone(), arg.clone());
+                    }
+                    self.lookup_method_with_mapping(name, method, &mapping)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+
+    pub fn lookup_field_for_type(
+        &self,
+        ty: &Type,
+        field: &str,
+    ) -> Option<(FieldInfo, String, Span)> {
+        match ty {
+            Type::Class(name) => self.lookup_field(name, field),
+            Type::ClassType(name) => self.lookup_field(name, field),
+            Type::Generic(name, args) => {
+                if let Some(info) = self.classes.get(name) {
+                    let mut mapping = HashMap::new();
+                    for (param, arg) in info.type_params.iter().zip(args.iter()) {
+                        mapping.insert(param.name.clone(), arg.clone());
+                    }
+                    self.lookup_field_with_mapping(name, field, &mapping)
+                } else if let Some(info) = self.interfaces.get(name) {
+                    let mut mapping = HashMap::new();
+                    for (param, arg) in info.type_params.iter().zip(args.iter()) {
+                        mapping.insert(param.name.clone(), arg.clone());
+                    }
+                    self.lookup_field_with_mapping(name, field, &mapping)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
     }
 
     fn validate_inheritance(&mut self) {
@@ -815,23 +1052,40 @@ impl SemanticAnalyzer {
                     break;
                 }
                 visited.push(curr_name.clone());
-                current = self.classes.get(&curr_name).and_then(|i| i.parent.clone());
+                current = self.classes.get(&curr_name).and_then(|i| {
+                    i.parent.as_ref().and_then(|p| match p {
+                        crate::compiler::ast::TypeExpr::Name(n, _) => Some(n.clone()),
+                        crate::compiler::ast::TypeExpr::Generic(n, _, _) => Some(n.clone()),
+                        _ => None,
+                    })
+                });
             }
 
             // Validate parent existence
             let info = self.classes.get(&name).unwrap().clone();
-            if let Some(ref parent_name) = info.parent {
-                if !self.classes.contains_key(parent_name) {
-                    self.error(
-                        SemanticErrorKind::UndefinedClass(parent_name.clone()),
-                        info.span,
-                    );
+            if let Some(ref parent_expr) = info.parent {
+                let parent_name_opt = match parent_expr {
+                    crate::compiler::ast::TypeExpr::Name(n, _) => Some(n.clone()),
+                    crate::compiler::ast::TypeExpr::Generic(n, _, _) => Some(n.clone()),
+                    _ => None,
+                };
+
+                if let Some(ref pn) = parent_name_opt {
+                    if !self.classes.contains_key(pn) {
+                        self.error(SemanticErrorKind::UndefinedClass(pn.clone()), info.span);
+                        continue;
+                    }
+                } else {
                     continue;
                 }
 
                 if !info.is_abstract {
                     let mut abstract_methods = HashSet::new();
-                    let mut curr = info.parent.clone();
+                    let mut curr = info.parent.as_ref().and_then(|p| match p {
+                        crate::compiler::ast::TypeExpr::Name(n, _) => Some(n.clone()),
+                        crate::compiler::ast::TypeExpr::Generic(n, _, _) => Some(n.clone()),
+                        _ => None,
+                    });
                     while let Some(pn) = curr {
                         if let Some(pinfo) = self.classes.get(&pn) {
                             for (mname, m_info) in &pinfo.methods {
@@ -839,7 +1093,11 @@ impl SemanticAnalyzer {
                                     abstract_methods.insert(mname.clone());
                                 }
                             }
-                            curr = pinfo.parent.clone();
+                            curr = pinfo.parent.as_ref().and_then(|p| match p {
+                                crate::compiler::ast::TypeExpr::Name(n, _) => Some(n.clone()),
+                                crate::compiler::ast::TypeExpr::Generic(n, _, _) => Some(n.clone()),
+                                _ => None,
+                            });
                         } else {
                             break;
                         }
@@ -867,7 +1125,7 @@ impl SemanticAnalyzer {
                     }
 
                     let mut overridden = None;
-                    let mut curr_parent = Some(parent_name.clone());
+                    let mut curr_parent = parent_name_opt.clone();
                     while let Some(pn) = curr_parent {
                         if let Some(pinfo) = self.classes.get(&pn) {
                             if let Some(pmeta) = pinfo.methods.get(mname) {
@@ -876,13 +1134,17 @@ impl SemanticAnalyzer {
                                     break;
                                 }
                             }
-                            curr_parent = pinfo.parent.clone();
+                            curr_parent = pinfo.parent.as_ref().and_then(|p| match p {
+                                crate::compiler::ast::TypeExpr::Name(n, _) => Some(n.clone()),
+                                crate::compiler::ast::TypeExpr::Generic(n, _, _) => Some(n.clone()),
+                                _ => None,
+                            });
                         } else {
                             break;
                         }
                     }
 
-                    if let Some(pmeta) = overridden {
+                    if let Some(ref pmeta) = overridden {
                         if !minfo.is_override {
                             self.error(
                                 SemanticErrorKind::MissingOverride(name.clone(), mname.clone()),
@@ -922,7 +1184,8 @@ impl SemanticAnalyzer {
                                 }
                             }
                         }
-                    } else if minfo.is_override {
+                    }
+                    if minfo.is_override && overridden.is_none() {
                         self.error(
                             SemanticErrorKind::UnexpectedOverride(name.clone(), mname.clone()),
                             minfo.span,
@@ -937,12 +1200,27 @@ impl SemanticAnalyzer {
         let class_names: Vec<String> = self.classes.keys().cloned().collect();
         for name in class_names {
             let info = self.classes.get(&name).unwrap().clone();
-            for iface_name in &info.implements {
-                if let Some(iface_info) = self.interfaces.get(iface_name) {
+            for iface_expr in &info.implements {
+                let iface_name = match iface_expr {
+                    crate::compiler::ast::TypeExpr::Name(n, _) => n.clone(),
+                    crate::compiler::ast::TypeExpr::Generic(n, _, _) => n.clone(),
+                    _ => continue,
+                };
+                if let Some(iface_info) = self.interfaces.get(&iface_name) {
+                    let mut type_args = Vec::new();
+                    if let crate::compiler::ast::TypeExpr::Generic(_, args, _) = iface_expr {
+                        for arg_expr in args {
+                            type_args.push(self.resolve_type(arg_expr.clone()));
+                        }
+                    }
+                    let mapping =
+                        self.get_substitution_mapping(&iface_info.type_params, &type_args);
+
                     // Check if class structurally implements the interface
                     for (fname, f_info) in &iface_info.fields {
+                        let expected_ty = self.substitute(&f_info.ty, &mapping);
                         if let Some(cf_info) = info.fields.get(fname) {
-                            if !self.is_assignable(&cf_info.ty, &f_info.ty) {
+                            if !self.is_assignable(&cf_info.ty, &expected_ty) {
                                 let msg = format!("Class '{}' incorrectly implements interface '{}': field '{}' has incompatible type", name, iface_name, fname);
                                 self.diagnostics.push(Diagnostic::error(
                                     msg,
@@ -968,14 +1246,18 @@ impl SemanticAnalyzer {
                             let mut compatible = cm_info.params.len() == m_info.params.len();
                             if compatible {
                                 for (p1, p2) in cm_info.params.iter().zip(m_info.params.iter()) {
-                                    if p1 != p2 {
+                                    let expected_p2 = self.substitute(p2, &mapping);
+                                    if p1 != &expected_p2 {
                                         compatible = false;
                                         break;
                                     }
                                 }
                             }
-                            if compatible && cm_info.ret_ty != m_info.ret_ty {
-                                compatible = false;
+                            if compatible {
+                                let expected_ret = self.substitute(&m_info.ret_ty, &mapping);
+                                if cm_info.ret_ty != expected_ret {
+                                    compatible = false;
+                                }
                             }
 
                             if !compatible {

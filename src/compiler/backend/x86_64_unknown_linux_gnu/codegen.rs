@@ -134,7 +134,7 @@ impl Codegen {
         }
 
         let has_explicit_main_call = global_stmts.iter().any(|(_, stmt)| {
-            if let Statement::Expression(Expr::Call(ref name, _, _, _), _) = stmt {
+            if let Statement::Expression(Expr::Call(ref name, _, _, _, _), _) = stmt {
                 name == "main"
             } else {
                 false
@@ -361,7 +361,7 @@ impl Codegen {
                             var_ty = Type::Boolean
                         }
                         Expr::ArrayLiteral(_, _) => var_ty = Type::Array(Box::new(Type::Unknown)),
-                        Expr::MethodCall(_, ref member, _, _, _) => {
+                        Expr::MethodCall(_, ref member, _, _, _, _) => {
                             if matches!(
                                 member.as_str(),
                                 "trim"
@@ -624,6 +624,7 @@ impl Codegen {
                     self.generate_statement(Statement::FunctionDeclaration {
                         name: format!("{}_ctor", name),
                         name_span: cons.name_span,
+                        type_params: cons.type_params.clone(),
                         params: cons.params,
                         return_ty: cons.return_ty,
                         body: cons.body,
@@ -635,6 +636,7 @@ impl Codegen {
                     self.generate_statement(Statement::FunctionDeclaration {
                         name: format!("{}_ctor", name),
                         name_span: span,
+                        type_params: vec![],
                         params: vec![],
                         return_ty: crate::compiler::ast::TypeExpr::Name("void".to_string(), span),
                         body: Box::new(Statement::Block(vec![], span)),
@@ -648,6 +650,7 @@ impl Codegen {
                     self.generate_statement(Statement::FunctionDeclaration {
                         name: format!("{}_{}", name, method.name),
                         name_span: method.name_span,
+                        type_params: method.type_params.clone(),
                         params: method.params,
                         return_ty: method.return_ty,
                         body: method.body,
@@ -761,7 +764,7 @@ impl Codegen {
                     _ => panic!("Unsupported binary operator {}", op),
                 }
             }
-            Expr::Call(name, _, args, _) => {
+            Expr::Call(name, _, _, args, _) => {
                 let arg_regs = [
                     Register::RDI,
                     Register::RSI,
@@ -783,7 +786,7 @@ impl Codegen {
             Expr::MemberAccess(_obj, _member, _, _) => {
                 // Placeholder for member access
             }
-            Expr::MethodCall(_obj, _member, _args, _, _) => {
+            Expr::MethodCall(_obj, _member, _, _, _args, _) => {
                 // Placeholder for method call
             }
             Expr::Super(_) | Expr::SuperCall(_, _) => {

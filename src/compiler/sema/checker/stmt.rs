@@ -239,6 +239,7 @@ impl SemanticAnalyzer {
             Statement::FunctionDeclaration {
                 name,
                 name_span,
+                type_params,
                 params,
                 return_ty,
                 body,
@@ -261,7 +262,11 @@ impl SemanticAnalyzer {
                 let ret_ty = self.resolve_type(return_ty);
 
                 // Register function before checking body for recursion
-                let func_ty = Type::Function(param_tys.clone(), Box::new(ret_ty.clone()));
+                let func_ty = Type::Function(
+                    type_params.clone(),
+                    param_tys.clone(),
+                    Box::new(ret_ty.clone()),
+                );
                 let is_exported_flag = self
                     .scope
                     .lookup_local(&name)
@@ -281,11 +286,26 @@ impl SemanticAnalyzer {
                     if let Some(d) = &doc {
                         self.record_doc(name_span, d.content());
                     }
-                    self.record_type(name_span, func_ty);
+                    self.record_type(name_span, func_ty.clone());
                 }
 
                 self.push_scope();
                 self.current_method = Some(name.clone());
+
+                // Push type parameters into scope
+                for tp in &type_params {
+                    self.scope.insert(
+                        tp.name.clone(),
+                        Type::GenericParam(tp.name.clone()),
+                        false,
+                        true,
+                        false,
+                        tp.span,
+                        self.current_file.clone(),
+                        None,
+                    );
+                }
+
                 for (pname, pty) in params {
                     let ty = self.resolve_type(pty.clone());
                     self.scope.insert(
@@ -314,8 +334,24 @@ impl SemanticAnalyzer {
                 is_abstract: _,
                 span: _,
                 doc: _,
+                type_params,
             } => {
                 self.current_class = Some(name.clone());
+                self.push_scope();
+
+                // Push type parameters into scope
+                for tp in &type_params {
+                    self.scope.insert(
+                        tp.name.clone(),
+                        Type::GenericParam(tp.name.clone()),
+                        false,
+                        true,
+                        false,
+                        tp.span,
+                        self.current_file.clone(),
+                        None,
+                    );
+                }
 
                 for f in fields {
                     if let Some(init) = &f.value {
@@ -399,6 +435,7 @@ impl SemanticAnalyzer {
                     self.is_static_context = false;
                     self.pop_scope();
                 }
+                self.pop_scope();
                 self.current_class = None;
             }
             Statement::Error => {}

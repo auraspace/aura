@@ -48,7 +48,7 @@ impl Interpreter {
     pub fn interpret(&mut self, program: Program) {
         let mut has_explicit_main_call = false;
         for stmt in &program.statements {
-            if let Statement::Expression(Expr::Call(ref name, _, _, _), _) = stmt {
+            if let Statement::Expression(Expr::Call(ref name, _, _, _, _), _) = stmt {
                 if name == "main" {
                     has_explicit_main_call = true;
                 }

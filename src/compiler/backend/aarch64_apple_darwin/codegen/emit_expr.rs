@@ -99,15 +99,23 @@ impl Codegen {
                     }
                 }
 
+                if is_string_concat {
+                    self.generate_expr(*right.clone());
+                    self.emit_string_conversion(&right_ty, &right);
+                    self.emitter.push(AsmRegister::X0);
+
+                    self.generate_expr(*left.clone());
+                    self.emit_string_conversion(&left_ty, &left);
+                    self.emitter.pop(AsmRegister::X1);
+
+                    self.emitter.call("_aura_str_concat");
+                    return;
+                }
+
                 self.generate_expr(*right);
                 self.emitter.push(AsmRegister::X0);
                 self.generate_expr(*left);
                 self.emitter.pop(AsmRegister::X1);
-
-                if is_string_concat {
-                    self.emitter.call("_aura_str_concat");
-                    return;
-                }
 
                 let is_float = left_ty.as_ref().map(|t| t.is_float()).unwrap_or(false)
                     || right_ty.as_ref().map(|t| t.is_float()).unwrap_or(false);
@@ -288,11 +296,21 @@ impl Codegen {
                     .expect("'this' used outside of method");
                 self.load_local("x0", *offset);
             }
-            Expr::New(class_name, _, args, _) => {
+            Expr::New(class_name, _, span, args, _) => {
+                let specialized_name = if let Some(ty) = self.get_node_type(&span) {
+                    if let Type::Generic(name, args) = ty {
+                        self.mangle_name(name, args)
+                    } else {
+                        class_name.clone()
+                    }
+                } else {
+                    class_name.clone()
+                };
+
                 let (fields, _) = self
                     .classes
-                    .get(&class_name)
-                    .expect(&format!("Undefined class {}", class_name));
+                    .get(&specialized_name)
+                    .expect(&format!("Undefined class {}", specialized_name));
                 let size = (fields.len() + 1) * 8; // +1 for VTable pointer at offset 0
                 self.emitter.mov_imm(AsmRegister::X0, size as i64);
                 self.emitter.call("_aura_alloc");
@@ -300,10 +318,11 @@ impl Codegen {
                 // Set VTable at offset 0
                 self.emitter
                     .output
-                    .push_str(&format!("    adrp x1, vtable_{}@PAGE\n", class_name));
-                self.emitter
-                    .output
-                    .push_str(&format!("    add x1, x1, vtable_{}@PAGEOFF\n", class_name));
+                    .push_str(&format!("    adrp x1, vtable_{}@PAGE\n", specialized_name));
+                self.emitter.output.push_str(&format!(
+                    "    add x1, x1, vtable_{}@PAGEOFF\n",
+                    specialized_name
+                ));
                 self.emitter.output.push_str("    str x1, [x0]\n");
 
                 // Push result (instance) to save it while evaluating args
@@ -325,7 +344,7 @@ impl Codegen {
                         .push_str(&format!("    ldr x{}, [sp], 16\n", i));
                 }
 
-                self.emitter.call(&format!("_{}_ctor", class_name));
+                self.emitter.call(&format!("_{}_ctor", specialized_name));
 
                 self.emitter.output.push_str("    ldr x0, [sp], 16\n");
             }
@@ -432,7 +451,7 @@ impl Codegen {
                     .push_str(&format!("    str x1, [x0, #{}]\n", offset));
                 self.emitter.mov_reg(AsmRegister::X0, AsmRegister::X1); // Assignment result
             }
-            Expr::MethodCall(obj, member, _, args, _span) => {
+            Expr::MethodCall(obj, member, _, _, args, _) => {
                 let obj_span = obj.span();
                 let mut is_static = false;
                 let mut class_name_found = None;
@@ -519,11 +538,21 @@ impl Codegen {
 
                 if let Some(cname) = class_name_found {
                     method_label = format!("_{}_{}", cname, member);
-                } else if let Some(Type::Class(ref class_name)) = self.get_node_type(&obj_span) {
-                    if !self.interfaces.contains(class_name)
-                        && !self.abstract_classes.contains(class_name)
-                    {
-                        method_label = format!("_{}_{}", class_name, member);
+                } else if let Some(ty) = self.get_node_type(&obj_span).cloned() {
+                    let actual_obj_ty = self.get_specialized_type(&ty);
+                    match actual_obj_ty {
+                        Type::Class(ref class_name) => {
+                            if !self.interfaces.contains(class_name)
+                                && !self.abstract_classes.contains(class_name)
+                            {
+                                method_label = format!("_{}_{}", class_name, member);
+                            }
+                        }
+                        Type::Generic(ref class_name, ref args) => {
+                            let specialized_name = self.mangle_name(class_name, args);
+                            method_label = format!("_{}_{}", specialized_name, member);
+                        }
+                        _ => {}
                     }
                 }
 
@@ -613,7 +642,7 @@ impl Codegen {
                     self.emitter.call(&method_label);
                 }
             }
-            Expr::Call(name, _, args, _) => {
+            Expr::Call(name, _, _, args, _) => {
                 for arg in &args {
                     self.generate_expr(arg.clone());
                     self.emitter.push(AsmRegister::X0);

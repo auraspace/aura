@@ -16,7 +16,7 @@ impl Lowerer {
                 span: _,
                 doc: _,
             } => {
-                let mut class_name = if let Expr::New(ref cls, _, _, _) = value {
+                let mut class_name = if let Expr::New(ref cls, _, _, _, _) = value {
                     Some(cls.clone())
                 } else {
                     None
@@ -28,7 +28,7 @@ impl Lowerer {
                         Expr::StringLiteral(_, _) | Expr::Template(_, _) => {
                             sem_ty = Some(Type::String);
                         }
-                        Expr::Call(name, _, _, _) => {
+                        Expr::Call(name, _, _, _, _) => {
                             if let Some((_, ret_ty)) = self.function_tys.get(name) {
                                 sem_ty = Some(ret_ty.clone());
                                 if let Type::Class(c) = ret_ty {
@@ -166,9 +166,7 @@ impl Lowerer {
                 todo!("Try-catch lowering to IR is not implemented yet")
             }
             Statement::Error => {}
-            Statement::Import { .. } | Statement::Export { .. } => {
-                todo!("Imports/exports lowering to IR is not implemented yet")
-            }
+            Statement::Import { .. } | Statement::Export { .. } => {}
             Statement::Comment(_, _) | Statement::RegularBlockComment(_, _) => {}
             Statement::Interface(_) => {}
         }

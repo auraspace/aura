@@ -92,6 +92,9 @@ impl Lowerer {
                 } else if self.class_structures.contains_key(&name) {
                     self.last_expr_ty = Type::Class(name);
                     Operand::Constant(0) // Class constant is 0
+                } else if self.enums.contains_key(&name) {
+                    self.last_expr_ty = Type::Enum(name);
+                    Operand::Constant(0) // Enum constant is 0
                 } else {
                     panic!("Undefined variable {}", name);
                 }
@@ -169,7 +172,7 @@ impl Lowerer {
                     }
                 }
             }
-            Expr::Call(name, _, args, _) => {
+            Expr::Call(name, _type_args, _name_span, args, _span) => {
                 let (p_tys, r_ty) = self
                     .function_tys
                     .get(&name)
@@ -208,7 +211,7 @@ impl Lowerer {
                     ));
                 val_op
             }
-            Expr::New(class_name, _, args, _) => {
+            Expr::New(class_name, _type_args, _name_span, args, _span) => {
                 let size = self
                     .class_layouts
                     .get(&class_name)
@@ -271,6 +274,23 @@ impl Lowerer {
             Expr::MemberAccess(obj, field, _, _) => {
                 let obj_op = self.lower_expr(*obj);
                 let obj_ty = self.last_expr_ty.clone();
+
+                if let Type::Enum(enum_name) = obj_ty {
+                    if let Some(members) = self.enums.get(&enum_name) {
+                        if let Some((op, ty)) = members.get(&field) {
+                            self.last_expr_ty = ty.clone();
+                            if ty == &Type::String {
+                                return self
+                                    .builder
+                                    .call("aura_get_string".to_string(), vec![op.clone()]);
+                            } else {
+                                return op.clone();
+                            }
+                        }
+                    }
+                    panic!("Enum field not found in IR: {}.{}", enum_name, field);
+                }
+
                 if let Type::Class(cls_name) = obj_ty {
                     let offset = self.get_field_offset(&cls_name, &field);
                     let field_ty = self
@@ -323,7 +343,7 @@ impl Lowerer {
                     panic!("Member assign on non-class type {:?}", obj_ty);
                 }
             }
-            Expr::MethodCall(obj, method, _, args, _) => {
+            Expr::MethodCall(obj, method, _type_args, _name_span, args, _span) => {
                 let obj_op = self.lower_expr(*obj.clone());
                 let obj_ty = self.last_expr_ty.clone();
 

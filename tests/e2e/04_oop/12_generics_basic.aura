@@ -1,0 +1,33 @@
+// Expected output:
+// 42
+// 100
+// Hello Generics
+// Aura
+
+class Box<T> {
+  public value: T;
+
+  public constructor(value: T) {
+    this.value = value;
+  }
+
+  public getValue(): T {
+    return this.value;
+  }
+
+  public setValue(value: T): void {
+    this.value = value;
+  }
+}
+
+let intBox = new Box<i32>(42);
+print intBox.getValue();
+
+intBox.setValue(100);
+print intBox.getValue();
+
+let stringBox = new Box<string>("Hello Generics");
+print stringBox.getValue();
+
+stringBox.setValue("Aura");
+print stringBox.getValue();
