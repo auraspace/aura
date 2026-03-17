@@ -1,3 +1,13 @@
+## [0.2.11] - 2026-03-17
+
+### 🚀 Features
+
+- Implement static class members and methods, including access, assignment, and calls.
+- Implement generics for types, functions, and classes across the compiler pipeline, including parsing, semantic analysis, IR lowering, and AArch64 code generation.
+
+### 📚 Documentation
+
+- Add installation instructions to the README.
 ## [0.2.10] - 2026-03-15
 
 ### 🚀 Features
@@ -9,6 +19,10 @@
 - Introduce bitwise operator syntax highlighting, configure VS Code language server path, and update bitwise test file syntax.
 - Add comprehensive floating-point number support to the language, compiler, and runtime.
 - Implement a release script for automated builds and add build artifacts to gitignore.
+
+### ⚙️ Miscellaneous Tasks
+
+- *(release)* V0.2.10
 ## [0.2.9] - 2026-03-15
 
 ### 🚀 Features
