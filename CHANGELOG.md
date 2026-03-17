@@ -1,4 +1,4 @@
-## [0.2.10] - 2026-03-15
+## [0.2.10](https://github.com/phamtanminhtien/aura/compare/v0.2.9...v0.2.10) (2026-03-15)
 
 ### 🚀 Features
 
@@ -9,7 +9,7 @@
 - Introduce bitwise operator syntax highlighting, configure VS Code language server path, and update bitwise test file syntax.
 - Add comprehensive floating-point number support to the language, compiler, and runtime.
 - Implement a release script for automated builds and add build artifacts to gitignore.
-## [0.2.9] - 2026-03-15
+## [0.2.9](https://github.com/phamtanminhtien/aura/compare/v0.2.8...v0.2.9) (2026-03-15)
 
 ### 🚀 Features
 
@@ -58,7 +58,7 @@
 ### ◀️ Revert
 
 - Rollback to 43f268a296f026057561efde84c301df00cdeccf
-## [0.2.8] - 2026-03-14
+## [0.2.8](https://github.com/phamtanminhtien/aura/compare/v0.2.7...v0.2.8) (2026-03-14)
 
 ### 🐛 Bug Fixes
 
@@ -68,7 +68,7 @@
 
 - Update changelog
 - Release aura version 0.2.8
-## [0.2.7] - 2026-03-13
+## [0.2.7](https://github.com/phamtanminhtien/aura/compare/v0.2.6...v0.2.7) (2026-03-13)
 
 ### 🚀 Features
 
@@ -86,7 +86,7 @@
 - Add path filtering to the pull request CI workflow trigger.
 - Update changelog
 - Release aura version 0.2.7
-## [0.2.6] - 2026-03-13
+## [0.2.6](https://github.com/phamtanminhtien/aura/compare/v0.2.5...v0.2.6) (2026-03-13)
 
 ### 🚀 Features
 
@@ -105,7 +105,7 @@
 
 - Update changelog
 - Release aura version 0.2.6
-## [0.2.5] - 2026-03-13
+## [0.2.5](https://github.com/phamtanminhtien/aura/compare/v0.2.4...v0.2.5) (2026-03-13)
 
 ### 🚀 Features
 
@@ -121,7 +121,7 @@
 - Remove legacy raw binary asset creation from the release workflow.
 - Update changelog
 - Release aura version 0.2.5
-## [0.2.4] - 2026-03-13
+## [0.2.4](https://github.com/phamtanminhtien/aura/compare/v0.2.3...v0.2.4) (2026-03-13)
 
 ### 🚀 Features
 
@@ -134,14 +134,14 @@
 - Remove push trigger for master branch. (#3)
 - Update changelog
 - Release aura version 0.2.4
-## [0.2.3] - 2026-03-13
+## [0.2.3](https://github.com/phamtanminhtien/aura/compare/v0.2.2...v0.2.3) (2026-03-13)
 
 ### ⚙️ Miscellaneous Tasks
 
 - Update GitHub Actions workflow to add write permissions for contents
 - Update changelog
 - Release aura version 0.2.3
-## [0.2.2] - 2026-03-13
+## [0.2.2](https://github.com/phamtanminhtien/aura/compare/v0.2.1...v0.2.2) (2026-03-13)
 
 ### ⚙️ Miscellaneous Tasks
 
@@ -151,7 +151,7 @@
 - Update release script to execute cargo release command
 - Update changelog
 - Release aura version 0.2.2
-## [0.2.1] - 2026-03-13
+## [0.2.1] (2026-03-13)
 
 ### 🚀 Features
 
