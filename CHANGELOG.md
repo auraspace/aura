@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.3.0](https://github.com/phamtanminhtien/aura/compare/v0.2.10...v0.3.0) (2026-03-17)
+
+
+### 🚀 Features
+
+* Add automated release management with Release Please. ([ac75f65](https://github.com/phamtanminhtien/aura/commit/ac75f6590a313399a55b7d729f80457bf1046de2))
+* Add support for generic type parameters in types, functions, and declarations. ([a4c6888](https://github.com/phamtanminhtien/aura/commit/a4c6888a8e4d0c3d6033095f4dfd98efe32c8490))
+* Implement static class members and methods, including access, assignment, and calls. ([cb656a3](https://github.com/phamtanminhtien/aura/commit/cb656a3670cc2ad786cab200a540decdd3063d86))
+
+
+### 📚 Documentation
+
+* Add Changelog heading to CHANGELOG.md ([e07c6cc](https://github.com/phamtanminhtien/aura/commit/e07c6cc258c557d1a605f7ed0d8e5faf4f8d4765))
+* Add installation instructions to the README. ([1006341](https://github.com/phamtanminhtien/aura/commit/10063411433c84584db213f47a814cbd20f7c73d))
+* update changelog version headings to include GitHub compare links. ([33b2681](https://github.com/phamtanminhtien/aura/commit/33b2681c0a2333a2420ccb27f7de47596e1e4d0e))
+
+
+### ⚙️ Miscellaneous Tasks
+
+* Add CHANGELOG.md and .release-please-manifest.json to CI pull request trigger paths. ([6412b41](https://github.com/phamtanminhtien/aura/commit/6412b411cb23a1e695867314200dd6d9861d4bca))
+* Add pull request title pattern configuration to release-please. ([7fdb41b](https://github.com/phamtanminhtien/aura/commit/7fdb41baeac436d5a83626afc6871be8129f945b))
+* Configure release-please to skip GitHub releases. ([fea13e5](https://github.com/phamtanminhtien/aura/commit/fea13e5390aaf941684360d3252198b8d3b6cfe2))
+* Downgrade project version to 0.2.10 in release manifest. ([5ec277d](https://github.com/phamtanminhtien/aura/commit/5ec277d73863f8d4f665c7f6b2a688082817d3fc))
+* exclude `CHANGELOG.md` and `.release-please-manifest.json` from CI trigger paths and prevent the `test` job from running on `release-please--` branches. ([0b2dd21](https://github.com/phamtanminhtien/aura/commit/0b2dd219deba579b05203dfbd64a97ccc3bcda65))
+* **release:** v0.3.0 ([0b74685](https://github.com/phamtanminhtien/aura/commit/0b74685cf64263e08360af7b6528a98991f7953e))
+* Remove '### ' prefix from changelog section headings in release-please-config. ([f7a65cb](https://github.com/phamtanminhtien/aura/commit/f7a65cb4254bc7011cc449b04bc46df3a5a1fdae))
+* Remove git-cliff configuration from Cargo.toml and delete cliff.toml. ([f60ae2f](https://github.com/phamtanminhtien/aura/commit/f60ae2f3ddabd5ffcfd5884d940cdb5149b36741))
+* remove the `release.sh` script. ([915ba3c](https://github.com/phamtanminhtien/aura/commit/915ba3cbe2866fb3dc32a2e123055d0b0a7bd383))
+* Remove the 0.3.0 release notes from CHANGELOG.md. ([5509a53](https://github.com/phamtanminhtien/aura/commit/5509a53f96e96f78d51f8a1fd4cef45e0d63bc61))
+* Skip GitHub release creation and refine Aura syntax highlighting for types and functions. ([09c6b30](https://github.com/phamtanminhtien/aura/commit/09c6b30aa66f6d8f3855badbad5a9e728f3fe53e))
+
 ## [0.2.10](https://github.com/phamtanminhtien/aura/compare/v0.2.9...v0.2.10) (2026-03-15)
 
 ### 🚀 Features
