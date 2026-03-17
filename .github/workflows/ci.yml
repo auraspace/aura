@@ -4,13 +4,15 @@ on:
   pull_request:
     branches: [master]
     paths:
-      - 'src/**'
-      - 'stdlib/**'
-      - 'tests/**'
-      - 'scripts/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - '.github/workflows/**'
+      - "src/**"
+      - "stdlib/**"
+      - "tests/**"
+      - "scripts/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/**"
+      - "CHANGELOG.md"
+      - ".release-please-manifest.json"
 
 jobs:
   test:
