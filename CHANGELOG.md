@@ -1,3 +1,22 @@
+## [0.3.0](https://github.com/phamtanminhtien/aura/compare/v0.2.10...v0.3.0) (2026-03-17)
+
+### 🚀 Features
+
+- Add automated release management with Release Please. ([ac75f65](https://github.com/phamtanminhtien/aura/commit/ac75f6590a313399a55b7d729f80457bf1046de2))
+- Implement static class members and methods, including access, assignment, and calls. ([cb656a3](https://github.com/phamtanminhtien/aura/commit/cb656a3670cc2ad786cab200a540decdd3063d86))
+
+### 📚 Documentation
+
+- Add installation instructions to the README. ([1006341](https://github.com/phamtanminhtien/aura/commit/10063411433c84584db213f47a814cbd20f7c73d))
+- update changelog version headings to include GitHub compare links. ([33b2681](https://github.com/phamtanminhtien/aura/commit/33b2681c0a2333a2420ccb27f7de47596e1e4d0e))
+
+### ⚙️ Miscellaneous Tasks
+
+- Add CHANGELOG.md and .release-please-manifest.json to CI pull request trigger paths. ([6412b41](https://github.com/phamtanminhtien/aura/commit/6412b411cb23a1e695867314200dd6d9861d4bca))
+- Add pull request title pattern configuration to release-please. ([7fdb41b](https://github.com/phamtanminhtien/aura/commit/7fdb41baeac436d5a83626afc6871be8129f945b))
+- Remove '### ' prefix from changelog section headings in release-please-config. ([f7a65cb](https://github.com/phamtanminhtien/aura/commit/f7a65cb4254bc7011cc449b04bc46df3a5a1fdae))
+- Remove git-cliff configuration from Cargo.toml and delete cliff.toml. ([f60ae2f](https://github.com/phamtanminhtien/aura/commit/f60ae2f3ddabd5ffcfd5884d940cdb5149b36741))
+
 ## [0.2.10](https://github.com/phamtanminhtien/aura/compare/v0.2.9...v0.2.10) (2026-03-15)
 
 ### 🚀 Features
@@ -9,6 +28,7 @@
 - Introduce bitwise operator syntax highlighting, configure VS Code language server path, and update bitwise test file syntax.
 - Add comprehensive floating-point number support to the language, compiler, and runtime.
 - Implement a release script for automated builds and add build artifacts to gitignore.
+
 ## [0.2.9](https://github.com/phamtanminhtien/aura/compare/v0.2.8...v0.2.9) (2026-03-15)
 
 ### 🚀 Features
@@ -53,11 +73,12 @@
 - Update release configuration and remove obsolete release script
 - Update Rust version to 1.94 in Cargo.toml and add rust-toolchain.toml for toolchain management
 - Update pre-release commit message format in Cargo.toml
-- *(release)* V0.2.9
+- _(release)_ V0.2.9
 
 ### ◀️ Revert
 
 - Rollback to 43f268a296f026057561efde84c301df00cdeccf
+
 ## [0.2.8](https://github.com/phamtanminhtien/aura/compare/v0.2.7...v0.2.8) (2026-03-14)
 
 ### 🐛 Bug Fixes
@@ -68,6 +89,7 @@
 
 - Update changelog
 - Release aura version 0.2.8
+
 ## [0.2.7](https://github.com/phamtanminhtien/aura/compare/v0.2.6...v0.2.7) (2026-03-13)
 
 ### 🚀 Features
@@ -86,6 +108,7 @@
 - Add path filtering to the pull request CI workflow trigger.
 - Update changelog
 - Release aura version 0.2.7
+
 ## [0.2.6](https://github.com/phamtanminhtien/aura/compare/v0.2.5...v0.2.6) (2026-03-13)
 
 ### 🚀 Features
@@ -105,6 +128,7 @@
 
 - Update changelog
 - Release aura version 0.2.6
+
 ## [0.2.5](https://github.com/phamtanminhtien/aura/compare/v0.2.4...v0.2.5) (2026-03-13)
 
 ### 🚀 Features
@@ -121,6 +145,7 @@
 - Remove legacy raw binary asset creation from the release workflow.
 - Update changelog
 - Release aura version 0.2.5
+
 ## [0.2.4](https://github.com/phamtanminhtien/aura/compare/v0.2.3...v0.2.4) (2026-03-13)
 
 ### 🚀 Features
@@ -134,6 +159,7 @@
 - Remove push trigger for master branch. (#3)
 - Update changelog
 - Release aura version 0.2.4
+
 ## [0.2.3](https://github.com/phamtanminhtien/aura/compare/v0.2.2...v0.2.3) (2026-03-13)
 
 ### ⚙️ Miscellaneous Tasks
@@ -141,6 +167,7 @@
 - Update GitHub Actions workflow to add write permissions for contents
 - Update changelog
 - Release aura version 0.2.3
+
 ## [0.2.2](https://github.com/phamtanminhtien/aura/compare/v0.2.1...v0.2.2) (2026-03-13)
 
 ### ⚙️ Miscellaneous Tasks
@@ -151,6 +178,7 @@
 - Update release script to execute cargo release command
 - Update changelog
 - Release aura version 0.2.2
+
 ## [0.2.1] (2026-03-13)
 
 ### 🚀 Features

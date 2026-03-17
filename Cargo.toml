@@ -1,6 +1,6 @@
 [package]
 name = "aura"
-version = "0.2.10"
+version = "0.3.0"
 edition = "2021"
 rust-version = "1.94"
 description = "Aura programming language toolchain (compiler, interpreter, LSP)"
