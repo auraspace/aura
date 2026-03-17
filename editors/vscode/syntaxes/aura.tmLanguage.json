@@ -7,9 +7,6 @@
       "include": "#comments"
     },
     {
-      "include": "#functions"
-    },
-    {
       "include": "#keywords"
     },
     {
@@ -35,6 +32,9 @@
     },
     {
       "include": "#classes"
+    },
+    {
+      "include": "#functions"
     }
   ],
   "repository": {
@@ -155,18 +155,34 @@
     "types": {
       "patterns": [
         {
-          "begin": "\\b(i32|i64|u32|u64|f32|f64|bool|string|char|void|number|any|unknown|Promise|TCPStream|TCPServer|HTTPClient|HTTPRequest|HTTPResponse|Date|Error|Result|Map|Set|Array|[A-Z][a-zA-Z0-9_]*)\\b",
+          "begin": "\\b(i32|i64|u32|u64|f32|f64|bool|string|char|void|number|any|unknown|Promise|TCPStream|TCPServer|HTTPClient|HTTPRequest|HTTPResponse|Date|Error|Result|Map|Set|Array|[A-Z][a-zA-Z0-9_]*)\\b\\s*(<)",
           "beginCaptures": {
             "1": {
               "name": "entity.name.type.aura"
+            },
+            "2": {
+              "name": "punctuation.definition.typeparameters.begin.aura"
             }
           },
-          "end": "(?!<)",
+          "end": ">",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.typeparameters.end.aura"
+            }
+          },
           "patterns": [
             {
-              "include": "#generics"
+              "include": "#types"
+            },
+            {
+              "match": ",",
+              "name": "punctuation.separator.comma.aura"
             }
           ]
+        },
+        {
+          "name": "entity.name.type.aura",
+          "match": "\\b(i32|i64|u32|u64|f32|f64|bool|string|char|void|number|any|unknown|Promise|TCPStream|TCPServer|HTTPClient|HTTPRequest|HTTPResponse|Date|Error|Result|Map|Set|Array|[A-Z][a-zA-Z0-9_]*)\\b"
         }
       ]
     },
@@ -201,7 +217,7 @@
     "functions": {
       "patterns": [
         {
-          "begin": "\\b(function)\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\b",
+          "begin": "\\b(function)\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\b(?=\\s*(?:<[^>\\n]*>)?\\s*\\()",
           "beginCaptures": {
             "1": {
               "name": "storage.type.function.aura"
@@ -218,18 +234,26 @@
           ]
         },
         {
-          "begin": "\\b([a-zA-Z_][a-zA-Z0-9_]*)\\s*",
+          "begin": "\\b([a-zA-Z_][a-zA-Z0-9_]*)\\b(?=\\s*<[^>\\n]*>\\s*\\()",
           "beginCaptures": {
             "1": {
               "name": "entity.name.function.aura"
             }
           },
-          "end": "(?=\\()",
+          "end": "(?=\\s*\\()",
           "patterns": [
             {
               "include": "#generics"
             }
           ]
+        },
+        {
+          "match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)\\b(?=\\s*\\()",
+          "captures": {
+            "1": {
+              "name": "entity.name.function.aura"
+            }
+          }
         }
       ]
     },
