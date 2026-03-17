@@ -1,17 +1,3 @@
-[package.metadata.release]
-tag-name = "v{{version}}"
-push = true
-publish = false
-pre-release-commit-message = "chore(release): v{{version}}"
-pre-release-hook = [
-    "git",
-    "cliff",
-    "--tag",
-    "{{version}}",
-    "-o",
-    "CHANGELOG.md",
-]
-
 [package]
 name = "aura"
 version = "0.2.10"
