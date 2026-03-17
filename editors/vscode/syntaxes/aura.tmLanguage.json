@@ -155,12 +155,18 @@
     "types": {
       "patterns": [
         {
-          "name": "entity.name.type.aura",
-          "match": "\\b(i32|i64|u32|u64|f32|f64|bool|string|char|void|number|any|unknown|Promise|TCPStream|TCPServer|HTTPClient|HTTPRequest|HTTPResponse|Date|Error|Result|Map|Set|Array)\\b"
-        },
-        {
-          "name": "entity.name.type.aura",
-          "match": "\\b[A-Z][a-zA-Z0-9_]*\\b"
+          "begin": "\\b(i32|i64|u32|u64|f32|f64|bool|string|char|void|number|any|unknown|Promise|TCPStream|TCPServer|HTTPClient|HTTPRequest|HTTPResponse|Date|Error|Result|Map|Set|Array|[A-Z][a-zA-Z0-9_]*)\\b",
+          "beginCaptures": {
+            "1": {
+              "name": "entity.name.type.aura"
+            }
+          },
+          "end": "(?!<)",
+          "patterns": [
+            {
+              "include": "#generics"
+            }
+          ]
         }
       ]
     },
@@ -195,36 +201,78 @@
     "functions": {
       "patterns": [
         {
-          "match": "\\b(function)\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\b",
-          "captures": {
+          "begin": "\\b(function)\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\b",
+          "beginCaptures": {
             "1": {
               "name": "storage.type.function.aura"
             },
             "2": {
               "name": "entity.name.function.aura"
             }
-          }
+          },
+          "end": "(?=\\()",
+          "patterns": [
+            {
+              "include": "#generics"
+            }
+          ]
         },
         {
-          "match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)\\s*(?=\\()",
-          "captures": {
+          "begin": "\\b([a-zA-Z_][a-zA-Z0-9_]*)\\s*",
+          "beginCaptures": {
             "1": {
               "name": "entity.name.function.aura"
             }
-          }
+          },
+          "end": "(?=\\()",
+          "patterns": [
+            {
+              "include": "#generics"
+            }
+          ]
         }
       ]
     },
     "classes": {
-      "match": "\\b(class|interface|enum|type)\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\b",
-      "captures": {
+      "begin": "\\b(class|interface|enum|type)\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\b",
+      "beginCaptures": {
         "1": {
           "name": "keyword.declaration.aura"
         },
         "2": {
           "name": "entity.name.type.class.aura"
         }
-      }
+      },
+      "end": "(?=[\\s{])",
+      "patterns": [
+        {
+          "include": "#generics"
+        }
+      ]
+    },
+    "generics": {
+      "name": "meta.type.parameters.aura",
+      "begin": "<",
+      "end": ">",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.definition.typeparameters.begin.aura"
+        }
+      },
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.definition.typeparameters.end.aura"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#types"
+        },
+        {
+          "match": ",",
+          "name": "punctuation.separator.comma.aura"
+        }
+      ]
     },
     "constants": {
       "patterns": [
