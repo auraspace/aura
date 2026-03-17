@@ -1,3 +1,5 @@
+# Changelog
+
 ## [0.3.0](https://github.com/phamtanminhtien/aura/compare/v0.2.10...v0.3.0) (2026-03-17)
 
 ### 🚀 Features
