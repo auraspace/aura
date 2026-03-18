@@ -483,7 +483,7 @@ impl Lowerer {
                 "i32" | "Int32" | "number" | "Number" => Type::Int32,
                 "i64" | "Int64" => Type::Int64,
                 "f32" | "Float32" => Type::Float32,
-                "f64" | "Float64" => Type::Float64,
+                "f64" | "Float64" | "float" | "Float" => Type::Float64,
                 "string" | "String" => Type::String,
                 "boolean" | "Boolean" => Type::Boolean,
                 "void" | "Void" => Type::Void,

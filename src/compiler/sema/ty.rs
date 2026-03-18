@@ -124,7 +124,7 @@ impl std::fmt::Display for Type {
             Type::Int32 => write!(f, "number"),
             Type::Int64 => write!(f, "i64"),
             Type::Float32 => write!(f, "f32"),
-            Type::Float64 => write!(f, "f64"),
+            Type::Float64 => write!(f, "float"),
             Type::String => write!(f, "string"),
             Type::Boolean => write!(f, "boolean"),
             Type::Void => write!(f, "void"),

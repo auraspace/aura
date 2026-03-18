@@ -45,7 +45,7 @@ class IntBox implements Comparable<i32> {
 let p1 = new Pair<string, number>("User123", 1000);
 print p1.toString();
 
-let p2 = new Pair<string, f64>("Score", 95.5);
+let p2 = new Pair<string, float>("Score", 95.5);
 print p2;
 
 let box = new IntBox(50);
