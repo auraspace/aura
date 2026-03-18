@@ -2,15 +2,15 @@ name: CI
 
 on:
   pull_request:
-    branches: [master]
+    branches: [main]
     paths:
-      - 'src/**'
-      - 'stdlib/**'
-      - 'tests/**'
-      - 'scripts/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - '.github/workflows/**'
+      - "src/**"
+      - "stdlib/**"
+      - "tests/**"
+      - "scripts/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/**"
 
 jobs:
   test:

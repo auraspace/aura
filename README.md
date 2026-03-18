@@ -20,13 +20,13 @@
 Install the latest version of Aura:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/auraspace/aura/master/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/auraspace/aura/main/scripts/install.sh | bash
 ```
 
 To install a specific version (e.g., `v0.2.`):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/auraspace/aura/master/scripts/install.sh | bash -s -- v0.2.9
+curl -fsSL https://raw.githubusercontent.com/auraspace/aura/main/scripts/install.sh | bash -s -- v0.2.9
 ```
 
 ## Build
