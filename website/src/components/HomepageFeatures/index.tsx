@@ -2,7 +2,13 @@ import clsx from 'clsx';
 import Heading from '@theme/Heading';
 import styles from './styles.module.css';
 
-const FeatureList = [
+type FeatureItem = {
+  title: string;
+  Svg: React.ComponentType<React.ComponentProps<'svg'>>;
+  description: React.ReactNode;
+};
+
+const FeatureList: FeatureItem[] = [
   {
     title: 'Fast & Safe',
     Svg: require('@site/static/img/undraw_docusaurus_mountain.svg').default,
@@ -28,14 +34,14 @@ const FeatureList = [
     Svg: require('@site/static/img/undraw_docusaurus_react.svg').default,
     description: (
       <>
-        Aura is designed to run everywhere, with primary support for
-        AArch64 (macOS) and x86_64 architectures.
+        Aura is designed to run everywhere, with primary support for AArch64
+        (macOS) and x86_64 architectures.
       </>
     ),
   },
 ];
 
-function Feature({Svg, title, description}) {
+function Feature({ Svg, title, description }: FeatureItem) {
   return (
     <div className={clsx('col col--4')}>
       <div className="text--center">
@@ -49,7 +55,7 @@ function Feature({Svg, title, description}) {
   );
 }
 
-export default function HomepageFeatures() {
+export default function HomepageFeatures(): React.ReactNode {
   return (
     <section className={styles.features}>
       <div className="container">

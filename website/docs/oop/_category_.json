@@ -1,0 +1,8 @@
+{
+  "label": "4. Object-Oriented Programming",
+  "position": 4,
+  "link": {
+    "type": "generated-index",
+    "description": "Learn about Aura's Object-Oriented features, including classes, interfaces, and inheritance."
+  }
+}

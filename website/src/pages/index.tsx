@@ -1,7 +1,6 @@
 import React from 'react';
 import clsx from 'clsx';
 import Link from '@docusaurus/Link';
-import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import Layout from '@theme/Layout';
 import {
   IconBolt,
@@ -29,29 +28,52 @@ import {
 import styles from './index.module.css';
 
 /* ─── Syntax-highlighted code lines helper ─────────────────────────────── */
-function C({ children, type }) {
-  const cls = {
-    kw: styles.kwColor,
-    tp: styles.typeColor,
-    st: styles.strColor,
-    nm: styles.numColor,
-    cm: styles.cmtColor,
-    fn: styles.fnColor,
-    op: styles.opColor,
-  }[type] || styles.varColor;
+type CProps = {
+  children: React.ReactNode;
+  type?: 'kw' | 'tp' | 'st' | 'nm' | 'cm' | 'fn' | 'op' | 'varColor';
+};
+
+function C({ children, type }: CProps): React.JSX.Element {
+  let cls = styles.varColor;
+  if (type) {
+    cls =
+      {
+        kw: styles.kwColor,
+        tp: styles.typeColor,
+        st: styles.strColor,
+        nm: styles.numColor,
+        cm: styles.cmtColor,
+        fn: styles.fnColor,
+        op: styles.opColor,
+        varColor: styles.varColor,
+      }[type] || styles.varColor;
+  }
+
   return <span className={cls}>{children}</span>;
 }
 
 /* ─── Code Window ──────────────────────────────────────────────────────── */
-function CodeWindow({ filename, lines }) {
+type CodeWindowProps = {
+  filename: string;
+  lines: React.ReactNode[];
+};
+
+function CodeWindow({ filename, lines }: CodeWindowProps): React.JSX.Element {
   return (
     <div className={styles.codeWindow}>
       <div className={styles.codeWindowBar}>
         <span className={clsx(styles.codeWindowDot, styles.codeWindowDotRed)} />
-        <span className={clsx(styles.codeWindowDot, styles.codeWindowDotYellow)} />
-        <span className={clsx(styles.codeWindowDot, styles.codeWindowDotGreen)} />
+        <span
+          className={clsx(styles.codeWindowDot, styles.codeWindowDotYellow)}
+        />
+        <span
+          className={clsx(styles.codeWindowDot, styles.codeWindowDotGreen)}
+        />
         <span className={styles.codeWindowTitle}>
-          <IconFileCode size={13} style={{ verticalAlign: 'middle', marginRight: 4 }} />
+          <IconFileCode
+            size={13}
+            style={{ verticalAlign: 'middle', marginRight: 4 }}
+          />
           {filename}
         </span>
       </div>
@@ -74,29 +96,121 @@ function CodeWindow({ filename, lines }) {
 }
 
 /* ─── Hero code lines ───────────────────────────────────────────────────── */
-const heroCodeLines = [
-  <><C type="cm">// Aura — Fast, Safe, Expressive</C></>,
-  <></>,
-  <><C type="kw">class </C><C type="tp">Animal</C><C type="op"> {'{'}</C></>,
-  <>&nbsp;&nbsp;<C type="kw">public </C><C type="varColor">name</C><C type="op">: </C><C type="tp">string</C><C type="op">;</C></>,
-  <>&nbsp;&nbsp;<C type="kw">public </C><C type="varColor">sound</C><C type="op">: </C><C type="tp">string</C><C type="op">;</C></>,
-  <></>,
-  <>&nbsp;&nbsp;<C type="kw">public </C><C type="fn">constructor</C><C type="op">(</C><C type="varColor">name</C><C type="op">: </C><C type="tp">string</C><C type="op">, </C><C type="varColor">sound</C><C type="op">: </C><C type="tp">string</C><C type="op">) {'{'}</C></>,
-  <>&nbsp;&nbsp;&nbsp;&nbsp;<C type="kw">this</C><C type="op">.</C><C type="varColor">name</C><C type="op"> = </C><C type="varColor">name</C><C type="op">;</C></>,
-  <>&nbsp;&nbsp;&nbsp;&nbsp;<C type="kw">this</C><C type="op">.</C><C type="varColor">sound</C><C type="op"> = </C><C type="varColor">sound</C><C type="op">;</C></>,
-  <>&nbsp;&nbsp;<C type="op">{'}'}</C></>,
-  <></>,
-  <>&nbsp;&nbsp;<C type="kw">public </C><C type="fn">speak</C><C type="op">() {'{'}</C></>,
-  <>&nbsp;&nbsp;&nbsp;&nbsp;<C type="kw">print </C><C type="st">`</C><C type="st">{'${'}</C><C type="kw">this</C><C type="op">.</C><C type="varColor">name</C><C type="st">{'}'} says {'${'}</C><C type="kw">this</C><C type="op">.</C><C type="varColor">sound</C><C type="st">{'}'}!`</C><C type="op">;</C></>,
-  <>&nbsp;&nbsp;<C type="op">{'}'}</C></>,
-  <><C type="op">{'}'}</C></>,
-  <></>,
-  <><C type="kw">let </C><C type="varColor">dog</C><C type="op"> = </C><C type="kw">new </C><C type="tp">Animal</C><C type="op">(</C><C type="st">"Rex"</C><C type="op">, </C><C type="st">"Woof"</C><C type="op">);</C></>,
-  <><C type="kw">print </C><C type="varColor">dog</C><C type="op">.</C><C type="fn">speak</C><C type="op">();</C>&nbsp;&nbsp;<C type="cm">// Rex says Woof!</C></>,
+const heroCodeLines: React.ReactNode[] = [
+  <React.Fragment key="l1">
+    <C type="cm">{'// Aura — Fast, Safe, Expressive'}</C>
+  </React.Fragment>,
+  <React.Fragment key="l2"></React.Fragment>,
+  <React.Fragment key="l3">
+    <C type="kw">class </C>
+    <C type="tp">Animal</C>
+    <C type="op"> {'{'}</C>
+  </React.Fragment>,
+  <React.Fragment key="l4">
+    &nbsp;&nbsp;<C type="kw">public </C>
+    <C type="varColor">name</C>
+    <C type="op">: </C>
+    <C type="tp">string</C>
+    <C type="op">;</C>
+  </React.Fragment>,
+  <React.Fragment key="l5">
+    &nbsp;&nbsp;<C type="kw">public </C>
+    <C type="varColor">sound</C>
+    <C type="op">: </C>
+    <C type="tp">string</C>
+    <C type="op">;</C>
+  </React.Fragment>,
+  <React.Fragment key="l6"></React.Fragment>,
+  <React.Fragment key="l7">
+    &nbsp;&nbsp;<C type="kw">public </C>
+    <C type="fn">constructor</C>
+    <C type="op">(</C>
+    <C type="varColor">name</C>
+    <C type="op">: </C>
+    <C type="tp">string</C>
+    <C type="op">, </C>
+    <C type="varColor">sound</C>
+    <C type="op">: </C>
+    <C type="tp">string</C>
+    <C type="op">) {'{'}</C>
+  </React.Fragment>,
+  <React.Fragment key="l8">
+    &nbsp;&nbsp;&nbsp;&nbsp;<C type="kw">this</C>
+    <C type="op">.</C>
+    <C type="varColor">name</C>
+    <C type="op"> = </C>
+    <C type="varColor">name</C>
+    <C type="op">;</C>
+  </React.Fragment>,
+  <React.Fragment key="l9">
+    &nbsp;&nbsp;&nbsp;&nbsp;<C type="kw">this</C>
+    <C type="op">.</C>
+    <C type="varColor">sound</C>
+    <C type="op"> = </C>
+    <C type="varColor">sound</C>
+    <C type="op">;</C>
+  </React.Fragment>,
+  <React.Fragment key="l10">
+    &nbsp;&nbsp;<C type="op">{'}'}</C>
+  </React.Fragment>,
+  <React.Fragment key="l11"></React.Fragment>,
+  <React.Fragment key="l12">
+    &nbsp;&nbsp;<C type="kw">public </C>
+    <C type="fn">speak</C>
+    <C type="op">() {'{'}</C>
+  </React.Fragment>,
+  <React.Fragment key="l13">
+    &nbsp;&nbsp;&nbsp;&nbsp;<C type="kw">print </C>
+    <C type="st">`</C>
+    <C type="st">{'${'}</C>
+    <C type="kw">this</C>
+    <C type="op">.</C>
+    <C type="varColor">name</C>
+    <C type="st">
+      {'}'} says {'${'}
+    </C>
+    <C type="kw">this</C>
+    <C type="op">.</C>
+    <C type="varColor">sound</C>
+    <C type="st">{'}'}!`</C>
+    <C type="op">;</C>
+  </React.Fragment>,
+  <React.Fragment key="l14">
+    &nbsp;&nbsp;<C type="op">{'}'}</C>
+  </React.Fragment>,
+  <React.Fragment key="l15">
+    <C type="op">{'}'}</C>
+  </React.Fragment>,
+  <React.Fragment key="l16"></React.Fragment>,
+  <React.Fragment key="l17">
+    <C type="kw">let </C>
+    <C type="varColor">dog</C>
+    <C type="op"> = </C>
+    <C type="kw">new </C>
+    <C type="tp">Animal</C>
+    <C type="op">(</C>
+    <C type="st">&quot;Rex&quot;</C>
+    <C type="op">, </C>
+    <C type="st">&quot;Woof&quot;</C>
+    <C type="op">);</C>
+  </React.Fragment>,
+  <React.Fragment key="l18">
+    <C type="kw">print </C>
+    <C type="varColor">dog</C>
+    <C type="op">.</C>
+    <C type="fn">speak</C>
+    <C type="op">();</C>&nbsp;&nbsp;<C type="cm">{'// Rex says Woof!'}</C>
+  </React.Fragment>,
 ];
 
 /* ─── Features ─────────────────────────────────────────────────────────── */
-const features = [
+type FeatureType = {
+  Icon: React.ElementType;
+  title: string;
+  desc: string;
+};
+
+const features: FeatureType[] = [
   {
     Icon: IconBolt,
     title: 'Blazing Performance',
@@ -130,37 +244,130 @@ const features = [
 ];
 
 /* ─── Pipeline steps ───────────────────────────────────────────────────── */
-const pipeline = [
-  { Icon: IconFileCode,    name: 'Source',  desc: '.aura files' },
-  { Icon: IconAbc,         name: 'Lexer',   desc: 'Tokens' },
-  { Icon: IconTree,        name: 'Parser',  desc: 'AST' },
-  { Icon: IconCheck,       name: 'Sema',    desc: 'Types & Scopes' },
-  { Icon: IconBinaryTree,  name: 'IR',      desc: 'SSA Form' },
-  { Icon: IconCpu,         name: 'Codegen', desc: 'AArch64 / x64' },
-  { Icon: IconPlayerPlay,  name: 'Binary',  desc: 'Native exec' },
+type PipelineStep = {
+  Icon: React.ElementType;
+  name: string;
+  desc: string;
+};
+
+const pipeline: PipelineStep[] = [
+  { Icon: IconFileCode, name: 'Source', desc: '.aura files' },
+  { Icon: IconAbc, name: 'Lexer', desc: 'Tokens' },
+  { Icon: IconTree, name: 'Parser', desc: 'AST' },
+  { Icon: IconCheck, name: 'Sema', desc: 'Types & Scopes' },
+  { Icon: IconBinaryTree, name: 'IR', desc: 'SSA Form' },
+  { Icon: IconCpu, name: 'Codegen', desc: 'AArch64 / x64' },
+  { Icon: IconPlayerPlay, name: 'Binary', desc: 'Native exec' },
 ];
 
 /* ─── Syntax Comparison ─────────────────────────────────────────────────── */
-const auraCodeLines = [
-  <><C type="kw">function </C><C type="fn">fib</C><C type="op">(</C><C type="varColor">n</C><C type="op">: </C><C type="tp">number</C><C type="op">): </C><C type="tp">number</C><C type="op"> {'{'}</C></>,
-  <>&nbsp;&nbsp;<C type="kw">if </C><C type="op">(</C><C type="varColor">n</C><C type="op"> &lt;= </C><C type="nm">1</C><C type="op">) </C><C type="kw">return </C><C type="varColor">n</C><C type="op">;</C></>,
-  <>&nbsp;&nbsp;<C type="kw">return </C><C type="fn">fib</C><C type="op">(</C><C type="varColor">n</C><C type="op"> - </C><C type="nm">1</C><C type="op">) + </C><C type="fn">fib</C><C type="op">(</C><C type="varColor">n</C><C type="op"> - </C><C type="nm">2</C><C type="op">);</C></>,
-  <><C type="op">{'}'}</C></>,
-  <></>,
-  <><C type="kw">print </C><C type="fn">fib</C><C type="op">(</C><C type="nm">10</C><C type="op">);</C>&nbsp;&nbsp;<C type="cm">// 55</C></>,
+const auraCodeLines: React.ReactNode[] = [
+  <React.Fragment key="l1">
+    <C type="kw">function </C>
+    <C type="fn">fib</C>
+    <C type="op">(</C>
+    <C type="varColor">n</C>
+    <C type="op">: </C>
+    <C type="tp">number</C>
+    <C type="op">): </C>
+    <C type="tp">number</C>
+    <C type="op"> {'{'}</C>
+  </React.Fragment>,
+  <React.Fragment key="l2">
+    &nbsp;&nbsp;<C type="kw">if </C>
+    <C type="op">(</C>
+    <C type="varColor">n</C>
+    <C type="op"> &lt;= </C>
+    <C type="nm">1</C>
+    <C type="op">) </C>
+    <C type="kw">return </C>
+    <C type="varColor">n</C>
+    <C type="op">;</C>
+  </React.Fragment>,
+  <React.Fragment key="l3">
+    &nbsp;&nbsp;<C type="kw">return </C>
+    <C type="fn">fib</C>
+    <C type="op">(</C>
+    <C type="varColor">n</C>
+    <C type="op"> - </C>
+    <C type="nm">1</C>
+    <C type="op">) + </C>
+    <C type="fn">fib</C>
+    <C type="op">(</C>
+    <C type="varColor">n</C>
+    <C type="op"> - </C>
+    <C type="nm">2</C>
+    <C type="op">);</C>
+  </React.Fragment>,
+  <React.Fragment key="l4">
+    <C type="op">{'}'}</C>
+  </React.Fragment>,
+  <React.Fragment key="l5"></React.Fragment>,
+  <React.Fragment key="l6">
+    <C type="kw">print </C>
+    <C type="fn">fib</C>
+    <C type="op">(</C>
+    <C type="nm">10</C>
+    <C type="op">);</C>&nbsp;&nbsp;<C type="cm">{'// 55'}</C>
+  </React.Fragment>,
 ];
 
-const tsCodeLines = [
-  <><C type="kw">function </C><C type="fn">fib</C><C type="op">(</C><C type="varColor">n</C><C type="op">: </C><C type="tp">number</C><C type="op">): </C><C type="tp">number</C><C type="op"> {'{'}</C></>,
-  <>&nbsp;&nbsp;<C type="kw">if </C><C type="op">(</C><C type="varColor">n</C><C type="op"> &lt;= </C><C type="nm">1</C><C type="op">) </C><C type="kw">return </C><C type="varColor">n</C><C type="op">;</C></>,
-  <>&nbsp;&nbsp;<C type="kw">return </C><C type="fn">fib</C><C type="op">(</C><C type="varColor">n</C><C type="op"> - </C><C type="nm">1</C><C type="op">) + </C><C type="fn">fib</C><C type="op">(</C><C type="varColor">n</C><C type="op"> - </C><C type="nm">2</C><C type="op">);</C></>,
-  <><C type="op">{'}'}</C></>,
-  <></>,
-  <><C type="varColor">console</C><C type="op">.</C><C type="fn">log</C><C type="op">(</C><C type="fn">fib</C><C type="op">(</C><C type="nm">10</C><C type="op">));</C>&nbsp;<C type="cm">// 55</C></>,
+const tsCodeLines: React.ReactNode[] = [
+  <React.Fragment key="l1">
+    <C type="kw">function </C>
+    <C type="fn">fib</C>
+    <C type="op">(</C>
+    <C type="varColor">n</C>
+    <C type="op">: </C>
+    <C type="tp">number</C>
+    <C type="op">): </C>
+    <C type="tp">number</C>
+    <C type="op"> {'{'}</C>
+  </React.Fragment>,
+  <React.Fragment key="l2">
+    &nbsp;&nbsp;<C type="kw">if </C>
+    <C type="op">(</C>
+    <C type="varColor">n</C>
+    <C type="op"> &lt;= </C>
+    <C type="nm">1</C>
+    <C type="op">) </C>
+    <C type="kw">return </C>
+    <C type="varColor">n</C>
+    <C type="op">;</C>
+  </React.Fragment>,
+  <React.Fragment key="l3">
+    &nbsp;&nbsp;<C type="kw">return </C>
+    <C type="fn">fib</C>
+    <C type="op">(</C>
+    <C type="varColor">n</C>
+    <C type="op"> - </C>
+    <C type="nm">1</C>
+    <C type="op">) + </C>
+    <C type="fn">fib</C>
+    <C type="op">(</C>
+    <C type="varColor">n</C>
+    <C type="op"> - </C>
+    <C type="nm">2</C>
+    <C type="op">);</C>
+  </React.Fragment>,
+  <React.Fragment key="l4">
+    <C type="op">{'}'}</C>
+  </React.Fragment>,
+  <React.Fragment key="l5"></React.Fragment>,
+  <React.Fragment key="l6">
+    <C type="varColor">console</C>
+    <C type="op">.</C>
+    <C type="fn">log</C>
+    <C type="op">(</C>
+    <C type="fn">fib</C>
+    <C type="op">(</C>
+    <C type="nm">10</C>
+    <C type="op">));</C>&nbsp;<C type="cm">{'// 55'}</C>
+  </React.Fragment>,
 ];
 
 /* ─── Sections ─────────────────────────────────────────────────────────── */
-function HeroSection() {
+function HeroSection(): React.JSX.Element {
   return (
     <section className={styles.heroBanner}>
       <div className={styles.heroInner}>
@@ -172,14 +379,13 @@ function HeroSection() {
           </div>
 
           <h1 className={styles.heroTitle}>
-            The{' '}
-            <span className={styles.heroTitleAccent}>Aura</span>
-            {' '}Language
+            The <span className={styles.heroTitleAccent}>Aura</span> Language
           </h1>
 
           <p className={styles.heroSubtitle}>
             A modern, statically-typed programming language with a Rust-powered
-            toolchain — compiled to native code, built for performance and clarity.
+            toolchain — compiled to native code, built for performance and
+            clarity.
           </p>
 
           <div className={styles.heroButtons}>
@@ -187,7 +393,10 @@ function HeroSection() {
               <IconRocket size={17} />
               Get Started
             </Link>
-            <Link className={styles.btnSecondary} to="https://github.com/auraspace/aura">
+            <Link
+              className={styles.btnSecondary}
+              to="https://github.com/auraspace/aura"
+            >
               <IconBrandGithub size={17} />
               Star on GitHub
             </Link>
@@ -218,16 +427,18 @@ function HeroSection() {
   );
 }
 
-function FeaturesSection() {
+function FeaturesSection(): React.JSX.Element {
   return (
     <section className={clsx(styles.section, styles.sectionAlt)}>
       <div className="container">
         <div className={styles.sectionHeader}>
           <span className={styles.sectionEyebrow}>Why Aura</span>
-          <h2 className={styles.sectionTitle}>Everything you need to build fast</h2>
+          <h2 className={styles.sectionTitle}>
+            Everything you need to build fast
+          </h2>
           <p className={styles.sectionSubtitle}>
-            Aura is designed from first principles — a language and toolchain that
-            prioritizes developer experience, performance, and correctness.
+            Aura is designed from first principles — a language and toolchain
+            that prioritizes developer experience, performance, and correctness.
           </p>
         </div>
 
@@ -247,16 +458,19 @@ function FeaturesSection() {
   );
 }
 
-function PipelineSection() {
+function PipelineSection(): React.JSX.Element {
   return (
     <section className={styles.section}>
       <div className="container">
         <div className={styles.sectionHeader}>
           <span className={styles.sectionEyebrow}>Compiler Architecture</span>
-          <h2 className={styles.sectionTitle}>From source to binary in one pass</h2>
+          <h2 className={styles.sectionTitle}>
+            From source to binary in one pass
+          </h2>
           <p className={styles.sectionSubtitle}>
-            Aura's compiler pipeline is purpose-built for speed. Each stage is
-            implemented from scratch in Rust, with no heavy external frameworks.
+            Aura&apos;s compiler pipeline is purpose-built for speed. Each stage
+            is implemented from scratch in Rust, with no heavy external
+            frameworks.
           </p>
         </div>
 
@@ -264,12 +478,19 @@ function PipelineSection() {
           {pipeline.map(({ Icon, name, desc }, i) => (
             <React.Fragment key={name}>
               <div className={styles.pipelineStep}>
-                <Icon size={28} stroke={1.5} className={styles.pipelineStepIcon} />
+                <Icon
+                  size={28}
+                  stroke={1.5}
+                  className={styles.pipelineStepIcon}
+                />
                 <span className={styles.pipelineStepName}>{name}</span>
                 <span className={styles.pipelineStepDesc}>{desc}</span>
               </div>
               {i < pipeline.length - 1 && (
-                <IconArrowRight size={18} className={styles.pipelineArrowIcon} />
+                <IconArrowRight
+                  size={18}
+                  className={styles.pipelineArrowIcon}
+                />
               )}
             </React.Fragment>
           ))}
@@ -279,7 +500,7 @@ function PipelineSection() {
   );
 }
 
-function SyntaxSection() {
+function SyntaxSection(): React.JSX.Element {
   return (
     <section className={clsx(styles.section, styles.sectionAlt)}>
       <div className="container">
@@ -301,7 +522,7 @@ function SyntaxSection() {
   );
 }
 
-function CtaSection() {
+function CtaSection(): React.JSX.Element {
   return (
     <section className={styles.ctaSection}>
       <div className="container">
@@ -311,23 +532,32 @@ function CtaSection() {
             <span className={styles.heroTitleAccent}>Aura</span>
           </h2>
           <p className={styles.ctaSubtitle}>
-            Read the docs, browse the source, or clone the repo and compile
-            your first Aura program in minutes.
+            Read the docs, browse the source, or clone the repo and compile your
+            first Aura program in minutes.
           </p>
           <div className={styles.ctaButtons}>
             <Link className={styles.btnPrimary} to="/docs/intro">
               <IconBook size={17} />
               Read the Docs
             </Link>
-            <Link className={styles.btnSecondary} to="https://github.com/auraspace/aura">
+            <Link
+              className={styles.btnSecondary}
+              to="https://github.com/auraspace/aura"
+            >
               <IconBrandGithub size={17} />
               View Source
             </Link>
           </div>
           <div className={styles.ctaInstall}>
             <IconTerminal size={15} className={styles.ctaInstallPrompt} />
-            <span>git clone https://github.com/auraspace/aura.git &amp;&amp; cargo build</span>
-            <IconCopy size={14} style={{ marginLeft: 'auto', opacity: 0.4, cursor: 'pointer' }} />
+            <span>
+              git clone https://github.com/auraspace/aura.git &amp;&amp; cargo
+              build
+            </span>
+            <IconCopy
+              size={14}
+              style={{ marginLeft: 'auto', opacity: 0.4, cursor: 'pointer' }}
+            />
           </div>
         </div>
       </div>
@@ -336,8 +566,7 @@ function CtaSection() {
 }
 
 /* ─── Default Export ───────────────────────────────────────────────────── */
-export default function Home() {
-  const { siteConfig } = useDocusaurusContext();
+export default function Home(): React.JSX.Element {
   return (
     <Layout
       title="Aura — A Modern Systems Language"
