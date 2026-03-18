@@ -1,0 +1,119 @@
+/**
+ * Aura Language - Custom Design System
+ * Premium design with glassmorphism, gradients, and micro-animations
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+/* ─── Base Token Palette ──────────────────────────────────────────────────── */
+:root {
+  /* Brand */
+  --aura-accent-1: #6c63ff;
+  --aura-accent-2: #00d8ff;
+  --aura-accent-3: #a78bfa;
+  --aura-gradient: linear-gradient(135deg, #6c63ff 0%, #00d8ff 100%);
+  --aura-gradient-soft: linear-gradient(135deg, rgba(108,99,255,0.15) 0%, rgba(0,216,255,0.15) 100%);
+
+  /* Infima overrides */
+  --ifm-color-primary: #6c63ff;
+  --ifm-color-primary-dark: #5851f0;
+  --ifm-color-primary-darker: #4e47eb;
+  --ifm-color-primary-darkest: #3730c2;
+  --ifm-color-primary-light: #8079ff;
+  --ifm-color-primary-lighter: #9490ff;
+  --ifm-color-primary-lightest: #bfbdff;
+
+  --ifm-code-font-size: 90%;
+  --ifm-font-family-base: 'Inter', system-ui, sans-serif;
+  --ifm-font-family-monospace: 'JetBrains Mono', 'Fira Code', monospace;
+  --ifm-heading-font-weight: 700;
+  --ifm-navbar-height: 64px;
+
+  --docusaurus-highlighted-code-line-bg: rgba(108,99,255,0.12);
+
+  /* Custom surface tokens */
+  --aura-bg-hero: #f8f7ff;
+  --aura-surface-glass: rgba(255,255,255,0.7);
+  --aura-border: rgba(108,99,255,0.15);
+  --aura-shadow-sm: 0 4px 24px rgba(108,99,255,0.12);
+  --aura-shadow-md: 0 12px 48px rgba(108,99,255,0.18);
+  --aura-text-muted: #6b7280;
+
+  /* Code block syntax */
+  --syntax-keyword: #6c63ff;
+  --syntax-string: #10b981;
+  --syntax-number: #f59e0b;
+  --syntax-comment: #9ca3af;
+  --syntax-type: #00d8ff;
+  --syntax-fn: #a78bfa;
+}
+
+[data-theme='dark'] {
+  --ifm-color-primary: #8b84ff;
+  --ifm-color-primary-dark: #6c63ff;
+  --ifm-color-primary-darker: #5851f0;
+  --ifm-color-primary-darkest: #3730c2;
+  --ifm-color-primary-light: #a4a0ff;
+  --ifm-color-primary-lighter: #bfbdff;
+  --ifm-color-primary-lightest: #dddcff;
+
+  --ifm-background-color: #0e0d1a;
+  --ifm-background-surface-color: #16152b;
+  --ifm-navbar-background-color: rgba(14,13,26,0.85);
+
+  --docusaurus-highlighted-code-line-bg: rgba(108,99,255,0.2);
+
+  --aura-bg-hero: #0e0d1a;
+  --aura-surface-glass: rgba(22,21,43,0.8);
+  --aura-border: rgba(108,99,255,0.25);
+  --aura-shadow-sm: 0 4px 24px rgba(0,0,0,0.4);
+  --aura-shadow-md: 0 12px 48px rgba(0,0,0,0.5);
+  --aura-text-muted: #9ca3af;
+}
+
+/* ─── Global ──────────────────────────────────────────────────────────────── */
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: var(--ifm-font-family-base);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ─── Navbar ──────────────────────────────────────────────────────────────── */
+.navbar {
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--aura-border);
+  box-shadow: 0 1px 0 var(--aura-border);
+  transition: background-color 0.3s ease;
+}
+
+.navbar__brand {
+  font-weight: 700;
+  font-size: 1.1rem;
+  letter-spacing: -0.01em;
+}
+
+.navbar__logo {
+  height: 28px;
+  width: 28px;
+  border-radius: 6px;
+}
+
+/* ─── Scrollbar ───────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--aura-border); border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: var(--aura-accent-1); }
+
+/* ─── Footer ─────────────────────────────────────────────────────────────── */
+.footer {
+  background: var(--ifm-background-surface-color, #f3f4f6);
+  border-top: 1px solid var(--aura-border);
+}
+
+[data-theme='dark'] .footer {
+  background: #0a0919;
+}
