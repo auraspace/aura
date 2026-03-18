@@ -1,3 +1,22 @@
+## [0.2.12] - 2026-03-18
+
+### 🚀 Features
+
+- Implement default object printing for `print` statements, using `toString` if present or a generic instance representation otherwise.
+- Implement array index assignment across the compiler pipeline and enhance runtime array type handling with element type tags.
+
+### 🚜 Refactor
+
+- Standardize 'float' as an alias and display name for the Float64 type across compiler stages and tests.
+
+### 📚 Documentation
+
+- Add documentation detailing the project's release process.
+
+### ⚙️ Miscellaneous Tasks
+
+- Remove `ir` argument from `oop_inheritance` e2e test.
+- Automatically extract and use the latest changelog entry as GitHub release notes in the release script and workflow.
 ## [0.2.11] - 2026-03-17
 
 ### 🚀 Features
@@ -8,6 +27,10 @@
 ### 📚 Documentation
 
 - Add installation instructions to the README.
+
+### ⚙️ Miscellaneous Tasks
+
+- *(release)* V0.2.11
 ## [0.2.10] - 2026-03-15
 
 ### 🚀 Features
