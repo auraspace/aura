@@ -15,6 +15,8 @@ impl Parser {
                 return Expr::Assign(name, Box::new(value), vs);
             } else if let Expr::MemberAccess(obj, member, name_span, _ms) = node {
                 return Expr::MemberAssign(obj, member, Box::new(value), name_span, s);
+            } else if let Expr::Index(obj, index, index_span) = node {
+                return Expr::IndexAssign(obj, index, Box::new(value), index_span);
             } else {
                 let token = self.peek();
                 self.diagnostics.push(Diagnostic::error(

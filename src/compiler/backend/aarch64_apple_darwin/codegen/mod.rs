@@ -286,6 +286,19 @@ impl Codegen {
         }
     }
 
+    fn get_type_tag(&self, ty: &Type) -> i64 {
+        match ty {
+            Type::Int32 | Type::Int64 => 1,     // AURA_TYPE_I32
+            Type::String => 2,                  // AURA_TYPE_STRING
+            Type::Boolean => 3,                 // AURA_TYPE_BOOLEAN
+            Type::Float32 | Type::Float64 => 4, // AURA_TYPE_FLOAT
+            Type::Array(_) => 5,                // AURA_TYPE_ARRAY
+            Type::Class(_) | Type::Object(_) | Type::Generic(_, _) => 6, // AURA_TYPE_OBJECT
+            Type::Null => 0,                    // AURA_TYPE_NULL
+            _ => 1,                             // Default to I32 for now
+        }
+    }
+
     pub fn generate(mut self, program: Program) -> String {
         // Register built-in Promise class (still needed as it's not in stdlib yet)
         self.classes.insert(

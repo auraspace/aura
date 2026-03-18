@@ -179,6 +179,14 @@ pub(crate) fn format_expr(f: &mut Formatter, expr: &Expr) {
             format_expr(f, idx);
             f.result.push(']');
         }
+        Expr::IndexAssign(obj, idx, val, _) => {
+            format_expr(f, obj);
+            f.result.push('[');
+            format_expr(f, idx);
+            f.result.push_str("] = ");
+            format_expr(f, val);
+        }
+
         Expr::Null(_) => f.result.push_str("null"),
         Expr::Super(_) => f.result.push_str("super"),
         Expr::SuperCall(args, _) => {
@@ -205,6 +213,7 @@ fn get_expr_precedence(expr: &Expr) -> i32 {
         | Expr::MethodCall(_, _, _, _, _, _)
         | Expr::MemberAccess(_, _, _, _)
         | Expr::Index(_, _, _)
+        | Expr::IndexAssign(_, _, _, _)
         | Expr::New(_, _, _, _, _) => 14, // Postfix/Primary-like are strongest
         _ => 15,                      // Primary (numbers, variables, etc.)
     }

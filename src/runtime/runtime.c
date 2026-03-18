@@ -12,6 +12,11 @@
 #define AURA_TYPE_I32 1
 #define AURA_TYPE_STRING 2
 #define AURA_TYPE_BOOLEAN 3
+#define AURA_TYPE_FLOAT 4
+#define AURA_TYPE_ARRAY 5
+#define AURA_TYPE_OBJECT 6
+#define AURA_TYPE_PROMISE 7
+#define AURA_TYPE_NULL 0
 
 typedef struct {
   int64_t tag;
@@ -63,12 +68,14 @@ typedef struct {
   int64_t *data;
   int64_t size;
   int64_t capacity;
+  int64_t element_tag;
 } AuraArray;
 
-void *aura_array_new(int64_t initial_capacity) {
+void *aura_array_new(int64_t initial_capacity, int64_t element_tag) {
   AuraArray *arr = malloc(sizeof(AuraArray));
   arr->capacity = initial_capacity > 4 ? initial_capacity : 4;
   arr->size = 0;
+  arr->element_tag = element_tag;
   arr->data = malloc(arr->capacity * sizeof(int64_t));
   return arr;
 }
@@ -98,6 +105,13 @@ int64_t aura_array_get(AuraArray *arr, int64_t index) {
     return 0;
   return arr->data[index];
 }
+
+void aura_array_set(AuraArray *arr, int64_t index, int64_t val) {
+  if (!arr || index < 0 || index >= arr->size)
+    return;
+  arr->data[index] = val;
+}
+
 
 char *aura_array_join(AuraArray *arr, const char *sep) {
   if (!arr || arr->size == 0)
@@ -413,6 +427,58 @@ void aura_throw(int64_t this_ptr, const char *msg) {
   exit(0);
 }
 
+void print_array_recursive(AuraArray *arr);
+
+void print_element(int64_t value, int64_t tag) {
+  switch (tag) {
+  case AURA_TYPE_I32:
+    printf("%lld", value);
+    break;
+  case AURA_TYPE_STRING:
+    printf("\"%s\"", (const char *)value);
+    break;
+  case AURA_TYPE_BOOLEAN:
+    printf("%s", value ? "true" : "false");
+    break;
+  case AURA_TYPE_FLOAT: {
+    double f;
+    memcpy(&f, &value, sizeof(double));
+    if (f == (int64_t)f) {
+      printf("%.1f", f);
+    } else {
+      printf("%g", f);
+    }
+    break;
+  }
+  case AURA_TYPE_ARRAY:
+    print_array_recursive((AuraArray *)value);
+    break;
+  case AURA_TYPE_OBJECT:
+    printf("<Object>"); // For now
+    break;
+  case AURA_TYPE_NULL:
+    printf("null");
+    break;
+  default:
+    printf("%lld", value);
+    break;
+  }
+}
+
+void print_array_recursive(AuraArray *arr) {
+  if (!arr) {
+    printf("[]");
+    return;
+  }
+  printf("[");
+  for (int64_t i = 0; i < arr->size; i++) {
+    print_element(arr->data[i], arr->element_tag);
+    if (i < arr->size - 1)
+      printf(", ");
+  }
+  printf("]");
+}
+
 void print_array(AuraArray *arr) {
   if (!arr) {
     printf("[]\n");
@@ -422,13 +488,8 @@ void print_array(AuraArray *arr) {
     print_promise((AuraPromise *)arr);
     return;
   }
-  printf("[");
-  for (int64_t i = 0; i < arr->size; i++) {
-    printf("%lld", arr->data[i]);
-    if (i < arr->size - 1)
-      printf(", ");
-  }
-  printf("]\n");
+  print_array_recursive(arr);
+  printf("\n");
   fflush(stdout);
 }
 

@@ -521,6 +521,16 @@ impl Lowerer {
                 self.builder
                     .call("__arr_get".to_string(), vec![obj_op, index_op])
             }
+            Expr::IndexAssign(obj, index, value, _) => {
+                let obj_op = self.lower_expr(*obj);
+                let index_op = self.lower_expr(*index);
+                let val_op = self.lower_expr(*value);
+                self.builder.call(
+                    "aura_array_set".to_string(),
+                    vec![obj_op, index_op, val_op.clone()],
+                );
+                val_op
+            }
         }
     }
 }

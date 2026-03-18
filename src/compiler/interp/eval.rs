@@ -881,6 +881,23 @@ impl Interpreter {
                     _ => panic!("Index operation not supported for these types"),
                 }
             }
+            Expr::IndexAssign(obj_expr, index_expr, val_expr, _) => {
+                let obj = self.eval_expr(*obj_expr);
+                let index = self.eval_expr(*index_expr);
+                let val = self.eval_expr(*val_expr);
+                match (obj, index) {
+                    (Value::Array(a), Value::Int(i)) => {
+                        let mut borrowed = a.borrow_mut();
+                        if i < 0 || i as usize >= borrowed.len() {
+                            panic!("Array index out of bounds: {}", i);
+                        }
+                        borrowed[i as usize] = val.clone();
+                        val
+                    }
+                    _ => panic!("Index assign operation only supported for arrays"),
+                }
+            }
+
             Expr::Super(_) => self
                 .env
                 .lookup("this")

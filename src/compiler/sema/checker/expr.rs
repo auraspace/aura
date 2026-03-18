@@ -683,6 +683,41 @@ impl SemanticAnalyzer {
                     Type::Unknown
                 }
             }
+            Expr::IndexAssign(obj, index, value, span) => {
+                let obj_ty = self.check_expr(*obj);
+                let index_ty = self.check_expr(*index);
+                let val_ty = self.check_expr(*value);
+
+                if index_ty != Type::Int32 {
+                    self.error(
+                        SemanticErrorKind::TypeMismatch(
+                            "i32".to_string(),
+                            format!("{:?}", index_ty),
+                        ),
+                        span,
+                    );
+                }
+
+                if let Type::Array(inner) = obj_ty {
+                    if !self.is_assignable(&val_ty, &inner) {
+                        self.error(
+                            SemanticErrorKind::TypeMismatch(inner.to_string(), val_ty.to_string()),
+                            span,
+                        );
+                    }
+                    *inner
+                } else {
+                    self.error(
+                        SemanticErrorKind::TypeMismatch(
+                            "array".to_string(),
+                            format!("{:?}", obj_ty),
+                        ),
+                        span,
+                    );
+                    Type::Unknown
+                }
+            }
+
             Expr::UnaryOp(op, expr, span) => {
                 let expr_ty = self.check_expr(*expr);
                 if op == "-" && expr_ty.is_numeric() {

@@ -781,7 +781,15 @@ impl Codegen {
                 }
                 self.emitter.pop(AsmRegister::X0);
             }
-            Expr::ArrayLiteral(elements, _) => {
+            Expr::ArrayLiteral(elements, span) => {
+                let element_ty = if let Some(Type::Array(inner)) = self.get_node_type(&span) {
+                    (**inner).clone()
+                } else {
+                    Type::Unknown
+                };
+                let tag = self.get_type_tag(&element_ty);
+
+                self.emitter.mov_imm(AsmRegister::X1, tag);
                 self.emitter.mov_imm(AsmRegister::X0, elements.len() as i64);
                 self.emitter.call("_aura_array_new");
                 self.emitter.push(AsmRegister::X0);
@@ -809,6 +817,18 @@ impl Codegen {
                 self.emitter.pop(AsmRegister::X0);
                 self.emitter.call("_aura_array_get");
             }
+            Expr::IndexAssign(obj, index, value, _) => {
+                self.generate_expr(*value);
+                self.emitter.push(AsmRegister::X0); // val
+                self.generate_expr(*index);
+                self.emitter.push(AsmRegister::X0); // index
+                self.generate_expr(*obj); // obj
+                self.emitter.pop(AsmRegister::X1); // index
+                self.emitter.pop(AsmRegister::X2); // val
+                self.emitter.call("_aura_array_set");
+                self.emitter.mov_reg(AsmRegister::X0, AsmRegister::X2); // result is the value
+            }
+
             Expr::Super(_) => {
                 let (offset, _) = self
                     .variables
