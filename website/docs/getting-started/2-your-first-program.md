@@ -8,6 +8,7 @@ sidebar_position: 2
 Let's write and run your first Aura program.
 
 ## 1. Create a workspace
+
 Create a new directory for your project:
 
 ```bash
@@ -16,19 +17,23 @@ cd hello-aura
 ```
 
 ## 2. Write the code
+
 Create a file named `main.aura` and add the following code:
 
 ```aura
 function main() {
-    print("Hello, Aura! 🌟");
+    print "Hello, Aura! 🌟";
 }
 ```
 
 ### Understanding the syntax
+
 - `function main()`: This is the entry point of your program. Every executable Aura script needs a `main` function.
 - `print(...)`: A built-in function to output text to the console.
+- or `print "Hello, Aura! 🌟";`: This is a statement that prints the string "Hello, Aura! 🌟" to the console.
 
 ## 3. Run it
+
 Use the `aura run` command to compile and execute your script in one go:
 
 ```bash
@@ -36,6 +41,7 @@ aura run main.aura
 ```
 
 **Output:**
+
 ```text
 Hello, Aura! 🌟
 ```
@@ -48,11 +54,13 @@ The Aura CLI provides two main ways to handle your code:
 - **`aura build`**: Best for distribution. It compiles your code into a standalone, statically-linked binary that you can run independently.
 
 ### Build a standalone binary
+
 ```bash
 aura build main.aura
 ```
 
 This will create an executable named `main_bin`. You can now run it without the Aura compiler:
+
 ```bash
 ./main_bin
 ```

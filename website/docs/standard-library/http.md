@@ -29,8 +29,8 @@ Data classes for representing HTTP requests and responses.
 import { HTTPClient } from "std/http.aura";
 
 let res = HTTPClient.get("example.com", 80, "/");
-print("Status: " + res.statusCode);
-print("Body: " + res.body);
+print "Status: " + res.statusCode;
+print "Body: " + res.body;
 ```
 
 ### Example: HTTP Server

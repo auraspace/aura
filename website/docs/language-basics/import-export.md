@@ -18,7 +18,7 @@ export let version = "1.0.0";
 
 // utils.aura
 export function sayHello(name: string) {
-    print(`Hello, ${name}!`);
+    print `Hello, ${name}!`;
 }
 
 export class Calculator {
@@ -43,7 +43,7 @@ import { PI } from "./constants";
 
 sayHello("Aura");
 let calc = new Calculator();
-print(calc.add(10, 20));
+print calc.add(10, 20);
 ```
 
 ### Module Imports (Star Imports)
@@ -56,7 +56,7 @@ import * as utils from "./utils";
 import * as constants from "./constants";
 
 utils.sayHello("Aura");
-print(constants.PI);
+print constants.PI;
 ```
 
 ## Best Practices

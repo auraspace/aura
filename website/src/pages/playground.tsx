@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import Layout from '@theme/Layout';
 import { useColorMode } from '@docusaurus/theme-common';
-import Editor from '@monaco-editor/react';
+import Editor, { Monaco } from '@monaco-editor/react';
 import styles from './playground.module.css';
+import { registerAuraLanguage } from '../utils/monaco-aura';
 import {
   IconPlayerPlay,
   IconShare,
@@ -13,7 +14,7 @@ import {
 function PlaygroundContent(): React.ReactNode {
   const { colorMode } = useColorMode();
   const [code, setCode] = useState<string>(
-    '// Welcome to the Aura Playground!\n// WASM compiler integration coming soon.\nfunction main() {\n    println("Hello, Aura!");\n}\n',
+    '// Welcome to the Aura Playground!\n// WASM compiler integration coming soon.\nfunction main() {\n    print "Hello, Aura!";\n}\n',
   );
   const [output, setOutput] = useState<string>(
     'Compiler not loaded. WASM support will be added later.\n',
@@ -21,6 +22,10 @@ function PlaygroundContent(): React.ReactNode {
 
   const handleRun = () => {
     setOutput('Running...\n\n(Simulated output) Hello, Aura!\n');
+  };
+
+  const handleEditorBeforeMount = (monaco: Monaco) => {
+    registerAuraLanguage(monaco);
   };
 
   return (
@@ -57,6 +62,7 @@ function PlaygroundContent(): React.ReactNode {
             <Editor
               height="100%"
               defaultLanguage="aura"
+              beforeMount={handleEditorBeforeMount}
               theme={colorMode === 'dark' ? 'vs-dark' : 'light'}
               value={code}
               onChange={(value) => setCode(value || '')}

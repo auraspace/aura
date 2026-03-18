@@ -45,7 +45,7 @@ let red: Color = Color.Red;
 let status: Status = Status.InProgress;
 
 if (status == Status.Completed) {
-    print("Task completed!");
+    print "Task completed!";
 }
 ```
 

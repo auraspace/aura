@@ -45,5 +45,5 @@ FS.writeFileSync("hello.txt", "Hello from Aura!");
 
 // Read it back
 let content = FS.readFileSync("hello.txt");
-print(content);
+print content;
 ```
