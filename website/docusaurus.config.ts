@@ -26,6 +26,7 @@ const config: Config = {
   // If you aren't using GitHub pages, you don't need these.
   organizationName: 'auraspace', // Usually your GitHub org/user name.
   projectName: 'aura', // Usually your repo name.
+  trailingSlash: false,
 
   onBrokenLinks: 'throw',
 
