@@ -224,7 +224,7 @@ e2e_test!(fn_return_string, "03_functions/04_return_string.aura");
 // --- 04_oop ---
 e2e_test!(oop_basic, "04_oop/01_basic.aura");
 e2e_test!(oop_methods, "04_oop/02_methods.aura");
-e2e_test!(oop_inheritance, "04_oop/03_inheritance.aura", ir);
+e2e_test!(oop_inheritance, "04_oop/03_inheritance.aura");
 e2e_test!(oop_multi_class, "04_oop/04_multi_class.aura");
 e2e_test!(oop_chaining, "04_oop/05_chaining.aura");
 e2e_test!(oop_access_modifiers, "04_oop/06_access_modifiers.aura");
