@@ -1,0 +1,55 @@
+name: Publish WASM
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        uses: jetli/wasm-pack-action@v0.4.0
+        with:
+          version: "latest"
+
+      - name: Create output directory
+        run: mkdir -p website/src/wasm
+
+      - name: Build WASM
+        run: |
+          chmod +x ./scripts/build-wasm.sh
+          ./scripts/build-wasm.sh
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://npm.pkg.github.com"
+          scope: "@auraspace"
+
+      - name: Update package.json for GitHub Packages
+        run: |
+          cd website/src/wasm
+          # Use jq to update name to be scoped for GitHub Packages and set publishConfig
+          jq '.name = "@auraspace/aura" | .publishConfig = {"registry": "https://npm.pkg.github.com"}' package.json > package.json.tmp
+          mv package.json.tmp package.json
+          cat package.json
+
+      - name: Publish to GitHub Packages
+        run: |
+          cd website/src/wasm
+          npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
