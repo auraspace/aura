@@ -9,9 +9,9 @@ Congratulations! You've successfully installed Aura, written your first program,
 
 Where should you go next?
 
-- **[Language Basics](../language-basics)**: Dive deep into variables, types, and control flow.
-- **[Functions & Scope](../functions-and-scope)**: Learn how to structure your code with modules and functions.
-- **[Standard Library](../standard-library)**: Explore the built-in modules for I/O, Networking, and more.
+- **[Language Basics](../category/3-language-basics)**: Dive deep into variables, types, and control flow.
+- **[Functions & Scope](../language-basics/functions-and-scope)**: Learn how to structure your code with modules and functions.
+- **[Standard Library](../category/7-standard-library)**: Explore the built-in modules for I/O, Networking, and more.
 - **[Aura Internals](../internals-and-architecture)**: Curious how it works under the hood? Read about our custom AArch64 backend and GC.
 
 ## Join the Community

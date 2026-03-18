@@ -389,7 +389,7 @@ function HeroSection(): React.JSX.Element {
           </p>
 
           <div className={styles.heroButtons}>
-            <Link className={styles.btnPrimary} to="/docs/intro">
+            <Link className={styles.btnPrimary} to="/docs/introduction">
               <IconRocket size={17} />
               Get Started
             </Link>
@@ -536,7 +536,7 @@ function CtaSection(): React.JSX.Element {
             first Aura program in minutes.
           </p>
           <div className={styles.ctaButtons}>
-            <Link className={styles.btnPrimary} to="/docs/intro">
+            <Link className={styles.btnPrimary} to="/docs/introduction">
               <IconBook size={17} />
               Read the Docs
             </Link>
