@@ -34,5 +34,5 @@ The `std/date` module provides classes for date and time handling.
 import { Date } from "std/date.aura";
 
 let now = new Date();
-print(now.toISOString());
+print now.toISOString();
 ```

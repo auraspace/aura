@@ -11,7 +11,6 @@ The `std/string` module provides utility functions for manipulating and analyzin
 
 Most string utility functions can be called either statically via the `String` class or as a method on the string instance (dot notation).
 
-
 ### Static Methods
 
 #### `len(s: string): number`
@@ -50,10 +49,10 @@ import { String } from "std/string.aura";
 let s = "  Hello Aura  ";
 
 // Static call
-let trimmed = String.trim(s); 
+let trimmed = String.trim(s);
 
 // Or method call
 let trimmed2 = s.trim();
 
-print(s.trim().toUpper()); // "HELLO AURA"
+print s.trim().toUpper(); // "HELLO AURA"
 ```

@@ -48,6 +48,6 @@ import { TCPStream } from "std/net.aura";
 let stream = TCPStream.connect("example.com", 80);
 stream.write("GET / HTTP/1.1\r\nHost: example.com\r\n\r\n");
 let res = stream.read(1024);
-print(res);
+print res;
 stream.close();
 ```

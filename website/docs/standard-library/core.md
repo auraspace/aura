@@ -31,5 +31,5 @@ Returns the error message as a string.
 import { Error } from "std/core.aura";
 
 let err = new Error("Something went wrong");
-print(err.toString());
+print err.toString();
 ```

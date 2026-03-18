@@ -8,6 +8,8 @@ const config: Config = {
   title: 'Aura',
   tagline: 'A programming language toolchain written in Rust',
   favicon: 'img/favicon.ico',
+  clientModules: ['./src/theme/prism-aura.ts'],
+
 
   // Future flags, see https://docusaurus.io/docs/api/docusaurus-config#future
   future: {

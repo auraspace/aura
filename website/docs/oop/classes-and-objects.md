@@ -1,5 +1,5 @@
 ---
-title: 1. Classes & Objects
+title: Classes & Objects
 sidebar_position: 1
 ---
 
@@ -31,9 +31,9 @@ class Person {
 
 Aura supports three levels of encapsulation for class members:
 
--   **`public`** (default): Members are accessible from anywhere.
--   **`private`**: Members are only accessible within the class itself.
--   **`protected`**: Members are accessible within the class and its subclasses.
+- **`public`** (default): Members are accessible from anywhere.
+- **`private`**: Members are only accessible within the class itself.
+- **`protected`**: Members are accessible within the class and its subclasses.
 
 ```aura
 class BankAccount {
@@ -94,8 +94,8 @@ class Employee extends Person {
 }
 ```
 
--   **`super`**: Used to call the parent class constructor or methods.
--   **`override`**: Required when a subclass provides a new implementation for an inherited method.
+- **`super`**: Used to call the parent class constructor or methods.
+- **`override`**: Required when a subclass provides a new implementation for an inherited method.
 
 ## Abstract Classes
 

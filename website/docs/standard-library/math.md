@@ -24,6 +24,6 @@ Returns the larger of two integers.
 ```aura
 import { Math } from 'std/math.aura';
 
-print(Math.abs(-42)); // 42
-print(Math.max(10, 20)); // 20
+print Math.abs(-42); // 42
+print Math.max(10, 20); // 20
 ```

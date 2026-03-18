@@ -1,5 +1,5 @@
 ---
-title: 2. Interfaces
+title: Interfaces
 sidebar_position: 2
 ---
 
