@@ -13,7 +13,7 @@ impl Interpreter {
                 "i32" | "Int32" | "number" | "Number" => Type::Int32,
                 "i64" | "Int64" => Type::Int64,
                 "f32" | "Float32" => Type::Float32,
-                "f64" | "Float64" => Type::Float64,
+                "f64" | "Float64" | "float" | "Float" => Type::Float64,
                 "string" | "String" => Type::String,
                 "boolean" | "Boolean" => Type::Boolean,
                 "void" | "Void" => Type::Void,
@@ -826,6 +826,7 @@ impl Interpreter {
                 match (val, target_ty) {
                     (Value::Int(_), Type::Int32) => Value::Boolean(true),
                     (Value::Int64(_), Type::Int64) => Value::Boolean(true),
+                    (Value::Float(_), Type::Float64) => Value::Boolean(true),
                     (Value::String(_), Type::String) => Value::Boolean(true),
                     (Value::Boolean(_), Type::Boolean) => Value::Boolean(true),
                     _ => Value::Boolean(false),

@@ -688,6 +688,7 @@ impl Codegen {
                 if check_type_name == "i64"
                     || check_type_name == "i32"
                     || check_type_name == "number"
+                    || check_type_name == "float"
                 {
                     // Check if x0 != 0 AND not in string pointer range.
                     self.emitter
