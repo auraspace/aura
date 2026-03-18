@@ -7,9 +7,8 @@ import type * as Preset from '@docusaurus/preset-classic';
 const config: Config = {
   title: 'Aura',
   tagline: 'A programming language toolchain written in Rust',
-  favicon: 'img/favicon.ico',
+  favicon: '/aura/img/favicon.ico',
   clientModules: ['./src/theme/prism-aura.ts'],
-
 
   // Future flags, see https://docusaurus.io/docs/api/docusaurus-config#future
   future: {
@@ -20,7 +19,7 @@ const config: Config = {
   url: 'https://auraspace.github.io',
   // Set the /<baseUrl>/ pathname under which your site is served
   // For GitHub pages deployment, it is often '/<projectName>/'
-  baseUrl: '/',
+  baseUrl: '/aura',
 
   // GitHub pages deployment config.
   // If you aren't using GitHub pages, you don't need these.
@@ -57,6 +56,14 @@ const config: Config = {
   ],
 
   themeConfig: {
+    announcementBar: {
+      id: 'under_construction',
+      content:
+        '🚧 Aura is currently under heavy development. API and syntax are subject to change. 🚧',
+      backgroundColor: '#f6e05e',
+      textColor: '#000000',
+      isCloseable: true,
+    },
     // Replace with your project's social card
     image: 'img/docusaurus-social-card.jpg',
     colorMode: {
