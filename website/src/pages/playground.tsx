@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Layout from '@theme/Layout';
 import { useColorMode } from '@docusaurus/theme-common';
 import Editor, { Monaco } from '@monaco-editor/react';
@@ -10,18 +10,55 @@ import {
   IconDownload,
   IconTerminal2,
 } from '@tabler/icons-react';
+import aura_init, { compile, init as init_panic_hook } from '@auraspace/aura';
 
 function PlaygroundContent(): React.ReactNode {
   const { colorMode } = useColorMode();
+  const [isLoaded, setIsLoaded] = useState(false);
   const [code, setCode] = useState<string>(
-    '// Welcome to the Aura Playground!\n// WASM compiler integration coming soon.\nfunction main() {\n    print "Hello, Aura!";\n}\n',
+    '// Welcome to the Aura Playground!\nfunction main() {\n    print "Hello, Aura!";\n}\n',
   );
   const [output, setOutput] = useState<string>(
-    'Compiler not loaded. WASM support will be added later.\n',
+    'Press "Run" to execute your code...\n',
   );
 
+  useEffect(() => {
+    async function init() {
+      try {
+        await aura_init();
+        init_panic_hook();
+        setIsLoaded(true);
+      } catch (err) {
+        console.error('Failed to initialize Aura WASM:', err);
+        setOutput('Error: Failed to initialize Aura compiler.\n');
+      }
+    }
+    init();
+  }, []);
+
   const handleRun = () => {
-    setOutput('Running...\n\n(Simulated output) Hello, Aura!\n');
+    if (!isLoaded) {
+      setOutput('Compiler is still loading, please wait...\n');
+      return;
+    }
+
+    setOutput('Running...\n');
+
+    try {
+      const result = compile(code);
+      if (result.ok()) {
+        const programOutput = result.output();
+        setOutput(programOutput || '(Program completed with no output)\n');
+      } else {
+        const errors = result.errors();
+        setOutput(`Execution failed:\n${errors}`);
+      }
+      // WASM memory management
+      result.free();
+    } catch (err) {
+      setOutput(`Runtime error occurred:\n${err}`);
+      console.error(err);
+    }
   };
 
   const handleEditorBeforeMount = (monaco: Monaco) => {

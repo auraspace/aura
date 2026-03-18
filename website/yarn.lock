@@ -153,6 +153,11 @@
   dependencies:
     "@algolia/client-common" "5.49.2"
 
+"@auraspace/aura@0.2.12":
+  version "0.2.12"
+  resolved "https://npm.pkg.github.com/download/@auraspace/aura/0.2.12/1e3ba98f7a16413fe8fef510938c72cefbc97bba#1e3ba98f7a16413fe8fef510938c72cefbc97bba"
+  integrity sha512-Kn92zUrTQSCS79qbg/1kl6XnyayVNPpzIpA1znwtrvZ/O6GzVoHo69BK083L0NrR2HViiPbamD9gdM3HqaU/4A==
+
 "@babel/code-frame@^7.0.0", "@babel/code-frame@^7.28.6", "@babel/code-frame@^7.29.0":
   version "7.29.0"
   resolved "https://registry.npmjs.org/@babel/code-frame/-/code-frame-7.29.0.tgz"
