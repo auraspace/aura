@@ -106,12 +106,23 @@ echo "Artifact created: $TARBALL"
 
 # --- 3. Release (using gh CLI) ---
 if [[ "$DRY_RUN" == true ]]; then
+    CHANGELOG_CONTENT=$(awk '/^## \[/{if (count++) exit; next} count' CHANGELOG.md)
     echo "Dry run enabled. Skipping GitHub Release creation."
-    echo "To release manually, run: gh release create $VERSION_TAG $TARBALL"
+    echo "--- Latest Changelog Entry ---"
+    echo "$CHANGELOG_CONTENT"
+    echo "------------------------------"
+    echo "To release manually, run: gh release create $VERSION_TAG $TARBALL --notes \"\$CHANGELOG_CONTENT\""
 else
     if command -v gh &> /dev/null; then
+        echo "--- Extracting Latest Changelog ---"
+        CHANGELOG_CONTENT=$(awk '/^## \[/{if (count++) exit; next} count' CHANGELOG.md)
+        if [[ -z "$CHANGELOG_CONTENT" ]]; then
+            echo "Warning: No changelog content found for the latest version. Using default notes."
+            CHANGELOG_CONTENT="Release $VERSION_TAG"
+        fi
+
         echo "--- Creating GitHub Release ---"
-        gh release create "$VERSION_TAG" "$TARBALL" --title "$VERSION_TAG" --notes "Release $VERSION_TAG"
+        gh release create "$VERSION_TAG" "$TARBALL" --title "$VERSION_TAG" --notes "$CHANGELOG_CONTENT"
     else
         echo "Warning: GitHub CLI 'gh' not found. Skipping release step."
         echo "Artifact remains in $DIST_DIR/"
