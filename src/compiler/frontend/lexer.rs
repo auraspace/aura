@@ -7,6 +7,8 @@ pub struct Lexer<'a> {
     line: usize,
     column: usize,
     pub diagnostics: DiagnosticList,
+    last_token_kind: Option<TokenKind>,
+    pending_semicolon: bool,
 }
 
 impl<'a> Lexer<'a> {
@@ -21,6 +23,8 @@ impl<'a> Lexer<'a> {
             line,
             column,
             diagnostics: DiagnosticList::new(),
+            last_token_kind: None,
+            pending_semicolon: false,
         }
     }
 
@@ -38,132 +42,152 @@ impl<'a> Lexer<'a> {
     }
 
     pub fn next_token(&mut self) -> Token {
-        self.skip_whitespace();
+        if self.pending_semicolon {
+            self.pending_semicolon = false;
+            let current_line = self.line;
+            let current_column = self.column;
+            let token = Token::new(TokenKind::Semicolon, current_line, current_column);
+            self.last_token_kind = Some(TokenKind::Semicolon);
+            return token;
+        }
+
+        let has_newline = self.skip_whitespace();
         let current_line = self.line;
         let current_column = self.column;
 
         if self.is_at_end() {
+            if self.should_insert_semicolon() {
+                self.last_token_kind = Some(TokenKind::Semicolon);
+                return Token::new(TokenKind::Semicolon, current_line, current_column);
+            }
             return Token::new(TokenKind::EOF, current_line, current_column);
+        }
+
+        if has_newline && self.should_insert_semicolon() {
+            if self.peek() != ';' {
+                self.last_token_kind = Some(TokenKind::Semicolon);
+                return Token::new(TokenKind::Semicolon, current_line, current_column);
+            }
         }
 
         let ch = self.peek();
 
-        match ch {
+        let kind = match ch {
             '+' => {
                 self.advance();
-                Token::new(TokenKind::Plus, current_line, current_column)
+                TokenKind::Plus
             }
             '-' => {
                 self.advance();
-                Token::new(TokenKind::Minus, current_line, current_column)
+                TokenKind::Minus
             }
             '=' => {
                 self.advance();
                 if self.peek() == '=' {
                     self.advance();
-                    Token::new(TokenKind::EqEqual, current_line, current_column)
+                    TokenKind::EqEqual
                 } else {
-                    Token::new(TokenKind::Equal, current_line, current_column)
+                    TokenKind::Equal
                 }
             }
             '!' => {
                 self.advance();
                 if self.peek() == '=' {
                     self.advance();
-                    Token::new(TokenKind::BangEqual, current_line, current_column)
+                    TokenKind::BangEqual
                 } else {
-                    Token::new(TokenKind::Unknown('!'), current_line, current_column)
+                    TokenKind::Unknown('!')
                 }
             }
             '^' => {
                 self.advance();
-                Token::new(TokenKind::Caret, current_line, current_column)
+                TokenKind::Caret
             }
             '~' => {
                 self.advance();
-                Token::new(TokenKind::Tilde, current_line, current_column)
+                TokenKind::Tilde
             }
             '<' => {
                 self.advance();
                 if self.peek() == '=' {
                     self.advance();
-                    Token::new(TokenKind::LessEqual, current_line, current_column)
+                    TokenKind::LessEqual
                 } else if self.peek() == '<' {
                     self.advance();
-                    Token::new(TokenKind::LessLess, current_line, current_column)
+                    TokenKind::LessLess
                 } else {
-                    Token::new(TokenKind::Less, current_line, current_column)
+                    TokenKind::Less
                 }
             }
             '>' => {
                 self.advance();
                 if self.peek() == '=' {
                     self.advance();
-                    Token::new(TokenKind::GreaterEqual, current_line, current_column)
+                    TokenKind::GreaterEqual
                 } else if self.peek() == '>' {
                     self.advance();
-                    Token::new(TokenKind::GreaterGreater, current_line, current_column)
+                    TokenKind::GreaterGreater
                 } else {
-                    Token::new(TokenKind::Greater, current_line, current_column)
+                    TokenKind::Greater
                 }
             }
             ':' => {
                 self.advance();
-                Token::new(TokenKind::Colon, current_line, current_column)
+                TokenKind::Colon
             }
             '.' => {
                 self.advance();
-                Token::new(TokenKind::Dot, current_line, current_column)
+                TokenKind::Dot
             }
             ';' => {
                 self.advance();
-                Token::new(TokenKind::Semicolon, current_line, current_column)
+                TokenKind::Semicolon
             }
             '|' => {
                 self.advance();
                 if self.peek() == '|' {
                     self.advance();
-                    Token::new(TokenKind::Or, current_line, current_column)
+                    TokenKind::Or
                 } else {
-                    Token::new(TokenKind::Pipe, current_line, current_column)
+                    TokenKind::Pipe
                 }
             }
             '&' => {
                 self.advance();
                 if self.peek() == '&' {
                     self.advance();
-                    Token::new(TokenKind::And, current_line, current_column)
+                    TokenKind::And
                 } else {
-                    Token::new(TokenKind::Ampersand, current_line, current_column)
+                    TokenKind::Ampersand
                 }
             }
             ',' => {
                 self.advance();
-                Token::new(TokenKind::Comma, current_line, current_column)
+                TokenKind::Comma
             }
             '(' => {
                 self.advance();
-                Token::new(TokenKind::OpenParen, current_line, current_column)
+                TokenKind::OpenParen
             }
             ')' => {
                 self.advance();
-                Token::new(TokenKind::CloseParen, current_line, current_column)
+                TokenKind::CloseParen
             }
             '{' => {
                 self.advance();
-                Token::new(TokenKind::OpenBrace, current_line, current_column)
+                TokenKind::OpenBrace
             }
             '}' => {
                 self.advance();
-                Token::new(TokenKind::CloseBrace, current_line, current_column)
+                TokenKind::CloseBrace
             }
             '[' => {
                 self.advance();
-                Token::new(TokenKind::OpenBracket, current_line, current_column)
+                TokenKind::OpenBracket
             }
             ']' => {
                 self.advance();
-                Token::new(TokenKind::CloseBracket, current_line, current_column)
+                TokenKind::CloseBracket
             }
             '/' => {
                 self.advance();
@@ -177,11 +201,7 @@ impl<'a> Lexer<'a> {
                             self.advance();
                         }
                         let content = &self.source[start_pos..self.pos];
-                        Token::new(
-                            TokenKind::LineDoc(content.to_string()),
-                            current_line,
-                            current_column,
-                        )
+                        TokenKind::LineDoc(content.to_string())
                     } else {
                         // Regular comment: collect to end of line
                         let start_pos = self.pos;
@@ -189,17 +209,11 @@ impl<'a> Lexer<'a> {
                             self.advance();
                         }
                         let content = &self.source[start_pos..self.pos];
-                        Token::new(
-                            TokenKind::Comment(content.to_string()),
-                            current_line,
-                            current_column,
-                        )
+                        TokenKind::Comment(content.to_string())
                     }
                 } else if self.peek() == '*' {
                     self.advance();
                     let is_doc = if self.peek() == '*' {
-                        // Check next char to avoid treating /**/ as doc if desired,
-                        // but usually /** starts a doc comment.
                         self.advance();
                         true
                     } else {
@@ -232,34 +246,26 @@ impl<'a> Lexer<'a> {
                     };
 
                     if is_doc {
-                        Token::new(
-                            TokenKind::BlockDoc(content.to_string()),
-                            current_line,
-                            current_column,
-                        )
+                        TokenKind::BlockDoc(content.to_string())
                     } else {
-                        Token::new(
-                            TokenKind::RegularBlockComment(content.to_string()),
-                            current_line,
-                            current_column,
-                        )
+                        TokenKind::RegularBlockComment(content.to_string())
                     }
                 } else {
-                    Token::new(TokenKind::Slash, current_line, current_column)
+                    TokenKind::Slash
                 }
             }
             '*' => {
                 self.advance();
-                Token::new(TokenKind::Star, current_line, current_column)
+                TokenKind::Star
             }
             '%' => {
                 self.advance();
-                Token::new(TokenKind::Percent, current_line, current_column)
+                TokenKind::Percent
             }
-            '"' => self.lex_string(),
-            '`' => self.lex_template_literal(),
-            _ if ch.is_ascii_digit() => self.lex_number(),
-            _ if ch.is_alphabetic() || ch == '_' => self.lex_identifier(),
+            '"' => self.lex_string().kind,
+            '`' => self.lex_template_literal().kind,
+            _ if ch.is_ascii_digit() => self.lex_number().kind,
+            _ if ch.is_alphabetic() || ch == '_' => self.lex_identifier().kind,
             _ => {
                 self.advance();
                 self.diagnostics.push(Diagnostic::error(
@@ -267,8 +273,34 @@ impl<'a> Lexer<'a> {
                     current_line,
                     current_column,
                 ));
-                Token::new(TokenKind::Unknown(ch), current_line, current_column)
+                TokenKind::Unknown(ch)
             }
+        };
+
+        self.last_token_kind = Some(kind.clone());
+        Token::new(kind, current_line, current_column)
+    }
+
+    fn should_insert_semicolon(&self) -> bool {
+        match &self.last_token_kind {
+            Some(kind) => match kind {
+                TokenKind::Identifier(_)
+                | TokenKind::Number(_)
+                | TokenKind::Float(_)
+                | TokenKind::StringLiteral(_)
+                | TokenKind::TemplateLiteral(_)
+                | TokenKind::Return
+                | TokenKind::Throw
+                | TokenKind::CloseParen
+                | TokenKind::CloseBracket
+                | TokenKind::CloseBrace
+                | TokenKind::Null
+                | TokenKind::This
+                | TokenKind::Super
+                | TokenKind::Await => true,
+                _ => false,
+            },
+            None => false,
         }
     }
 
@@ -491,13 +523,15 @@ impl<'a> Lexer<'a> {
         Token::new(kind, line, column)
     }
 
-    fn skip_whitespace(&mut self) {
+    fn skip_whitespace(&mut self) -> bool {
+        let mut has_newline = false;
         while !self.is_at_end() {
             match self.peek() {
                 ' ' | '\t' | '\r' => {
                     self.advance();
                 }
                 '\n' => {
+                    has_newline = true;
                     self.line += 1;
                     self.column = 1;
                     self.pos += 1;
@@ -505,6 +539,7 @@ impl<'a> Lexer<'a> {
                 _ => break,
             }
         }
+        has_newline
     }
 
     fn advance(&mut self) -> char {

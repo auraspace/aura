@@ -313,9 +313,9 @@ impl Interpreter {
             }
             Statement::Export { decl, .. } => self.execute_statement(*decl),
             Statement::Interface(_) => StatementResult::None,
-            Statement::Comment(_, _) | Statement::RegularBlockComment(_, _) => {
-                StatementResult::None
-            }
+            Statement::Comment(_, _)
+            | Statement::RegularBlockComment(_, _)
+            | Statement::Empty(_) => StatementResult::None,
         }
     }
 

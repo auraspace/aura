@@ -63,6 +63,10 @@ impl Parser {
                 self.advance();
                 Ok(Statement::RegularBlockComment(content, s))
             }
+            TokenKind::Semicolon => {
+                self.advance();
+                Ok(Statement::Empty(s))
+            }
             _ => {
                 let expr = self.parse_expression();
                 self.consume(TokenKind::Semicolon)?;
@@ -690,7 +694,7 @@ impl Parser {
         while self.peek().kind != TokenKind::CloseBrace && !self.is_at_end() {
             if matches!(
                 self.peek().kind,
-                TokenKind::Comment(_) | TokenKind::RegularBlockComment(_)
+                TokenKind::Comment(_) | TokenKind::RegularBlockComment(_) | TokenKind::Semicolon
             ) {
                 self.advance();
                 continue;
@@ -1014,6 +1018,13 @@ impl Parser {
         let mut methods = Vec::new();
 
         while self.peek().kind != TokenKind::CloseBrace && !self.is_at_end() {
+            if matches!(
+                self.peek().kind,
+                TokenKind::Comment(_) | TokenKind::RegularBlockComment(_) | TokenKind::Semicolon
+            ) {
+                self.advance();
+                continue;
+            }
             let member_doc = self.parse_doc_comments();
             let mut ms = self.span();
 
@@ -1147,6 +1158,10 @@ impl Parser {
         let mut members = Vec::new();
 
         while self.peek().kind != TokenKind::CloseBrace && !self.is_at_end() {
+            if self.peek().kind == TokenKind::Semicolon {
+                self.advance();
+                continue;
+            }
             if let TokenKind::Identifier(mname) = self.peek().kind.clone() {
                 let name_span = self.span();
                 self.advance();

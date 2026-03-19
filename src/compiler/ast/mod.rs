@@ -294,6 +294,7 @@ pub enum Statement {
     },
     Comment(String, Span),
     RegularBlockComment(String, Span),
+    Empty(Span),
     Error,
 }
 
@@ -318,6 +319,7 @@ impl Statement {
             Statement::TryCatch { span, .. } => *span,
             Statement::Comment(_, s) => *s,
             Statement::RegularBlockComment(_, s) => *s,
+            Statement::Empty(s) => *s,
             Statement::Error => Span::new(0, 0),
         }
     }

@@ -312,6 +312,9 @@ pub(crate) fn format_statement_internal(f: &mut Formatter, stmt: &Statement, inc
             f.result.push_str("{\n");
             f.indent_level += 1;
             for stmt in stmts {
+                if matches!(stmt, Statement::Empty(_)) {
+                    continue;
+                }
                 format_statement_internal(f, stmt, true);
                 f.result.push('\n');
             }
@@ -462,5 +465,6 @@ pub(crate) fn format_statement_internal(f: &mut Formatter, stmt: &Statement, inc
             f.indent();
             f.result.push_str("// ERROR");
         }
+        Statement::Empty(_) => {}
     }
 }

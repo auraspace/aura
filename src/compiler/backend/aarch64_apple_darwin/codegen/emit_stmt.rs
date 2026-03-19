@@ -6,7 +6,9 @@ impl Codegen {
     pub fn generate_statement(&mut self, stmt: Statement) {
         match stmt {
             Statement::Enum(_) => {}
-            Statement::Comment(_, _) | Statement::RegularBlockComment(_, _) => {}
+            Statement::Comment(_, _)
+            | Statement::RegularBlockComment(_, _)
+            | Statement::Empty(_) => {}
             Statement::VarDeclaration {
                 name, ty: _, value, ..
             } => {

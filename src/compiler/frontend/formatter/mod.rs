@@ -26,12 +26,19 @@ impl Formatter {
     }
 
     pub fn format_program(mut self, program: &Program) -> String {
-        for (i, stmt) in program.statements.iter().enumerate() {
-            if i > 0 && self.needs_blank_line(&program.statements[i - 1], stmt) {
-                self.result.push('\n');
+        let mut last_stmt: Option<&Statement> = None;
+        for stmt in &program.statements {
+            if matches!(stmt, Statement::Empty(_)) {
+                continue;
+            }
+            if let Some(prev) = last_stmt {
+                if self.needs_blank_line(prev, stmt) {
+                    self.result.push('\n');
+                }
             }
             self.format_statement(stmt);
             self.result.push('\n');
+            last_stmt = Some(stmt);
         }
         self.result.trim_end().to_string() + "\n"
     }
