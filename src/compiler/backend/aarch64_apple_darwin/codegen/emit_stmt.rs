@@ -363,6 +363,7 @@ impl Codegen {
                     .push_str(&format!("    b {}\n", start_label));
                 self.emitter.output.push_str(&format!("{}:\n", end_label));
             }
+            Statement::For { .. } | Statement::ForOf { .. } => todo!("For loops in non-IR backend"),
             Statement::ClassDeclaration {
                 ref name,
                 name_span: _,

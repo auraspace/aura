@@ -7,6 +7,8 @@ pub enum TokenKind {
     If,
     Else,
     While,
+    For,
+    Of,
     Function,
     Return,
     Static, // Added Static variant

@@ -1,0 +1,10 @@
+// Test: For-Of Loop
+// Expected output:
+// 10
+// 20
+// 30
+
+let arr = [10, 20, 30];
+for (let x of arr) {
+  print x;
+}

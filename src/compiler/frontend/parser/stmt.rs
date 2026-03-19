@@ -42,6 +42,7 @@ impl Parser {
             }
             TokenKind::If => self.parse_if_statement(),
             TokenKind::While => self.parse_while_statement(),
+            TokenKind::For => self.parse_for_statement(),
             TokenKind::OpenBrace => Ok(self.parse_block()),
             TokenKind::Function => self.parse_function_declaration(doc, is_async),
             TokenKind::Return => self.parse_return_statement(),
@@ -485,6 +486,103 @@ impl Parser {
 
         Ok(Statement::While {
             condition,
+            body,
+            span: s,
+        })
+    }
+
+    pub(crate) fn parse_for_statement(&mut self) -> Result<Statement, ()> {
+        let s = self.span();
+        self.consume(TokenKind::For)?;
+        self.consume(TokenKind::OpenParen)?;
+
+        // Check if it's a for...of loop
+        // for ( [let|const] id of expr )
+        let mut is_for_of = false;
+
+        if (self.peek().kind == TokenKind::Let || self.peek().kind == TokenKind::Const)
+            && matches!(self.peek_n(1).kind, TokenKind::Identifier(_))
+            && self.peek_n(2).kind == TokenKind::Of
+        {
+            is_for_of = true;
+        }
+
+        if is_for_of {
+            let is_const = if self.peek().kind == TokenKind::Const {
+                self.advance();
+                true
+            } else {
+                self.consume(TokenKind::Let)?;
+                false
+            };
+
+            let (variable, variable_span) =
+                if let TokenKind::Identifier(name) = self.peek().kind.clone() {
+                    let token = self.advance();
+                    (name, Span::new(token.line, token.column))
+                } else {
+                    return Err(());
+                };
+
+            self.consume(TokenKind::Of)?;
+            let iterable = self.parse_expression();
+            self.consume(TokenKind::CloseParen)?;
+            let body = Box::new(match self.parse_statement() {
+                Ok(stmt) => stmt,
+                Err(_) => {
+                    self.synchronize();
+                    Statement::Error
+                }
+            });
+
+            return Ok(Statement::ForOf {
+                variable,
+                variable_span,
+                is_const,
+                iterable,
+                body,
+                span: s,
+            });
+        }
+
+        // C-style for loop: for (initializer; condition; increment)
+        let initializer = if self.peek().kind == TokenKind::Semicolon {
+            self.advance();
+            None
+        } else if self.peek().kind == TokenKind::Let || self.peek().kind == TokenKind::Const {
+            Some(Box::new(self.parse_var_declaration(None)?))
+        } else {
+            let expr = self.parse_expression();
+            self.consume(TokenKind::Semicolon)?;
+            Some(Box::new(Statement::Expression(expr, s)))
+        };
+
+        let condition = if self.peek().kind == TokenKind::Semicolon {
+            None
+        } else {
+            Some(self.parse_expression())
+        };
+        self.consume(TokenKind::Semicolon)?;
+
+        let increment = if self.peek().kind == TokenKind::CloseParen {
+            None
+        } else {
+            Some(self.parse_expression())
+        };
+        self.consume(TokenKind::CloseParen)?;
+
+        let body = Box::new(match self.parse_statement() {
+            Ok(stmt) => stmt,
+            Err(_) => {
+                self.synchronize();
+                Statement::Error
+            }
+        });
+
+        Ok(Statement::For {
+            initializer,
+            condition,
+            increment,
             body,
             span: s,
         })

@@ -155,6 +155,132 @@ impl Lowerer {
 
                 self.builder.set_block(end_label);
             }
+            Statement::For {
+                initializer,
+                condition,
+                increment,
+                body,
+                span: _,
+            } => {
+                if let Some(init) = initializer {
+                    self.lower_statement(*init);
+                }
+                let cond_label = self.builder.new_label("for_cond");
+                let body_label = self.builder.new_label("for_body");
+                let inc_label = self.builder.new_label("for_inc");
+                let end_label = self.builder.new_label("for_end");
+
+                self.builder.jump(cond_label.clone());
+                self.builder.set_block(cond_label.clone());
+
+                let cond_op = if let Some(cond) = condition {
+                    self.lower_expr(cond)
+                } else {
+                    Operand::Constant(1) // Infinite loop if no condition
+                };
+
+                self.builder
+                    .branch(cond_op, body_label.clone(), end_label.clone());
+
+                self.builder.set_block(body_label);
+                self.lower_statement(*body);
+                self.builder.jump(inc_label.clone());
+
+                self.builder.set_block(inc_label);
+                if let Some(inc) = increment {
+                    self.lower_expr(inc);
+                }
+                self.builder.jump(cond_label);
+
+                self.builder.set_block(end_label);
+            }
+            Statement::ForOf {
+                variable,
+                variable_span: _,
+                is_const: _,
+                iterable,
+                body,
+                span: _,
+            } => {
+                let iterable_op = self.lower_expr(iterable);
+                let iterable_ty = self.last_expr_ty.clone(); // Type from checker
+                let element_ty = match iterable_ty {
+                    Type::Array(inner) => *inner,
+                    _ => Type::Error,
+                };
+                let class_name = if let Type::Class(c) = &element_ty {
+                    Some(c.clone())
+                } else {
+                    None
+                };
+
+                // Hidden index variable
+                let i_reg = self.builder.new_reg();
+                self.builder
+                    .emit(crate::compiler::ir::instr::Instruction::Alloc(i_reg, 8));
+                self.builder
+                    .emit(crate::compiler::ir::instr::Instruction::Store(
+                        Operand::Constant(0),
+                        Operand::Value(i_reg),
+                        0,
+                    ));
+
+                // Get length
+                let len_op = self
+                    .builder
+                    .call("aura_array_len".to_string(), vec![iterable_op.clone()]);
+
+                let cond_label = self.builder.new_label("for_of_cond");
+                let body_label = self.builder.new_label("for_of_body");
+                let end_label = self.builder.new_label("for_of_end");
+
+                self.builder.jump(cond_label.clone());
+                self.builder.set_block(cond_label.clone());
+
+                let i_val = self.builder.load(Operand::Value(i_reg), 0);
+                let cond_op = self.builder.lt(i_val.clone(), len_op);
+
+                self.builder
+                    .branch(cond_op, body_label.clone(), end_label.clone());
+
+                self.builder.set_block(body_label);
+
+                // Get element: aura_array_get(iterable, i)
+                let element_op = self
+                    .builder
+                    .call("aura_array_get".to_string(), vec![iterable_op, i_val]);
+
+                // Loop variable allocation
+                let var_ptr = self.builder.new_reg();
+                self.builder
+                    .emit(crate::compiler::ir::instr::Instruction::Alloc(var_ptr, 8));
+                self.builder
+                    .emit(crate::compiler::ir::instr::Instruction::Store(
+                        element_op,
+                        Operand::Value(var_ptr),
+                        0,
+                    ));
+
+                // Register in mem_vars
+                self.mem_vars
+                    .insert(variable, (var_ptr, class_name, Some(element_ty)));
+
+                self.lower_statement(*body);
+
+                // Increment i
+                let i_val2 = self.builder.load(Operand::Value(i_reg), 0);
+                let i_next = self.builder.add(i_val2, Operand::Constant(1));
+                self.builder
+                    .emit(crate::compiler::ir::instr::Instruction::Store(
+                        i_next,
+                        Operand::Value(i_reg),
+                        0,
+                    ));
+
+                self.builder.jump(cond_label);
+
+                self.builder.set_block(end_label);
+            }
             Statement::Return(expr, _) => {
                 let val = self.lower_expr(expr);
                 self.builder.ret(Some(val));

@@ -60,7 +60,20 @@ impl Lowerer {
                 res_op.expect("Empty template literal")
             }
             Expr::Await(_, _) => todo!("Await in IR lower"),
-            Expr::ArrayLiteral(_, _) => todo!("Array literals in IR lower"),
+            Expr::ArrayLiteral(elements, _) => {
+                let len = elements.len();
+                let arr_ptr = self.builder.call(
+                    "aura_array_new".to_string(),
+                    vec![Operand::Constant(len as i64), Operand::Constant(0)],
+                );
+                for el in elements {
+                    let el_op = self.lower_expr(el);
+                    self.builder
+                        .call("aura_array_push".to_string(), vec![arr_ptr.clone(), el_op]);
+                }
+                self.last_expr_ty = Type::Array(Box::new(Type::Error));
+                arr_ptr
+            }
             Expr::Error(_) => panic!("Compiler bug: error node in IR lower"),
             Expr::StringLiteral(s, _) => {
                 let name = format!("str_{}", self.globals.len());

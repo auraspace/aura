@@ -230,10 +230,88 @@ impl SemanticAnalyzer {
                 }
             }
             Statement::While {
-                condition, body, ..
+                condition,
+                body,
+                span,
             } => {
-                self.check_expr(condition);
+                let cond_ty = self.check_expr(condition);
+                if cond_ty != Type::Boolean && cond_ty != Type::Error {
+                    self.error(
+                        SemanticErrorKind::TypeMismatch(
+                            "boolean".to_string(),
+                            format!("{}", cond_ty),
+                        ),
+                        span,
+                    );
+                }
                 self.check_statement(*body);
+            }
+            Statement::For {
+                initializer,
+                condition,
+                increment,
+                body,
+                span,
+            } => {
+                self.push_scope();
+                if let Some(init) = initializer {
+                    self.check_statement(*init);
+                }
+                if let Some(cond) = condition {
+                    let cond_ty = self.check_expr(cond);
+                    if cond_ty != Type::Boolean && cond_ty != Type::Error {
+                        self.error(
+                            SemanticErrorKind::TypeMismatch(
+                                "boolean".to_string(),
+                                format!("{}", cond_ty),
+                            ),
+                            span,
+                        );
+                    }
+                }
+                if let Some(inc) = increment {
+                    self.check_expr(inc);
+                }
+                self.check_statement(*body);
+                self.pop_scope();
+            }
+            Statement::ForOf {
+                variable,
+                variable_span,
+                is_const,
+                iterable,
+                body,
+                span,
+            } => {
+                let iterable_ty = self.check_expr(iterable);
+                let element_ty = match iterable_ty {
+                    Type::Array(inner) => *inner,
+                    Type::Error => Type::Error,
+                    _ => {
+                        self.error(
+                            SemanticErrorKind::TypeMismatch(
+                                "Array".to_string(),
+                                format!("{}", iterable_ty),
+                            ),
+                            span,
+                        );
+                        Type::Error
+                    }
+                };
+
+                self.push_scope();
+                self.scope.insert(
+                    variable,
+                    element_ty,
+                    false,
+                    is_const,
+                    false, // Loop variable is not exported
+                    variable_span,
+                    self.current_file.clone(),
+                    None,
+                );
+                self.check_statement(*body);
+                self.pop_scope();
             }
             Statement::Return(expr, _) => {
                 self.check_expr(expr);

@@ -203,6 +203,55 @@ impl Interpreter {
                 }
                 StatementResult::None
             }
+            Statement::For {
+                initializer,
+                condition,
+                increment,
+                body,
+                span: _,
+            } => {
+                self.push_scope();
+                if let Some(init) = initializer {
+                    self.execute_statement(*init);
+                }
+                while condition
+                    .as_ref()
+                    .map(|c| self.eval_expr(c.clone()).is_truthy())
+                    .unwrap_or(true)
+                {
+                    let res = self.execute_statement((*body).clone());
+                    if let StatementResult::Return(_) | StatementResult::Throw(_) = res {
+                        self.pop_scope();
+                        return res;
+                    }
+                    if let Some(inc) = &increment {
+                        self.eval_expr(inc.clone());
+                    }
+                }
+                self.pop_scope();
+                StatementResult::None
+            }
+            Statement::ForOf {
+                variable,
+                iterable,
+                body,
+                ..
+            } => {
+                let iter_val = self.eval_expr(iterable);
+                if let Value::Array(arr_ref) = iter_val {
+                    let arr = arr_ref.borrow().clone();
+                    for val in arr {
+                        self.push_scope();
+                        self.env.insert(variable.clone(), val);
+                        let res = self.execute_statement((*body).clone());
+                        self.pop_scope();
+                        if let StatementResult::Return(_) | StatementResult::Throw(_) = res {
+                            return res;
+                        }
+                    }
+                }
+                StatementResult::None
+            }
             Statement::Block(stmts, _) => {
                 self.push_scope();
                 let mut final_res = StatementResult::None;

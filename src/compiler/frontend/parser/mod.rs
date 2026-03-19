@@ -52,6 +52,13 @@ impl Parser {
         &self.tokens[self.pos]
     }
 
+    pub(crate) fn peek_n(&self, n: usize) -> &Token {
+        if self.pos + n >= self.tokens.len() {
+            return self.tokens.last().unwrap();
+        }
+        &self.tokens[self.pos + n]
+    }
+
     pub(crate) fn advance(&mut self) -> &Token {
         if !self.is_at_end() {
             self.pos += 1;

@@ -262,6 +262,52 @@ pub(crate) fn format_statement_internal(f: &mut Formatter, stmt: &Statement, inc
             f.result.push_str(") ");
             format_statement_internal(f, body, true);
         }
+        Statement::For {
+            initializer,
+            condition,
+            increment,
+            body,
+            ..
+        } => {
+            f.indent();
+            f.result.push_str("for (");
+            if let Some(init) = initializer {
+                let mut sub_formatter = Formatter::new();
+                format_statement_internal(&mut sub_formatter, init, false);
+                f.result
+                    .push_str(sub_formatter.result.trim_start().trim_end_matches(';'));
+            }
+            f.result.push_str("; ");
+            if let Some(cond) = condition {
+                f.format_expr(cond);
+            }
+            f.result.push_str("; ");
+            if let Some(inc) = increment {
+                f.format_expr(inc);
+            }
+            f.result.push_str(") ");
+            format_statement_internal(f, body, true);
+        }
+        Statement::ForOf {
+            variable,
+            is_const,
+            iterable,
+            body,
+            ..
+        } => {
+            f.indent();
+            f.result.push_str("for (");
+            if *is_const {
+                f.result.push_str("const ");
+            } else {
+                f.result.push_str("let ");
+            }
+            f.result.push_str(variable);
+            f.result.push_str(" of ");
+            f.format_expr(iterable);
+            f.result.push_str(") ");
+            format_statement_internal(f, body, true);
+        }
         Statement::Block(stmts, _) => {
             f.result.push_str("{\n");
             f.indent_level += 1;

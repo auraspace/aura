@@ -594,6 +594,7 @@ impl Codegen {
                     .push_str(&format!("    jmp {}\n", start_label));
                 self.emitter.output.push_str(&format!("{}:\n", end_label));
             }
+            Statement::For { .. } | Statement::ForOf { .. } => todo!("For loops in x86_64 backend"),
             Statement::ClassDeclaration {
                 name,
                 fields,
