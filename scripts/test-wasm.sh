@@ -18,4 +18,4 @@ cd "$ROOT_DIR/tests/wasm"
 
 # Ensure runtime dependencies or environment (if any) are set here
 # For now, we just run the test runner
-node run.js
+node run.js "$@"

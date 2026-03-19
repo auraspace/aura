@@ -1,0 +1,26 @@
+let age = 18;
+
+if (age >= 18) {
+  print "adult";
+} else {
+  print "minor";
+}
+
+let i = 0;
+while (i < 3) {
+  print i;
+  i = i + 1;
+}
+
+for (let j = 0; j < 3; j = j + 1) {
+  print j;
+}
+
+// Expected output:
+// adult
+// 0
+// 1
+// 2
+// 0
+// 1
+// 2

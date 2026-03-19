@@ -1,0 +1,18 @@
+let arr: i32[] = [1, 2, 3];
+print arr.len();
+arr.push(4);
+print arr.len();
+print arr.pop();
+
+let s: string = "aura lang";
+print s.len();
+print s.toUpper();
+print s.substring(0, 4);
+
+// Expected output:
+// 3
+// 4
+// 4
+// 9
+// AURA LANG
+// aura

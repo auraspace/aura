@@ -13,25 +13,15 @@ on:
       - ".github/workflows/**"
 
 jobs:
-  check-test-native:
-    runs-on: ${{ matrix.os }}
-
-    strategy:
-      matrix:
-        # ubuntu-latest
-        os: [macos-latest]
-        include:
-          - os: macos-latest
-            target: aarch64-apple-darwin
-          # - os: ubuntu-latest
-          #   target: x86_64-unknown-linux-gnu
-          # - os: windows-latest
-          #   target: x86_64-pc-windows-msvc
-
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
 
       - name: format
         run: cargo fmt --all -- --check
@@ -39,27 +29,42 @@ jobs:
       - name: lint
         run: cargo clippy -- -A warnings
 
-      - name: lib tests
-        run: cargo test --lib
+  test:
+    name: Test (${{ matrix.target }})
+    needs: lint
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [aarch64-apple-darwin, wasm32-unknown-unknown]
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: ubuntu-latest
+            target: wasm32-unknown-unknown
 
-      - name: e2e tests
-        run: cargo test --test e2e -- interp compiler
-
-  test-wasm:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: wasm32-unknown-unknown
+          targets: ${{ matrix.target }}
 
       - name: Install wasm-pack
+        if: matrix.target == 'wasm32-unknown-unknown'
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
       - uses: actions/setup-node@v4
+        if: matrix.target == 'wasm32-unknown-unknown'
         with:
           node-version: "20"
 
-      - name: Run WASM tests
+      - name: Native tests
+        if: matrix.target == 'aarch64-apple-darwin'
+        run: |
+          cargo test --lib
+          cargo test --test e2e -- interp compiler
+
+      - name: WASM tests
+        if: matrix.target == 'wasm32-unknown-unknown'
         run: ./scripts/test-wasm.sh

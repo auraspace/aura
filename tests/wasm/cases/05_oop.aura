@@ -1,0 +1,37 @@
+class Point {
+    public x: i32;
+    public y: i32;
+
+    public constructor(x: i32, y: i32) {
+        this.x = x;
+        this.y = y;
+    }
+
+    public show(): void {
+        print "Point(" + this.x + ", " + this.y + ")";
+    }
+}
+
+let p = new Point(10, 20);
+p.show();
+
+class ColorPoint extends Point {
+    public color: string;
+
+    public constructor(x: i32, y: i32, color: string) {
+        this.x = x;
+        this.y = y;
+        this.color = color;
+    }
+
+    public override show(): void {
+        print "ColorPoint(" + this.x + ", " + this.y + ", " + this.color + ")";
+    }
+}
+
+let cp = new ColorPoint(30, 40, "red");
+cp.show();
+
+// Expected output:
+// Point(10, 20)
+// ColorPoint(30, 40, red)

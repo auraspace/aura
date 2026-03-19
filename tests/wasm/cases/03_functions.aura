@@ -1,0 +1,27 @@
+function add(a: i32, b: i32): i32 {
+    return a + b;
+}
+
+print add(5, 10);
+
+function fib(n: i32): i32 {
+    if (n <= 1) {
+        return n;
+    }
+    return fib(n - 1) + fib(n - 2);
+}
+
+print fib(10);
+
+function greet(name: string, msg: string): void {
+    print msg + ", " + name;
+}
+
+greet("Aura", "Hello");
+greet("World", "Hi");
+
+// Expected output:
+// 15
+// 55
+// Hello, Aura
+// Hi, World

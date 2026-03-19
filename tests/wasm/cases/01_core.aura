@@ -1,0 +1,21 @@
+let x = 10;
+let y = 20;
+let z = x + y;
+print z;
+
+let name = "Aura";
+print "Hello, " + name;
+
+let b: boolean = true;
+if (b) {
+  print "b is true";
+}
+
+let a = 3;
+print a;
+
+// Expected output:
+// 30
+// Hello, Aura
+// b is true
+// 3

@@ -23,8 +23,7 @@ wasm-pack build \
   --target web \
   --out-dir "$OUT_DIR" \
   --out-name aura \
-  --features wasm \
-  # --no-typescript  # remove if you want .d.ts
+  --features wasm
 
 # wasm-pack adds a package.json; remove node_modules hint if present
 rm -f "$OUT_DIR/.gitignore"

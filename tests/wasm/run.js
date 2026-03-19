@@ -65,7 +65,15 @@ async function main() {
   const wasmBuffer = fs.readFileSync(WASM_PATH);
   initSync({ module: wasmBuffer });
 
-  const files = fs.readdirSync(CASES_DIR).filter((f) => f.endsWith(".aura"));
+  const filter = process.argv[2];
+  let files = fs.readdirSync(CASES_DIR).filter((f) => f.endsWith(".aura"));
+  if (filter) {
+    files = files.filter((f) => f.includes(filter));
+    if (files.length === 0) {
+      console.error(`No test cases matching: ${filter}`);
+      process.exit(1);
+    }
+  }
   let passed = 0;
   let failed = 0;
 

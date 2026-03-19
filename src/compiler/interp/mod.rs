@@ -45,6 +45,14 @@ impl Interpreter {
         interp
             .classes
             .insert("Promise".to_string(), (Vec::new(), HashMap::new()));
+
+        // Register core constants that are lexed as identifiers
+        interp.env.insert("true".to_string(), Value::Boolean(true));
+        interp
+            .env
+            .insert("false".to_string(), Value::Boolean(false));
+        interp.env.insert("null".to_string(), Value::Null);
+
         interp
     }
 
