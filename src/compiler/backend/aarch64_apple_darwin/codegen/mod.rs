@@ -98,12 +98,12 @@ impl Codegen {
                 return Type::ClassType(name.clone());
             }
             if let Some((_, ty)) = self.variables.get(name) {
-                if *ty != Type::Unknown {
+                if *ty != Type::Error {
                     return ty.clone();
                 }
             }
             if let Some((_, ty)) = self.global_variables.get(name) {
-                if *ty != Type::Unknown {
+                if *ty != Type::Error {
                     return ty.clone();
                 }
             }
@@ -111,7 +111,7 @@ impl Codegen {
 
         // 2. First try node_types from semantic analysis
         if let Some(ty) = self.get_node_type(&obj.span()) {
-            if *ty != Type::Unknown {
+            if *ty != Type::Error {
                 return ty.clone();
             }
         }
@@ -139,7 +139,7 @@ impl Codegen {
             _ => {}
         }
 
-        Type::Unknown
+        Type::Error
     }
 
     fn is_string_enum(&self, enum_name: &str) -> bool {
@@ -253,13 +253,10 @@ impl Codegen {
     }
 
     pub fn emit_string_conversion(&mut self, ty: &Option<Type>, expr_ast: &Expr) {
-        let mut actual_ty = ty.clone().unwrap_or(Type::Unknown);
+        let mut actual_ty = ty.clone().unwrap_or(Type::Error);
         actual_ty = self.get_specialized_type(&actual_ty);
 
-        if matches!(
-            actual_ty,
-            Type::Unknown | Type::Int64 | Type::GenericParam(_)
-        ) {
+        if matches!(actual_ty, Type::Error | Type::Int64 | Type::GenericParam(_)) {
             if let Expr::Variable(ref name, _) = expr_ast {
                 if name == "true" || name == "false" {
                     actual_ty = Type::Boolean;
@@ -269,7 +266,7 @@ impl Codegen {
             }
         }
         match actual_ty {
-            Type::Int32 | Type::Int64 | Type::Unknown | Type::GenericParam(_) => {
+            Type::Int32 | Type::Int64 | Type::Error | Type::GenericParam(_) => {
                 self.emitter.call("_aura_num_to_str");
             }
             Type::Boolean => {
@@ -502,7 +499,7 @@ impl Codegen {
                             let ty = self
                                 .get_node_type(&field.name_span)
                                 .cloned()
-                                .unwrap_or(Type::Unknown);
+                                .unwrap_or(Type::Error);
                             self.global_variables
                                 .insert(format!("{}.{}", name, field.name), (label, ty.clone()));
 
@@ -645,9 +642,9 @@ impl Codegen {
                         .get(&file_path)
                         .and_then(|m| m.get(&value.span()))
                         .cloned()
-                        .unwrap_or(Type::Unknown);
+                        .unwrap_or(Type::Error);
 
-                    if matches!(var_ty, Type::Unknown) {
+                    if matches!(var_ty, Type::Error) {
                         if let Expr::New(ref class_name, _, _, _, _) = value {
                             var_ty = Type::Class(class_name.clone());
                         } else if let Expr::MemberAccess(ref obj, _, _, _) = value {

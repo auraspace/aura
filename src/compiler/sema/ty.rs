@@ -20,7 +20,7 @@ pub enum Type {
     Array(Box<Type>),
     Object(HashMap<String, Type>),
     ClassType(String),
-    Unknown,
+    Error,
 }
 
 impl Type {
@@ -103,14 +103,14 @@ impl Type {
                 if filtered.len() == 1 {
                     filtered[0].clone()
                 } else if filtered.is_empty() {
-                    Type::Unknown
+                    Type::Error
                 } else {
                     Type::Union(filtered)
                 }
             }
             _ => {
                 if self == other {
-                    Type::Unknown
+                    Type::Error
                 } else {
                     self.clone()
                 }
@@ -183,7 +183,7 @@ impl std::fmt::Display for Type {
                 write!(f, " }}")
             }
             Type::ClassType(name) => write!(f, "Class<{}>", name),
-            Type::Unknown => write!(f, "unknown"),
+            Type::Error => write!(f, "unknown"),
         }
     }
 }

@@ -52,7 +52,7 @@ impl SemanticAnalyzer {
                             member_ty.clone()
                         };
 
-                        if base_first != base_current && base_current != Type::Unknown {
+                        if base_first != base_current && base_current != Type::Error {
                             self.error(
                                 SemanticErrorKind::TypeMismatch(
                                     format!("{:?}", first),
@@ -121,9 +121,11 @@ impl SemanticAnalyzer {
                 }
                 let val_span = value.span();
                 let val_ty = self.check_expr(value);
-                let declared_ty = ty
-                    .map(|t| self.resolve_type(t))
-                    .unwrap_or_else(|| val_ty.clone());
+                let declared_ty = if let Some(t) = ty {
+                    self.resolve_type(t)
+                } else {
+                    val_ty.clone()
+                };
                 if !self.is_assignable(&val_ty, &declared_ty) {
                     self.error(
                         SemanticErrorKind::TypeMismatch(
@@ -201,7 +203,7 @@ impl SemanticAnalyzer {
                                 .scope
                                 .lookup(name)
                                 .map(|s| s.ty.clone())
-                                .unwrap_or(Type::Unknown);
+                                .unwrap_or(Type::Error);
                             let excluded_ty = original_ty.exclude(&narrowed_ty);
 
                             self.push_scope();
@@ -255,10 +257,10 @@ impl SemanticAnalyzer {
                         );
                     }
                 }
-                let param_tys: Vec<Type> = params
-                    .iter()
-                    .map(|(_, ty)| self.resolve_type(ty.clone()))
-                    .collect();
+                let mut param_tys = Vec::new();
+                for (_, ty) in &params {
+                    param_tys.push(self.resolve_type(ty.clone()));
+                }
                 let ret_ty = self.resolve_type(return_ty);
 
                 // Register function before checking body for recursion
@@ -461,7 +463,7 @@ impl SemanticAnalyzer {
                     if let Some((name, ty_expr)) = catch_param {
                         let ty = self.resolve_type(ty_expr);
                         // If type is Unknown (not provided), we might want to default to Error
-                        let final_ty = if matches!(ty, Type::Unknown) {
+                        let final_ty = if matches!(ty, Type::Error) {
                             Type::Class("Error".to_string())
                         } else {
                             ty

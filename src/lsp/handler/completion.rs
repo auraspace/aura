@@ -303,7 +303,7 @@ pub fn handle_completion(
         items.push(CompletionItem {
             label: "print".to_string(),
             kind: Some(CompletionItemKind::FUNCTION),
-            detail: Some("print(value: any)".to_string()),
+            detail: Some("print<T>(value: T)".to_string()),
             documentation: Some(Documentation::String(
                 "Prints a value to the standard output.".to_string(),
             )),

@@ -81,11 +81,24 @@ impl SemanticAnalyzer {
                             m.name_span,
                         );
                     }
-                    let param_tys = m
-                        .params
-                        .iter()
-                        .map(|(_, ty)| self.resolve_type(ty.clone()))
-                        .collect();
+                    self.push_scope();
+                    for tp in &m.type_params {
+                        self.scope.insert(
+                            tp.name.clone(),
+                            Type::GenericParam(tp.name.clone()),
+                            false,
+                            true,
+                            false,
+                            tp.span,
+                            self.current_file.clone(),
+                            None,
+                        );
+                    }
+
+                    let mut param_tys = Vec::new();
+                    for (_, ty) in &m.params {
+                        param_tys.push(self.resolve_type(ty.clone()));
+                    }
                     let ret_ty = self.resolve_type(m.return_ty.clone());
                     method_map.insert(
                         m.name.clone(),
@@ -103,6 +116,7 @@ impl SemanticAnalyzer {
                             doc: m.doc.as_ref().map(|d| d.content()),
                         },
                     );
+                    self.pop_scope();
 
                     if m.is_abstract && !*is_abstract {
                         self.error(
@@ -125,11 +139,10 @@ impl SemanticAnalyzer {
                 }
 
                 let ctor_info = constructor.as_ref().map(|c| {
-                    let param_tys = c
-                        .params
-                        .iter()
-                        .map(|(_, ty)| self.resolve_type(ty.clone()))
-                        .collect();
+                    let mut param_tys = Vec::new();
+                    for (_, ty) in &c.params {
+                        param_tys.push(self.resolve_type(ty.clone()));
+                    }
                     (param_tys, c.access)
                 });
                 self.pop_scope();
@@ -203,11 +216,23 @@ impl SemanticAnalyzer {
                 }
                 let mut method_map = HashMap::new();
                 for m in &decl.methods {
-                    let param_tys = m
-                        .params
-                        .iter()
-                        .map(|(_, ty)| self.resolve_type(ty.clone()))
-                        .collect();
+                    self.push_scope();
+                    for tp in &m.type_params {
+                        self.scope.insert(
+                            tp.name.clone(),
+                            Type::GenericParam(tp.name.clone()),
+                            false,
+                            true,
+                            false,
+                            tp.span,
+                            self.current_file.clone(),
+                            None,
+                        );
+                    }
+                    let mut param_tys = Vec::new();
+                    for (_, ty) in &m.params {
+                        param_tys.push(self.resolve_type(ty.clone()));
+                    }
                     let ret_ty = self.resolve_type(m.return_ty.clone());
                     method_map.insert(
                         m.name.clone(),
@@ -225,6 +250,7 @@ impl SemanticAnalyzer {
                             doc: m.doc.as_ref().map(|d| d.content()),
                         },
                     );
+                    self.pop_scope();
                 }
                 self.pop_scope();
 
@@ -272,10 +298,10 @@ impl SemanticAnalyzer {
                         None,
                     );
                 }
-                let param_tys = params
-                    .iter()
-                    .map(|(_, ty)| self.resolve_type(ty.clone()))
-                    .collect();
+                let mut param_tys = Vec::new();
+                for (_, ty) in params {
+                    param_tys.push(self.resolve_type(ty.clone()));
+                }
                 let ret_ty = self.resolve_type(return_ty.clone());
                 self.pop_scope();
                 self.scope.insert(
@@ -306,10 +332,11 @@ impl SemanticAnalyzer {
                 }
                 // In pass 1, we try to use the declared type if available.
                 // Otherwise we use Unknown, and it will be properly inferred in pass 2.
-                let var_ty = ty
-                    .as_ref()
-                    .map(|t| self.resolve_type(t.clone()))
-                    .unwrap_or(Type::Unknown);
+                let var_ty = if let Some(t) = ty {
+                    self.resolve_type(t.clone())
+                } else {
+                    Type::Error
+                };
                 self.scope.insert(
                     name.clone(),
                     var_ty,
@@ -389,7 +416,7 @@ impl SemanticAnalyzer {
                                     // Placeholder insert for variables/functions
                                     self.scope.insert(
                                         name.clone(),
-                                        Type::Unknown,
+                                        Type::Error,
                                         false,
                                         false,
                                         is_exported,

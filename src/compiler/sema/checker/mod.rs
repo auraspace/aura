@@ -146,15 +146,21 @@ impl SemanticAnalyzer {
         let mut promise_methods = HashMap::new();
         let span = Span::new(0, 0);
 
-        // Promise.all<T>(values: Array<Promise<T>>): Promise<Array<T>>
+        let t_param = TypeParam {
+            name: "T".to_string(),
+            constraint: None,
+            span: Span::new(0, 0),
+        };
+
+        // Promise.all<T>(values: Array<T>): Promise<Array<T>>
         promise_methods.insert(
             "all".to_string(),
             MethodInfo {
-                type_params: vec![],
-                params: vec![Type::Array(Box::new(Type::Unknown))],
+                type_params: vec![t_param.clone()],
+                params: vec![Type::Array(Box::new(Type::GenericParam("T".to_string())))],
                 ret_ty: Type::Generic(
                     "Promise".to_string(),
-                    vec![Type::Array(Box::new(Type::Unknown))],
+                    vec![Type::Array(Box::new(Type::GenericParam("T".to_string())))],
                 ),
                 is_static: true,
                 is_async: false,
@@ -170,11 +176,11 @@ impl SemanticAnalyzer {
         promise_methods.insert(
             "allSettled".to_string(),
             MethodInfo {
-                type_params: vec![],
-                params: vec![Type::Array(Box::new(Type::Unknown))],
+                type_params: vec![t_param.clone()],
+                params: vec![Type::Array(Box::new(Type::GenericParam("T".to_string())))],
                 ret_ty: Type::Generic(
                     "Promise".to_string(),
-                    vec![Type::Array(Box::new(Type::Unknown))],
+                    vec![Type::Array(Box::new(Type::GenericParam("T".to_string())))],
                 ),
                 is_static: true,
                 is_async: false,
@@ -190,9 +196,12 @@ impl SemanticAnalyzer {
         promise_methods.insert(
             "any".to_string(),
             MethodInfo {
-                type_params: vec![],
-                params: vec![Type::Array(Box::new(Type::Unknown))],
-                ret_ty: Type::Generic("Promise".to_string(), vec![Type::Unknown]),
+                type_params: vec![t_param.clone()],
+                params: vec![Type::Array(Box::new(Type::GenericParam("T".to_string())))],
+                ret_ty: Type::Generic(
+                    "Promise".to_string(),
+                    vec![Type::GenericParam("T".to_string())],
+                ),
                 is_static: true,
                 is_async: false,
                 is_override: false,
@@ -207,9 +216,12 @@ impl SemanticAnalyzer {
         promise_methods.insert(
             "race".to_string(),
             MethodInfo {
-                type_params: vec![],
-                params: vec![Type::Array(Box::new(Type::Unknown))],
-                ret_ty: Type::Generic("Promise".to_string(), vec![Type::Unknown]),
+                type_params: vec![t_param.clone()],
+                params: vec![Type::Array(Box::new(Type::GenericParam("T".to_string())))],
+                ret_ty: Type::Generic(
+                    "Promise".to_string(),
+                    vec![Type::GenericParam("T".to_string())],
+                ),
                 is_static: true,
                 is_async: false,
                 is_override: false,
@@ -217,7 +229,7 @@ impl SemanticAnalyzer {
                 defined_in_class: "Promise".to_string(),
                 access: AccessModifier::Public,
                 span,
-                doc: Some("Waits for the first promise to be settled".to_string()),
+                doc: Some("Waits for any promise to be resolved".to_string()),
             },
         );
 
@@ -641,9 +653,9 @@ impl SemanticAnalyzer {
         }
     }
 
-    pub fn resolve_type(&self, te: TypeExpr) -> Type {
+    pub fn resolve_type(&mut self, te: TypeExpr) -> Type {
         match te {
-            TypeExpr::Name(n, _) => match n.as_str() {
+            TypeExpr::Name(n, s) => match n.as_str() {
                 "i32" | "Int32" | "number" | "Number" => Type::Int32,
                 "i64" | "Int64" => Type::Int64,
                 "f32" | "Float32" => Type::Float32,
@@ -651,7 +663,14 @@ impl SemanticAnalyzer {
                 "string" | "String" => Type::String,
                 "boolean" | "Boolean" | "bool" => Type::Boolean,
                 "void" | "Void" => Type::Void,
-                "any" => Type::Unknown,
+                "any" => {
+                    self.error(SemanticErrorKind::UndefinedClass("any".to_string()), s);
+                    Type::Error
+                }
+                "unknown" => {
+                    self.error(SemanticErrorKind::UndefinedClass("unknown".to_string()), s);
+                    Type::Error
+                }
                 _ => {
                     if let Some(sym) = self.scope.lookup(&n) {
                         if matches!(sym.ty, Type::Enum(_) | Type::GenericParam(_)) {
@@ -662,27 +681,40 @@ impl SemanticAnalyzer {
                 }
             },
             TypeExpr::Union(tys, _) => {
-                Type::Union(tys.into_iter().map(|t| self.resolve_type(t)).collect())
+                let mut resolved = Vec::new();
+                for t in tys {
+                    resolved.push(self.resolve_type(t));
+                }
+                Type::Union(resolved)
             }
-            TypeExpr::Generic(name, args, _) => Type::Generic(
-                name,
-                args.into_iter().map(|t| self.resolve_type(t)).collect(),
-            ),
-            TypeExpr::Array(base, _) => Type::Array(Box::new(self.resolve_type(*base))),
-            TypeExpr::Function(tparams, params, ret, _) => Type::Function(
-                tparams,
-                params.into_iter().map(|p| self.resolve_type(p)).collect(),
-                Box::new(self.resolve_type(*ret)),
-            ),
+            TypeExpr::Generic(name, args, _) => {
+                let mut resolved_args = Vec::new();
+                for t in args {
+                    resolved_args.push(self.resolve_type(t));
+                }
+                Type::Generic(name, resolved_args)
+            }
+            TypeExpr::Array(base, _) => {
+                let res = self.resolve_type(*base);
+                Type::Array(Box::new(res))
+            }
+            TypeExpr::Function(tparams, params, ret, _) => {
+                let mut resolved_params = Vec::new();
+                for p in params {
+                    resolved_params.push(self.resolve_type(p));
+                }
+                let resolved_ret = self.resolve_type(*ret);
+                Type::Function(tparams, resolved_params, Box::new(resolved_ret))
+            }
         }
     }
 
-    pub fn is_assignable(&self, src: &Type, target: &Type) -> bool {
+    pub fn is_assignable(&mut self, src: &Type, target: &Type) -> bool {
         self.is_assignable_internal(src, target, &mut Vec::new())
     }
 
     pub fn is_assignable_internal(
-        &self,
+        &mut self,
         src: &Type,
         target: &Type,
         history: &mut Vec<(Type, Type)>,
@@ -698,7 +730,7 @@ impl SemanticAnalyzer {
         history.push(pair);
 
         let result = match (src, target) {
-            (Type::Unknown, _) | (_, Type::Unknown) => true,
+            (Type::Error, _) | (_, Type::Error) => true,
 
             (s, Type::Union(options)) => options
                 .iter()
@@ -729,24 +761,29 @@ impl SemanticAnalyzer {
 
             // Interface structural typing
             (src_ty, Type::Class(tgt_name)) if self.interfaces.contains_key(tgt_name) => {
-                let tgt_iface = self.interfaces.get(tgt_name).unwrap();
+                let tgt_iface = self.interfaces.get(tgt_name).unwrap().clone();
 
                 // Get source structure (either class or interface)
-                let (src_fields, src_methods) = if let Type::Class(src_name) = src_ty {
-                    if let Some(src_class) = self.classes.get(src_name) {
-                        (Some(&src_class.fields), Some(&src_class.methods))
-                    } else if let Some(src_iface) = self.interfaces.get(src_name) {
-                        (Some(&src_iface.fields), Some(&src_iface.methods))
+                let (src_fields, src_methods) =
+                    if let Type::Class(src_name) | Type::Generic(src_name, _) = src_ty {
+                        if let Some(src_class) = self.classes.get(src_name) {
+                            (
+                                Some(src_class.fields.clone()),
+                                Some(src_class.methods.clone()),
+                            )
+                        } else if let Some(src_iface) = self.interfaces.get(src_name) {
+                            (
+                                Some(src_iface.fields.clone()),
+                                Some(src_iface.methods.clone()),
+                            )
+                        } else {
+                            (None, None)
+                        }
                     } else {
                         (None, None)
-                    }
-                } else {
-                    (None, None)
-                };
+                    };
 
                 if let (Some(fields), Some(methods)) = (src_fields, src_methods) {
-                    let fields: &HashMap<String, FieldInfo> = fields;
-                    let methods: &HashMap<String, MethodInfo> = methods;
                     // Check fields
                     for (name, tgt_f) in &tgt_iface.fields {
                         if let Some(src_f) = fields.get(name) {
@@ -789,7 +826,8 @@ impl SemanticAnalyzer {
                         return true;
                     }
 
-                    if let Some(class_info) = self.classes.get(name) {
+                    let class_info_opt = self.classes.get(name).cloned();
+                    if let Some(class_info) = class_info_opt {
                         if let Some(parent_expr) = &class_info.parent {
                             let mut parent_ty = self.resolve_type(parent_expr.clone());
                             // If source is generic, substitute parent arguments
@@ -833,12 +871,16 @@ impl SemanticAnalyzer {
         }
     }
 
-    pub fn lookup_field(&self, class_name: &str, field: &str) -> Option<(FieldInfo, String, Span)> {
+    pub fn lookup_field(
+        &mut self,
+        class_name: &str,
+        field: &str,
+    ) -> Option<(FieldInfo, String, Span)> {
         self.lookup_field_recursive(class_name, field, &HashMap::new())
     }
 
     pub fn lookup_field_with_mapping(
-        &self,
+        &mut self,
         class_name: &str,
         field: &str,
         mapping: &HashMap<String, Type>,
@@ -847,12 +889,12 @@ impl SemanticAnalyzer {
     }
 
     fn lookup_field_recursive(
-        &self,
+        &mut self,
         class_name: &str,
         field: &str,
         current_mapping: &HashMap<String, Type>,
     ) -> Option<(FieldInfo, String, Span)> {
-        if let Some(info) = self.classes.get(class_name) {
+        if let Some(info) = self.classes.get(class_name).cloned() {
             if let Some(f) = info.fields.get(field) {
                 let mut substituted_f = f.clone();
                 if !current_mapping.is_empty() {
@@ -866,17 +908,15 @@ impl SemanticAnalyzer {
                         return self.lookup_field_recursive(pn, field, current_mapping);
                     }
                     crate::compiler::ast::TypeExpr::Generic(pn, args, _) => {
-                        let resolved_args: Vec<Type> = args
-                            .iter()
-                            .map(|a| {
-                                let t = self.resolve_type(a.clone());
-                                if current_mapping.is_empty() {
-                                    t
-                                } else {
-                                    self.substitute(&t, current_mapping)
-                                }
-                            })
-                            .collect();
+                        let mut resolved_args = Vec::new();
+                        for a in args {
+                            let t = self.resolve_type(a.clone());
+                            if current_mapping.is_empty() {
+                                resolved_args.push(t);
+                            } else {
+                                resolved_args.push(self.substitute(&t, current_mapping));
+                            }
+                        }
                         if let Some(pinfo) = self.classes.get(pn) {
                             let mut next_mapping = HashMap::new();
                             for (param, arg) in pinfo.type_params.iter().zip(resolved_args.iter()) {
@@ -888,7 +928,7 @@ impl SemanticAnalyzer {
                     _ => {}
                 }
             }
-        } else if let Some(info) = self.interfaces.get(class_name) {
+        } else if let Some(info) = self.interfaces.get(class_name).cloned() {
             if let Some(f) = info.fields.get(field) {
                 let mut substituted_f = f.clone();
                 if !current_mapping.is_empty() {
@@ -901,7 +941,7 @@ impl SemanticAnalyzer {
     }
 
     pub fn lookup_method(
-        &self,
+        &mut self,
         class_name: &str,
         method: &str,
     ) -> Option<(MethodInfo, String, Span)> {
@@ -909,7 +949,7 @@ impl SemanticAnalyzer {
     }
 
     pub fn lookup_method_with_mapping(
-        &self,
+        &mut self,
         class_name: &str,
         method: &str,
         mapping: &HashMap<String, Type>,
@@ -918,12 +958,12 @@ impl SemanticAnalyzer {
     }
 
     fn lookup_method_recursive(
-        &self,
+        &mut self,
         class_name: &str,
         method: &str,
         current_mapping: &HashMap<String, Type>,
     ) -> Option<(MethodInfo, String, Span)> {
-        if let Some(info) = self.classes.get(class_name) {
+        if let Some(info) = self.classes.get(class_name).cloned() {
             if let Some(m) = info.methods.get(method) {
                 let mut substituted_m = m.clone();
                 if !current_mapping.is_empty() {
@@ -942,17 +982,15 @@ impl SemanticAnalyzer {
                         return self.lookup_method_recursive(pn, method, current_mapping);
                     }
                     crate::compiler::ast::TypeExpr::Generic(pn, args, _) => {
-                        let resolved_args: Vec<Type> = args
-                            .iter()
-                            .map(|a| {
-                                let t = self.resolve_type(a.clone());
-                                if current_mapping.is_empty() {
-                                    t
-                                } else {
-                                    self.substitute(&t, current_mapping)
-                                }
-                            })
-                            .collect();
+                        let mut resolved_args = Vec::new();
+                        for a in args {
+                            let t = self.resolve_type(a.clone());
+                            if current_mapping.is_empty() {
+                                resolved_args.push(t);
+                            } else {
+                                resolved_args.push(self.substitute(&t, current_mapping));
+                            }
+                        }
                         if let Some(pinfo) = self.classes.get(pn) {
                             let mut next_mapping = HashMap::new();
                             for (param, arg) in pinfo.type_params.iter().zip(resolved_args.iter()) {
@@ -964,7 +1002,7 @@ impl SemanticAnalyzer {
                     _ => {}
                 }
             }
-        } else if let Some(info) = self.interfaces.get(class_name) {
+        } else if let Some(info) = self.interfaces.get(class_name).cloned() {
             if let Some(m) = info.methods.get(method) {
                 let mut substituted_m = m.clone();
                 if !current_mapping.is_empty() {
@@ -982,7 +1020,7 @@ impl SemanticAnalyzer {
     }
 
     pub fn lookup_method_for_type(
-        &self,
+        &mut self,
         ty: &Type,
         method: &str,
     ) -> Option<(MethodInfo, String, Span)> {
@@ -990,13 +1028,13 @@ impl SemanticAnalyzer {
             Type::Class(name) => self.lookup_method(name, method),
             Type::ClassType(name) => self.lookup_method(name, method),
             Type::Generic(name, args) => {
-                if let Some(info) = self.classes.get(name) {
+                if let Some(info) = self.classes.get(name).cloned() {
                     let mut mapping = HashMap::new();
                     for (param, arg) in info.type_params.iter().zip(args.iter()) {
                         mapping.insert(param.name.clone(), arg.clone());
                     }
                     self.lookup_method_with_mapping(name, method, &mapping)
-                } else if let Some(info) = self.interfaces.get(name) {
+                } else if let Some(info) = self.interfaces.get(name).cloned() {
                     let mut mapping = HashMap::new();
                     for (param, arg) in info.type_params.iter().zip(args.iter()) {
                         mapping.insert(param.name.clone(), arg.clone());
@@ -1011,7 +1049,7 @@ impl SemanticAnalyzer {
     }
 
     pub fn lookup_field_for_type(
-        &self,
+        &mut self,
         ty: &Type,
         field: &str,
     ) -> Option<(FieldInfo, String, Span)> {
@@ -1019,13 +1057,13 @@ impl SemanticAnalyzer {
             Type::Class(name) => self.lookup_field(name, field),
             Type::ClassType(name) => self.lookup_field(name, field),
             Type::Generic(name, args) => {
-                if let Some(info) = self.classes.get(name) {
+                if let Some(info) = self.classes.get(name).cloned() {
                     let mut mapping = HashMap::new();
                     for (param, arg) in info.type_params.iter().zip(args.iter()) {
                         mapping.insert(param.name.clone(), arg.clone());
                     }
                     self.lookup_field_with_mapping(name, field, &mapping)
-                } else if let Some(info) = self.interfaces.get(name) {
+                } else if let Some(info) = self.interfaces.get(name).cloned() {
                     let mut mapping = HashMap::new();
                     for (param, arg) in info.type_params.iter().zip(args.iter()) {
                         mapping.insert(param.name.clone(), arg.clone());
@@ -1206,7 +1244,8 @@ impl SemanticAnalyzer {
                     crate::compiler::ast::TypeExpr::Generic(n, _, _) => n.clone(),
                     _ => continue,
                 };
-                if let Some(iface_info) = self.interfaces.get(&iface_name) {
+                let iface_info_opt = self.interfaces.get(&iface_name).cloned();
+                if let Some(iface_info) = iface_info_opt {
                     let mut type_args = Vec::new();
                     if let crate::compiler::ast::TypeExpr::Generic(_, args, _) = iface_expr {
                         for arg_expr in args {
@@ -1287,6 +1326,36 @@ impl SemanticAnalyzer {
                     );
                 }
             }
+        }
+    }
+
+    pub fn infer_type_args(
+        &self,
+        _type_params: &[TypeParam],
+        param_tys: &[Type],
+        arg_tys: &[Type],
+    ) -> HashMap<String, Type> {
+        let mut mapping = HashMap::new();
+        for (param, arg) in param_tys.iter().zip(arg_tys.iter()) {
+            self.infer_recursive(param, arg, &mut mapping);
+        }
+        mapping
+    }
+
+    fn infer_recursive(&self, param: &Type, arg: &Type, mapping: &mut HashMap<String, Type>) {
+        match (param, arg) {
+            (Type::GenericParam(name), _) => {
+                mapping.insert(name.clone(), arg.clone());
+            }
+            (Type::Array(p_inner), Type::Array(a_inner)) => {
+                self.infer_recursive(p_inner, a_inner, mapping);
+            }
+            (Type::Generic(p_name, p_args), Type::Generic(a_name, a_args)) if p_name == a_name => {
+                for (p, a) in p_args.iter().zip(a_args.iter()) {
+                    self.infer_recursive(p, a, mapping);
+                }
+            }
+            _ => {}
         }
     }
 }

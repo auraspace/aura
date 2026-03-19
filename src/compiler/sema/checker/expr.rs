@@ -2,6 +2,7 @@ use crate::compiler::ast::{AccessModifier, Expr, Span};
 use crate::compiler::sema::checker::SemanticAnalyzer;
 use crate::compiler::sema::checker::SemanticErrorKind;
 use crate::compiler::sema::ty::Type;
+use std::collections::HashMap;
 
 impl SemanticAnalyzer {
     pub fn check_expr(&mut self, expr: Expr) -> Type {
@@ -35,7 +36,7 @@ impl SemanticAnalyzer {
                     element_tys.push(self.check_expr(el));
                 }
                 let base_ty = if element_tys.is_empty() {
-                    Type::Unknown
+                    Type::Error
                 } else {
                     let first = element_tys[0].clone();
                     if element_tys.iter().all(|t| *t == first) {
@@ -47,7 +48,7 @@ impl SemanticAnalyzer {
                 Type::Array(Box::new(base_ty))
             }
             Expr::Null(_) => Type::Null,
-            Expr::Error(_s) => Type::Unknown,
+            Expr::Error(_s) => Type::Error,
             Expr::Variable(name, span) => {
                 if let Some(sym) = self.scope.lookup(&name) {
                     let ty = sym.ty.clone();
@@ -65,7 +66,7 @@ impl SemanticAnalyzer {
                     Type::ClassType(name)
                 } else {
                     self.error(SemanticErrorKind::UndefinedVariable(name), span);
-                    Type::Unknown
+                    Type::Error
                 }
             }
             Expr::BinaryOp(left, op, right, span) => {
@@ -77,7 +78,7 @@ impl SemanticAnalyzer {
                         let is_nullable = |ty: &Type| {
                             matches!(
                                 ty,
-                                Type::Class(_) | Type::Union(_) | Type::Unknown | Type::Null
+                                Type::Class(_) | Type::Union(_) | Type::Error | Type::Null
                             )
                         };
                         let ok = if lhs == rhs {
@@ -137,7 +138,7 @@ impl SemanticAnalyzer {
                                 ),
                                 span,
                             );
-                            Type::Unknown
+                            Type::Error
                         }
                     }
                     "&" | "|" | "^" | "<<" | ">>" => {
@@ -152,10 +153,10 @@ impl SemanticAnalyzer {
                                 ),
                                 span,
                             );
-                            Type::Unknown
+                            Type::Error
                         }
                     }
-                    _ => Type::Unknown,
+                    _ => Type::Error,
                 }
             }
             Expr::Assign(name, value, span) => {
@@ -198,16 +199,30 @@ impl SemanticAnalyzer {
                     arg_tys.push(self.check_expr(arg));
                 }
 
-                let _resolved_type_args: Vec<Type> = type_args
-                    .into_iter()
-                    .map(|ta| self.resolve_type(ta))
-                    .collect();
+                let mut _resolved_type_args = Vec::new();
+                for ta in type_args {
+                    _resolved_type_args.push(self.resolve_type(ta));
+                }
 
                 let sym = self.scope.lookup(&name);
                 let function_ty = sym.map(|s| s.ty.clone());
 
                 if let Some(Type::Function(type_params, param_tys, ret_ty)) = function_ty {
-                    // TODO: Handle generic function instantiation if needed
+                    let mut mapping = HashMap::new();
+                    if _resolved_type_args.is_empty() && !type_params.is_empty() {
+                        mapping = self.infer_type_args(&type_params, &param_tys, &arg_tys);
+                    } else if !_resolved_type_args.is_empty() {
+                        for (param, arg) in type_params.iter().zip(_resolved_type_args.iter()) {
+                            mapping.insert(param.name.clone(), arg.clone());
+                        }
+                    }
+
+                    let substituted_params: Vec<Type> = param_tys
+                        .iter()
+                        .map(|p| self.substitute(p, &mapping))
+                        .collect();
+                    let substituted_ret = self.substitute(&ret_ty, &mapping);
+
                     if self.record_node_info {
                         if let Some(sym) = self.scope.lookup(&name) {
                             let doc = sym.doc.clone();
@@ -227,36 +242,38 @@ impl SemanticAnalyzer {
                             );
                         }
                         // Also record return type for the whole call span
-                        self.record_type(span, (*ret_ty).clone());
+                        self.record_type(span, substituted_ret.clone());
                     }
-                    if param_tys.len() != arg_tys.len() {
+
+                    if substituted_params.len() != arg_tys.len() {
                         self.error(
                             SemanticErrorKind::WrongArgumentCount(
                                 name,
-                                param_tys.len(),
+                                substituted_params.len(),
                                 arg_tys.len(),
                             ),
                             span,
                         );
-                        return (*ret_ty).clone();
+                        return substituted_ret;
                     }
+
                     for (i, arg_ty) in arg_tys.iter().enumerate() {
-                        if !self.is_assignable(arg_ty, &param_tys[i]) {
+                        if !self.is_assignable(arg_ty, &substituted_params[i]) {
                             self.error(
                                 SemanticErrorKind::TypeMismatch(
-                                    format!("{:?}", param_tys[i]),
+                                    format!("{:?}", substituted_params[i]),
                                     format!("{:?}", arg_ty),
                                 ),
                                 span,
                             );
-                        } else if arg_ty != &param_tys[i] && self.record_node_info {
-                            self.record_type(arg_spans[i], param_tys[i].clone());
+                        } else if arg_ty != &substituted_params[i] && self.record_node_info {
+                            self.record_type(arg_spans[i], substituted_params[i].clone());
                         }
                     }
-                    *ret_ty
+                    substituted_ret
                 } else {
                     self.error(SemanticErrorKind::UndefinedFunction(name), name_span);
-                    Type::Unknown
+                    Type::Error
                 }
             }
             Expr::New(class_name, type_args, name_span, args, span) => {
@@ -269,10 +286,10 @@ impl SemanticAnalyzer {
                         );
                     }
 
-                    let resolved_type_args: Vec<Type> = type_args
-                        .into_iter()
-                        .map(|ta| self.resolve_type(ta))
-                        .collect();
+                    let mut resolved_type_args = Vec::new();
+                    for ta in type_args {
+                        resolved_type_args.push(self.resolve_type(ta));
+                    }
 
                     if resolved_type_args.len() != class_info.type_params.len() {
                         self.error(
@@ -347,7 +364,7 @@ impl SemanticAnalyzer {
                     for arg in args {
                         self.check_expr(arg);
                     }
-                    Type::Unknown
+                    Type::Error
                 }
             }
             Expr::MemberAccess(obj, field, name_span, span) => {
@@ -369,7 +386,7 @@ impl SemanticAnalyzer {
                         ),
                         name_span,
                     );
-                    return Type::Unknown;
+                    return Type::Error;
                 }
 
                 if let Some((finfo, class_defined_in, class_span)) =
@@ -415,7 +432,7 @@ impl SemanticAnalyzer {
                         SemanticErrorKind::UndefinedField(type_name, field),
                         name_span,
                     );
-                    Type::Unknown
+                    Type::Error
                 }
             }
             Expr::MemberAssign(obj, field, value, name_span, span) => {
@@ -491,7 +508,7 @@ impl SemanticAnalyzer {
                         SemanticErrorKind::UndefinedField(type_name, field),
                         name_span,
                     );
-                    Type::Unknown
+                    Type::Error
                 }
             }
             Expr::MethodCall(obj, method, type_args, name_span, args, span) => {
@@ -502,10 +519,10 @@ impl SemanticAnalyzer {
                     arg_tys.push(self.check_expr(arg));
                 }
 
-                let _resolved_type_args: Vec<Type> = type_args
-                    .into_iter()
-                    .map(|ta| self.resolve_type(ta))
-                    .collect();
+                let mut _resolved_type_args = Vec::new();
+                for ta in type_args {
+                    _resolved_type_args.push(self.resolve_type(ta));
+                }
 
                 if let Some((minfo, class_defined_in, class_span)) =
                     self.lookup_method_for_type(&obj_ty, &method)
@@ -536,26 +553,43 @@ impl SemanticAnalyzer {
 
                     self.check_access(&minfo.defined_in_class, &method, minfo.access, name_span);
 
-                    if arg_tys.len() != minfo.params.len() {
+                    let mut mapping = HashMap::new();
+                    if _resolved_type_args.is_empty() && !minfo.type_params.is_empty() {
+                        mapping = self.infer_type_args(&minfo.type_params, &minfo.params, &arg_tys);
+                    } else if !_resolved_type_args.is_empty() {
+                        for (param, arg) in minfo.type_params.iter().zip(_resolved_type_args.iter())
+                        {
+                            mapping.insert(param.name.clone(), arg.clone());
+                        }
+                    }
+
+                    let substituted_params: Vec<Type> = minfo
+                        .params
+                        .iter()
+                        .map(|p| self.substitute(p, &mapping))
+                        .collect();
+                    let substituted_ret = self.substitute(&minfo.ret_ty, &mapping);
+
+                    if substituted_params.len() != arg_tys.len() {
                         self.error(
                             SemanticErrorKind::ArgumentCountMismatch(
-                                minfo.params.len(),
+                                substituted_params.len(),
                                 arg_tys.len(),
                             ),
                             span,
                         );
                     } else {
                         for (i, arg_ty) in arg_tys.iter().enumerate() {
-                            if !self.is_assignable(arg_ty, &minfo.params[i]) {
+                            if !self.is_assignable(arg_ty, &substituted_params[i]) {
                                 self.error(
                                     SemanticErrorKind::TypeMismatch(
-                                        minfo.params[i].to_string(),
+                                        substituted_params[i].to_string(),
                                         arg_ty.to_string(),
                                     ),
                                     arg_spans[i],
                                 );
-                            } else if arg_ty != &minfo.params[i] && self.record_node_info {
-                                self.record_type(arg_spans[i], minfo.params[i].clone());
+                            } else if arg_ty != &substituted_params[i] && self.record_node_info {
+                                self.record_type(arg_spans[i], substituted_params[i].clone());
                             }
                         }
                     }
@@ -566,13 +600,13 @@ impl SemanticAnalyzer {
                             name_span,
                             Type::Function(
                                 minfo.type_params.clone(),
-                                minfo.params.clone(),
-                                Box::new(minfo.ret_ty.clone()),
+                                substituted_params.clone(),
+                                Box::new(substituted_ret.clone()),
                             ),
                         );
-                        self.record_type(span, minfo.ret_ty.clone());
+                        self.record_type(span, substituted_ret.clone());
                     }
-                    return minfo.ret_ty;
+                    return substituted_ret;
                 }
 
                 // Handle special types
@@ -588,7 +622,7 @@ impl SemanticAnalyzer {
                                 SemanticErrorKind::UndefinedMethod("string".to_string(), method),
                                 span,
                             );
-                            Type::Unknown
+                            Type::Error
                         }
                     },
                     Type::Array(ref inner) => match method.as_str() {
@@ -602,7 +636,7 @@ impl SemanticAnalyzer {
                                 SemanticErrorKind::UndefinedMethod("array".to_string(), method),
                                 span,
                             );
-                            Type::Unknown
+                            Type::Error
                         }
                     },
                     _ => {
@@ -613,11 +647,11 @@ impl SemanticAnalyzer {
                             _ => format!("{:?}", obj_ty),
                         };
                         self.error(SemanticErrorKind::UndefinedMethod(type_name, method), span);
-                        Type::Unknown
+                        Type::Error
                     }
                 };
 
-                if self.record_node_info && !matches!(ret_ty, Type::Unknown) {
+                if self.record_node_info && !matches!(ret_ty, Type::Error) {
                     self.record_type(span, ret_ty.clone());
                 }
                 ret_ty
@@ -625,7 +659,7 @@ impl SemanticAnalyzer {
             Expr::This(span) => {
                 if self.is_static_context {
                     self.error(SemanticErrorKind::ThisInStaticMethod, span);
-                    return Type::Unknown;
+                    return Type::Error;
                 }
                 if let Some(class_name) = &self.current_class {
                     Type::Class(class_name.clone())
@@ -634,7 +668,7 @@ impl SemanticAnalyzer {
                         SemanticErrorKind::UndefinedVariable("this".to_string()),
                         span,
                     );
-                    Type::Unknown
+                    Type::Error
                 }
             }
             Expr::TypeTest(expr, ty_expr, _) => {
@@ -654,7 +688,7 @@ impl SemanticAnalyzer {
                         span,
                     );
                 }
-                Type::Unknown // throw doesn't "return" a value to its context
+                Type::Error // throw doesn't "return" a value to its context
             }
             Expr::Index(obj, index, span) => {
                 let obj_ty = self.check_expr(*obj);
@@ -680,7 +714,7 @@ impl SemanticAnalyzer {
                         ),
                         span,
                     );
-                    Type::Unknown
+                    Type::Error
                 }
             }
             Expr::IndexAssign(obj, index, value, span) => {
@@ -714,7 +748,7 @@ impl SemanticAnalyzer {
                         ),
                         span,
                     );
-                    Type::Unknown
+                    Type::Error
                 }
             }
 
@@ -733,13 +767,13 @@ impl SemanticAnalyzer {
                         ),
                         span,
                     );
-                    Type::Unknown
+                    Type::Error
                 }
             }
             Expr::Super(span) => {
                 if self.is_static_context {
                     self.error(SemanticErrorKind::SuperInStaticMethod, span);
-                    return Type::Unknown;
+                    return Type::Error;
                 }
                 if let Some(class_name) = &self.current_class {
                     if let Some(class_info) = self.classes.get(class_name) {
@@ -747,14 +781,14 @@ impl SemanticAnalyzer {
                             self.resolve_type(parent_expr.clone())
                         } else {
                             self.error(SemanticErrorKind::NoParentClass(class_name.clone()), span);
-                            Type::Unknown
+                            Type::Error
                         }
                     } else {
-                        Type::Unknown
+                        Type::Error
                     }
                 } else {
                     self.error(SemanticErrorKind::SuperOutsideClass, span);
-                    Type::Unknown
+                    Type::Error
                 }
             }
             Expr::SuperCall(args, span) => {

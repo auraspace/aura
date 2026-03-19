@@ -24,7 +24,7 @@ impl Interpreter {
                     .map(|t| self.resolve_type(t))
                     .collect::<Vec<_>>(),
             ),
-            _ => Type::Unknown,
+            _ => Type::Error,
         }
     }
 

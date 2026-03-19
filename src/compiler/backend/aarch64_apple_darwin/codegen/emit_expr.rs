@@ -467,12 +467,12 @@ impl Codegen {
                     let mut ty = self
                         .get_node_type(&obj_span)
                         .cloned()
-                        .unwrap_or(Type::Unknown);
+                        .unwrap_or(Type::Error);
 
-                    if matches!(ty, Type::Unknown) {
+                    if matches!(ty, Type::Error) {
                         match &*obj {
                             Expr::StringLiteral(_, _) => ty = Type::String,
-                            Expr::ArrayLiteral(_, _) => ty = Type::Array(Box::new(Type::Unknown)),
+                            Expr::ArrayLiteral(_, _) => ty = Type::Array(Box::new(Type::Error)),
                             Expr::Variable(ref name, _) => {
                                 if let Some((_, var_ty)) = self.variables.get(name) {
                                     ty = var_ty.clone();
@@ -484,7 +484,7 @@ impl Codegen {
                         }
                     }
 
-                    if matches!(ty, Type::Unknown) {
+                    if matches!(ty, Type::Error) {
                         if matches!(
                             member.as_str(),
                             "charAt"
@@ -498,7 +498,7 @@ impl Codegen {
                             ty = Type::String;
                         } else if matches!(member.as_str(), "push" | "pop" | "join" | "get" | "len")
                         {
-                            ty = Type::Array(Box::new(Type::Unknown));
+                            ty = Type::Array(Box::new(Type::Error));
                         }
                     }
 
@@ -561,13 +561,11 @@ impl Codegen {
                         let mut ty = self
                             .get_node_type(&obj_span)
                             .cloned()
-                            .unwrap_or(Type::Unknown);
-                        if matches!(ty, Type::Unknown) {
+                            .unwrap_or(Type::Error);
+                        if matches!(ty, Type::Error) {
                             match &*obj {
                                 Expr::StringLiteral(_, _) => ty = Type::String,
-                                Expr::ArrayLiteral(_, _) => {
-                                    ty = Type::Array(Box::new(Type::Unknown))
-                                }
+                                Expr::ArrayLiteral(_, _) => ty = Type::Array(Box::new(Type::Error)),
                                 Expr::Variable(ref name, _) => {
                                     if let Some((_, var_ty)) = self.variables.get(name) {
                                         ty = var_ty.clone();
@@ -580,7 +578,7 @@ impl Codegen {
                                 _ => {}
                             }
                         }
-                        if matches!(ty, Type::Unknown) {
+                        if matches!(ty, Type::Error) {
                             if matches!(
                                 member.as_str(),
                                 "charAt"
@@ -596,7 +594,7 @@ impl Codegen {
                                 member.as_str(),
                                 "push" | "pop" | "join" | "get" | "len"
                             ) {
-                                ty = Type::Array(Box::new(Type::Unknown));
+                                ty = Type::Array(Box::new(Type::Error));
                             }
                         }
                         if matches!(ty, Type::String) {
@@ -740,9 +738,8 @@ impl Codegen {
                         }
                         TemplatePart::Expr(expr) => {
                             let span = expr.span();
-                            let mut ty =
-                                self.get_node_type(&span).cloned().unwrap_or(Type::Unknown);
-                            if matches!(ty, Type::Unknown | Type::Int64) {
+                            let mut ty = self.get_node_type(&span).cloned().unwrap_or(Type::Error);
+                            if matches!(ty, Type::Error | Type::Int64) {
                                 if let Expr::Variable(ref name, _) = *expr {
                                     if name == "true" || name == "false" {
                                         ty = Type::Boolean;
@@ -753,7 +750,7 @@ impl Codegen {
                             }
                             self.generate_expr((*expr).clone());
                             match ty {
-                                Type::Int32 | Type::Int64 | Type::Unknown => {
+                                Type::Int32 | Type::Int64 | Type::Error => {
                                     self.emitter.call("_aura_num_to_str");
                                 }
                                 Type::Boolean => {
@@ -785,7 +782,7 @@ impl Codegen {
                 let element_ty = if let Some(Type::Array(inner)) = self.get_node_type(&span) {
                     (**inner).clone()
                 } else {
-                    Type::Unknown
+                    Type::Error
                 };
                 let tag = self.get_type_tag(&element_ty);
 

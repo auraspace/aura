@@ -78,7 +78,7 @@ impl Lowerer {
                         if let Some(cls) = cls_name {
                             Type::Class(cls)
                         } else {
-                            Type::Unknown
+                            Type::Error
                         }
                     });
                     let dest = self.builder.new_reg();
@@ -177,7 +177,7 @@ impl Lowerer {
                     .function_tys
                     .get(&name)
                     .cloned()
-                    .unwrap_or((vec![], Type::Unknown));
+                    .unwrap_or((vec![], Type::Error));
                 let mut ir_args = Vec::new();
                 for (i, a) in args.into_iter().enumerate() {
                     let mut op = self.lower_expr(a);
@@ -233,7 +233,7 @@ impl Lowerer {
                     .function_tys
                     .get(&ctor_name)
                     .cloned()
-                    .unwrap_or((vec![], Type::Unknown));
+                    .unwrap_or((vec![], Type::Error));
 
                 let mut ctor_args = vec![obj_reg.clone()];
                 for (i, a) in args.into_iter().enumerate() {
@@ -261,7 +261,7 @@ impl Lowerer {
                     .current_class
                     .as_ref()
                     .map(|c| Type::Class(c.clone()))
-                    .unwrap_or(Type::Unknown);
+                    .unwrap_or(Type::Error);
                 let dest = self.builder.new_reg();
                 self.builder
                     .emit(crate::compiler::ir::instr::Instruction::Load(
@@ -298,7 +298,7 @@ impl Lowerer {
                         .get(&cls_name)
                         .and_then(|s| s.get(&field))
                         .cloned()
-                        .unwrap_or(Type::Unknown);
+                        .unwrap_or(Type::Error);
                     let dest = self.builder.new_reg();
                     self.builder
                         .emit(crate::compiler::ir::instr::Instruction::Load(
@@ -321,7 +321,7 @@ impl Lowerer {
                         .get(&cls_name)
                         .and_then(|s| s.get(&field))
                         .cloned()
-                        .unwrap_or(Type::Unknown);
+                        .unwrap_or(Type::Error);
 
                     if field_ty.is_float() && self.last_expr_ty.is_integer() {
                         val_op = self.builder.itof(val_op);
@@ -355,7 +355,7 @@ impl Lowerer {
                             let mut ir_args = vec![obj_op]; // obj_op is 'this' for super
                             ir_args.extend(args.into_iter().map(|a| self.lower_expr(a)));
                             // TODO: Lookup correct return type
-                            self.last_expr_ty = Type::Unknown;
+                            self.last_expr_ty = Type::Error;
                             return self.builder.call(mangled_name, ir_args);
                         }
                     }
@@ -363,7 +363,7 @@ impl Lowerer {
 
                 let mut is_static = false;
                 let mut vtable_idx = None;
-                let mut return_ty = Type::Unknown;
+                let mut return_ty = Type::Error;
 
                 let mangled_name = if let Type::Class(ref cls_name) = obj_ty {
                     if let Some(statics) = self.static_methods.get(cls_name) {
@@ -393,7 +393,7 @@ impl Lowerer {
                     .function_tys
                     .get(&mangled_name)
                     .cloned()
-                    .unwrap_or((vec![], Type::Unknown));
+                    .unwrap_or((vec![], Type::Error));
 
                 let mut ir_args = Vec::new();
                 if !is_static {
@@ -435,7 +435,7 @@ impl Lowerer {
                     .as_ref()
                     .and_then(|c| self.parent_classes.get(c))
                     .map(|p| Type::Class(p.clone()))
-                    .unwrap_or(Type::Unknown);
+                    .unwrap_or(Type::Error);
                 let dest = self.builder.new_reg();
                 self.builder
                     .emit(crate::compiler::ir::instr::Instruction::Load(
@@ -470,7 +470,7 @@ impl Lowerer {
                             .function_tys
                             .get(&ctor_name)
                             .cloned()
-                            .unwrap_or((vec![], Type::Unknown));
+                            .unwrap_or((vec![], Type::Error));
 
                         let mut ir_args = vec![this_op];
                         for (i, a) in args.into_iter().enumerate() {

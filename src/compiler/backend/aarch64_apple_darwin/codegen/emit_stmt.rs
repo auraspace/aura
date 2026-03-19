@@ -13,14 +13,14 @@ impl Codegen {
                 let mut var_ty = self
                     .get_node_type(&value.span())
                     .cloned()
-                    .unwrap_or(Type::Unknown);
-                if matches!(var_ty, Type::Unknown | Type::Int64) {
+                    .unwrap_or(Type::Error);
+                if matches!(var_ty, Type::Error | Type::Int64) {
                     match value {
                         Expr::StringLiteral(_, _) => var_ty = Type::String,
                         Expr::Variable(ref n, _) if n == "true" || n == "false" => {
                             var_ty = Type::Boolean
                         }
-                        Expr::ArrayLiteral(_, _) => var_ty = Type::Array(Box::new(Type::Unknown)),
+                        Expr::ArrayLiteral(_, _) => var_ty = Type::Array(Box::new(Type::Error)),
                         Expr::MethodCall(_, ref member, _, _, _, _) => {
                             if matches!(
                                 member.as_str(),
@@ -110,7 +110,7 @@ impl Codegen {
                     let pty = self
                         .get_node_type(&ty_expr.span())
                         .cloned()
-                        .unwrap_or(Type::Unknown);
+                        .unwrap_or(Type::Error);
                     self.stack_offset += 16;
                     self.variables
                         .insert(pname.clone(), (self.stack_offset, pty));

@@ -5,35 +5,35 @@ export class Array {
   /**
    * Returns the length of an array.
    */
-  public static len(a: any[]): i32 {
+  public static len<T>(a: T[]): i32 {
     return a.len();
   }
 
   /**
    * Pushes an item to the end of an array.
    */
-  public static push(a: any[], item: any): void {
+  public static push<T>(a: T[], item: T): void {
     a.push(item);
   }
 
   /**
    * Pops an item from the end of an array.
    */
-  public static pop(a: any[]): any {
+  public static pop<T>(a: T[]): T {
     return a.pop();
   }
 
   /**
    * Joins elements of an array into a string.
    */
-  public static join(a: any[], sep: string): string {
+  public static join<T>(a: T[], sep: string): string {
     return a.join(sep);
   }
 
   /**
    * Returns the element at the given index.
    */
-  public static get(a: any[], i: i32): any {
+  public static get<T>(a: T[], i: i32): T {
     return a.get(i);
   }
 }

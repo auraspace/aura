@@ -5,7 +5,6 @@ pub enum IrType {
     F32,
     F64,
     Pointer,
-    Any, // Tagged union (16 bytes: 8-byte tag + 8-byte value)
     Void,
 }
 
@@ -106,7 +105,6 @@ impl std::fmt::Display for IrType {
             IrType::F32 => write!(f, "f32"),
             IrType::F64 => write!(f, "f64"),
             IrType::Pointer => write!(f, "ptr"),
-            IrType::Any => write!(f, "any"),
             IrType::Void => write!(f, "void"),
         }
     }

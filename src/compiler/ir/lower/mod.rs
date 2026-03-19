@@ -47,7 +47,7 @@ impl Lowerer {
             method_to_idx: HashMap::new(),
             next_method_idx: 0,
             enums: HashMap::new(),
-            last_expr_ty: Type::Unknown,
+            last_expr_ty: Type::Error,
         }
     }
 
@@ -507,7 +507,7 @@ impl Lowerer {
                 Type::Union(tys.into_iter().map(|t| self.resolve_type(t)).collect())
             }
             TypeExpr::Array(inner, _) => Type::Array(Box::new(self.resolve_type(*inner))),
-            _ => Type::Unknown,
+            _ => Type::Error,
         }
     }
 }
