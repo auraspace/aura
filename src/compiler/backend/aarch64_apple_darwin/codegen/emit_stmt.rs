@@ -363,7 +363,109 @@ impl Codegen {
                     .push_str(&format!("    b {}\n", start_label));
                 self.emitter.output.push_str(&format!("{}:\n", end_label));
             }
-            Statement::For { .. } | Statement::ForOf { .. } => todo!("For loops in non-IR backend"),
+            Statement::For {
+                initializer,
+                condition,
+                increment,
+                body,
+                span: _,
+            } => {
+                let start_label = self.new_label("for_start");
+                let end_label = self.new_label("for_end");
+
+                if let Some(init) = initializer {
+                    self.generate_statement(*init);
+                }
+
+                self.emitter.output.push_str(&format!("{}:\n", start_label));
+
+                if let Some(cond) = condition {
+                    self.generate_expr(cond);
+                    self.emitter
+                        .output
+                        .push_str(&format!("    cbz x0, {}\n", end_label));
+                }
+
+                self.generate_statement(*body);
+
+                if let Some(inc) = increment {
+                    self.generate_expr(inc);
+                }
+
+                self.emitter
+                    .output
+                    .push_str(&format!("    b {}\n", start_label));
+                self.emitter.output.push_str(&format!("{}:\n", end_label));
+            }
+            Statement::ForOf {
+                variable,
+                variable_span,
+                is_const: _,
+                iterable,
+                body,
+                span: _,
+            } => {
+                // 1. Generate iterable
+                self.generate_expr(iterable);
+                // x0 now has AuraArray pointer
+
+                self.stack_offset += 16;
+                let array_stack_offset = self.stack_offset;
+                self.store_local("x0", array_stack_offset);
+
+                // 2. Counter = 0
+                self.stack_offset += 16;
+                let counter_stack_offset = self.stack_offset;
+                self.emitter.output.push_str("    mov x0, #0\n");
+                self.store_local("x0", counter_stack_offset);
+
+                let start_label = self.new_label("for_of_start");
+                let end_label = self.new_label("for_of_end");
+
+                self.emitter.output.push_str(&format!("{}:\n", start_label));
+
+                // 3. Check counter < array.size
+                self.load_local("x0", array_stack_offset); // x0 = array pointer
+                self.emitter.output.push_str("    ldr x1, [x0, #8]\n"); // x1 = array.size
+                self.load_local("x0", counter_stack_offset); // x0 = counter
+                self.emitter.output.push_str("    cmp x0, x1\n");
+                self.emitter
+                    .output
+                    .push_str(&format!("    b.ge {}\n", end_label));
+
+                // 4. Get element: x0 = array.data[counter]
+                self.load_local("x1", array_stack_offset); // x1 = array pointer
+                self.emitter.output.push_str("    ldr x1, [x1]\n"); // x1 = array.data
+                self.load_local("x0", counter_stack_offset); // x0 = counter
+                self.emitter.output.push_str("    lsl x2, x0, #3\n"); // x2 = counter * 8
+                self.emitter.output.push_str("    ldr x0, [x1, x2]\n"); // x0 = array.data[counter]
+
+                // 5. Assign to variable
+                if !self.variables.contains_key(&variable) {
+                    let var_ty = self
+                        .get_node_type(&variable_span)
+                        .cloned()
+                        .unwrap_or(Type::Error);
+                    self.stack_offset += 16;
+                    self.variables
+                        .insert(variable.clone(), (self.stack_offset, var_ty));
+                }
+                let (var_offset, _) = *self.variables.get(&variable).unwrap();
+                self.store_local("x0", var_offset);
+
+                // 6. Run body
+                self.generate_statement(*body);
+
+                // 7. Increment counter
+                self.load_local("x0", counter_stack_offset);
+                self.emitter.output.push_str("    add x0, x0, #1\n");
+                self.store_local("x0", counter_stack_offset);
+
+                self.emitter
+                    .output
+                    .push_str(&format!("    b {}\n", start_label));
+                self.emitter.output.push_str(&format!("{}:\n", end_label));
+            }
             Statement::ClassDeclaration {
                 ref name,
                 name_span: _,

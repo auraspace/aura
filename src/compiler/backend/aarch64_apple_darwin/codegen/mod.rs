@@ -475,9 +475,9 @@ impl Codegen {
     ) {
         let file_path = program.file_path.clone();
         for stmt in program.statements {
-            let actual_stmt = match stmt {
-                Statement::Export { decl, .. } => *decl,
-                _ => stmt,
+            let actual_stmt = match &stmt {
+                Statement::Export { decl, .. } => &**decl,
+                _ => &stmt,
             };
 
             match actual_stmt {
@@ -488,7 +488,7 @@ impl Codegen {
                     ref methods,
                     ..
                 } => {
-                    if is_abstract {
+                    if *is_abstract {
                         self.abstract_classes.insert(name.clone());
                     }
 
@@ -536,7 +536,7 @@ impl Codegen {
                     self.classes
                         .insert(name.clone(), (field_names, method_names));
 
-                    classes.push((file_path.clone(), actual_stmt));
+                    classes.push((file_path.clone(), stmt.clone()));
                 }
                 Statement::Interface(ref decl) => {
                     self.interfaces.insert(decl.name.clone());
@@ -553,7 +553,7 @@ impl Codegen {
                     if name == "main" && self.current_class.is_none() {
                         self.has_aura_main = true;
                     }
-                    fns.push((file_path.clone(), actual_stmt));
+                    fns.push((file_path.clone(), stmt.clone()));
                 }
                 Statement::Import { path, .. } => {
                     let absolute_path = if path.starts_with("std/") {
@@ -632,35 +632,82 @@ impl Codegen {
                     }
                     self.enums.insert(decl.name.clone(), members);
                 }
-                Statement::VarDeclaration {
-                    ref name,
-                    ref value,
-                    ..
-                } => {
-                    let mut var_ty = self
-                        .node_types
-                        .get(&file_path)
-                        .and_then(|m| m.get(&value.span()))
-                        .cloned()
-                        .unwrap_or(Type::Error);
+                _ => {
+                    self.collect_stmt_definitions(stmt.clone(), &file_path);
+                    global_stmts.push((file_path.clone(), stmt));
+                }
+            }
+        }
+    }
 
-                    if matches!(var_ty, Type::Error) {
-                        if let Expr::New(ref class_name, _, _, _, _) = value {
-                            var_ty = Type::Class(class_name.clone());
-                        } else if let Expr::MemberAccess(ref obj, _, _, _) = value {
-                            if let Expr::Variable(ref enum_name, _) = **obj {
-                                if self.enums.contains_key(enum_name.as_str()) {
-                                    var_ty = Type::Enum(enum_name.clone());
-                                }
+    fn collect_stmt_definitions(&mut self, stmt: Statement, file_path: &str) {
+        match stmt {
+            Statement::VarDeclaration { name, value, .. } => {
+                let mut var_ty = self
+                    .node_types
+                    .get(file_path)
+                    .and_then(|m| m.get(&value.span()))
+                    .cloned()
+                    .unwrap_or(Type::Error);
+
+                if matches!(var_ty, Type::Error) {
+                    if let Expr::New(ref class_name, _, _, _, _) = value {
+                        var_ty = Type::Class(class_name.clone());
+                    } else if let Expr::MemberAccess(ref obj, _, _, _) = value {
+                        if let Expr::Variable(ref enum_name, _) = **obj {
+                            if self.enums.contains_key(enum_name.as_str()) {
+                                var_ty = Type::Enum(enum_name.clone());
                             }
                         }
                     }
-                    let label = format!("_g_{}", name);
-                    self.global_variables.insert(name.clone(), (label, var_ty));
-                    global_stmts.push((file_path.clone(), actual_stmt));
                 }
-                _ => global_stmts.push((file_path.clone(), actual_stmt)),
+                let label = format!("_g_{}", name);
+                self.global_variables.insert(name, (label, var_ty));
             }
+            Statement::Block(stmts, _) => {
+                for s in stmts {
+                    self.collect_stmt_definitions(s, file_path);
+                }
+            }
+            Statement::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                self.collect_stmt_definitions(*then_branch, file_path);
+                if let Some(eb) = else_branch {
+                    self.collect_stmt_definitions(*eb, file_path);
+                }
+            }
+            Statement::While { body, .. } => {
+                self.collect_stmt_definitions(*body, file_path);
+            }
+            Statement::For {
+                initializer, body, ..
+            } => {
+                if let Some(init) = initializer {
+                    self.collect_stmt_definitions(*init, file_path);
+                }
+                self.collect_stmt_definitions(*body, file_path);
+            }
+            Statement::ForOf {
+                variable,
+                variable_span,
+                body,
+                ..
+            } => {
+                let label = format!("_g_{}", variable);
+                let var_ty = self
+                    .get_node_type(&variable_span)
+                    .cloned()
+                    .unwrap_or(Type::Error);
+                self.global_variables.insert(variable, (label, var_ty));
+                self.collect_stmt_definitions(*body, file_path);
+            }
+            Statement::Export { decl, .. } => {
+                self.collect_stmt_definitions(*decl, file_path);
+            }
+            _ => {}
         }
     }
 
