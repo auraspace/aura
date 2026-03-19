@@ -1,3 +1,9 @@
+## [0.2.14] - 2026-03-19
+
+### 🚀 Features
+
+- Implement generic array functions and enhance type error handling by replacing `Type::Unknown` with `Type::Error`.
+- Implement for and for...of loops (fixes #58)
 ## [0.2.13] - 2026-03-19
 
 ### 🚀 Features
@@ -20,6 +26,7 @@
 
 - Update repository URLs to auraspace/aura and remove refactor_issues.md.
 - Add GitHub Actions workflow for website deployment and configure Docusaurus to disable trailing slashes.
+- *(release)* V0.2.13
 ## [0.2.12] - 2026-03-18
 
 ### 🚀 Features
