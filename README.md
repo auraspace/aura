@@ -1,5 +1,7 @@
 # Aura
 
+![Aura Website](website/static/screenshoot.png)
+
 **Aura** is a programming language toolchain written in Rust: a compiler, an interpreter, a small standard library, and a Language Server (LSP) for editor integrations.
 
 ## What’s in this repo
