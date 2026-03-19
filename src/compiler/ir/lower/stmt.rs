@@ -293,7 +293,9 @@ impl Lowerer {
             }
             Statement::Error => {}
             Statement::Import { .. } | Statement::Export { .. } => {}
-            Statement::Comment(_, _) | Statement::RegularBlockComment(_, _) => {}
+            Statement::Comment(_, _)
+            | Statement::RegularBlockComment(_, _)
+            | Statement::Empty(_) => {}
             Statement::Interface(_) => {}
         }
     }

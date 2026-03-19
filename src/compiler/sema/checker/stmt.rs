@@ -570,7 +570,9 @@ impl SemanticAnalyzer {
                 self.check_statement(*decl);
             }
             Statement::Interface(_) => {}
-            Statement::Comment(_, _) | Statement::RegularBlockComment(_, _) => {}
+            Statement::Comment(_, _)
+            | Statement::RegularBlockComment(_, _)
+            | Statement::Empty(_) => {}
         }
     }
 }
