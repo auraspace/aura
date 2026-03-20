@@ -60,6 +60,7 @@ impl SemanticAnalyzer {
                             self.record_doc(span, d);
                         }
                         self.record_definition(span, defined_in, sym_span);
+                        self.record_type(span, ty.clone());
                     }
                     ty
                 } else if self.classes.contains_key(&name) {
@@ -673,7 +674,10 @@ impl SemanticAnalyzer {
             }
             Expr::TypeTest(expr, ty_expr, _) => {
                 self.check_expr(*expr);
-                self.resolve_type(ty_expr);
+                let ty = self.resolve_type(ty_expr.clone());
+                if self.record_node_info {
+                    self.record_type(ty_expr.span(), ty);
+                }
                 Type::Boolean
             }
             Expr::Throw(expr, span) => {

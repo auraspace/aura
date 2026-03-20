@@ -119,6 +119,7 @@ pub struct SemanticAnalyzer {
     pub loaded_files: std::collections::HashSet<String>,
     pub current_dir: Option<String>,
     pub stdlib_path: Option<String>,
+    pub type_aliases: HashMap<String, Type>,
 }
 
 impl SemanticAnalyzer {
@@ -140,6 +141,7 @@ impl SemanticAnalyzer {
             loaded_files: std::collections::HashSet::new(),
             current_dir: None,
             stdlib_path: None,
+            type_aliases: HashMap::new(),
         };
 
         // Register built-in Promise class
@@ -655,31 +657,36 @@ impl SemanticAnalyzer {
 
     pub fn resolve_type(&mut self, te: TypeExpr) -> Type {
         match te {
-            TypeExpr::Name(n, s) => match n.as_str() {
-                "i32" | "Int32" | "number" | "Number" => Type::Int32,
-                "i64" | "Int64" => Type::Int64,
-                "f32" | "Float32" => Type::Float32,
-                "f64" | "Float64" | "float" | "Float" => Type::Float64,
-                "string" | "String" => Type::String,
-                "boolean" | "Boolean" | "bool" => Type::Boolean,
-                "void" | "Void" => Type::Void,
-                "any" => {
-                    self.error(SemanticErrorKind::UndefinedClass("any".to_string()), s);
-                    Type::Error
+            TypeExpr::Name(n, s) => {
+                if let Some(aliased_ty) = self.type_aliases.get(&n) {
+                    return aliased_ty.clone();
                 }
-                "unknown" => {
-                    self.error(SemanticErrorKind::UndefinedClass("unknown".to_string()), s);
-                    Type::Error
-                }
-                _ => {
-                    if let Some(sym) = self.scope.lookup(&n) {
-                        if matches!(sym.ty, Type::Enum(_) | Type::GenericParam(_)) {
-                            return sym.ty.clone();
-                        }
+                match n.as_str() {
+                    "i32" | "Int32" | "number" | "Number" => Type::Int32,
+                    "i64" | "Int64" => Type::Int64,
+                    "f32" | "Float32" => Type::Float32,
+                    "f64" | "Float64" | "float" | "Float" => Type::Float64,
+                    "string" | "String" => Type::String,
+                    "boolean" | "Boolean" | "bool" => Type::Boolean,
+                    "void" | "Void" => Type::Void,
+                    "any" => {
+                        self.error(SemanticErrorKind::UndefinedClass("any".to_string()), s);
+                        Type::Error
                     }
-                    Type::Class(n)
+                    "unknown" => {
+                        self.error(SemanticErrorKind::UndefinedClass("unknown".to_string()), s);
+                        Type::Error
+                    }
+                    _ => {
+                        if let Some(sym) = self.scope.lookup(&n) {
+                            if matches!(sym.ty, Type::Enum(_) | Type::GenericParam(_)) {
+                                return sym.ty.clone();
+                            }
+                        }
+                        Type::Class(n)
+                    }
                 }
-            },
+            }
             TypeExpr::Union(tys, _) => {
                 let mut resolved = Vec::new();
                 for t in tys {
@@ -1044,6 +1051,29 @@ impl SemanticAnalyzer {
                     None
                 }
             }
+            Type::Union(options) => {
+                let mut results = Vec::new();
+                for opt in options {
+                    if let Some(res) = self.lookup_method_for_type(opt, method) {
+                        results.push(res);
+                    } else {
+                        return None;
+                    }
+                }
+                if results.is_empty() {
+                    return None;
+                }
+                let mut first = results.remove(0);
+                let mut return_tys = vec![first.0.ret_ty.clone()];
+                for (info, _, _) in results {
+                    if info.params.len() != first.0.params.len() {
+                        return None;
+                    }
+                    return_tys.push(info.ret_ty.clone());
+                }
+                first.0.ret_ty = Type::Union(return_tys).simplify();
+                Some(first)
+            }
             _ => None,
         }
     }
@@ -1072,6 +1102,26 @@ impl SemanticAnalyzer {
                 } else {
                     None
                 }
+            }
+            Type::Union(options) => {
+                let mut results = Vec::new();
+                for opt in options {
+                    if let Some(res) = self.lookup_field_for_type(opt, field) {
+                        results.push(res);
+                    } else {
+                        return None;
+                    }
+                }
+                if results.is_empty() {
+                    return None;
+                }
+                let mut first = results.remove(0);
+                let mut union_tys = vec![first.0.ty.clone()];
+                for (info, _, _) in results {
+                    union_tys.push(info.ty.clone());
+                }
+                first.0.ty = Type::Union(union_tys).simplify();
+                Some(first)
             }
             _ => None,
         }

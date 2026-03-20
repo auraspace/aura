@@ -74,6 +74,7 @@ pub enum Instruction {
     IToF(u32, Operand),               // dest, src
     FToI(u32, Operand),               // dest, src
     FCall(u32, String, Vec<Operand>), // dest, name, args (using D registers)
+    LoadVTableAddress(u32, String),   // dest, class_name
 }
 
 #[derive(Debug, Clone)]
@@ -95,6 +96,7 @@ pub struct IrModule {
     pub functions: Vec<IrFunction>,
     pub globals: Vec<(String, String)>, // (name, content)
     pub vtables: std::collections::HashMap<String, Vec<String>>, // class_name -> list of function names
+    pub parent_vtables: std::collections::HashMap<String, String>, // class_name -> parent_vtable_name
 }
 
 impl std::fmt::Display for IrType {
@@ -189,6 +191,9 @@ impl std::fmt::Display for Instruction {
             }
             Instruction::IToF(d, s) => write!(f, "  %{} = itof {}", d, s),
             Instruction::FToI(d, s) => write!(f, "  %{} = ftoi {}", d, s),
+            Instruction::LoadVTableAddress(d, class) => {
+                write!(f, "  %{} = load_vtable_addr {}", d, class)
+            }
         }
     }
 }
@@ -254,6 +259,7 @@ mod tests {
         let module = IrModule {
             globals: vec![("msg".to_string(), "Hello World".to_string())],
             vtables: std::collections::HashMap::new(),
+            parent_vtables: std::collections::HashMap::new(),
             functions: vec![IrFunction {
                 name: "main".to_string(),
                 params: vec![IrType::I32, IrType::I32],

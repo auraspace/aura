@@ -48,6 +48,7 @@ impl Parser {
             TokenKind::Return => self.parse_return_statement(),
             TokenKind::Class => self.parse_class_declaration(doc, is_abstract),
             TokenKind::Enum => self.parse_enum_declaration(doc),
+            TokenKind::Type => self.parse_type_alias_declaration(doc),
             TokenKind::Interface => self.parse_interface_declaration(doc),
             TokenKind::Import => self.parse_import_statement(),
             TokenKind::Export => self.parse_export_statement(doc),
@@ -201,6 +202,7 @@ impl Parser {
                 }
                 self.parse_function_declaration(doc, is_async)?
             }
+            TokenKind::Type => self.parse_type_alias_declaration(doc)?,
             TokenKind::Class => {
                 let mut is_abstract = false;
                 if self.peek().kind == TokenKind::Abstract {
@@ -1258,5 +1260,32 @@ impl Parser {
         let expr = self.parse_expression();
         self.consume(TokenKind::Semicolon)?;
         Ok(Statement::Expression(Expr::Throw(Box::new(expr), s), s))
+    }
+
+    pub(crate) fn parse_type_alias_declaration(
+        &mut self,
+        doc: Option<DocComment>,
+    ) -> Result<Statement, ()> {
+        let s = self.span();
+        self.consume(TokenKind::Type)?;
+        let name_span = self.span();
+        let name = if let TokenKind::Identifier(name) = self.peek().kind.clone() {
+            self.advance();
+            name
+        } else {
+            return Err(());
+        };
+
+        self.consume(TokenKind::Equal)?;
+        let ty = self.parse_type_expr();
+        self.consume(TokenKind::Semicolon)?;
+
+        Ok(Statement::TypeAlias(TypeAliasDecl {
+            name,
+            name_span,
+            ty,
+            span: s,
+            doc,
+        }))
     }
 }

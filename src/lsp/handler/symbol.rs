@@ -180,6 +180,37 @@ pub fn handle_document_symbol(state: &DocumentState) -> Option<DocumentSymbolRes
                         children: Some(children),
                     });
                 }
+                Statement::TypeAlias(decl) => {
+                    symbols.push(DocumentSymbol {
+                        name: decl.name.clone(),
+                        detail: None,
+                        kind: SymbolKind::INTERFACE,
+                        tags: None,
+                        #[allow(deprecated)]
+                        deprecated: None,
+                        range: Range {
+                            start: Position::new(
+                                decl.name_span.line as u32 - 1,
+                                decl.name_span.column as u32 - 1,
+                            ),
+                            end: Position::new(
+                                decl.name_span.line as u32 - 1,
+                                decl.name_span.column as u32 + decl.name.len() as u32,
+                            ),
+                        },
+                        selection_range: Range {
+                            start: Position::new(
+                                decl.name_span.line as u32 - 1,
+                                decl.name_span.column as u32 - 1,
+                            ),
+                            end: Position::new(
+                                decl.name_span.line as u32 - 1,
+                                decl.name_span.column as u32 + decl.name.len() as u32,
+                            ),
+                        },
+                        children: None,
+                    });
+                }
                 _ => {}
             }
         }

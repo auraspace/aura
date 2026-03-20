@@ -312,7 +312,7 @@ impl Interpreter {
                 res
             }
             Statement::Export { decl, .. } => self.execute_statement(*decl),
-            Statement::Interface(_) => StatementResult::None,
+            Statement::Interface(_) | Statement::TypeAlias(_) => StatementResult::None,
             Statement::Comment(_, _)
             | Statement::RegularBlockComment(_, _)
             | Statement::Empty(_) => StatementResult::None,
@@ -875,15 +875,8 @@ impl Interpreter {
             }
             Expr::TypeTest(expr, ty_expr, _) => {
                 let val = self.eval_expr(*expr);
-                let target_ty = self.resolve_type(ty_expr);
-                match (val, target_ty) {
-                    (Value::Int(_), Type::Int32) => Value::Boolean(true),
-                    (Value::Int64(_), Type::Int64) => Value::Boolean(true),
-                    (Value::Float(_), Type::Float64) => Value::Boolean(true),
-                    (Value::String(_), Type::String) => Value::Boolean(true),
-                    (Value::Boolean(_), Type::Boolean) => Value::Boolean(true),
-                    _ => Value::Boolean(false),
-                }
+                let target_ty = self.resolve_type(ty_expr.clone());
+                Value::Boolean(self.value_is_type(&val, &target_ty))
             }
             Expr::UnaryOp(op, expr, _) => {
                 let val = self.eval_expr(*expr);
@@ -960,6 +953,21 @@ impl Interpreter {
                 Value::Void
             }
             Expr::Error(_) => panic!("Compiler bug: reaching error node in interpreter"),
+        }
+    }
+    fn value_is_type(&self, val: &Value, ty: &Type) -> bool {
+        match (val, ty) {
+            (Value::Int(_), Type::Int32) => true,
+            (Value::Int64(_), Type::Int64) => true,
+            (Value::Float(_), Type::Float64) | (Value::Float(_), Type::Float32) => true,
+            (Value::String(_), Type::String) => true,
+            (Value::Boolean(_), Type::Boolean) => true,
+            (Value::Null, _) => true, // null is assignable to everything? or at least in many contexts
+            (Value::Instance(class_name, _), Type::Class(target_class)) => {
+                class_name == target_class
+            }
+            (_, Type::Union(types)) => types.iter().any(|t| self.value_is_type(val, t)),
+            _ => false,
         }
     }
 

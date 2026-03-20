@@ -92,35 +92,37 @@ impl Codegen {
     }
 
     fn resolve_obj_type(&self, obj: &Expr) -> Type {
-        // 1. If it's a variable, check if it's a class name first (static access)
+        // 1. If it's a variable, check its symbol type first
         if let Expr::Variable(name, _) = obj {
+            if let Some((_, ty)) = self.variables.get(name) {
+                if let Type::Union(_) = ty {
+                    // For unions, use narrowed type from node_types if available
+                    if let Some(narrowed) = self.get_node_type(&obj.span()) {
+                        if *narrowed != Type::Error {
+                            return narrowed.clone();
+                        }
+                    }
+                }
+                return ty.clone();
+            }
+            if let Some((_, ty)) = self.global_variables.get(name) {
+                return ty.clone();
+            }
+            // Check if it's a class name (static access)
             if self.classes.contains_key(name) {
                 return Type::ClassType(name.clone());
             }
-            if let Some((_, ty)) = self.variables.get(name) {
-                if *ty != Type::Error {
-                    return ty.clone();
-                }
-            }
-            if let Some((_, ty)) = self.global_variables.get(name) {
-                if *ty != Type::Error {
-                    return ty.clone();
-                }
-            }
         }
 
-        // 2. First try node_types from semantic analysis
+        // 2. Try node_types for non-variable expressions (or if variable not found)
         if let Some(ty) = self.get_node_type(&obj.span()) {
             if *ty != Type::Error {
                 return ty.clone();
             }
         }
 
-        // Fallback for variables and simple expressions
+        // 3. Fallbacks
         match obj {
-            Expr::Variable(_name, _) => {
-                // Fallback handled above
-            }
             Expr::This(_) => {
                 if let Some(ref class_name) = self.current_class {
                     return Type::Class(class_name.clone());
@@ -132,9 +134,7 @@ impl Codegen {
                 }
             }
             Expr::MemberAccess(inner_obj, _, _, _) => {
-                let inner_ty = self.resolve_obj_type(inner_obj);
-                // Recursive lookup if needed, but usually node_types should have it
-                return inner_ty;
+                return self.resolve_obj_type(inner_obj);
             }
             _ => {}
         }
@@ -415,13 +415,21 @@ impl Codegen {
         // 4. Data sections
         // Always emit built-in vtables
         self.emitter.output.push_str("\n.data\n.align 8\n");
-        self.emitter.output.push_str("vtable_Error:\n"); // empty vtable for built-in Error class
+        self.emitter.output.push_str("vtable_Error:\n");
+        self.emitter
+            .output
+            .push_str("    .quad 0 ; discriminator\n");
 
         if !self.vtables.is_empty() {
             for (class, methods) in &self.vtables {
                 self.emitter
                     .output
                     .push_str(&format!("vtable_{}:\n", class));
+                // Add a dummy entry to ensure every vtable has a unique address
+                // especially if it's otherwise empty.
+                self.emitter
+                    .output
+                    .push_str("    .quad 0 ; discriminator\n");
                 for method in methods {
                     if method == "aura_null" {
                         self.emitter.output.push_str("    .quad 0\n");

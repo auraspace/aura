@@ -1,0 +1,20 @@
+// Expected output:
+// Hello World
+// 123
+// 456
+
+let v: string | number = "Hello World";
+print v;
+
+if (v is string) {
+  // In here, v is string.
+  print v;
+}
+
+v = 123;
+print v;
+
+if (v is number) {
+  // In here, v is number.
+  print v;
+}

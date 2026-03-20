@@ -1,0 +1,19 @@
+// Expected output:
+// string: Hello
+// number: 123
+// boolean: true
+
+function check(v: string | number | boolean) {
+  if (v is string) {
+    print "string: " + v;
+  } else if (v is number) {
+    print "number: " + v;
+  } else {
+    // v must be boolean here
+    print "boolean: " + v;
+  }
+}
+
+check("Hello");
+check(123);
+check(true);

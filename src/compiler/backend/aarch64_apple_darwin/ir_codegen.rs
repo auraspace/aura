@@ -52,6 +52,14 @@ impl IrCodegen {
                 self.emitter
                     .output
                     .push_str(&format!("vtable_{}:\n", class));
+                // Add parent vtable pointer at offset 0
+                if let Some(parent) = module.parent_vtables.get(class) {
+                    self.emitter
+                        .output
+                        .push_str(&format!("    .quad vtable_{}\n", parent));
+                } else {
+                    self.emitter.output.push_str("    .quad 0\n");
+                }
                 for method in methods {
                     if method == "aura_null" {
                         self.emitter.output.push_str("    .quad 0\n");
@@ -132,6 +140,7 @@ impl IrCodegen {
                     | Instruction::FCall(d, _, _)
                     | Instruction::CallVirtual(d, _, _, _)
                     | Instruction::IToF(d, _)
+                    | Instruction::LoadVTableAddress(d, _)
                     | Instruction::FToI(d, _) => Some(*d),
                     _ => None,
                 };
@@ -403,10 +412,10 @@ impl IrCodegen {
                 self.load_operand(Register::X0, obj);
                 // Load VTable pointer: x16 = [x0]
                 self.emitter.output.push_str("    ldr x16, [x0]\n");
-                // Load function pointer: x16 = [x16, idx * 8]
+                // Load function pointer: x16 = [x16, (idx + 1) * 8]
                 self.emitter
                     .output
-                    .push_str(&format!("    ldr x16, [x16, #{}]\n", idx * 8));
+                    .push_str(&format!("    ldr x16, [x16, #{}]\n", (idx + 1) * 8));
 
                 // Prepare arguments (x0-x7)
                 // Receiver must be in x0 (already there)
@@ -430,6 +439,16 @@ impl IrCodegen {
                     class_name
                 ));
                 self.emitter.output.push_str("    str x17, [x16]\n");
+            }
+            Instruction::LoadVTableAddress(dest, class_name) => {
+                self.emitter
+                    .output
+                    .push_str(&format!("    adrp x17, vtable_{}@PAGE\n", class_name));
+                self.emitter.output.push_str(&format!(
+                    "    add x17, x17, vtable_{}@PAGEOFF\n",
+                    class_name
+                ));
+                self.store_reg(dest, Register::X17);
             }
             Instruction::Alloc(dest, size) => {
                 // Call aura_alloc(size)
@@ -581,6 +600,7 @@ mod tests {
         let module = IrModule {
             globals: vec![],
             vtables: HashMap::new(),
+            parent_vtables: HashMap::new(),
             functions: vec![IrFunction {
                 name: "test_func".to_string(),
                 params: vec![],

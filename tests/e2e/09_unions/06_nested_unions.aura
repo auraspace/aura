@@ -1,0 +1,18 @@
+// Expected output:
+// Hello
+// 123
+// true
+
+function print_nested(v: string | number | boolean) {
+  if (v is string) {
+    print v;
+  } else if (v is number) {
+    print v;
+  } else {
+    print v;
+  }
+}
+
+print_nested("Hello");
+print_nested(123);
+print_nested(true);

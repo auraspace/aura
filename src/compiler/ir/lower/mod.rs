@@ -436,6 +436,7 @@ impl Lowerer {
             functions,
             globals: self.globals.clone(),
             vtables: self.vtables.clone(),
+            parent_vtables: self.parent_classes.clone(),
         }
     }
 
@@ -449,27 +450,53 @@ impl Lowerer {
         self.mem_vars.clear();
         self.current_class = class_name.clone();
 
-        let ir_params = vec![IrType::I64; params.len()];
+        let mut ir_params = Vec::new();
+        let mut param_mappings = Vec::new(); // (param_idx, is_union)
+
+        for (_, ty_expr) in params.iter() {
+            let sem_ty = self.resolve_type(ty_expr.clone());
+            if let Type::Union(_) = sem_ty {
+                ir_params.push(IrType::I64); // tag
+                ir_params.push(IrType::I64); // val
+                param_mappings.push((ir_params.len() as u32 - 2, true));
+            } else {
+                ir_params.push(IrType::I64);
+                param_mappings.push((ir_params.len() as u32 - 1, false));
+            }
+        }
+
         for (i, (param_name, ty_expr)) in params.iter().enumerate() {
-            let ptr_reg_op = self.builder.salloc(8);
+            let sem_ty = self.resolve_type(ty_expr.clone());
+            let (ir_idx, is_union) = param_mappings[i];
+
+            let size = if is_union { 16 } else { 8 };
+            let ptr_reg_op = self.builder.salloc(size);
             let ptr_reg = match ptr_reg_op {
                 Operand::Value(v) => v,
                 _ => unreachable!(),
             };
-            self.builder
-                .store(Operand::Parameter(i as u32), ptr_reg_op, 0);
+
+            if is_union {
+                self.builder
+                    .store(Operand::Parameter(ir_idx), ptr_reg_op.clone(), 0);
+                self.builder
+                    .store(Operand::Parameter(ir_idx + 1), ptr_reg_op.clone(), 8);
+            } else {
+                self.builder
+                    .store(Operand::Parameter(ir_idx), ptr_reg_op.clone(), 0);
+            }
+
             let cls = if param_name == "this" {
                 class_name.clone()
             } else {
-                if let Type::Class(c) = self.resolve_type(ty_expr.clone()) {
+                if let Type::Class(c) = sem_ty.clone() {
                     Some(c)
                 } else {
                     None
                 }
             };
-            let _sem_ty = self.resolve_type(ty_expr.clone());
             self.mem_vars
-                .insert(param_name.clone(), (ptr_reg, cls, Some(_sem_ty)));
+                .insert(param_name.clone(), (ptr_reg, cls, Some(sem_ty)));
         }
 
         self.lower_statement(body);

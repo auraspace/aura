@@ -668,7 +668,7 @@ impl Codegen {
                 self.generate_statement(*try_block);
             }
             Statement::Import { .. } => {}
-            Statement::Interface(_) => {}
+            Statement::Interface(_) | Statement::TypeAlias(_) => {}
             Statement::Export { decl, .. } => {
                 self.generate_statement(*decl);
             }

@@ -373,6 +373,35 @@ impl SemanticAnalyzer {
                     self.current_file.clone(),
                     decl.doc.as_ref().map(|d| d.content()),
                 );
+            } else if let Statement::TypeAlias(decl) = actual_stmt {
+                if self.classes.contains_key(&decl.name)
+                    || self.interfaces.contains_key(&decl.name)
+                    || self.type_aliases.contains_key(&decl.name)
+                    || self.scope.lookup_local(&decl.name).is_some()
+                {
+                    self.error(
+                        SemanticErrorKind::DuplicateDeclaration(decl.name.clone()),
+                        decl.name_span,
+                    );
+                }
+                let ty = self.resolve_type(decl.ty.clone());
+                self.type_aliases.insert(decl.name.clone(), ty.clone());
+
+                // Also register in scope for exports and lookup compatibility
+                self.scope.insert(
+                    decl.name.clone(),
+                    ty.clone(),
+                    false,
+                    true,
+                    is_exported,
+                    decl.name_span,
+                    self.current_file.clone(),
+                    decl.doc.as_ref().map(|d| d.content()),
+                );
+                if self.record_node_info {
+                    self.record_type(decl.name_span, ty);
+                    self.record_definition(decl.name_span, self.current_file.clone(), decl.span);
+                }
             } else if let Statement::Import {
                 path,
                 path_span,

@@ -1,0 +1,13 @@
+// Expected output:
+// 123
+// Hello
+// true
+
+let v: number | string | boolean = 123;
+print v;
+
+v = "Hello";
+print v;
+
+v = true;
+print v;

@@ -203,6 +203,15 @@ pub struct InterfaceDecl {
 }
 
 #[derive(Debug, Clone)]
+pub struct TypeAliasDecl {
+    pub name: String,
+    pub name_span: Span,
+    pub ty: TypeExpr,
+    pub span: Span,
+    pub doc: Option<DocComment>,
+}
+
+#[derive(Debug, Clone)]
 pub enum ImportItem {
     Named(Vec<(String, Span)>),
     Namespace((String, Span)),
@@ -212,6 +221,7 @@ pub enum ImportItem {
 pub enum Statement {
     Enum(EnumDecl),
     Interface(InterfaceDecl),
+    TypeAlias(TypeAliasDecl),
     VarDeclaration {
         name: String,
         name_span: Span,
@@ -303,6 +313,7 @@ impl Statement {
         match self {
             Statement::Enum(d) => d.span,
             Statement::Interface(d) => d.span,
+            Statement::TypeAlias(d) => d.span,
             Statement::VarDeclaration { span, .. } => *span,
             Statement::FunctionDeclaration { span, .. } => *span,
             Statement::ClassDeclaration { span, .. } => *span,

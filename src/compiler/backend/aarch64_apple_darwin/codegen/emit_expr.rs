@@ -633,7 +633,7 @@ impl Codegen {
                     self.emitter.output.push_str("    ldr x16, [x0]\n"); // Load VTable pointer
                     self.emitter
                         .output
-                        .push_str(&format!("    ldr x16, [x16, #{}]\n", idx * 8)); // Load method
+                        .push_str(&format!("    ldr x16, [x16, #{}]\n", (idx + 1) * 8)); // Load method
                     self.emitter.output.push_str("    blr x16\n");
                 } else {
                     // Fallback to direct call if not in vtable (e.g. private or non-virtual?)
@@ -674,47 +674,74 @@ impl Codegen {
                 }
             }
             Expr::TypeTest(expr, ty_expr, _) => {
-                let check_type_name =
-                    if let crate::compiler::ast::TypeExpr::Name(ref name, _) = ty_expr {
-                        name.as_str()
-                    } else {
-                        ""
-                    };
-
+                let resolved_ty = self.get_node_type(&ty_expr.span()).cloned();
                 self.generate_expr(*expr);
 
-                if check_type_name == "i64"
-                    || check_type_name == "i32"
-                    || check_type_name == "number"
-                    || check_type_name == "float"
-                {
-                    // Check if x0 != 0 AND not in string pointer range.
-                    self.emitter
-                        .output
-                        .push_str("    cmp x0, #0\n    cset x1, ne\n");
-                    self.emitter.mov_imm(AsmRegister::X2, 0x100000000); // 4GB
-                    self.emitter
-                        .output
-                        .push_str("    cmp x0, x2\n    cset x2, ge\n");
-                    self.emitter.mov_imm(AsmRegister::X3, 0x200000000); // 8GB
-                    self.emitter
-                        .output
-                        .push_str("    cmp x0, x3\n    cset x3, lt\n");
-                    self.emitter.output.push_str("    and x2, x2, x3\n"); // 1 if in range (string)
-                    self.emitter.output.push_str("    eor x2, x2, #1\n"); // 1 if NOT in range
-                    self.emitter.output.push_str("    and x0, x1, x2\n"); // x0 = not null AND not string
-                } else if check_type_name == "string" {
-                    self.emitter.mov_imm(AsmRegister::X2, 0x100000000);
-                    self.emitter
-                        .output
-                        .push_str("    cmp x0, x2\n    cset x2, ge\n");
-                    self.emitter.mov_imm(AsmRegister::X3, 0x200000000);
-                    self.emitter
-                        .output
-                        .push_str("    cmp x0, x3\n    cset x3, lt\n");
-                    self.emitter.output.push_str("    and x0, x2, x3\n");
+                if let Some(ty) = resolved_ty {
+                    match ty {
+                        Type::Int32 | Type::Int64 | Type::Float32 | Type::Float64 => {
+                            // Check if x0 != 0 AND not in string pointer range.
+                            self.emitter
+                                .output
+                                .push_str("    cmp x0, #0\n    cset x1, ne\n");
+                            self.emitter.mov_imm(AsmRegister::X2, 0x100000000); // 4GB
+                            self.emitter
+                                .output
+                                .push_str("    cmp x0, x2\n    cset x2, ge\n");
+                            self.emitter.mov_imm(AsmRegister::X3, 0x200000000); // 8GB
+                            self.emitter
+                                .output
+                                .push_str("    cmp x0, x3\n    cset x3, lt\n");
+                            self.emitter.output.push_str("    and x2, x2, x3\n"); // 1 if in range (string)
+                            self.emitter.output.push_str("    eor x2, x2, #1\n"); // 1 if NOT in range
+                            self.emitter.output.push_str("    and x0, x1, x2\n");
+                            // x0 = not null AND not string
+                        }
+                        Type::String => {
+                            self.emitter.mov_imm(AsmRegister::X2, 0x100000000);
+                            self.emitter
+                                .output
+                                .push_str("    cmp x0, x2\n    cset x2, ge\n");
+                            self.emitter.mov_imm(AsmRegister::X3, 0x200000000);
+                            self.emitter
+                                .output
+                                .push_str("    cmp x0, x3\n    cset x3, lt\n");
+                            self.emitter.output.push_str("    and x0, x2, x3\n");
+                        }
+                        Type::Class(ref class_name) => {
+                            let specialized_name = class_name.clone();
+                            let skip_vtable = self.new_label("skip_vtable");
+                            // Check if x0 is not null
+                            self.emitter.output.push_str("    cmp x0, #0\n");
+                            self.emitter.output.push_str("    cset x1, ne\n");
+                            // If not null, load VTable pointer from [x0]
+                            self.emitter.output.push_str("    mov x2, #0\n");
+                            self.emitter.output.push_str("    cmp x1, #0\n");
+                            self.emitter
+                                .output
+                                .push_str(&format!("    b.eq {}\n", skip_vtable));
+                            self.emitter.output.push_str("    ldr x2, [x0]\n");
+                            self.emitter.output.push_str(&format!("{}:\n", skip_vtable));
+                            // Load vtable address
+                            self.emitter.output.push_str(&format!(
+                                "    adrp x3, vtable_{}@PAGE\n",
+                                specialized_name
+                            ));
+                            self.emitter.output.push_str(&format!(
+                                "    add x3, x3, vtable_{}@PAGEOFF\n",
+                                specialized_name
+                            ));
+                            // Compare
+                            self.emitter.output.push_str("    cmp x2, x3\n");
+                            self.emitter.output.push_str("    cset x0, eq\n");
+                            self.emitter.output.push_str("    and x0, x0, x1\n");
+                        }
+                        _ => {
+                            self.emitter.mov_imm(AsmRegister::X0, 0);
+                        }
+                    }
                 } else {
-                    // Fail fallback
+                    // Fallback for types that might not be recorded (should be handled by checker change)
                     self.emitter.mov_imm(AsmRegister::X0, 0);
                 }
             }

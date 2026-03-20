@@ -349,6 +349,9 @@ impl Optimizer {
                                 self.resolve_operand(&src, &constants),
                             ));
                         }
+                        Instruction::LoadVTableAddress(dest, class) => {
+                            new_instrs.push(Instruction::LoadVTableAddress(dest, class));
+                        }
                     }
                 }
                 block.instructions = new_instrs;

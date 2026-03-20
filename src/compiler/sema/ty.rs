@@ -43,6 +43,14 @@ impl Type {
         matches!(self, Type::Boolean)
     }
 
+    pub fn is_class(&self) -> bool {
+        matches!(self, Type::Class(_))
+    }
+
+    pub fn is_array(&self) -> bool {
+        matches!(self, Type::Array(_))
+    }
+
     pub fn is_assignable_to(&self, other: &Type) -> bool {
         if self == other {
             return true;
@@ -115,6 +123,41 @@ impl Type {
                     self.clone()
                 }
             }
+        }
+    }
+
+    pub fn simplify(self) -> Type {
+        match self {
+            Type::Union(options) => {
+                if options.is_empty() {
+                    return Type::Void;
+                }
+                let mut unique_options: Vec<Type> = Vec::new();
+                for opt in options {
+                    if !unique_options.contains(&opt) {
+                        unique_options.push(opt);
+                    }
+                }
+                if unique_options.len() == 1 {
+                    unique_options.pop().unwrap()
+                } else {
+                    Type::Union(unique_options)
+                }
+            }
+            _ => self,
+        }
+    }
+
+    pub fn tag(&self) -> i64 {
+        match self {
+            Type::Int32 | Type::Int64 => 1,
+            Type::Float32 | Type::Float64 => 2,
+            Type::Boolean => 3,
+            Type::String => 4,
+            Type::Class(_) => 5,
+            Type::Null => 6,
+            Type::Enum(_) => 7,
+            _ => 0,
         }
     }
 }

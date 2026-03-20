@@ -1,0 +1,13 @@
+// Expected output:
+// Hello
+// 123
+
+type Input = string | number;
+type Output = number | string;
+
+function identity(v: Input): Output {
+    return v;
+}
+
+print identity("Hello");
+print identity(123);

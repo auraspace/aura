@@ -461,6 +461,17 @@ pub(crate) fn format_statement_internal(f: &mut Formatter, stmt: &Statement, inc
             f.indent();
             f.result.push('}');
         }
+        Statement::TypeAlias(decl) => {
+            if include_doc {
+                f.format_doc(&decl.doc);
+            }
+            f.indent();
+            f.result.push_str("type ");
+            f.result.push_str(&decl.name);
+            f.result.push_str(" = ");
+            f.format_type_expr(&decl.ty);
+            f.result.push_str(";\n");
+        }
         Statement::Error => {
             f.indent();
             f.result.push_str("// ERROR");

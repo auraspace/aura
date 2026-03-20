@@ -1,0 +1,30 @@
+type A = number;
+
+class Person {
+    name: string;
+    constructor(name: string) {
+        this.name = name;
+    }
+}
+
+class Robot {
+    model: string;
+    constructor(model: string) {
+        this.model = model;
+    }
+}
+
+type C = Person | Robot;
+
+let a: A = 123;
+print a;
+
+let p: C = new Person("Alice");
+if (p is Person) {
+    print p.name;
+}
+
+let r: C = new Robot("R2D2");
+if (r is Robot) {
+    print r.model;
+}

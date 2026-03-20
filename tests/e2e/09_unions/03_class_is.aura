@@ -1,0 +1,12 @@
+// Expected output:
+// true
+// false
+
+class A {
+}
+class B {
+}
+
+let a = new A();
+print a is A;
+print a is B;

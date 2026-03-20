@@ -1,0 +1,13 @@
+// Expected output:
+// 123
+// Hello
+
+type MyInt = number;
+type AlsoInt = MyInt;
+type StringOrInt = AlsoInt | string;
+
+let a: AlsoInt = 123;
+print a;
+
+let b: StringOrInt = "Hello";
+print b;

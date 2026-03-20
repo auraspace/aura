@@ -569,7 +569,7 @@ impl SemanticAnalyzer {
             Statement::Export { decl, .. } => {
                 self.check_statement(*decl);
             }
-            Statement::Interface(_) => {}
+            Statement::Interface(_) | Statement::TypeAlias(_) => {}
             Statement::Comment(_, _)
             | Statement::RegularBlockComment(_, _)
             | Statement::Empty(_) => {}

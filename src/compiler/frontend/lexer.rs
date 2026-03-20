@@ -489,6 +489,7 @@ impl<'a> Lexer<'a> {
             "for" => TokenKind::For,
             "of" => TokenKind::Of,
             "function" => TokenKind::Function,
+            "type" => TokenKind::Type,
             "return" => TokenKind::Return,
             "class" => TokenKind::Class,
             "constructor" => TokenKind::Constructor,

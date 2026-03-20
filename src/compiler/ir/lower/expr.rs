@@ -1,6 +1,6 @@
 use super::Lowerer;
 use crate::compiler::ast::Expr;
-use crate::compiler::ir::instr::Operand;
+use crate::compiler::ir::instr::{Instruction, Operand};
 use crate::compiler::sema::ty::Type;
 
 impl Lowerer {
@@ -87,19 +87,21 @@ impl Lowerer {
             }
             Expr::Variable(name, _) => {
                 if let Some((ptr_reg, cls_name, ty)) = self.mem_vars.get(&name).cloned() {
-                    self.last_expr_ty = ty.unwrap_or_else(|| {
+                    self.last_expr_ty = ty.clone().unwrap_or_else(|| {
                         if let Some(cls) = cls_name {
                             Type::Class(cls)
                         } else {
                             Type::Error
                         }
                     });
+                    let is_union = matches!(ty, Some(Type::Union(_)));
+                    let offset = if is_union { 8 } else { 0 };
                     let dest = self.builder.new_reg();
                     self.builder
                         .emit(crate::compiler::ir::instr::Instruction::Load(
                             dest,
                             Operand::Value(ptr_reg),
-                            0,
+                            offset,
                         ));
                     Operand::Value(dest)
                 } else if self.class_structures.contains_key(&name) {
@@ -194,8 +196,24 @@ impl Lowerer {
                 let mut ir_args = Vec::new();
                 for (i, a) in args.into_iter().enumerate() {
                     let mut op = self.lower_expr(a);
+                    let arg_ty = self.last_expr_ty.clone();
+
                     if let Some(pty) = p_tys.get(i) {
-                        if pty.is_float() && self.last_expr_ty.is_integer() {
+                        if let Type::Union(_) = pty {
+                            // If the argument is already a union, decompose it
+                            if let Type::Union(_) = arg_ty {
+                                // For now, we only handle union variables as arguments
+                                // Complex union expressions would need a temp slot
+                                // But they are likely variables anyway
+                            }
+                            // Always promote to union (tag, value)
+                            let tag = arg_ty.tag();
+                            ir_args.push(Operand::Constant(tag));
+                            ir_args.push(op);
+                            continue;
+                        }
+
+                        if pty.is_float() && arg_ty.is_integer() {
                             op = self.builder.itof(op);
                         }
                     }
@@ -211,17 +229,29 @@ impl Lowerer {
                     .get(&name)
                     .cloned()
                     .expect("Undefined variable");
+
+                let source_ty = self.last_expr_ty.clone();
+
                 if let Some(target_ty) = v_ty {
-                    if target_ty.is_float() && self.last_expr_ty.is_integer() {
-                        val_op = self.builder.itof(val_op);
+                    if let Type::Union(_) = target_ty {
+                        // Store tag at offset 0 and value at offset 8
+                        let tag = source_ty.tag();
+                        self.builder
+                            .store(Operand::Constant(tag), Operand::Value(ptr_reg), 0);
+                        self.builder
+                            .store(val_op.clone(), Operand::Value(ptr_reg), 8);
+                    } else {
+                        if target_ty.is_float() && source_ty.is_integer() {
+                            val_op = self.builder.itof(val_op);
+                        }
+                        self.builder
+                            .emit(crate::compiler::ir::instr::Instruction::Store(
+                                val_op.clone(),
+                                Operand::Value(ptr_reg),
+                                0,
+                            ));
                     }
                 }
-                self.builder
-                    .emit(crate::compiler::ir::instr::Instruction::Store(
-                        val_op.clone(),
-                        Operand::Value(ptr_reg),
-                        0,
-                    ));
                 val_op
             }
             Expr::New(class_name, _type_args, _name_span, args, _span) => {
@@ -251,9 +281,15 @@ impl Lowerer {
                 let mut ctor_args = vec![obj_reg.clone()];
                 for (i, a) in args.into_iter().enumerate() {
                     let mut op = self.lower_expr(a);
+                    let arg_ty = self.last_expr_ty.clone();
                     // constructor p_tys[0] is 'this'
                     if let Some(pty) = p_tys.get(i + 1) {
-                        if pty.is_float() && self.last_expr_ty.is_integer() {
+                        if let Type::Union(_) = pty {
+                            ctor_args.push(Operand::Constant(arg_ty.tag()));
+                            ctor_args.push(op);
+                            continue;
+                        }
+                        if pty.is_float() && arg_ty.is_integer() {
                             op = self.builder.itof(op);
                         }
                     }
@@ -304,9 +340,24 @@ impl Lowerer {
                     panic!("Enum field not found in IR: {}.{}", enum_name, field);
                 }
 
-                if let Type::Class(cls_name) = obj_ty {
+                let cls_name = match &obj_ty {
+                    Type::Class(cls) => Some(cls.clone()),
+                    Type::Union(ref options) => {
+                        let mut first_cls = None;
+                        for opt in options {
+                            if let Type::Class(cls) = opt {
+                                first_cls = Some(cls.clone());
+                                break;
+                            }
+                        }
+                        first_cls
+                    }
+                    _ => None,
+                };
+
+                if let Some(cls_name) = cls_name {
                     let offset = self.get_field_offset(&cls_name, &field);
-                    let field_ty = self
+                    let actual_field_ty = self
                         .class_structures
                         .get(&cls_name)
                         .and_then(|s| s.get(&field))
@@ -317,7 +368,7 @@ impl Lowerer {
                         .emit(crate::compiler::ir::instr::Instruction::Load(
                             dest, obj_op, offset,
                         ));
-                    self.last_expr_ty = field_ty;
+                    self.last_expr_ty = actual_field_ty;
                     Operand::Value(dest)
                 } else {
                     panic!("Member access on non-class type {:?}", obj_ty);
@@ -327,7 +378,24 @@ impl Lowerer {
                 let obj_op = self.lower_expr(*obj);
                 let obj_ty = self.last_expr_ty.clone();
                 let mut val_op = self.lower_expr(*value);
-                if let Type::Class(cls_name) = obj_ty {
+                let val_ty = self.last_expr_ty.clone();
+
+                let cls_name = match &obj_ty {
+                    Type::Class(cls) => Some(cls.clone()),
+                    Type::Union(ref options) => {
+                        let mut first_cls = None;
+                        for opt in options {
+                            if let Type::Class(cls) = opt {
+                                first_cls = Some(cls.clone());
+                                break;
+                            }
+                        }
+                        first_cls
+                    }
+                    _ => None,
+                };
+
+                if let Some(cls_name) = cls_name {
                     let offset = self.get_field_offset(&cls_name, &field);
                     let field_ty = self
                         .class_structures
@@ -336,7 +404,7 @@ impl Lowerer {
                         .cloned()
                         .unwrap_or(Type::Error);
 
-                    if field_ty.is_float() && self.last_expr_ty.is_integer() {
+                    if field_ty.is_float() && val_ty.is_integer() {
                         val_op = self.builder.itof(val_op);
                     }
 
@@ -346,11 +414,14 @@ impl Lowerer {
                             obj_op.clone(),
                             offset,
                         ));
-                    self.builder
-                        .emit(crate::compiler::ir::instr::Instruction::WriteBarrier(
-                            obj_op,
-                            val_op.clone(),
-                        ));
+
+                    if field_ty.is_class() || field_ty.is_array() {
+                        self.builder
+                            .emit(crate::compiler::ir::instr::Instruction::WriteBarrier(
+                                obj_op,
+                                val_op.clone(),
+                            ));
+                    }
                     val_op
                 } else {
                     panic!("Member assign on non-class type {:?}", obj_ty);
@@ -366,9 +437,31 @@ impl Lowerer {
                         if let Some(parent) = self.parent_classes.get(cls_name) {
                             let mangled_name = format!("{}_{}", parent, method);
                             let mut ir_args = vec![obj_op]; // obj_op is 'this' for super
-                            ir_args.extend(args.into_iter().map(|a| self.lower_expr(a)));
-                            // TODO: Lookup correct return type
-                            self.last_expr_ty = Type::Error;
+
+                            // Lookup parent method's p_tys
+                            let (p_tys, r_ty) = self
+                                .function_tys
+                                .get(&mangled_name)
+                                .cloned()
+                                .unwrap_or((vec![], Type::Error));
+
+                            for (i, a) in args.into_iter().enumerate() {
+                                let mut op = self.lower_expr(a);
+                                let arg_ty = self.last_expr_ty.clone();
+                                if let Some(pty) = p_tys.get(i + 1) {
+                                    // +1 for 'this'
+                                    if let Type::Union(_) = pty {
+                                        ir_args.push(Operand::Constant(arg_ty.tag()));
+                                        ir_args.push(op);
+                                        continue;
+                                    }
+                                    if pty.is_float() && arg_ty.is_integer() {
+                                        op = self.builder.itof(op);
+                                    }
+                                }
+                                ir_args.push(op);
+                            }
+                            self.last_expr_ty = r_ty;
                             return self.builder.call(mangled_name, ir_args);
                         }
                     }
@@ -378,28 +471,54 @@ impl Lowerer {
                 let mut vtable_idx = None;
                 let mut return_ty = Type::Error;
 
-                let mangled_name = if let Type::Class(ref cls_name) = obj_ty {
-                    if let Some(statics) = self.static_methods.get(cls_name) {
-                        if statics.contains(&method) {
-                            is_static = true;
+                let mangled_name = match &obj_ty {
+                    Type::Class(ref cls_name) => {
+                        if let Some(statics) = self.static_methods.get(cls_name) {
+                            if statics.contains(&method) {
+                                is_static = true;
+                            }
+                        }
+                        if !is_static {
+                            if let Some(layout) = self.class_layouts.get(cls_name) {
+                                vtable_idx = layout.vtable_index.get(&method).cloned();
+                            }
+                        }
+
+                        // Try to find return type
+                        if let Some((_, r_ty)) =
+                            self.function_tys.get(&format!("{}_{}", cls_name, method))
+                        {
+                            return_ty = r_ty.clone();
+                        }
+
+                        format!("{}_{}", cls_name, method)
+                    }
+                    Type::Union(ref options) => {
+                        // Find a class in the union to get the mangled name for signature lookup
+                        let mut first_cls = None;
+                        for opt in options {
+                            if let Type::Class(cls) = opt {
+                                first_cls = Some(cls.clone());
+                                break;
+                            }
+                        }
+
+                        if let Some(cls_name) = first_cls {
+                            // Assuming all classes in the union have the same vtable structure for this method
+                            if let Some(layout) = self.class_layouts.get(&cls_name) {
+                                vtable_idx = layout.vtable_index.get(&method).cloned();
+                            }
+                            if let Some((_, r_ty)) =
+                                self.function_tys.get(&format!("{}_{}", cls_name, method))
+                            {
+                                return_ty = r_ty.clone();
+                            }
+                            format!("{}_{}", cls_name, method)
+                        } else {
+                            method.clone()
                         }
                     }
-                    if !is_static {
-                        if let Some(layout) = self.class_layouts.get(cls_name) {
-                            vtable_idx = layout.vtable_index.get(&method).cloned();
-                        }
-                    }
-
-                    // Try to find return type
-                    if let Some((_, r_ty)) =
-                        self.function_tys.get(&format!("{}_{}", cls_name, method))
-                    {
-                        return_ty = r_ty.clone();
-                    }
-
-                    format!("{}_{}", cls_name, method)
-                } else {
-                    method.clone()
+                    _ => method.clone(),
                 };
 
                 let (p_tys, _) = self
@@ -415,11 +534,17 @@ impl Lowerer {
 
                 for (i, a) in args.into_iter().enumerate() {
                     let mut op = self.lower_expr(a);
+                    let arg_ty = self.last_expr_ty.clone();
                     // For instance methods, p_tys[0] is 'this', so we check p_tys[i+1]
                     // For static methods, p_tys[i] is correct
                     let p_idx = if is_static { i } else { i + 1 };
                     if let Some(pty) = p_tys.get(p_idx) {
-                        if pty.is_float() && self.last_expr_ty.is_integer() {
+                        if let Type::Union(_) = pty {
+                            ir_args.push(Operand::Constant(arg_ty.tag()));
+                            ir_args.push(op);
+                            continue;
+                        }
+                        if pty.is_float() && arg_ty.is_integer() {
                             op = self.builder.itof(op);
                         }
                     }
@@ -512,15 +637,43 @@ impl Lowerer {
                 }
             }
             Expr::TypeTest(expr, ty_expr, _) => {
-                let _target_ty = self.resolve_type(ty_expr);
-                let val_op = self.lower_expr(*expr);
-                self.last_expr_ty = Type::Boolean;
+                let target_ty = self.resolve_type(ty_expr);
 
-                // Let's just emit a call to aura_check_tag for now
-                self.builder.call(
-                    "aura_check_tag".to_string(),
-                    vec![val_op, Operand::Constant(1)],
-                )
+                if let Type::Class(name) = &target_ty {
+                    let val_op = self.lower_expr(*expr);
+                    let vtable_addr = self.builder.new_reg();
+                    self.builder
+                        .emit(Instruction::LoadVTableAddress(vtable_addr, name.clone()));
+                    let res = self.builder.call(
+                        "aura_check_class".to_string(),
+                        vec![val_op, Operand::Value(vtable_addr)],
+                    );
+                    self.last_expr_ty = Type::Boolean;
+                    res
+                } else {
+                    let type_tag = target_ty.tag();
+
+                    // If the source is a union variable, we need to load its tag from offset 0
+                    let tag_op = if let Expr::Variable(name, _) = &*expr {
+                        if let Some((ptr_reg, _, Some(Type::Union(_)))) = self.mem_vars.get(name) {
+                            self.builder.load(Operand::Value(*ptr_reg), 0)
+                        } else {
+                            // If it's not a union, lower it and use its static tag
+                            self.lower_expr(*expr);
+                            Operand::Constant(self.last_expr_ty.tag())
+                        }
+                    } else {
+                        self.lower_expr(*expr);
+                        Operand::Constant(self.last_expr_ty.tag())
+                    };
+
+                    let res = self.builder.call(
+                        "aura_check_tag".to_string(),
+                        vec![tag_op, Operand::Constant(type_tag)],
+                    );
+                    self.last_expr_ty = Type::Boolean;
+                    res
+                }
             }
             Expr::Throw(expr, _) => {
                 let val = self.lower_expr(*expr);

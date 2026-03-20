@@ -18,11 +18,16 @@ impl Codegen {
                     .unwrap_or(Type::Error);
                 if matches!(var_ty, Type::Error | Type::Int64) {
                     match value {
+                        Expr::Number(_, _) => var_ty = Type::Int32,
+                        Expr::Float(_, _) => var_ty = Type::Float64,
                         Expr::StringLiteral(_, _) => var_ty = Type::String,
                         Expr::Variable(ref n, _) if n == "true" || n == "false" => {
                             var_ty = Type::Boolean
                         }
                         Expr::ArrayLiteral(_, _) => var_ty = Type::Array(Box::new(Type::Error)),
+                        Expr::New(ref class_name, _, _, _, _) => {
+                            var_ty = Type::Class(class_name.clone())
+                        }
                         Expr::MethodCall(_, ref member, _, _, _, _) => {
                             if matches!(
                                 member.as_str(),
@@ -594,7 +599,7 @@ impl Codegen {
                 self.current_class = old_class;
                 self.is_global_scope = saved_global_scope;
             }
-            Statement::Interface(_) => {}
+            Statement::Interface(_) | Statement::TypeAlias(_) => {}
             Statement::Error => panic!("Compiler bug: reaching error node in codegen"),
             Statement::TryCatch { try_block, .. } => {
                 // For now, just generate the try block to avoid panics

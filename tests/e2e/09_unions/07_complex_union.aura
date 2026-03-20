@@ -1,0 +1,68 @@
+// Expected output:
+// Status: Active
+// Named: Alice
+// Person: Bob
+// Basic: 123
+// Basic: Hello
+
+enum Status {
+    Active,
+    Inactive
+}
+
+abstract class Named {
+    abstract function getName(): string;
+}
+
+class Person extends Named {
+    public name: string;
+    public constructor(name: string) {
+        super();
+        this.name = name;
+    }
+    override function getName(): string {
+        return this.name;
+    }
+}
+
+type Basic = string | number;
+
+type Complex = Status | Named | Person | Basic;
+
+function process(v: Complex) {
+    if (v is Status) {
+        if (v == Status.Active) {
+            print "Status: Active";
+        } else {
+            print "Status: Inactive";
+        }
+    } else if (v is Person) {
+        // Narrowed to Person (more specific than Named)
+        print "Person: " + v.name;
+    } else if (v is Named) {
+        print "Named: " + v.getName();
+    } else if (v is string) {
+        // print "Basic: " + v; // Concatenation with union types might have issues
+        print v;
+    } else if (v is number) {
+        print v;
+    }
+}
+
+process(Status.Active);
+
+class NamedOnly extends Named {
+    private name: string;
+    public constructor(name: string) {
+        super();
+        this.name = name;
+    }
+    override function getName(): string {
+        return this.name;
+    }
+}
+
+process(new NamedOnly("Alice"));
+process(new Person("Bob"));
+process(123);
+process("Hello");

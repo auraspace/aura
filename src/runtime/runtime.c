@@ -9,6 +9,11 @@
 #include <time.h>
 #include <unistd.h>
 
+void print_num(int64_t n);
+void print_float(double n);
+void print_bool(int64_t n);
+void print_str(const char *s);
+
 #define AURA_TYPE_I32 1
 #define AURA_TYPE_STRING 2
 #define AURA_TYPE_BOOLEAN 3
@@ -42,6 +47,52 @@ void print_float(double n) {
 
 int64_t aura_check_tag(int64_t val_tag, int64_t expected_tag) {
   return val_tag == expected_tag;
+}
+
+int64_t aura_check_class(void *obj, void *expected_vtable) {
+  if (!obj)
+    return 0;
+  // VTable pointer is at offset 0 of the object
+  void *current_vtable = *(void **)obj;
+  while (current_vtable) {
+    if (current_vtable == expected_vtable)
+      return 1;
+    // Parent vtable pointer is at offset 0 of the vtable
+    current_vtable = *(void **)current_vtable;
+  }
+  return 0;
+}
+
+void aura_print_union(int64_t tag, int64_t val) {
+  switch (tag) {
+  case 1:
+    print_num(val);
+    break;
+  case 2: {
+    double d;
+    memcpy(&d, &val, 8);
+    print_float(d);
+    break;
+  }
+  case 3:
+    print_bool(val);
+    break;
+  case 4:
+    print_str((const char *)val);
+    break;
+  case 5:
+    printf("Object<%p>\n", (void *)val);
+    break;
+  case 6:
+    printf("null\n");
+    break;
+  case 7:
+    printf("Enum(%lld)\n", val);
+    break;
+  default:
+    printf("Unknown union tag: %lld, val: %p\n", tag, (void *)val);
+    break;
+  }
 }
 
 extern const char *aura_string_table[];

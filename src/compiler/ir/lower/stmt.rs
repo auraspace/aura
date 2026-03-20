@@ -6,7 +6,6 @@ use crate::compiler::sema::ty::Type;
 impl Lowerer {
     pub fn lower_statement(&mut self, stmt: Statement) {
         match stmt {
-            Statement::Enum(_) => {} // Enums are lowered into constants (in the environment/checker), IR doesn't need to do anything here except maybe register constants, but we'll do that in SEMA.
             Statement::VarDeclaration {
                 name,
                 name_span: _,
@@ -63,11 +62,10 @@ impl Lowerer {
 
                 if size == 16 {
                     // Tagged Union: [tag (8 bytes), value (8 bytes)]
-                    // For now, assume it's i32 | string and the value is i32
-                    // Tag 1 = i32
+                    let tag = self.last_expr_ty.tag();
                     self.builder
                         .emit(crate::compiler::ir::instr::Instruction::Store(
-                            Operand::Constant(1),
+                            Operand::Constant(tag),
                             Operand::Value(ptr_reg),
                             0,
                         ));
@@ -91,7 +89,7 @@ impl Lowerer {
                 self.lower_expr(expr);
             }
             Statement::Print(expr, _) => {
-                let val = self.lower_expr(expr);
+                let val = self.lower_expr(expr.clone());
                 let ty = self.last_expr_ty.clone();
                 if ty.is_float() {
                     self.builder.fcall("print_float".to_string(), vec![val]);
@@ -99,6 +97,39 @@ impl Lowerer {
                     self.builder.call("print_str".to_string(), vec![val]);
                 } else if ty == Type::Boolean {
                     self.builder.call("print_bool".to_string(), vec![val]);
+                } else if let Type::Union(_) = ty {
+                    // Call a generic print_union that takes a pointer to the 16-byte slot
+                    // We need a way to pass the address of the variable if it's a variable,
+                    // or allocate a temp slot for expressions.
+                    if let Operand::Value(_) = val {
+                        // If it's already a value (loaded), we might need to repack it?
+                        // Actually, print for unions should probably take the tag and value separately
+                        // but for simplicity, let's assume we can pass the tag and value as two args.
+                        // But IR Instruction::Call only takes Vec<Operand>.
+                        // Let's implement aura_print_union(int64_t tag, int64_t val)
+
+                        // We need to load the tag and value.
+                        // If 'val' is just the value (from lower_expr), we don't have the tag here!
+                        // This is why lower_expr for a Union should probably return the tag.
+                        // But it can only return one Operand.
+
+                        // Re-thinking: Statement::Print should handle Union by loading tag/val.
+                        if let Expr::Variable(name, _) = &expr {
+                            if let Some((ptr_reg, _, _)) = self.mem_vars.get(name) {
+                                let tag_op = self.builder.load(Operand::Value(*ptr_reg), 0);
+                                let val_op = self.builder.load(Operand::Value(*ptr_reg), 8);
+                                self.builder
+                                    .call("aura_print_union".to_string(), vec![tag_op, val_op]);
+                            }
+                        } else {
+                            // For non-variable unions (e.g. from a function call),
+                            // lower_expr should have returned the value, but where is the tag?
+                            // This is a deeper problem. For now, let's fix variables.
+                            self.builder.call("print_num".to_string(), vec![val]);
+                        }
+                    } else {
+                        self.builder.call("print_num".to_string(), vec![val]);
+                    }
                 } else {
                     self.builder.call("print_num".to_string(), vec![val]);
                 }
@@ -291,12 +322,15 @@ impl Lowerer {
             Statement::TryCatch { .. } => {
                 todo!("Try-catch lowering to IR is not implemented yet")
             }
-            Statement::Error => {}
-            Statement::Import { .. } | Statement::Export { .. } => {}
-            Statement::Comment(_, _)
+            Statement::Error
+            | Statement::Import { .. }
+            | Statement::Export { .. }
+            | Statement::Enum(_)
+            | Statement::TypeAlias(_)
+            | Statement::Interface(_)
+            | Statement::Comment(_, _)
             | Statement::RegularBlockComment(_, _)
             | Statement::Empty(_) => {}
-            Statement::Interface(_) => {}
         }
     }
 }

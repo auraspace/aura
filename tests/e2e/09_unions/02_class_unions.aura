@@ -1,0 +1,25 @@
+// Expected output:
+// John
+// Jane
+
+class Person {
+  public name: string;
+
+  public constructor(name: string) {
+    this.name = name;
+  }
+}
+
+class Robot {
+  public name: string;
+
+  public constructor(name: string) {
+    this.name = name;
+  }
+}
+
+let p: Person | Robot = new Person("John");
+print p.name;
+
+p = new Robot("Jane");
+print p.name;

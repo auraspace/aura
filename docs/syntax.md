@@ -34,7 +34,7 @@ Aura is a strictly typed language.
 - `void`: No return value
 
 ### Advanced Types
-- **Unions**: `string | i32`
+- **Unions**: `string | i32` (See [Union Types](file:///Users/tienpham/Work/entj-pham/auto-project/aura-rust/docs/union-types.md))
 - **Arrays**: `i32[]`
 - **Generics**: `List<string>`
 - **Functions**: `function<T>(T): void`
