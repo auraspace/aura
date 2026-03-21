@@ -769,10 +769,11 @@ impl Interpreter {
                 .expect("Usage of this outside of class context"),
             Expr::New(class_name, _, _, args, _) => {
                 let (field_names, methods) = {
-                    let (fnms, mths) = self
-                        .classes
-                        .get(&class_name)
-                        .expect(&format!("Class {} not found", class_name));
+                    let (fnms, mths) = self.classes.get(&class_name).expect(&format!(
+                        "Class {} not found. Available classes: {:?}",
+                        class_name,
+                        self.classes.keys().collect::<Vec<_>>()
+                    ));
                     (fnms.clone(), mths.clone())
                 };
 

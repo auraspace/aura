@@ -1,0 +1,154 @@
+// Expected output:
+// --- Testing Set ---
+// Initial size: 0
+// Size after adding 1, 2, 1: 2
+// Contains 1: true
+// Contains 3: false
+// Size after removing 1: 1
+// Contains 1: false
+// Size after clear: 0
+// --- Testing Map ---
+// Initial size: 0
+// Size after adding 2 items: 2
+// Value for apple: 100
+// Value for banana: 200
+// Value for apple after update: 150
+// Size after update: 2
+// Size after removing banana: 1
+// Contains banana: false
+// --- Testing Stack ---
+// Size: 2
+// Peek: second
+// Pop: second
+// Peek after pop: first
+// Size after pop: 1
+// --- Testing Queue ---
+// Size: 2
+// Peek: 10
+// Dequeue: 10
+// Peek after dequeue: 20
+// Size after dequeue: 1
+// --- Testing Deque ---
+// Size: 3
+// PeekFirst: start
+// PeekLast: end
+// RemoveFirst: start
+// RemoveLast: end
+// Size after removals: 1
+
+import { HashSet } from "std/collections";
+import { HashMap } from "std/collections";
+import { Stack } from "std/collections";
+import { Queue } from "std/collections";
+import { Deque } from "std/collections";
+
+function testSet(): void {
+  print "--- Testing Set ---";
+  let s = new HashSet<i32>();
+  print "Initial size: " + s.size();
+  // 0
+  s.add(1);
+  s.add(2);
+  s.add(1);
+  // Duplicate
+  print "Size after adding 1, 2, 1: " + s.size();
+  // 2
+  print "Contains 1: " + s.contains(1);
+  // true
+  print "Contains 3: " + s.contains(3);
+  // false
+  s.remove(1);
+  print "Size after removing 1: " + s.size();
+  // 1
+  print "Contains 1: " + s.contains(1);
+  // false
+  s.clear();
+  print "Size after clear: " + s.size();
+  // 0
+}
+
+function testMap(): void {
+  print "--- Testing Map ---";
+  let m = new HashMap<string, i32>();
+  print "Initial size: " + m.size();
+  // 0
+  m.set("apple", 100);
+  m.set("banana", 200);
+  print "Size after adding 2 items: " + m.size();
+  // 2
+  print "Value for apple: " + m.get("apple");
+  // 100
+  print "Value for banana: " + m.get("banana");
+  // 200
+  m.set("apple", 150);
+  // Update
+  print "Value for apple after update: " + m.get("apple");
+  // 150
+  print "Size after update: " + m.size();
+  // 2
+  m.remove("banana");
+  print "Size after removing banana: " + m.size();
+  // 1
+  print "Contains banana: " + m.containsKey("banana");
+  // false
+}
+
+function testStack(): void {
+  print "--- Testing Stack ---";
+  let st = new Stack<string>();
+  st.push("first");
+  st.push("second");
+  print "Size: " + st.size();
+  // 2
+  print "Peek: " + st.peek();
+  // second
+  print "Pop: " + st.pop();
+  // second
+  print "Peek after pop: " + st.peek();
+  // first
+  print "Size after pop: " + st.size();
+  // 1
+}
+
+function testQueue(): void {
+  print "--- Testing Queue ---";
+  let q = new Queue<i32>();
+  q.enqueue(10);
+  q.enqueue(20);
+  print "Size: " + q.size();
+  // 2
+  print "Peek: " + q.peek();
+  // 10
+  print "Dequeue: " + q.dequeue();
+  // 10
+  print "Peek after dequeue: " + q.peek();
+  // 20
+  print "Size after dequeue: " + q.size();
+  // 1
+}
+
+function testDeque(): void {
+  print "--- Testing Deque ---";
+  let dq = new Deque<string>();
+  dq.addLast("middle");
+  dq.addFirst("start");
+  dq.addLast("end");
+  print "Size: " + dq.size();
+  // 3
+  print "PeekFirst: " + dq.peekFirst();
+  // start
+  print "PeekLast: " + dq.peekLast();
+  // end
+  print "RemoveFirst: " + dq.removeFirst();
+  // start
+  print "RemoveLast: " + dq.removeLast();
+  // end
+  print "Size after removals: " + dq.size();
+  // 1
+}
+
+testSet();
+testMap();
+testStack();
+testQueue();
+testDeque();

@@ -25,6 +25,7 @@ pub struct Interpreter {
     pub env_stack: Vec<Rc<RefCell<HashMap<String, Value>>>>,
     pub stdlib_path: Option<String>,
     pub loaded_files: HashSet<String>,
+    pub current_dir: Option<String>,
     /// Optional handler for `print` statements. If None, uses `println!`.
     pub print_handler: Option<Rc<dyn Fn(&str)>>,
 }
@@ -39,6 +40,7 @@ impl Interpreter {
             env_stack: vec![Rc::new(RefCell::new(HashMap::new()))],
             stdlib_path: None,
             loaded_files: HashSet::new(),
+            current_dir: None,
             print_handler: None,
         };
         // Register built-in Promise class (methods are handled as special cases in eval_expr)
@@ -149,18 +151,46 @@ impl Interpreter {
                 } else {
                     format!("{}.aura", sub_path)
                 };
-                std::path::Path::new(std_path)
-                    .join(aura_path)
-                    .canonicalize()
+                let mut full_path = std::path::Path::new(std_path).join(&aura_path);
+
+                if !full_path.exists() {
+                    // Try directory-style: std/collections -> std/collections/collections.aura
+                    let sub_path_no_ext = if sub_path.ends_with(".aura") {
+                        &sub_path[..sub_path.len() - 5]
+                    } else {
+                        &sub_path
+                    };
+                    let dir_path = std::path::Path::new(std_path).join(sub_path_no_ext);
+                    if dir_path.is_dir() {
+                        let nested_path = dir_path.join(format!("{}.aura", sub_path_no_ext));
+                        if nested_path.exists() {
+                            full_path = nested_path;
+                        }
+                    }
+                }
+
+                full_path.canonicalize()
             } else {
                 return;
             }
-        } else if path.starts_with(".") {
-            // How to get current file's directory in Interpreter?
-            // For now, assume relative to current working directory or add current_dir to Interpreter
-            std::path::Path::new(&path).canonicalize()
         } else {
-            std::path::Path::new(&path).canonicalize()
+            let path_with_ext = if path.ends_with(".aura") {
+                path.clone()
+            } else {
+                format!("{}.aura", path)
+            };
+
+            if path.starts_with(".") {
+                if let Some(ref current_dir) = self.current_dir {
+                    std::path::Path::new(current_dir)
+                        .join(&path_with_ext)
+                        .canonicalize()
+                } else {
+                    std::path::Path::new(&path_with_ext).canonicalize()
+                }
+            } else {
+                std::path::Path::new(&path_with_ext).canonicalize()
+            }
         };
 
         if let Ok(abs_p) = absolute_path {
@@ -171,15 +201,23 @@ impl Interpreter {
             self.loaded_files.insert(path_str.clone());
 
             if let Ok(source) = std::fs::read_to_string(&abs_p) {
+                let saved_dir = self.current_dir.clone();
+                if let Some(parent) = abs_p.parent() {
+                    self.current_dir = Some(parent.to_string_lossy().to_string());
+                }
+
                 let mut lexer = crate::compiler::frontend::lexer::Lexer::new(&source);
                 let tokens = lexer.lex_all();
                 let mut parser = crate::compiler::frontend::parser::Parser::new(tokens, path_str);
                 let program = parser.parse_program();
                 self.interpret(program);
+
+                self.current_dir = saved_dir;
             }
+        } else {
+            // Silence failure log
         }
     }
-
     pub(crate) fn push_scope(&mut self) {
         let parent = std::mem::replace(&mut self.env, Box::new(Environment::new(None)));
         self.env = Box::new(Environment::new(Some(parent)));

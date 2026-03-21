@@ -146,7 +146,6 @@ impl SemanticAnalyzer {
                     (param_tys, c.access)
                 });
                 self.pop_scope();
-
                 self.classes.insert(
                     name.clone(),
                     ClassInfo {
@@ -420,13 +419,13 @@ impl SemanticAnalyzer {
                             let class_info = self
                                 .classes
                                 .get(name)
-                                .map(|c| (c.is_exported, self.current_file.clone(), c.span)); // simplified defined_in for classes
+                                .map(|c| (c.is_exported, c.defined_in.clone(), c.span));
+                            let interface_info = self
+                                .interfaces
+                                .get(name)
+                                .map(|i| (i.is_exported, i.defined_in.clone(), i.span));
 
-                            let export_check = if let Some(info) = sym_info {
-                                Some(info)
-                            } else {
-                                class_info
-                            };
+                            let export_check = sym_info.or(class_info).or(interface_info);
 
                             if let Some((is_exported, def_file, def_span)) = export_check {
                                 if !is_exported {
@@ -441,6 +440,9 @@ impl SemanticAnalyzer {
                                 // (Classes are already in self.classes)
                                 if self.scope.lookup_local(name).is_none()
                                     && self.classes.get(name).is_none()
+                                    && self.interfaces.get(name).is_none()
+                                    && self.enums.get(name).is_none()
+                                    && self.type_aliases.get(name).is_none()
                                 {
                                     // Placeholder insert for variables/functions
                                     self.scope.insert(

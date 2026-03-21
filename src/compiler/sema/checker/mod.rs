@@ -514,9 +514,25 @@ impl SemanticAnalyzer {
                 } else {
                     format!("{}.aura", sub_path)
                 };
-                std::path::Path::new(std_path)
-                    .join(aura_path)
-                    .canonicalize()
+                let mut full_path = std::path::Path::new(std_path).join(&aura_path);
+
+                if !full_path.exists() {
+                    // Try directory-style: std/collections -> std/collections/collections.aura
+                    let sub_path_no_ext = if sub_path.ends_with(".aura") {
+                        &sub_path[..sub_path.len() - 5]
+                    } else {
+                        sub_path
+                    };
+                    let dir_path = std::path::Path::new(std_path).join(sub_path_no_ext);
+                    if dir_path.is_dir() {
+                        let nested_path = dir_path.join(format!("{}.aura", sub_path_no_ext));
+                        if nested_path.exists() {
+                            full_path = nested_path;
+                        }
+                    }
+                }
+
+                full_path.canonicalize()
             } else {
                 Err(std::io::Error::new(
                     std::io::ErrorKind::NotFound,

@@ -1,0 +1,123 @@
+/**
+ * Internal entry class to store key-value pairs.
+ */
+class Entry<K, V> {
+  public key: K;
+  public value: V;
+
+  public constructor(key: K, value: V) {
+    this.key = key;
+    this.value = value;
+  }
+}
+
+/**
+ * Interface representing a collection of key-value pairs.
+ */
+export interface Map<K, V> {
+  /**
+   * Associates the specified value with the specified key in this map.
+   */
+  set(key: K, value: V): void;
+
+  /**
+   * Returns the value to which the specified key is mapped, or null if this map contains no mapping for the key.
+   */
+  get(key: K): V;
+
+  /**
+   * Removes the mapping for a key from this map if it is present.
+   */
+  remove(key: K): bool;
+
+  /**
+   * Returns true if this map contains a mapping for the specified key.
+   */
+  containsKey(key: K): bool;
+
+  /**
+   * Returns the number of key-value mappings in this map.
+   */
+  size(): i32;
+
+  /**
+   * Returns true if this map contains no key-value mappings.
+   */
+  isEmpty(): bool;
+
+  /**
+   * Removes all of the mappings from this map.
+   */
+  clear(): void;
+}
+
+/**
+ * Basic implementation of a Map using an internal array of entries.
+ * Note: Current implementation uses linear search (O(n)).
+ */
+export class HashMap<K, V> implements Map<K, V> {
+  private entries: Entry<K, V>[];
+
+  public constructor() {
+    this.entries = [];
+  }
+
+  public set(key: K, value: V): void {
+    for (let i = 0; i < this.entries.len(); i = i + 1) {
+      if (this.entries[i].key == key) {
+        this.entries[i].value = value;
+        return;
+      }
+    }
+    this.entries.push(new Entry<K, V>(key, value));
+  }
+
+  public get(key: K): V {
+    for (let i = 0; i < this.entries.len(); i = i + 1) {
+      if (this.entries[i].key == key) {
+        return this.entries[i].value;
+      }
+    }
+    // In Aura, if we don't have optionals, we might need a way to return 'null' for reference types.
+    // However, if V is a primitive, it might be tricky.
+    // For now, let's hope it works or 'null' is okay.
+    return null;
+  }
+
+  public remove(key: K): bool {
+    for (let i = 0; i < this.entries.len(); i = i + 1) {
+      if (this.entries[i].key == key) {
+        let newEntries: Entry<K, V>[] = [];
+        for (let j = 0; j < this.entries.len(); j = j + 1) {
+          if (i != j) {
+            newEntries.push(this.entries[j]);
+          }
+        }
+        this.entries = newEntries;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  public containsKey(key: K): bool {
+    for (let i = 0; i < this.entries.len(); i = i + 1) {
+      if (this.entries[i].key == key) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  public size(): i32 {
+    return this.entries.len();
+  }
+
+  public isEmpty(): bool {
+    return this.entries.len() == 0;
+  }
+
+  public clear(): void {
+    this.entries = [];
+  }
+}

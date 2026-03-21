@@ -207,14 +207,32 @@ impl Codegen {
                         // X0 = a - X2
                     }
                     "==" => {
-                        self.emitter
-                            .output
-                            .push_str("    cmp x0, x1\n    cset x0, eq\n");
+                        let is_string = matches!(left_ty, Some(Type::String))
+                            || matches!(right_ty, Some(Type::String));
+                        if is_string {
+                            self.emitter.call("_strcmp");
+                            self.emitter
+                                .output
+                                .push_str("    cmp x0, #0\n    cset x0, eq\n");
+                        } else {
+                            self.emitter
+                                .output
+                                .push_str("    cmp x0, x1\n    cset x0, eq\n");
+                        }
                     }
                     "!=" => {
-                        self.emitter
-                            .output
-                            .push_str("    cmp x0, x1\n    cset x0, ne\n");
+                        let is_string = matches!(left_ty, Some(Type::String))
+                            || matches!(right_ty, Some(Type::String));
+                        if is_string {
+                            self.emitter.call("_strcmp");
+                            self.emitter
+                                .output
+                                .push_str("    cmp x0, #0\n    cset x0, ne\n");
+                        } else {
+                            self.emitter
+                                .output
+                                .push_str("    cmp x0, x1\n    cset x0, ne\n");
+                        }
                     }
                     "<" => {
                         self.emitter
@@ -375,7 +393,13 @@ impl Codegen {
                     }
                 }
 
-                if let Type::Class(ref class_name) = ty {
+                let actual_class_name = match ty {
+                    Type::Class(ref name) => Some(name.clone()),
+                    Type::Generic(ref name, ref args) => Some(self.mangle_name(name, args)),
+                    _ => None,
+                };
+
+                if let Some(ref class_name) = actual_class_name {
                     if let Some((fields, _)) = self.classes.get(class_name) {
                         if let Some(idx) = fields.iter().position(|f| f == &member) {
                             offset = (idx + 1) * 8;
@@ -417,7 +441,13 @@ impl Codegen {
                     }
                 }
 
-                if let Type::Class(ref class_name) = ty {
+                let actual_class_name = match ty {
+                    Type::Class(ref name) => Some(name.clone()),
+                    Type::Generic(ref name, ref args) => Some(self.mangle_name(name, args)),
+                    _ => None,
+                };
+
+                if let Some(ref class_name) = actual_class_name {
                     if let Some((fields, _)) = self.classes.get(class_name) {
                         if let Some(idx) = fields.iter().position(|f| f == &member) {
                             offset = (idx + 1) * 8;

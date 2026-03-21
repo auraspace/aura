@@ -348,11 +348,17 @@ impl Codegen {
         for (path, stmt) in class_decls {
             self.current_file = path;
 
+            let actual_stmt = if let Statement::Export { ref decl, .. } = stmt {
+                &**decl
+            } else {
+                &stmt
+            };
+
             if let Statement::ClassDeclaration {
                 ref name,
                 ref type_params,
                 ..
-            } = stmt
+            } = actual_stmt
             {
                 if !type_params.is_empty() {
                     // Generate specialized versions
@@ -572,9 +578,26 @@ impl Codegen {
                             } else {
                                 format!("{}.aura", sub_path)
                             };
-                            std::path::Path::new(std_path)
-                                .join(aura_path)
-                                .canonicalize()
+                            let mut full_path = std::path::Path::new(std_path).join(&aura_path);
+
+                            if !full_path.exists() {
+                                // Try directory-style: std/collections -> std/collections/collections.aura
+                                let sub_path_no_ext = if sub_path.ends_with(".aura") {
+                                    &sub_path[..sub_path.len() - 5]
+                                } else {
+                                    &sub_path
+                                };
+                                let dir_path = std::path::Path::new(std_path).join(sub_path_no_ext);
+                                if dir_path.is_dir() {
+                                    let nested_path =
+                                        dir_path.join(format!("{}.aura", sub_path_no_ext));
+                                    if nested_path.exists() {
+                                        full_path = nested_path;
+                                    }
+                                }
+                            }
+
+                            full_path.canonicalize()
                         } else {
                             continue;
                         }

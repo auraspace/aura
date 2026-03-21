@@ -1,0 +1,75 @@
+/**
+ * Interface representing a LIFO (Last-In-First-Out) stack.
+ */
+export interface IStack<T> {
+  /**
+   * Pushes an item onto the top of this stack.
+   */
+  push(item: T): void;
+
+  /**
+   * Removes the object at the top of this stack and returns that object as the value of this function.
+   */
+  pop(): T;
+
+  /**
+   * Looks at the object at the top of this stack without removing it from the stack.
+   */
+  peek(): T;
+
+  /**
+   * Returns the number of elements in the stack.
+   */
+  size(): i32;
+
+  /**
+   * Returns true if the stack is rỗng (empty).
+   */
+  isEmpty(): bool;
+
+  /**
+   * Removes all elements from the stack.
+   */
+  clear(): void;
+}
+
+/**
+ * Basic implementation of a Stack using an internal array.
+ */
+export class Stack<T> implements IStack<T> {
+  private items: T[];
+
+  public constructor() {
+    this.items = [];
+  }
+
+  public push(item: T): void {
+    this.items.push(item);
+  }
+
+  public pop(): T {
+    if (this.isEmpty()) {
+      return null;
+    }
+    return this.items.pop();
+  }
+
+  public peek(): T {
+    if (this.isEmpty()) {
+      return null;
+    }
+    return this.items[this.items.len() - 1];
+  }
+
+  public size(): i32 {
+    return this.items.len();
+  }
+
+  public isEmpty(): bool {
+    return this.items.len() == 0;
+  }
+
+  public clear(): void {
+    this.items = [];
+  }
+}

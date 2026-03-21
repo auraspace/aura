@@ -1,0 +1,7 @@
+// Expected output:
+// Hello from module_a!
+
+import { Greeter } from "./module_b";
+
+let g = new Greeter();
+g.sayHello();

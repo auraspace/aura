@@ -132,7 +132,10 @@ impl Parser {
     pub(crate) fn parse_import_statement(&mut self) -> Result<Statement, ()> {
         let s = self.span();
         self.consume(TokenKind::Import)?;
+        self.parse_import_rest(s)
+    }
 
+    pub(crate) fn parse_import_rest(&mut self, s: Span) -> Result<Statement, ()> {
         let item = if self.peek().kind == TokenKind::Star {
             self.advance();
             self.consume(TokenKind::As)?;
@@ -208,12 +211,13 @@ impl Parser {
                 if self.peek().kind == TokenKind::Abstract {
                     self.advance();
                     is_abstract = true;
-                    // doc might have been passed in, but parse_export_statement is called with it.
                 }
                 self.parse_class_declaration(doc, is_abstract)?
             }
             TokenKind::Enum => self.parse_enum_declaration(doc)?,
             TokenKind::Interface => self.parse_interface_declaration(doc)?,
+            TokenKind::Import => self.parse_import_statement()?,
+            TokenKind::OpenBrace | TokenKind::Star => self.parse_import_rest(s)?,
             _ => {
                 if !self.panic_mode {
                     let token = self.peek();

@@ -1,0 +1,88 @@
+export interface IDeque<T> {
+  addFirst(item: T): void;
+
+  addLast(item: T): void;
+
+  removeFirst(): T;
+
+  removeLast(): T;
+
+  peekFirst(): T;
+
+  peekLast(): T;
+
+  size(): i32;
+
+  isEmpty(): bool;
+
+  clear(): void;
+}
+
+/**
+ * Basic implementation of a Deque using an internal array.
+ */
+export class Deque<T> implements IDeque<T> {
+  private items: T[];
+
+  public constructor() {
+    this.items = [];
+  }
+
+  public addFirst(item: T): void {
+    let newItems: T[] = [item];
+    for (let i = 0; i < this.items.len(); i = i + 1) {
+      newItems.push(this.items[i]);
+    }
+    this.items = newItems;
+  }
+
+  public addLast(item: T): void {
+    this.items.push(item);
+  }
+
+  public removeFirst(): T {
+    if (this.isEmpty()) {
+      return null;
+    }
+    let first = this.items[0];
+    let newItems: T[] = [];
+    for (let i = 1; i < this.items.len(); i = i + 1) {
+      newItems.push(this.items[i]);
+    }
+    this.items = newItems;
+    return first;
+  }
+
+  public removeLast(): T {
+    if (this.isEmpty()) {
+      return null;
+    }
+    return this.items.pop();
+  }
+
+  public peekFirst(): T {
+    if (this.isEmpty()) {
+      return null;
+    }
+    return this.items[0];
+  }
+
+  public peekLast(): T {
+    if (this.isEmpty()) {
+      return null;
+    }
+    return this.items[this.items.len() - 1];
+  }
+
+  public size(): i32 {
+    return this.items.len();
+  }
+
+  public isEmpty(): bool {
+    return this.items.len() == 0;
+  }
+
+  public clear(): void {
+    this.items = [];
+  }
+}

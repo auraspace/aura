@@ -425,4 +425,19 @@ class Test extends Base implements Printable {
         assert!(formatted.contains("class Test extends Base implements Printable"));
         assert!(formatted.contains("public override m(): void"));
     }
+
+    #[test]
+    fn test_reexport_formatter() {
+        let source = "export import { Array } from \"./array\";\n";
+        let mut lexer = Lexer::new(source);
+        let tokens = lexer.lex_all();
+        let mut parser = Parser::new(tokens, "test.aura".to_string());
+        let program = parser.parse_program();
+
+        let formatter = Formatter::new();
+        let formatted = formatter.format_program(&program);
+
+        let expected = "export { Array } from \"./array\";\n";
+        assert_eq!(formatted, expected);
+    }
 }

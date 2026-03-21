@@ -1,0 +1,5 @@
+export class Greeter {
+  public sayHello(): void {
+    print "Hello from module_a!";
+  }
+}

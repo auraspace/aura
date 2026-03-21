@@ -363,9 +363,32 @@ pub(crate) fn format_statement_internal(f: &mut Formatter, stmt: &Statement, inc
 
             f.indent();
             f.result.push_str("export ");
-            let mut sub_formatter = Formatter::new();
-            sub_formatter.format_statement_internal(decl, false);
-            f.result.push_str(sub_formatter.result.trim_start());
+
+            if let Statement::Import { item, path, .. } = &**decl {
+                match item {
+                    ImportItem::Named(names) => {
+                        f.result.push_str("{ ");
+                        for (i, (name, _)) in names.iter().enumerate() {
+                            if i > 0 {
+                                f.result.push_str(", ");
+                            }
+                            f.result.push_str(name);
+                        }
+                        f.result.push_str(" }");
+                    }
+                    ImportItem::Namespace((name, _)) => {
+                        f.result.push_str("* as ");
+                        f.result.push_str(name);
+                    }
+                }
+                f.result.push_str(" from \"");
+                f.result.push_str(path);
+                f.result.push_str("\";");
+            } else {
+                let mut sub_formatter = Formatter::new();
+                sub_formatter.format_statement_internal(decl, false);
+                f.result.push_str(sub_formatter.result.trim_start());
+            }
         }
         Statement::TryCatch {
             try_block,

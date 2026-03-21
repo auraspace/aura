@@ -177,6 +177,9 @@ impl Backend {
         let mut analyzer = SemanticAnalyzer::new();
         register_analyzer_intrinsics(&mut analyzer);
         analyzer.load_stdlib(&self.stdlib_path);
+        if let Some(parent) = std::path::Path::new(&path_str).parent() {
+            analyzer.set_current_dir(parent.to_string_lossy().to_string());
+        }
         analyzer.analyze(program.clone());
 
         let diagnostics = collect_diagnostics(&lexer, &parser, &analyzer);

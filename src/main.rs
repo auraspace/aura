@@ -228,6 +228,7 @@ fn main() {
         register_interpreter_intrinsics(&mut |name, val| {
             interpreter.env.insert(name, val);
         });
+        interpreter.current_dir = Some(input_dir);
         interpreter.load_stdlib(&stdlib_path);
         interpreter.interpret(program);
         return;

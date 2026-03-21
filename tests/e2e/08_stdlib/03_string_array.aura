@@ -19,7 +19,7 @@
 // [1, 2, 4]
 
 import { String } from "std/string";
-import { Array } from "std/array";
+import { Array } from "std/collections";
 
 function testStrings(): void {
   print "--- String Tests ---";

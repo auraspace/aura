@@ -1,0 +1,96 @@
+/**
+ * Interface representing a collection of unique elements.
+ */
+export interface Set<T> {
+  /**
+   * Adds an item to the set. Returns true if the item was added,
+   * false if it was already present.
+   */
+  add(item: T): bool;
+
+  /**
+   * Removes an item from the set. Returns true if the item was removed,
+   * false if it was not found.
+   */
+  remove(item: T): bool;
+
+  /**
+   * Checks if an item is in the set.
+   */
+  contains(item: T): bool;
+
+  /**
+   * Returns the number of elements in the set.
+   */
+  size(): i32;
+
+  /**
+   * Returns true if the set is empty.
+   */
+  isEmpty(): bool;
+
+  /**
+   * Removes all elements from the set.
+   */
+  clear(): void;
+}
+
+/**
+ * Basic implementation of a Set using an internal array.
+ * Note: Current implementation uses linear search (O(n)) as Aura lacks hash primitives.
+ */
+export class HashSet<T> implements Set<T> {
+  private items: T[];
+
+  public constructor() {
+    this.items = [];
+  }
+
+  public add(item: T): bool {
+    if (this.contains(item)) {
+      return false;
+    }
+    this.items.push(item);
+    return true;
+  }
+
+  public remove(item: T): bool {
+    for (let i = 0; i < this.items.len(); i = i + 1) {
+      if (this.items[i] == item) {
+        // In Aura, we might need a way to remove at index.
+        // For now, let's rebuild the array or use a slice if supported.
+        // Since array.aura doesn't have removeAt, let's implement it here.
+        let newItems: T[] = [];
+        for (let j = 0; j < this.items.len(); j = j + 1) {
+          if (i != j) {
+            newItems.push(this.items[j]);
+          }
+        }
+        this.items = newItems;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  public contains(item: T): bool {
+    for (let i = 0; i < this.items.len(); i = i + 1) {
+      if (this.items[i] == item) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  public size(): i32 {
+    return this.items.len();
+  }
+
+  public isEmpty(): bool {
+    return this.items.len() == 0;
+  }
+
+  public clear(): void {
+    this.items = [];
+  }
+}

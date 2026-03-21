@@ -1,0 +1,82 @@
+/**
+ * Interface representing a FIFO (First-In-First-Out) queue.
+ */
+export interface IQueue<T> {
+  /**
+   * Inserts the specified element into this queue.
+   */
+  enqueue(item: T): void;
+
+  /**
+   * Retrieves and removes the head of this queue.
+   */
+  dequeue(): T;
+
+  /**
+   * Retrieves, but does not remove, the head of this queue.
+   */
+  peek(): T;
+
+  /**
+   * Returns the number of elements in the queue.
+   */
+  size(): i32;
+
+  /**
+   * Returns true if the queue is empty.
+   */
+  isEmpty(): bool;
+
+  /**
+   * Removes all elements from the queue.
+   */
+  clear(): void;
+}
+
+/**
+ * Basic implementation of a Queue using an internal array.
+ * Note: Dequeue is O(n) in this implementation due to array shift.
+ */
+export class Queue<T> implements IQueue<T> {
+  private items: T[];
+
+  public constructor() {
+    this.items = [];
+  }
+
+  public enqueue(item: T): void {
+    this.items.push(item);
+  }
+
+  public dequeue(): T {
+    if (this.isEmpty()) {
+      return null;
+    }
+    let head = this.items[0];
+    let newItems: T[] = [];
+    for (let i = 1; i < this.items.len(); i = i + 1) {
+      newItems.push(this.items[i]);
+    }
+    this.items = newItems;
+    return head;
+  }
+
+  public peek(): T {
+    if (this.isEmpty()) {
+      return null;
+    }
+    return this.items[0];
+  }
+
+  public size(): i32 {
+    return this.items.len();
+  }
+
+  public isEmpty(): bool {
+    return this.items.len() == 0;
+  }
+
+  public clear(): void {
+    this.items = [];
+  }
+}
