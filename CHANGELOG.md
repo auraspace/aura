@@ -1,9 +1,19 @@
+## [0.2.19] - 2026-03-21
+
+### 🚀 Features
+
+- Implement standard library collections with improved module resolution, string comparison in codegen, and `export import` formatting.
+- Introduce ternary operator with comprehensive compiler support and end-to-end testing.
 ## [0.2.18] - 2026-03-21
 
 ### 🚀 Features
 
 - Enhance install script with colored logging, improved error handling, and update detection.
 - Implement generic interfaces and enhance assignability checks for generic types.
+
+### ⚙️ Miscellaneous Tasks
+
+- *(release)* V0.2.18
 ## [0.2.17] - 2026-03-21
 
 ### 🚀 Features
