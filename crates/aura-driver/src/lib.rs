@@ -4,6 +4,8 @@ use std::path::Path;
 
 use aura_diagnostics::Diagnostic;
 
+pub mod modules;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CheckOutput {
     pub source: String,

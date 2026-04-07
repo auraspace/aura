@@ -4,5 +4,7 @@ version = "0.1.0"
 edition.workspace = true
 
 [dependencies]
+aura-ast = { path = "../aura-ast" }
 aura-diagnostics = { path = "../aura-diagnostics" }
 aura-parser = { path = "../aura-parser" }
+aura-span = { path = "../aura-span" }
