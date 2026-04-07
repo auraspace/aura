@@ -1,0 +1,5 @@
+interface:
+  display_name: "Aura Task Killer"
+  short_description: "Execute next docs/plan TODO and mark done"
+  default_prompt: "Read docs/plan/*.md, pick the next unchecked TODO (or a user-specified one), implement the work in this repo with minimal scope and verification, then mark the TODO as done with completion date + a short note."
+

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Aura Dev Guardrails"
+  short_description: "Keep Aura changes aligned with design docs"
+  default_prompt: "Use $aura-dev-guardrails to ensure this change complies with ARCHITECTURE.md, FOLDER_STRUCTURE.md, and SYNTAX_DESIGN.md."
