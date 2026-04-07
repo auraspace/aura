@@ -34,7 +34,9 @@ impl<'a> Parser<'a> {
     fn parse_program(mut self) -> ParseOutput<Program> {
         let mut items = Vec::new();
         while !self.at(TokenKind::Eof) {
-            if self.at_keyword(Keyword::Function) {
+            if self.at_keyword(Keyword::Import) {
+                items.push(TopLevel::Import(self.parse_import_decl()));
+            } else if self.at_keyword(Keyword::Function) {
                 items.push(TopLevel::Function(self.parse_function_decl()));
             } else {
                 items.push(TopLevel::Stmt(self.parse_stmt()));
@@ -43,6 +45,54 @@ impl<'a> Parser<'a> {
         ParseOutput {
             value: Program { items },
             errors: self.errors,
+        }
+    }
+
+    fn parse_import_decl(&mut self) -> ImportDecl {
+        let start = self.current_span_start();
+        self.expect_keyword(Keyword::Import);
+
+        let clause = if self.eat_punct(Punct::LBrace) {
+            let mut names = Vec::new();
+            if !self.at_punct(Punct::RBrace) && !self.at(TokenKind::Eof) {
+                loop {
+                    names.push(self.parse_ident());
+                    if self.eat_punct(Punct::Comma) {
+                        continue;
+                    }
+                    break;
+                }
+            }
+            self.expect_punct(Punct::RBrace);
+            ImportClause::Named(names)
+        } else {
+            ImportClause::Default(self.parse_ident())
+        };
+
+        self.expect_ident_text("from");
+
+        let from_path = self.current_span();
+        if self.at(TokenKind::String) {
+            self.bump();
+        } else {
+            self.error(
+                from_path,
+                &format!(
+                    "expected string literal, found {}",
+                    token_desc(self.current_kind())
+                ),
+            );
+            self.bump();
+        }
+
+        // Semicolons are optional for import declarations.
+        self.eat_punct(Punct::Semi);
+
+        let end = self.prev_span_end();
+        ImportDecl {
+            clause,
+            from_path,
+            span: Span::new(start, end),
         }
     }
 
@@ -586,6 +636,16 @@ impl<'a> Parser<'a> {
         self.current_kind() == TokenKind::Keyword(kw)
     }
 
+    fn at_ident_text(&self, expected: &str) -> bool {
+        if !self.at(TokenKind::Ident) {
+            return false;
+        }
+        let span = self.current_span();
+        let start = span.start.raw() as usize;
+        let end = span.end.raw() as usize;
+        matches!(self.source.get(start..end), Some(text) if text == expected)
+    }
+
     fn at_operator(&self, op: Operator) -> bool {
         self.current_kind() == TokenKind::Operator(op)
     }
@@ -633,6 +693,15 @@ impl<'a> Parser<'a> {
             self.error(self.current_span(), &format!("expected `{}`", punct_text(p)));
             self.bump();
         }
+    }
+
+    fn expect_ident_text(&mut self, expected: &str) {
+        if self.at_ident_text(expected) {
+            self.bump();
+            return;
+        }
+        self.error(self.current_span(), &format!("expected `{expected}`"));
+        self.bump();
     }
 
     fn expect_stmt_semi(&mut self) {
@@ -789,6 +858,23 @@ fn token_desc(kind: TokenKind) -> String {
 mod tests {
     use super::*;
     use aura_diagnostics::format_all;
+
+    #[test]
+    fn parses_imports() {
+        let src = r#"
+import { Foo, bar } from "./foo"
+import Baz from "./baz";
+
+function main(): i32 { return 0; }
+"#;
+
+        let out = parse_program(src);
+        assert!(out.errors.is_empty(), "{:#?}", out.errors);
+        assert_eq!(out.value.items.len(), 3);
+        assert!(matches!(out.value.items[0], TopLevel::Import(_)));
+        assert!(matches!(out.value.items[1], TopLevel::Import(_)));
+        assert!(matches!(out.value.items[2], TopLevel::Function(_)));
+    }
 
     #[test]
     fn parses_function_with_return() {

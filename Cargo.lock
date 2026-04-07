@@ -20,8 +20,10 @@ dependencies = [
 name = "aura-driver"
 version = "0.1.0"
 dependencies = [
+ "aura-ast",
  "aura-diagnostics",
  "aura-parser",
+ "aura-span",
 ]
 
 [[package]]

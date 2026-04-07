@@ -8,7 +8,7 @@ File-based modules + name resolution consistent with `import ... from "./path"`.
 
 ## TODO
 
-- [ ] Build module graph from entrypoint(s)
+- [x] Build module graph from entrypoint(s) (done 2026-04-07; import AST + driver graph scaffold)
 - [ ] Resolve relative imports, omit extension per MVP rules
 - [ ] Per-module symbol table construction
 - [ ] Resolve locals and top-level names
@@ -19,4 +19,3 @@ File-based modules + name resolution consistent with `import ... from "./path"`.
 
 - [ ] `aurac check` resolves across multiple files under `examples/`
 - [ ] Diagnostics for: missing import target, unknown identifier, duplicate binding
-

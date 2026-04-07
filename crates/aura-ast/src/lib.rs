@@ -7,8 +7,23 @@ pub struct Program {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TopLevel {
+    Import(ImportDecl),
     Function(FunctionDecl),
     Stmt(Stmt),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ImportDecl {
+    pub clause: ImportClause,
+    /// Span of the string literal token (includes the surrounding quotes).
+    pub from_path: Span,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ImportClause {
+    Named(Vec<Ident>),
+    Default(Ident),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
