@@ -13,7 +13,7 @@ File-based modules + name resolution consistent with `import ... from "./path"`.
 - [x] Per-module symbol table construction (done 2026-04-07; collect top-level + import bindings)
 - [x] Resolve locals and top-level names (done 2026-04-07; unknown identifier diagnostics)
 - [x] Resolve imports/exports (surface + diagnostics) (done 2026-04-07; missing import target + multi-file `check`)
-- [ ] Member-name resolution scaffold (structure only; full type-driven lookup later)
+- [x] Member-name resolution scaffold (structure only; full type-driven lookup later) (done 2026-04-07; collect member accesses)
 
 ## Acceptance
 
