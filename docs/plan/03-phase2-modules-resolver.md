@@ -9,7 +9,7 @@ File-based modules + name resolution consistent with `import ... from "./path"`.
 ## TODO
 
 - [x] Build module graph from entrypoint(s) (done 2026-04-07; import AST + driver graph scaffold)
-- [ ] Resolve relative imports, omit extension per MVP rules
+- [x] Resolve relative imports, omit extension per MVP rules (done 2026-04-07; resolve `./`/`../` to `.aura`/`.ar`)
 - [ ] Per-module symbol table construction
 - [ ] Resolve locals and top-level names
 - [ ] Resolve imports/exports (surface + diagnostics)
