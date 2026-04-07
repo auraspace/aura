@@ -1,0 +1,32 @@
+# Rust / Cargo
+/target/
+**/target/
+**/*.rs.bk
+
+# Profiling / coverage
+coverage/
+*.profraw
+*.profdata
+
+# Logs
+*.log
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Caches
+**/.cache/
+.rustc_info.json

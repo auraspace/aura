@@ -1,0 +1,14 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/aura-ast",
+  "crates/aura-diagnostics",
+  "crates/aura-driver",
+  "crates/aura-lexer",
+  "crates/aura-parser",
+  "crates/aura-span",
+  "crates/aurac",
+]
+
+[workspace.package]
+edition = "2021"
