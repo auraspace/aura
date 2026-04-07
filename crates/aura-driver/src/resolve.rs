@@ -1,12 +1,14 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
-use aura_ast::{Expr, Stmt, TopLevel};
+use aura_ast::{Expr, ImportClause, Stmt, TopLevel};
 use aura_diagnostics::Diagnostic;
+use aura_span::Span;
 
 use crate::modules::{ident_text, build_symbol_table, Module};
 
 pub fn resolve_module(module: &Module) -> Vec<Diagnostic> {
     let mut diags = Vec::new();
+    diags.extend(check_module_duplicates(module));
     let symbols = build_symbol_table(module);
     let module_names: HashSet<String> = symbols.bindings.keys().cloned().collect();
 
@@ -17,7 +19,12 @@ pub fn resolve_module(module: &Module) -> Vec<Diagnostic> {
                 let mut function_scope = HashSet::<String>::new();
                 for param in &func.params {
                     if let Some(name) = ident_text(&module.source, &param.name) {
-                        function_scope.insert(name);
+                        if !function_scope.insert(name.clone()) {
+                            diags.push(Diagnostic::error(
+                                param.name.span,
+                                format!("duplicate binding `{name}`"),
+                            ));
+                        }
                     }
                 }
                 scopes.push(function_scope);
@@ -67,13 +74,7 @@ fn resolve_stmt(
                 resolve_expr(module, init, scopes, module_names, diags);
             }
             if let Some(name) = ident_text(&module.source, &s.name) {
-                if let Some(current) = scopes.last_mut() {
-                    current.insert(name);
-                } else {
-                    let mut root = HashSet::new();
-                    root.insert(name);
-                    scopes.push(root);
-                }
+                declare_local(scopes, name, s.name.span, diags);
             }
         }
         Stmt::Return(s) => {
@@ -141,6 +142,63 @@ fn is_in_scopes(scopes: &[HashSet<String>], name: &str) -> bool {
     scopes.iter().rev().any(|s| s.contains(name))
 }
 
+fn declare_local(scopes: &mut Vec<HashSet<String>>, name: String, span: Span, diags: &mut Vec<Diagnostic>) {
+    if scopes.is_empty() {
+        scopes.push(HashSet::new());
+    }
+    let current = scopes.last_mut().unwrap();
+    if !current.insert(name.clone()) {
+        diags.push(Diagnostic::error(span, format!("duplicate binding `{name}`")));
+    }
+}
+
+fn check_module_duplicates(module: &Module) -> Vec<Diagnostic> {
+    let mut diags = Vec::new();
+    let mut seen = HashMap::<String, Span>::new();
+
+    for item in &module.ast.items {
+        match item {
+            TopLevel::Import(import) => match &import.clause {
+                ImportClause::Named(names) => {
+                    for name in names {
+                        if let Some(text) = ident_text(&module.source, name) {
+                            check_dup(&mut seen, &mut diags, text, name.span);
+                        }
+                    }
+                }
+                ImportClause::Default(name) => {
+                    if let Some(text) = ident_text(&module.source, name) {
+                        check_dup(&mut seen, &mut diags, text, name.span);
+                    }
+                }
+            },
+            TopLevel::Function(func) => {
+                if let Some(text) = ident_text(&module.source, &func.name) {
+                    check_dup(&mut seen, &mut diags, text, func.name.span);
+                }
+            }
+            TopLevel::Stmt(stmt) => match stmt {
+                Stmt::Let(s) | Stmt::Const(s) => {
+                    if let Some(text) = ident_text(&module.source, &s.name) {
+                        check_dup(&mut seen, &mut diags, text, s.name.span);
+                    }
+                }
+                _ => {}
+            },
+        }
+    }
+
+    diags
+}
+
+fn check_dup(seen: &mut HashMap<String, Span>, diags: &mut Vec<Diagnostic>, name: String, span: Span) {
+    if seen.contains_key(&name) {
+        diags.push(Diagnostic::error(span, format!("duplicate binding `{name}`")));
+    } else {
+        seen.insert(name, span);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -202,5 +260,49 @@ function add(x: i32): i32 {
         let diags = resolve_module(module);
         assert!(diags.is_empty(), "{diags:#?}");
     }
-}
 
+    #[test]
+    fn reports_duplicate_binding_in_same_scope() {
+        let dir = unique_tmp_dir("dup-local");
+        fs::create_dir_all(&dir).unwrap();
+
+        let main = dir.join("main.aura");
+        fs::write(
+            &main,
+            r#"
+function f(): i32 {
+  let x: i32 = 1;
+  let x: i32 = 2;
+  return x;
+}
+"#,
+        )
+        .unwrap();
+
+        let graph = crate::modules::build_module_graph(&[&main]).unwrap();
+        let module = graph.modules.iter().find(|m| m.path == main).unwrap();
+        let diags = resolve_module(module);
+        assert!(diags.iter().any(|d| d.message.contains("duplicate binding")));
+    }
+
+    #[test]
+    fn reports_duplicate_module_binding() {
+        let dir = unique_tmp_dir("dup-module");
+        fs::create_dir_all(&dir).unwrap();
+
+        let main = dir.join("main.aura");
+        fs::write(
+            &main,
+            r#"
+function foo(): i32 { return 0; }
+function foo(): i32 { return 1; }
+"#,
+        )
+        .unwrap();
+
+        let graph = crate::modules::build_module_graph(&[&main]).unwrap();
+        let module = graph.modules.iter().find(|m| m.path == main).unwrap();
+        let diags = resolve_module(module);
+        assert!(diags.iter().any(|d| d.message.contains("duplicate binding")));
+    }
+}

@@ -18,4 +18,4 @@ File-based modules + name resolution consistent with `import ... from "./path"`.
 ## Acceptance
 
 - [x] `aurac check` resolves across multiple files under `examples/` (done 2026-04-07; added `examples/modules/`)
-- [ ] Diagnostics for: missing import target, unknown identifier, duplicate binding
+- [x] Diagnostics for: missing import target, unknown identifier, duplicate binding (done 2026-04-07)
