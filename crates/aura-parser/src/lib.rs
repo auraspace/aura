@@ -509,6 +509,47 @@ impl<'a> Parser<'a> {
                 self.bump();
                 Expr::Ident(ident)
             }
+            TokenKind::Keyword(Keyword::This) => {
+                self.bump();
+                Expr::This(span)
+            }
+            TokenKind::Keyword(Keyword::New) => {
+                let start = span.start;
+                self.bump();
+                let class = self.parse_ident();
+                self.expect_punct_with_sync(
+                    Punct::LParen,
+                    &[
+                        TokenKind::Punct(Punct::LParen),
+                        TokenKind::Punct(Punct::Semi),
+                        TokenKind::Punct(Punct::RBrace),
+                    ],
+                );
+                let mut args = Vec::new();
+                if !self.at_punct(Punct::RParen) && !self.at(TokenKind::Eof) {
+                    loop {
+                        args.push(self.parse_expr());
+                        if self.eat_punct(Punct::Comma) {
+                            continue;
+                        }
+                        break;
+                    }
+                }
+                self.expect_punct_with_sync(
+                    Punct::RParen,
+                    &[
+                        TokenKind::Punct(Punct::RParen),
+                        TokenKind::Punct(Punct::Semi),
+                        TokenKind::Punct(Punct::RBrace),
+                    ],
+                );
+                let end = self.prev_span_end();
+                Expr::New {
+                    class,
+                    args,
+                    span: Span::new(start, end),
+                }
+            }
             TokenKind::Int => {
                 self.bump();
                 Expr::IntLit(span)
@@ -615,6 +656,7 @@ impl<'a> Parser<'a> {
     fn span_of_expr(&self, expr: &Expr) -> Span {
         match expr {
             Expr::Ident(i) => i.span,
+            Expr::This(s) => *s,
             Expr::IntLit(s) => *s,
             Expr::FloatLit(s) => *s,
             Expr::StringLit(s) => *s,
@@ -623,6 +665,7 @@ impl<'a> Parser<'a> {
             Expr::Binary { span, .. } => *span,
             Expr::Assign { span, .. } => *span,
             Expr::Call { span, .. } => *span,
+            Expr::New { span, .. } => *span,
             Expr::Member { span, .. } => *span,
             Expr::Paren { span, .. } => *span,
         }
@@ -961,5 +1004,18 @@ error[E]: expected `;`
   |                             ^
 "#
         );
+    }
+
+    #[test]
+    fn parses_this_and_new_expressions() {
+        let src = r#"
+function f(): void {
+  let p = new Point(1, 2);
+  this.x = 1;
+}
+"#;
+        let out = parse_program(src);
+        assert!(out.errors.is_empty(), "{:#?}", out.errors);
+        assert_eq!(out.value.items.len(), 1);
     }
 }
