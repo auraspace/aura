@@ -5,5 +5,6 @@ edition.workspace = true
 
 [dependencies]
 aura-ast = { path = "../aura-ast" }
+aura-diagnostics = { path = "../aura-diagnostics" }
 aura-lexer = { path = "../aura-lexer" }
 aura-span = { path = "../aura-span" }

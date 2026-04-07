@@ -12,8 +12,8 @@ Implement the parse stage and produce useful span-based diagnostics.
 - [x] Lexer supports keywords/operators/punctuation per `docs/SYNTAX_DESIGN.md` (done 2026-04-07; `aura_lexer::lex`)
 - [x] Parser builds AST close to surface syntax (TS-like) (done 2026-04-07; `aura_parser::parse_program`)
 - [x] Add error recovery sync points (e.g. `;`, `}`, `)`) (done 2026-04-07; parser sync + progress on errors)
-- [ ] Diagnostics type: span + message (+ optional help/note)
-- [ ] Add snapshot tests for parser recovery and diagnostics formatting
+- [x] Diagnostics type: span + message (+ optional help/note) (done 2026-04-07; `aura_diagnostics::Diagnostic`)
+- [x] Add snapshot tests for parser recovery and diagnostics formatting (done 2026-04-07; parser snapshots)
 
 ## Acceptance
 
