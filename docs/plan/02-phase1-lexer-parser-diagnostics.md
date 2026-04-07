@@ -17,5 +17,5 @@ Implement the parse stage and produce useful span-based diagnostics.
 
 ## Acceptance
 
-- [ ] `aurac check examples/hello/main.aura` parses (or emits structured diagnostics)
-- [ ] Snapshot tests cover at least: missing `;`, unmatched `}`, bad token in expression
+- [x] `aurac check examples/hello/main.aura` parses (or emits structured diagnostics) (done 2026-04-07)
+- [x] Snapshot tests cover at least: missing `;`, unmatched `}`, bad token in expression (done 2026-04-07)
