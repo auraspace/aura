@@ -3,11 +3,11 @@ use std::env;
 const HELP: &str = r#"aurac - Aura compiler
 
 USAGE:
-  aurac <COMMAND>
+  aurac <COMMAND> [ARGS...]
 
 COMMANDS:
   build   Compile sources into a native executable
-  check   Typecheck/validate sources (no output)
+  check   Parse/typecheck sources (no output)
   run     Build then run the executable
   help    Print this message
 
@@ -35,8 +35,26 @@ fn main() {
             println!("build: not implemented yet");
         }
         "check" => {
-            // TODO: wire into aura-driver once available.
-            println!("check: not implemented yet");
+            let Some(path) = args.next() else {
+                eprintln!("error: missing <FILE>\n");
+                eprintln!("USAGE:\n  aurac check <FILE>\n");
+                std::process::exit(2);
+            };
+
+            match aura_driver::check_file(&path) {
+                Ok(out) => {
+                    if out.diagnostics.is_empty() {
+                        println!("ok");
+                    } else {
+                        eprintln!("{}", aura_diagnostics::format_all(&out.source, &out.diagnostics));
+                        std::process::exit(1);
+                    }
+                }
+                Err(err) => {
+                    eprintln!("error: {err}");
+                    std::process::exit(2);
+                }
+            }
         }
         "run" => {
             // TODO: wire into aura-driver once available.
