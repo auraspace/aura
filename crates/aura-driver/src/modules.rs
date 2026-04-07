@@ -1,9 +1,9 @@
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::collections::{HashSet, VecDeque};
 
-use aura_ast::{ImportClause, TopLevel};
+use aura_ast::{Ident, ImportClause, Program, Stmt, TopLevel};
 use aura_span::Span;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -16,6 +16,7 @@ pub struct ModuleGraph {
 pub struct Module {
     pub path: PathBuf,
     pub source: String,
+    pub ast: Program,
     pub imports: Vec<ImportEdge>,
 }
 
@@ -54,15 +55,16 @@ pub fn build_module_graph(entrypoints: &[impl AsRef<Path>]) -> io::Result<Module
     while let Some(path) = worklist.pop_front() {
         let source = fs::read_to_string(&path)?;
         let parsed = aura_parser::parse_program(&source);
+        let ast = parsed.value;
 
         let mut imports = Vec::new();
-        for item in parsed.value.items {
+        for item in &ast.items {
             let TopLevel::Import(import) = item else { continue };
             let Some(specifier) = decode_string_literal(&source, import.from_path) else {
                 continue;
             };
 
-            let clause = match import.clause {
+            let clause = match &import.clause {
                 ImportClause::Named(names) => ImportClauseKind::Named { count: names.len() },
                 ImportClause::Default(_) => ImportClauseKind::Default,
             };
@@ -85,10 +87,83 @@ pub fn build_module_graph(entrypoints: &[impl AsRef<Path>]) -> io::Result<Module
             imports.push(edge);
         }
 
-        modules.push(Module { path, source, imports });
+        modules.push(Module {
+            path,
+            source,
+            ast,
+            imports,
+        });
     }
 
     Ok(ModuleGraph { modules, edges })
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SymbolTable {
+    pub bindings: HashMap<String, Symbol>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Symbol {
+    pub kind: SymbolKind,
+    pub span: Span,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SymbolKind {
+    Function,
+    Let,
+    Const,
+    Import,
+}
+
+pub fn build_symbol_table(module: &Module) -> SymbolTable {
+    let mut bindings = HashMap::<String, Symbol>::new();
+
+    for item in &module.ast.items {
+        match item {
+            TopLevel::Import(import) => match &import.clause {
+                ImportClause::Named(names) => {
+                    for name in names {
+                        if let Some(text) = ident_text(&module.source, name) {
+                            bindings.entry(text).or_insert(Symbol {
+                                kind: SymbolKind::Import,
+                                span: name.span,
+                            });
+                        }
+                    }
+                }
+                ImportClause::Default(name) => {
+                    if let Some(text) = ident_text(&module.source, name) {
+                        bindings.entry(text).or_insert(Symbol {
+                            kind: SymbolKind::Import,
+                            span: name.span,
+                        });
+                    }
+                }
+            },
+            TopLevel::Function(func) => {
+                if let Some(text) = ident_text(&module.source, &func.name) {
+                    bindings.entry(text).or_insert(Symbol {
+                        kind: SymbolKind::Function,
+                        span: func.name.span,
+                    });
+                }
+            }
+            TopLevel::Stmt(stmt) => {
+                if let Some((name, kind)) = top_level_binding(stmt) {
+                    if let Some(text) = ident_text(&module.source, name) {
+                        bindings.entry(text).or_insert(Symbol {
+                            kind,
+                            span: name.span,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    SymbolTable { bindings }
 }
 
 fn decode_string_literal(source: &str, span: Span) -> Option<String> {
@@ -97,6 +172,20 @@ fn decode_string_literal(source: &str, span: Span) -> Option<String> {
     let text = source.get(start..end)?;
     let text = text.strip_prefix('"')?.strip_suffix('"')?;
     Some(text.to_string())
+}
+
+fn ident_text(source: &str, ident: &Ident) -> Option<String> {
+    let start = ident.span.start.raw() as usize;
+    let end = ident.span.end.raw() as usize;
+    source.get(start..end).map(|s| s.to_string())
+}
+
+fn top_level_binding(stmt: &Stmt) -> Option<(&Ident, SymbolKind)> {
+    match stmt {
+        Stmt::Let(s) => Some((&s.name, SymbolKind::Let)),
+        Stmt::Const(s) => Some((&s.name, SymbolKind::Const)),
+        _ => None,
+    }
 }
 
 fn resolve_import_path(from_file: &Path, specifier: &str) -> Option<PathBuf> {
@@ -199,5 +288,35 @@ function main(): i32 { return 0; }
             graph.edges[0].resolved_to.as_deref(),
             Some(foo_aura.as_path())
         );
+    }
+
+    #[test]
+    fn builds_symbol_table_per_module() {
+        let dir = unique_tmp_dir("module-symbols");
+        fs::create_dir_all(&dir).unwrap();
+
+        let main = dir.join("main.aura");
+        fs::write(
+            &main,
+            r#"
+import { Foo, bar } from "./foo"
+import Baz from "./baz";
+
+let x: i32 = 1;
+
+function main(): i32 { return 0; }
+"#,
+        )
+        .unwrap();
+
+        let graph = build_module_graph(&[&main]).unwrap();
+        let module = graph.modules.iter().find(|m| m.path == main).unwrap();
+        let symbols = build_symbol_table(module);
+
+        assert!(symbols.bindings.contains_key("Foo"));
+        assert!(symbols.bindings.contains_key("bar"));
+        assert!(symbols.bindings.contains_key("Baz"));
+        assert!(symbols.bindings.contains_key("x"));
+        assert!(symbols.bindings.contains_key("main"));
     }
 }
