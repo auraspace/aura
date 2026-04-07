@@ -362,6 +362,7 @@ fn typeck_let_like(
 
 fn typeck_expr(source: &str, env: &mut Env, expr: &Expr, diags: &mut Vec<Diagnostic>) -> Ty {
     match expr {
+        Expr::This(_) => Ty::Unknown,
         Expr::Ident(ident) => {
             let Some(name) = ident_text(source, ident) else { return Ty::Unknown };
             env.lookup(name).map(|v| v.ty).unwrap_or(Ty::Unknown)
@@ -542,6 +543,13 @@ fn typeck_expr(source: &str, env: &mut Env, expr: &Expr, diags: &mut Vec<Diagnos
             );
             Ty::Unknown
         }
+        Expr::New { span, .. } => {
+            diags.push(
+                Diagnostic::error(*span, "`new` expressions are not type-checked yet")
+                    .with_help("Phase 3 will add class typing"),
+            );
+            Ty::Unknown
+        }
         Expr::Member { span, .. } => {
             diags.push(
                 Diagnostic::error(*span, "member access is not type-checked yet")
@@ -563,6 +571,7 @@ fn assignment_target(source: &str, expr: &Expr) -> Option<(String, Span)> {
 fn span_of_expr(expr: &Expr) -> Span {
     match expr {
         Expr::Ident(i) => i.span,
+        Expr::This(s) => *s,
         Expr::IntLit(s) => *s,
         Expr::FloatLit(s) => *s,
         Expr::StringLit(s) => *s,
@@ -571,6 +580,7 @@ fn span_of_expr(expr: &Expr) -> Span {
         Expr::Binary { span, .. } => *span,
         Expr::Assign { span, .. } => *span,
         Expr::Call { span, .. } => *span,
+        Expr::New { span, .. } => *span,
         Expr::Member { span, .. } => *span,
         Expr::Paren { span, .. } => *span,
     }

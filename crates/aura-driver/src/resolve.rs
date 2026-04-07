@@ -111,6 +111,7 @@ fn collect_member_accesses_in_stmt(module: &Module, stmt: &Stmt, out: &mut Vec<M
 
 fn collect_member_accesses_in_expr(module: &Module, expr: &Expr, out: &mut Vec<MemberAccess>) {
     match expr {
+        Expr::This(_) => {}
         Expr::Unary { expr, .. } => collect_member_accesses_in_expr(module, expr, out),
         Expr::Binary { left, right, .. } => {
             collect_member_accesses_in_expr(module, left, out);
@@ -122,6 +123,11 @@ fn collect_member_accesses_in_expr(module: &Module, expr: &Expr, out: &mut Vec<M
         }
         Expr::Call { callee, args, .. } => {
             collect_member_accesses_in_expr(module, callee, out);
+            for arg in args {
+                collect_member_accesses_in_expr(module, arg, out);
+            }
+        }
+        Expr::New { args, .. } => {
             for arg in args {
                 collect_member_accesses_in_expr(module, arg, out);
             }
@@ -147,6 +153,7 @@ fn collect_member_accesses_in_expr(module: &Module, expr: &Expr, out: &mut Vec<M
 fn span_of_expr(expr: &Expr) -> Span {
     match expr {
         Expr::Ident(i) => i.span,
+        Expr::This(s) => *s,
         Expr::IntLit(s) => *s,
         Expr::FloatLit(s) => *s,
         Expr::StringLit(s) => *s,
@@ -155,6 +162,7 @@ fn span_of_expr(expr: &Expr) -> Span {
         Expr::Binary { span, .. } => *span,
         Expr::Assign { span, .. } => *span,
         Expr::Call { span, .. } => *span,
+        Expr::New { span, .. } => *span,
         Expr::Member { span, .. } => *span,
         Expr::Paren { span, .. } => *span,
     }
@@ -220,6 +228,7 @@ fn resolve_expr(
     diags: &mut Vec<Diagnostic>,
 ) {
     match expr {
+        Expr::This(_) => {}
         Expr::Ident(ident) => {
             let Some(name) = ident_text(&module.source, ident) else { return };
             if is_in_scopes(scopes, &name) || module_names.contains(&name) {
@@ -242,6 +251,11 @@ fn resolve_expr(
         }
         Expr::Call { callee, args, .. } => {
             resolve_expr(module, callee, scopes, module_names, diags);
+            for arg in args {
+                resolve_expr(module, arg, scopes, module_names, diags);
+            }
+        }
+        Expr::New { args, .. } => {
             for arg in args {
                 resolve_expr(module, arg, scopes, module_names, diags);
             }

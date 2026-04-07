@@ -109,6 +109,7 @@ pub struct WhileStmt {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Expr {
     Ident(Ident),
+    This(Span),
     IntLit(Span),
     FloatLit(Span),
     StringLit(Span),
@@ -131,6 +132,11 @@ pub enum Expr {
     },
     Call {
         callee: Box<Expr>,
+        args: Vec<Expr>,
+        span: Span,
+    },
+    New {
+        class: Ident,
         args: Vec<Expr>,
         span: Span,
     },
