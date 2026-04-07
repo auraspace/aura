@@ -12,6 +12,8 @@ Current focus target: `aarch64-apple-darwin`.
 │  ├─ ARCHITECTURE.md
 │  ├─ FOLDER_STRUCTURE.md
 │  └─ SYNTAX_DESIGN.md
+├─ .github/
+│  └─ workflows/            # GitHub Actions CI workflows
 ├─ crates/
 │  ├─ aurac/                 # CLI + orchestration (build/check/run)
 │  ├─ aura-driver/           # High-level "compile this project" API (no CLI)
@@ -118,4 +120,3 @@ When adding a new target:
 - Ensure codegen can emit objects for that target (backend capability check).
 - Implement or configure a linker strategy in `aura-link`.
 - Add at least one E2E test that compiles and runs (or compiles-only for cross targets).
-
