@@ -6,6 +6,13 @@ use aura_span::Span;
 
 use crate::modules::{ident_text, build_symbol_table, Module};
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MemberAccess {
+    pub object_span: Span,
+    pub field: String,
+    pub span: Span,
+}
+
 pub fn resolve_module(module: &Module) -> Vec<Diagnostic> {
     let mut diags = Vec::new();
     diags.extend(check_module_duplicates(module));
@@ -45,6 +52,112 @@ pub fn resolve_module(module: &Module) -> Vec<Diagnostic> {
     }
 
     diags
+}
+
+pub fn collect_member_accesses(module: &Module) -> Vec<MemberAccess> {
+    let mut out = Vec::new();
+    for item in &module.ast.items {
+        match item {
+            TopLevel::Function(func) => {
+                for stmt in &func.body.stmts {
+                    collect_member_accesses_in_stmt(module, stmt, &mut out);
+                }
+            }
+            TopLevel::Stmt(stmt) => collect_member_accesses_in_stmt(module, stmt, &mut out),
+            TopLevel::Import(_) => {}
+        }
+    }
+    out
+}
+
+fn collect_member_accesses_in_stmt(module: &Module, stmt: &Stmt, out: &mut Vec<MemberAccess>) {
+    match stmt {
+        Stmt::Let(s) | Stmt::Const(s) => {
+            if let Some(init) = &s.init {
+                collect_member_accesses_in_expr(module, init, out);
+            }
+        }
+        Stmt::Return(s) => {
+            if let Some(value) = &s.value {
+                collect_member_accesses_in_expr(module, value, out);
+            }
+        }
+        Stmt::Expr(s) => collect_member_accesses_in_expr(module, &s.expr, out),
+        Stmt::Block(b) => {
+            for stmt in &b.stmts {
+                collect_member_accesses_in_stmt(module, stmt, out);
+            }
+        }
+        Stmt::If(s) => {
+            collect_member_accesses_in_expr(module, &s.cond, out);
+            for stmt in &s.then_block.stmts {
+                collect_member_accesses_in_stmt(module, stmt, out);
+            }
+            if let Some(else_block) = &s.else_block {
+                for stmt in &else_block.stmts {
+                    collect_member_accesses_in_stmt(module, stmt, out);
+                }
+            }
+        }
+        Stmt::While(s) => {
+            collect_member_accesses_in_expr(module, &s.cond, out);
+            for stmt in &s.body.stmts {
+                collect_member_accesses_in_stmt(module, stmt, out);
+            }
+        }
+        Stmt::Empty(_) => {}
+    }
+}
+
+fn collect_member_accesses_in_expr(module: &Module, expr: &Expr, out: &mut Vec<MemberAccess>) {
+    match expr {
+        Expr::Unary { expr, .. } => collect_member_accesses_in_expr(module, expr, out),
+        Expr::Binary { left, right, .. } => {
+            collect_member_accesses_in_expr(module, left, out);
+            collect_member_accesses_in_expr(module, right, out);
+        }
+        Expr::Assign { target, value, .. } => {
+            collect_member_accesses_in_expr(module, target, out);
+            collect_member_accesses_in_expr(module, value, out);
+        }
+        Expr::Call { callee, args, .. } => {
+            collect_member_accesses_in_expr(module, callee, out);
+            for arg in args {
+                collect_member_accesses_in_expr(module, arg, out);
+            }
+        }
+        Expr::Member { object, field, span } => {
+            collect_member_accesses_in_expr(module, object, out);
+            let field_name = ident_text(&module.source, field).unwrap_or_default();
+            out.push(MemberAccess {
+                object_span: span_of_expr(object),
+                field: field_name,
+                span: *span,
+            });
+        }
+        Expr::Paren { expr, .. } => collect_member_accesses_in_expr(module, expr, out),
+        Expr::Ident(_)
+        | Expr::IntLit(_)
+        | Expr::FloatLit(_)
+        | Expr::StringLit(_)
+        | Expr::BoolLit(_, _) => {}
+    }
+}
+
+fn span_of_expr(expr: &Expr) -> Span {
+    match expr {
+        Expr::Ident(i) => i.span,
+        Expr::IntLit(s) => *s,
+        Expr::FloatLit(s) => *s,
+        Expr::StringLit(s) => *s,
+        Expr::BoolLit(_, s) => *s,
+        Expr::Unary { span, .. } => *span,
+        Expr::Binary { span, .. } => *span,
+        Expr::Assign { span, .. } => *span,
+        Expr::Call { span, .. } => *span,
+        Expr::Member { span, .. } => *span,
+        Expr::Paren { span, .. } => *span,
+    }
 }
 
 fn resolve_block_like(
@@ -304,5 +417,28 @@ function foo(): i32 { return 1; }
         let module = graph.modules.iter().find(|m| m.path == main).unwrap();
         let diags = resolve_module(module);
         assert!(diags.iter().any(|d| d.message.contains("duplicate binding")));
+    }
+
+    #[test]
+    fn collects_member_accesses() {
+        let dir = unique_tmp_dir("members");
+        fs::create_dir_all(&dir).unwrap();
+
+        let main = dir.join("main.aura");
+        fs::write(
+            &main,
+            r#"
+function f(): i32 {
+  return a.b;
+}
+"#,
+        )
+        .unwrap();
+
+        let graph = crate::modules::build_module_graph(&[&main]).unwrap();
+        let module = graph.modules.iter().find(|m| m.path == main).unwrap();
+        let members = collect_member_accesses(module);
+        assert_eq!(members.len(), 1);
+        assert_eq!(members[0].field, "b");
     }
 }
