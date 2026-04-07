@@ -46,7 +46,10 @@ fn main() {
                     if out.diagnostics.is_empty() {
                         println!("ok");
                     } else {
-                        eprintln!("{}", aura_diagnostics::format_all(&out.source, &out.diagnostics));
+                        eprintln!(
+                            "{}",
+                            aura_diagnostics::format_all(&out.source, &out.diagnostics)
+                        );
                         std::process::exit(1);
                     }
                 }

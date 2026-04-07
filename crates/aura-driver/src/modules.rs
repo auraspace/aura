@@ -62,7 +62,9 @@ pub fn build_module_graph(entrypoints: &[impl AsRef<Path>]) -> io::Result<Module
 
         let mut imports = Vec::new();
         for item in &ast.items {
-            let TopLevel::Import(import) = item else { continue };
+            let TopLevel::Import(import) = item else {
+                continue;
+            };
             let Some(specifier) = decode_string_literal(&source, import.from_path) else {
                 continue;
             };

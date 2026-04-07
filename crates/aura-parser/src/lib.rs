@@ -412,25 +412,29 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_or(&mut self) -> Expr {
-        self.parse_binary_left_assoc(Self::parse_and, |op| matches!(op, Operator::OrOr), |span| {
-            Expr::Binary {
+        self.parse_binary_left_assoc(
+            Self::parse_and,
+            |op| matches!(op, Operator::OrOr),
+            |span| Expr::Binary {
                 op: BinaryOp::OrOr,
                 left: Box::new(Expr::IntLit(span)),
                 right: Box::new(Expr::IntLit(span)),
                 span,
-            }
-        })
+            },
+        )
     }
 
     fn parse_and(&mut self) -> Expr {
-        self.parse_binary_left_assoc(Self::parse_equality, |op| matches!(op, Operator::AndAnd), |span| {
-            Expr::Binary {
+        self.parse_binary_left_assoc(
+            Self::parse_equality,
+            |op| matches!(op, Operator::AndAnd),
+            |span| Expr::Binary {
                 op: BinaryOp::AndAnd,
                 left: Box::new(Expr::IntLit(span)),
                 right: Box::new(Expr::IntLit(span)),
                 span,
-            }
-        })
+            },
+        )
     }
 
     fn parse_equality(&mut self) -> Expr {
@@ -693,7 +697,10 @@ impl<'a> Parser<'a> {
             _ => {
                 self.error(
                     span,
-                    &format!("expected expression, found {}", token_desc(self.current_kind())),
+                    &format!(
+                        "expected expression, found {}",
+                        token_desc(self.current_kind())
+                    ),
                 );
                 self.bump();
                 self.synchronize(&[
@@ -716,7 +723,10 @@ impl<'a> Parser<'a> {
         } else {
             self.error(
                 span,
-                &format!("expected identifier, found {}", token_desc(self.current_kind())),
+                &format!(
+                    "expected identifier, found {}",
+                    token_desc(self.current_kind())
+                ),
             );
             self.bump();
             Ident { span }
@@ -828,14 +838,20 @@ impl<'a> Parser<'a> {
 
     fn expect_keyword(&mut self, kw: Keyword) {
         if !self.eat_keyword(kw) {
-            self.error(self.current_span(), &format!("expected keyword `{}`", keyword_text(kw)));
+            self.error(
+                self.current_span(),
+                &format!("expected keyword `{}`", keyword_text(kw)),
+            );
             self.bump();
         }
     }
 
     fn expect_punct(&mut self, p: Punct) {
         if !self.eat_punct(p) {
-            self.error(self.current_span(), &format!("expected `{}`", punct_text(p)));
+            self.error(
+                self.current_span(),
+                &format!("expected `{}`", punct_text(p)),
+            );
             self.bump();
         }
     }
@@ -864,7 +880,10 @@ impl<'a> Parser<'a> {
         if self.eat_punct(punct) {
             return;
         }
-        self.error(self.current_span(), &format!("expected `{}`", punct_text(punct)));
+        self.error(
+            self.current_span(),
+            &format!("expected `{}`", punct_text(punct)),
+        );
         self.synchronize(sync);
         self.eat_punct(punct);
     }

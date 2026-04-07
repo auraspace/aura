@@ -4,7 +4,7 @@ use aura_ast::{Expr, ImportClause, Stmt, TopLevel};
 use aura_diagnostics::Diagnostic;
 use aura_span::Span;
 
-use crate::modules::{ident_text, build_symbol_table, Module};
+use crate::modules::{build_symbol_table, ident_text, Module};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MemberAccess {
@@ -165,7 +165,11 @@ fn collect_member_accesses_in_expr(module: &Module, expr: &Expr, out: &mut Vec<M
                 collect_member_accesses_in_expr(module, arg, out);
             }
         }
-        Expr::Member { object, field, span } => {
+        Expr::Member {
+            object,
+            field,
+            span,
+        } => {
             collect_member_accesses_in_expr(module, object, out);
             let field_name = ident_text(&module.source, field).unwrap_or_default();
             out.push(MemberAccess {
@@ -244,14 +248,35 @@ fn resolve_stmt(
         }
         Stmt::If(s) => {
             resolve_expr(module, &s.cond, scopes, module_names, this_allowed, diags);
-            resolve_block_like(module, &s.then_block.stmts, scopes, module_names, this_allowed, diags);
+            resolve_block_like(
+                module,
+                &s.then_block.stmts,
+                scopes,
+                module_names,
+                this_allowed,
+                diags,
+            );
             if let Some(else_block) = &s.else_block {
-                resolve_block_like(module, &else_block.stmts, scopes, module_names, this_allowed, diags);
+                resolve_block_like(
+                    module,
+                    &else_block.stmts,
+                    scopes,
+                    module_names,
+                    this_allowed,
+                    diags,
+                );
             }
         }
         Stmt::While(s) => {
             resolve_expr(module, &s.cond, scopes, module_names, this_allowed, diags);
-            resolve_block_like(module, &s.body.stmts, scopes, module_names, this_allowed, diags);
+            resolve_block_like(
+                module,
+                &s.body.stmts,
+                scopes,
+                module_names,
+                this_allowed,
+                diags,
+            );
         }
         Stmt::Empty(_) => {}
     }
@@ -275,7 +300,9 @@ fn resolve_expr(
             }
         }
         Expr::Ident(ident) => {
-            let Some(name) = ident_text(&module.source, ident) else { return };
+            let Some(name) = ident_text(&module.source, ident) else {
+                return;
+            };
             if is_in_scopes(scopes, &name) || module_names.contains(&name) {
                 return;
             }
@@ -285,7 +312,9 @@ fn resolve_expr(
             ));
         }
         Expr::IntLit(_) | Expr::FloatLit(_) | Expr::StringLit(_) | Expr::BoolLit(_, _) => {}
-        Expr::Unary { expr, .. } => resolve_expr(module, expr, scopes, module_names, this_allowed, diags),
+        Expr::Unary { expr, .. } => {
+            resolve_expr(module, expr, scopes, module_names, this_allowed, diags)
+        }
         Expr::Binary { left, right, .. } => {
             resolve_expr(module, left, scopes, module_names, this_allowed, diags);
             resolve_expr(module, right, scopes, module_names, this_allowed, diags);
@@ -305,8 +334,12 @@ fn resolve_expr(
                 resolve_expr(module, arg, scopes, module_names, this_allowed, diags);
             }
         }
-        Expr::Member { object, .. } => resolve_expr(module, object, scopes, module_names, this_allowed, diags),
-        Expr::Paren { expr, .. } => resolve_expr(module, expr, scopes, module_names, this_allowed, diags),
+        Expr::Member { object, .. } => {
+            resolve_expr(module, object, scopes, module_names, this_allowed, diags)
+        }
+        Expr::Paren { expr, .. } => {
+            resolve_expr(module, expr, scopes, module_names, this_allowed, diags)
+        }
     }
 }
 
@@ -314,13 +347,21 @@ fn is_in_scopes(scopes: &[HashSet<String>], name: &str) -> bool {
     scopes.iter().rev().any(|s| s.contains(name))
 }
 
-fn declare_local(scopes: &mut Vec<HashSet<String>>, name: String, span: Span, diags: &mut Vec<Diagnostic>) {
+fn declare_local(
+    scopes: &mut Vec<HashSet<String>>,
+    name: String,
+    span: Span,
+    diags: &mut Vec<Diagnostic>,
+) {
     if scopes.is_empty() {
         scopes.push(HashSet::new());
     }
     let current = scopes.last_mut().unwrap();
     if !current.insert(name.clone()) {
-        diags.push(Diagnostic::error(span, format!("duplicate binding `{name}`")));
+        diags.push(Diagnostic::error(
+            span,
+            format!("duplicate binding `{name}`"),
+        ));
     }
 }
 
@@ -364,9 +405,17 @@ fn check_module_duplicates(module: &Module) -> Vec<Diagnostic> {
     diags
 }
 
-fn check_dup(seen: &mut HashMap<String, Span>, diags: &mut Vec<Diagnostic>, name: String, span: Span) {
+fn check_dup(
+    seen: &mut HashMap<String, Span>,
+    diags: &mut Vec<Diagnostic>,
+    name: String,
+    span: Span,
+) {
     if seen.contains_key(&name) {
-        diags.push(Diagnostic::error(span, format!("duplicate binding `{name}`")));
+        diags.push(Diagnostic::error(
+            span,
+            format!("duplicate binding `{name}`"),
+        ));
     } else {
         seen.insert(name, span);
     }
@@ -455,7 +504,9 @@ function f(): i32 {
         let graph = crate::modules::build_module_graph(&[&main]).unwrap();
         let module = graph.modules.iter().find(|m| m.path == main).unwrap();
         let diags = resolve_module(module);
-        assert!(diags.iter().any(|d| d.message.contains("duplicate binding")));
+        assert!(diags
+            .iter()
+            .any(|d| d.message.contains("duplicate binding")));
     }
 
     #[test]
@@ -476,7 +527,9 @@ function foo(): i32 { return 1; }
         let graph = crate::modules::build_module_graph(&[&main]).unwrap();
         let module = graph.modules.iter().find(|m| m.path == main).unwrap();
         let diags = resolve_module(module);
-        assert!(diags.iter().any(|d| d.message.contains("duplicate binding")));
+        assert!(diags
+            .iter()
+            .any(|d| d.message.contains("duplicate binding")));
     }
 
     #[test]

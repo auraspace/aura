@@ -1,5 +1,5 @@
-use aura_span::Span;
 use aura_span::BytePos;
+use aura_span::Span;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TriviaKind {
@@ -249,7 +249,9 @@ impl<'a> Lexer<'a> {
         }
 
         self.bump_while(|b| matches!(b, b'0'..=b'9'));
-        if self.peek_byte() == Some(b'.') && matches!(self.peek_byte_at(self.pos + 1), Some(b'0'..=b'9')) {
+        if self.peek_byte() == Some(b'.')
+            && matches!(self.peek_byte_at(self.pos + 1), Some(b'0'..=b'9'))
+        {
             self.pos += 1;
             self.bump_while(|b| matches!(b, b'0'..=b'9'));
             return TokenKind::Float;
@@ -417,14 +419,20 @@ mod tests {
         assert!(matches!(tokens[0].kind, TokenKind::Keyword(Keyword::Class)));
         assert!(matches!(tokens[1].kind, TokenKind::Ident));
         assert!(matches!(tokens[2].kind, TokenKind::Punct(Punct::LBrace)));
-        assert!(matches!(tokens.iter().find(|t| t.kind == TokenKind::Operator(Operator::Plus)), Some(_)));
-
-        assert!(
-            tokens[0]
-                .leading_trivia
+        assert!(matches!(
+            tokens
                 .iter()
-                .any(|t| t.kind == TriviaKind::LineComment)
-        );
-        assert!(matches!(tokens.last().map(|t| t.kind), Some(TokenKind::Eof)));
+                .find(|t| t.kind == TokenKind::Operator(Operator::Plus)),
+            Some(_)
+        ));
+
+        assert!(tokens[0]
+            .leading_trivia
+            .iter()
+            .any(|t| t.kind == TriviaKind::LineComment));
+        assert!(matches!(
+            tokens.last().map(|t| t.kind),
+            Some(TokenKind::Eof)
+        ));
     }
 }

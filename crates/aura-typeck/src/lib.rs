@@ -45,7 +45,9 @@ pub fn typeck_program(source: &str, program: &Program) -> Vec<Diagnostic> {
 
     let mut class_names = HashSet::<String>::new();
     for item in &program.items {
-        let TopLevel::Class(class_decl) = item else { continue };
+        let TopLevel::Class(class_decl) = item else {
+            continue;
+        };
         if let Some(name) = ident_text(source, &class_decl.name) {
             class_names.insert(name.to_string());
         }
@@ -53,11 +55,17 @@ pub fn typeck_program(source: &str, program: &Program) -> Vec<Diagnostic> {
 
     let mut classes = HashMap::<String, ClassInfo>::new();
     for item in &program.items {
-        let TopLevel::Class(class_decl) = item else { continue };
-        let Some(name) = ident_text(source, &class_decl.name) else { continue };
+        let TopLevel::Class(class_decl) = item else {
+            continue;
+        };
+        let Some(name) = ident_text(source, &class_decl.name) else {
+            continue;
+        };
         let mut fields = HashMap::<String, Ty>::new();
         for field in &class_decl.fields {
-            let Some(field_name) = ident_text(source, &field.name) else { continue };
+            let Some(field_name) = ident_text(source, &field.name) else {
+                continue;
+            };
             let ty = ty_from_type_ref(
                 source,
                 &field.ty,
@@ -69,7 +77,9 @@ pub fn typeck_program(source: &str, program: &Program) -> Vec<Diagnostic> {
         }
         let mut methods = HashMap::<String, MethodSig>::new();
         for method in &class_decl.methods {
-            let Some(method_name) = ident_text(source, &method.name) else { continue };
+            let Some(method_name) = ident_text(source, &method.name) else {
+                continue;
+            };
             let mut params = Vec::new();
             for param in &method.params {
                 let ty = ty_from_type_ref(
@@ -88,12 +98,13 @@ pub fn typeck_program(source: &str, program: &Program) -> Vec<Diagnostic> {
                     ty_from_type_ref(source, t, TypePosition::Return, &class_names, &mut diags)
                 })
                 .unwrap_or(Ty::Void);
-            methods.entry(method_name.to_string()).or_insert(MethodSig {
-                params,
-                return_ty,
-            });
+            methods
+                .entry(method_name.to_string())
+                .or_insert(MethodSig { params, return_ty });
         }
-        classes.entry(name.to_string()).or_insert(ClassInfo { fields, methods });
+        classes
+            .entry(name.to_string())
+            .or_insert(ClassInfo { fields, methods });
     }
 
     // Pass 1: predeclare all top-level `let/const` so later type checking can resolve
@@ -103,7 +114,9 @@ pub fn typeck_program(source: &str, program: &Program) -> Vec<Diagnostic> {
         let TopLevel::Stmt(Stmt::Let(s) | Stmt::Const(s)) = item else {
             continue;
         };
-        let Some(name) = ident_text(source, &s.name) else { continue };
+        let Some(name) = ident_text(source, &s.name) else {
+            continue;
+        };
         globals.entry(name.to_string()).or_insert_with(|| VarInfo {
             // Defer annotation checking to Pass 2 to avoid duplicate diagnostics.
             ty: Ty::Unknown,
@@ -132,14 +145,18 @@ pub fn typeck_program(source: &str, program: &Program) -> Vec<Diagnostic> {
 
     // Pass 3: type-check function signatures and bodies.
     for item in &program.items {
-        let TopLevel::Function(func) = item else { continue };
+        let TopLevel::Function(func) = item else {
+            continue;
+        };
         if let Some(ret) = &func.return_type {
             let _ = ty_from_type_ref(source, ret, TypePosition::Return, &class_names, &mut diags);
         }
 
         let mut env = global_env.child();
         for param in &func.params {
-            let Some(name) = ident_text(source, &param.name) else { continue };
+            let Some(name) = ident_text(source, &param.name) else {
+                continue;
+            };
             let ty = ty_from_type_ref(
                 source,
                 &param.ty,
@@ -184,23 +201,22 @@ pub fn typeck_program(source: &str, program: &Program) -> Vec<Diagnostic> {
 
     // Pass 4: type-check class methods (field access via `this`).
     for item in &program.items {
-        let TopLevel::Class(class_decl) = item else { continue };
+        let TopLevel::Class(class_decl) = item else {
+            continue;
+        };
         let class_name = ident_text(source, &class_decl.name);
         let class_info = class_name.and_then(|name| classes.get(name));
         for method in &class_decl.methods {
             if let Some(ret) = &method.return_type {
-                let _ = ty_from_type_ref(
-                    source,
-                    ret,
-                    TypePosition::Return,
-                    &class_names,
-                    &mut diags,
-                );
+                let _ =
+                    ty_from_type_ref(source, ret, TypePosition::Return, &class_names, &mut diags);
             }
 
             let mut env = global_env.child();
             for param in &method.params {
-                let Some(name) = ident_text(source, &param.name) else { continue };
+                let Some(name) = ident_text(source, &param.name) else {
+                    continue;
+                };
                 let ty = ty_from_type_ref(
                     source,
                     &param.ty,
@@ -221,7 +237,9 @@ pub fn typeck_program(source: &str, program: &Program) -> Vec<Diagnostic> {
             let expected_return = method
                 .return_type
                 .as_ref()
-                .map(|t| ty_from_type_ref(source, t, TypePosition::Return, &class_names, &mut diags))
+                .map(|t| {
+                    ty_from_type_ref(source, t, TypePosition::Return, &class_names, &mut diags)
+                })
                 .unwrap_or(Ty::Void);
 
             typeck_block(
@@ -355,51 +373,62 @@ fn typeck_stmt(
     diags: &mut Vec<Diagnostic>,
 ) {
     match stmt {
-        Stmt::Let(s) => {
-            typeck_let_like(source, env, s, true, class_names, classes, this_class, diags)
-        }
-        Stmt::Const(s) => {
-            typeck_let_like(source, env, s, false, class_names, classes, this_class, diags)
-        }
-        Stmt::Return(s) => {
-            match (&s.value, expected_return) {
-                (Some(value), Ty::Void) => {
-                    diags.push(
-                        Diagnostic::error(
-                            span_of_expr(value),
-                            "cannot return a value from a `void` function",
-                        )
-                        .with_help("remove the value or declare a non-void return type"),
-                    );
-                    let _ =
-                        typeck_expr(source, env, value, class_names, classes, this_class, diags);
-                }
-                (None, Ty::Void) => {}
-                (None, expected) => {
-                    diags.push(
-                        Diagnostic::error(s.span, "missing return value")
-                            .with_help(format!("expected `{}`", expected.name())),
-                    );
-                }
-                (Some(value), expected) => {
-                    let value_ty =
-                        typeck_expr(source, env, value, class_names, classes, this_class, diags);
-                    if value_ty != Ty::Unknown
-                        && *expected != Ty::Unknown
-                        && !is_assignable(&value_ty, expected)
-                    {
-                        diags.push(Diagnostic::error(
-                            span_of_expr(value),
-                            format!(
-                                "type mismatch: expected `{}`, got `{}`",
-                                expected.name(),
-                                value_ty.name()
-                            ),
-                        ));
-                    }
+        Stmt::Let(s) => typeck_let_like(
+            source,
+            env,
+            s,
+            true,
+            class_names,
+            classes,
+            this_class,
+            diags,
+        ),
+        Stmt::Const(s) => typeck_let_like(
+            source,
+            env,
+            s,
+            false,
+            class_names,
+            classes,
+            this_class,
+            diags,
+        ),
+        Stmt::Return(s) => match (&s.value, expected_return) {
+            (Some(value), Ty::Void) => {
+                diags.push(
+                    Diagnostic::error(
+                        span_of_expr(value),
+                        "cannot return a value from a `void` function",
+                    )
+                    .with_help("remove the value or declare a non-void return type"),
+                );
+                let _ = typeck_expr(source, env, value, class_names, classes, this_class, diags);
+            }
+            (None, Ty::Void) => {}
+            (None, expected) => {
+                diags.push(
+                    Diagnostic::error(s.span, "missing return value")
+                        .with_help(format!("expected `{}`", expected.name())),
+                );
+            }
+            (Some(value), expected) => {
+                let value_ty =
+                    typeck_expr(source, env, value, class_names, classes, this_class, diags);
+                if value_ty != Ty::Unknown
+                    && *expected != Ty::Unknown
+                    && !is_assignable(&value_ty, expected)
+                {
+                    diags.push(Diagnostic::error(
+                        span_of_expr(value),
+                        format!(
+                            "type mismatch: expected `{}`, got `{}`",
+                            expected.name(),
+                            value_ty.name()
+                        ),
+                    ));
                 }
             }
-        }
+        },
         Stmt::Expr(s) => {
             let _ = typeck_expr(
                 source,
@@ -411,18 +440,16 @@ fn typeck_stmt(
                 diags,
             );
         }
-        Stmt::Block(b) => {
-            typeck_block(
-                source,
-                env,
-                expected_return,
-                class_names,
-                classes,
-                this_class,
-                b,
-                diags,
-            )
-        }
+        Stmt::Block(b) => typeck_block(
+            source,
+            env,
+            expected_return,
+            class_names,
+            classes,
+            this_class,
+            b,
+            diags,
+        ),
         Stmt::If(s) => {
             let cond_ty = typeck_expr(
                 source,
@@ -507,8 +534,11 @@ fn stmt_guarantees_return(stmt: &Stmt) -> bool {
         Stmt::Return(_) => true,
         Stmt::Block(b) => block_guarantees_return(&b.stmts),
         Stmt::If(s) => {
-            let Some(else_block) = &s.else_block else { return false };
-            block_guarantees_return(&s.then_block.stmts) && block_guarantees_return(&else_block.stmts)
+            let Some(else_block) = &s.else_block else {
+                return false;
+            };
+            block_guarantees_return(&s.then_block.stmts)
+                && block_guarantees_return(&else_block.stmts)
         }
         Stmt::While(_) => false,
         Stmt::Let(_) | Stmt::Const(_) | Stmt::Expr(_) | Stmt::Empty(_) => false,
@@ -563,16 +593,22 @@ fn typeck_let_like(
             diags.push(
                 Diagnostic::error(
                     span_of_expr(init),
-                    format!("type mismatch: expected `{}`, got `{}`", expected.name(), init_ty.name()),
+                    format!(
+                        "type mismatch: expected `{}`, got `{}`",
+                        expected.name(),
+                        init_ty.name()
+                    ),
                 )
-                    .with_help("change the initializer or the declared type"),
+                .with_help("change the initializer or the declared type"),
             );
         }
     }
 
     let inferred_ty = declared_ty.clone().unwrap_or(init_ty.clone());
 
-    let Some(name) = ident_text(source, &stmt.name) else { return };
+    let Some(name) = ident_text(source, &stmt.name) else {
+        return;
+    };
 
     if inferred_ty == Ty::Unknown && stmt.ty.is_none() && stmt.init.is_some() {
         diags.push(
@@ -613,7 +649,9 @@ fn typeck_expr(
     match expr {
         Expr::This(_) => Ty::Unknown,
         Expr::Ident(ident) => {
-            let Some(name) = ident_text(source, ident) else { return Ty::Unknown };
+            let Some(name) = ident_text(source, ident) else {
+                return Ty::Unknown;
+            };
             env.lookup(name)
                 .map(|v| v.ty.clone())
                 .unwrap_or(Ty::Unknown)
@@ -631,8 +669,11 @@ fn typeck_expr(
                 aura_ast::UnaryOp::Neg => {
                     if inner != Ty::Unknown && !is_numeric(&inner) {
                         diags.push(
-                            Diagnostic::error(*span, format!("cannot apply unary `-` to `{}`", inner.name()))
-                                .with_help("expected a numeric type"),
+                            Diagnostic::error(
+                                *span,
+                                format!("cannot apply unary `-` to `{}`", inner.name()),
+                            )
+                            .with_help("expected a numeric type"),
                         );
                         Ty::Unknown
                     } else {
@@ -642,8 +683,11 @@ fn typeck_expr(
                 aura_ast::UnaryOp::Not => {
                     if inner != Ty::Unknown && inner != Ty::Bool {
                         diags.push(
-                            Diagnostic::error(*span, format!("cannot apply unary `!` to `{}`", inner.name()))
-                                .with_help("expected `bool`"),
+                            Diagnostic::error(
+                                *span,
+                                format!("cannot apply unary `!` to `{}`", inner.name()),
+                            )
+                            .with_help("expected `bool`"),
                         );
                         Ty::Unknown
                     } else {
@@ -713,11 +757,7 @@ fn typeck_expr(
                         diags.push(
                             Diagnostic::error(
                                 *span,
-                                format!(
-                                    "cannot order-compare `{}` and `{}`",
-                                    lt.name(),
-                                    rt.name()
-                                ),
+                                format!("cannot order-compare `{}` and `{}`", lt.name(), rt.name()),
                             )
                             .with_help("expected numeric operands"),
                         );
@@ -744,7 +784,11 @@ fn typeck_expr(
                 }
             }
         }
-        Expr::Assign { target, value, span } => {
+        Expr::Assign {
+            target,
+            value,
+            span,
+        } => {
             if let Expr::Member { object, field, .. } = &**target {
                 if matches!(**object, Expr::This(_)) {
                     let Some(class_info) = this_class else {
@@ -763,7 +807,9 @@ fn typeck_expr(
                         );
                         return Ty::Unknown;
                     };
-                    let Some(field_name) = ident_text(source, field) else { return Ty::Unknown };
+                    let Some(field_name) = ident_text(source, field) else {
+                        return Ty::Unknown;
+                    };
                     let Some(field_ty) = class_info.fields.get(field_name) else {
                         diags.push(Diagnostic::error(
                             field.span,
@@ -781,15 +827,8 @@ fn typeck_expr(
                         return Ty::Unknown;
                     };
 
-                    let value_ty = typeck_expr(
-                        source,
-                        env,
-                        value,
-                        class_names,
-                        classes,
-                        this_class,
-                        diags,
-                    );
+                    let value_ty =
+                        typeck_expr(source, env, value, class_names, classes, this_class, diags);
                     if value_ty != Ty::Unknown
                         && *field_ty != Ty::Unknown
                         && !is_assignable(&value_ty, field_ty)
@@ -821,15 +860,7 @@ fn typeck_expr(
 
             let Some(var) = env.lookup(&target_name) else {
                 // Resolver will report unknown identifiers; keep this as Unknown for now.
-                let _ = typeck_expr(
-                    source,
-                    env,
-                    value,
-                    class_names,
-                    classes,
-                    this_class,
-                    diags,
-                );
+                let _ = typeck_expr(source, env, value, class_names, classes, this_class, diags);
                 return Ty::Unknown;
             };
 
@@ -838,13 +869,15 @@ fn typeck_expr(
 
             if !target_mutable {
                 diags.push(
-                    Diagnostic::error(target_span, format!("cannot assign to `const` binding `{target_name}`"))
-                        .with_help("change `const` to `let` if it should be mutable"),
+                    Diagnostic::error(
+                        target_span,
+                        format!("cannot assign to `const` binding `{target_name}`"),
+                    )
+                    .with_help("change `const` to `let` if it should be mutable"),
                 );
             }
 
-            let value_ty =
-                typeck_expr(source, env, value, class_names, classes, this_class, diags);
+            let value_ty = typeck_expr(source, env, value, class_names, classes, this_class, diags);
             if value_ty != Ty::Unknown
                 && target_ty != Ty::Unknown
                 && !is_assignable(&value_ty, &target_ty)
@@ -899,13 +932,12 @@ fn typeck_expr(
                     },
                 };
 
-                let Some(field_name) = ident_text(source, field) else { return Ty::Unknown };
+                let Some(field_name) = ident_text(source, field) else {
+                    return Ty::Unknown;
+                };
                 let Some(class_info) = class_info else {
                     if let Some(name) = class_name {
-                        diags.push(Diagnostic::error(
-                            *span,
-                            format!("unknown class `{name}`"),
-                        ));
+                        diags.push(Diagnostic::error(*span, format!("unknown class `{name}`")));
                     }
                     return Ty::Unknown;
                 };
@@ -961,17 +993,20 @@ fn typeck_expr(
             for arg in args {
                 let _ = typeck_expr(source, env, arg, class_names, classes, this_class, diags);
             }
-            let Some(name) = ident_text(source, class) else { return Ty::Unknown };
+            let Some(name) = ident_text(source, class) else {
+                return Ty::Unknown;
+            };
             if !class_names.contains(name) {
-                diags.push(Diagnostic::error(
-                    *span,
-                    format!("unknown class `{name}`"),
-                ));
+                diags.push(Diagnostic::error(*span, format!("unknown class `{name}`")));
                 return Ty::Unknown;
             }
             Ty::Class(name.to_string())
         }
-        Expr::Member { object, field, span } => {
+        Expr::Member {
+            object,
+            field,
+            span,
+        } => {
             if matches!(**object, Expr::This(_)) {
                 let Some(class_info) = this_class else {
                     diags.push(Diagnostic::error(
@@ -980,7 +1015,9 @@ fn typeck_expr(
                     ));
                     return Ty::Unknown;
                 };
-                let Some(field_name) = ident_text(source, field) else { return Ty::Unknown };
+                let Some(field_name) = ident_text(source, field) else {
+                    return Ty::Unknown;
+                };
                 let Some(field_ty) = class_info.fields.get(field_name) else {
                     diags.push(Diagnostic::error(
                         field.span,
@@ -1075,8 +1112,11 @@ fn ty_from_type_ref(
     if let Some(builtin) = parse_builtin_ty(name) {
         if builtin == Ty::Void && pos != TypePosition::Return {
             diags.push(
-                Diagnostic::error(ty.span, "type `void` is only valid as a function return type")
-                    .with_help("remove the annotation or use a non-void type"),
+                Diagnostic::error(
+                    ty.span,
+                    "type `void` is only valid as a function return type",
+                )
+                .with_help("remove the annotation or use a non-void type"),
             );
         }
         return builtin;
@@ -1087,9 +1127,8 @@ fn ty_from_type_ref(
     }
 
     diags.push(
-        Diagnostic::error(ty.span, format!("unknown type `{name}`")).with_help(
-            "built-in types: i32, i64, f32, f64, bool, string, void",
-        ),
+        Diagnostic::error(ty.span, format!("unknown type `{name}`"))
+            .with_help("built-in types: i32, i64, f32, f64, bool, string, void"),
     );
     Ty::Unknown
 }
@@ -1185,7 +1224,9 @@ function main(): void {
 
         let diags = typeck_program(src, &out.value);
         assert_eq!(diags.len(), 1, "{diags:#?}");
-        assert!(diags[0].message.contains("type annotation or an initializer"));
+        assert!(diags[0]
+            .message
+            .contains("type annotation or an initializer"));
     }
 
     #[test]
