@@ -4,3 +4,6 @@ version = "0.1.0"
 edition.workspace = true
 
 [dependencies]
+aura-ast = { path = "../aura-ast" }
+aura-lexer = { path = "../aura-lexer" }
+aura-span = { path = "../aura-span" }
