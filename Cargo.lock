@@ -17,6 +17,9 @@ version = "0.1.0"
 [[package]]
 name = "aura-lexer"
 version = "0.1.0"
+dependencies = [
+ "aura-span",
+]
 
 [[package]]
 name = "aura-parser"

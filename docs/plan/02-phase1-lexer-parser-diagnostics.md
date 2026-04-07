@@ -8,7 +8,7 @@ Implement the parse stage and produce useful span-based diagnostics.
 
 ## TODO
 
-- [ ] Implement token model with spans + trivia (for diagnostics/tooling)
+- [x] Implement token model with spans + trivia (for diagnostics/tooling) (done 2026-04-07; `aura-span` + `aura-lexer` types)
 - [ ] Lexer supports keywords/operators/punctuation per `docs/SYNTAX_DESIGN.md`
 - [ ] Parser builds AST close to surface syntax (TS-like)
 - [ ] Add error recovery sync points (e.g. `;`, `}`, `)`)
@@ -19,4 +19,3 @@ Implement the parse stage and produce useful span-based diagnostics.
 
 - [ ] `aurac check examples/hello/main.aura` parses (or emits structured diagnostics)
 - [ ] Snapshot tests cover at least: missing `;`, unmatched `}`, bad token in expression
-
