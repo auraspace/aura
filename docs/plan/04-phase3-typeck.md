@@ -12,10 +12,10 @@ Minimal static typing for primitives + functions + classes/interfaces (nominal).
 - [x] Type-check variable declarations (`let/const`) and assignments (done 2026-04-07, infer from init + enforce const/assign types)
 - [x] Type-check function params/returns + return-path checking (done 2026-04-07, check `return` types + missing return paths)
 - [x] Parse/AST: `this` and `new` expressions (prereq for OOP typing) (done 2026-04-07)
-- [ ] Parse/AST: `class` declarations (fields + methods; no export yet)
-- [ ] Resolver: allow `this` inside methods (no field validation yet)
-- [ ] Type-check: `this.<field>` access and assignment
-- [ ] Type-check: direct instance method calls + `new` result typing (no vtables yet)
+- [x] Parse/AST: `class` declarations (fields + methods; no export yet) (done 2026-04-07)
+- [x] Resolver: allow `this` inside methods (no field validation yet) (done 2026-04-07)
+- [x] Type-check: `this.<field>` access and assignment (done 2026-04-07)
+- [x] Type-check: direct instance method calls + `new` result typing (no vtables yet) (done 2026-04-07)
 - [ ] Type-check: constructor rules (`constructor` returns `void`, assigns fields)
 - [ ] Interface typing: nominal + `implements` checks
 - [ ] Add `--emit=hir` or `--print=types` debug output mode

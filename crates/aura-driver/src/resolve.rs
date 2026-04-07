@@ -40,12 +40,38 @@ pub fn resolve_module(module: &Module) -> Vec<Diagnostic> {
                     &func.body.stmts,
                     &mut scopes,
                     &module_names,
+                    false,
                     &mut diags,
                 );
             }
+            TopLevel::Class(class_decl) => {
+                for method in &class_decl.methods {
+                    let mut scopes = Vec::<HashSet<String>>::new();
+                    let mut method_scope = HashSet::<String>::new();
+                    for param in &method.params {
+                        if let Some(name) = ident_text(&module.source, &param.name) {
+                            if !method_scope.insert(name.clone()) {
+                                diags.push(Diagnostic::error(
+                                    param.name.span,
+                                    format!("duplicate binding `{name}`"),
+                                ));
+                            }
+                        }
+                    }
+                    scopes.push(method_scope);
+                    resolve_block_like(
+                        module,
+                        &method.body.stmts,
+                        &mut scopes,
+                        &module_names,
+                        true,
+                        &mut diags,
+                    );
+                }
+            }
             TopLevel::Stmt(stmt) => {
                 let mut scopes = Vec::<HashSet<String>>::new();
-                resolve_stmt(module, stmt, &mut scopes, &module_names, &mut diags);
+                resolve_stmt(module, stmt, &mut scopes, &module_names, false, &mut diags);
             }
             TopLevel::Import(_) => {}
         }
@@ -61,6 +87,13 @@ pub fn collect_member_accesses(module: &Module) -> Vec<MemberAccess> {
             TopLevel::Function(func) => {
                 for stmt in &func.body.stmts {
                     collect_member_accesses_in_stmt(module, stmt, &mut out);
+                }
+            }
+            TopLevel::Class(class_decl) => {
+                for method in &class_decl.methods {
+                    for stmt in &method.body.stmts {
+                        collect_member_accesses_in_stmt(module, stmt, &mut out);
+                    }
                 }
             }
             TopLevel::Stmt(stmt) => collect_member_accesses_in_stmt(module, stmt, &mut out),
@@ -173,11 +206,12 @@ fn resolve_block_like(
     stmts: &[Stmt],
     scopes: &mut Vec<HashSet<String>>,
     module_names: &HashSet<String>,
+    this_allowed: bool,
     diags: &mut Vec<Diagnostic>,
 ) {
     scopes.push(HashSet::new());
     for stmt in stmts {
-        resolve_stmt(module, stmt, scopes, module_names, diags);
+        resolve_stmt(module, stmt, scopes, module_names, this_allowed, diags);
     }
     scopes.pop();
 }
@@ -187,12 +221,13 @@ fn resolve_stmt(
     stmt: &Stmt,
     scopes: &mut Vec<HashSet<String>>,
     module_names: &HashSet<String>,
+    this_allowed: bool,
     diags: &mut Vec<Diagnostic>,
 ) {
     match stmt {
         Stmt::Let(s) | Stmt::Const(s) => {
             if let Some(init) = &s.init {
-                resolve_expr(module, init, scopes, module_names, diags);
+                resolve_expr(module, init, scopes, module_names, this_allowed, diags);
             }
             if let Some(name) = ident_text(&module.source, &s.name) {
                 declare_local(scopes, name, s.name.span, diags);
@@ -200,21 +235,23 @@ fn resolve_stmt(
         }
         Stmt::Return(s) => {
             if let Some(value) = &s.value {
-                resolve_expr(module, value, scopes, module_names, diags);
+                resolve_expr(module, value, scopes, module_names, this_allowed, diags);
             }
         }
-        Stmt::Expr(s) => resolve_expr(module, &s.expr, scopes, module_names, diags),
-        Stmt::Block(b) => resolve_block_like(module, &b.stmts, scopes, module_names, diags),
+        Stmt::Expr(s) => resolve_expr(module, &s.expr, scopes, module_names, this_allowed, diags),
+        Stmt::Block(b) => {
+            resolve_block_like(module, &b.stmts, scopes, module_names, this_allowed, diags)
+        }
         Stmt::If(s) => {
-            resolve_expr(module, &s.cond, scopes, module_names, diags);
-            resolve_block_like(module, &s.then_block.stmts, scopes, module_names, diags);
+            resolve_expr(module, &s.cond, scopes, module_names, this_allowed, diags);
+            resolve_block_like(module, &s.then_block.stmts, scopes, module_names, this_allowed, diags);
             if let Some(else_block) = &s.else_block {
-                resolve_block_like(module, &else_block.stmts, scopes, module_names, diags);
+                resolve_block_like(module, &else_block.stmts, scopes, module_names, this_allowed, diags);
             }
         }
         Stmt::While(s) => {
-            resolve_expr(module, &s.cond, scopes, module_names, diags);
-            resolve_block_like(module, &s.body.stmts, scopes, module_names, diags);
+            resolve_expr(module, &s.cond, scopes, module_names, this_allowed, diags);
+            resolve_block_like(module, &s.body.stmts, scopes, module_names, this_allowed, diags);
         }
         Stmt::Empty(_) => {}
     }
@@ -225,10 +262,18 @@ fn resolve_expr(
     expr: &Expr,
     scopes: &mut Vec<HashSet<String>>,
     module_names: &HashSet<String>,
+    this_allowed: bool,
     diags: &mut Vec<Diagnostic>,
 ) {
     match expr {
-        Expr::This(_) => {}
+        Expr::This(span) => {
+            if !this_allowed {
+                diags.push(Diagnostic::error(
+                    *span,
+                    "invalid use of `this` outside of a class method".to_string(),
+                ));
+            }
+        }
         Expr::Ident(ident) => {
             let Some(name) = ident_text(&module.source, ident) else { return };
             if is_in_scopes(scopes, &name) || module_names.contains(&name) {
@@ -240,28 +285,28 @@ fn resolve_expr(
             ));
         }
         Expr::IntLit(_) | Expr::FloatLit(_) | Expr::StringLit(_) | Expr::BoolLit(_, _) => {}
-        Expr::Unary { expr, .. } => resolve_expr(module, expr, scopes, module_names, diags),
+        Expr::Unary { expr, .. } => resolve_expr(module, expr, scopes, module_names, this_allowed, diags),
         Expr::Binary { left, right, .. } => {
-            resolve_expr(module, left, scopes, module_names, diags);
-            resolve_expr(module, right, scopes, module_names, diags);
+            resolve_expr(module, left, scopes, module_names, this_allowed, diags);
+            resolve_expr(module, right, scopes, module_names, this_allowed, diags);
         }
         Expr::Assign { target, value, .. } => {
-            resolve_expr(module, target, scopes, module_names, diags);
-            resolve_expr(module, value, scopes, module_names, diags);
+            resolve_expr(module, target, scopes, module_names, this_allowed, diags);
+            resolve_expr(module, value, scopes, module_names, this_allowed, diags);
         }
         Expr::Call { callee, args, .. } => {
-            resolve_expr(module, callee, scopes, module_names, diags);
+            resolve_expr(module, callee, scopes, module_names, this_allowed, diags);
             for arg in args {
-                resolve_expr(module, arg, scopes, module_names, diags);
+                resolve_expr(module, arg, scopes, module_names, this_allowed, diags);
             }
         }
         Expr::New { args, .. } => {
             for arg in args {
-                resolve_expr(module, arg, scopes, module_names, diags);
+                resolve_expr(module, arg, scopes, module_names, this_allowed, diags);
             }
         }
-        Expr::Member { object, .. } => resolve_expr(module, object, scopes, module_names, diags),
-        Expr::Paren { expr, .. } => resolve_expr(module, expr, scopes, module_names, diags),
+        Expr::Member { object, .. } => resolve_expr(module, object, scopes, module_names, this_allowed, diags),
+        Expr::Paren { expr, .. } => resolve_expr(module, expr, scopes, module_names, this_allowed, diags),
     }
 }
 
@@ -304,6 +349,7 @@ fn check_module_duplicates(module: &Module) -> Vec<Diagnostic> {
                     check_dup(&mut seen, &mut diags, text, func.name.span);
                 }
             }
+            TopLevel::Class(_) => {}
             TopLevel::Stmt(stmt) => match stmt {
                 Stmt::Let(s) | Stmt::Const(s) => {
                     if let Some(text) = ident_text(&module.source, &s.name) {

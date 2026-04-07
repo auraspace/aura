@@ -9,6 +9,7 @@ pub struct Program {
 pub enum TopLevel {
     Import(ImportDecl),
     Function(FunctionDecl),
+    Class(ClassDecl),
     Stmt(Stmt),
 }
 
@@ -28,6 +29,30 @@ pub enum ImportClause {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FunctionDecl {
+    pub name: Ident,
+    pub params: Vec<Param>,
+    pub return_type: Option<TypeRef>,
+    pub body: Block,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ClassDecl {
+    pub name: Ident,
+    pub fields: Vec<FieldDecl>,
+    pub methods: Vec<MethodDecl>,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FieldDecl {
+    pub name: Ident,
+    pub ty: TypeRef,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MethodDecl {
     pub name: Ident,
     pub params: Vec<Param>,
     pub return_type: Option<TypeRef>,
