@@ -61,7 +61,7 @@ pub fn typeck_program(source: &str, program: &Program) -> Vec<Diagnostic> {
     // Pass 2: type-check all top-level statements (including global var initializers).
     for item in &program.items {
         let TopLevel::Stmt(stmt) = item else { continue };
-        typeck_stmt(source, &mut global_env, stmt, &mut diags);
+        typeck_stmt(source, &mut global_env, Ty::Void, stmt, &mut diags);
     }
 
     // Pass 3: type-check function signatures and bodies.
@@ -85,8 +85,20 @@ pub fn typeck_program(source: &str, program: &Program) -> Vec<Diagnostic> {
             );
         }
 
-        // No return-path checking yet (Phase 3 TODOs).
-        typeck_block(source, &mut env, &func.body, &mut diags);
+        let expected_return = func
+            .return_type
+            .as_ref()
+            .map(|t| ty_from_type_ref(source, t, TypePosition::Return, &mut diags))
+            .unwrap_or(Ty::Void);
+
+        typeck_block(source, &mut env, expected_return, &func.body, &mut diags);
+
+        if expected_return != Ty::Void && !block_guarantees_return(&func.body.stmts) {
+            diags.push(
+                Diagnostic::error(func.span, "missing return on some paths")
+                    .with_help("add a `return` statement on all control-flow paths"),
+            );
+        }
     }
 
     diags
@@ -151,27 +163,71 @@ impl Env {
     }
 }
 
-fn typeck_block(source: &str, env: &mut Env, block: &aura_ast::Block, diags: &mut Vec<Diagnostic>) {
+fn typeck_block(
+    source: &str,
+    env: &mut Env,
+    expected_return: Ty,
+    block: &aura_ast::Block,
+    diags: &mut Vec<Diagnostic>,
+) {
     env.push_scope();
     for stmt in &block.stmts {
-        typeck_stmt(source, env, stmt, diags);
+        typeck_stmt(source, env, expected_return, stmt, diags);
     }
     env.pop_scope();
 }
 
-fn typeck_stmt(source: &str, env: &mut Env, stmt: &Stmt, diags: &mut Vec<Diagnostic>) {
+fn typeck_stmt(
+    source: &str,
+    env: &mut Env,
+    expected_return: Ty,
+    stmt: &Stmt,
+    diags: &mut Vec<Diagnostic>,
+) {
     match stmt {
         Stmt::Let(s) => typeck_let_like(source, env, s, true, diags),
         Stmt::Const(s) => typeck_let_like(source, env, s, false, diags),
         Stmt::Return(s) => {
-            if let Some(value) = &s.value {
-                let _ = typeck_expr(source, env, value, diags);
+            match (&s.value, expected_return) {
+                (Some(value), Ty::Void) => {
+                    diags.push(
+                        Diagnostic::error(
+                            span_of_expr(value),
+                            "cannot return a value from a `void` function",
+                        )
+                        .with_help("remove the value or declare a non-void return type"),
+                    );
+                    let _ = typeck_expr(source, env, value, diags);
+                }
+                (None, Ty::Void) => {}
+                (None, expected) => {
+                    diags.push(
+                        Diagnostic::error(s.span, "missing return value")
+                            .with_help(format!("expected `{}`", expected.as_str())),
+                    );
+                }
+                (Some(value), expected) => {
+                    let value_ty = typeck_expr(source, env, value, diags);
+                    if value_ty != Ty::Unknown
+                        && expected != Ty::Unknown
+                        && !is_assignable(value_ty, expected)
+                    {
+                        diags.push(Diagnostic::error(
+                            span_of_expr(value),
+                            format!(
+                                "type mismatch: expected `{}`, got `{}`",
+                                expected.as_str(),
+                                value_ty.as_str()
+                            ),
+                        ));
+                    }
+                }
             }
         }
         Stmt::Expr(s) => {
             let _ = typeck_expr(source, env, &s.expr, diags);
         }
-        Stmt::Block(b) => typeck_block(source, env, b, diags),
+        Stmt::Block(b) => typeck_block(source, env, expected_return, b, diags),
         Stmt::If(s) => {
             let cond_ty = typeck_expr(source, env, &s.cond, diags);
             if cond_ty != Ty::Unknown && cond_ty != Ty::Bool {
@@ -180,9 +236,9 @@ fn typeck_stmt(source: &str, env: &mut Env, stmt: &Stmt, diags: &mut Vec<Diagnos
                         .with_help(format!("got `{}`", cond_ty.as_str())),
                 );
             }
-            typeck_block(source, env, &s.then_block, diags);
+            typeck_block(source, env, expected_return, &s.then_block, diags);
             if let Some(else_block) = &s.else_block {
-                typeck_block(source, env, else_block, diags);
+                typeck_block(source, env, expected_return, else_block, diags);
             }
         }
         Stmt::While(s) => {
@@ -193,9 +249,31 @@ fn typeck_stmt(source: &str, env: &mut Env, stmt: &Stmt, diags: &mut Vec<Diagnos
                         .with_help(format!("got `{}`", cond_ty.as_str())),
                 );
             }
-            typeck_block(source, env, &s.body, diags);
+            typeck_block(source, env, expected_return, &s.body, diags);
         }
         Stmt::Empty(_) => {}
+    }
+}
+
+fn block_guarantees_return(stmts: &[Stmt]) -> bool {
+    for stmt in stmts {
+        if stmt_guarantees_return(stmt) {
+            return true;
+        }
+    }
+    false
+}
+
+fn stmt_guarantees_return(stmt: &Stmt) -> bool {
+    match stmt {
+        Stmt::Return(_) => true,
+        Stmt::Block(b) => block_guarantees_return(&b.stmts),
+        Stmt::If(s) => {
+            let Some(else_block) = &s.else_block else { return false };
+            block_guarantees_return(&s.then_block.stmts) && block_guarantees_return(&else_block.stmts)
+        }
+        Stmt::While(_) => false,
+        Stmt::Let(_) | Stmt::Const(_) | Stmt::Expr(_) | Stmt::Empty(_) => false,
     }
 }
 
@@ -702,5 +780,50 @@ function main(): void {
         let diags = typeck_program(src, &out.value);
         assert_eq!(diags.len(), 1, "{diags:#?}");
         assert!(diags[0].message.contains("cannot assign to `const`"));
+    }
+
+    #[test]
+    fn rejects_missing_return_on_some_paths() {
+        let src = r#"
+function f(): i32 {
+  if (true) { return 1; }
+}
+"#;
+        let out = aura_parser::parse_program(src);
+        assert!(out.errors.is_empty(), "{:#?}", out.errors);
+
+        let diags = typeck_program(src, &out.value);
+        assert_eq!(diags.len(), 1, "{diags:#?}");
+        assert!(diags[0].message.contains("missing return"));
+    }
+
+    #[test]
+    fn rejects_return_type_mismatch() {
+        let src = r#"
+function f(): i32 {
+  return true;
+}
+"#;
+        let out = aura_parser::parse_program(src);
+        assert!(out.errors.is_empty(), "{:#?}", out.errors);
+
+        let diags = typeck_program(src, &out.value);
+        assert_eq!(diags.len(), 1, "{diags:#?}");
+        assert!(diags[0].message.contains("type mismatch"));
+    }
+
+    #[test]
+    fn rejects_return_value_in_void_function() {
+        let src = r#"
+function f(): void {
+  return 1;
+}
+"#;
+        let out = aura_parser::parse_program(src);
+        assert!(out.errors.is_empty(), "{:#?}", out.errors);
+
+        let diags = typeck_program(src, &out.value);
+        assert_eq!(diags.len(), 1, "{diags:#?}");
+        assert!(diags[0].message.contains("cannot return a value"));
     }
 }
