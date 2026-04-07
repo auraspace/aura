@@ -144,7 +144,7 @@ impl<'a> Parser<'a> {
 
         let start = self.current_span_start();
         let expr = self.parse_expr();
-        self.expect_punct(Punct::Semi);
+        self.expect_stmt_semi();
         let end = self.prev_span_end();
         Stmt::Expr(ExprStmt {
             expr,
@@ -169,7 +169,7 @@ impl<'a> Parser<'a> {
             None
         };
 
-        self.expect_punct(Punct::Semi);
+        self.expect_stmt_semi();
         let end = self.prev_span_end();
         LetStmt {
             name,
@@ -187,7 +187,7 @@ impl<'a> Parser<'a> {
         } else {
             Some(self.parse_expr())
         };
-        self.expect_punct(Punct::Semi);
+        self.expect_stmt_semi();
         let end = self.prev_span_end();
         Stmt::Return(ReturnStmt {
             value,
@@ -200,7 +200,13 @@ impl<'a> Parser<'a> {
         self.expect_keyword(Keyword::If);
         self.expect_punct(Punct::LParen);
         let cond = self.parse_expr();
-        self.expect_punct(Punct::RParen);
+        self.expect_punct_with_sync(
+            Punct::RParen,
+            &[
+                TokenKind::Punct(Punct::RParen),
+                TokenKind::Punct(Punct::LBrace),
+            ],
+        );
         let then_block = self.parse_block();
         let else_block = if self.eat_keyword(Keyword::Else) {
             Some(self.parse_block())
@@ -224,7 +230,13 @@ impl<'a> Parser<'a> {
         self.expect_keyword(Keyword::While);
         self.expect_punct(Punct::LParen);
         let cond = self.parse_expr();
-        self.expect_punct(Punct::RParen);
+        self.expect_punct_with_sync(
+            Punct::RParen,
+            &[
+                TokenKind::Punct(Punct::RParen),
+                TokenKind::Punct(Punct::LBrace),
+            ],
+        );
         let body = self.parse_block();
         WhileStmt {
             cond,
@@ -412,7 +424,14 @@ impl<'a> Parser<'a> {
                         break;
                     }
                 }
-                self.expect_punct(Punct::RParen);
+                self.expect_punct_with_sync(
+                    Punct::RParen,
+                    &[
+                        TokenKind::Punct(Punct::RParen),
+                        TokenKind::Punct(Punct::Semi),
+                        TokenKind::Punct(Punct::RBrace),
+                    ],
+                );
                 let end = self.prev_span_end();
                 expr = Expr::Call {
                     callee: Box::new(expr),
@@ -469,7 +488,14 @@ impl<'a> Parser<'a> {
                 let start = span.start;
                 self.bump();
                 let inner = self.parse_expr();
-                self.expect_punct(Punct::RParen);
+                self.expect_punct_with_sync(
+                    Punct::RParen,
+                    &[
+                        TokenKind::Punct(Punct::RParen),
+                        TokenKind::Punct(Punct::Semi),
+                        TokenKind::Punct(Punct::RBrace),
+                    ],
+                );
                 let end = self.prev_span_end();
                 Expr::Paren {
                     expr: Box::new(inner),
@@ -590,12 +616,47 @@ impl<'a> Parser<'a> {
     fn expect_keyword(&mut self, kw: Keyword) {
         if !self.eat_keyword(kw) {
             self.error(self.current_span(), &format!("expected keyword `{}`", keyword_text(kw)));
+            self.bump();
         }
     }
 
     fn expect_punct(&mut self, p: Punct) {
         if !self.eat_punct(p) {
             self.error(self.current_span(), &format!("expected `{}`", punct_text(p)));
+            self.bump();
+        }
+    }
+
+    fn expect_stmt_semi(&mut self) {
+        self.expect_punct_with_sync(
+            Punct::Semi,
+            &[
+                TokenKind::Punct(Punct::Semi),
+                TokenKind::Punct(Punct::RBrace),
+                TokenKind::Eof,
+            ],
+        );
+    }
+
+    fn expect_punct_with_sync(&mut self, punct: Punct, sync: &[TokenKind]) {
+        if self.eat_punct(punct) {
+            return;
+        }
+        self.error(self.current_span(), &format!("expected `{}`", punct_text(punct)));
+        self.synchronize(sync);
+        self.eat_punct(punct);
+    }
+
+    fn synchronize(&mut self, sync: &[TokenKind]) {
+        if self.at(TokenKind::Eof) {
+            return;
+        }
+        if sync.contains(&self.current_kind()) {
+            return;
+        }
+        self.bump();
+        while !self.at(TokenKind::Eof) && !sync.contains(&self.current_kind()) {
+            self.bump();
         }
     }
 
@@ -708,5 +769,18 @@ function add(a: i32, b: i32): i32 {
             }
             _ => panic!("expected function"),
         }
+    }
+
+    #[test]
+    fn recovers_from_missing_semicolon() {
+        let src = r#"
+function f(): void {
+  let x: i32 = 1
+  return x
+}
+"#;
+        let out = parse_program(src);
+        assert!(!out.errors.is_empty());
+        assert_eq!(out.value.items.len(), 1);
     }
 }
