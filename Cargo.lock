@@ -24,6 +24,7 @@ dependencies = [
  "aura-diagnostics",
  "aura-parser",
  "aura-span",
+ "aura-typeck",
 ]
 
 [[package]]
@@ -46,6 +47,16 @@ dependencies = [
 [[package]]
 name = "aura-span"
 version = "0.1.0"
+
+[[package]]
+name = "aura-typeck"
+version = "0.1.0"
+dependencies = [
+ "aura-ast",
+ "aura-diagnostics",
+ "aura-parser",
+ "aura-span",
+]
 
 [[package]]
 name = "aurac"

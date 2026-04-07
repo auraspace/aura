@@ -30,6 +30,7 @@ pub fn check_file(path: impl AsRef<Path>) -> io::Result<CheckOutput> {
         for module in &graph.modules {
             if module.parse_diagnostics.is_empty() {
                 diagnostics.extend(resolve::resolve_module(module));
+                diagnostics.extend(aura_typeck::typeck_program(&module.source, &module.ast));
             }
         }
     } else {

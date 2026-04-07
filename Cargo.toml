@@ -7,6 +7,7 @@ members = [
   "crates/aura-lexer",
   "crates/aura-parser",
   "crates/aura-span",
+  "crates/aura-typeck",
   "crates/aurac",
 ]
 
