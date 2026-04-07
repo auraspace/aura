@@ -174,7 +174,7 @@ fn decode_string_literal(source: &str, span: Span) -> Option<String> {
     Some(text.to_string())
 }
 
-fn ident_text(source: &str, ident: &Ident) -> Option<String> {
+pub(crate) fn ident_text(source: &str, ident: &Ident) -> Option<String> {
     let start = ident.span.start.raw() as usize;
     let end = ident.span.end.raw() as usize;
     source.get(start..end).map(|s| s.to_string())
