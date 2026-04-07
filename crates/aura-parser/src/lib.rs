@@ -1,17 +1,12 @@
 use aura_ast::*;
+use aura_diagnostics::Diagnostic;
 use aura_lexer::{Keyword, Operator, Punct, Token, TokenKind};
 use aura_span::{BytePos, Span};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ParseError {
-    pub span: Span,
-    pub message: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ParseOutput<T> {
     pub value: T,
-    pub errors: Vec<ParseError>,
+    pub errors: Vec<Diagnostic>,
 }
 
 pub fn parse_program(source: &str) -> ParseOutput<Program> {
@@ -23,7 +18,7 @@ struct Parser<'a> {
     source: &'a str,
     tokens: Vec<Token>,
     idx: usize,
-    errors: Vec<ParseError>,
+    errors: Vec<Diagnostic>,
 }
 
 impl<'a> Parser<'a> {
@@ -503,8 +498,18 @@ impl<'a> Parser<'a> {
                 }
             }
             _ => {
-                self.error(span, "expected expression");
+                self.error(
+                    span,
+                    &format!("expected expression, found {}", token_desc(self.current_kind())),
+                );
                 self.bump();
+                self.synchronize(&[
+                    TokenKind::Punct(Punct::Semi),
+                    TokenKind::Punct(Punct::RParen),
+                    TokenKind::Punct(Punct::RBrace),
+                    TokenKind::Punct(Punct::Comma),
+                    TokenKind::Eof,
+                ]);
                 Expr::IntLit(span)
             }
         }
@@ -516,7 +521,10 @@ impl<'a> Parser<'a> {
             self.bump();
             Ident { span }
         } else {
-            self.error(span, "expected identifier");
+            self.error(
+                span,
+                &format!("expected identifier, found {}", token_desc(self.current_kind())),
+            );
             self.bump();
             Ident { span }
         }
@@ -696,10 +704,7 @@ impl<'a> Parser<'a> {
     }
 
     fn error(&mut self, span: Span, message: &str) {
-        self.errors.push(ParseError {
-            span,
-            message: message.to_string(),
-        });
+        self.errors.push(Diagnostic::error(span, message));
     }
 }
 
@@ -747,9 +752,43 @@ fn punct_text(p: Punct) -> &'static str {
     }
 }
 
+fn operator_text(op: Operator) -> &'static str {
+    match op {
+        Operator::Plus => "+",
+        Operator::Minus => "-",
+        Operator::Star => "*",
+        Operator::Slash => "/",
+        Operator::EqEq => "==",
+        Operator::NotEq => "!=",
+        Operator::Lt => "<",
+        Operator::LtEq => "<=",
+        Operator::Gt => ">",
+        Operator::GtEq => ">=",
+        Operator::AndAnd => "&&",
+        Operator::OrOr => "||",
+        Operator::Bang => "!",
+        Operator::Eq => "=",
+    }
+}
+
+fn token_desc(kind: TokenKind) -> String {
+    match kind {
+        TokenKind::Ident => "identifier".to_string(),
+        TokenKind::Int => "integer literal".to_string(),
+        TokenKind::Float => "float literal".to_string(),
+        TokenKind::String => "string literal".to_string(),
+        TokenKind::Keyword(kw) => format!("keyword `{}`", keyword_text(kw)),
+        TokenKind::Operator(op) => format!("operator `{}`", operator_text(op)),
+        TokenKind::Punct(p) => format!("`{}`", punct_text(p)),
+        TokenKind::Eof => "end of file".to_string(),
+        TokenKind::Unknown => "unknown token".to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use aura_diagnostics::format_all;
 
     #[test]
     fn parses_function_with_return() {
@@ -782,5 +821,59 @@ function f(): void {
         let out = parse_program(src);
         assert!(!out.errors.is_empty());
         assert_eq!(out.value.items.len(), 1);
+    }
+
+    #[test]
+    fn snapshot_missing_semicolon() {
+        let src = r#"function f(): void { return 1 }"#;
+        let out = parse_program(src);
+        let rendered = format_all(src, &out.errors);
+        assert_eq!(
+            rendered,
+            r#"error[E]: expected `;`
+ --> line 1, col 31
+  |
+ 1 | function f(): void { return 1 }
+  |                               ^
+"#
+        );
+    }
+
+    #[test]
+    fn snapshot_unmatched_rbrace() {
+        let src = r#"}"#;
+        let out = parse_program(src);
+        let rendered = format_all(src, &out.errors);
+        assert_eq!(
+            rendered,
+            r#"error[E]: expected expression, found `}`
+ --> line 1, col 1
+  |
+ 1 | }
+  | ^
+
+error[E]: expected `;`
+ --> line 1, col 2
+  |
+ 1 | }
+  |  ^
+"#
+        );
+    }
+
+    #[test]
+    fn snapshot_bad_token_in_expression() {
+        let src = r#"function f(): void { return + 1; }"#;
+        let out = parse_program(src);
+        let rendered = format_all(src, &out.errors);
+        assert_eq!(
+            rendered,
+            r#"error[E]: expected expression, found operator `+`
+ --> line 1, col 29
+  |
+ 1 | function f(): void { return + 1; }
+  |                             ^
+"#
+        );
     }
 }
