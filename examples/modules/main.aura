@@ -1,0 +1,6 @@
+import { helper } from "./util";
+
+function main(): i32 {
+  return helper(0);
+}
+

@@ -4,6 +4,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use aura_ast::{Ident, ImportClause, Program, Stmt, TopLevel};
+use aura_diagnostics::Diagnostic;
 use aura_span::Span;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -17,6 +18,7 @@ pub struct Module {
     pub path: PathBuf,
     pub source: String,
     pub ast: Program,
+    pub parse_diagnostics: Vec<Diagnostic>,
     pub imports: Vec<ImportEdge>,
 }
 
@@ -56,6 +58,7 @@ pub fn build_module_graph(entrypoints: &[impl AsRef<Path>]) -> io::Result<Module
         let source = fs::read_to_string(&path)?;
         let parsed = aura_parser::parse_program(&source);
         let ast = parsed.value;
+        let parse_diagnostics = parsed.errors;
 
         let mut imports = Vec::new();
         for item in &ast.items {
@@ -91,11 +94,29 @@ pub fn build_module_graph(entrypoints: &[impl AsRef<Path>]) -> io::Result<Module
             path,
             source,
             ast,
+            parse_diagnostics,
             imports,
         });
     }
 
     Ok(ModuleGraph { modules, edges })
+}
+
+pub fn diagnose_missing_import_targets(graph: &ModuleGraph) -> Vec<Diagnostic> {
+    let mut diags = Vec::new();
+    for edge in &graph.edges {
+        if edge.resolved_to.is_some() {
+            continue;
+        }
+        if !(edge.specifier.starts_with("./") || edge.specifier.starts_with("../")) {
+            continue;
+        }
+        diags.push(Diagnostic::error(
+            edge.specifier_span,
+            format!("missing import target `{}`", edge.specifier),
+        ));
+    }
+    diags
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -318,5 +339,26 @@ function main(): i32 { return 0; }
         assert!(symbols.bindings.contains_key("Baz"));
         assert!(symbols.bindings.contains_key("x"));
         assert!(symbols.bindings.contains_key("main"));
+    }
+
+    #[test]
+    fn reports_missing_import_target() {
+        let dir = unique_tmp_dir("missing-import");
+        fs::create_dir_all(&dir).unwrap();
+
+        let main = dir.join("main.aura");
+        fs::write(
+            &main,
+            r#"
+import Foo from "./nope";
+function main(): i32 { return 0; }
+"#,
+        )
+        .unwrap();
+
+        let graph = build_module_graph(&[&main]).unwrap();
+        let diags = diagnose_missing_import_targets(&graph);
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].message.contains("missing import target"));
     }
 }

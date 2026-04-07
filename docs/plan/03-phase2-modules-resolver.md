@@ -12,10 +12,10 @@ File-based modules + name resolution consistent with `import ... from "./path"`.
 - [x] Resolve relative imports, omit extension per MVP rules (done 2026-04-07; resolve `./`/`../` to `.aura`/`.ar`)
 - [x] Per-module symbol table construction (done 2026-04-07; collect top-level + import bindings)
 - [x] Resolve locals and top-level names (done 2026-04-07; unknown identifier diagnostics)
-- [ ] Resolve imports/exports (surface + diagnostics)
+- [x] Resolve imports/exports (surface + diagnostics) (done 2026-04-07; missing import target + multi-file `check`)
 - [ ] Member-name resolution scaffold (structure only; full type-driven lookup later)
 
 ## Acceptance
 
-- [ ] `aurac check` resolves across multiple files under `examples/`
+- [x] `aurac check` resolves across multiple files under `examples/` (done 2026-04-07; added `examples/modules/`)
 - [ ] Diagnostics for: missing import target, unknown identifier, duplicate binding
