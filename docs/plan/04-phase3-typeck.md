@@ -16,7 +16,7 @@ Minimal static typing for primitives + functions + classes/interfaces (nominal).
 - [x] Resolver: allow `this` inside methods (no field validation yet) (done 2026-04-07)
 - [x] Type-check: `this.<field>` access and assignment (done 2026-04-07)
 - [x] Type-check: direct instance method calls + `new` result typing (no vtables yet) (done 2026-04-07)
-- [ ] Type-check: constructor rules (`constructor` returns `void`, assigns fields)
+- [x] Type-check: constructor rules (`constructor` returns `void`, assigns fields) (done 2026-04-07; enforce constructor-only `this` assignments and void constructors)
 - [ ] Interface typing: nominal + `implements` checks
 - [ ] Add `--emit=hir` or `--print=types` debug output mode
 

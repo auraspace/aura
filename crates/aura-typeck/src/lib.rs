@@ -138,6 +138,7 @@ pub fn typeck_program(source: &str, program: &Program) -> Vec<Diagnostic> {
             &class_names,
             &classes,
             None,
+            false,
             stmt,
             &mut diags,
         );
@@ -187,6 +188,7 @@ pub fn typeck_program(source: &str, program: &Program) -> Vec<Diagnostic> {
             &class_names,
             &classes,
             None,
+            false,
             &func.body,
             &mut diags,
         );
@@ -211,6 +213,7 @@ pub fn typeck_program(source: &str, program: &Program) -> Vec<Diagnostic> {
                 let _ =
                     ty_from_type_ref(source, ret, TypePosition::Return, &class_names, &mut diags);
             }
+            let is_constructor = matches!(ident_text(source, &method.name), Some("constructor"));
 
             let mut env = global_env.child();
             for param in &method.params {
@@ -234,13 +237,26 @@ pub fn typeck_program(source: &str, program: &Program) -> Vec<Diagnostic> {
                 );
             }
 
-            let expected_return = method
+            let mut expected_return = method
                 .return_type
                 .as_ref()
                 .map(|t| {
                     ty_from_type_ref(source, t, TypePosition::Return, &class_names, &mut diags)
                 })
                 .unwrap_or(Ty::Void);
+
+            if is_constructor && expected_return != Ty::Void {
+                let span = method
+                    .return_type
+                    .as_ref()
+                    .map(|t| t.span)
+                    .unwrap_or(method.span);
+                diags.push(
+                    Diagnostic::error(span, "constructor must return `void`")
+                        .with_help("use `void` or omit the annotation"),
+                );
+                expected_return = Ty::Void;
+            }
 
             typeck_block(
                 source,
@@ -249,6 +265,7 @@ pub fn typeck_program(source: &str, program: &Program) -> Vec<Diagnostic> {
                 &class_names,
                 &classes,
                 class_info,
+                is_constructor,
                 &method.body,
                 &mut diags,
             );
@@ -343,6 +360,7 @@ fn typeck_block(
     class_names: &HashSet<String>,
     classes: &HashMap<String, ClassInfo>,
     this_class: Option<&ClassInfo>,
+    allow_this_assignment: bool,
     block: &aura_ast::Block,
     diags: &mut Vec<Diagnostic>,
 ) {
@@ -355,6 +373,7 @@ fn typeck_block(
             class_names,
             classes,
             this_class,
+            allow_this_assignment,
             stmt,
             diags,
         );
@@ -369,6 +388,7 @@ fn typeck_stmt(
     class_names: &HashSet<String>,
     classes: &HashMap<String, ClassInfo>,
     this_class: Option<&ClassInfo>,
+    allow_this_assignment: bool,
     stmt: &Stmt,
     diags: &mut Vec<Diagnostic>,
 ) {
@@ -381,6 +401,7 @@ fn typeck_stmt(
             class_names,
             classes,
             this_class,
+            allow_this_assignment,
             diags,
         ),
         Stmt::Const(s) => typeck_let_like(
@@ -391,6 +412,7 @@ fn typeck_stmt(
             class_names,
             classes,
             this_class,
+            allow_this_assignment,
             diags,
         ),
         Stmt::Return(s) => match (&s.value, expected_return) {
@@ -402,7 +424,16 @@ fn typeck_stmt(
                     )
                     .with_help("remove the value or declare a non-void return type"),
                 );
-                let _ = typeck_expr(source, env, value, class_names, classes, this_class, diags);
+                let _ = typeck_expr(
+                    source,
+                    env,
+                    value,
+                    class_names,
+                    classes,
+                    this_class,
+                    allow_this_assignment,
+                    diags,
+                );
             }
             (None, Ty::Void) => {}
             (None, expected) => {
@@ -412,8 +443,16 @@ fn typeck_stmt(
                 );
             }
             (Some(value), expected) => {
-                let value_ty =
-                    typeck_expr(source, env, value, class_names, classes, this_class, diags);
+                let value_ty = typeck_expr(
+                    source,
+                    env,
+                    value,
+                    class_names,
+                    classes,
+                    this_class,
+                    allow_this_assignment,
+                    diags,
+                );
                 if value_ty != Ty::Unknown
                     && *expected != Ty::Unknown
                     && !is_assignable(&value_ty, expected)
@@ -437,6 +476,7 @@ fn typeck_stmt(
                 class_names,
                 classes,
                 this_class,
+                allow_this_assignment,
                 diags,
             );
         }
@@ -447,6 +487,7 @@ fn typeck_stmt(
             class_names,
             classes,
             this_class,
+            allow_this_assignment,
             b,
             diags,
         ),
@@ -458,6 +499,7 @@ fn typeck_stmt(
                 class_names,
                 classes,
                 this_class,
+                allow_this_assignment,
                 diags,
             );
             if cond_ty != Ty::Unknown && cond_ty != Ty::Bool {
@@ -473,6 +515,7 @@ fn typeck_stmt(
                 class_names,
                 classes,
                 this_class,
+                allow_this_assignment,
                 &s.then_block,
                 diags,
             );
@@ -484,6 +527,7 @@ fn typeck_stmt(
                     class_names,
                     classes,
                     this_class,
+                    allow_this_assignment,
                     else_block,
                     diags,
                 );
@@ -497,6 +541,7 @@ fn typeck_stmt(
                 class_names,
                 classes,
                 this_class,
+                allow_this_assignment,
                 diags,
             );
             if cond_ty != Ty::Unknown && cond_ty != Ty::Bool {
@@ -512,6 +557,7 @@ fn typeck_stmt(
                 class_names,
                 classes,
                 this_class,
+                allow_this_assignment,
                 &s.body,
                 diags,
             );
@@ -553,6 +599,7 @@ fn typeck_let_like(
     class_names: &HashSet<String>,
     classes: &HashMap<String, ClassInfo>,
     this_class: Option<&ClassInfo>,
+    allow_this_assignment: bool,
     diags: &mut Vec<Diagnostic>,
 ) {
     let declared_ty = stmt
@@ -564,7 +611,18 @@ fn typeck_let_like(
     let init_ty = stmt
         .init
         .as_ref()
-        .map(|e| typeck_expr(source, env, e, class_names, classes, this_class, diags))
+        .map(|e| {
+            typeck_expr(
+                source,
+                env,
+                e,
+                class_names,
+                classes,
+                this_class,
+                allow_this_assignment,
+                diags,
+            )
+        })
         .unwrap_or(Ty::Unknown);
 
     if !is_mutable && stmt.init.is_none() {
@@ -644,6 +702,7 @@ fn typeck_expr(
     class_names: &HashSet<String>,
     classes: &HashMap<String, ClassInfo>,
     this_class: Option<&ClassInfo>,
+    allow_this_assignment: bool,
     diags: &mut Vec<Diagnostic>,
 ) -> Ty {
     match expr {
@@ -660,11 +719,27 @@ fn typeck_expr(
         Expr::FloatLit(_) => Ty::F64,
         Expr::StringLit(_) => Ty::String,
         Expr::BoolLit(_, _) => Ty::Bool,
-        Expr::Paren { expr, .. } => {
-            typeck_expr(source, env, expr, class_names, classes, this_class, diags)
-        }
+        Expr::Paren { expr, .. } => typeck_expr(
+            source,
+            env,
+            expr,
+            class_names,
+            classes,
+            this_class,
+            allow_this_assignment,
+            diags,
+        ),
         Expr::Unary { op, expr, span } => {
-            let inner = typeck_expr(source, env, expr, class_names, classes, this_class, diags);
+            let inner = typeck_expr(
+                source,
+                env,
+                expr,
+                class_names,
+                classes,
+                this_class,
+                allow_this_assignment,
+                diags,
+            );
             match op {
                 aura_ast::UnaryOp::Neg => {
                     if inner != Ty::Unknown && !is_numeric(&inner) {
@@ -702,8 +777,26 @@ fn typeck_expr(
             right,
             span,
         } => {
-            let lt = typeck_expr(source, env, left, class_names, classes, this_class, diags);
-            let rt = typeck_expr(source, env, right, class_names, classes, this_class, diags);
+            let lt = typeck_expr(
+                source,
+                env,
+                left,
+                class_names,
+                classes,
+                this_class,
+                allow_this_assignment,
+                diags,
+            );
+            let rt = typeck_expr(
+                source,
+                env,
+                right,
+                class_names,
+                classes,
+                this_class,
+                allow_this_assignment,
+                diags,
+            );
             if lt == Ty::Unknown || rt == Ty::Unknown {
                 return Ty::Unknown;
             }
@@ -803,6 +896,7 @@ fn typeck_expr(
                             class_names,
                             classes,
                             this_class,
+                            allow_this_assignment,
                             diags,
                         );
                         return Ty::Unknown;
@@ -810,6 +904,26 @@ fn typeck_expr(
                     let Some(field_name) = ident_text(source, field) else {
                         return Ty::Unknown;
                     };
+                    if !allow_this_assignment {
+                        let value_ty = typeck_expr(
+                            source,
+                            env,
+                            value,
+                            class_names,
+                            classes,
+                            this_class,
+                            allow_this_assignment,
+                            diags,
+                        );
+                        diags.push(
+                            Diagnostic::error(
+                                field.span,
+                                "assignments to `this.<field>` only belong in constructors",
+                            )
+                            .with_help("initialize fields inside the class constructor"),
+                        );
+                        return value_ty;
+                    }
                     let Some(field_ty) = class_info.fields.get(field_name) else {
                         diags.push(Diagnostic::error(
                             field.span,
@@ -822,13 +936,22 @@ fn typeck_expr(
                             class_names,
                             classes,
                             this_class,
+                            allow_this_assignment,
                             diags,
                         );
                         return Ty::Unknown;
                     };
 
-                    let value_ty =
-                        typeck_expr(source, env, value, class_names, classes, this_class, diags);
+                    let value_ty = typeck_expr(
+                        source,
+                        env,
+                        value,
+                        class_names,
+                        classes,
+                        this_class,
+                        allow_this_assignment,
+                        diags,
+                    );
                     if value_ty != Ty::Unknown
                         && *field_ty != Ty::Unknown
                         && !is_assignable(&value_ty, field_ty)
@@ -860,7 +983,16 @@ fn typeck_expr(
 
             let Some(var) = env.lookup(&target_name) else {
                 // Resolver will report unknown identifiers; keep this as Unknown for now.
-                let _ = typeck_expr(source, env, value, class_names, classes, this_class, diags);
+                let _ = typeck_expr(
+                    source,
+                    env,
+                    value,
+                    class_names,
+                    classes,
+                    this_class,
+                    allow_this_assignment,
+                    diags,
+                );
                 return Ty::Unknown;
             };
 
@@ -877,7 +1009,16 @@ fn typeck_expr(
                 );
             }
 
-            let value_ty = typeck_expr(source, env, value, class_names, classes, this_class, diags);
+            let value_ty = typeck_expr(
+                source,
+                env,
+                value,
+                class_names,
+                classes,
+                this_class,
+                allow_this_assignment,
+                diags,
+            );
             if value_ty != Ty::Unknown
                 && target_ty != Ty::Unknown
                 && !is_assignable(&value_ty, &target_ty)
@@ -915,6 +1056,7 @@ fn typeck_expr(
                         class_names,
                         classes,
                         this_class,
+                        allow_this_assignment,
                         diags,
                     ) {
                         Ty::Class(name) => {
@@ -961,8 +1103,16 @@ fn typeck_expr(
                 }
 
                 for (idx, arg) in args.iter().enumerate() {
-                    let arg_ty =
-                        typeck_expr(source, env, arg, class_names, classes, this_class, diags);
+                    let arg_ty = typeck_expr(
+                        source,
+                        env,
+                        arg,
+                        class_names,
+                        classes,
+                        this_class,
+                        allow_this_assignment,
+                        diags,
+                    );
                     if let Some(param_ty) = sig.params.get(idx) {
                         if arg_ty != Ty::Unknown
                             && *param_ty != Ty::Unknown
@@ -991,7 +1141,16 @@ fn typeck_expr(
         }
         Expr::New { class, args, span } => {
             for arg in args {
-                let _ = typeck_expr(source, env, arg, class_names, classes, this_class, diags);
+                let _ = typeck_expr(
+                    source,
+                    env,
+                    arg,
+                    class_names,
+                    classes,
+                    this_class,
+                    allow_this_assignment,
+                    diags,
+                );
             }
             let Some(name) = ident_text(source, class) else {
                 return Ty::Unknown;
@@ -1318,5 +1477,65 @@ function f(): void {
         let diags = typeck_program(src, &out.value);
         assert_eq!(diags.len(), 1, "{diags:#?}");
         assert!(diags[0].message.contains("cannot return a value"));
+    }
+
+    #[test]
+    fn constructor_assigns_fields_without_diag() {
+        let src = r#"
+class Point {
+  x: i32;
+  y: i32;
+
+  function constructor(x: i32, y: i32): void {
+    this.x = x;
+    this.y = y;
+  }
+}
+"#;
+        let out = aura_parser::parse_program(src);
+        assert!(out.errors.is_empty(), "{:#?}", out.errors);
+
+        let diags = typeck_program(src, &out.value);
+        assert!(diags.is_empty(), "{diags:#?}");
+    }
+
+    #[test]
+    fn rejects_this_assignment_outside_constructor() {
+        let src = r#"
+class Point {
+  x: i32;
+
+  function mutate(): void {
+    this.x = 1;
+  }
+}
+"#;
+        let out = aura_parser::parse_program(src);
+        assert!(out.errors.is_empty(), "{:#?}", out.errors);
+
+        let diags = typeck_program(src, &out.value);
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].message.contains("only belong in constructors"));
+    }
+
+    #[test]
+    fn rejects_non_void_constructor_return_type() {
+        let src = r#"
+class Foo {
+  x: i32;
+
+  function constructor(): i32 {
+    this.x = 0;
+    return 1;
+  }
+}
+"#;
+        let out = aura_parser::parse_program(src);
+        assert!(out.errors.is_empty(), "{:#?}", out.errors);
+
+        let diags = typeck_program(src, &out.value);
+        assert!(diags
+            .iter()
+            .any(|d| d.message.contains("constructor must return `void`")));
     }
 }
