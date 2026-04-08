@@ -1,17 +1,31 @@
-use aura_mir::{dump_mir, lower_program};
+use aura_mir::{dump_mir, lower_program, CleanupReason};
 use aura_parser::parse_program;
 use aura_typeck::typeck_program;
 
 #[test]
 fn lowers_try_catch_finally_into_cleanup_region() {
     let src = r#"
-function f(): void {
+function normal(): void {
   try {
-    throw 1;
-  } catch (e) {
+    let done = 1;
+  } finally {
+    let cleanup = 1;
+  }
+}
+
+function returns(): void {
+  try {
     return;
   } finally {
-    let done = 1;
+    let cleanup = 1;
+  }
+}
+
+function throws(): void {
+  try {
+    throw 1;
+  } finally {
+    let cleanup = 1;
   }
 }
 "#;
@@ -23,11 +37,40 @@ function f(): void {
     assert!(diags.is_empty(), "{diags:#?}");
 
     let mir = lower_program(src, &parsed.value, &typed);
-    assert_eq!(mir.functions.len(), 1);
-    assert_eq!(mir.functions[0].cleanup_regions.len(), 1);
+    assert_eq!(mir.functions.len(), 3);
+    for function in &mir.functions {
+        assert_eq!(function.cleanup_regions.len(), 1, "{}", function.name);
+        let region = &function.cleanup_regions[0];
+        assert!(
+            region
+                .edges
+                .iter()
+                .any(|edge| edge.reason == CleanupReason::Normal),
+            "{}",
+            function.name
+        );
+        assert!(
+            region
+                .edges
+                .iter()
+                .any(|edge| edge.reason == CleanupReason::Return),
+            "{}",
+            function.name
+        );
+        assert!(
+            region
+                .edges
+                .iter()
+                .any(|edge| edge.reason == CleanupReason::Throw),
+            "{}",
+            function.name
+        );
+    }
 
     let rendered = dump_mir(&mir);
     assert!(rendered.contains("cleanup region"));
-    assert!(rendered.contains("catch -> bb"));
     assert!(rendered.contains("finally -> bb"));
+    assert!(rendered.contains("edge bb"));
+    assert!(rendered.contains("(Return)"));
+    assert!(rendered.contains("(Throw)"));
 }

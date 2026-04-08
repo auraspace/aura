@@ -286,10 +286,7 @@ impl MirBuilder {
     fn emit_return(&mut self, value: Option<Operand>) {
         if let Some(ctx) = self.cleanup_context_for_return().cloned() {
             if let Some(val) = value {
-                self.push_stmt(Statement::Assign(
-                    Lvalue::Local(0),
-                    Rvalue::Use(val),
-                ));
+                self.push_stmt(Statement::Assign(Lvalue::Local(0), Rvalue::Use(val)));
             }
             if let Some(exit_mode_local) = ctx.exit_mode_local {
                 self.push_stmt(Statement::Assign(
@@ -484,12 +481,7 @@ impl MirBuilder {
             None
         };
 
-        self.push_cleanup_context(
-            catch_block,
-            finally_block,
-            exit_mode_local,
-            exception_local,
-        );
+        self.push_cleanup_context(catch_block, finally_block, exit_mode_local, exception_local);
 
         let mut edges = vec![CleanupEdge {
             from_block: try_entry,
@@ -513,6 +505,11 @@ impl MirBuilder {
                 from_block: finally_block_id,
                 to_block: after_block,
                 reason: CleanupReason::Return,
+            });
+            edges.push(CleanupEdge {
+                from_block: finally_block_id,
+                to_block: after_block,
+                reason: CleanupReason::Throw,
             });
         }
         self.cleanup_regions.push(CleanupRegion {
