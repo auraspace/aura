@@ -1,0 +1,21 @@
+class Counter {
+    val: i32;
+    function constructor(): void { this.val = 0; }
+    function inc(): i32 {
+        this.val = this.val + 1;
+        return this.val;
+    }
+}
+
+class Holder {
+    c: Counter;
+    function constructor(): void { this.c = new Counter(); }
+    function get_counter(): Counter { return this.c; }
+}
+
+function main(): void {
+    let h = new Holder();
+    // Path includes side-effects: h.get_counter().val
+    // This should evaluate h.get_counter() once, then access .val
+    h.get_counter().val = 100;
+}

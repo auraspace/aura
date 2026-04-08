@@ -457,7 +457,7 @@ impl MirBuilder {
                     .rfind(|(_, l)| l.name.as_deref() == Some(name))
                     .map(|(i, _)| i)
                     .unwrap_or_else(|| {
-                        // Fallback/Error case
+                        // Fallback/Error case (e.g. for globals handled by typeck)
                         0
                     });
                 Lvalue::Local(local_id)
@@ -474,8 +474,25 @@ impl MirBuilder {
                 }
             }
             _ => {
-                // This shouldn't happen for valid source, but for robustness:
-                Lvalue::Local(0)
+                // For complex expressions (like calls), evaluate into a temporary then use as Lvalue
+                let op = self.lower_expr_to_operand(lowerer, expr);
+                match op {
+                    Operand::Copy(lval) | Operand::Move(lval) => lval,
+                    Operand::Constant(_) => {
+                        // Constants shouldn't really be used as Lvalue bases directy in source
+                        // but if they are (like "literal".field), evaluation into a temp is needed.
+                        let span = self.span_of_expr(expr);
+                        let ty = lowerer
+                            .typed_program
+                            .expression_types
+                            .get(&span)
+                            .cloned()
+                            .unwrap_or(Ty::Unknown);
+                        let temp = self.declare_local(ty, None, span, LocalKind::Temp);
+                        self.push_stmt(Statement::Assign(Lvalue::Local(temp), Rvalue::Use(op)));
+                        Lvalue::Local(temp)
+                    }
+                }
             }
         }
     }
