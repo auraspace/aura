@@ -88,7 +88,10 @@ fn main() {
                             let mut spans: Vec<_> = typed.expression_types.keys().collect();
                             spans.sort_by_key(|s| s.start);
                             for span in spans {
-                                let snippet = out.source.get(span.start.raw() as usize..span.end.raw() as usize).unwrap_or("???");
+                                let snippet = out
+                                    .source
+                                    .get(span.start.raw() as usize..span.end.raw() as usize)
+                                    .unwrap_or("???");
                                 let ty = typed.expression_types.get(span).unwrap();
                                 println!("  {:?} -> {}", snippet, ty.name());
                             }
