@@ -18,6 +18,7 @@ pub struct MirProgram {
 pub struct MirClass {
     pub name: String,
     pub fields: HashMap<String, Ty>,
+    pub field_order: Vec<String>,
     pub methods: HashMap<String, MirFunction>,
 }
 

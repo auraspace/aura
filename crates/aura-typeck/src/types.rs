@@ -70,6 +70,7 @@ pub struct TypedProgram {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ClassInfo {
     pub fields: HashMap<String, Ty>,
+    pub field_order: Vec<String>,
     pub methods: HashMap<String, MethodSig>,
     pub implements: HashSet<String>,
 }

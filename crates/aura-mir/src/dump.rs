@@ -9,8 +9,10 @@ pub fn dump_mir(mir: &MirProgram) -> String {
     }
     for class in mir.classes.values() {
         let _ = writeln!(out, "class {} {{", class.name);
-        for (name, ty) in &class.fields {
-            let _ = writeln!(out, "  {}: {};", name, ty.name());
+        for name in &class.field_order {
+            if let Some(ty) = class.fields.get(name) {
+                let _ = writeln!(out, "  {}: {};", name, ty.name());
+            }
         }
         for method in class.methods.values() {
             let _ = dump_function(&mut out, method);

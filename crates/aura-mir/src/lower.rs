@@ -49,10 +49,12 @@ impl<'a> Lowerer<'a> {
                 TopLevel::Class(class_decl) => {
                     let name = self.ident_text(&class_decl.name).to_string();
                     let mut fields = HashMap::new();
+                    let mut field_order = Vec::new();
                     let mut methods = HashMap::new();
 
                     if let Some(cinfo) = self.typed_program.classes.get(&name) {
                         fields = cinfo.fields.clone();
+                        field_order = cinfo.field_order.clone();
 
                         for method in &class_decl.methods {
                             let mname = self.ident_text(&method.name).to_string();
@@ -78,6 +80,7 @@ impl<'a> Lowerer<'a> {
                         MirClass {
                             name,
                             fields,
+                            field_order,
                             methods,
                         },
                     );

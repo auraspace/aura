@@ -8,7 +8,7 @@ Incrementally implement OOP features aligned with `docs/ARCHITECTURE.md`.
 
 ## TODO
 
-- [ ] Heap allocate class instances + field access
+- [x] Heap allocate class instances + field access (done 2026-04-08)
 - [ ] Direct method calls (known receiver concrete type)
 - [ ] Inheritance + vtables + dynamic dispatch
 - [ ] Interfaces + `implements` + interface dispatch strategy
@@ -18,4 +18,3 @@ Incrementally implement OOP features aligned with `docs/ARCHITECTURE.md`.
 
 - [ ] Program with `extends` calls overridden method correctly
 - [ ] Interface-typed receiver dispatch works for at least one interface method
-

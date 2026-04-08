@@ -83,6 +83,7 @@ pub fn typeck_program(source: &str, program: &Program) -> (Vec<Diagnostic>, Type
             continue;
         };
         let mut fields = HashMap::<String, Ty>::new();
+        let mut field_order = Vec::<String>::new();
         for field in &class_decl.fields {
             let Some(field_name) = ident_text(source, &field.name) else {
                 continue;
@@ -94,7 +95,10 @@ pub fn typeck_program(source: &str, program: &Program) -> (Vec<Diagnostic>, Type
                 &type_defs,
                 &mut diags,
             );
-            fields.entry(field_name.to_string()).or_insert(ty);
+            let field_name = field_name.to_string();
+            if fields.insert(field_name.clone(), ty).is_none() {
+                field_order.push(field_name);
+            }
         }
         let mut methods = HashMap::<String, TypeMethodSig>::new();
         for method in &class_decl.methods {
@@ -154,6 +158,7 @@ pub fn typeck_program(source: &str, program: &Program) -> (Vec<Diagnostic>, Type
         }
         classes.entry(name.to_string()).or_insert(ClassInfo {
             fields,
+            field_order,
             methods,
             implements,
         });
