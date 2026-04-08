@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: fmt / clippy / test
+    runs-on: ubuntu-latest
+    env:
+      LLVM_SYS_150_PREFIX: /usr/lib/llvm-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Install LLVM 15
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y llvm-15 clang-15 libclang-15-dev libpolly-15-dev
+          echo "/usr/lib/llvm-15/bin" >> "$GITHUB_PATH"
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Format check
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -A warnings
+
+      - name: Test
+        run: cargo test --workspace --locked
+
+  macos-build:
+    name: build aurac on macOS
+    runs-on: macos-14
+    env:
+      LLVM_SYS_150_PREFIX: /opt/homebrew/opt/llvm@15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install LLVM 15
+        run: |
+          brew update
+          brew install llvm@15
+          echo "/opt/homebrew/opt/llvm@15/bin" >> "$GITHUB_PATH"
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build aurac
+        run: cargo build -p aurac --locked
