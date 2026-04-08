@@ -10,7 +10,7 @@ Implement `throw`, `try/catch/finally` using runtime-managed unwinding (MVP plan
 
 - [x] Lower `try/catch/finally` into MIR regions with explicit cleanup edges (done 2026-04-08)
 - [x] Runtime: handler frames + current exception storage (done 2026-04-08)
-- [ ] Jump to catch entry using `setjmp/longjmp` approach (initial)
+- [x] Jump to catch entry using `setjmp/longjmp` approach (initial) (done 2026-04-08)
 - [ ] Ensure `finally` runs on:
   - [ ] normal fallthrough
   - [ ] `return`

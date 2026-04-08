@@ -1,6 +1,7 @@
 use std::alloc::{alloc, Layout};
 use std::cell::Cell;
 use std::ffi::c_void;
+use std::os::raw::c_int;
 use std::ptr;
 
 #[derive(Debug)]
@@ -12,10 +13,17 @@ pub struct AuraObject {
 
 #[derive(Debug)]
 #[repr(C)]
+pub struct AuraJmpBuf {
+    pub storage: [u32; 48],
+}
+
+#[derive(Debug)]
+#[repr(C)]
 pub struct AuraHandlerFrame {
     pub prev: *mut AuraHandlerFrame,
     pub catch_entry: *mut c_void,
     pub cleanup_stack: *mut c_void,
+    pub jump_buf: AuraJmpBuf,
 }
 
 #[derive(Debug)]
@@ -49,6 +57,11 @@ fn set_current_exception(exception: *mut AuraObject) {
 
 fn clear_current_exception() {
     set_current_exception(ptr::null_mut());
+}
+
+extern "C" {
+    fn aura_runtime_try_throw(frame: *mut AuraHandlerFrame, exception: *mut AuraObject) -> c_int;
+    fn aura_runtime_longjmp(env: *mut c_void, value: c_int) -> !;
 }
 
 #[no_mangle]
@@ -109,9 +122,22 @@ pub unsafe extern "C" fn aura_current_exception() -> *mut AuraObject {
     current_exception()
 }
 
+#[no_mangle]
+pub unsafe extern "C" fn aura_throw(exception: *mut AuraObject) -> ! {
+    set_current_exception(exception);
+
+    let frame = current_handler_frame();
+    if frame.is_null() {
+        aura_panic(b"uncaught exception\0".as_ptr(), 18);
+    }
+
+    aura_runtime_longjmp((&mut (*frame).jump_buf) as *mut AuraJmpBuf as *mut c_void, 1)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::mem::MaybeUninit;
 
     #[test]
     fn try_begin_and_end_manage_nested_frames() {
@@ -119,11 +145,13 @@ mod tests {
             prev: ptr::null_mut(),
             catch_entry: ptr::null_mut(),
             cleanup_stack: ptr::null_mut(),
+            jump_buf: AuraJmpBuf { storage: [0; 48] },
         };
         let mut inner = AuraHandlerFrame {
             prev: ptr::null_mut(),
             catch_entry: ptr::null_mut(),
             cleanup_stack: ptr::null_mut(),
+            jump_buf: AuraJmpBuf { storage: [0; 48] },
         };
         let outer_ptr: *mut AuraHandlerFrame = &mut outer;
         let inner_ptr: *mut AuraHandlerFrame = &mut inner;
@@ -160,6 +188,22 @@ mod tests {
 
         clear_current_exception();
         assert_eq!(unsafe { aura_current_exception() }, ptr::null_mut());
+    }
+
+    #[test]
+    fn throw_jumps_back_to_active_handler() {
+        let mut frame = MaybeUninit::<AuraHandlerFrame>::zeroed();
+        let mut object = AuraObject {
+            vtable: ptr::null_mut(),
+            ref_count: 1,
+        };
+        let object_ptr: *mut AuraObject = &mut object;
+
+        unsafe {
+            let jump = aura_runtime_try_throw(frame.as_mut_ptr(), object_ptr);
+            assert_eq!(jump, 1);
+            assert_eq!(aura_current_exception(), object_ptr);
+        }
     }
 }
 

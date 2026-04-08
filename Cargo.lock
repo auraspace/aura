@@ -112,6 +112,9 @@ dependencies = [
 [[package]]
 name = "aura-rt"
 version = "0.1.0"
+dependencies = [
+ "cc",
+]
 
 [[package]]
 name = "aura-span"

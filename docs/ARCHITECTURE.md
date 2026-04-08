@@ -245,7 +245,7 @@ Per-thread, maintain:
 Each handler frame contains:
 
 - link to previous frame
-- jump target for the `catch` entry (implementation detail)
+- saved `setjmp` state for the `catch` entry
 - cleanup stack pointer for `finally` and compiler-inserted cleanups
 
 ### Compiler Lowering Strategy
@@ -266,12 +266,7 @@ Generated code interacts with the runtime via a small C ABI:
 - `aura_throw(ex_ptr) -> !`
 - `aura_current_exception() -> *mut AuraObject` (optional convenience)
 
-The exact mechanism to jump to a catch entry can start as:
-
-- a runtime-managed `setjmp`/`longjmp` pair stored in the handler frame, or
-- compiler-generated state machine with a single "dispatch" block per function (more work, but portable)
-
-The setjmp/longjmp approach is often fastest to ship on the initial target.
+The active `setjmp` site lives in the generated try dispatch or helper layer; `aura_throw` longjmps to the current handler frame, and `aura_try_begin`/`aura_try_end` maintain the per-thread handler list.
 
 ### Interop Rules (MVP)
 

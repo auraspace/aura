@@ -2,6 +2,7 @@
 name = "aura-rt"
 version = "0.1.0"
 edition = "2021"
+build = "build.rs"
 
 [lib]
 name = "aura_rt"
@@ -9,3 +10,6 @@ crate-type = ["staticlib", "rlib"]
 
 [dependencies]
 # Minimal runtime, no external dependencies for now.
+
+[build-dependencies]
+cc = "1"

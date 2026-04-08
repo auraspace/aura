@@ -16,10 +16,15 @@ typedef struct {
     uintptr_t ref_count;
 } AuraObject;
 
+typedef struct {
+    uint32_t storage[48];
+} AuraJmpBuf;
+
 typedef struct AuraHandlerFrame {
     struct AuraHandlerFrame* prev;
     void* catch_entry;
     void* cleanup_stack;
+    AuraJmpBuf jump_buf;
 } AuraHandlerFrame;
 
 /* 
@@ -42,6 +47,7 @@ void* aura_alloc(size_t size, size_t align);
 void aura_try_begin(AuraHandlerFrame* frame);
 void aura_try_end(AuraHandlerFrame* frame);
 AuraObject* aura_current_exception(void);
+void aura_throw(AuraObject* exception) __attribute__((noreturn));
 
 /* 
  * Reference Counting (ARC) 
