@@ -10,6 +10,7 @@ members = [
   "crates/aura-typeck",
   "crates/aura-mir",
   "crates/aurac",
+  "runtime/aura-rt",
 ]
 
 [workspace.package]

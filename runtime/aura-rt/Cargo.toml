@@ -1,0 +1,11 @@
+[package]
+name = "aura-rt"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "aura_rt"
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+# Minimal runtime, no external dependencies for now.
