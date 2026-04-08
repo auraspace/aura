@@ -1,3 +1,4 @@
+use aura_codegen::Backend;
 use std::env;
 
 const HELP: &str = r#"aurac - Aura compiler
@@ -15,6 +16,9 @@ DEBUG OPTIONS:
   --print=types   Print inferred types for all expressions
   --emit=hir      Print the annotated HIR (AST with types)
   --emit=mir      Print the generated Mid-level IR (MIR)
+  --emit=llvm     Emit LLVM IR (.ll)
+  --emit=asm      Emit assembly (.s)
+  --emit=obj      Emit object file (.o)
 "#;
 
 fn main() {
@@ -29,6 +33,9 @@ fn main() {
     let mut print_types = false;
     let mut emit_hir = false;
     let mut emit_mir = false;
+    let mut emit_llvm = false;
+    let mut emit_asm = false;
+    let mut emit_obj = false;
 
     for arg in &args {
         match arg.as_str() {
@@ -43,6 +50,9 @@ fn main() {
             "--print=types" => print_types = true,
             "--emit=hir" => emit_hir = true,
             "--emit=mir" => emit_mir = true,
+            "--emit=llvm" => emit_llvm = true,
+            "--emit=asm" => emit_asm = true,
+            "--emit=obj" => emit_obj = true,
             cmd if command.is_none() && (cmd == "build" || cmd == "check" || cmd == "run") => {
                 command = Some(cmd.to_string());
             }
@@ -122,7 +132,74 @@ fn main() {
             }
         }
         "build" | "run" => {
-            println!("{command}: not implemented yet");
+            let Some(path) = file_path else {
+                eprintln!("error: missing <FILE>\n");
+                eprintln!("USAGE:\n  aurac {} <FILE>\n", command);
+                std::process::exit(2);
+            };
+
+            match aura_driver::check_file(&path) {
+                Ok(out) => {
+                    if !out.diagnostics.is_empty() {
+                        eprintln!(
+                            "{}",
+                            aura_diagnostics::format_all(&out.source, &out.diagnostics)
+                        );
+                        std::process::exit(1);
+                    }
+
+                    let mir = out.mir.as_ref().expect("MIR should exist if no errors");
+
+                    let context = inkwell::context::Context::create();
+                    let target = aura_codegen::Target::host();
+                    let backend =
+                        aura_codegen_llvm::LlvmBackend::new(&context, "aura_module", &target)
+                            .expect("Failed to create LLVM backend");
+
+                    let _out_path = std::path::Path::new("main.o");
+                    let build_dir = std::path::Path::new(".");
+
+                    if emit_llvm {
+                        backend
+                            .emit_llvm(mir, std::path::Path::new("main.ll"))
+                            .expect("Failed to emit LLVM");
+                    }
+                    if emit_asm {
+                        backend
+                            .emit_asm(mir, std::path::Path::new("main.s"))
+                            .expect("Failed to emit ASM");
+                    }
+
+                    let obj_path = backend
+                        .compile(mir, build_dir)
+                        .expect("Failed to compile to object");
+                    if emit_obj {
+                        // obj is already at obj_path (main.o)
+                    }
+
+                    let linker = aura_link::Linker::new(target.triple);
+                    let exe_path = "a.out";
+                    // For MVP, look for the runtime in the target directory
+                    let runtime_path = "target/debug/libaura_rt.a";
+
+                    linker
+                        .link(&[&obj_path], runtime_path, exe_path)
+                        .expect("Failed to link");
+
+                    if command == "run" {
+                        let status = std::process::Command::new("./a.out")
+                            .status()
+                            .expect("Failed to run executable");
+                        std::process::exit(status.code().unwrap_or(0));
+                    } else {
+                        println!("Build successful: {}", exe_path);
+                    }
+                }
+                Err(err) => {
+                    eprintln!("error: {err}");
+                    std::process::exit(2);
+                }
+            }
         }
         _ => unreachable!(),
     }

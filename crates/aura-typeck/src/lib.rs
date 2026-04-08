@@ -223,6 +223,22 @@ pub fn typeck_program(source: &str, program: &Program) -> (Vec<Diagnostic>, Type
 
     let mut globals = HashMap::<String, VarInfo>::new();
     let mut top_level_functions = HashMap::<String, MethodSig>::new();
+
+    // Register built-in functions
+    let println_sig = MethodSig {
+        params: vec![Ty::String],
+        return_ty: Ty::Void,
+    };
+    globals.insert(
+        "println".to_string(),
+        VarInfo {
+            ty: Ty::Function(Box::new(println_sig.clone())),
+            mutable: false,
+            decl_span: aura_span::Span::empty(aura_span::BytePos::new(0)),
+        },
+    );
+    top_level_functions.insert("println".to_string(), println_sig);
+
     for item in &program.items {
         match item {
             TopLevel::Stmt(Stmt::Let(s) | Stmt::Const(s)) => {

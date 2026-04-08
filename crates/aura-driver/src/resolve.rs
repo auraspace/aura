@@ -303,7 +303,7 @@ fn resolve_expr(
             let Some(name) = ident_text(&module.source, ident) else {
                 return;
             };
-            if is_in_scopes(scopes, &name) || module_names.contains(&name) {
+            if is_in_scopes(scopes, &name) || module_names.contains(&name) || name == "println" {
                 return;
             }
             diags.push(Diagnostic::error(

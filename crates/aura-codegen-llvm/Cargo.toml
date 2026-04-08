@@ -1,0 +1,13 @@
+[package]
+name = "aura-codegen-llvm"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+aura-mir = { path = "../aura-mir" }
+aura-codegen = { path = "../aura-codegen" }
+aura-typeck = { path = "../aura-typeck" }
+aura-ast = { path = "../aura-ast" }
+inkwell = { version = "0.5", features = ["llvm15-0"] }
+anyhow = "1.0"
+libc = "0.2"

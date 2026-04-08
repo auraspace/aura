@@ -30,3 +30,9 @@ Thumbs.db
 # Caches
 **/.cache/
 .rustc_info.json
+
+# Aura Compiler Artifacts
+*.ll
+*.o
+*.s
+a.out

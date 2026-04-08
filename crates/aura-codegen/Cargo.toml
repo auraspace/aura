@@ -1,0 +1,11 @@
+[package]
+name = "aura-codegen"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+aura-mir = { path = "../aura-mir" }
+aura-typeck = { path = "../aura-typeck" }
+anyhow = "1.0"
+# For representing the target triple
+target-lexicon = "0.12"
