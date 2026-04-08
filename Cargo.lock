@@ -22,6 +22,7 @@ version = "0.1.0"
 dependencies = [
  "aura-ast",
  "aura-diagnostics",
+ "aura-mir",
  "aura-parser",
  "aura-span",
  "aura-typeck",
@@ -32,6 +33,15 @@ name = "aura-lexer"
 version = "0.1.0"
 dependencies = [
  "aura-span",
+]
+
+[[package]]
+name = "aura-mir"
+version = "0.1.0"
+dependencies = [
+ "aura-ast",
+ "aura-span",
+ "aura-typeck",
 ]
 
 [[package]]
@@ -64,4 +74,5 @@ version = "0.1.0"
 dependencies = [
  "aura-diagnostics",
  "aura-driver",
+ "aura-mir",
 ]

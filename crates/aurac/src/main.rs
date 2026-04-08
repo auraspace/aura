@@ -11,13 +11,10 @@ COMMANDS:
   run     Build then run the executable
   help    Print this message
 
-OPTIONS:
-  -h, --help      Print help
-  -V, --version   Print version
-
 DEBUG OPTIONS:
   --print=types   Print inferred types for all expressions
   --emit=hir      Print the annotated HIR (AST with types)
+  --emit=mir      Print the generated Mid-level IR (MIR)
 "#;
 
 fn main() {
@@ -31,6 +28,7 @@ fn main() {
     let mut file_path = None;
     let mut print_types = false;
     let mut emit_hir = false;
+    let mut emit_mir = false;
 
     for arg in &args {
         match arg.as_str() {
@@ -44,6 +42,7 @@ fn main() {
             }
             "--print=types" => print_types = true,
             "--emit=hir" => emit_hir = true,
+            "--emit=mir" => emit_mir = true,
             cmd if command.is_none() && (cmd == "build" || cmd == "check" || cmd == "run") => {
                 command = Some(cmd.to_string());
             }
@@ -105,7 +104,14 @@ fn main() {
                         }
                     }
 
-                    if !print_types && !emit_hir {
+                    if emit_mir {
+                        if let Some(ref mir) = out.mir {
+                            println!("--- Mid-level IR (MIR) ---");
+                            println!("{}", aura_mir::dump_mir(mir));
+                        }
+                    }
+
+                    if !print_types && !emit_hir && !emit_mir {
                         println!("ok");
                     }
                 }

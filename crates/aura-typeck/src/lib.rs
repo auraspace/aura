@@ -222,6 +222,7 @@ pub fn typeck_program(source: &str, program: &Program) -> (Vec<Diagnostic>, Type
     }
 
     let mut globals = HashMap::<String, VarInfo>::new();
+    let mut top_level_functions = HashMap::<String, MethodSig>::new();
     for item in &program.items {
         match item {
             TopLevel::Stmt(Stmt::Let(s) | Stmt::Const(s)) => {
@@ -256,14 +257,16 @@ pub fn typeck_program(source: &str, program: &Program) -> (Vec<Diagnostic>, Type
                         ty_from_type_ref(source, t, TypePosition::Return, &type_defs, &mut diags)
                     })
                     .unwrap_or(Ty::Void);
+                let sig = TypeMethodSig { params, return_ty };
                 globals.insert(
                     name.to_string(),
                     VarInfo {
-                        ty: Ty::Function(Box::new(TypeMethodSig { params, return_ty })),
+                        ty: Ty::Function(Box::new(sig.clone())),
                         mutable: false,
                         decl_span: func.name.span,
                     },
                 );
+                top_level_functions.insert(name.to_string(), sig);
             }
             _ => {}
         }
@@ -309,6 +312,9 @@ pub fn typeck_program(source: &str, program: &Program) -> (Vec<Diagnostic>, Type
                 &type_defs,
                 &mut diags,
             );
+            expression_types.insert(param.span, ty.clone());
+            expression_types.insert(param.name.span, ty.clone());
+
             env.declare(
                 name.to_string(),
                 VarInfo {
@@ -368,6 +374,9 @@ pub fn typeck_program(source: &str, program: &Program) -> (Vec<Diagnostic>, Type
                     &type_defs,
                     &mut diags,
                 );
+                expression_types.insert(param.span, ty.clone());
+                expression_types.insert(param.name.span, ty.clone());
+
                 env.declare(
                     name.to_string(),
                     VarInfo {
@@ -376,6 +385,10 @@ pub fn typeck_program(source: &str, program: &Program) -> (Vec<Diagnostic>, Type
                         decl_span: param.name.span,
                     },
                 );
+            }
+
+            if let Some(cname) = class_name {
+                expression_types.insert(method.span, Ty::Class(cname.to_string()));
             }
 
             let mut expected_return = method
@@ -441,6 +454,7 @@ pub fn typeck_program(source: &str, program: &Program) -> (Vec<Diagnostic>, Type
         TypedProgram {
             classes,
             interfaces,
+            functions: top_level_functions,
             expression_types,
         },
     )

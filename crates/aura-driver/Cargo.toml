@@ -9,3 +9,5 @@ aura-diagnostics = { path = "../aura-diagnostics" }
 aura-parser = { path = "../aura-parser" }
 aura-span = { path = "../aura-span" }
 aura-typeck = { path = "../aura-typeck" }
+aura-mir = { path = "../aura-mir" }
+

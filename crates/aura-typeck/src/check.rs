@@ -883,7 +883,7 @@ fn typeck_let_like(
         );
     }
 
-    if expected_ty != Ty::Unknown {
+    let final_ty = if expected_ty != Ty::Unknown {
         if value_ty != Ty::Unknown && !is_assignable(&value_ty, &expected_ty, classes) {
             diags.push(Diagnostic::error(
                 s.init.as_ref().map(span_of_expr).unwrap_or(s.span),
@@ -894,16 +894,22 @@ fn typeck_let_like(
                 ),
             ));
         }
-        env.define(name.to_string(), expected_ty, mutable);
+        expected_ty
     } else {
-        if value_ty == Ty::Unknown {
+        if value_ty == Ty::Unknown && s.init.is_some() {
+            // Already reported or unknown due to errors
+        } else if value_ty == Ty::Unknown {
             diags.push(Diagnostic::error(
                 s.span,
                 format!("binding `{name}` needs a type annotation or an initializer"),
             ));
         }
-        env.define(name.to_string(), value_ty, mutable);
-    }
+        value_ty
+    };
+
+    expr_types.insert(s.span, final_ty.clone());
+    expr_types.insert(s.name.span, final_ty.clone());
+    env.define(name.to_string(), final_ty, mutable);
 }
 
 fn assignment_target(source: &str, expr: &Expr) -> Option<(String, Span)> {

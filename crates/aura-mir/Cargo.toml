@@ -1,0 +1,9 @@
+[package]
+name = "aura-mir"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+aura-span = { path = "../aura-span" }
+aura-ast = { path = "../aura-ast" }
+aura-typeck = { path = "../aura-typeck" }

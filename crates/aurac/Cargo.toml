@@ -6,3 +6,5 @@ edition.workspace = true
 [dependencies]
 aura-diagnostics = { path = "../aura-diagnostics" }
 aura-driver = { path = "../aura-driver" }
+aura-mir = { path = "../aura-mir" }
+

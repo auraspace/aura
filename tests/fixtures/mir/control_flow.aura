@@ -1,0 +1,16 @@
+function test_control_flow(x: i32): i32 {
+    let y = 0;
+    if (x > 0) {
+        y = 10;
+    } else {
+        y = 20;
+    }
+    
+    let i = 0;
+    while (i < 5) {
+        y = y + i;
+        i = i + 1;
+    }
+    
+    return y;
+}

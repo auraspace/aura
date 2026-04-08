@@ -63,25 +63,26 @@ pub(crate) enum TyDefKind {
 pub struct TypedProgram {
     pub classes: HashMap<String, ClassInfo>,
     pub interfaces: HashMap<String, InterfaceInfo>,
+    pub functions: HashMap<String, MethodSig>,
     pub expression_types: HashMap<Span, Ty>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ClassInfo {
-    pub(crate) fields: HashMap<String, Ty>,
-    pub(crate) methods: HashMap<String, MethodSig>,
-    pub(crate) implements: HashSet<String>,
+    pub fields: HashMap<String, Ty>,
+    pub methods: HashMap<String, MethodSig>,
+    pub implements: HashSet<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct InterfaceInfo {
-    pub(crate) methods: HashMap<String, MethodSig>,
+    pub methods: HashMap<String, MethodSig>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MethodSig {
-    pub(crate) params: Vec<Ty>,
-    pub(crate) return_ty: Ty,
+    pub params: Vec<Ty>,
+    pub return_ty: Ty,
 }
 
 pub(crate) fn is_numeric(ty: &Ty) -> bool {
