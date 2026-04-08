@@ -107,10 +107,12 @@ pub enum Stmt {
     Let(LetStmt),
     Const(LetStmt),
     Return(ReturnStmt),
+    Throw(ThrowStmt),
     Expr(ExprStmt),
     Block(Block),
     If(IfStmt),
     While(WhileStmt),
+    Try(TryStmt),
     Empty(Span),
 }
 
@@ -125,6 +127,12 @@ pub struct LetStmt {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ReturnStmt {
     pub value: Option<Expr>,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ThrowStmt {
+    pub value: Expr,
     pub span: Span,
 }
 
@@ -146,6 +154,22 @@ pub struct IfStmt {
 pub struct WhileStmt {
     pub cond: Expr,
     pub body: Block,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CatchClause {
+    pub binding: Ident,
+    pub ty: Option<TypeRef>,
+    pub block: Block,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TryStmt {
+    pub try_block: Block,
+    pub catch: Option<CatchClause>,
+    pub finally_block: Option<Block>,
     pub span: Span,
 }
 

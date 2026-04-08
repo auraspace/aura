@@ -993,4 +993,24 @@ let l = new Logger();
             .iter()
             .any(|d| d.message.contains("cannot instantiate interface")));
     }
+
+    #[test]
+    fn accepts_try_catch_finally_with_throw() {
+        let src = r#"
+function f(): void {
+    try {
+        throw 1;
+    } catch (e) {
+        return;
+    } finally {
+        let done = 1;
+    }
+}
+"#;
+        let out = aura_parser::parse_program(src);
+        assert!(out.errors.is_empty(), "{:#?}", out.errors);
+
+        let (diags, _) = typeck_program(src, &out.value);
+        assert!(diags.is_empty(), "{diags:#?}");
+    }
 }

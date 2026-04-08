@@ -7,3 +7,6 @@ edition = "2021"
 aura-span = { path = "../aura-span" }
 aura-ast = { path = "../aura-ast" }
 aura-typeck = { path = "../aura-typeck" }
+
+[dev-dependencies]
+aura-parser = { path = "../aura-parser" }

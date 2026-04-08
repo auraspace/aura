@@ -140,6 +140,20 @@ pub(crate) fn typeck_stmt(
                 }
             }
         },
+        Stmt::Throw(s) => {
+            let _ = typeck_expr(
+                source,
+                env,
+                &s.value,
+                type_defs,
+                classes,
+                interfaces,
+                this_class,
+                allow_this_assignment,
+                expr_types,
+                diags,
+            );
+        }
         Stmt::Expr(s) => {
             let _ = typeck_expr(
                 source,
@@ -247,6 +261,71 @@ pub(crate) fn typeck_stmt(
                 expr_types,
                 diags,
             );
+        }
+        Stmt::Try(s) => {
+            typeck_block(
+                source,
+                env,
+                expected_return,
+                type_defs,
+                classes,
+                interfaces,
+                this_class,
+                allow_this_assignment,
+                &s.try_block,
+                expr_types,
+                diags,
+            );
+
+            if let Some(catch) = &s.catch {
+                env.push_scope();
+                let catch_ty = catch
+                    .ty
+                    .as_ref()
+                    .map(|ty| ty_from_type_ref(source, ty, TypePosition::Value, type_defs, diags))
+                    .unwrap_or(Ty::Unknown);
+                if let Some(name) = ident_text(source, &catch.binding) {
+                    env.declare(
+                        name.to_string(),
+                        crate::VarInfo {
+                            ty: catch_ty.clone(),
+                            mutable: false,
+                            decl_span: catch.binding.span,
+                        },
+                    );
+                }
+                expr_types.insert(catch.binding.span, catch_ty);
+                typeck_block(
+                    source,
+                    env,
+                    expected_return,
+                    type_defs,
+                    classes,
+                    interfaces,
+                    this_class,
+                    allow_this_assignment,
+                    &catch.block,
+                    expr_types,
+                    diags,
+                );
+                env.pop_scope();
+            }
+
+            if let Some(finally_block) = &s.finally_block {
+                typeck_block(
+                    source,
+                    env,
+                    expected_return,
+                    type_defs,
+                    classes,
+                    interfaces,
+                    this_class,
+                    allow_this_assignment,
+                    finally_block,
+                    expr_types,
+                    diags,
+                );
+            }
         }
         Stmt::Empty(_) => {}
     }
@@ -958,6 +1037,29 @@ fn stmt_guarantees_return(stmt: &Stmt) -> bool {
                 .map(|b| block_guarantees_return(&b.stmts))
                 .unwrap_or(false);
             then_ret && else_ret
+        }
+        Stmt::Try(s) => {
+            if let Some(finally_block) = &s.finally_block {
+                if block_guarantees_return(&finally_block.stmts) {
+                    true
+                } else {
+                    let try_ret = block_guarantees_return(&s.try_block.stmts);
+                    let catch_ret = s
+                        .catch
+                        .as_ref()
+                        .map(|catch| block_guarantees_return(&catch.block.stmts))
+                        .unwrap_or(false);
+                    try_ret && catch_ret
+                }
+            } else {
+                let try_ret = block_guarantees_return(&s.try_block.stmts);
+                let catch_ret = s
+                    .catch
+                    .as_ref()
+                    .map(|catch| block_guarantees_return(&catch.block.stmts))
+                    .unwrap_or(false);
+                try_ret && catch_ret
+            }
         }
         _ => false,
     }

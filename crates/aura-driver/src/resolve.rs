@@ -115,6 +115,7 @@ fn collect_member_accesses_in_stmt(module: &Module, stmt: &Stmt, out: &mut Vec<M
                 collect_member_accesses_in_expr(module, value, out);
             }
         }
+        Stmt::Throw(s) => collect_member_accesses_in_expr(module, &s.value, out),
         Stmt::Expr(s) => collect_member_accesses_in_expr(module, &s.expr, out),
         Stmt::Block(b) => {
             for stmt in &b.stmts {
@@ -136,6 +137,21 @@ fn collect_member_accesses_in_stmt(module: &Module, stmt: &Stmt, out: &mut Vec<M
             collect_member_accesses_in_expr(module, &s.cond, out);
             for stmt in &s.body.stmts {
                 collect_member_accesses_in_stmt(module, stmt, out);
+            }
+        }
+        Stmt::Try(s) => {
+            for stmt in &s.try_block.stmts {
+                collect_member_accesses_in_stmt(module, stmt, out);
+            }
+            if let Some(catch) = &s.catch {
+                for stmt in &catch.block.stmts {
+                    collect_member_accesses_in_stmt(module, stmt, out);
+                }
+            }
+            if let Some(finally_block) = &s.finally_block {
+                for stmt in &finally_block.stmts {
+                    collect_member_accesses_in_stmt(module, stmt, out);
+                }
             }
         }
         Stmt::Empty(_) => {}
@@ -242,6 +258,9 @@ fn resolve_stmt(
                 resolve_expr(module, value, scopes, module_names, this_allowed, diags);
             }
         }
+        Stmt::Throw(s) => {
+            resolve_expr(module, &s.value, scopes, module_names, this_allowed, diags);
+        }
         Stmt::Expr(s) => resolve_expr(module, &s.expr, scopes, module_names, this_allowed, diags),
         Stmt::Block(b) => {
             resolve_block_like(module, &b.stmts, scopes, module_names, this_allowed, diags)
@@ -277,6 +296,41 @@ fn resolve_stmt(
                 this_allowed,
                 diags,
             );
+        }
+        Stmt::Try(s) => {
+            resolve_block_like(
+                module,
+                &s.try_block.stmts,
+                scopes,
+                module_names,
+                this_allowed,
+                diags,
+            );
+            if let Some(catch) = &s.catch {
+                scopes.push(HashSet::new());
+                if let Some(name) = ident_text(&module.source, &catch.binding) {
+                    declare_local(scopes, name, catch.binding.span, diags);
+                }
+                resolve_block_like(
+                    module,
+                    &catch.block.stmts,
+                    scopes,
+                    module_names,
+                    this_allowed,
+                    diags,
+                );
+                scopes.pop();
+            }
+            if let Some(finally_block) = &s.finally_block {
+                resolve_block_like(
+                    module,
+                    &finally_block.stmts,
+                    scopes,
+                    module_names,
+                    this_allowed,
+                    diags,
+                );
+            }
         }
         Stmt::Empty(_) => {}
     }
@@ -395,6 +449,13 @@ fn check_module_duplicates(module: &Module) -> Vec<Diagnostic> {
                 Stmt::Let(s) | Stmt::Const(s) => {
                     if let Some(text) = ident_text(&module.source, &s.name) {
                         check_dup(&mut seen, &mut diags, text, s.name.span);
+                    }
+                }
+                Stmt::Try(s) => {
+                    if let Some(catch) = &s.catch {
+                        if let Some(text) = ident_text(&module.source, &catch.binding) {
+                            check_dup(&mut seen, &mut diags, text, catch.binding.span);
+                        }
                     }
                 }
                 _ => {}

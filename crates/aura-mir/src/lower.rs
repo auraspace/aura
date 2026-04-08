@@ -201,8 +201,18 @@ struct MirBuilder {
     name: String,
     locals: Vec<LocalDecl>,
     blocks: Vec<BasicBlock>,
+    cleanup_regions: Vec<CleanupRegion>,
+    cleanup_stack: Vec<CleanupContext>,
     current_block: usize,
     this_local_id: Option<usize>,
+}
+
+#[derive(Clone)]
+struct CleanupContext {
+    catch_block: Option<usize>,
+    finally_block: Option<usize>,
+    exit_mode_local: Option<usize>,
+    exception_local: Option<usize>,
 }
 
 impl MirBuilder {
@@ -211,6 +221,8 @@ impl MirBuilder {
             name,
             locals: Vec::new(),
             blocks: Vec::new(),
+            cleanup_regions: Vec::new(),
+            cleanup_stack: Vec::new(),
             current_block: 0,
             this_local_id: None,
         };
@@ -245,6 +257,106 @@ impl MirBuilder {
         id
     }
 
+    fn push_cleanup_context(
+        &mut self,
+        catch_block: Option<usize>,
+        finally_block: Option<usize>,
+        exit_mode_local: Option<usize>,
+        exception_local: Option<usize>,
+    ) {
+        self.cleanup_stack.push(CleanupContext {
+            catch_block,
+            finally_block,
+            exit_mode_local,
+            exception_local,
+        });
+    }
+
+    fn pop_cleanup_context(&mut self) {
+        let _ = self.cleanup_stack.pop();
+    }
+
+    fn cleanup_context_for_return(&self) -> Option<&CleanupContext> {
+        self.cleanup_stack
+            .iter()
+            .rev()
+            .find(|ctx| ctx.finally_block.is_some())
+    }
+
+    fn emit_return(&mut self, value: Option<Operand>) {
+        if let Some(ctx) = self.cleanup_context_for_return().cloned() {
+            if let Some(val) = value {
+                self.push_stmt(Statement::Assign(
+                    Lvalue::Local(0),
+                    Rvalue::Use(val),
+                ));
+            }
+            if let Some(exit_mode_local) = ctx.exit_mode_local {
+                self.push_stmt(Statement::Assign(
+                    Lvalue::Local(exit_mode_local),
+                    Rvalue::Use(Operand::Constant(Constant::Int(1))),
+                ));
+            }
+            if let Some(finally_block) = ctx.finally_block {
+                self.terminate(Terminator::Goto(finally_block));
+            } else {
+                self.terminate(Terminator::Return(Some(Operand::Copy(Lvalue::Local(0)))));
+            }
+            return;
+        }
+
+        self.terminate(Terminator::Return(value));
+    }
+
+    fn emit_throw(&mut self, value: Operand) {
+        let current_block = self.current_block;
+        let cleanup_stack = self.cleanup_stack.clone();
+        for ctx in cleanup_stack.into_iter().rev() {
+            if ctx.catch_block == Some(current_block) {
+                if let Some(finally_block) = ctx.finally_block {
+                    if let Some(exception_local) = ctx.exception_local {
+                        self.push_stmt(Statement::Assign(
+                            Lvalue::Local(exception_local),
+                            Rvalue::Use(value),
+                        ));
+                    }
+                    if let Some(exit_mode_local) = ctx.exit_mode_local {
+                        self.push_stmt(Statement::Assign(
+                            Lvalue::Local(exit_mode_local),
+                            Rvalue::Use(Operand::Constant(Constant::Int(2))),
+                        ));
+                    }
+                    self.terminate(Terminator::Goto(finally_block));
+                    return;
+                }
+                continue;
+            }
+
+            if let Some(exception_local) = ctx.exception_local {
+                self.push_stmt(Statement::Assign(
+                    Lvalue::Local(exception_local),
+                    Rvalue::Use(value.clone()),
+                ));
+            }
+            if let Some(catch_block) = ctx.catch_block {
+                self.terminate(Terminator::Goto(catch_block));
+                return;
+            }
+            if let Some(finally_block) = ctx.finally_block {
+                if let Some(exit_mode_local) = ctx.exit_mode_local {
+                    self.push_stmt(Statement::Assign(
+                        Lvalue::Local(exit_mode_local),
+                        Rvalue::Use(Operand::Constant(Constant::Int(2))),
+                    ));
+                }
+                self.terminate(Terminator::Goto(finally_block));
+                return;
+            }
+        }
+
+        self.terminate(Terminator::Unreachable);
+    }
+
     fn lower_block(&mut self, lowerer: &Lowerer, block: &Block) {
         for stmt in &block.stmts {
             self.lower_stmt(lowerer, stmt);
@@ -276,7 +388,11 @@ impl MirBuilder {
                     .value
                     .as_ref()
                     .map(|v| self.lower_expr_to_operand(lowerer, v, Some(&return_ty)));
-                self.terminate(Terminator::Return(op));
+                self.emit_return(op);
+            }
+            Stmt::Throw(s) => {
+                let value = self.lower_expr_to_operand(lowerer, &s.value, None);
+                self.emit_throw(value);
             }
             Stmt::If(s) => {
                 let cond = self.lower_expr_to_operand(lowerer, &s.cond, Some(&Ty::Bool));
@@ -332,11 +448,158 @@ impl MirBuilder {
 
                 self.current_block = exit_id;
             }
+            Stmt::Try(s) => {
+                self.lower_try_stmt(lowerer, s);
+            }
             Stmt::Block(b) => {
                 self.lower_block(lowerer, b);
             }
             Stmt::Empty(_) => {}
         }
+    }
+
+    fn lower_try_stmt(&mut self, lowerer: &Lowerer, stmt: &aura_ast::TryStmt) {
+        let try_entry = self.current_block;
+        let after_block = self.new_block();
+        let catch_block = stmt.catch.as_ref().map(|_| self.new_block());
+        let finally_block = stmt.finally_block.as_ref().map(|_| self.new_block());
+        let exit_mode_local = if finally_block.is_some() {
+            Some(self.declare_local(
+                Ty::I32,
+                Some("__cleanup_mode".to_string()),
+                stmt.span,
+                LocalKind::Temp,
+            ))
+        } else {
+            None
+        };
+        let exception_local = if stmt.catch.is_some() || finally_block.is_some() {
+            Some(self.declare_local(
+                Ty::Unknown,
+                Some("__caught_exception".to_string()),
+                stmt.span,
+                LocalKind::Temp,
+            ))
+        } else {
+            None
+        };
+
+        self.push_cleanup_context(
+            catch_block,
+            finally_block,
+            exit_mode_local,
+            exception_local,
+        );
+
+        let mut edges = vec![CleanupEdge {
+            from_block: try_entry,
+            to_block: finally_block.unwrap_or(after_block),
+            reason: CleanupReason::Normal,
+        }];
+        if let Some(catch_block_id) = catch_block {
+            edges.push(CleanupEdge {
+                from_block: try_entry,
+                to_block: catch_block_id,
+                reason: CleanupReason::Throw,
+            });
+            edges.push(CleanupEdge {
+                from_block: catch_block_id,
+                to_block: finally_block.unwrap_or(after_block),
+                reason: CleanupReason::Normal,
+            });
+        }
+        if let Some(finally_block_id) = finally_block {
+            edges.push(CleanupEdge {
+                from_block: finally_block_id,
+                to_block: after_block,
+                reason: CleanupReason::Return,
+            });
+        }
+        self.cleanup_regions.push(CleanupRegion {
+            try_block: try_entry,
+            catch_block,
+            finally_block,
+            after_block,
+            edges,
+        });
+
+        self.lower_block(lowerer, &stmt.try_block);
+        if self.blocks[self.current_block].terminator.is_none() {
+            if let Some(finally_block_id) = finally_block {
+                if let Some(exit_mode_local) = exit_mode_local {
+                    self.push_stmt(Statement::Assign(
+                        Lvalue::Local(exit_mode_local),
+                        Rvalue::Use(Operand::Constant(Constant::Int(0))),
+                    ));
+                }
+                self.terminate(Terminator::Goto(finally_block_id));
+            } else {
+                self.terminate(Terminator::Goto(after_block));
+            }
+        }
+
+        if let Some(catch) = &stmt.catch {
+            if let Some(catch_block_id) = catch_block {
+                self.current_block = catch_block_id;
+                let catch_binding = self.declare_local(
+                    Ty::Unknown,
+                    Some(lowerer.ident_text(&catch.binding).to_string()),
+                    catch.binding.span,
+                    LocalKind::Var,
+                );
+                if let Some(exception_local) = exception_local {
+                    self.push_stmt(Statement::Assign(
+                        Lvalue::Local(catch_binding),
+                        Rvalue::Use(Operand::Copy(Lvalue::Local(exception_local))),
+                    ));
+                }
+                self.lower_block(lowerer, &catch.block);
+                if self.blocks[self.current_block].terminator.is_none() {
+                    if let Some(finally_block_id) = finally_block {
+                        self.terminate(Terminator::Goto(finally_block_id));
+                    } else {
+                        self.terminate(Terminator::Goto(after_block));
+                    }
+                }
+            }
+        }
+
+        if let Some(finally_block_id) = finally_block {
+            self.pop_cleanup_context();
+            self.current_block = finally_block_id;
+            if let Some(finally_stmt) = &stmt.finally_block {
+                self.lower_block(lowerer, finally_stmt);
+            }
+
+            if self.blocks[self.current_block].terminator.is_none() {
+                if let Some(exit_mode_local) = exit_mode_local {
+                    let return_id = self.new_block();
+                    let throw_id = self.new_block();
+                    self.terminate(Terminator::SwitchInt {
+                        discr: Operand::Copy(Lvalue::Local(exit_mode_local)),
+                        targets: vec![(1, return_id), (2, throw_id)],
+                        otherwise: after_block,
+                    });
+
+                    self.current_block = return_id;
+                    self.emit_return(Some(Operand::Copy(Lvalue::Local(0))));
+
+                    self.current_block = throw_id;
+                    if let Some(exception_local) = exception_local {
+                        self.emit_throw(Operand::Copy(Lvalue::Local(exception_local)));
+                    } else {
+                        self.terminate(Terminator::Unreachable);
+                    }
+                } else {
+                    self.terminate(Terminator::Goto(after_block));
+                }
+            }
+        } else {
+            self.pop_cleanup_context();
+        }
+
+        self.current_block = after_block;
+        let _ = try_entry;
     }
 
     fn lower_expr(&mut self, lowerer: &Lowerer, expr: &Expr) -> Rvalue {
@@ -756,6 +1019,7 @@ impl MirBuilder {
             name: self.name,
             locals: self.locals,
             blocks: self.blocks,
+            cleanup_regions: self.cleanup_regions,
         }
     }
 

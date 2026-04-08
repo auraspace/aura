@@ -37,6 +37,25 @@ fn dump_function(out: &mut String, func: &MirFunction) -> fmt::Result {
         )?;
     }
     writeln!(out)?;
+    for region in &func.cleanup_regions {
+        writeln!(out, "  cleanup region:")?;
+        writeln!(out, "    try -> bb{}", region.try_block)?;
+        if let Some(catch) = region.catch_block {
+            writeln!(out, "    catch -> bb{}", catch)?;
+        }
+        if let Some(finally) = region.finally_block {
+            writeln!(out, "    finally -> bb{}", finally)?;
+        }
+        writeln!(out, "    after -> bb{}", region.after_block)?;
+        for edge in &region.edges {
+            writeln!(
+                out,
+                "    edge bb{} -> bb{} ({:?})",
+                edge.from_block, edge.to_block, edge.reason
+            )?;
+        }
+        writeln!(out)?;
+    }
     for block in &func.blocks {
         writeln!(out, "  bb{}:", block.id)?;
         for stmt in &block.statements {

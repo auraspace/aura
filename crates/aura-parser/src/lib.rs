@@ -374,6 +374,12 @@ impl<'a> Parser<'a> {
         if self.at_keyword(Keyword::While) {
             return Stmt::While(self.parse_while());
         }
+        if self.at_keyword(Keyword::Try) {
+            return Stmt::Try(self.parse_try());
+        }
+        if self.at_keyword(Keyword::Throw) {
+            return Stmt::Throw(self.parse_throw());
+        }
 
         let start = self.current_span_start();
         let expr = self.parse_expr();
@@ -475,6 +481,76 @@ impl<'a> Parser<'a> {
             cond,
             body: body.clone(),
             span: Span::new(start, body.span.end),
+        }
+    }
+
+    fn parse_try(&mut self) -> TryStmt {
+        let start = self.current_span_start();
+        self.expect_keyword(Keyword::Try);
+        let try_block = self.parse_block();
+
+        let catch = if self.eat_keyword(Keyword::Catch) {
+            Some(self.parse_catch_clause())
+        } else {
+            None
+        };
+
+        let finally_block = if self.eat_keyword(Keyword::Finally) {
+            Some(self.parse_block())
+        } else {
+            None
+        };
+
+        if catch.is_none() && finally_block.is_none() {
+            self.error(
+                try_block.span,
+                "expected `catch` or `finally` after `try` block",
+            );
+        }
+
+        let end = finally_block
+            .as_ref()
+            .map(|b| b.span.end)
+            .or_else(|| catch.as_ref().map(|c| c.span.end))
+            .unwrap_or(try_block.span.end);
+
+        TryStmt {
+            try_block,
+            catch,
+            finally_block,
+            span: Span::new(start, end),
+        }
+    }
+
+    fn parse_catch_clause(&mut self) -> CatchClause {
+        let start = self.current_span_start();
+        self.expect_punct(Punct::LParen);
+        let binding = self.parse_ident();
+        let ty = if self.eat_punct(Punct::Colon) {
+            Some(self.parse_type_ref())
+        } else {
+            None
+        };
+        self.expect_punct(Punct::RParen);
+        let block = self.parse_block();
+        let end = block.span.end;
+        CatchClause {
+            binding,
+            ty,
+            block,
+            span: Span::new(start, end),
+        }
+    }
+
+    fn parse_throw(&mut self) -> ThrowStmt {
+        let start = self.current_span_start();
+        self.expect_keyword(Keyword::Throw);
+        let value = self.parse_expr();
+        self.expect_stmt_semi();
+        let end = self.prev_span_end();
+        ThrowStmt {
+            value,
+            span: Span::new(start, end),
         }
     }
 
@@ -1224,5 +1300,28 @@ function f(): void {
         let out = parse_program(src);
         assert!(out.errors.is_empty(), "{:#?}", out.errors);
         assert_eq!(out.value.items.len(), 1);
+    }
+
+    #[test]
+    fn parses_try_catch_finally_and_throw() {
+        let src = r#"
+function f(): void {
+  try {
+    throw 1;
+  } catch (e) {
+    return;
+  } finally {
+    let done = 1;
+  }
+}
+"#;
+        let out = parse_program(src);
+        assert!(out.errors.is_empty(), "{:#?}", out.errors);
+        match &out.value.items[0] {
+            TopLevel::Function(func) => {
+                assert!(matches!(func.body.stmts[0], Stmt::Try(_)));
+            }
+            _ => panic!("expected function"),
+        }
     }
 }

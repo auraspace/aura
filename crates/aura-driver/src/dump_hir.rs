@@ -174,6 +174,11 @@ impl<'a> HirPrinter<'a> {
                 }
                 println!(";");
             }
+            Stmt::Throw(t) => {
+                print!("throw ");
+                self.print_expr(&t.value);
+                println!(";");
+            }
             Stmt::Expr(e) => {
                 self.print_expr(&e.expr);
                 println!(";");
@@ -195,6 +200,25 @@ impl<'a> HirPrinter<'a> {
                 self.print_expr(&w.cond);
                 println!(") ");
                 self.print_block(&w.body);
+            }
+            Stmt::Try(t) => {
+                print!("try ");
+                self.print_block(&t.try_block);
+                if let Some(catch) = &t.catch {
+                    self.print_indent();
+                    print!("catch (");
+                    self.print_ident(&catch.binding);
+                    if let Some(ty) = &catch.ty {
+                        print!(": {}", self.source_at(ty.span));
+                    }
+                    println!(") ");
+                    self.print_block(&catch.block);
+                }
+                if let Some(finally_block) = &t.finally_block {
+                    self.print_indent();
+                    println!("finally ");
+                    self.print_block(finally_block);
+                }
             }
             Stmt::Empty(_) => println!(";"),
         }

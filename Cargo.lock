@@ -94,6 +94,7 @@ name = "aura-mir"
 version = "0.1.0"
 dependencies = [
  "aura-ast",
+ "aura-parser",
  "aura-span",
  "aura-typeck",
 ]
