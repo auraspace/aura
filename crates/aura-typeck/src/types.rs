@@ -146,6 +146,7 @@ pub(crate) fn ty_from_type_ref(
                 )
                 .with_help("remove the annotation or use a non-void type"),
             );
+            return Ty::Unknown;
         }
         return builtin;
     }

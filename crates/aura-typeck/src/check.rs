@@ -373,81 +373,86 @@ pub(crate) fn typeck_expr(
                 diags,
             );
             if lt == Ty::Unknown || rt == Ty::Unknown {
-                return Ty::Unknown;
-            }
-            match op {
-                aura_ast::BinaryOp::Add
-                | aura_ast::BinaryOp::Sub
-                | aura_ast::BinaryOp::Mul
-                | aura_ast::BinaryOp::Div => {
-                    if is_numeric(&lt) && is_numeric(&rt) {
-                        unify_numeric(&lt, &rt)
-                    } else {
-                        diags.push(
-                            Diagnostic::error(
-                                *span,
-                                format!(
-                                    "cannot apply arithmetic operator to `{}` and `{}`",
-                                    lt.name(),
-                                    rt.name()
-                                ),
-                            )
-                            .with_help("expected numeric operands"),
-                        );
-                        Ty::Unknown
+                Ty::Unknown
+            } else {
+                match op {
+                    aura_ast::BinaryOp::Add
+                    | aura_ast::BinaryOp::Sub
+                    | aura_ast::BinaryOp::Mul
+                    | aura_ast::BinaryOp::Div => {
+                        if is_numeric(&lt) && is_numeric(&rt) {
+                            unify_numeric(&lt, &rt)
+                        } else {
+                            diags.push(
+                                Diagnostic::error(
+                                    *span,
+                                    format!(
+                                        "cannot apply arithmetic operator to `{}` and `{}`",
+                                        lt.name(),
+                                        rt.name()
+                                    ),
+                                )
+                                .with_help("expected numeric operands"),
+                            );
+                            Ty::Unknown
+                        }
                     }
-                }
-                aura_ast::BinaryOp::EqEq | aura_ast::BinaryOp::NotEq => {
-                    if is_comparable(&lt, &rt) {
-                        Ty::Bool
-                    } else {
-                        diags.push(
-                            Diagnostic::error(
-                                *span,
-                                format!(
-                                    "cannot compare `{}` and `{}` for equality",
-                                    lt.name(),
-                                    rt.name()
-                                ),
-                            )
-                            .with_help("operands must be the same type (or both numeric)"),
-                        );
-                        Ty::Unknown
+                    aura_ast::BinaryOp::EqEq | aura_ast::BinaryOp::NotEq => {
+                        if is_comparable(&lt, &rt) {
+                            Ty::Bool
+                        } else {
+                            diags.push(
+                                Diagnostic::error(
+                                    *span,
+                                    format!(
+                                        "cannot compare `{}` and `{}` for equality",
+                                        lt.name(),
+                                        rt.name()
+                                    ),
+                                )
+                                .with_help("operands must be the same type (or both numeric)"),
+                            );
+                            Ty::Unknown
+                        }
                     }
-                }
-                aura_ast::BinaryOp::Lt
-                | aura_ast::BinaryOp::LtEq
-                | aura_ast::BinaryOp::Gt
-                | aura_ast::BinaryOp::GtEq => {
-                    if is_numeric(&lt) && is_numeric(&rt) {
-                        Ty::Bool
-                    } else {
-                        diags.push(
-                            Diagnostic::error(
-                                *span,
-                                format!("cannot order-compare `{}` and `{}`", lt.name(), rt.name()),
-                            )
-                            .with_help("expected numeric operands"),
-                        );
-                        Ty::Unknown
+                    aura_ast::BinaryOp::Lt
+                    | aura_ast::BinaryOp::LtEq
+                    | aura_ast::BinaryOp::Gt
+                    | aura_ast::BinaryOp::GtEq => {
+                        if is_numeric(&lt) && is_numeric(&rt) {
+                            Ty::Bool
+                        } else {
+                            diags.push(
+                                Diagnostic::error(
+                                    *span,
+                                    format!(
+                                        "cannot order-compare `{}` and `{}`",
+                                        lt.name(),
+                                        rt.name()
+                                    ),
+                                )
+                                .with_help("expected numeric operands"),
+                            );
+                            Ty::Unknown
+                        }
                     }
-                }
-                aura_ast::BinaryOp::AndAnd | aura_ast::BinaryOp::OrOr => {
-                    if lt == Ty::Bool && rt == Ty::Bool {
-                        Ty::Bool
-                    } else {
-                        diags.push(
-                            Diagnostic::error(
-                                *span,
-                                format!(
-                                    "cannot apply boolean operator to `{}` and `{}`",
-                                    lt.name(),
-                                    rt.name()
-                                ),
-                            )
-                            .with_help("expected `bool` operands"),
-                        );
-                        Ty::Unknown
+                    aura_ast::BinaryOp::AndAnd | aura_ast::BinaryOp::OrOr => {
+                        if lt == Ty::Bool && rt == Ty::Bool {
+                            Ty::Bool
+                        } else {
+                            diags.push(
+                                Diagnostic::error(
+                                    *span,
+                                    format!(
+                                        "cannot apply boolean operator to `{}` and `{}`",
+                                        lt.name(),
+                                        rt.name()
+                                    ),
+                                )
+                                .with_help("expected `bool` operands"),
+                            );
+                            Ty::Unknown
+                        }
                     }
                 }
             }
@@ -505,7 +510,10 @@ pub(crate) fn typeck_expr(
 
                 // Record the type of the target member access if we can
                 expr_types.insert(field.span, field_ty.clone().unwrap_or(Ty::Unknown));
-                expr_types.insert(span_of_expr(target), field_ty.clone().unwrap_or(Ty::Unknown));
+                expr_types.insert(
+                    span_of_expr(target),
+                    field_ty.clone().unwrap_or(Ty::Unknown),
+                );
 
                 let value_ty = typeck_expr(
                     source,
@@ -534,83 +542,79 @@ pub(crate) fn typeck_expr(
                             ),
                         ));
                     }
-                    return value_ty;
-                } else if obj_ty != Ty::Unknown {
-                    diags.push(Diagnostic::error(
-                        field.span,
-                        format!("unknown field `{field_name}` on type `{}`", obj_ty.name()),
-                    ));
+                    value_ty
+                } else {
+                    if obj_ty != Ty::Unknown {
+                        diags.push(Diagnostic::error(
+                            field.span,
+                            format!("unknown field `{field_name}` on type `{}`", obj_ty.name()),
+                        ));
+                    }
+                    value_ty
                 }
-                return value_ty;
-            }
+            } else if let Some((target_name, target_span)) = assignment_target(source, target) {
+                if let Some(var) = env.lookup(&target_name) {
+                    let target_ty = var.ty.clone();
+                    let target_mutable = var.mutable;
 
-            let (target_name, target_span) = match assignment_target(source, target) {
-                Some(v) => v,
-                None => {
-                    diags.push(
-                        Diagnostic::error(*span, "invalid assignment target")
-                            .with_help("expected an identifier"),
+                    if !target_mutable {
+                        diags.push(
+                            Diagnostic::error(
+                                target_span,
+                                format!("cannot assign to `const` binding `{target_name}`"),
+                            )
+                            .with_help("change `const` to `let` if it should be mutable"),
+                        );
+                    }
+
+                    let value_ty = typeck_expr(
+                        source,
+                        env,
+                        value,
+                        type_defs,
+                        classes,
+                        interfaces,
+                        this_class,
+                        allow_this_assignment,
+                        expr_types,
+                        diags,
                     );
-                    return Ty::Unknown;
+                    if value_ty != Ty::Unknown
+                        && target_ty != Ty::Unknown
+                        && !is_assignable(&value_ty, &target_ty, classes)
+                    {
+                        diags.push(Diagnostic::error(
+                            span_of_expr(value),
+                            format!(
+                                "type mismatch: expected `{}`, got `{}`",
+                                target_ty.name(),
+                                value_ty.name()
+                            ),
+                        ));
+                    }
+                    value_ty
+                } else {
+                    let _ = typeck_expr(
+                        source,
+                        env,
+                        value,
+                        type_defs,
+                        classes,
+                        interfaces,
+                        this_class,
+                        allow_this_assignment,
+                        expr_types,
+                        diags,
+                    );
+                    Ty::Unknown
                 }
-            };
-
-            let Some(var) = env.lookup(&target_name) else {
-                let _ = typeck_expr(
-                    source,
-                    env,
-                    value,
-                    type_defs,
-                    classes,
-                    interfaces,
-                    this_class,
-                    allow_this_assignment,
-                    expr_types,
-                    diags,
-                );
-                return Ty::Unknown;
-            };
-
-            let target_ty = var.ty.clone();
-            let target_mutable = var.mutable;
-
-            if !target_mutable {
+            } else {
                 diags.push(
-                    Diagnostic::error(
-                        target_span,
-                        format!("cannot assign to `const` binding `{target_name}`"),
-                    )
-                    .with_help("change `const` to `let` if it should be mutable"),
+                    Diagnostic::error(*span, "invalid assignment target")
+                        .with_help("expected an identifier"),
                 );
+                Ty::Unknown
             }
-
-            let value_ty = typeck_expr(
-                source,
-                env,
-                value,
-                type_defs,
-                classes,
-                interfaces,
-                this_class,
-                allow_this_assignment,
-                expr_types,
-                diags,
-            );
-            if value_ty != Ty::Unknown
-                && target_ty != Ty::Unknown
-                && !is_assignable(&value_ty, &target_ty, classes)
-            {
-                diags.push(Diagnostic::error(
-                    span_of_expr(value),
-                    format!(
-                        "type mismatch: expected `{}`, got `{}`",
-                        target_ty.name(),
-                        value_ty.name()
-                    ),
-                ));
-            }
-
-            value_ty
         }
         Expr::Call { callee, args, span } => {
             let (sig, _kind_name, callee_ty) = match &**callee {
@@ -648,15 +652,18 @@ pub(crate) fn typeck_expr(
 
                     let field_name = ident_text(source, field).unwrap_or("");
                     let sig = methods.and_then(|m| m.get(field_name)).cloned();
-                    let callee_ty = sig.as_ref().map(|s| Ty::Function(Box::new(s.clone()))).unwrap_or(Ty::Unknown);
-                    
+                    let callee_ty = sig
+                        .as_ref()
+                        .map(|s| Ty::Function(Box::new(s.clone())))
+                        .unwrap_or(Ty::Unknown);
+
                     if sig.is_none() && methods.is_some() {
                         diags.push(Diagnostic::error(
                             field.span,
                             format!("unknown method `{field_name}` on {kind_name}"),
                         ));
                     }
-                    
+
                     // Record callee type (the member access part)
                     expr_types.insert(field.span, callee_ty.clone());
 
@@ -696,56 +703,56 @@ pub(crate) fn typeck_expr(
                     (None, "unknown".to_string(), Ty::Unknown)
                 }
             };
-            
+
             // Record the callee's type in expr_types (e.g. for the ident or the whole member expr)
             expr_types.insert(span_of_expr(callee), callee_ty);
 
-            let Some(sig) = sig else {
-                return Ty::Unknown;
-            };
+            if let Some(sig) = sig {
+                if args.len() != sig.params.len() {
+                    diags.push(Diagnostic::error(
+                        *span,
+                        format!(
+                            "expected {} argument(s), got {}",
+                            sig.params.len(),
+                            args.len()
+                        ),
+                    ));
+                }
 
-            if args.len() != sig.params.len() {
-                diags.push(Diagnostic::error(
-                    *span,
-                    format!(
-                        "expected {} argument(s), got {}",
-                        sig.params.len(),
-                        args.len()
-                    ),
-                ));
-            }
-
-            for (idx, arg) in args.iter().enumerate() {
-                let arg_ty = typeck_expr(
-                    source,
-                    env,
-                    arg,
-                    type_defs,
-                    classes,
-                    interfaces,
-                    this_class,
-                    allow_this_assignment,
-                    expr_types,
-                    diags,
-                );
-                if let Some(param_ty) = sig.params.get(idx) {
-                    if arg_ty != Ty::Unknown
-                        && *param_ty != Ty::Unknown
-                        && !is_assignable(&arg_ty, param_ty, classes)
-                    {
-                        diags.push(Diagnostic::error(
-                            span_of_expr(arg),
-                            format!(
-                                "type mismatch: expected `{}`, got `{}`",
-                                param_ty.name(),
-                                arg_ty.name()
-                            ),
-                        ));
+                for (idx, arg) in args.iter().enumerate() {
+                    let arg_ty = typeck_expr(
+                        source,
+                        env,
+                        arg,
+                        type_defs,
+                        classes,
+                        interfaces,
+                        this_class,
+                        allow_this_assignment,
+                        expr_types,
+                        diags,
+                    );
+                    if let Some(param_ty) = sig.params.get(idx) {
+                        if arg_ty != Ty::Unknown
+                            && *param_ty != Ty::Unknown
+                            && !is_assignable(&arg_ty, param_ty, classes)
+                        {
+                            diags.push(Diagnostic::error(
+                                span_of_expr(arg),
+                                format!(
+                                    "type mismatch: expected `{}`, got `{}`",
+                                    param_ty.name(),
+                                    arg_ty.name()
+                                ),
+                            ));
+                        }
                     }
                 }
-            }
 
-            sig.return_ty.clone()
+                sig.return_ty.clone()
+            } else {
+                Ty::Unknown
+            }
         }
         Expr::New { class, args, span } => {
             for arg in args {
@@ -762,21 +769,22 @@ pub(crate) fn typeck_expr(
                     diags,
                 );
             }
-            let Some(name) = ident_text(source, class) else {
-                return Ty::Unknown;
-            };
-            if !type_defs.contains_key(name) {
-                diags.push(Diagnostic::error(*span, format!("unknown class `{name}`")));
-                return Ty::Unknown;
+            if let Some(name) = ident_text(source, class) {
+                if !type_defs.contains_key(name) {
+                    diags.push(Diagnostic::error(*span, format!("unknown class `{name}`")));
+                    Ty::Unknown
+                } else if interfaces.contains_key(name) {
+                    diags.push(
+                        Diagnostic::error(*span, format!("cannot instantiate interface `{name}`"))
+                            .with_help("interfaces can only be implemented by classes"),
+                    );
+                    Ty::Unknown
+                } else {
+                    Ty::Class(name.to_string())
+                }
+            } else {
+                Ty::Unknown
             }
-            if interfaces.contains_key(name) {
-                diags.push(
-                    Diagnostic::error(*span, format!("cannot instantiate interface `{name}`"))
-                        .with_help("interfaces can only be implemented by classes"),
-                );
-                return Ty::Unknown;
-            }
-            Ty::Class(name.to_string())
         }
         Expr::Member {
             object,
@@ -856,13 +864,7 @@ fn typeck_let_like(
 
     let mut expected_ty = Ty::Unknown;
     if let Some(ann) = &s.ty {
-        expected_ty = ty_from_type_ref(
-            source,
-            ann,
-            TypePosition::Value,
-            type_defs,
-            diags,
-        );
+        expected_ty = ty_from_type_ref(source, ann, TypePosition::Value, type_defs, diags);
     }
 
     let mut value_ty = Ty::Unknown;
@@ -894,6 +896,12 @@ fn typeck_let_like(
         }
         env.define(name.to_string(), expected_ty, mutable);
     } else {
+        if value_ty == Ty::Unknown {
+            diags.push(Diagnostic::error(
+                s.span,
+                format!("binding `{name}` needs a type annotation or an initializer"),
+            ));
+        }
         env.define(name.to_string(), value_ty, mutable);
     }
 }

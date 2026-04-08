@@ -213,7 +213,12 @@ impl<'a> HirPrinter<'a> {
             Expr::Paren { span, .. } => *span,
         };
 
-        let ty_name = self.typed.expression_types.get(&span).map(|t| t.name()).unwrap_or_else(|| std::borrow::Cow::Borrowed("unknown"));
+        let ty_name = self
+            .typed
+            .expression_types
+            .get(&span)
+            .map(|t| t.name())
+            .unwrap_or_else(|| std::borrow::Cow::Borrowed("unknown"));
 
         print!("(");
         match expr {
@@ -227,7 +232,9 @@ impl<'a> HirPrinter<'a> {
                 print!("{:?}", op);
                 self.print_expr(expr);
             }
-            Expr::Binary { op, left, right, .. } => {
+            Expr::Binary {
+                op, left, right, ..
+            } => {
                 self.print_expr(left);
                 print!(" {:?} ", op);
                 self.print_expr(right);
@@ -279,7 +286,9 @@ impl<'a> HirPrinter<'a> {
     }
 
     fn source_at(&self, span: aura_span::Span) -> &str {
-        self.source.get(span.start.raw() as usize..span.end.raw() as usize).unwrap_or("???")
+        self.source
+            .get(span.start.raw() as usize..span.end.raw() as usize)
+            .unwrap_or("???")
     }
 
     fn print_indent(&self) {

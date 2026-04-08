@@ -252,7 +252,9 @@ pub fn typeck_program(source: &str, program: &Program) -> (Vec<Diagnostic>, Type
                 let return_ty = func
                     .return_type
                     .as_ref()
-                    .map(|t| ty_from_type_ref(source, t, TypePosition::Return, &type_defs, &mut diags))
+                    .map(|t| {
+                        ty_from_type_ref(source, t, TypePosition::Return, &type_defs, &mut diags)
+                    })
                     .unwrap_or(Ty::Void);
                 globals.insert(
                     name.to_string(),
@@ -409,7 +411,9 @@ pub fn typeck_program(source: &str, program: &Program) -> (Vec<Diagnostic>, Type
                 &mut diags,
             );
 
-            if expected_return != Ty::Void && !crate::check::block_guarantees_return(&method.body.stmts) {
+            if expected_return != Ty::Void
+                && !crate::check::block_guarantees_return(&method.body.stmts)
+            {
                 diags.push(
                     Diagnostic::error(method.span, "missing return on some paths")
                         .with_help("add a `return` statement on all control-flow paths"),
@@ -418,8 +422,22 @@ pub fn typeck_program(source: &str, program: &Program) -> (Vec<Diagnostic>, Type
         }
     }
 
+    // De-duplicate diagnostics by span and message
+    let mut unique_diags = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for diag in diags {
+        let key = (
+            diag.span.start.raw(),
+            diag.span.end.raw(),
+            diag.message.clone(),
+        );
+        if seen.insert(key) {
+            unique_diags.push(diag);
+        }
+    }
+
     (
-        diags,
+        unique_diags,
         TypedProgram {
             classes,
             interfaces,

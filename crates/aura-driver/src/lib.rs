@@ -5,9 +5,9 @@ use std::path::Path;
 use aura_ast::Program;
 use aura_diagnostics::Diagnostic;
 
+pub mod dump_hir;
 pub mod modules;
 pub mod resolve;
-pub mod dump_hir;
 
 use aura_typeck::TypedProgram;
 
