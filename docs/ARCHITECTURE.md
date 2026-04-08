@@ -215,11 +215,9 @@ Dynamic dispatch:
 
 Interfaces:
 
-- For MVP, treat interfaces as nominal and implement interface dispatch via:
-  - per-class interface method table, or
-  - a small "interface fat pointer" (data ptr + itable ptr) created at cast sites
-
-Pick one and document it; the cast-site "fat pointer" is often easier to implement.
+- For MVP, treat interfaces as nominal and lower both class and interface method calls through the same whole-program vtable layout.
+- The compiler assigns each method name a stable slot and stores a class-specific vtable pointer in the object header.
+- Interface-typed values still use the same object pointer at runtime; the receiver type selects the method signature at call sites while the vtable slot supplies the implementation.
 
 ## Exceptions and Unwinding (Go-like, MVP-Friendly)
 

@@ -148,6 +148,12 @@ impl<'a> Parser<'a> {
         self.expect_keyword(Keyword::Class);
         let name = self.parse_ident();
 
+        let extends = if self.eat_keyword(Keyword::Extends) {
+            Some(self.parse_type_ref())
+        } else {
+            None
+        };
+
         let mut implements = Vec::new();
         if self.eat_keyword(Keyword::Implements) {
             loop {
@@ -192,6 +198,7 @@ impl<'a> Parser<'a> {
         let end = self.prev_span_end();
         ClassDecl {
             name,
+            extends,
             implements,
             fields,
             methods,

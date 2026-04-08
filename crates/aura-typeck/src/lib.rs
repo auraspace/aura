@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use aura_ast::{Program, Stmt, TopLevel};
 use aura_diagnostics::Diagnostic;
@@ -74,7 +74,16 @@ pub fn typeck_program(source: &str, program: &Program) -> (Vec<Diagnostic>, Type
             .or_insert(InterfaceInfo { methods });
     }
 
-    let mut classes = HashMap::<String, ClassInfo>::new();
+    #[derive(Clone)]
+    struct RawClassInfo {
+        extends: Option<(String, aura_span::Span)>,
+        fields: Vec<(String, Ty, aura_span::Span)>,
+        methods: HashMap<String, (TypeMethodSig, aura_span::Span)>,
+        implements: HashSet<String>,
+        span: aura_span::Span,
+    }
+
+    let mut raw_classes = HashMap::<String, RawClassInfo>::new();
     for item in &program.items {
         let TopLevel::Class(class_decl) = item else {
             continue;
@@ -82,8 +91,12 @@ pub fn typeck_program(source: &str, program: &Program) -> (Vec<Diagnostic>, Type
         let Some(name) = ident_text(source, &class_decl.name) else {
             continue;
         };
-        let mut fields = HashMap::<String, Ty>::new();
-        let mut field_order = Vec::<String>::new();
+        let extends = class_decl
+            .extends
+            .as_ref()
+            .and_then(|ty| ident_text(source, &ty.name).map(|name| (name.to_string(), ty.span)));
+
+        let mut fields = Vec::<(String, Ty, aura_span::Span)>::new();
         for field in &class_decl.fields {
             let Some(field_name) = ident_text(source, &field.name) else {
                 continue;
@@ -95,12 +108,9 @@ pub fn typeck_program(source: &str, program: &Program) -> (Vec<Diagnostic>, Type
                 &type_defs,
                 &mut diags,
             );
-            let field_name = field_name.to_string();
-            if fields.insert(field_name.clone(), ty).is_none() {
-                field_order.push(field_name);
-            }
+            fields.push((field_name.to_string(), ty, field.name.span));
         }
-        let mut methods = HashMap::<String, TypeMethodSig>::new();
+        let mut methods = HashMap::<String, (TypeMethodSig, aura_span::Span)>::new();
         for method in &class_decl.methods {
             let Some(method_name) = ident_text(source, &method.name) else {
                 continue;
@@ -121,11 +131,12 @@ pub fn typeck_program(source: &str, program: &Program) -> (Vec<Diagnostic>, Type
                 .as_ref()
                 .map(|t| ty_from_type_ref(source, t, TypePosition::Return, &type_defs, &mut diags))
                 .unwrap_or(Ty::Void);
-            methods
-                .entry(method_name.to_string())
-                .or_insert(TypeMethodSig { params, return_ty });
+            methods.insert(
+                method_name.to_string(),
+                (TypeMethodSig { params, return_ty }, method.span),
+            );
         }
-        let mut implements = std::collections::HashSet::new();
+        let mut implements = HashSet::new();
         for impl_ref in &class_decl.implements {
             let ty = ty_from_type_ref(
                 source,
@@ -156,12 +167,150 @@ pub fn typeck_program(source: &str, program: &Program) -> (Vec<Diagnostic>, Type
                 }
             }
         }
-        classes.entry(name.to_string()).or_insert(ClassInfo {
+        raw_classes.entry(name.to_string()).or_insert(RawClassInfo {
+            extends,
+            fields,
+            methods,
+            implements,
+            span: class_decl.span,
+        });
+    }
+
+    fn resolve_class_info(
+        class_name: &str,
+        raw_classes: &HashMap<String, RawClassInfo>,
+        type_defs: &HashMap<String, TyDefKind>,
+        diags: &mut Vec<Diagnostic>,
+        cache: &mut HashMap<String, ClassInfo>,
+        stack: &mut Vec<String>,
+    ) -> ClassInfo {
+        if let Some(info) = cache.get(class_name) {
+            return info.clone();
+        }
+        if stack.iter().any(|n| n == class_name) {
+            diags.push(Diagnostic::error(
+                raw_classes
+                    .get(class_name)
+                    .map(|c| c.span)
+                    .unwrap_or(aura_span::Span::empty(aura_span::BytePos::new(0))),
+                format!("cyclic inheritance involving `{class_name}`"),
+            ));
+            return ClassInfo {
+                extends: None,
+                fields: HashMap::new(),
+                field_order: Vec::new(),
+                methods: HashMap::new(),
+                implements: HashSet::new(),
+            };
+        }
+
+        let Some(raw) = raw_classes.get(class_name) else {
+            return ClassInfo {
+                extends: None,
+                fields: HashMap::new(),
+                field_order: Vec::new(),
+                methods: HashMap::new(),
+                implements: HashSet::new(),
+            };
+        };
+
+        stack.push(class_name.to_string());
+
+        let mut extends = None;
+        let mut fields: HashMap<String, Ty> = HashMap::new();
+        let mut field_order = Vec::new();
+        let mut methods: HashMap<String, TypeMethodSig> = HashMap::new();
+        let mut implements = raw.implements.clone();
+
+        if let Some((parent_name, parent_span)) = &raw.extends {
+            match type_defs.get(parent_name) {
+                Some(TyDefKind::Class) => {
+                    let parent = resolve_class_info(
+                        parent_name,
+                        raw_classes,
+                        type_defs,
+                        diags,
+                        cache,
+                        stack,
+                    );
+                    extends = Some(parent_name.clone());
+                    for field_name in &parent.field_order {
+                        if let Some(ty) = parent.fields.get(field_name) {
+                            fields.insert(field_name.clone(), ty.clone());
+                            field_order.push(field_name.clone());
+                        }
+                    }
+                    for (mname, msig) in &parent.methods {
+                        methods.insert(mname.clone(), msig.clone());
+                    }
+                    implements.extend(parent.implements.iter().cloned());
+                }
+                Some(TyDefKind::Interface) => {
+                    diags.push(Diagnostic::error(
+                        *parent_span,
+                        format!("class `{class_name}` cannot extend interface `{parent_name}`"),
+                    ));
+                }
+                None => {
+                    diags.push(Diagnostic::error(
+                        *parent_span,
+                        format!("unknown class `{parent_name}`"),
+                    ));
+                }
+            }
+        }
+
+        for (field_name, ty, span) in &raw.fields {
+            if fields.contains_key(field_name.as_str()) {
+                diags.push(Diagnostic::error(
+                    *span,
+                    format!("field `{field_name}` is already defined in an ancestor class"),
+                ));
+                continue;
+            }
+            fields.insert(field_name.clone(), ty.clone());
+            field_order.push(field_name.clone());
+        }
+
+        for (method_name, (sig, method_span)) in &raw.methods {
+            if let Some(parent_sig) = methods.get(method_name) {
+                if parent_sig != sig {
+                    diags.push(Diagnostic::error(
+                        *method_span,
+                        format!(
+                            "method `{method_name}` in class `{class_name}` does not match inherited signature"
+                        ),
+                    )
+                    .with_help("keep overridden method signatures identical"));
+                }
+            }
+            methods.insert(method_name.clone(), sig.clone());
+        }
+
+        let resolved = ClassInfo {
+            extends,
             fields,
             field_order,
             methods,
             implements,
-        });
+        };
+        cache.insert(class_name.to_string(), resolved.clone());
+        stack.pop();
+        resolved
+    }
+
+    let mut classes = HashMap::<String, ClassInfo>::new();
+    let mut resolving_stack = Vec::new();
+    for class_name in raw_classes.keys().cloned().collect::<Vec<_>>() {
+        let info = resolve_class_info(
+            &class_name,
+            &raw_classes,
+            &type_defs,
+            &mut diags,
+            &mut classes,
+            &mut resolving_stack,
+        );
+        classes.insert(class_name, info);
     }
 
     // Pass 1.5: Verify class implements all interface methods
@@ -791,6 +940,29 @@ class MyLogger implements Logger {
 
 function t(l: Logger) {
     l.log("hello");
+}
+"#;
+        let out = aura_parser::parse_program(src);
+        assert!(out.errors.is_empty(), "{:#?}", out.errors);
+
+        let (diags, _) = typeck_program(src, &out.value);
+        assert!(diags.is_empty(), "{diags:#?}");
+    }
+
+    #[test]
+    fn accepts_inherited_method_calls_and_subclass_assignment() {
+        let src = r#"
+class Animal {
+    function speak(): string { return "..."; }
+}
+
+class Dog extends Animal {
+    function speak(): string { return "woof"; }
+}
+
+function t(): void {
+    let a: Animal = new Dog();
+    println(a.speak());
 }
 "#;
         let out = aura_parser::parse_program(src);

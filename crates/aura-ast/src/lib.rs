@@ -40,6 +40,7 @@ pub struct FunctionDecl {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ClassDecl {
     pub name: Ident,
+    pub extends: Option<TypeRef>,
     pub implements: Vec<TypeRef>,
     pub fields: Vec<FieldDecl>,
     pub methods: Vec<MethodDecl>,

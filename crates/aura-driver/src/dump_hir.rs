@@ -52,6 +52,10 @@ impl<'a> HirPrinter<'a> {
                 self.print_indent();
                 print!("class ");
                 self.print_ident(&c.name);
+                if let Some(parent) = &c.extends {
+                    print!(" extends ");
+                    print!("{}", self.source_at(parent.span));
+                }
                 if !c.implements.is_empty() {
                     print!(" implements ");
                     for (i, imp) in c.implements.iter().enumerate() {

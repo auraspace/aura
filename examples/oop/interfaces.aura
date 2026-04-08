@@ -1,0 +1,14 @@
+interface Speaker {
+  function speak(): string;
+}
+
+class Robot implements Speaker {
+  function speak(): string {
+    return "beep";
+  }
+}
+
+function main(): void {
+  let s: Speaker = new Robot();
+  println(s.speak());
+}

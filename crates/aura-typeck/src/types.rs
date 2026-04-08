@@ -69,6 +69,7 @@ pub struct TypedProgram {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ClassInfo {
+    pub extends: Option<String>,
     pub fields: HashMap<String, Ty>,
     pub field_order: Vec<String>,
     pub methods: HashMap<String, MethodSig>,
@@ -116,6 +117,9 @@ pub(crate) fn is_assignable(from: &Ty, to: &Ty, classes: &HashMap<String, ClassI
         (Ty::I32, Ty::F32) | (Ty::I32, Ty::F64) => true,
         (Ty::I64, Ty::F64) | (Ty::I64, Ty::F32) => true,
         (Ty::F32, Ty::F64) => true,
+        (Ty::Class(from_name), Ty::Class(to_name)) => {
+            class_is_subclass_of(from_name, to_name, classes)
+        }
         (Ty::Class(cname), Ty::Interface(iname)) => {
             if let Some(cinfo) = classes.get(cname) {
                 cinfo.implements.contains(iname)
@@ -126,6 +130,24 @@ pub(crate) fn is_assignable(from: &Ty, to: &Ty, classes: &HashMap<String, ClassI
         (_, Ty::String) => is_stringable(from, classes),
         _ => false,
     }
+}
+
+fn class_is_subclass_of(
+    from_name: &str,
+    to_name: &str,
+    classes: &HashMap<String, ClassInfo>,
+) -> bool {
+    if from_name == to_name {
+        return true;
+    }
+    let mut current = classes.get(from_name).and_then(|c| c.extends.as_deref());
+    while let Some(parent) = current {
+        if parent == to_name {
+            return true;
+        }
+        current = classes.get(parent).and_then(|c| c.extends.as_deref());
+    }
+    false
 }
 
 pub(crate) fn is_stringable(ty: &Ty, classes: &HashMap<String, ClassInfo>) -> bool {

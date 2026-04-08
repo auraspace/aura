@@ -12,14 +12,22 @@ use std::collections::HashMap;
 pub struct MirProgram {
     pub functions: Vec<MirFunction>,
     pub classes: HashMap<String, MirClass>,
+    pub interfaces: HashMap<String, MirInterface>,
+    pub method_slots: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
 pub struct MirClass {
     pub name: String,
+    pub extends: Option<String>,
     pub fields: HashMap<String, Ty>,
     pub field_order: Vec<String>,
     pub methods: HashMap<String, MirFunction>,
+}
+
+#[derive(Debug, Clone)]
+pub struct MirInterface {
+    pub methods: HashMap<String, aura_typeck::MethodSig>,
 }
 
 #[derive(Debug, Clone)]

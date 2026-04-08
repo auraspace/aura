@@ -8,8 +8,8 @@ use inkwell::targets::{
     CodeModel, FileType, InitializationConfig, RelocMode, Target as LlvmTarget, TargetMachine,
     TargetTriple,
 };
-use inkwell::types::{BasicType, BasicTypeEnum};
-use inkwell::values::{BasicValue, BasicValueEnum, FunctionValue, PointerValue};
+use inkwell::types::{BasicType, BasicTypeEnum, StructType};
+use inkwell::values::{BasicValue, BasicValueEnum, FunctionValue, GlobalValue, PointerValue};
 use inkwell::OptimizationLevel;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -23,6 +23,8 @@ pub struct LlvmBackend<'ctx> {
     class_structs: RefCell<HashMap<String, inkwell::types::StructType<'ctx>>>,
     class_field_order: RefCell<HashMap<String, Vec<String>>>,
     class_field_types: RefCell<HashMap<String, HashMap<String, aura_typeck::Ty>>>,
+    class_vtables: RefCell<HashMap<String, GlobalValue<'ctx>>>,
+    method_slots: RefCell<Vec<String>>,
 }
 
 impl<'ctx> LlvmBackend<'ctx> {
@@ -57,6 +59,8 @@ impl<'ctx> LlvmBackend<'ctx> {
             class_structs: RefCell::new(HashMap::new()),
             class_field_order: RefCell::new(HashMap::new()),
             class_field_types: RefCell::new(HashMap::new()),
+            class_vtables: RefCell::new(HashMap::new()),
+            method_slots: RefCell::new(Vec::new()),
         })
     }
 
@@ -68,10 +72,11 @@ impl<'ctx> LlvmBackend<'ctx> {
             aura_typeck::Ty::F64 => self.context.f64_type().as_basic_type_enum(),
             aura_typeck::Ty::Bool => self.context.bool_type().as_basic_type_enum(),
             aura_typeck::Ty::Void => self.context.i8_type().as_basic_type_enum(),
-            aura_typeck::Ty::String | aura_typeck::Ty::Class(_) => self
-                .context
-                .ptr_type(inkwell::AddressSpace::default())
-                .as_basic_type_enum(),
+            aura_typeck::Ty::String | aura_typeck::Ty::Class(_) | aura_typeck::Ty::Interface(_) => {
+                self.context
+                    .ptr_type(inkwell::AddressSpace::default())
+                    .as_basic_type_enum()
+            }
             _ => self.context.i8_type().as_basic_type_enum(),
         }
     }
@@ -80,6 +85,12 @@ impl<'ctx> LlvmBackend<'ctx> {
         self.class_structs.borrow_mut().clear();
         self.class_field_order.borrow_mut().clear();
         self.class_field_types.borrow_mut().clear();
+        self.class_vtables.borrow_mut().clear();
+        self.method_slots.borrow_mut().clear();
+
+        self.method_slots
+            .borrow_mut()
+            .extend(program.method_slots.iter().cloned());
 
         for (class_name, class) in &program.classes {
             self.class_field_order
@@ -112,6 +123,130 @@ impl<'ctx> LlvmBackend<'ctx> {
                 struct_ty.set_body(&field_types, false);
             }
         }
+    }
+
+    fn object_header_type(&self) -> StructType<'ctx> {
+        self.context.struct_type(
+            &[
+                self.context
+                    .ptr_type(inkwell::AddressSpace::default())
+                    .into(),
+                self.context.i64_type().into(),
+            ],
+            false,
+        )
+    }
+
+    fn vtable_struct_type(&self) -> StructType<'ctx> {
+        let ptr_ty = self.context.ptr_type(inkwell::AddressSpace::default());
+        let slot_types: Vec<_> = self
+            .method_slots
+            .borrow()
+            .iter()
+            .map(|_| ptr_ty.into())
+            .collect();
+        self.context.struct_type(&slot_types, false)
+    }
+
+    fn method_slot_index(&self, method_name: &str) -> Option<u32> {
+        self.method_slots
+            .borrow()
+            .iter()
+            .position(|name| name == method_name)
+            .map(|idx| idx as u32)
+    }
+
+    fn method_signature_from_receiver(
+        &self,
+        program: &MirProgram,
+        receiver_ty: &aura_typeck::Ty,
+        method_name: &str,
+    ) -> Option<aura_typeck::MethodSig> {
+        match receiver_ty {
+            aura_typeck::Ty::Class(class_name) => {
+                self.resolve_class_method_signature(program, class_name, method_name)
+            }
+            aura_typeck::Ty::Interface(interface_name) => program
+                .interfaces
+                .get(interface_name)
+                .and_then(|iface| iface.methods.get(method_name))
+                .cloned(),
+            _ => None,
+        }
+    }
+
+    fn resolve_class_method_signature(
+        &self,
+        program: &MirProgram,
+        class_name: &str,
+        method_name: &str,
+    ) -> Option<aura_typeck::MethodSig> {
+        if let Some(class) = program.classes.get(class_name) {
+            if let Some(func) = class.methods.get(method_name) {
+                return Some(aura_typeck::MethodSig {
+                    params: func
+                        .locals
+                        .iter()
+                        .filter(|local| local.kind == aura_mir::LocalKind::Arg)
+                        .skip(1)
+                        .map(|local| local.ty.clone())
+                        .collect(),
+                    return_ty: func.locals[0].ty.clone(),
+                });
+            }
+            if let Some(parent) = &class.extends {
+                return self.resolve_class_method_signature(program, parent, method_name);
+            }
+        }
+        None
+    }
+
+    fn resolve_method_function<'a>(
+        &self,
+        program: &'a MirProgram,
+        class_name: &str,
+        method_name: &str,
+    ) -> Option<&'a MirFunction> {
+        let class = program.classes.get(class_name)?;
+        if let Some(func) = class.methods.get(method_name) {
+            return Some(func);
+        }
+        class
+            .extends
+            .as_deref()
+            .and_then(|parent| self.resolve_method_function(program, parent, method_name))
+    }
+
+    fn build_vtables(&self, program: &MirProgram) -> Result<()> {
+        let vtable_ty = self.vtable_struct_type();
+        let ptr_ty = self.context.ptr_type(inkwell::AddressSpace::default());
+        let method_slots = self.method_slots.borrow().clone();
+
+        for class_name in program.classes.keys() {
+            let mut entries = Vec::new();
+            for slot_name in &method_slots {
+                if let Some(func) = self.resolve_method_function(program, class_name, slot_name) {
+                    let llvm_fn = self
+                        .module
+                        .get_function(&func.name)
+                        .ok_or_else(|| anyhow::anyhow!("missing llvm function `{}`", func.name))?;
+                    entries.push(llvm_fn.as_global_value().as_pointer_value().into());
+                } else {
+                    entries.push(ptr_ty.const_null().into());
+                }
+            }
+            let initializer = vtable_ty.const_named_struct(&entries);
+            let global = self
+                .module
+                .add_global(vtable_ty, None, &format!("{class_name}.vtable"));
+            global.set_initializer(&initializer);
+            global.set_constant(true);
+            self.class_vtables
+                .borrow_mut()
+                .insert(class_name.clone(), global);
+        }
+
+        Ok(())
     }
 
     fn class_struct_type(&self, class_name: &str) -> Option<inkwell::types::StructType<'ctx>> {
@@ -157,7 +292,11 @@ impl<'ctx> LlvmBackend<'ctx> {
             .unwrap_or_else(|| self.module.add_function(&func.name, fn_type, None)))
     }
 
-    fn compile_function(&self, func: &MirFunction) -> Result<FunctionValue<'ctx>> {
+    fn compile_function(
+        &self,
+        program: &MirProgram,
+        func: &MirFunction,
+    ) -> Result<FunctionValue<'ctx>> {
         let llvm_func = self.declare_function(func)?;
 
         let mut blocks = HashMap::new();
@@ -197,7 +336,7 @@ impl<'ctx> LlvmBackend<'ctx> {
             for stmt in &mir_bb.statements {
                 match stmt {
                     Statement::Assign(lval, rvalue) => {
-                        let val = self.lower_rvalue(rvalue, &locals, func)?;
+                        let val = self.lower_rvalue(program, rvalue, &locals, func)?;
                         let ptr = self.lower_lvalue(lval, &locals, func)?;
                         self.builder.build_store(ptr, val)?;
                     }
@@ -211,7 +350,7 @@ impl<'ctx> LlvmBackend<'ctx> {
                     }
                     Terminator::Return(val) => {
                         if let Some(v) = val {
-                            let llvm_val = self.lower_operand(v, &locals, func)?;
+                            let llvm_val = self.lower_operand(program, v, &locals, func)?;
                             self.builder.build_return(Some(&llvm_val))?;
                         } else {
                             self.builder.build_return(None)?;
@@ -222,7 +361,9 @@ impl<'ctx> LlvmBackend<'ctx> {
                         targets,
                         otherwise,
                     } => {
-                        let llvm_discr = self.lower_operand(discr, &locals, func)?.into_int_value();
+                        let llvm_discr = self
+                            .lower_operand(program, discr, &locals, func)?
+                            .into_int_value();
                         let mut cases = Vec::new();
                         for (val, target) in targets {
                             cases.push((
@@ -252,11 +393,128 @@ impl<'ctx> LlvmBackend<'ctx> {
                             continue;
                         }
 
+                        if let Some(method_name) = callee_name.strip_prefix("method:") {
+                            let receiver_op = args.first().ok_or_else(|| {
+                                anyhow::anyhow!("method call missing receiver operand")
+                            })?;
+                            let receiver_ty = self
+                                .operand_type(receiver_op, func)
+                                .unwrap_or(aura_typeck::Ty::Unknown);
+                            let sig = self
+                                .method_signature_from_receiver(program, &receiver_ty, method_name)
+                                .ok_or_else(|| {
+                                    anyhow::anyhow!(
+                                        "unable to resolve method `{method_name}` for `{}`",
+                                        receiver_ty.name()
+                                    )
+                                })?;
+
+                            let receiver_val =
+                                self.lower_operand(program, receiver_op, &locals, func)?;
+                            let receiver_ptr = receiver_val.into_pointer_value();
+                            let slot_idx =
+                                self.method_slot_index(method_name).ok_or_else(|| {
+                                    anyhow::anyhow!("unknown method slot `{method_name}`")
+                                })?;
+                            let header_ty = self.object_header_type();
+                            let header_ptr_ty =
+                                header_ty.ptr_type(inkwell::AddressSpace::default());
+                            let header_ptr = self.builder.build_pointer_cast(
+                                receiver_ptr,
+                                header_ptr_ty,
+                                "dispatch_header",
+                            )?;
+                            let vtable_ptr_ptr = self.builder.build_struct_gep(
+                                header_ty,
+                                header_ptr,
+                                0,
+                                "dispatch_vtable_ptr",
+                            )?;
+                            let vtable_ptr = self.builder.build_load(
+                                self.context.ptr_type(inkwell::AddressSpace::default()),
+                                vtable_ptr_ptr,
+                                "dispatch_vtable",
+                            )?;
+                            let vtable_ty = self.vtable_struct_type();
+                            let vtable_ptr_ty =
+                                vtable_ty.ptr_type(inkwell::AddressSpace::default());
+                            let vtable_struct_ptr = self.builder.build_pointer_cast(
+                                vtable_ptr.into_pointer_value(),
+                                vtable_ptr_ty,
+                                "dispatch_vtable_cast",
+                            )?;
+                            let slot_ptr = self.builder.build_struct_gep(
+                                vtable_ty,
+                                vtable_struct_ptr,
+                                slot_idx,
+                                "dispatch_slot_ptr",
+                            )?;
+                            let fn_ptr = self.builder.build_load(
+                                self.context.ptr_type(inkwell::AddressSpace::default()),
+                                slot_ptr,
+                                "dispatch_fn",
+                            )?;
+
+                            let fn_ty = self.method_llvm_fn_type(&receiver_ty, &sig);
+                            let mut llvm_args = Vec::new();
+                            let mut receiver_arg =
+                                self.lower_operand(program, receiver_op, &locals, func)?;
+                            if let Some(first_param_ty) = fn_ty.get_param_types().first() {
+                                if receiver_arg.get_type() != *first_param_ty {
+                                    if receiver_arg.is_int_value() && first_param_ty.is_int_type() {
+                                        receiver_arg = self
+                                            .builder
+                                            .build_int_cast(
+                                                receiver_arg.into_int_value(),
+                                                first_param_ty.into_int_type(),
+                                                "receiver_cast",
+                                            )?
+                                            .into();
+                                    }
+                                }
+                            }
+                            llvm_args.push(receiver_arg.into());
+
+                            for (i, arg) in args.iter().enumerate().skip(1) {
+                                let mut val = self.lower_operand(program, arg, &locals, func)?;
+                                if let Some(param_ty) = fn_ty.get_param_types().get(i) {
+                                    if val.get_type() != *param_ty {
+                                        if val.is_int_value() && param_ty.is_int_type() {
+                                            val = self
+                                                .builder
+                                                .build_int_cast(
+                                                    val.into_int_value(),
+                                                    param_ty.into_int_type(),
+                                                    "arg_cast",
+                                                )?
+                                                .into();
+                                        }
+                                    }
+                                }
+                                llvm_args.push(val.into());
+                            }
+
+                            let call_site = self.builder.build_indirect_call(
+                                fn_ty,
+                                fn_ptr.into_pointer_value(),
+                                &llvm_args,
+                                "calltmp",
+                            )?;
+
+                            let dest_ptr = self.lower_lvalue(destination, &locals, func)?;
+                            if let Some(val) = call_site.try_as_basic_value().left() {
+                                self.builder.build_store(dest_ptr, val)?;
+                            }
+
+                            self.builder.build_unconditional_branch(blocks[target])?;
+                            continue;
+                        }
+
                         let llvm_callee = self.get_or_declare_func(&callee_name)?;
                         let param_types = llvm_callee.get_type().get_param_types();
                         let mut llvm_args = Vec::new();
                         for (i, arg) in args.iter().enumerate() {
-                            let mut val = self.lower_operand(arg, &locals, func)?;
+                            let mut val = self.lower_operand(program, arg, &locals, func)?;
                             if let Some(param_ty) = param_types.get(i) {
                                 if val.get_type() != *param_ty {
                                     if val.is_int_value() && param_ty.is_int_type() {
@@ -324,18 +582,25 @@ impl<'ctx> LlvmBackend<'ctx> {
             .builder
             .build_pointer_cast(raw_ptr, obj_ptr_ty, "obj_cast")?;
 
+        let header_ty = self.object_header_type();
+        let header_ptr_ty = header_ty.ptr_type(inkwell::AddressSpace::default());
+        let header_ptr = self
+            .builder
+            .build_pointer_cast(obj_ptr, header_ptr_ty, "header_cast")?;
         let header_vtable_ptr =
             self.builder
-                .build_struct_gep(struct_ty, obj_ptr, 0, "header_vtable")?;
+                .build_struct_gep(header_ty, header_ptr, 0, "header_vtable")?;
         let header_ref_ptr =
             self.builder
-                .build_struct_gep(struct_ty, obj_ptr, 1, "header_refcount")?;
-        self.builder.build_store(
-            header_vtable_ptr,
-            self.context
-                .ptr_type(inkwell::AddressSpace::default())
-                .const_null(),
-        )?;
+                .build_struct_gep(header_ty, header_ptr, 1, "header_refcount")?;
+        let vtable_global = self
+            .class_vtables
+            .borrow()
+            .get(class_name)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("missing vtable for class `{class_name}`"))?;
+        self.builder
+            .build_store(header_vtable_ptr, vtable_global.as_pointer_value())?;
         self.builder
             .build_store(header_ref_ptr, self.context.i64_type().const_int(1, false))?;
 
@@ -462,15 +727,16 @@ impl<'ctx> LlvmBackend<'ctx> {
 
     fn lower_rvalue(
         &self,
+        program: &MirProgram,
         rvalue: &Rvalue,
         locals: &HashMap<usize, PointerValue<'ctx>>,
         func_mir: &MirFunction,
     ) -> Result<BasicValueEnum<'ctx>> {
         match rvalue {
-            Rvalue::Use(op) => self.lower_operand(op, locals, func_mir),
+            Rvalue::Use(op) => self.lower_operand(program, op, locals, func_mir),
             Rvalue::BinaryOp(op, left, right) => {
-                let lop = self.lower_operand(left, locals, func_mir)?;
-                let rop = self.lower_operand(right, locals, func_mir)?;
+                let lop = self.lower_operand(program, left, locals, func_mir)?;
+                let rop = self.lower_operand(program, right, locals, func_mir)?;
 
                 if lop.is_int_value() {
                     let lhs = lop.into_int_value();
@@ -562,7 +828,7 @@ impl<'ctx> LlvmBackend<'ctx> {
                 }
             }
             Rvalue::UnaryOp(op, val) => {
-                let v = self.lower_operand(val, locals, func_mir)?;
+                let v = self.lower_operand(program, val, locals, func_mir)?;
                 match op {
                     aura_ast::UnaryOp::Neg => {
                         if v.is_int_value() {
@@ -588,6 +854,7 @@ impl<'ctx> LlvmBackend<'ctx> {
 
     fn lower_operand(
         &self,
+        _program: &MirProgram,
         op: &Operand,
         locals: &HashMap<usize, PointerValue<'ctx>>,
         func_mir: &MirFunction,
@@ -652,6 +919,34 @@ impl<'ctx> LlvmBackend<'ctx> {
             }
         }
     }
+
+    fn operand_type(&self, op: &Operand, func: &MirFunction) -> Option<aura_typeck::Ty> {
+        match op {
+            Operand::Copy(lval) | Operand::Move(lval) => Some(self.get_lvalue_type(lval, func)),
+            Operand::Constant(Constant::String(_)) => Some(aura_typeck::Ty::String),
+            Operand::Constant(Constant::Int(_)) => Some(aura_typeck::Ty::I64),
+            Operand::Constant(Constant::Float(_)) => Some(aura_typeck::Ty::F64),
+            Operand::Constant(Constant::Bool(_)) => Some(aura_typeck::Ty::Bool),
+        }
+    }
+
+    fn method_llvm_fn_type(
+        &self,
+        receiver_ty: &aura_typeck::Ty,
+        sig: &aura_typeck::MethodSig,
+    ) -> inkwell::types::FunctionType<'ctx> {
+        let mut arg_types = Vec::new();
+        arg_types.push(self.aura_to_llvm_type(receiver_ty).into());
+        for param in &sig.params {
+            arg_types.push(self.aura_to_llvm_type(param).into());
+        }
+        let ret_ty = self.aura_to_llvm_type(&sig.return_ty);
+        if sig.return_ty == aura_typeck::Ty::Void {
+            self.context.void_type().fn_type(&arg_types, false)
+        } else {
+            ret_ty.fn_type(&arg_types, false)
+        }
+    }
 }
 
 impl<'ctx> Backend for LlvmBackend<'ctx> {
@@ -667,13 +962,15 @@ impl<'ctx> Backend for LlvmBackend<'ctx> {
             }
         }
 
+        self.build_vtables(program)?;
+
         for func in &program.functions {
-            self.compile_function(func)?;
+            self.compile_function(program, func)?;
         }
 
         for class in program.classes.values() {
             for method in class.methods.values() {
-                self.compile_function(method)?;
+                self.compile_function(program, method)?;
             }
         }
 

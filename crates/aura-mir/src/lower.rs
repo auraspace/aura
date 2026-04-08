@@ -2,7 +2,7 @@ use crate::*;
 use aura_ast::{Block, Expr, Ident, Program, Stmt, TopLevel};
 use aura_span::Span;
 use aura_typeck::{Ty, TypedProgram};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 pub fn lower_program(source: &str, program: &Program, typed_program: &TypedProgram) -> MirProgram {
     let mut lowerer = Lowerer::new(source, typed_program);
@@ -14,6 +14,8 @@ struct Lowerer<'a> {
     typed_program: &'a TypedProgram,
     functions: Vec<MirFunction>,
     classes: HashMap<String, MirClass>,
+    interfaces: HashMap<String, MirInterface>,
+    method_slots: Vec<String>,
 }
 
 impl<'a> Lowerer<'a> {
@@ -23,10 +25,39 @@ impl<'a> Lowerer<'a> {
             typed_program,
             functions: Vec::new(),
             classes: HashMap::new(),
+            interfaces: HashMap::new(),
+            method_slots: Vec::new(),
         }
     }
 
     fn lower(&mut self, program: &Program) -> MirProgram {
+        let mut slot_names = BTreeSet::new();
+        for class in self.typed_program.classes.values() {
+            for name in class.methods.keys() {
+                slot_names.insert(name.clone());
+            }
+        }
+        for iface in self.typed_program.interfaces.values() {
+            for name in iface.methods.keys() {
+                slot_names.insert(name.clone());
+            }
+        }
+        self.method_slots = slot_names.into_iter().collect();
+
+        self.interfaces = self
+            .typed_program
+            .interfaces
+            .iter()
+            .map(|(name, info)| {
+                (
+                    name.clone(),
+                    MirInterface {
+                        methods: info.methods.clone(),
+                    },
+                )
+            })
+            .collect();
+
         for item in &program.items {
             match item {
                 TopLevel::Function(func) => {
@@ -48,15 +79,10 @@ impl<'a> Lowerer<'a> {
                     self.functions.push(mir_func);
                 }
                 TopLevel::Class(class_decl) => {
-                    let name = self.ident_text(&class_decl.name).to_string();
-                    let mut fields = HashMap::new();
-                    let mut field_order = Vec::new();
+                    let class_name = self.ident_text(&class_decl.name).to_string();
                     let mut methods = HashMap::new();
 
-                    if let Some(cinfo) = self.typed_program.classes.get(&name) {
-                        fields = cinfo.fields.clone();
-                        field_order = cinfo.field_order.clone();
-
+                    if let Some(cinfo) = self.typed_program.classes.get(&class_name) {
                         for method in &class_decl.methods {
                             let mname = self.ident_text(&method.name).to_string();
                             let sig = cinfo.methods.get(&mname).cloned().unwrap_or(
@@ -66,11 +92,11 @@ impl<'a> Lowerer<'a> {
                                 },
                             );
                             let mir_method = self.lower_function(
-                                MirBuilder::qualified_method_name(&name, &mname),
+                                MirBuilder::qualified_method_name(&class_name, &mname),
                                 method.name.span,
                                 &method.body,
                                 &method.params,
-                                Some(Ty::Class(name.clone())),
+                                Some(Ty::Class(class_name.clone())),
                                 sig.return_ty,
                             );
                             methods.insert(mname, mir_method);
@@ -78,11 +104,25 @@ impl<'a> Lowerer<'a> {
                     }
 
                     self.classes.insert(
-                        name.clone(),
+                        class_name.clone(),
                         MirClass {
-                            name,
-                            fields,
-                            field_order,
+                            name: class_name.clone(),
+                            extends: class_decl
+                                .extends
+                                .as_ref()
+                                .map(|ty| self.ident_text(&ty.name).to_string()),
+                            fields: self
+                                .typed_program
+                                .classes
+                                .get(&class_name)
+                                .map(|c| c.fields.clone())
+                                .unwrap_or_default(),
+                            field_order: self
+                                .typed_program
+                                .classes
+                                .get(&class_name)
+                                .map(|c| c.field_order.clone())
+                                .unwrap_or_default(),
                             methods,
                         },
                     );
@@ -94,6 +134,8 @@ impl<'a> Lowerer<'a> {
         MirProgram {
             functions: self.functions.split_off(0),
             classes: self.classes.drain().collect(),
+            interfaces: self.interfaces.drain().collect(),
+            method_slots: self.method_slots.clone(),
         }
     }
 
@@ -457,18 +499,14 @@ impl MirBuilder {
                         .expression_types
                         .get(&self.span_of_expr(object))
                         .cloned();
-                    if let Some(Ty::Class(class_name)) = object_ty {
+                    if matches!(object_ty, Some(Ty::Class(_)) | Some(Ty::Interface(_))) {
                         let field_name = lowerer.ident_text(field).to_string();
-                        let receiver_ty = Ty::Class(class_name.clone());
                         arg_ops.push(self.lower_expr_to_operand(
                             lowerer,
                             object,
-                            Some(&receiver_ty),
+                            object_ty.as_ref(),
                         ));
-                        Operand::Constant(Constant::String(MirBuilder::qualified_method_name(
-                            &class_name,
-                            &field_name,
-                        )))
+                        Operand::Constant(Constant::String(format!("method:{field_name}")))
                     } else {
                         self.lower_expr_to_operand(lowerer, callee, None)
                     }
@@ -630,13 +668,7 @@ impl MirBuilder {
                 let next_id = self.new_block();
 
                 self.terminate(Terminator::Call {
-                    callee: Operand::Constant(Constant::String(MirBuilder::qualified_method_name(
-                        match from_ty {
-                            Ty::Class(class_name) => class_name,
-                            _ => unreachable!(),
-                        },
-                        "toString",
-                    ))),
+                    callee: Operand::Constant(Constant::String("method:toString".to_string())),
                     args: vec![op],
                     destination: Lvalue::Local(temp),
                     target: next_id,
