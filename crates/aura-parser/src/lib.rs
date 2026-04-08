@@ -40,6 +40,8 @@ impl<'a> Parser<'a> {
                 items.push(TopLevel::Function(self.parse_function_decl()));
             } else if self.at_keyword(Keyword::Class) {
                 items.push(TopLevel::Class(self.parse_class_decl()));
+            } else if self.at_keyword(Keyword::Interface) {
+                items.push(TopLevel::Interface(self.parse_interface_decl()));
             } else {
                 items.push(TopLevel::Stmt(self.parse_stmt()));
             }
@@ -145,6 +147,18 @@ impl<'a> Parser<'a> {
         let start = self.current_span_start();
         self.expect_keyword(Keyword::Class);
         let name = self.parse_ident();
+
+        let mut implements = Vec::new();
+        if self.eat_keyword(Keyword::Implements) {
+            loop {
+                implements.push(self.parse_type_ref());
+                if self.eat_punct(Punct::Comma) {
+                    continue;
+                }
+                break;
+            }
+        }
+
         self.expect_punct(Punct::LBrace);
         let mut fields = Vec::new();
         let mut methods = Vec::new();
@@ -178,8 +192,73 @@ impl<'a> Parser<'a> {
         let end = self.prev_span_end();
         ClassDecl {
             name,
+            implements,
             fields,
             methods,
+            span: Span::new(start, end),
+        }
+    }
+
+    fn parse_interface_decl(&mut self) -> InterfaceDecl {
+        let start = self.current_span_start();
+        self.expect_keyword(Keyword::Interface);
+        let name = self.parse_ident();
+        self.expect_punct(Punct::LBrace);
+        let mut methods = Vec::new();
+        while !self.at_punct(Punct::RBrace) && !self.at(TokenKind::Eof) {
+            if self.eat_punct(Punct::Semi) {
+                continue;
+            }
+            methods.push(self.parse_interface_method_decl());
+        }
+        self.expect_punct(Punct::RBrace);
+        let end = self.prev_span_end();
+        InterfaceDecl {
+            name,
+            methods,
+            span: Span::new(start, end),
+        }
+    }
+
+    fn parse_interface_method_decl(&mut self) -> InterfaceMethodDecl {
+        let start = self.current_span_start();
+        self.expect_keyword(Keyword::Function);
+        let name = self.parse_ident();
+        self.expect_punct(Punct::LParen);
+        let mut params = Vec::new();
+        if !self.at_punct(Punct::RParen) && !self.at(TokenKind::Eof) {
+            loop {
+                let param_start = self.current_span_start();
+                let param_name = self.parse_ident();
+                self.expect_punct(Punct::Colon);
+                let ty = self.parse_type_ref();
+                let param_end = self.prev_span_end();
+                params.push(Param {
+                    name: param_name,
+                    ty,
+                    span: Span::new(param_start, param_end),
+                });
+                if self.eat_punct(Punct::Comma) {
+                    continue;
+                }
+                break;
+            }
+        }
+        self.expect_punct(Punct::RParen);
+
+        let return_type = if self.eat_punct(Punct::Colon) {
+            Some(self.parse_type_ref())
+        } else {
+            None
+        };
+
+        self.eat_punct(Punct::Semi);
+
+        let end = self.prev_span_end();
+        InterfaceMethodDecl {
+            name,
+            params,
+            return_type,
             span: Span::new(start, end),
         }
     }

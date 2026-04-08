@@ -10,6 +10,7 @@ pub enum TopLevel {
     Import(ImportDecl),
     Function(FunctionDecl),
     Class(ClassDecl),
+    Interface(InterfaceDecl),
     Stmt(Stmt),
 }
 
@@ -39,8 +40,24 @@ pub struct FunctionDecl {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ClassDecl {
     pub name: Ident,
+    pub implements: Vec<TypeRef>,
     pub fields: Vec<FieldDecl>,
     pub methods: Vec<MethodDecl>,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InterfaceDecl {
+    pub name: Ident,
+    pub methods: Vec<InterfaceMethodDecl>,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InterfaceMethodDecl {
+    pub name: Ident,
+    pub params: Vec<Param>,
+    pub return_type: Option<TypeRef>,
     pub span: Span,
 }
 

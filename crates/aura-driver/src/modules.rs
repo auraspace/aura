@@ -173,7 +173,7 @@ pub fn build_symbol_table(module: &Module) -> SymbolTable {
                     });
                 }
             }
-            TopLevel::Class(_) => {}
+            TopLevel::Class(_) | TopLevel::Interface(_) => {}
             TopLevel::Stmt(stmt) => {
                 if let Some((name, kind)) = top_level_binding(stmt) {
                     if let Some(text) = ident_text(&module.source, name) {

@@ -73,7 +73,7 @@ pub fn resolve_module(module: &Module) -> Vec<Diagnostic> {
                 let mut scopes = Vec::<HashSet<String>>::new();
                 resolve_stmt(module, stmt, &mut scopes, &module_names, false, &mut diags);
             }
-            TopLevel::Import(_) => {}
+            TopLevel::Import(_) | TopLevel::Interface(_) => {}
         }
     }
 
@@ -97,7 +97,7 @@ pub fn collect_member_accesses(module: &Module) -> Vec<MemberAccess> {
                 }
             }
             TopLevel::Stmt(stmt) => collect_member_accesses_in_stmt(module, stmt, &mut out),
-            TopLevel::Import(_) => {}
+            TopLevel::Import(_) | TopLevel::Interface(_) => {}
         }
     }
     out
@@ -399,6 +399,7 @@ fn check_module_duplicates(module: &Module) -> Vec<Diagnostic> {
                 }
                 _ => {}
             },
+            TopLevel::Interface(_) => {}
         }
     }
 

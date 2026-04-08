@@ -16,6 +16,7 @@ pub enum Ty {
     String,
     Void,
     Class(String),
+    Interface(String),
 }
 
 impl Ty {
@@ -30,6 +31,7 @@ impl Ty {
             Ty::String => Cow::Borrowed("string"),
             Ty::Void => Cow::Borrowed("void"),
             Ty::Class(name) => Cow::Owned(name.clone()),
+            Ty::Interface(name) => Cow::Owned(name.clone()),
         }
     }
 }
@@ -40,17 +42,70 @@ enum TypePosition {
     Return,
 }
 
-pub fn typeck_program(source: &str, program: &Program) -> Vec<Diagnostic> {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TyDefKind {
+    Class,
+    Interface,
+}
+
+pub fn typeck_program(source: &str, program: &Program) -> (Vec<Diagnostic>, TypedProgram) {
     let mut diags = Vec::new();
 
-    let mut class_names = HashSet::<String>::new();
+    let mut type_defs = HashMap::<String, TyDefKind>::new();
     for item in &program.items {
-        let TopLevel::Class(class_decl) = item else {
+        match item {
+            TopLevel::Class(class_decl) => {
+                if let Some(name) = ident_text(source, &class_decl.name) {
+                    type_defs.insert(name.to_string(), TyDefKind::Class);
+                }
+            }
+            TopLevel::Interface(iface_decl) => {
+                if let Some(name) = ident_text(source, &iface_decl.name) {
+                    type_defs.insert(name.to_string(), TyDefKind::Interface);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut interfaces = HashMap::<String, InterfaceInfo>::new();
+    for item in &program.items {
+        let TopLevel::Interface(iface_decl) = item else {
             continue;
         };
-        if let Some(name) = ident_text(source, &class_decl.name) {
-            class_names.insert(name.to_string());
+        let Some(name) = ident_text(source, &iface_decl.name) else {
+            continue;
+        };
+        let mut methods = HashMap::<String, MethodSig>::new();
+        for method in &iface_decl.methods {
+            let Some(method_name) = ident_text(source, &method.name) else {
+                continue;
+            };
+            let mut params = Vec::new();
+            for param in &method.params {
+                let ty = ty_from_type_ref(
+                    source,
+                    &param.ty,
+                    TypePosition::Value,
+                    &type_defs,
+                    &mut diags,
+                );
+                params.push(ty);
+            }
+            let return_ty = method
+                .return_type
+                .as_ref()
+                .map(|t| {
+                    ty_from_type_ref(source, t, TypePosition::Return, &type_defs, &mut diags)
+                })
+                .unwrap_or(Ty::Void);
+            methods
+                .entry(method_name.to_string())
+                .or_insert(MethodSig { params, return_ty });
         }
+        interfaces
+            .entry(name.to_string())
+            .or_insert(InterfaceInfo { methods });
     }
 
     let mut classes = HashMap::<String, ClassInfo>::new();
@@ -70,7 +125,7 @@ pub fn typeck_program(source: &str, program: &Program) -> Vec<Diagnostic> {
                 source,
                 &field.ty,
                 TypePosition::Value,
-                &class_names,
+                &type_defs,
                 &mut diags,
             );
             fields.entry(field_name.to_string()).or_insert(ty);
@@ -86,7 +141,7 @@ pub fn typeck_program(source: &str, program: &Program) -> Vec<Diagnostic> {
                     source,
                     &param.ty,
                     TypePosition::Value,
-                    &class_names,
+                    &type_defs,
                     &mut diags,
                 );
                 params.push(ty);
@@ -95,16 +150,108 @@ pub fn typeck_program(source: &str, program: &Program) -> Vec<Diagnostic> {
                 .return_type
                 .as_ref()
                 .map(|t| {
-                    ty_from_type_ref(source, t, TypePosition::Return, &class_names, &mut diags)
+                    ty_from_type_ref(source, t, TypePosition::Return, &type_defs, &mut diags)
                 })
                 .unwrap_or(Ty::Void);
             methods
                 .entry(method_name.to_string())
                 .or_insert(MethodSig { params, return_ty });
         }
-        classes
-            .entry(name.to_string())
-            .or_insert(ClassInfo { fields, methods });
+        let mut implements = HashSet::new();
+        for impl_ref in &class_decl.implements {
+            let ty = ty_from_type_ref(
+                source,
+                impl_ref,
+                TypePosition::Value,
+                &type_defs,
+                &mut diags,
+            );
+            match ty {
+                Ty::Interface(iname) => {
+                    implements.insert(iname);
+                }
+                Ty::Class(cname) => {
+                    diags.push(
+                        Diagnostic::error(impl_ref.span, format!("cannot implement class `{cname}`"))
+                            .with_help("use `extends` for class inheritance"),
+                    );
+                }
+                Ty::Unknown => {}
+                _ => {
+                    diags.push(Diagnostic::error(
+                        impl_ref.span,
+                        format!("cannot implement non-interface type `{}`", ty.name()),
+                    ));
+                }
+            }
+        }
+        classes.entry(name.to_string()).or_insert(ClassInfo {
+            fields,
+            methods,
+            implements,
+        });
+    }
+
+    // Pass 1.5: Verify class implements all interface methods
+    for (class_name, class_info) in &classes {
+        for iname in &class_info.implements {
+            let Some(iface_info) = interfaces.get(iname) else {
+                continue;
+            };
+            for (mname, isig) in &iface_info.methods {
+                let Some(csig) = class_info.methods.get(mname) else {
+                    diags.push(
+                        Diagnostic::error(
+                            program
+                                .items
+                                .iter()
+                                .find_map(|item| {
+                                    if let TopLevel::Class(c) = item {
+                                        if ident_text(source, &c.name) == Some(class_name) {
+                                            return Some(c.name.span);
+                                        }
+                                    }
+                                    None
+                                })
+                                .unwrap_or(Span::empty(aura_span::BytePos::new(0))),
+                            format!(
+                                "class `{class_name}` misses method `{mname}` from interface `{iname}`"
+                            ),
+                        )
+                        .with_help(format!(
+                            "implement `function {mname}(...): {}`",
+                            isig.return_ty.name()
+                        )),
+                    );
+                    continue;
+                };
+
+                if csig.params != isig.params || csig.return_ty != isig.return_ty {
+                    diags.push(
+                        Diagnostic::error(
+                            program
+                                .items
+                                .iter()
+                                .find_map(|item| {
+                                    if let TopLevel::Class(c) = item {
+                                        if ident_text(source, &c.name) == Some(class_name) {
+                                            return c.methods.iter().find(|m| {
+                                                ident_text(source, &m.name) == Some(mname)
+                                            }).map(|m| m.span);
+                                        }
+                                    }
+                                    None
+                                })
+                                .unwrap_or(Span::empty(aura_span::BytePos::new(0))),
+                            format!(
+                                "method `{mname}` in class `{class_name}` does not match interface `{iname}`"
+                            ),
+                        )
+                        .with_help("ensure parameter and return types match exactly"),
+                    );
+                }
+            }
+        }
     }
 
     // Pass 1: predeclare all top-level `let/const` so later type checking can resolve
@@ -127,6 +274,7 @@ pub fn typeck_program(source: &str, program: &Program) -> Vec<Diagnostic> {
 
     let mut global_env = Env::new(globals);
 
+    let mut expression_types = HashMap::new();
     // Pass 2: type-check all top-level statements (including global var initializers).
     for item in &program.items {
         let TopLevel::Stmt(stmt) = item else { continue };
@@ -135,11 +283,13 @@ pub fn typeck_program(source: &str, program: &Program) -> Vec<Diagnostic> {
             source,
             &mut global_env,
             &expected,
-            &class_names,
+            &type_defs,
             &classes,
+            &interfaces,
             None,
             false,
             stmt,
+            &mut expression_types,
             &mut diags,
         );
     }
@@ -150,7 +300,7 @@ pub fn typeck_program(source: &str, program: &Program) -> Vec<Diagnostic> {
             continue;
         };
         if let Some(ret) = &func.return_type {
-            let _ = ty_from_type_ref(source, ret, TypePosition::Return, &class_names, &mut diags);
+            let _ = ty_from_type_ref(source, ret, TypePosition::Return, &type_defs, &mut diags);
         }
 
         let mut env = global_env.child();
@@ -162,7 +312,7 @@ pub fn typeck_program(source: &str, program: &Program) -> Vec<Diagnostic> {
                 source,
                 &param.ty,
                 TypePosition::Value,
-                &class_names,
+                &type_defs,
                 &mut diags,
             );
             env.declare(
@@ -178,18 +328,20 @@ pub fn typeck_program(source: &str, program: &Program) -> Vec<Diagnostic> {
         let expected_return = func
             .return_type
             .as_ref()
-            .map(|t| ty_from_type_ref(source, t, TypePosition::Return, &class_names, &mut diags))
+            .map(|t| ty_from_type_ref(source, t, TypePosition::Return, &type_defs, &mut diags))
             .unwrap_or(Ty::Void);
 
         typeck_block(
             source,
             &mut env,
             &expected_return,
-            &class_names,
+            &type_defs,
             &classes,
+            &interfaces,
             None,
             false,
             &func.body,
+            &mut expression_types,
             &mut diags,
         );
 
@@ -211,7 +363,7 @@ pub fn typeck_program(source: &str, program: &Program) -> Vec<Diagnostic> {
         for method in &class_decl.methods {
             if let Some(ret) = &method.return_type {
                 let _ =
-                    ty_from_type_ref(source, ret, TypePosition::Return, &class_names, &mut diags);
+                    ty_from_type_ref(source, ret, TypePosition::Return, &type_defs, &mut diags);
             }
             let is_constructor = matches!(ident_text(source, &method.name), Some("constructor"));
 
@@ -224,7 +376,7 @@ pub fn typeck_program(source: &str, program: &Program) -> Vec<Diagnostic> {
                     source,
                     &param.ty,
                     TypePosition::Value,
-                    &class_names,
+                    &type_defs,
                     &mut diags,
                 );
                 env.declare(
@@ -241,7 +393,7 @@ pub fn typeck_program(source: &str, program: &Program) -> Vec<Diagnostic> {
                 .return_type
                 .as_ref()
                 .map(|t| {
-                    ty_from_type_ref(source, t, TypePosition::Return, &class_names, &mut diags)
+                    ty_from_type_ref(source, t, TypePosition::Return, &type_defs, &mut diags)
                 })
                 .unwrap_or(Ty::Void);
 
@@ -262,11 +414,13 @@ pub fn typeck_program(source: &str, program: &Program) -> Vec<Diagnostic> {
                 source,
                 &mut env,
                 &expected_return,
-                &class_names,
+                &type_defs,
                 &classes,
+                &interfaces,
                 class_info,
                 is_constructor,
                 &method.body,
+                &mut expression_types,
                 &mut diags,
             );
 
@@ -279,24 +433,44 @@ pub fn typeck_program(source: &str, program: &Program) -> Vec<Diagnostic> {
         }
     }
 
-    diags
+    (
+        diags,
+        TypedProgram {
+            classes,
+            interfaces,
+            expression_types,
+        },
+    )
+}
+
+#[derive(Clone, Debug)]
+pub struct TypedProgram {
+    pub classes: HashMap<String, ClassInfo>,
+    pub interfaces: HashMap<String, InterfaceInfo>,
+    pub expression_types: HashMap<Span, Ty>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct VarInfo {
+pub struct VarInfo {
     ty: Ty,
     mutable: bool,
     decl_span: Span,
 }
 
 #[derive(Clone, Debug)]
-struct ClassInfo {
+pub struct ClassInfo {
     fields: HashMap<String, Ty>,
+    methods: HashMap<String, MethodSig>,
+    implements: HashSet<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct InterfaceInfo {
     methods: HashMap<String, MethodSig>,
 }
 
 #[derive(Clone, Debug)]
-struct MethodSig {
+pub struct MethodSig {
     params: Vec<Ty>,
     return_ty: Ty,
 }
@@ -357,11 +531,13 @@ fn typeck_block(
     source: &str,
     env: &mut Env,
     expected_return: &Ty,
-    class_names: &HashSet<String>,
+    type_defs: &HashMap<String, TyDefKind>,
     classes: &HashMap<String, ClassInfo>,
+    interfaces: &HashMap<String, InterfaceInfo>,
     this_class: Option<&ClassInfo>,
     allow_this_assignment: bool,
     block: &aura_ast::Block,
+    expr_types: &mut HashMap<Span, Ty>,
     diags: &mut Vec<Diagnostic>,
 ) {
     env.push_scope();
@@ -370,11 +546,13 @@ fn typeck_block(
             source,
             env,
             expected_return,
-            class_names,
+            type_defs,
             classes,
+            interfaces,
             this_class,
             allow_this_assignment,
             stmt,
+            expr_types,
             diags,
         );
     }
@@ -385,11 +563,13 @@ fn typeck_stmt(
     source: &str,
     env: &mut Env,
     expected_return: &Ty,
-    class_names: &HashSet<String>,
+    type_defs: &HashMap<String, TyDefKind>,
     classes: &HashMap<String, ClassInfo>,
+    interfaces: &HashMap<String, InterfaceInfo>,
     this_class: Option<&ClassInfo>,
     allow_this_assignment: bool,
     stmt: &Stmt,
+    expr_types: &mut HashMap<Span, Ty>,
     diags: &mut Vec<Diagnostic>,
 ) {
     match stmt {
@@ -398,10 +578,12 @@ fn typeck_stmt(
             env,
             s,
             true,
-            class_names,
+            type_defs,
             classes,
+            interfaces,
             this_class,
             allow_this_assignment,
+            expr_types,
             diags,
         ),
         Stmt::Const(s) => typeck_let_like(
@@ -409,10 +591,12 @@ fn typeck_stmt(
             env,
             s,
             false,
-            class_names,
+            type_defs,
             classes,
+            interfaces,
             this_class,
             allow_this_assignment,
+            expr_types,
             diags,
         ),
         Stmt::Return(s) => match (&s.value, expected_return) {
@@ -428,10 +612,12 @@ fn typeck_stmt(
                     source,
                     env,
                     value,
-                    class_names,
+                    type_defs,
                     classes,
+                    interfaces,
                     this_class,
                     allow_this_assignment,
+                    expr_types,
                     diags,
                 );
             }
@@ -447,15 +633,17 @@ fn typeck_stmt(
                     source,
                     env,
                     value,
-                    class_names,
+                    type_defs,
                     classes,
+                    interfaces,
                     this_class,
                     allow_this_assignment,
+                    expr_types,
                     diags,
                 );
                 if value_ty != Ty::Unknown
                     && *expected != Ty::Unknown
-                    && !is_assignable(&value_ty, expected)
+                    && !is_assignable(&value_ty, expected, classes)
                 {
                     diags.push(Diagnostic::error(
                         span_of_expr(value),
@@ -473,10 +661,12 @@ fn typeck_stmt(
                 source,
                 env,
                 &s.expr,
-                class_names,
+                type_defs,
                 classes,
+                interfaces,
                 this_class,
                 allow_this_assignment,
+                expr_types,
                 diags,
             );
         }
@@ -484,11 +674,13 @@ fn typeck_stmt(
             source,
             env,
             expected_return,
-            class_names,
+            type_defs,
             classes,
+            interfaces,
             this_class,
             allow_this_assignment,
             b,
+            expr_types,
             diags,
         ),
         Stmt::If(s) => {
@@ -496,10 +688,12 @@ fn typeck_stmt(
                 source,
                 env,
                 &s.cond,
-                class_names,
+                type_defs,
                 classes,
+                interfaces,
                 this_class,
                 allow_this_assignment,
+                expr_types,
                 diags,
             );
             if cond_ty != Ty::Unknown && cond_ty != Ty::Bool {
@@ -512,11 +706,13 @@ fn typeck_stmt(
                 source,
                 env,
                 expected_return,
-                class_names,
+                type_defs,
                 classes,
+                interfaces,
                 this_class,
                 allow_this_assignment,
                 &s.then_block,
+                expr_types,
                 diags,
             );
             if let Some(else_block) = &s.else_block {
@@ -524,11 +720,13 @@ fn typeck_stmt(
                     source,
                     env,
                     expected_return,
-                    class_names,
+                    type_defs,
                     classes,
+                    interfaces,
                     this_class,
                     allow_this_assignment,
                     else_block,
+                    expr_types,
                     diags,
                 );
             }
@@ -538,10 +736,12 @@ fn typeck_stmt(
                 source,
                 env,
                 &s.cond,
-                class_names,
+                type_defs,
                 classes,
+                interfaces,
                 this_class,
                 allow_this_assignment,
+                expr_types,
                 diags,
             );
             if cond_ty != Ty::Unknown && cond_ty != Ty::Bool {
@@ -554,11 +754,13 @@ fn typeck_stmt(
                 source,
                 env,
                 expected_return,
-                class_names,
+                type_defs,
                 classes,
+                interfaces,
                 this_class,
                 allow_this_assignment,
                 &s.body,
+                expr_types,
                 diags,
             );
         }
@@ -596,16 +798,18 @@ fn typeck_let_like(
     env: &mut Env,
     stmt: &LetStmt,
     is_mutable: bool,
-    class_names: &HashSet<String>,
+    type_defs: &HashMap<String, TyDefKind>,
     classes: &HashMap<String, ClassInfo>,
+    interfaces: &HashMap<String, InterfaceInfo>,
     this_class: Option<&ClassInfo>,
     allow_this_assignment: bool,
+    expr_types: &mut HashMap<Span, Ty>,
     diags: &mut Vec<Diagnostic>,
 ) {
     let declared_ty = stmt
         .ty
         .as_ref()
-        .map(|t| ty_from_type_ref(source, t, TypePosition::Value, class_names, diags));
+        .map(|t| ty_from_type_ref(source, t, TypePosition::Value, type_defs, diags));
 
     // Like the resolver, evaluate the initializer before the binding is in scope.
     let init_ty = stmt
@@ -616,10 +820,12 @@ fn typeck_let_like(
                 source,
                 env,
                 e,
-                class_names,
+                type_defs,
                 classes,
+                interfaces,
                 this_class,
                 allow_this_assignment,
+                expr_types,
                 diags,
             )
         })
@@ -646,7 +852,7 @@ fn typeck_let_like(
         if init_ty != Ty::Unknown
             && *expected != Ty::Unknown
             && *expected != Ty::Void
-            && !is_assignable(&init_ty, expected)
+            && !is_assignable(&init_ty, expected, classes)
         {
             diags.push(
                 Diagnostic::error(
@@ -699,14 +905,34 @@ fn typeck_expr(
     source: &str,
     env: &mut Env,
     expr: &Expr,
-    class_names: &HashSet<String>,
+    type_defs: &HashMap<String, TyDefKind>,
     classes: &HashMap<String, ClassInfo>,
+    interfaces: &HashMap<String, InterfaceInfo>,
     this_class: Option<&ClassInfo>,
     allow_this_assignment: bool,
+    expr_types: &mut HashMap<Span, Ty>,
     diags: &mut Vec<Diagnostic>,
 ) -> Ty {
-    match expr {
-        Expr::This(_) => Ty::Unknown,
+    let ty = match expr {
+        Expr::This(span) => {
+            if this_class.is_some() {
+                // Determine class name
+                // For now, identity the class name from classes map where this_class info matches.
+                // Improvement: pass class name directly.
+                for (name, info) in classes {
+                    if std::ptr::eq(info, this_class.unwrap()) {
+                        return Ty::Class(name.clone());
+                    }
+                }
+                Ty::Unknown
+            } else {
+                diags.push(Diagnostic::error(
+                    *span,
+                    "invalid use of `this` outside of a class method",
+                ));
+                Ty::Unknown
+            }
+        }
         Expr::Ident(ident) => {
             let Some(name) = ident_text(source, ident) else {
                 return Ty::Unknown;
@@ -723,10 +949,12 @@ fn typeck_expr(
             source,
             env,
             expr,
-            class_names,
+            type_defs,
             classes,
+            interfaces,
             this_class,
             allow_this_assignment,
+            expr_types,
             diags,
         ),
         Expr::Unary { op, expr, span } => {
@@ -734,10 +962,12 @@ fn typeck_expr(
                 source,
                 env,
                 expr,
-                class_names,
+                type_defs,
                 classes,
+                interfaces,
                 this_class,
                 allow_this_assignment,
+                expr_types,
                 diags,
             );
             match op {
@@ -781,20 +1011,24 @@ fn typeck_expr(
                 source,
                 env,
                 left,
-                class_names,
+                type_defs,
                 classes,
+                interfaces,
                 this_class,
                 allow_this_assignment,
+                expr_types,
                 diags,
             );
             let rt = typeck_expr(
                 source,
                 env,
                 right,
-                class_names,
+                type_defs,
                 classes,
+                interfaces,
                 this_class,
                 allow_this_assignment,
+                expr_types,
                 diags,
             );
             if lt == Ty::Unknown || rt == Ty::Unknown {
@@ -893,10 +1127,12 @@ fn typeck_expr(
                             source,
                             env,
                             value,
-                            class_names,
+                            type_defs,
                             classes,
+                            interfaces,
                             this_class,
                             allow_this_assignment,
+                            expr_types,
                             diags,
                         );
                         return Ty::Unknown;
@@ -909,10 +1145,12 @@ fn typeck_expr(
                             source,
                             env,
                             value,
-                            class_names,
+                            type_defs,
                             classes,
+                            interfaces,
                             this_class,
                             allow_this_assignment,
+                            expr_types,
                             diags,
                         );
                         diags.push(
@@ -933,10 +1171,12 @@ fn typeck_expr(
                             source,
                             env,
                             value,
-                            class_names,
+                            type_defs,
                             classes,
+                            interfaces,
                             this_class,
                             allow_this_assignment,
+                            expr_types,
                             diags,
                         );
                         return Ty::Unknown;
@@ -946,15 +1186,17 @@ fn typeck_expr(
                         source,
                         env,
                         value,
-                        class_names,
+                        type_defs,
                         classes,
+                        interfaces,
                         this_class,
                         allow_this_assignment,
+                        expr_types,
                         diags,
                     );
                     if value_ty != Ty::Unknown
                         && *field_ty != Ty::Unknown
-                        && !is_assignable(&value_ty, field_ty)
+                        && !is_assignable(&value_ty, field_ty, classes)
                     {
                         diags.push(Diagnostic::error(
                             span_of_expr(value),
@@ -987,10 +1229,12 @@ fn typeck_expr(
                     source,
                     env,
                     value,
-                    class_names,
+                    type_defs,
                     classes,
+                    interfaces,
                     this_class,
                     allow_this_assignment,
+                    expr_types,
                     diags,
                 );
                 return Ty::Unknown;
@@ -1013,15 +1257,17 @@ fn typeck_expr(
                 source,
                 env,
                 value,
-                class_names,
+                type_defs,
                 classes,
+                interfaces,
                 this_class,
                 allow_this_assignment,
+                expr_types,
                 diags,
             );
             if value_ty != Ty::Unknown
                 && target_ty != Ty::Unknown
-                && !is_assignable(&value_ty, &target_ty)
+                && !is_assignable(&value_ty, &target_ty, classes)
             {
                 diags.push(Diagnostic::error(
                     span_of_expr(value),
@@ -1036,108 +1282,107 @@ fn typeck_expr(
             value_ty
         }
         Expr::Call { callee, args, span } => {
-            if let Expr::Member { object, field, .. } = &**callee {
-                let mut class_name: Option<String> = None;
-                let class_info = match &**object {
-                    Expr::This(_) => {
-                        let Some(class_info) = this_class else {
-                            diags.push(Diagnostic::error(
-                                *span,
-                                "invalid use of `this` outside of a class method",
-                            ));
-                            return Ty::Unknown;
-                        };
-                        Some(class_info)
-                    }
-                    other => match typeck_expr(
-                        source,
-                        env,
-                        other,
-                        class_names,
-                        classes,
-                        this_class,
-                        allow_this_assignment,
-                        diags,
-                    ) {
-                        Ty::Class(name) => {
-                            class_name = Some(name.clone());
-                            classes.get(&name)
+            let (m_methods, _) = match &**callee {
+                Expr::Member { object, field, .. } => {
+                    let (m_methods, kind_name) = match &**object {
+                        Expr::This(_) => (this_class.map(|c| &c.methods), "this".to_string()),
+                        other => {
+                            let ty = typeck_expr(
+                                source,
+                                env,
+                                other,
+                                type_defs,
+                                classes,
+                                interfaces,
+                                this_class,
+                                allow_this_assignment,
+                                expr_types,
+                                diags,
+                            );
+                            match ty {
+                                Ty::Class(ref name) => (classes.get(name).map(|c| &c.methods), format!("class `{name}`")),
+                                Ty::Interface(ref name) => (interfaces.get(name).map(|i| &i.methods), format!("interface `{name}`")),
+                                Ty::Unknown => (None, "unknown".to_string()),
+                                _ => {
+                                    diags.push(Diagnostic::error(*span, "method call target must be a class or interface instance"));
+                                    (None, ty.name().to_string())
+                                }
+                            }
                         }
-                        Ty::Unknown => None,
-                        _ => {
-                            diags.push(Diagnostic::error(
-                                *span,
-                                "method call target must be a class instance",
-                            ));
-                            return Ty::Unknown;
-                        }
-                    },
-                };
+                    };
 
-                let Some(field_name) = ident_text(source, field) else {
-                    return Ty::Unknown;
-                };
-                let Some(class_info) = class_info else {
-                    if let Some(name) = class_name {
-                        diags.push(Diagnostic::error(*span, format!("unknown class `{name}`")));
-                    }
-                    return Ty::Unknown;
-                };
-                let Some(sig) = class_info.methods.get(field_name) else {
-                    diags.push(Diagnostic::error(
-                        field.span,
-                        format!("unknown method `{field_name}`"),
-                    ));
-                    return Ty::Unknown;
-                };
+                    let Some(methods) = m_methods else {
+                        return Ty::Unknown;
+                    };
 
-                if args.len() != sig.params.len() {
-                    diags.push(Diagnostic::error(
-                        *span,
-                        format!(
-                            "expected {} argument(s), got {}",
-                            sig.params.len(),
-                            args.len()
-                        ),
-                    ));
+                    let Some(field_name) = ident_text(source, field) else {
+                        return Ty::Unknown;
+                    };
+
+                    let Some(sig) = methods.get(field_name) else {
+                        diags.push(Diagnostic::error(
+                            field.span,
+                            format!("unknown method `{field_name}` on {kind_name}"),
+                        ));
+                        return Ty::Unknown;
+                    };
+                    (Some(sig), kind_name)
                 }
-
-                for (idx, arg) in args.iter().enumerate() {
-                    let arg_ty = typeck_expr(
-                        source,
-                        env,
-                        arg,
-                        class_names,
-                        classes,
-                        this_class,
-                        allow_this_assignment,
-                        diags,
+                _ => {
+                    diags.push(
+                        Diagnostic::error(*span, "call expressions are not type-checked yet")
+                            .with_help("Phase 3 will type-check functions and calls"),
                     );
-                    if let Some(param_ty) = sig.params.get(idx) {
-                        if arg_ty != Ty::Unknown
-                            && *param_ty != Ty::Unknown
-                            && !is_assignable(&arg_ty, param_ty)
-                        {
-                            diags.push(Diagnostic::error(
-                                span_of_expr(arg),
-                                format!(
-                                    "type mismatch: expected `{}`, got `{}`",
-                                    param_ty.name(),
-                                    arg_ty.name()
-                                ),
-                            ));
-                        }
+                    (None, "unknown".to_string())
+                }
+            };
+
+            let Some(sig) = m_methods else {
+                return Ty::Unknown;
+            };
+
+            if args.len() != sig.params.len() {
+                diags.push(Diagnostic::error(
+                    *span,
+                    format!(
+                        "expected {} argument(s), got {}",
+                        sig.params.len(),
+                        args.len()
+                    ),
+                ));
+            }
+
+            for (idx, arg) in args.iter().enumerate() {
+                let arg_ty = typeck_expr(
+                    source,
+                    env,
+                    arg,
+                    type_defs,
+                    classes,
+                    interfaces,
+                    this_class,
+                    allow_this_assignment,
+                    expr_types,
+                    diags,
+                );
+                if let Some(param_ty) = sig.params.get(idx) {
+                    if arg_ty != Ty::Unknown
+                        && *param_ty != Ty::Unknown
+                        && !is_assignable(&arg_ty, param_ty, classes)
+                    {
+                        diags.push(Diagnostic::error(
+                            span_of_expr(arg),
+                            format!(
+                                "type mismatch: expected `{}`, got `{}`",
+                                param_ty.name(),
+                                arg_ty.name()
+                            ),
+                        ));
                     }
                 }
-
-                sig.return_ty.clone()
-            } else {
-                diags.push(
-                    Diagnostic::error(*span, "call expressions are not type-checked yet")
-                        .with_help("Phase 3 will type-check functions and calls"),
-                );
-                Ty::Unknown
             }
+
+            sig.return_ty.clone()
         }
         Expr::New { class, args, span } => {
             for arg in args {
@@ -1145,18 +1390,25 @@ fn typeck_expr(
                     source,
                     env,
                     arg,
-                    class_names,
+                    type_defs,
                     classes,
+                    interfaces,
                     this_class,
                     allow_this_assignment,
+                    expr_types,
                     diags,
                 );
             }
             let Some(name) = ident_text(source, class) else {
                 return Ty::Unknown;
             };
-            if !class_names.contains(name) {
+            if !type_defs.contains_key(name) {
                 diags.push(Diagnostic::error(*span, format!("unknown class `{name}`")));
+                return Ty::Unknown;
+            }
+            if interfaces.contains_key(name) {
+                diags.push(Diagnostic::error(*span, format!("cannot instantiate interface `{name}`"))
+                    .with_help("interfaces can only be implemented by classes"));
                 return Ty::Unknown;
             }
             Ty::Class(name.to_string())
@@ -1193,7 +1445,10 @@ fn typeck_expr(
                 Ty::Unknown
             }
         }
-    }
+    };
+
+    expr_types.insert(span_of_expr(expr), ty.clone());
+    ty
 }
 
 fn assignment_target(source: &str, expr: &Expr) -> Option<(String, Span)> {
@@ -1239,7 +1494,7 @@ fn is_comparable(a: &Ty, b: &Ty) -> bool {
     a == b || (is_numeric(a) && is_numeric(b))
 }
 
-fn is_assignable(from: &Ty, to: &Ty) -> bool {
+fn is_assignable(from: &Ty, to: &Ty, classes: &HashMap<String, ClassInfo>) -> bool {
     if *from == Ty::Unknown || *to == Ty::Unknown {
         return true;
     }
@@ -1252,6 +1507,13 @@ fn is_assignable(from: &Ty, to: &Ty) -> bool {
         (Ty::I32, Ty::F32) | (Ty::I32, Ty::F64) => true,
         (Ty::I64, Ty::F64) | (Ty::I64, Ty::F32) => true,
         (Ty::F32, Ty::F64) => true,
+        (Ty::Class(cname), Ty::Interface(iname)) => {
+            if let Some(cinfo) = classes.get(cname) {
+                cinfo.implements.contains(iname)
+            } else {
+                false
+            }
+        }
         _ => false,
     }
 }
@@ -1260,7 +1522,7 @@ fn ty_from_type_ref(
     source: &str,
     ty: &TypeRef,
     pos: TypePosition,
-    class_names: &HashSet<String>,
+    type_defs: &HashMap<String, TyDefKind>,
     diags: &mut Vec<Diagnostic>,
 ) -> Ty {
     let Some(name) = ident_text(source, &ty.name) else {
@@ -1281,8 +1543,11 @@ fn ty_from_type_ref(
         return builtin;
     }
 
-    if class_names.contains(name) {
-        return Ty::Class(name.to_string());
+    if let Some(kind) = type_defs.get(name) {
+        match kind {
+            TyDefKind::Class => return Ty::Class(name.to_string()),
+            TyDefKind::Interface => return Ty::Interface(name.to_string()),
+        }
     }
 
     diags.push(
@@ -1323,7 +1588,7 @@ function f(a: i32, b: string): void { return; }
         let out = aura_parser::parse_program(src);
         assert!(out.errors.is_empty(), "{:#?}", out.errors);
 
-        let diags = typeck_program(src, &out.value);
+        let (diags, _) = typeck_program(src, &out.value);
         assert!(diags.is_empty(), "{diags:#?}");
     }
 
@@ -1335,7 +1600,7 @@ function f(a: Foo): i32 { return 0; }
         let out = aura_parser::parse_program(src);
         assert!(out.errors.is_empty(), "{:#?}", out.errors);
 
-        let diags = typeck_program(src, &out.value);
+        let (diags, _) = typeck_program(src, &out.value);
         assert_eq!(diags.len(), 1);
         assert!(diags[0].message.contains("unknown type"));
     }
@@ -1349,7 +1614,7 @@ let x: void = 0;
         let out = aura_parser::parse_program(src);
         assert!(out.errors.is_empty(), "{:#?}", out.errors);
 
-        let diags = typeck_program(src, &out.value);
+        let (diags, _) = typeck_program(src, &out.value);
         assert_eq!(diags.len(), 2, "{diags:#?}");
         assert!(diags
             .iter()
@@ -1367,7 +1632,7 @@ function main(): void {
         let out = aura_parser::parse_program(src);
         assert!(out.errors.is_empty(), "{:#?}", out.errors);
 
-        let diags = typeck_program(src, &out.value);
+        let (diags, _) = typeck_program(src, &out.value);
         assert!(diags.is_empty(), "{diags:#?}");
     }
 
@@ -1381,7 +1646,7 @@ function main(): void {
         let out = aura_parser::parse_program(src);
         assert!(out.errors.is_empty(), "{:#?}", out.errors);
 
-        let diags = typeck_program(src, &out.value);
+        let (diags, _) = typeck_program(src, &out.value);
         assert_eq!(diags.len(), 1, "{diags:#?}");
         assert!(diags[0]
             .message
@@ -1399,7 +1664,7 @@ function main(): void {
         let out = aura_parser::parse_program(src);
         assert!(out.errors.is_empty(), "{:#?}", out.errors);
 
-        let diags = typeck_program(src, &out.value);
+        let (diags, _) = typeck_program(src, &out.value);
         assert!(diags.is_empty(), "{diags:#?}");
     }
 
@@ -1413,7 +1678,7 @@ function main(): void {
         let out = aura_parser::parse_program(src);
         assert!(out.errors.is_empty(), "{:#?}", out.errors);
 
-        let diags = typeck_program(src, &out.value);
+        let (diags, _) = typeck_program(src, &out.value);
         assert_eq!(diags.len(), 1, "{diags:#?}");
         assert!(diags[0].message.contains("type mismatch"));
     }
@@ -1429,7 +1694,7 @@ function main(): void {
         let out = aura_parser::parse_program(src);
         assert!(out.errors.is_empty(), "{:#?}", out.errors);
 
-        let diags = typeck_program(src, &out.value);
+        let (diags, _) = typeck_program(src, &out.value);
         assert_eq!(diags.len(), 1, "{diags:#?}");
         assert!(diags[0].message.contains("cannot assign to `const`"));
     }
@@ -1444,7 +1709,7 @@ function f(): i32 {
         let out = aura_parser::parse_program(src);
         assert!(out.errors.is_empty(), "{:#?}", out.errors);
 
-        let diags = typeck_program(src, &out.value);
+        let (diags, _) = typeck_program(src, &out.value);
         assert_eq!(diags.len(), 1, "{diags:#?}");
         assert!(diags[0].message.contains("missing return"));
     }
@@ -1459,7 +1724,7 @@ function f(): i32 {
         let out = aura_parser::parse_program(src);
         assert!(out.errors.is_empty(), "{:#?}", out.errors);
 
-        let diags = typeck_program(src, &out.value);
+        let (diags, _) = typeck_program(src, &out.value);
         assert_eq!(diags.len(), 1, "{diags:#?}");
         assert!(diags[0].message.contains("type mismatch"));
     }
@@ -1474,7 +1739,7 @@ function f(): void {
         let out = aura_parser::parse_program(src);
         assert!(out.errors.is_empty(), "{:#?}", out.errors);
 
-        let diags = typeck_program(src, &out.value);
+        let (diags, _) = typeck_program(src, &out.value);
         assert_eq!(diags.len(), 1, "{diags:#?}");
         assert!(diags[0].message.contains("cannot return a value"));
     }
@@ -1495,7 +1760,7 @@ class Point {
         let out = aura_parser::parse_program(src);
         assert!(out.errors.is_empty(), "{:#?}", out.errors);
 
-        let diags = typeck_program(src, &out.value);
+        let (diags, _) = typeck_program(src, &out.value);
         assert!(diags.is_empty(), "{diags:#?}");
     }
 
@@ -1513,7 +1778,7 @@ class Point {
         let out = aura_parser::parse_program(src);
         assert!(out.errors.is_empty(), "{:#?}", out.errors);
 
-        let diags = typeck_program(src, &out.value);
+        let (diags, _) = typeck_program(src, &out.value);
         assert_eq!(diags.len(), 1);
         assert!(diags[0].message.contains("only belong in constructors"));
     }
@@ -1533,9 +1798,108 @@ class Foo {
         let out = aura_parser::parse_program(src);
         assert!(out.errors.is_empty(), "{:#?}", out.errors);
 
-        let diags = typeck_program(src, &out.value);
+        let (diags, _) = typeck_program(src, &out.value);
         assert!(diags
             .iter()
             .any(|d| d.message.contains("constructor must return `void`")));
+    }
+
+    #[test]
+    fn accepts_interface_implementation() {
+        let src = r#"
+interface Logger {
+    function log(msg: string): void;
+}
+
+class MyLogger implements Logger {
+    function log(msg: string): void {
+        // ...
+    }
+}
+
+let l: Logger = new MyLogger();
+"#;
+        let out = aura_parser::parse_program(src);
+        assert!(out.errors.is_empty(), "{:#?}", out.errors);
+
+        let (diags, _) = typeck_program(src, &out.value);
+        assert!(diags.is_empty(), "{diags:#?}");
+    }
+
+    #[test]
+    fn rejects_missing_interface_method() {
+        let src = r#"
+interface Logger {
+    function log(msg: string): void;
+}
+
+class MyLogger implements Logger {
+    // Missing log
+}
+"#;
+        let out = aura_parser::parse_program(src);
+        assert!(out.errors.is_empty(), "{:#?}", out.errors);
+
+        let (diags, _) = typeck_program(src, &out.value);
+        assert!(!diags.is_empty(), "Should have diagnostics for missing method");
+        assert!(diags.iter().any(|d| d.message.contains("misses method `log`")));
+    }
+
+    #[test]
+    fn rejects_interface_method_signature_mismatch() {
+        let src = r#"
+interface Logger {
+    function log(msg: string): void;
+}
+
+class MyLogger implements Logger {
+    function log(msg: i32): void { }
+}
+"#;
+        let out = aura_parser::parse_program(src);
+        assert!(out.errors.is_empty(), "{:#?}", out.errors);
+
+        let (diags, _) = typeck_program(src, &out.value);
+        assert!(!diags.is_empty(), "Should have diagnostics for signature mismatch");
+        assert!(diags.iter().any(|d| d.message.contains("does not match interface")));
+    }
+
+    #[test]
+    fn accepts_interface_method_calls() {
+        let src = r#"
+interface Logger {
+    function log(msg: string): void;
+}
+
+class MyLogger implements Logger {
+    function log(msg: string): void { }
+}
+
+function t(l: Logger) {
+    l.log("hello");
+}
+"#;
+        let out = aura_parser::parse_program(src);
+        assert!(out.errors.is_empty(), "{:#?}", out.errors);
+
+        let (diags, _) = typeck_program(src, &out.value);
+        assert!(diags.is_empty(), "{diags:#?}");
+    }
+
+    #[test]
+    fn rejects_interface_instantiation() {
+        let src = r#"
+interface Logger {
+    function log(msg: string): void;
+}
+
+let l = new Logger();
+"#;
+        let out = aura_parser::parse_program(src);
+        assert!(out.errors.is_empty(), "{:#?}", out.errors);
+
+        let (diags, _) = typeck_program(src, &out.value);
+        assert!(!diags.is_empty(), "Should have diagnostics for interface instantiation");
+        assert!(diags.iter().any(|d| d.message.contains("cannot instantiate interface")));
     }
 }
