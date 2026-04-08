@@ -2,6 +2,29 @@ use anyhow::Result;
 use aura_mir::MirProgram;
 use std::path::Path;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BackendKind {
+    Llvm,
+    Clif,
+}
+
+impl BackendKind {
+    pub fn parse(value: &str) -> Result<Self> {
+        match value {
+            "llvm" => Ok(Self::Llvm),
+            "clif" => Ok(Self::Clif),
+            other => anyhow::bail!("unknown backend `{other}` (expected `llvm` or `clif`)"),
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Llvm => "llvm",
+            Self::Clif => "clif",
+        }
+    }
+}
+
 pub trait Backend {
     /// Compiles the MIR program into an object file (`.o`).
     /// Returns the path to the produced object file.

@@ -161,10 +161,10 @@ Backend should be pluggable:
 
 Implementation options:
 
-- **Cranelift**: fast compile, good for early bring-up.
-- **LLVM**: broader optimizations and platform coverage.
+- **LLVM**: the currently implemented backend in this repository.
+- **Cranelift**: planned backend; may exist as a placeholder crate before implementation lands.
 
-Pick one to start (Cranelift is often simpler for MVP), but keep the abstraction so switching/adding backends is possible.
+Keep the abstraction so switching/adding backends is possible. For the current codebase, do not assume Cranelift is available beyond the placeholder wiring.
 
 ## Runtime Architecture (Embedded)
 

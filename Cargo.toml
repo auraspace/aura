@@ -11,6 +11,7 @@ members = [
   "crates/aura-mir",
   "crates/aurac",
   "crates/aura-codegen",
+  "crates/aura-codegen-clif",
   "crates/aura-codegen-llvm",
   "crates/aura-link",
   "runtime/aura-rt",

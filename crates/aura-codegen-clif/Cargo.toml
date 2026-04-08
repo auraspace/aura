@@ -1,0 +1,9 @@
+[package]
+name = "aura-codegen-clif"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+aura-codegen = { path = "../aura-codegen" }
+aura-mir = { path = "../aura-mir" }
+anyhow = "1.0"

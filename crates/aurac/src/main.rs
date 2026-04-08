@@ -19,6 +19,7 @@ DEBUG OPTIONS:
   --emit=llvm     Emit LLVM IR (.ll)
   --emit=asm      Emit assembly (.s)
   --emit=obj      Emit object file (.o)
+  --backend=llvm|clif  Select codegen backend (default: llvm)
 "#;
 
 fn main() {
@@ -36,6 +37,7 @@ fn main() {
     let mut emit_llvm = false;
     let mut emit_asm = false;
     let mut emit_obj = false;
+    let mut backend_kind = aura_codegen::BackendKind::Llvm;
 
     for arg in &args {
         match arg.as_str() {
@@ -53,6 +55,16 @@ fn main() {
             "--emit=llvm" => emit_llvm = true,
             "--emit=asm" => emit_asm = true,
             "--emit=obj" => emit_obj = true,
+            value if value.starts_with("--backend=") => {
+                let backend_name = value.trim_start_matches("--backend=");
+                backend_kind = match aura_codegen::BackendKind::parse(backend_name) {
+                    Ok(kind) => kind,
+                    Err(err) => {
+                        eprintln!("error: {err}");
+                        std::process::exit(2);
+                    }
+                };
+            }
             cmd if command.is_none() && (cmd == "build" || cmd == "check" || cmd == "run") => {
                 command = Some(cmd.to_string());
             }
@@ -150,30 +162,69 @@ fn main() {
 
                     let mir = out.mir.as_ref().expect("MIR should exist if no errors");
 
-                    let context = inkwell::context::Context::create();
+                    if backend_kind == aura_codegen::BackendKind::Clif && (emit_llvm || emit_asm) {
+                        eprintln!(
+                            "error: backend `clif` does not support `--emit=llvm` or `--emit=asm` yet"
+                        );
+                        std::process::exit(1);
+                    }
+
                     let target = aura_codegen::Target::host();
-                    let backend =
-                        aura_codegen_llvm::LlvmBackend::new(&context, "aura_module", &target)
+                    let build_dir = std::path::Path::new(".");
+
+                    let (obj_path, backend_name): (String, &'static str) = match backend_kind {
+                        aura_codegen::BackendKind::Llvm => {
+                            let context = inkwell::context::Context::create();
+                            let backend = aura_codegen_llvm::LlvmBackend::new(
+                                &context,
+                                "aura_module",
+                                &target,
+                            )
                             .expect("Failed to create LLVM backend");
 
-                    let build_dir = std::path::Path::new(".");
-                    let obj_path = backend
-                        .compile(mir, build_dir)
-                        .expect("Failed to compile to object");
+                            let obj_path = match backend.compile(mir, build_dir) {
+                                Ok(path) => path,
+                                Err(err) => {
+                                    eprintln!("error: failed to compile with llvm backend: {err}");
+                                    std::process::exit(1);
+                                }
+                            };
 
-                    if emit_llvm {
-                        backend
-                            .emit_llvm(mir, std::path::Path::new("main.ll"))
-                            .expect("Failed to emit LLVM");
-                    }
-                    if emit_asm {
-                        backend
-                            .emit_asm(mir, std::path::Path::new("main.s"))
-                            .expect("Failed to emit ASM");
-                    }
-                    if emit_obj {
-                        // obj is already at obj_path (main.o)
-                    }
+                            if emit_llvm {
+                                if let Err(err) =
+                                    backend.emit_llvm(mir, std::path::Path::new("main.ll"))
+                                {
+                                    eprintln!("error: failed to emit LLVM: {err}");
+                                    std::process::exit(1);
+                                }
+                            }
+                            if emit_asm {
+                                if let Err(err) =
+                                    backend.emit_asm(mir, std::path::Path::new("main.s"))
+                                {
+                                    eprintln!("error: failed to emit ASM: {err}");
+                                    std::process::exit(1);
+                                }
+                            }
+
+                            if emit_obj {
+                                // obj is already at obj_path (main.o)
+                            }
+
+                            (obj_path, "llvm")
+                        }
+                        aura_codegen::BackendKind::Clif => {
+                            let backend = aura_codegen_clif::ClifBackend::new();
+                            let obj_path = match backend.compile(mir, build_dir) {
+                                Ok(path) => path,
+                                Err(err) => {
+                                    eprintln!("error: failed to compile with clif backend: {err}");
+                                    std::process::exit(1);
+                                }
+                            };
+                            (obj_path, "clif")
+                        }
+                    };
 
                     let linker = aura_link::Linker::new(target.triple);
                     let exe_path = "a.out";
@@ -190,7 +241,10 @@ fn main() {
                             .expect("Failed to run executable");
                         std::process::exit(status.code().unwrap_or(0));
                     } else {
-                        println!("Build successful: {}", exe_path);
+                        println!(
+                            "Build successful with backend {}: {}",
+                            backend_name, exe_path
+                        );
                     }
                 }
                 Err(err) => {

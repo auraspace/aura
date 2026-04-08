@@ -7,9 +7,9 @@ edition.workspace = true
 aura-diagnostics = { path = "../aura-diagnostics" }
 aura-driver = { path = "../aura-driver" }
 aura-codegen = { path = "../aura-codegen" }
+aura-codegen-clif = { path = "../aura-codegen-clif" }
 aura-codegen-llvm = { path = "../aura-codegen-llvm" }
 aura-link = { path = "../aura-link" }
 inkwell = { version = "0.5", features = ["llvm15-0"] }
 anyhow = "1.0"
 aura-mir = { path = "../aura-mir" }
-
