@@ -8,7 +8,7 @@ Create a typed IR suitable for backend codegen.
 
 ## TODO
 
-- [ ] Decide IR staging: introduce HIR (optional) and MIR (recommended)
+- [x] Decide IR staging: introduce HIR (optional) and MIR (recommended) (done 2026-04-08)
 - [ ] HIR: desugar `for` → `while` (if `for` implemented)
 - [ ] MIR: typed temporaries + explicit CFG blocks + terminators
 - [ ] Lower expressions + statements into MIR with explicit evaluation order
