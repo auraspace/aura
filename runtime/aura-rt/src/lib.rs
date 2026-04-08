@@ -75,6 +75,36 @@ pub unsafe extern "C" fn aura_println(str: *mut AuraString) {
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn aura_i32_to_string(val: i32) -> *mut AuraString {
+    let s = val.to_string();
+    aura_string_new_utf8(s.as_ptr(), s.len())
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn aura_i64_to_string(val: i64) -> *mut AuraString {
+    let s = val.to_string();
+    aura_string_new_utf8(s.as_ptr(), s.len())
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn aura_f32_to_string(val: f32) -> *mut AuraString {
+    let s = val.to_string();
+    aura_string_new_utf8(s.as_ptr(), s.len())
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn aura_f64_to_string(val: f64) -> *mut AuraString {
+    let s = val.to_string();
+    aura_string_new_utf8(s.as_ptr(), s.len())
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn aura_bool_to_string(val: bool) -> *mut AuraString {
+    let s = val.to_string();
+    aura_string_new_utf8(s.as_ptr(), s.len())
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn aura_panic(msg_ptr: *const u8, msg_len: usize) -> ! {
     let s = std::slice::from_raw_parts(msg_ptr, msg_len);
     let msg = std::str::from_utf8(s).unwrap_or("unknown panic");

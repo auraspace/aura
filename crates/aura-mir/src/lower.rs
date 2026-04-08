@@ -224,14 +224,15 @@ impl MirBuilder {
                 let _ = self.lower_expr(lowerer, &s.expr);
             }
             Stmt::Return(s) => {
+                let return_ty = self.locals[0].ty.clone();
                 let op = s
                     .value
                     .as_ref()
-                    .map(|v| self.lower_expr_to_operand(lowerer, v));
+                    .map(|v| self.lower_expr_to_operand(lowerer, v, Some(&return_ty)));
                 self.terminate(Terminator::Return(op));
             }
             Stmt::If(s) => {
-                let cond = self.lower_expr_to_operand(lowerer, &s.cond);
+                let cond = self.lower_expr_to_operand(lowerer, &s.cond, Some(&Ty::Bool));
                 let then_id = self.new_block();
                 let join_id = self.new_block();
                 let else_id = s
@@ -264,12 +265,13 @@ impl MirBuilder {
                 let cond_id = self.new_block();
                 let body_id = self.new_block();
                 let exit_id = self.new_block();
+                let _cond_span = self.span_of_expr(&s.cond);
 
                 self.terminate(Terminator::Goto(cond_id));
 
                 // Cond block
                 self.current_block = cond_id;
-                let cond = self.lower_expr_to_operand(lowerer, &s.cond);
+                let cond = self.lower_expr_to_operand(lowerer, &s.cond, Some(&Ty::Bool));
                 self.terminate(Terminator::SwitchInt {
                     discr: cond,
                     targets: vec![(1, body_id)],
@@ -335,8 +337,12 @@ impl MirBuilder {
                 match op {
                     BinaryOp::AndAnd => {
                         let result_ty = Ty::Bool;
-                        let result_local =
-                            self.declare_local(result_ty, None, self.span_of_expr(expr), LocalKind::Temp);
+                        let result_local = self.declare_local(
+                            result_ty,
+                            None,
+                            self.span_of_expr(expr),
+                            LocalKind::Temp,
+                        );
                         let result_lval = Lvalue::Local(result_local);
 
                         let then_id = self.new_block();
@@ -344,7 +350,7 @@ impl MirBuilder {
                         let join_id = self.new_block();
 
                         // Evaluate left
-                        let lop = self.lower_expr_to_operand(lowerer, left);
+                        let lop = self.lower_expr_to_operand(lowerer, left, Some(&Ty::Bool));
                         self.terminate(Terminator::SwitchInt {
                             discr: lop,
                             targets: vec![(1, then_id)],
@@ -353,7 +359,7 @@ impl MirBuilder {
 
                         // Left was true: evaluate right and assign to result
                         self.current_block = then_id;
-                        let rop = self.lower_expr_to_operand(lowerer, right);
+                        let rop = self.lower_expr_to_operand(lowerer, right, Some(&Ty::Bool));
                         self.push_stmt(Statement::Assign(result_lval.clone(), Rvalue::Use(rop)));
                         self.terminate(Terminator::Goto(join_id));
 
@@ -369,15 +375,19 @@ impl MirBuilder {
                         return Rvalue::Use(Operand::Move(result_lval));
                     }
                     BinaryOp::OrOr => {
-                        let result_local =
-                            self.declare_local(Ty::Bool, None, self.span_of_expr(expr), LocalKind::Temp);
+                        let result_local = self.declare_local(
+                            Ty::Bool,
+                            None,
+                            self.span_of_expr(expr),
+                            LocalKind::Temp,
+                        );
                         let result_lval = Lvalue::Local(result_local);
 
                         let then_id = self.new_block();
                         let else_id = self.new_block();
                         let join_id = self.new_block();
 
-                        let lop = self.lower_expr_to_operand(lowerer, left);
+                        let lop = self.lower_expr_to_operand(lowerer, left, Some(&Ty::Bool));
                         self.terminate(Terminator::SwitchInt {
                             discr: lop,
                             targets: vec![(1, then_id)], // If true, result is true
@@ -394,7 +404,7 @@ impl MirBuilder {
 
                         // Left was false: evaluate right
                         self.current_block = else_id;
-                        let rop = self.lower_expr_to_operand(lowerer, right);
+                        let rop = self.lower_expr_to_operand(lowerer, right, Some(&Ty::Bool));
                         self.push_stmt(Statement::Assign(result_lval.clone(), Rvalue::Use(rop)));
                         self.terminate(Terminator::Goto(join_id));
 
@@ -402,27 +412,43 @@ impl MirBuilder {
                         return Rvalue::Use(Operand::Move(result_lval));
                     }
                     _ => {
-                        let lop = self.lower_expr_to_operand(lowerer, left);
-                        let rop = self.lower_expr_to_operand(lowerer, right);
+                        let lop = self.lower_expr_to_operand(lowerer, left, None);
+                        let rop = self.lower_expr_to_operand(lowerer, right, None);
                         Rvalue::BinaryOp(*op, lop, rop)
                     }
                 }
             }
             Expr::Unary { op, expr, .. } => {
-                let op_val = self.lower_expr_to_operand(lowerer, expr);
+                let op_val = self.lower_expr_to_operand(lowerer, expr, None);
                 Rvalue::UnaryOp(*op, op_val)
             }
             Expr::Assign { target, value, .. } => {
                 let lval = self.lower_expr_to_lvalue(lowerer, target);
-                let val_op = self.lower_expr_to_operand(lowerer, value);
+                let target_ty = lowerer
+                    .typed_program
+                    .expression_types
+                    .get(&self.span_of_expr(target));
+                let val_op = self.lower_expr_to_operand(lowerer, value, target_ty);
                 self.push_stmt(Statement::Assign(lval.clone(), Rvalue::Use(val_op.clone())));
                 Rvalue::Use(val_op)
             }
             Expr::Call { callee, args, span } => {
-                let callee_op = self.lower_expr_to_operand(lowerer, callee);
+                let callee_ty = lowerer
+                    .typed_program
+                    .expression_types
+                    .get(&self.span_of_expr(callee))
+                    .cloned();
+                let params = if let Some(Ty::Function(sig)) = callee_ty {
+                    sig.params.clone()
+                } else {
+                    vec![]
+                };
+
+                let callee_op = self.lower_expr_to_operand(lowerer, callee, None);
                 let arg_ops: Vec<_> = args
                     .iter()
-                    .map(|a| self.lower_expr_to_operand(lowerer, a))
+                    .enumerate()
+                    .map(|(i, a)| self.lower_expr_to_operand(lowerer, a, params.get(i)))
                     .collect();
 
                 let dest_ty = lowerer
@@ -466,7 +492,7 @@ impl MirBuilder {
                 // For now, let's treat it as a special Call.
                 let arg_ops: Vec<_> = args
                     .iter()
-                    .map(|a| self.lower_expr_to_operand(lowerer, a))
+                    .map(|a| self.lower_expr_to_operand(lowerer, a, None)) // TODO: Get constructor params
                     .collect();
                 let dest_ty = Ty::Class(lowerer.ident_text(class).to_string());
                 let destination = self.declare_local(dest_ty, None, *span, LocalKind::Temp);
@@ -497,24 +523,107 @@ impl MirBuilder {
         }
     }
 
-    fn lower_expr_to_operand(&mut self, lowerer: &Lowerer, expr: &Expr) -> Operand {
+    fn lower_expr_to_operand(
+        &mut self,
+        lowerer: &Lowerer,
+        expr: &Expr,
+        target_ty: Option<&Ty>,
+    ) -> Operand {
         let span = self.span_of_expr(expr);
         let rvalue = self.lower_expr(lowerer, expr);
+
+        let expr_ty = lowerer
+            .typed_program
+            .expression_types
+            .get(&span)
+            .cloned()
+            .unwrap_or(Ty::Unknown);
+
+        // Handle implicit string coercion
+        if let Some(Ty::String) = target_ty {
+            if expr_ty != Ty::String && expr_ty != Ty::Unknown {
+                let op = match rvalue {
+                    Rvalue::Use(op) => op,
+                    _ => {
+                        let temp = self.declare_local(expr_ty.clone(), None, span, LocalKind::Temp);
+                        self.push_stmt(Statement::Assign(Lvalue::Local(temp), rvalue));
+                        Operand::Move(Lvalue::Local(temp))
+                    }
+                };
+                return self.coerce_to_string(lowerer, op, &expr_ty, span);
+            }
+        }
+
         match rvalue {
             Rvalue::Use(op) => op,
             _ => {
                 // If it's a complex rvalue, evaluate it into a temporary.
-                let ty = lowerer
-                    .typed_program
-                    .expression_types
-                    .get(&span)
-                    .cloned()
-                    .unwrap_or(Ty::Unknown);
-                let temp = self.declare_local(ty, None, span, LocalKind::Temp);
+                let temp = self.declare_local(expr_ty, None, span, LocalKind::Temp);
                 let lval = Lvalue::Local(temp);
                 self.push_stmt(Statement::Assign(lval.clone(), rvalue));
                 Operand::Move(lval)
             }
+        }
+    }
+
+    fn coerce_to_string(
+        &mut self,
+        _lowerer: &Lowerer,
+        op: Operand,
+        from_ty: &Ty,
+        span: Span,
+    ) -> Operand {
+        match from_ty {
+            Ty::I32 | Ty::I64 | Ty::F32 | Ty::F64 | Ty::Bool => {
+                let runtime_func = match from_ty {
+                    Ty::I32 => "aura_i32_to_string",
+                    Ty::I64 => "aura_i64_to_string",
+                    Ty::F32 => "aura_f32_to_string",
+                    Ty::F64 => "aura_f64_to_string",
+                    Ty::Bool => "aura_bool_to_string",
+                    _ => unreachable!(),
+                };
+
+                let temp = self.declare_local(Ty::String, None, span, LocalKind::Temp);
+                let next_id = self.new_block();
+                self.terminate(Terminator::Call {
+                    callee: Operand::Constant(Constant::String(runtime_func.to_string())),
+                    args: vec![op],
+                    destination: Lvalue::Local(temp),
+                    target: next_id,
+                });
+                self.current_block = next_id;
+                Operand::Move(Lvalue::Local(temp))
+            }
+            Ty::Class(_) => {
+                // Call .toString()
+                let temp = self.declare_local(Ty::String, None, span, LocalKind::Temp);
+                let next_id = self.new_block();
+
+                // Lower class instance operand to Lvalue if needed
+                let obj_lval = match op {
+                    Operand::Copy(l) | Operand::Move(l) => l,
+                    _ => {
+                        let obj_temp =
+                            self.declare_local(from_ty.clone(), None, span, LocalKind::Temp);
+                        self.push_stmt(Statement::Assign(Lvalue::Local(obj_temp), Rvalue::Use(op)));
+                        Lvalue::Local(obj_temp)
+                    }
+                };
+
+                self.terminate(Terminator::Call {
+                    callee: Operand::Copy(Lvalue::Field(
+                        Box::new(obj_lval),
+                        "toString".to_string(),
+                    )),
+                    args: vec![],
+                    destination: Lvalue::Local(temp),
+                    target: next_id,
+                });
+                self.current_block = next_id;
+                Operand::Move(Lvalue::Local(temp))
+            }
+            _ => op,
         }
     }
 
@@ -547,7 +656,7 @@ impl MirBuilder {
             }
             _ => {
                 // For complex expressions (like calls), evaluate into a temporary then use as Lvalue
-                let op = self.lower_expr_to_operand(lowerer, expr);
+                let op = self.lower_expr_to_operand(lowerer, expr, None);
                 match op {
                     Operand::Copy(lval) | Operand::Move(lval) => lval,
                     Operand::Constant(_) => {

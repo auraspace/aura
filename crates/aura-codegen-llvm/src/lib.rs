@@ -1,10 +1,13 @@
 use anyhow::Result;
 use aura_codegen::{Backend, Target};
-use aura_mir::{MirFunction, MirProgram, Statement, Terminator, Lvalue, Rvalue, Operand, Constant};
+use aura_mir::{Constant, Lvalue, MirFunction, MirProgram, Operand, Rvalue, Statement, Terminator};
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::Module;
-use inkwell::targets::{CodeModel, FileType, InitializationConfig, RelocMode, Target as LlvmTarget, TargetMachine, TargetTriple};
+use inkwell::targets::{
+    CodeModel, FileType, InitializationConfig, RelocMode, Target as LlvmTarget, TargetMachine,
+    TargetTriple,
+};
 use inkwell::types::{BasicType, BasicTypeEnum};
 use inkwell::values::{BasicValue, BasicValueEnum, FunctionValue, PointerValue};
 use inkwell::OptimizationLevel;
@@ -26,7 +29,8 @@ impl<'ctx> LlvmBackend<'ctx> {
         LlvmTarget::initialize_all(&InitializationConfig::default());
 
         let triple = TargetTriple::create(&target.triple);
-        let target = LlvmTarget::from_triple(&triple).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+        let target =
+            LlvmTarget::from_triple(&triple).map_err(|e| anyhow::anyhow!(e.to_string()))?;
         let target_machine = target
             .create_target_machine(
                 &triple,
@@ -56,12 +60,11 @@ impl<'ctx> LlvmBackend<'ctx> {
             aura_typeck::Ty::F32 => self.context.f32_type().as_basic_type_enum(),
             aura_typeck::Ty::F64 => self.context.f64_type().as_basic_type_enum(),
             aura_typeck::Ty::Bool => self.context.bool_type().as_basic_type_enum(),
-            aura_typeck::Ty::Void => {
-                self.context.i8_type().as_basic_type_enum()
-            }
-            aura_typeck::Ty::String | aura_typeck::Ty::Class(_) => {
-                self.context.ptr_type(inkwell::AddressSpace::default()).as_basic_type_enum()
-            }
+            aura_typeck::Ty::Void => self.context.i8_type().as_basic_type_enum(),
+            aura_typeck::Ty::String | aura_typeck::Ty::Class(_) => self
+                .context
+                .ptr_type(inkwell::AddressSpace::default())
+                .as_basic_type_enum(),
             _ => self.context.i8_type().as_basic_type_enum(),
         }
     }
@@ -69,7 +72,7 @@ impl<'ctx> LlvmBackend<'ctx> {
     fn compile_function(&self, func: &MirFunction) -> Result<FunctionValue<'ctx>> {
         let ret_ty_aura = &func.locals[0].ty;
         let ret_type_llvm = self.aura_to_llvm_type(ret_ty_aura);
-        
+
         let mut arg_types = Vec::new();
         for local in &func.locals {
             if local.kind == aura_mir::LocalKind::Arg {
@@ -84,13 +87,16 @@ impl<'ctx> LlvmBackend<'ctx> {
         };
 
         // Reuse if already declared (e.g. built-ins)
-        let llvm_func = self.module.get_function(&func.name).unwrap_or_else(|| {
-            self.module.add_function(&func.name, fn_type, None)
-        });
-        
+        let llvm_func = self
+            .module
+            .get_function(&func.name)
+            .unwrap_or_else(|| self.module.add_function(&func.name, fn_type, None));
+
         let mut blocks = HashMap::new();
         for mir_bb in &func.blocks {
-            let llvm_bb = self.context.append_basic_block(llvm_func, &format!("bb{}", mir_bb.id));
+            let llvm_bb = self
+                .context
+                .append_basic_block(llvm_func, &format!("bb{}", mir_bb.id));
             blocks.insert(mir_bb.id, llvm_bb);
         }
 
@@ -100,7 +106,9 @@ impl<'ctx> LlvmBackend<'ctx> {
         // Allocate all locals
         for (i, local) in func.locals.iter().enumerate() {
             let ty = self.aura_to_llvm_type(&local.ty);
-            let ptr = self.builder.build_alloca(ty, local.name.as_deref().unwrap_or(""))?;
+            let ptr = self
+                .builder
+                .build_alloca(ty, local.name.as_deref().unwrap_or(""))?;
             locals.insert(i, ptr);
         }
 
@@ -117,7 +125,7 @@ impl<'ctx> LlvmBackend<'ctx> {
         // Lower blocks
         for mir_bb in &func.blocks {
             self.builder.position_at_end(blocks[&mir_bb.id]);
-            
+
             for stmt in &mir_bb.statements {
                 match stmt {
                     Statement::Assign(lval, rvalue) => {
@@ -141,28 +149,59 @@ impl<'ctx> LlvmBackend<'ctx> {
                             self.builder.build_return(None)?;
                         }
                     }
-                    Terminator::SwitchInt { discr, targets, otherwise } => {
+                    Terminator::SwitchInt {
+                        discr,
+                        targets,
+                        otherwise,
+                    } => {
                         let llvm_discr = self.lower_operand(discr, &locals, func)?.into_int_value();
                         let mut cases = Vec::new();
                         for (val, target) in targets {
-                            cases.push((self.context.i64_type().const_int(*val as u64, false), blocks[target]));
+                            cases.push((
+                                self.context.i64_type().const_int(*val as u64, false),
+                                blocks[target],
+                            ));
                         }
-                        self.builder.build_switch(llvm_discr, blocks[otherwise], &cases)?;
+                        self.builder
+                            .build_switch(llvm_discr, blocks[otherwise], &cases)?;
                     }
-                    Terminator::Call { callee, args, destination, target } => {
+                    Terminator::Call {
+                        callee,
+                        args,
+                        destination,
+                        target,
+                    } => {
                         let callee_name = match callee {
                             Operand::Constant(Constant::String(name)) => name.clone(),
                             _ => "unknown".to_string(),
                         };
 
                         let llvm_callee = self.get_or_declare_func(&callee_name)?;
+                        let param_types = llvm_callee.get_type().get_param_types();
                         let mut llvm_args = Vec::new();
-                        for arg in args {
-                            llvm_args.push(self.lower_operand(arg, &locals, func)?.into());
+                        for (i, arg) in args.iter().enumerate() {
+                            let mut val = self.lower_operand(arg, &locals, func)?;
+                            if let Some(param_ty) = param_types.get(i) {
+                                if val.get_type() != *param_ty {
+                                    if val.is_int_value() && param_ty.is_int_type() {
+                                        val = self
+                                            .builder
+                                            .build_int_cast(
+                                                val.into_int_value(),
+                                                param_ty.into_int_type(),
+                                                "arg_cast",
+                                            )?
+                                            .into();
+                                    }
+                                }
+                            }
+                            llvm_args.push(val.into());
                         }
 
-                        let call_site = self.builder.build_call(llvm_callee, &llvm_args, "calltmp")?;
-                        
+                        let call_site =
+                            self.builder
+                                .build_call(llvm_callee, &llvm_args, "calltmp")?;
+
                         let dest_ptr = self.lower_lvalue(destination, &locals)?;
                         if let Some(val) = call_site.try_as_basic_value().left() {
                             self.builder.build_store(dest_ptr, val)?;
@@ -185,24 +224,51 @@ impl<'ctx> LlvmBackend<'ctx> {
             return Ok(f);
         }
 
-        // Handle built-ins
-        if name == "println" {
-            // Map aura println to aura_rt's aura_println
-            let rt_name = "aura_println";
-            if let Some(f) = self.module.get_function(rt_name) {
-                return Ok(f);
-            }
-            let ptr_type = self.context.ptr_type(inkwell::AddressSpace::default());
-            let fn_type = self.context.void_type().fn_type(&[ptr_type.into()], false);
-            return Ok(self.module.add_function(rt_name, fn_type, None));
-        }
+        let ptr_type = self.context.ptr_type(inkwell::AddressSpace::default());
 
-        // Generic declaration placeholder
-        let fn_type = self.context.void_type().fn_type(&[], false);
-        Ok(self.module.add_function(name, fn_type, None))
+        // Handle built-ins and runtime helpers
+        match name {
+            "println" => {
+                let rt_name = "aura_println";
+                if let Some(f) = self.module.get_function(rt_name) {
+                    return Ok(f);
+                }
+                let fn_type = self.context.void_type().fn_type(&[ptr_type.into()], false);
+                Ok(self.module.add_function(rt_name, fn_type, None))
+            }
+            "aura_i32_to_string" => {
+                let fn_type = ptr_type.fn_type(&[self.context.i32_type().into()], false);
+                Ok(self.module.add_function(name, fn_type, None))
+            }
+            "aura_i64_to_string" => {
+                let fn_type = ptr_type.fn_type(&[self.context.i64_type().into()], false);
+                Ok(self.module.add_function(name, fn_type, None))
+            }
+            "aura_f32_to_string" => {
+                let fn_type = ptr_type.fn_type(&[self.context.f32_type().into()], false);
+                Ok(self.module.add_function(name, fn_type, None))
+            }
+            "aura_f64_to_string" => {
+                let fn_type = ptr_type.fn_type(&[self.context.f64_type().into()], false);
+                Ok(self.module.add_function(name, fn_type, None))
+            }
+            "aura_bool_to_string" => {
+                let fn_type = ptr_type.fn_type(&[self.context.bool_type().into()], false);
+                Ok(self.module.add_function(name, fn_type, None))
+            }
+            _ => {
+                // Generic declaration placeholder
+                let fn_type = self.context.void_type().fn_type(&[], false);
+                Ok(self.module.add_function(name, fn_type, None))
+            }
+        }
     }
 
-    fn lower_lvalue(&self, lval: &Lvalue, locals: &HashMap<usize, PointerValue<'ctx>>) -> Result<PointerValue<'ctx>> {
+    fn lower_lvalue(
+        &self,
+        lval: &Lvalue,
+        locals: &HashMap<usize, PointerValue<'ctx>>,
+    ) -> Result<PointerValue<'ctx>> {
         match lval {
             Lvalue::Local(id) => Ok(locals[id]),
             Lvalue::Field(base, _field_name) => {
@@ -212,43 +278,101 @@ impl<'ctx> LlvmBackend<'ctx> {
         }
     }
 
-    fn lower_rvalue(&self, rvalue: &Rvalue, locals: &HashMap<usize, PointerValue<'ctx>>, func_mir: &MirFunction) -> Result<BasicValueEnum<'ctx>> {
+    fn lower_rvalue(
+        &self,
+        rvalue: &Rvalue,
+        locals: &HashMap<usize, PointerValue<'ctx>>,
+        func_mir: &MirFunction,
+    ) -> Result<BasicValueEnum<'ctx>> {
         match rvalue {
             Rvalue::Use(op) => self.lower_operand(op, locals, func_mir),
             Rvalue::BinaryOp(op, left, right) => {
                 let lop = self.lower_operand(left, locals, func_mir)?;
                 let rop = self.lower_operand(right, locals, func_mir)?;
-                
+
                 if lop.is_int_value() {
                     let lhs = lop.into_int_value();
                     let rhs = rop.into_int_value();
                     match op {
-                        aura_ast::BinaryOp::Add => Ok(self.builder.build_int_add(lhs, rhs, "addtmp")?.into()),
-                        aura_ast::BinaryOp::Sub => Ok(self.builder.build_int_sub(lhs, rhs, "subtmp")?.into()),
-                        aura_ast::BinaryOp::Mul => Ok(self.builder.build_int_mul(lhs, rhs, "multmp")?.into()),
-                        aura_ast::BinaryOp::Div => Ok(self.builder.build_int_signed_div(lhs, rhs, "divtmp")?.into()),
-                        aura_ast::BinaryOp::EqEq => Ok(self.builder.build_int_compare(inkwell::IntPredicate::EQ, lhs, rhs, "eqtmp")?.into()),
-                        aura_ast::BinaryOp::NotEq => Ok(self.builder.build_int_compare(inkwell::IntPredicate::NE, lhs, rhs, "netmp")?.into()),
-                        aura_ast::BinaryOp::Lt => Ok(self.builder.build_int_compare(inkwell::IntPredicate::SLT, lhs, rhs, "lttmp")?.into()),
-                        aura_ast::BinaryOp::LtEq => Ok(self.builder.build_int_compare(inkwell::IntPredicate::SLE, lhs, rhs, "ltetmp")?.into()),
-                        aura_ast::BinaryOp::Gt => Ok(self.builder.build_int_compare(inkwell::IntPredicate::SGT, lhs, rhs, "gttmp")?.into()),
-                        aura_ast::BinaryOp::GtEq => Ok(self.builder.build_int_compare(inkwell::IntPredicate::SGE, lhs, rhs, "gtetmp")?.into()),
+                        aura_ast::BinaryOp::Add => {
+                            Ok(self.builder.build_int_add(lhs, rhs, "addtmp")?.into())
+                        }
+                        aura_ast::BinaryOp::Sub => {
+                            Ok(self.builder.build_int_sub(lhs, rhs, "subtmp")?.into())
+                        }
+                        aura_ast::BinaryOp::Mul => {
+                            Ok(self.builder.build_int_mul(lhs, rhs, "multmp")?.into())
+                        }
+                        aura_ast::BinaryOp::Div => Ok(self
+                            .builder
+                            .build_int_signed_div(lhs, rhs, "divtmp")?
+                            .into()),
+                        aura_ast::BinaryOp::EqEq => Ok(self
+                            .builder
+                            .build_int_compare(inkwell::IntPredicate::EQ, lhs, rhs, "eqtmp")?
+                            .into()),
+                        aura_ast::BinaryOp::NotEq => Ok(self
+                            .builder
+                            .build_int_compare(inkwell::IntPredicate::NE, lhs, rhs, "netmp")?
+                            .into()),
+                        aura_ast::BinaryOp::Lt => Ok(self
+                            .builder
+                            .build_int_compare(inkwell::IntPredicate::SLT, lhs, rhs, "lttmp")?
+                            .into()),
+                        aura_ast::BinaryOp::LtEq => Ok(self
+                            .builder
+                            .build_int_compare(inkwell::IntPredicate::SLE, lhs, rhs, "ltetmp")?
+                            .into()),
+                        aura_ast::BinaryOp::Gt => Ok(self
+                            .builder
+                            .build_int_compare(inkwell::IntPredicate::SGT, lhs, rhs, "gttmp")?
+                            .into()),
+                        aura_ast::BinaryOp::GtEq => Ok(self
+                            .builder
+                            .build_int_compare(inkwell::IntPredicate::SGE, lhs, rhs, "gtetmp")?
+                            .into()),
                         _ => Ok(lop),
                     }
                 } else if lop.is_float_value() {
                     let lhs = lop.into_float_value();
                     let rhs = rop.into_float_value();
                     match op {
-                        aura_ast::BinaryOp::Add => Ok(self.builder.build_float_add(lhs, rhs, "faddtmp")?.into()),
-                        aura_ast::BinaryOp::Sub => Ok(self.builder.build_float_sub(lhs, rhs, "fsubtmp")?.into()),
-                        aura_ast::BinaryOp::Mul => Ok(self.builder.build_float_mul(lhs, rhs, "fmultmp")?.into()),
-                        aura_ast::BinaryOp::Div => Ok(self.builder.build_float_div(lhs, rhs, "fdivtmp")?.into()),
-                        aura_ast::BinaryOp::EqEq => Ok(self.builder.build_float_compare(inkwell::FloatPredicate::OEQ, lhs, rhs, "feqtmp")?.into()),
-                        aura_ast::BinaryOp::NotEq => Ok(self.builder.build_float_compare(inkwell::FloatPredicate::UNE, lhs, rhs, "fnetmp")?.into()),
-                        aura_ast::BinaryOp::Lt => Ok(self.builder.build_float_compare(inkwell::FloatPredicate::OLT, lhs, rhs, "flttmp")?.into()),
-                        aura_ast::BinaryOp::LtEq => Ok(self.builder.build_float_compare(inkwell::FloatPredicate::OLE, lhs, rhs, "fletmp")?.into()),
-                        aura_ast::BinaryOp::Gt => Ok(self.builder.build_float_compare(inkwell::FloatPredicate::OGT, lhs, rhs, "fgttmp")?.into()),
-                        aura_ast::BinaryOp::GtEq => Ok(self.builder.build_float_compare(inkwell::FloatPredicate::OGE, lhs, rhs, "fgetmp")?.into()),
+                        aura_ast::BinaryOp::Add => {
+                            Ok(self.builder.build_float_add(lhs, rhs, "faddtmp")?.into())
+                        }
+                        aura_ast::BinaryOp::Sub => {
+                            Ok(self.builder.build_float_sub(lhs, rhs, "fsubtmp")?.into())
+                        }
+                        aura_ast::BinaryOp::Mul => {
+                            Ok(self.builder.build_float_mul(lhs, rhs, "fmultmp")?.into())
+                        }
+                        aura_ast::BinaryOp::Div => {
+                            Ok(self.builder.build_float_div(lhs, rhs, "fdivtmp")?.into())
+                        }
+                        aura_ast::BinaryOp::EqEq => Ok(self
+                            .builder
+                            .build_float_compare(inkwell::FloatPredicate::OEQ, lhs, rhs, "feqtmp")?
+                            .into()),
+                        aura_ast::BinaryOp::NotEq => Ok(self
+                            .builder
+                            .build_float_compare(inkwell::FloatPredicate::UNE, lhs, rhs, "fnetmp")?
+                            .into()),
+                        aura_ast::BinaryOp::Lt => Ok(self
+                            .builder
+                            .build_float_compare(inkwell::FloatPredicate::OLT, lhs, rhs, "flttmp")?
+                            .into()),
+                        aura_ast::BinaryOp::LtEq => Ok(self
+                            .builder
+                            .build_float_compare(inkwell::FloatPredicate::OLE, lhs, rhs, "fletmp")?
+                            .into()),
+                        aura_ast::BinaryOp::Gt => Ok(self
+                            .builder
+                            .build_float_compare(inkwell::FloatPredicate::OGT, lhs, rhs, "fgttmp")?
+                            .into()),
+                        aura_ast::BinaryOp::GtEq => Ok(self
+                            .builder
+                            .build_float_compare(inkwell::FloatPredicate::OGE, lhs, rhs, "fgetmp")?
+                            .into()),
                         _ => Ok(lop),
                     }
                 } else {
@@ -260,9 +384,15 @@ impl<'ctx> LlvmBackend<'ctx> {
                 match op {
                     aura_ast::UnaryOp::Neg => {
                         if v.is_int_value() {
-                            Ok(self.builder.build_int_neg(v.into_int_value(), "negtmp")?.into())
+                            Ok(self
+                                .builder
+                                .build_int_neg(v.into_int_value(), "negtmp")?
+                                .into())
                         } else {
-                            Ok(self.builder.build_float_neg(v.into_float_value(), "fnegtmp")?.into())
+                            Ok(self
+                                .builder
+                                .build_float_neg(v.into_float_value(), "fnegtmp")?
+                                .into())
                         }
                     }
                     aura_ast::UnaryOp::Not => {
@@ -270,13 +400,16 @@ impl<'ctx> LlvmBackend<'ctx> {
                     }
                 }
             }
-            _ => {
-                Ok(self.context.i64_type().const_int(0, false).into())
-            }
+            _ => Ok(self.context.i64_type().const_int(0, false).into()),
         }
     }
 
-    fn lower_operand(&self, op: &Operand, locals: &HashMap<usize, PointerValue<'ctx>>, func_mir: &MirFunction) -> Result<BasicValueEnum<'ctx>> {
+    fn lower_operand(
+        &self,
+        op: &Operand,
+        locals: &HashMap<usize, PointerValue<'ctx>>,
+        func_mir: &MirFunction,
+    ) -> Result<BasicValueEnum<'ctx>> {
         match op {
             Operand::Copy(lval) | Operand::Move(lval) => {
                 let ptr = self.lower_lvalue(lval, locals)?;
@@ -286,17 +419,25 @@ impl<'ctx> LlvmBackend<'ctx> {
             }
             Operand::Constant(c) => {
                 match c {
-                    Constant::Int(v) => Ok(self.context.i64_type().const_int(*v as u64, false).into()),
+                    Constant::Int(v) => {
+                        Ok(self.context.i64_type().const_int(*v as u64, false).into())
+                    }
                     Constant::Float(v) => Ok(self.context.f64_type().const_float(*v).into()),
-                    Constant::Bool(v) => Ok(self.context.bool_type().const_int(*v as u64, false).into()),
+                    Constant::Bool(v) => {
+                        Ok(self.context.bool_type().const_int(*v as u64, false).into())
+                    }
                     Constant::String(s) => {
                         // For MVP strings, call aura_string_new_utf8
                         let rt_new_str = self.get_or_declare_string_new_utf8()?;
-                        
+
                         let global_str = self.builder.build_global_string_ptr(s, "str_lit")?;
                         let len = self.context.i64_type().const_int(s.len() as u64, false);
-                        
-                        let call = self.builder.build_call(rt_new_str, &[global_str.as_basic_value_enum().into(), len.into()], "str_new")?;
+
+                        let call = self.builder.build_call(
+                            rt_new_str,
+                            &[global_str.as_basic_value_enum().into(), len.into()],
+                            "str_new",
+                        )?;
                         Ok(call.try_as_basic_value().left().unwrap())
                     }
                 }
@@ -318,9 +459,7 @@ impl<'ctx> LlvmBackend<'ctx> {
     fn get_lvalue_type(&self, lval: &Lvalue, func: &MirFunction) -> aura_typeck::Ty {
         match lval {
             Lvalue::Local(id) => func.locals[*id].ty.clone(),
-            Lvalue::Field(base, _name) => {
-                self.get_lvalue_type(base, func)
-            }
+            Lvalue::Field(base, _name) => self.get_lvalue_type(base, func),
         }
     }
 }
@@ -340,7 +479,9 @@ impl<'ctx> Backend for LlvmBackend<'ctx> {
     }
 
     fn emit_llvm(&self, _program: &MirProgram, out_path: &Path) -> Result<()> {
-        self.module.print_to_file(out_path).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+        self.module
+            .print_to_file(out_path)
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
         Ok(())
     }
 

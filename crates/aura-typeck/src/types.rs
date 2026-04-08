@@ -122,6 +122,25 @@ pub(crate) fn is_assignable(from: &Ty, to: &Ty, classes: &HashMap<String, ClassI
                 false
             }
         }
+        (_, Ty::String) => is_stringable(from, classes),
+        _ => false,
+    }
+}
+
+pub(crate) fn is_stringable(ty: &Ty, classes: &HashMap<String, ClassInfo>) -> bool {
+    match ty {
+        Ty::I32 | Ty::I64 | Ty::F32 | Ty::F64 | Ty::Bool => true,
+        Ty::Class(cname) => {
+            if let Some(cinfo) = classes.get(cname) {
+                if let Some(msig) = cinfo.methods.get("toString") {
+                    msig.params.is_empty() && msig.return_ty == Ty::String
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        }
         _ => false,
     }
 }

@@ -1,0 +1,22 @@
+class Person {
+    name: string;
+    age: i32;
+
+    function toString(): string {
+        return "Person(name=" + this.name + ", age=" + this.age + ")";
+    }
+}
+
+function main(): void {
+    println(123);
+    println(3.14);
+    println(true);
+    
+    let x: string = 456;
+    println(x);
+
+    let p = new Person();
+    p.name = "Aura";
+    p.age = 1;
+    println(p); // Should implicitly call toString()
+}

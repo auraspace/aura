@@ -156,8 +156,10 @@ fn main() {
                         aura_codegen_llvm::LlvmBackend::new(&context, "aura_module", &target)
                             .expect("Failed to create LLVM backend");
 
-                    let _out_path = std::path::Path::new("main.o");
                     let build_dir = std::path::Path::new(".");
+                    let obj_path = backend
+                        .compile(mir, build_dir)
+                        .expect("Failed to compile to object");
 
                     if emit_llvm {
                         backend
@@ -169,10 +171,6 @@ fn main() {
                             .emit_asm(mir, std::path::Path::new("main.s"))
                             .expect("Failed to emit ASM");
                     }
-
-                    let obj_path = backend
-                        .compile(mir, build_dir)
-                        .expect("Failed to compile to object");
                     if emit_obj {
                         // obj is already at obj_path (main.o)
                     }
