@@ -1,17 +1,54 @@
 use std::alloc::{alloc, Layout};
+use std::cell::Cell;
+use std::ffi::c_void;
 use std::ptr;
 
+#[derive(Debug)]
 #[repr(C)]
 pub struct AuraObject {
     pub vtable: *mut (),
     pub ref_count: usize,
 }
 
+#[derive(Debug)]
+#[repr(C)]
+pub struct AuraHandlerFrame {
+    pub prev: *mut AuraHandlerFrame,
+    pub catch_entry: *mut c_void,
+    pub cleanup_stack: *mut c_void,
+}
+
+#[derive(Debug)]
 #[repr(C)]
 pub struct AuraString {
     pub header: AuraObject,
     pub len: usize,
     pub data: *const u8,
+}
+
+thread_local! {
+    static CURRENT_HANDLER_FRAME: Cell<*mut AuraHandlerFrame> = Cell::new(ptr::null_mut());
+    static CURRENT_EXCEPTION: Cell<*mut AuraObject> = Cell::new(ptr::null_mut());
+}
+
+fn current_handler_frame() -> *mut AuraHandlerFrame {
+    CURRENT_HANDLER_FRAME.with(Cell::get)
+}
+
+fn set_current_handler_frame(frame: *mut AuraHandlerFrame) {
+    CURRENT_HANDLER_FRAME.with(|current| current.set(frame));
+}
+
+fn current_exception() -> *mut AuraObject {
+    CURRENT_EXCEPTION.with(Cell::get)
+}
+
+fn set_current_exception(exception: *mut AuraObject) {
+    CURRENT_EXCEPTION.with(|current| current.set(exception));
+}
+
+fn clear_current_exception() {
+    set_current_exception(ptr::null_mut());
 }
 
 #[no_mangle]
@@ -28,6 +65,101 @@ pub unsafe extern "C" fn aura_alloc(size: usize, align: usize) -> *mut u8 {
 pub unsafe extern "C" fn aura_retain(obj: *mut AuraObject) {
     if !obj.is_null() {
         (*obj).ref_count += 1;
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn aura_try_begin(frame: *mut AuraHandlerFrame) {
+    if frame.is_null() {
+        return;
+    }
+
+    (*frame).prev = current_handler_frame();
+    set_current_handler_frame(frame);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn aura_try_end(frame: *mut AuraHandlerFrame) {
+    if frame.is_null() {
+        return;
+    }
+
+    CURRENT_HANDLER_FRAME.with(|current| {
+        let current_frame = current.get();
+        if current_frame == frame {
+            current.set((*frame).prev);
+            (*frame).prev = ptr::null_mut();
+            return;
+        }
+
+        let mut cursor = current_frame;
+        while !cursor.is_null() {
+            if (*cursor).prev == frame {
+                (*cursor).prev = (*frame).prev;
+                (*frame).prev = ptr::null_mut();
+                return;
+            }
+            cursor = (*cursor).prev;
+        }
+    });
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn aura_current_exception() -> *mut AuraObject {
+    current_exception()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn try_begin_and_end_manage_nested_frames() {
+        let mut outer = AuraHandlerFrame {
+            prev: ptr::null_mut(),
+            catch_entry: ptr::null_mut(),
+            cleanup_stack: ptr::null_mut(),
+        };
+        let mut inner = AuraHandlerFrame {
+            prev: ptr::null_mut(),
+            catch_entry: ptr::null_mut(),
+            cleanup_stack: ptr::null_mut(),
+        };
+        let outer_ptr: *mut AuraHandlerFrame = &mut outer;
+        let inner_ptr: *mut AuraHandlerFrame = &mut inner;
+
+        unsafe {
+            aura_try_begin(&mut outer);
+            assert_eq!(current_handler_frame(), outer_ptr);
+            assert_eq!(outer.prev, ptr::null_mut());
+
+            aura_try_begin(&mut inner);
+            assert_eq!(current_handler_frame(), inner_ptr);
+            assert_eq!(inner.prev, outer_ptr);
+
+            aura_try_end(&mut inner);
+            assert_eq!(current_handler_frame(), outer_ptr);
+            assert_eq!(inner.prev, ptr::null_mut());
+
+            aura_try_end(&mut outer);
+            assert_eq!(current_handler_frame(), ptr::null_mut());
+            assert_eq!(outer.prev, ptr::null_mut());
+        }
+    }
+
+    #[test]
+    fn current_exception_storage_round_trips() {
+        let mut object = AuraObject {
+            vtable: ptr::null_mut(),
+            ref_count: 1,
+        };
+        let object_ptr: *mut AuraObject = &mut object;
+
+        set_current_exception(&mut object);
+        assert_eq!(unsafe { aura_current_exception() }, object_ptr);
+
+        clear_current_exception();
+        assert_eq!(unsafe { aura_current_exception() }, ptr::null_mut());
     }
 }
 

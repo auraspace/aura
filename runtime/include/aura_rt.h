@@ -16,6 +16,12 @@ typedef struct {
     uintptr_t ref_count;
 } AuraObject;
 
+typedef struct AuraHandlerFrame {
+    struct AuraHandlerFrame* prev;
+    void* catch_entry;
+    void* cleanup_stack;
+} AuraHandlerFrame;
+
 /* 
  * Aura String Layout 
  */
@@ -29,6 +35,13 @@ typedef struct {
  * Memory Management 
  */
 void* aura_alloc(size_t size, size_t align);
+
+/*
+ * Exception Runtime
+ */
+void aura_try_begin(AuraHandlerFrame* frame);
+void aura_try_end(AuraHandlerFrame* frame);
+AuraObject* aura_current_exception(void);
 
 /* 
  * Reference Counting (ARC) 
