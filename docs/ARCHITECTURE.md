@@ -270,7 +270,8 @@ The active `setjmp` site lives in the generated try dispatch or helper layer; `a
 
 ### Interop Rules (MVP)
 
-- Exceptions **must not** cross the boundary into foreign (C) code unless explicitly wrapped.
+- Exceptions **must not** cross the boundary into foreign (C) code unless explicitly wrapped in an Aura handler frame.
+- Runtime guards must abort immediately if `throw` has no active Aura handler to unwind to, rather than propagating into C.
 - If an exception escapes `main`, the runtime prints a message and exits non-zero.
 
 Future improvement path:

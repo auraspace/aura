@@ -47,6 +47,7 @@ void* aura_alloc(size_t size, size_t align);
 void aura_try_begin(AuraHandlerFrame* frame);
 void aura_try_end(AuraHandlerFrame* frame);
 AuraObject* aura_current_exception(void);
+int aura_has_active_handler(void);
 void aura_throw(AuraObject* exception) __attribute__((noreturn));
 
 /* 

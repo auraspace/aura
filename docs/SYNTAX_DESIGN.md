@@ -307,6 +307,7 @@ Notes (MVP):
 - Exceptions are **unchecked** (no `throws` annotations required initially).
 - `catch` binding type annotation is allowed and should be checked at runtime (via type id).
 - Nested `try` blocks catch the nearest thrown exception first.
+- In the MVP, exceptions do not cross foreign C boundaries; generated code must establish an Aura handler frame before invoking code that can `throw`.
 
 ## Standard Library Surface (Very Minimal)
 

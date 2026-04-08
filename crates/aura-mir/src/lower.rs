@@ -553,6 +553,12 @@ impl MirBuilder {
                 self.lower_block(lowerer, &catch.block);
                 if self.blocks[self.current_block].terminator.is_none() {
                     if let Some(finally_block_id) = finally_block {
+                        if let Some(exit_mode_local) = exit_mode_local {
+                            self.push_stmt(Statement::Assign(
+                                Lvalue::Local(exit_mode_local),
+                                Rvalue::Use(Operand::Constant(Constant::Int(0))),
+                            ));
+                        }
                         self.terminate(Terminator::Goto(finally_block_id));
                     } else {
                         self.terminate(Terminator::Goto(after_block));

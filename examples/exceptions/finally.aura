@@ -1,0 +1,13 @@
+function returns_path(): void {
+  try {
+    println("return-body");
+    return;
+  } finally {
+    println("return-finally");
+  }
+}
+
+function main(): i32 {
+  returns_path();
+  return 0;
+}

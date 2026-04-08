@@ -11,7 +11,7 @@ concurrency:
 jobs:
   check:
     name: fmt / clippy / test
-    runs-on: ubuntu-latest
+    runs-on: macos-14
     env:
       LLVM_SYS_150_PREFIX: /usr/lib/llvm-15
     steps:

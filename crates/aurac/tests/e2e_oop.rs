@@ -15,13 +15,8 @@ fn workspace_root() -> PathBuf {
 }
 
 fn build_runtime_if_needed(root: &PathBuf) {
-    let runtime_artifact = root.join("target/debug/libaura_rt.a");
-    if runtime_artifact.exists() {
-        return;
-    }
-
     let output = Command::new("cargo")
-        .args(["build", "-p", "aura-rt"])
+        .args(["build", "-p", "aura-rt", "--locked"])
         .current_dir(root)
         .output()
         .expect("failed to run cargo build for aura-rt");

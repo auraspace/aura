@@ -241,7 +241,13 @@ fn main() {
                         let status = std::process::Command::new(run_path)
                             .status()
                             .expect("Failed to run executable");
-                        std::process::exit(status.code().unwrap_or(0));
+                        if let Some(code) = status.code() {
+                            std::process::exit(code);
+                        }
+
+                        eprintln!("aura panic: uncaught exception");
+                        let _ = std::io::Write::flush(&mut std::io::stderr());
+                        std::process::exit(1);
                     } else {
                         println!(
                             "Build successful with backend {}: {}",

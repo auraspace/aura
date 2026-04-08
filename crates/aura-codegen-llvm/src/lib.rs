@@ -77,7 +77,7 @@ impl<'ctx> LlvmBackend<'ctx> {
                     .ptr_type(inkwell::AddressSpace::default())
                     .as_basic_type_enum()
             }
-            _ => self.context.i8_type().as_basic_type_enum(),
+            _ => self.context.i64_type().as_basic_type_enum(),
         }
     }
 
@@ -349,7 +349,9 @@ impl<'ctx> LlvmBackend<'ctx> {
                         self.builder.build_unconditional_branch(blocks[id])?;
                     }
                     Terminator::Return(val) => {
-                        if let Some(v) = val {
+                        if func.locals[0].ty == aura_typeck::Ty::Void {
+                            self.builder.build_return(None)?;
+                        } else if let Some(v) = val {
                             let llvm_val = self.lower_operand(program, v, &locals, func)?;
                             self.builder.build_return(Some(&llvm_val))?;
                         } else {

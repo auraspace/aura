@@ -55,11 +55,13 @@ fn set_current_exception(exception: *mut AuraObject) {
     CURRENT_EXCEPTION.with(|current| current.set(exception));
 }
 
+#[cfg(test)]
 fn clear_current_exception() {
     set_current_exception(ptr::null_mut());
 }
 
 extern "C" {
+    #[cfg(test)]
     fn aura_runtime_try_throw(frame: *mut AuraHandlerFrame, exception: *mut AuraObject) -> c_int;
     fn aura_runtime_longjmp(env: *mut c_void, value: c_int) -> !;
 }
@@ -123,12 +125,20 @@ pub unsafe extern "C" fn aura_current_exception() -> *mut AuraObject {
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn aura_has_active_handler() -> c_int {
+    (!current_handler_frame().is_null()) as c_int
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn aura_throw(exception: *mut AuraObject) -> ! {
     set_current_exception(exception);
 
     let frame = current_handler_frame();
     if frame.is_null() {
-        aura_panic(b"uncaught exception\0".as_ptr(), 18);
+        aura_panic(
+            b"uncaught exception crossed a foreign C boundary\0".as_ptr(),
+            47,
+        );
     }
 
     aura_runtime_longjmp(
@@ -191,6 +201,24 @@ mod tests {
 
         clear_current_exception();
         assert_eq!(unsafe { aura_current_exception() }, ptr::null_mut());
+    }
+
+    #[test]
+    fn active_handler_predicate_tracks_try_frames() {
+        let mut frame = AuraHandlerFrame {
+            prev: ptr::null_mut(),
+            catch_entry: ptr::null_mut(),
+            cleanup_stack: ptr::null_mut(),
+            jump_buf: AuraJmpBuf { storage: [0; 48] },
+        };
+
+        unsafe {
+            assert_eq!(aura_has_active_handler(), 0);
+            aura_try_begin(&mut frame);
+            assert_eq!(aura_has_active_handler(), 1);
+            aura_try_end(&mut frame);
+            assert_eq!(aura_has_active_handler(), 0);
+        }
     }
 
     #[test]
@@ -288,5 +316,6 @@ pub unsafe extern "C" fn aura_panic(msg_ptr: *const u8, msg_len: usize) -> ! {
     let s = std::slice::from_raw_parts(msg_ptr, msg_len);
     let msg = std::str::from_utf8(s).unwrap_or("unknown panic");
     eprintln!("aura panic: {}", msg);
+    let _ = std::io::Write::flush(&mut std::io::stderr());
     std::process::abort();
 }
