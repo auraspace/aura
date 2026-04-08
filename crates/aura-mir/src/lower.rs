@@ -38,6 +38,7 @@ impl<'a> Lowerer<'a> {
                         },
                     );
                     let mir_func = self.lower_function(
+                        fname.to_string(),
                         func.name.span,
                         &func.body,
                         &func.params,
@@ -65,6 +66,7 @@ impl<'a> Lowerer<'a> {
                                 },
                             );
                             let mir_method = self.lower_function(
+                                MirBuilder::qualified_method_name(&name, &mname),
                                 method.name.span,
                                 &method.body,
                                 &method.params,
@@ -97,13 +99,13 @@ impl<'a> Lowerer<'a> {
 
     fn lower_function(
         &self,
+        name: String,
         name_span: Span,
         body: &Block,
         params: &[aura_ast::Param],
         this_ty: Option<Ty>,
         return_ty: Ty,
     ) -> MirFunction {
-        let name = self.source_at(name_span).to_string();
         let mut builder = MirBuilder::new(name);
 
         // Declare return slot (id 0)
@@ -436,23 +438,47 @@ impl MirBuilder {
                 Rvalue::Use(val_op)
             }
             Expr::Call { callee, args, span } => {
+                let callee_span = self.span_of_expr(callee);
                 let callee_ty = lowerer
                     .typed_program
                     .expression_types
-                    .get(&self.span_of_expr(callee))
+                    .get(&callee_span)
                     .cloned();
-                let params = if let Some(Ty::Function(sig)) = callee_ty {
+                let params = if let Some(Ty::Function(sig)) = callee_ty.clone() {
                     sig.params.clone()
                 } else {
                     vec![]
                 };
 
-                let callee_op = self.lower_expr_to_operand(lowerer, callee, None);
-                let arg_ops: Vec<_> = args
-                    .iter()
-                    .enumerate()
-                    .map(|(i, a)| self.lower_expr_to_operand(lowerer, a, params.get(i)))
-                    .collect();
+                let mut arg_ops: Vec<Operand> = Vec::with_capacity(args.len() + 1);
+                let callee_op = if let Expr::Member { object, field, .. } = &**callee {
+                    let object_ty = lowerer
+                        .typed_program
+                        .expression_types
+                        .get(&self.span_of_expr(object))
+                        .cloned();
+                    if let Some(Ty::Class(class_name)) = object_ty {
+                        let field_name = lowerer.ident_text(field).to_string();
+                        let receiver_ty = Ty::Class(class_name.clone());
+                        arg_ops.push(self.lower_expr_to_operand(
+                            lowerer,
+                            object,
+                            Some(&receiver_ty),
+                        ));
+                        Operand::Constant(Constant::String(MirBuilder::qualified_method_name(
+                            &class_name,
+                            &field_name,
+                        )))
+                    } else {
+                        self.lower_expr_to_operand(lowerer, callee, None)
+                    }
+                } else {
+                    self.lower_expr_to_operand(lowerer, callee, None)
+                };
+
+                for (i, a) in args.iter().enumerate() {
+                    arg_ops.push(self.lower_expr_to_operand(lowerer, a, params.get(i)));
+                }
 
                 let dest_ty = lowerer
                     .typed_program
@@ -603,23 +629,15 @@ impl MirBuilder {
                 let temp = self.declare_local(Ty::String, None, span, LocalKind::Temp);
                 let next_id = self.new_block();
 
-                // Lower class instance operand to Lvalue if needed
-                let obj_lval = match op {
-                    Operand::Copy(l) | Operand::Move(l) => l,
-                    _ => {
-                        let obj_temp =
-                            self.declare_local(from_ty.clone(), None, span, LocalKind::Temp);
-                        self.push_stmt(Statement::Assign(Lvalue::Local(obj_temp), Rvalue::Use(op)));
-                        Lvalue::Local(obj_temp)
-                    }
-                };
-
                 self.terminate(Terminator::Call {
-                    callee: Operand::Copy(Lvalue::Field(
-                        Box::new(obj_lval),
-                        "toString".to_string(),
-                    )),
-                    args: vec![],
+                    callee: Operand::Constant(Constant::String(MirBuilder::qualified_method_name(
+                        match from_ty {
+                            Ty::Class(class_name) => class_name,
+                            _ => unreachable!(),
+                        },
+                        "toString",
+                    ))),
+                    args: vec![op],
                     destination: Lvalue::Local(temp),
                     target: next_id,
                 });
@@ -628,6 +646,10 @@ impl MirBuilder {
             }
             _ => op,
         }
+    }
+
+    fn qualified_method_name(class_name: &str, method_name: &str) -> String {
+        format!("{class_name}::{method_name}")
     }
 
     fn lower_expr_to_lvalue(&mut self, lowerer: &Lowerer, expr: &Expr) -> Lvalue {

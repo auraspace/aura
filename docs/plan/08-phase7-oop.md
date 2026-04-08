@@ -9,10 +9,10 @@ Incrementally implement OOP features aligned with `docs/ARCHITECTURE.md`.
 ## TODO
 
 - [x] Heap allocate class instances + field access (done 2026-04-08)
-- [ ] Direct method calls (known receiver concrete type)
+- [x] Direct method calls (known receiver concrete type) (done 2026-04-08)
 - [ ] Inheritance + vtables + dynamic dispatch
 - [ ] Interfaces + `implements` + interface dispatch strategy
-- [ ] Add E2E tests for `examples/oop` covering allocation + dispatch
+- [x] Add E2E tests for `examples/oop` covering allocation + dispatch (done 2026-04-08)
 
 ## Acceptance
 

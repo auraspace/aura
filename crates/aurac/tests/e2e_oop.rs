@@ -26,27 +26,47 @@ fn build_runtime_if_needed(root: &PathBuf) {
     );
 }
 
+fn run_oop_example(root: &PathBuf, aurac: &str, relative_path: &str, expected: &str) {
+    let output = Command::new(aurac)
+        .args(["run", relative_path])
+        .current_dir(root)
+        .output()
+        .expect("failed to run aurac");
+
+    assert!(
+        output.status.success(),
+        "aurac run failed for {relative_path}\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains(expected),
+        "missing output `{expected}` for {relative_path}: {stdout}"
+    );
+}
+
 #[test]
 fn aurac_runs_oop_allocation_example_end_to_end() {
     let root = workspace_root();
     build_runtime_if_needed(&root);
 
     let aurac = env!("CARGO_BIN_EXE_aurac");
-    let output = Command::new(aurac)
-        .args(["run", "examples/oop/fields.aura"])
-        .current_dir(&root)
-        .output()
-        .expect("failed to run aurac");
+    run_oop_example(&root, aurac, "examples/oop/fields.aura", "42");
 
-    assert!(
-        output.status.success(),
-        "aurac run failed\nstdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
+    let _ = fs::remove_file(root.join("main.o"));
+    let _ = fs::remove_file(root.join("a.out"));
+    let _ = fs::remove_file(root.join("main.s"));
+}
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("42"), "missing field output: {stdout}");
+#[test]
+fn aurac_runs_oop_method_call_example_end_to_end() {
+    let root = workspace_root();
+    build_runtime_if_needed(&root);
+
+    let aurac = env!("CARGO_BIN_EXE_aurac");
+    run_oop_example(&root, aurac, "examples/oop/methods.aura", "42");
 
     let _ = fs::remove_file(root.join("main.o"));
     let _ = fs::remove_file(root.join("a.out"));

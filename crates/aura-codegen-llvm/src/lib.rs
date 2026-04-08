@@ -97,7 +97,11 @@ impl<'ctx> LlvmBackend<'ctx> {
 
         for (class_name, class) in &program.classes {
             let mut field_types: Vec<BasicTypeEnum<'ctx>> = Vec::new();
-            field_types.push(self.context.ptr_type(inkwell::AddressSpace::default()).into());
+            field_types.push(
+                self.context
+                    .ptr_type(inkwell::AddressSpace::default())
+                    .into(),
+            );
             field_types.push(self.context.i64_type().into());
             for field_name in &class.field_order {
                 if let Some(field_ty) = class.fields.get(field_name) {
@@ -130,7 +134,7 @@ impl<'ctx> LlvmBackend<'ctx> {
             .cloned()
     }
 
-    fn compile_function(&self, func: &MirFunction) -> Result<FunctionValue<'ctx>> {
+    fn declare_function(&self, func: &MirFunction) -> Result<FunctionValue<'ctx>> {
         let ret_ty_aura = &func.locals[0].ty;
         let ret_type_llvm = self.aura_to_llvm_type(ret_ty_aura);
 
@@ -147,11 +151,14 @@ impl<'ctx> LlvmBackend<'ctx> {
             ret_type_llvm.fn_type(&arg_types, false)
         };
 
-        // Reuse if already declared (e.g. built-ins)
-        let llvm_func = self
+        Ok(self
             .module
             .get_function(&func.name)
-            .unwrap_or_else(|| self.module.add_function(&func.name, fn_type, None));
+            .unwrap_or_else(|| self.module.add_function(&func.name, fn_type, None)))
+    }
+
+    fn compile_function(&self, func: &MirFunction) -> Result<FunctionValue<'ctx>> {
+        let llvm_func = self.declare_function(func)?;
 
         let mut blocks = HashMap::new();
         for mir_bb in &func.blocks {
@@ -304,9 +311,9 @@ impl<'ctx> LlvmBackend<'ctx> {
         let alloc = self.get_or_declare_alloc()?;
         let size_val = self.context.i64_type().const_int(size, false);
         let align_val = self.context.i64_type().const_int(align as u64, false);
-        let call = self
-            .builder
-            .build_call(alloc, &[size_val.into(), align_val.into()], "obj_alloc")?;
+        let call =
+            self.builder
+                .build_call(alloc, &[size_val.into(), align_val.into()], "obj_alloc")?;
         let raw_ptr = call
             .try_as_basic_value()
             .left()
@@ -317,14 +324,18 @@ impl<'ctx> LlvmBackend<'ctx> {
             .builder
             .build_pointer_cast(raw_ptr, obj_ptr_ty, "obj_cast")?;
 
-        let header_vtable_ptr = self
-            .builder
-            .build_struct_gep(struct_ty, obj_ptr, 0, "header_vtable")?;
-        let header_ref_ptr = self
-            .builder
-            .build_struct_gep(struct_ty, obj_ptr, 1, "header_refcount")?;
-        self.builder
-            .build_store(header_vtable_ptr, self.context.ptr_type(inkwell::AddressSpace::default()).const_null())?;
+        let header_vtable_ptr =
+            self.builder
+                .build_struct_gep(struct_ty, obj_ptr, 0, "header_vtable")?;
+        let header_ref_ptr =
+            self.builder
+                .build_struct_gep(struct_ty, obj_ptr, 1, "header_refcount")?;
+        self.builder.build_store(
+            header_vtable_ptr,
+            self.context
+                .ptr_type(inkwell::AddressSpace::default())
+                .const_null(),
+        )?;
         self.builder
             .build_store(header_ref_ptr, self.context.i64_type().const_int(1, false))?;
 
@@ -336,7 +347,13 @@ impl<'ctx> LlvmBackend<'ctx> {
             return Ok(f);
         }
         let i8_ptr = self.context.ptr_type(inkwell::AddressSpace::default());
-        let fn_type = i8_ptr.fn_type(&[self.context.i64_type().into(), self.context.i64_type().into()], false);
+        let fn_type = i8_ptr.fn_type(
+            &[
+                self.context.i64_type().into(),
+                self.context.i64_type().into(),
+            ],
+            false,
+        );
         Ok(self.module.add_function("aura_alloc", fn_type, None))
     }
 
@@ -405,16 +422,18 @@ impl<'ctx> LlvmBackend<'ctx> {
                 };
 
                 let obj_ptr = self.load_class_object_ptr(base, locals, func)?;
-                let field_idx = self
-                    .class_field_index(&class_name, field_name)
-                    .ok_or_else(|| anyhow::anyhow!("unknown field `{field_name}` on class `{class_name}`"))?;
+                let field_idx =
+                    self.class_field_index(&class_name, field_name)
+                        .ok_or_else(|| {
+                            anyhow::anyhow!("unknown field `{field_name}` on class `{class_name}`")
+                        })?;
 
                 let struct_ty = self
                     .class_struct_type(&class_name)
                     .ok_or_else(|| anyhow::anyhow!("unknown class `{class_name}`"))?;
-                let field_ptr = self
-                    .builder
-                    .build_struct_gep(struct_ty, obj_ptr, field_idx, "field_ptr")?;
+                let field_ptr =
+                    self.builder
+                        .build_struct_gep(struct_ty, obj_ptr, field_idx, "field_ptr")?;
                 Ok(field_ptr)
             }
         }
@@ -640,7 +659,22 @@ impl<'ctx> Backend for LlvmBackend<'ctx> {
         self.prepare_class_layouts(program);
 
         for func in &program.functions {
+            self.declare_function(func)?;
+        }
+        for class in program.classes.values() {
+            for method in class.methods.values() {
+                self.declare_function(method)?;
+            }
+        }
+
+        for func in &program.functions {
             self.compile_function(func)?;
+        }
+
+        for class in program.classes.values() {
+            for method in class.methods.values() {
+                self.compile_function(method)?;
+            }
         }
 
         let obj_path = out_dir.join("main.o");
