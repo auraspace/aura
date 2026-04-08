@@ -54,7 +54,8 @@ python3 .agents/skills/aura-task-killer/scripts/next_todo.py
 ### 5) Commit Changes
 
 - Create a single commit containing the implementation and the updated plan file.
-- **Format**: `<scope>: <description>` (e.g., `typeck: add string literal validation`).
+- **Format**: follow [Conventional Commits v1.0.0](https://www.conventionalcommits.org/en/v1.0.0/#summary) using `<type>(<scope>): <description>` when a scope is useful, or `<type>: <description>` when it is not.
+- **Examples**: `fix(typeck): reject invalid string literals`, `docs: update syntax design`.
 - Include related tests and design doc updates in this same commit.
 
 ---
