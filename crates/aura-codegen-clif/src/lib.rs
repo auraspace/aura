@@ -1,7 +1,7 @@
 use anyhow::{bail, Result};
 use aura_codegen::Backend;
 use aura_mir::MirProgram;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub struct ClifBackend;
 
@@ -16,7 +16,7 @@ impl ClifBackend {
 }
 
 impl Backend for ClifBackend {
-    fn compile(&self, _program: &MirProgram, _out_dir: &Path) -> Result<String> {
+    fn compile(&self, _program: &MirProgram, _out_dir: &Path) -> Result<PathBuf> {
         self.unsupported()?;
         unreachable!()
     }

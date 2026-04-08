@@ -1,5 +1,6 @@
 use aura_codegen::Backend;
 use std::env;
+use std::path::Path;
 
 const HELP: &str = r#"aurac - Aura compiler
 
@@ -172,7 +173,7 @@ fn main() {
                     let target = aura_codegen::Target::host();
                     let build_dir = std::path::Path::new(".");
 
-                    let (obj_path, backend_name): (String, &'static str) = match backend_kind {
+                    let (obj_path, backend_name) = match backend_kind {
                         aura_codegen::BackendKind::Llvm => {
                             let context = inkwell::context::Context::create();
                             let backend = aura_codegen_llvm::LlvmBackend::new(
@@ -227,23 +228,25 @@ fn main() {
                     };
 
                     let linker = aura_link::Linker::new(target.triple);
-                    let exe_path = "a.out";
+                    let exe_path = Path::new("a.out");
+                    let run_path = Path::new("./a.out");
                     // For MVP, look for the runtime in the target directory
-                    let runtime_path = "target/debug/libaura_rt.a";
+                    let runtime_path = Path::new("target/debug/libaura_rt.a");
 
                     linker
-                        .link(&[&obj_path], runtime_path, exe_path)
+                        .link(&[obj_path.as_path()], runtime_path, exe_path)
                         .expect("Failed to link");
 
                     if command == "run" {
-                        let status = std::process::Command::new("./a.out")
+                        let status = std::process::Command::new(run_path)
                             .status()
                             .expect("Failed to run executable");
                         std::process::exit(status.code().unwrap_or(0));
                     } else {
                         println!(
                             "Build successful with backend {}: {}",
-                            backend_name, exe_path
+                            backend_name,
+                            exe_path.display()
                         );
                     }
                 }

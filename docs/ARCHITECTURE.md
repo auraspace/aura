@@ -156,15 +156,16 @@ For the initial milestone on `aarch64-apple-darwin`, a practical approach is:
 
 Backend should be pluggable:
 
-- `Backend::compile(mir, target) -> ObjectFile`
+- `Backend::compile(mir, out_dir) -> ObjectFilePath`
+- `Backend::emit_llvm(...)` / `Backend::emit_asm(...)` for debug outputs
 - `Linker::link(objects, runtime, target) -> Executable`
 
 Implementation options:
 
-- **LLVM**: the currently implemented backend in this repository.
+- **LLVM**: MVP backend and the currently implemented backend in this repository.
 - **Cranelift**: planned backend; may exist as a placeholder crate before implementation lands.
 
-Keep the abstraction so switching/adding backends is possible. For the current codebase, do not assume Cranelift is available beyond the placeholder wiring.
+Keep the abstraction so switching/adding backends is possible. For the current codebase, do not assume Cranelift is available beyond the placeholder wiring, and treat LLVM as the default backend for MVP builds.
 
 ## Runtime Architecture (Embedded)
 

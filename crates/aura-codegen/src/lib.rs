@@ -1,6 +1,6 @@
 use anyhow::Result;
 use aura_mir::MirProgram;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BackendKind {
@@ -28,7 +28,9 @@ impl BackendKind {
 pub trait Backend {
     /// Compiles the MIR program into an object file (`.o`).
     /// Returns the path to the produced object file.
-    fn compile(&self, program: &MirProgram, out_dir: &Path) -> Result<String>;
+    ///
+    /// The MVP backend is LLVM; Cranelift remains a placeholder backend crate.
+    fn compile(&self, program: &MirProgram, out_dir: &Path) -> Result<PathBuf>;
 
     /// Optinally emit intermediate representations (IR, Assembly, etc.).
     fn emit_llvm(&self, program: &MirProgram, out_path: &Path) -> Result<()>;

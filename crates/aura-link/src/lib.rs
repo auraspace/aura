@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use std::path::Path;
 use std::process::Command;
 
 pub struct Linker {
@@ -10,7 +11,7 @@ impl Linker {
         Self { target_triple }
     }
 
-    pub fn link(&self, obj_paths: &[&str], runtime_path: &str, out_path: &str) -> Result<()> {
+    pub fn link(&self, obj_paths: &[&Path], runtime_path: &Path, out_path: &Path) -> Result<()> {
         let mut cmd = Command::new("clang");
 
         // Target triple

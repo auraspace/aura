@@ -12,7 +12,7 @@ use inkwell::types::{BasicType, BasicTypeEnum};
 use inkwell::values::{BasicValue, BasicValueEnum, FunctionValue, PointerValue};
 use inkwell::OptimizationLevel;
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub struct LlvmBackend<'ctx> {
     context: &'ctx Context,
@@ -465,14 +465,14 @@ impl<'ctx> LlvmBackend<'ctx> {
 }
 
 impl<'ctx> Backend for LlvmBackend<'ctx> {
-    fn compile(&self, program: &MirProgram, out_dir: &Path) -> Result<String> {
+    fn compile(&self, program: &MirProgram, out_dir: &Path) -> Result<PathBuf> {
         for func in &program.functions {
             self.compile_function(func)?;
         }
 
-        let obj_path = out_dir.join("main.o").to_str().unwrap().to_string();
+        let obj_path = out_dir.join("main.o");
         self.target_machine
-            .write_to_file(&self.module, FileType::Object, Path::new(&obj_path))
+            .write_to_file(&self.module, FileType::Object, &obj_path)
             .map_err(|e| anyhow::anyhow!(e.to_string()))?;
 
         Ok(obj_path)
