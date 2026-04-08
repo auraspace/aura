@@ -63,13 +63,4 @@ impl Env {
         }
         None
     }
-
-    pub(crate) fn lookup_mut(&mut self, name: &str) -> Option<&mut VarInfo> {
-        for scope in self.scopes.iter_mut().rev() {
-            if scope.contains_key(name) {
-                return scope.get_mut(name);
-            }
-        }
-        None
-    }
 }
