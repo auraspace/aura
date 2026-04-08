@@ -131,7 +131,10 @@ pub unsafe extern "C" fn aura_throw(exception: *mut AuraObject) -> ! {
         aura_panic(b"uncaught exception\0".as_ptr(), 18);
     }
 
-    aura_runtime_longjmp((&mut (*frame).jump_buf) as *mut AuraJmpBuf as *mut c_void, 1)
+    aura_runtime_longjmp(
+        (&mut (*frame).jump_buf) as *mut AuraJmpBuf as *mut c_void,
+        1,
+    )
 }
 
 #[cfg(test)]
