@@ -1,9 +1,9 @@
 class Counter {
     val: i32;
     function constructor(): void { this.val = 0; }
-    function inc(): i32 {
+    function inc(): Counter {
         this.val = this.val + 1;
-        return this.val;
+        return this;
     }
 }
 
@@ -18,4 +18,23 @@ function main(): void {
     // Path includes side-effects: h.get_counter().val
     // This should evaluate h.get_counter() once, then access .val
     h.get_counter().val = 100;
+}
+
+function test_short_circuit(x: i32): bool {
+    // Should NOT call inc() if x <= 0
+    let c = new Counter();
+    if (x > 0 && c.inc().val > 0) {
+        return true;
+    }
+    return false;
+}
+
+function test_assign_order(): i32 {
+    let c = new Counter();
+    // LHS (c.inc()) should be evaluated before RHS (c.inc() + 10)
+    // If LHS is evaluated first, c.val becomes 1, then RHS evaluates c.inc() so c.val becomes 2.
+    // Result of RHS is 2 + 10 = 12.
+    // c.val finally becomes 12.
+    c.inc().val = c.inc().val + 10;
+    return c.val;
 }

@@ -332,17 +332,89 @@ impl MirBuilder {
             Expr::Binary {
                 op, left, right, ..
             } => {
-                let lop = self.lower_expr_to_operand(lowerer, left);
-                let rop = self.lower_expr_to_operand(lowerer, right);
-                Rvalue::BinaryOp(*op, lop, rop)
+                match op {
+                    BinaryOp::AndAnd => {
+                        let result_ty = Ty::Bool;
+                        let result_local =
+                            self.declare_local(result_ty, None, self.span_of_expr(expr), LocalKind::Temp);
+                        let result_lval = Lvalue::Local(result_local);
+
+                        let then_id = self.new_block();
+                        let else_id = self.new_block();
+                        let join_id = self.new_block();
+
+                        // Evaluate left
+                        let lop = self.lower_expr_to_operand(lowerer, left);
+                        self.terminate(Terminator::SwitchInt {
+                            discr: lop,
+                            targets: vec![(1, then_id)],
+                            otherwise: else_id,
+                        });
+
+                        // Left was true: evaluate right and assign to result
+                        self.current_block = then_id;
+                        let rop = self.lower_expr_to_operand(lowerer, right);
+                        self.push_stmt(Statement::Assign(result_lval.clone(), Rvalue::Use(rop)));
+                        self.terminate(Terminator::Goto(join_id));
+
+                        // Left was false: result is false
+                        self.current_block = else_id;
+                        self.push_stmt(Statement::Assign(
+                            result_lval.clone(),
+                            Rvalue::Use(Operand::Constant(Constant::Bool(false))),
+                        ));
+                        self.terminate(Terminator::Goto(join_id));
+
+                        self.current_block = join_id;
+                        return Rvalue::Use(Operand::Move(result_lval));
+                    }
+                    BinaryOp::OrOr => {
+                        let result_local =
+                            self.declare_local(Ty::Bool, None, self.span_of_expr(expr), LocalKind::Temp);
+                        let result_lval = Lvalue::Local(result_local);
+
+                        let then_id = self.new_block();
+                        let else_id = self.new_block();
+                        let join_id = self.new_block();
+
+                        let lop = self.lower_expr_to_operand(lowerer, left);
+                        self.terminate(Terminator::SwitchInt {
+                            discr: lop,
+                            targets: vec![(1, then_id)], // If true, result is true
+                            otherwise: else_id,          // If false, evaluate right
+                        });
+
+                        // Left was true: result is true
+                        self.current_block = then_id;
+                        self.push_stmt(Statement::Assign(
+                            result_lval.clone(),
+                            Rvalue::Use(Operand::Constant(Constant::Bool(true))),
+                        ));
+                        self.terminate(Terminator::Goto(join_id));
+
+                        // Left was false: evaluate right
+                        self.current_block = else_id;
+                        let rop = self.lower_expr_to_operand(lowerer, right);
+                        self.push_stmt(Statement::Assign(result_lval.clone(), Rvalue::Use(rop)));
+                        self.terminate(Terminator::Goto(join_id));
+
+                        self.current_block = join_id;
+                        return Rvalue::Use(Operand::Move(result_lval));
+                    }
+                    _ => {
+                        let lop = self.lower_expr_to_operand(lowerer, left);
+                        let rop = self.lower_expr_to_operand(lowerer, right);
+                        Rvalue::BinaryOp(*op, lop, rop)
+                    }
+                }
             }
             Expr::Unary { op, expr, .. } => {
                 let op_val = self.lower_expr_to_operand(lowerer, expr);
                 Rvalue::UnaryOp(*op, op_val)
             }
             Expr::Assign { target, value, .. } => {
-                let val_op = self.lower_expr_to_operand(lowerer, value);
                 let lval = self.lower_expr_to_lvalue(lowerer, target);
+                let val_op = self.lower_expr_to_operand(lowerer, value);
                 self.push_stmt(Statement::Assign(lval.clone(), Rvalue::Use(val_op.clone())));
                 Rvalue::Use(val_op)
             }
