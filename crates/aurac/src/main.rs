@@ -99,11 +99,9 @@ fn main() {
                     }
 
                     if emit_hir {
-                        if let Some(ref _typed) = out.typed_program {
+                        if let (Some(ref typed), Some(ref ast)) = (&out.typed_program, &out.ast) {
                             println!("--- Annotated AST (HIR) ---");
-                            // Simple debug print for now.
-                            // In a real implementation, we would use a visitor to print the AST with type annotations.
-                            println!("HIR output is not fully implemented yet, but types were collected successfully.");
+                            aura_driver::dump_hir::dump_hir(&out.source, ast, typed);
                         }
                     }
 

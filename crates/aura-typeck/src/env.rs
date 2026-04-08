@@ -41,7 +41,18 @@ impl Env {
 
     pub(crate) fn declare(&mut self, name: String, info: VarInfo) {
         let current = self.scopes.last_mut().unwrap();
-        current.entry(name).or_insert(info);
+        current.insert(name, info);
+    }
+
+    pub(crate) fn define(&mut self, name: String, ty: Ty, mutable: bool) {
+        self.declare(
+            name,
+            VarInfo {
+                ty,
+                mutable,
+                decl_span: aura_span::Span::empty(aura_span::BytePos::new(0)),
+            },
+        );
     }
 
     pub(crate) fn lookup(&self, name: &str) -> Option<&VarInfo> {

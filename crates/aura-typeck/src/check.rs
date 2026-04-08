@@ -18,7 +18,7 @@ pub(crate) fn typeck_block(
     type_defs: &HashMap<String, crate::types::TyDefKind>,
     classes: &HashMap<String, ClassInfo>,
     interfaces: &HashMap<String, InterfaceInfo>,
-    this_class: Option<&ClassInfo>,
+    this_class: Option<&str>,
     allow_this_assignment: bool,
     block: &aura_ast::Block,
     expr_types: &mut HashMap<Span, Ty>,
@@ -50,7 +50,7 @@ pub(crate) fn typeck_stmt(
     type_defs: &HashMap<String, crate::types::TyDefKind>,
     classes: &HashMap<String, ClassInfo>,
     interfaces: &HashMap<String, InterfaceInfo>,
-    this_class: Option<&ClassInfo>,
+    this_class: Option<&str>,
     allow_this_assignment: bool,
     stmt: &Stmt,
     expr_types: &mut HashMap<Span, Ty>,
@@ -259,20 +259,15 @@ pub(crate) fn typeck_expr(
     type_defs: &HashMap<String, crate::types::TyDefKind>,
     classes: &HashMap<String, ClassInfo>,
     interfaces: &HashMap<String, InterfaceInfo>,
-    this_class: Option<&ClassInfo>,
+    this_class: Option<&str>,
     allow_this_assignment: bool,
     expr_types: &mut HashMap<Span, Ty>,
     diags: &mut Vec<Diagnostic>,
 ) -> Ty {
     let ty = match expr {
         Expr::This(span) => {
-            if this_class.is_some() {
-                for (name, info) in classes {
-                    if std::ptr::eq(info, this_class.unwrap()) {
-                        return Ty::Class(name.clone());
-                    }
-                }
-                Ty::Unknown
+            if let Some(cname) = this_class {
+                Ty::Class(cname.to_string())
             } else {
                 diags.push(Diagnostic::error(
                     *span,
@@ -282,9 +277,7 @@ pub(crate) fn typeck_expr(
             }
         }
         Expr::Ident(ident) => {
-            let Some(name) = ident_text(source, ident) else {
-                return Ty::Unknown;
-            };
+            let name = ident_text(source, ident).unwrap_or("");
             env.lookup(name)
                 .map(|v| v.ty.clone())
                 .unwrap_or(Ty::Unknown)
@@ -465,86 +458,72 @@ pub(crate) fn typeck_expr(
             span,
         } => {
             if let Expr::Member { object, field, .. } = &**target {
-                if matches!(**object, Expr::This(_)) {
-                    let Some(class_info) = this_class else {
-                        diags.push(Diagnostic::error(
-                            *span,
-                            "invalid assignment to `this` field outside of a class method",
-                        ));
-                        let _ = typeck_expr(
-                            source,
-                            env,
-                            value,
-                            type_defs,
-                            classes,
-                            interfaces,
-                            this_class,
-                            allow_this_assignment,
-                            expr_types,
-                            diags,
-                        );
-                        return Ty::Unknown;
-                    };
-                    let Some(field_name) = ident_text(source, field) else {
-                        return Ty::Unknown;
-                    };
-                    if !allow_this_assignment {
-                        let value_ty = typeck_expr(
-                            source,
-                            env,
-                            value,
-                            type_defs,
-                            classes,
-                            interfaces,
-                            this_class,
-                            allow_this_assignment,
-                            expr_types,
-                            diags,
-                        );
-                        diags.push(
-                            Diagnostic::error(
-                                field.span,
-                                "assignments to `this.<field>` only belong in constructors",
-                            )
-                            .with_help("initialize fields inside the class constructor"),
-                        );
-                        return value_ty;
-                    }
-                    let Some(field_ty) = class_info.fields.get(field_name) else {
-                        diags.push(Diagnostic::error(
-                            field.span,
-                            format!("unknown field `{field_name}` on `this`"),
-                        ));
-                        let _ = typeck_expr(
-                            source,
-                            env,
-                            value,
-                            type_defs,
-                            classes,
-                            interfaces,
-                            this_class,
-                            allow_this_assignment,
-                            expr_types,
-                            diags,
-                        );
-                        return Ty::Unknown;
-                    };
+                let obj_ty = typeck_expr(
+                    source,
+                    env,
+                    object,
+                    type_defs,
+                    classes,
+                    interfaces,
+                    this_class,
+                    allow_this_assignment,
+                    expr_types,
+                    diags,
+                );
 
-                    let value_ty = typeck_expr(
-                        source,
-                        env,
-                        value,
-                        type_defs,
-                        classes,
-                        interfaces,
-                        this_class,
-                        allow_this_assignment,
-                        expr_types,
-                        diags,
-                    );
+                let field_name = ident_text(source, field).unwrap_or("");
+                let field_ty = match obj_ty {
+                    Ty::Class(ref name) => {
+                        let info = classes.get(name);
+                        if let Some(info) = info {
+                            if matches!(**object, Expr::This(_)) && !allow_this_assignment {
+                                diags.push(
+                                    Diagnostic::error(
+                                        field.span,
+                                        "assignments to `this.<field>` only belong in constructors",
+                                    )
+                                    .with_help("initialize fields inside the class constructor"),
+                                );
+                            }
+                            info.fields.get(field_name).cloned()
+                        } else {
+                            None
+                        }
+                    }
+                    Ty::Unknown => None,
+                    _ => {
+                        diags.push(Diagnostic::error(
+                            span_of_expr(object),
+                            format!(
+                                "cannot access field `{field_name}` on type `{}`",
+                                obj_ty.name()
+                            ),
+                        ));
+                        None
+                    }
+                };
+
+                // Record the type of the target member access if we can
+                expr_types.insert(field.span, field_ty.clone().unwrap_or(Ty::Unknown));
+                expr_types.insert(span_of_expr(target), field_ty.clone().unwrap_or(Ty::Unknown));
+
+                let value_ty = typeck_expr(
+                    source,
+                    env,
+                    value,
+                    type_defs,
+                    classes,
+                    interfaces,
+                    this_class,
+                    allow_this_assignment,
+                    expr_types,
+                    diags,
+                );
+
+                if let Some(field_ty) = field_ty {
                     if value_ty != Ty::Unknown
-                        && *field_ty != Ty::Unknown
-                        && !is_assignable(&value_ty, field_ty, classes)
+                        && field_ty != Ty::Unknown
+                        && !is_assignable(&value_ty, &field_ty, classes)
                     {
                         diags.push(Diagnostic::error(
                             span_of_expr(value),
@@ -555,9 +534,14 @@ pub(crate) fn typeck_expr(
                             ),
                         ));
                     }
-
                     return value_ty;
+                } else if obj_ty != Ty::Unknown {
+                    diags.push(Diagnostic::error(
+                        field.span,
+                        format!("unknown field `{field_name}` on type `{}`", obj_ty.name()),
+                    ));
                 }
+                return value_ty;
             }
 
             let (target_name, target_span) = match assignment_target(source, target) {
@@ -629,71 +613,94 @@ pub(crate) fn typeck_expr(
             value_ty
         }
         Expr::Call { callee, args, span } => {
-            let (m_methods, _) = match &**callee {
+            let (sig, _kind_name, callee_ty) = match &**callee {
                 Expr::Member { object, field, .. } => {
-                    let (m_methods, kind_name) = match &**object {
-                        Expr::This(_) => (this_class.map(|c| &c.methods), "this".to_string()),
-                        other => {
-                            let ty = typeck_expr(
-                                source,
-                                env,
-                                other,
-                                type_defs,
-                                classes,
-                                interfaces,
-                                this_class,
-                                allow_this_assignment,
-                                expr_types,
-                                diags,
-                            );
-                            match ty {
-                                Ty::Class(ref name) => (
-                                    classes.get(name).map(|c| &c.methods),
-                                    format!("class `{name}`"),
-                                ),
-                                Ty::Interface(ref name) => (
-                                    interfaces.get(name).map(|i| &i.methods),
-                                    format!("interface `{name}`"),
-                                ),
-                                Ty::Unknown => (None, "unknown".to_string()),
-                                _ => {
-                                    diags.push(Diagnostic::error(
-                                        *span,
-                                        "method call target must be a class or interface instance",
-                                    ));
-                                    (None, ty.name().to_string())
-                                }
-                            }
+                    let obj_ty = typeck_expr(
+                        source,
+                        env,
+                        object,
+                        type_defs,
+                        classes,
+                        interfaces,
+                        this_class,
+                        allow_this_assignment,
+                        expr_types,
+                        diags,
+                    );
+                    let (methods, kind_name) = match obj_ty {
+                        Ty::Class(ref name) => (
+                            classes.get(name).map(|c| &c.methods),
+                            format!("class `{name}`"),
+                        ),
+                        Ty::Interface(ref name) => (
+                            interfaces.get(name).map(|i| &i.methods),
+                            format!("interface `{name}`"),
+                        ),
+                        Ty::Unknown => (None, "unknown".to_string()),
+                        _ => {
+                            diags.push(Diagnostic::error(
+                                *span,
+                                "method call target must be a class or interface instance",
+                            ));
+                            (None, obj_ty.name().to_string())
                         }
                     };
 
-                    let Some(methods) = m_methods else {
-                        return Ty::Unknown;
-                    };
-
-                    let Some(field_name) = ident_text(source, field) else {
-                        return Ty::Unknown;
-                    };
-
-                    let Some(sig) = methods.get(field_name) else {
+                    let field_name = ident_text(source, field).unwrap_or("");
+                    let sig = methods.and_then(|m| m.get(field_name)).cloned();
+                    let callee_ty = sig.as_ref().map(|s| Ty::Function(Box::new(s.clone()))).unwrap_or(Ty::Unknown);
+                    
+                    if sig.is_none() && methods.is_some() {
                         diags.push(Diagnostic::error(
                             field.span,
                             format!("unknown method `{field_name}` on {kind_name}"),
                         ));
-                        return Ty::Unknown;
+                    }
+                    
+                    // Record callee type (the member access part)
+                    expr_types.insert(field.span, callee_ty.clone());
+
+                    (sig, kind_name, callee_ty)
+                }
+                Expr::Ident(ident) => {
+                    let name = ident_text(source, ident).unwrap_or("");
+                    let mut callee_ty = Ty::Unknown;
+                    let sig = match env.lookup(name) {
+                        Some(info) => {
+                            callee_ty = info.ty.clone();
+                            if let Ty::Function(sig) = &info.ty {
+                                Some((**sig).clone())
+                            } else {
+                                diags.push(Diagnostic::error(
+                                    ident.span,
+                                    format!("`{name}` is not a function"),
+                                ));
+                                None
+                            }
+                        }
+                        None => {
+                            diags.push(Diagnostic::error(
+                                ident.span,
+                                format!("unknown function `{name}`"),
+                            ));
+                            None
+                        }
                     };
-                    (Some(sig), kind_name)
+                    (sig, format!("function `{name}`"), callee_ty)
                 }
                 _ => {
                     diags.push(
                         Diagnostic::error(*span, "call expressions are not type-checked yet")
                             .with_help("Phase 3 will type-check functions and calls"),
                     );
-                    (None, "unknown".to_string())
+                    (None, "unknown".to_string(), Ty::Unknown)
                 }
             };
+            
+            // Record the callee's type in expr_types (e.g. for the ident or the whole member expr)
+            expr_types.insert(span_of_expr(callee), callee_ty);
 
-            let Some(sig) = m_methods else {
+            let Some(sig) = sig else {
                 return Ty::Unknown;
             };
 
@@ -776,37 +783,144 @@ pub(crate) fn typeck_expr(
             field,
             span,
         } => {
-            if matches!(**object, Expr::This(_)) {
-                let Some(class_info) = this_class else {
+            let obj_ty = typeck_expr(
+                source,
+                env,
+                object,
+                type_defs,
+                classes,
+                interfaces,
+                this_class,
+                allow_this_assignment,
+                expr_types,
+                diags,
+            );
+
+            let field_name = ident_text(source, field).unwrap_or("");
+            let ty = match obj_ty {
+                Ty::Class(ref name) => {
+                    let info = classes.get(name);
+                    if let Some(info) = info {
+                        if let Some(field_ty) = info.fields.get(field_name) {
+                            field_ty.clone()
+                        } else {
+                            diags.push(Diagnostic::error(
+                                field.span,
+                                format!("unknown field `{field_name}` on class `{name}`"),
+                            ));
+                            Ty::Unknown
+                        }
+                    } else {
+                        Ty::Unknown
+                    }
+                }
+                Ty::Unknown => Ty::Unknown,
+                _ => {
                     diags.push(Diagnostic::error(
                         *span,
-                        "invalid use of `this` outside of a class method",
+                        format!(
+                            "cannot access field `{field_name}` on type `{}`",
+                            obj_ty.name()
+                        ),
                     ));
-                    return Ty::Unknown;
-                };
-                let Some(field_name) = ident_text(source, field) else {
-                    return Ty::Unknown;
-                };
-                let Some(field_ty) = class_info.fields.get(field_name) else {
-                    diags.push(Diagnostic::error(
-                        field.span,
-                        format!("unknown field `{field_name}` on `this`"),
-                    ));
-                    return Ty::Unknown;
-                };
-                field_ty.clone()
-            } else {
-                diags.push(
-                    Diagnostic::error(*span, "member access is not type-checked yet")
-                        .with_help("Phase 3 will add class/interface typing"),
-                );
-                Ty::Unknown
-            }
+                    Ty::Unknown
+                }
+            };
+            // Record the field's type
+            expr_types.insert(field.span, ty.clone());
+            ty
         }
     };
 
     expr_types.insert(span_of_expr(expr), ty.clone());
     ty
+}
+
+fn typeck_let_like(
+    source: &str,
+    env: &mut Env,
+    s: &LetStmt,
+    mutable: bool,
+    type_defs: &HashMap<String, crate::types::TyDefKind>,
+    classes: &HashMap<String, ClassInfo>,
+    interfaces: &HashMap<String, InterfaceInfo>,
+    this_class: Option<&str>,
+    allow_this_assignment: bool,
+    expr_types: &mut HashMap<Span, Ty>,
+    diags: &mut Vec<Diagnostic>,
+) {
+    let name = match ident_text(source, &s.name) {
+        Some(v) => v,
+        None => return,
+    };
+
+    let mut expected_ty = Ty::Unknown;
+    if let Some(ann) = &s.ty {
+        expected_ty = ty_from_type_ref(
+            source,
+            ann,
+            TypePosition::Value,
+            type_defs,
+            diags,
+        );
+    }
+
+    let mut value_ty = Ty::Unknown;
+    if let Some(value) = &s.init {
+        value_ty = typeck_expr(
+            source,
+            env,
+            value,
+            type_defs,
+            classes,
+            interfaces,
+            this_class,
+            allow_this_assignment,
+            expr_types,
+            diags,
+        );
+    }
+
+    if expected_ty != Ty::Unknown {
+        if value_ty != Ty::Unknown && !is_assignable(&value_ty, &expected_ty, classes) {
+            diags.push(Diagnostic::error(
+                s.init.as_ref().map(span_of_expr).unwrap_or(s.span),
+                format!(
+                    "type mismatch: expected `{}`, got `{}`",
+                    expected_ty.name(),
+                    value_ty.name()
+                ),
+            ));
+        }
+        env.define(name.to_string(), expected_ty, mutable);
+    } else {
+        env.define(name.to_string(), value_ty, mutable);
+    }
+}
+
+fn assignment_target(source: &str, expr: &Expr) -> Option<(String, Span)> {
+    match expr {
+        Expr::Ident(ident) => ident_text(source, ident).map(|s| (s.to_string(), ident.span)),
+        _ => None,
+    }
+}
+
+pub(crate) fn span_of_expr(expr: &Expr) -> Span {
+    match expr {
+        Expr::This(span) => *span,
+        Expr::Ident(ident) => ident.span,
+        Expr::IntLit(span) => *span,
+        Expr::FloatLit(span) => *span,
+        Expr::StringLit(span) => *span,
+        Expr::BoolLit(_, span) => *span,
+        Expr::Paren { span, .. } => *span,
+        Expr::Unary { span, .. } => *span,
+        Expr::Binary { span, .. } => *span,
+        Expr::Call { span, .. } => *span,
+        Expr::Assign { span, .. } => *span,
+        Expr::New { span, .. } => *span,
+        Expr::Member { span, .. } => *span,
+    }
 }
 
 pub(crate) fn block_guarantees_return(stmts: &[Stmt]) -> bool {
@@ -823,145 +937,14 @@ fn stmt_guarantees_return(stmt: &Stmt) -> bool {
         Stmt::Return(_) => true,
         Stmt::Block(b) => block_guarantees_return(&b.stmts),
         Stmt::If(s) => {
-            let Some(else_block) = &s.else_block else {
-                return false;
-            };
-            block_guarantees_return(&s.then_block.stmts)
-                && block_guarantees_return(&else_block.stmts)
+            let then_ret = block_guarantees_return(&s.then_block.stmts);
+            let else_ret = s
+                .else_block
+                .as_ref()
+                .map(|b| block_guarantees_return(&b.stmts))
+                .unwrap_or(false);
+            then_ret && else_ret
         }
-        Stmt::While(_) => false,
-        Stmt::Let(_) | Stmt::Const(_) | Stmt::Expr(_) | Stmt::Empty(_) => false,
-    }
-}
-
-pub(crate) fn typeck_let_like(
-    source: &str,
-    env: &mut Env,
-    stmt: &LetStmt,
-    is_mutable: bool,
-    type_defs: &HashMap<String, crate::types::TyDefKind>,
-    classes: &HashMap<String, ClassInfo>,
-    interfaces: &HashMap<String, InterfaceInfo>,
-    this_class: Option<&ClassInfo>,
-    allow_this_assignment: bool,
-    expr_types: &mut HashMap<Span, Ty>,
-    diags: &mut Vec<Diagnostic>,
-) {
-    let declared_ty = stmt
-        .ty
-        .as_ref()
-        .map(|t| ty_from_type_ref(source, t, TypePosition::Value, type_defs, diags));
-
-    let init_ty = stmt
-        .init
-        .as_ref()
-        .map(|e| {
-            typeck_expr(
-                source,
-                env,
-                e,
-                type_defs,
-                classes,
-                interfaces,
-                this_class,
-                allow_this_assignment,
-                expr_types,
-                diags,
-            )
-        })
-        .unwrap_or(Ty::Unknown);
-
-    if !is_mutable && stmt.init.is_none() {
-        diags.push(
-            Diagnostic::error(stmt.span, "`const` bindings must have an initializer")
-                .with_help("add `= <expr>` or change `const` to `let`"),
-        );
-    }
-
-    if declared_ty.is_none() && stmt.init.is_none() {
-        diags.push(
-            Diagnostic::error(
-                stmt.span,
-                "variable declaration needs a type annotation or an initializer",
-            )
-            .with_help("add `: <type>` or `= <expr>`"),
-        );
-    }
-
-    if let (Some(expected), Some(init)) = (declared_ty.as_ref(), stmt.init.as_ref()) {
-        if init_ty != Ty::Unknown
-            && *expected != Ty::Unknown
-            && *expected != Ty::Void
-            && !is_assignable(&init_ty, expected, classes)
-        {
-            diags.push(
-                Diagnostic::error(
-                    span_of_expr(init),
-                    format!(
-                        "type mismatch: expected `{}`, got `{}`",
-                        expected.name(),
-                        init_ty.name()
-                    ),
-                )
-                .with_help("change the initializer or the declared type"),
-            );
-        }
-    }
-
-    let inferred_ty = declared_ty.clone().unwrap_or(init_ty.clone());
-
-    let Some(name) = ident_text(source, &stmt.name) else {
-        return;
-    };
-
-    if inferred_ty == Ty::Unknown && stmt.ty.is_none() && stmt.init.is_some() {
-        diags.push(
-            Diagnostic::error(
-                stmt.span,
-                format!("cannot infer type of `{name}` from initializer"),
-            )
-            .with_help("add an explicit type annotation like `: i32`"),
-        );
-    }
-
-    let info = crate::env::VarInfo {
-        ty: inferred_ty,
-        mutable: is_mutable,
-        decl_span: stmt.name.span,
-    };
-
-    if let Some(existing) = env.lookup_mut(name) {
-        if existing.ty == Ty::Unknown && info.ty != Ty::Unknown {
-            existing.ty = info.ty;
-        }
-        return;
-    }
-
-    env.declare(name.to_string(), info);
-}
-
-fn assignment_target(source: &str, expr: &Expr) -> Option<(String, Span)> {
-    match expr {
-        Expr::Ident(ident) => Some((ident_text(source, ident)?.to_string(), ident.span)),
-        Expr::Paren { expr, .. } => assignment_target(source, expr),
-        _ => None,
-    }
-}
-
-pub(crate) fn span_of_expr(expr: &Expr) -> Span {
-    match expr {
-        Expr::Ident(i) => i.span,
-        Expr::This(s) => *s,
-        Expr::IntLit(s) => *s,
-        Expr::FloatLit(s) => *s,
-        Expr::StringLit(s) => *s,
-        Expr::BoolLit(_, s) => *s,
-        Expr::Unary { span, .. } => *span,
-        Expr::Binary { span, .. } => *span,
-        Expr::Assign { span, .. } => *span,
-        Expr::Call { span, .. } => *span,
-        Expr::New { span, .. } => *span,
-        Expr::Member { span, .. } => *span,
-        Expr::Paren { span, .. } => *span,
+        _ => false,
     }
 }

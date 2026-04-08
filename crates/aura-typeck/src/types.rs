@@ -19,6 +19,7 @@ pub enum Ty {
     Void,
     Class(String),
     Interface(String),
+    Function(Box<MethodSig>),
 }
 
 impl Ty {
@@ -34,6 +35,14 @@ impl Ty {
             Ty::Void => Cow::Borrowed("void"),
             Ty::Class(name) => Cow::Owned(name.clone()),
             Ty::Interface(name) => Cow::Owned(name.clone()),
+            Ty::Function(sig) => {
+                let params: Vec<_> = sig.params.iter().map(|p| p.name()).collect();
+                Cow::Owned(format!(
+                    "function({}) => {}",
+                    params.join(", "),
+                    sig.return_ty.name()
+                ))
+            }
         }
     }
 }
@@ -57,19 +66,19 @@ pub struct TypedProgram {
     pub expression_types: HashMap<Span, Ty>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ClassInfo {
     pub(crate) fields: HashMap<String, Ty>,
     pub(crate) methods: HashMap<String, MethodSig>,
     pub(crate) implements: HashSet<String>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct InterfaceInfo {
     pub(crate) methods: HashMap<String, MethodSig>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MethodSig {
     pub(crate) params: Vec<Ty>,
     pub(crate) return_ty: Ty,

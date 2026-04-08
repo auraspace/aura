@@ -2,10 +2,12 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
+use aura_ast::Program;
 use aura_diagnostics::Diagnostic;
 
 pub mod modules;
 pub mod resolve;
+pub mod dump_hir;
 
 use aura_typeck::TypedProgram;
 
@@ -14,6 +16,7 @@ pub struct CheckOutput {
     pub source: String,
     pub diagnostics: Vec<Diagnostic>,
     pub typed_program: Option<TypedProgram>,
+    pub ast: Option<Program>,
 }
 
 pub fn check_file(path: impl AsRef<Path>) -> io::Result<CheckOutput> {
@@ -21,6 +24,7 @@ pub fn check_file(path: impl AsRef<Path>) -> io::Result<CheckOutput> {
     let source = fs::read_to_string(path)?;
     let mut diagnostics = Vec::new();
     let mut typed_program = None;
+    let mut ast = None;
 
     // Build a module graph (entrypoint + reachable relative imports).
     // We report parsing/resolution diagnostics across the whole graph.
@@ -39,6 +43,7 @@ pub fn check_file(path: impl AsRef<Path>) -> io::Result<CheckOutput> {
                 // For now, capture the last one (usually the entry point in simple cases)
                 // or we could match by path.
                 typed_program = Some(typed);
+                ast = Some(module.ast.clone());
             }
         }
     } else {
@@ -49,6 +54,7 @@ pub fn check_file(path: impl AsRef<Path>) -> io::Result<CheckOutput> {
             let (diags, typed) = aura_typeck::typeck_program(&source, &parsed.value);
             diagnostics.extend(diags);
             typed_program = Some(typed);
+            ast = Some(parsed.value);
         }
     }
 
@@ -56,5 +62,6 @@ pub fn check_file(path: impl AsRef<Path>) -> io::Result<CheckOutput> {
         source,
         diagnostics,
         typed_program,
+        ast,
     })
 }

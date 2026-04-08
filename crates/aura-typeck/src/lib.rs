@@ -11,7 +11,7 @@ mod types;
 pub use env::VarInfo;
 pub use types::{ClassInfo, InterfaceInfo, MethodSig, Ty, TypedProgram};
 
-use crate::check::{block_guarantees_return, typeck_block, typeck_stmt};
+use crate::check::{typeck_block, typeck_stmt};
 use crate::env::Env;
 use crate::lib_utils::ident_text;
 use crate::types::{ty_from_type_ref, MethodSig as TypeMethodSig, TyDefKind, TypePosition};
@@ -221,22 +221,50 @@ pub fn typeck_program(source: &str, program: &Program) -> (Vec<Diagnostic>, Type
         }
     }
 
-    // Pass 1: predeclare all top-level `let/const` so later type checking can resolve
-    // global names regardless of declaration order (matching resolver behavior).
     let mut globals = HashMap::<String, VarInfo>::new();
     for item in &program.items {
-        let TopLevel::Stmt(Stmt::Let(s) | Stmt::Const(s)) = item else {
-            continue;
-        };
-        let Some(name) = ident_text(source, &s.name) else {
-            continue;
-        };
-        globals.entry(name.to_string()).or_insert_with(|| VarInfo {
-            // Defer annotation checking to Pass 2 to avoid duplicate diagnostics.
-            ty: Ty::Unknown,
-            mutable: matches!(item, TopLevel::Stmt(Stmt::Let(_))),
-            decl_span: s.name.span,
-        });
+        match item {
+            TopLevel::Stmt(Stmt::Let(s) | Stmt::Const(s)) => {
+                let Some(name) = ident_text(source, &s.name) else {
+                    continue;
+                };
+                globals.entry(name.to_string()).or_insert_with(|| VarInfo {
+                    ty: Ty::Unknown,
+                    mutable: matches!(item, TopLevel::Stmt(Stmt::Let(_))),
+                    decl_span: s.name.span,
+                });
+            }
+            TopLevel::Function(func) => {
+                let Some(name) = ident_text(source, &func.name) else {
+                    continue;
+                };
+                let mut params = Vec::new();
+                for param in &func.params {
+                    let ty = ty_from_type_ref(
+                        source,
+                        &param.ty,
+                        TypePosition::Value,
+                        &type_defs,
+                        &mut diags,
+                    );
+                    params.push(ty);
+                }
+                let return_ty = func
+                    .return_type
+                    .as_ref()
+                    .map(|t| ty_from_type_ref(source, t, TypePosition::Return, &type_defs, &mut diags))
+                    .unwrap_or(Ty::Void);
+                globals.insert(
+                    name.to_string(),
+                    VarInfo {
+                        ty: Ty::Function(Box::new(TypeMethodSig { params, return_ty })),
+                        mutable: false,
+                        decl_span: func.name.span,
+                    },
+                );
+            }
+            _ => {}
+        }
     }
 
     let mut global_env = Env::new(globals);
@@ -261,14 +289,11 @@ pub fn typeck_program(source: &str, program: &Program) -> (Vec<Diagnostic>, Type
         );
     }
 
-    // Pass 3: type-check function signatures and bodies.
+    // Pass 3: type-check function bodies.
     for item in &program.items {
         let TopLevel::Function(func) = item else {
             continue;
         };
-        if let Some(ret) = &func.return_type {
-            let _ = ty_from_type_ref(source, ret, TypePosition::Return, &type_defs, &mut diags);
-        }
 
         let mut env = global_env.child();
         for param in &func.params {
@@ -312,7 +337,7 @@ pub fn typeck_program(source: &str, program: &Program) -> (Vec<Diagnostic>, Type
             &mut diags,
         );
 
-        if expected_return != Ty::Void && !block_guarantees_return(&func.body.stmts) {
+        if expected_return != Ty::Void && !crate::check::block_guarantees_return(&func.body.stmts) {
             diags.push(
                 Diagnostic::error(func.span, "missing return on some paths")
                     .with_help("add a `return` statement on all control-flow paths"),
@@ -326,11 +351,7 @@ pub fn typeck_program(source: &str, program: &Program) -> (Vec<Diagnostic>, Type
             continue;
         };
         let class_name = ident_text(source, &class_decl.name);
-        let class_info = class_name.and_then(|name| classes.get(name));
         for method in &class_decl.methods {
-            if let Some(ret) = &method.return_type {
-                let _ = ty_from_type_ref(source, ret, TypePosition::Return, &type_defs, &mut diags);
-            }
             let is_constructor = matches!(ident_text(source, &method.name), Some("constructor"));
 
             let mut env = global_env.child();
@@ -381,14 +402,14 @@ pub fn typeck_program(source: &str, program: &Program) -> (Vec<Diagnostic>, Type
                 &type_defs,
                 &classes,
                 &interfaces,
-                class_info,
-                is_constructor,
+                class_name,
+                true, // Relaxed: fields can be mutated in any method
                 &method.body,
                 &mut expression_types,
                 &mut diags,
             );
 
-            if expected_return != Ty::Void && !block_guarantees_return(&method.body.stmts) {
+            if expected_return != Ty::Void && !crate::check::block_guarantees_return(&method.body.stmts) {
                 diags.push(
                     Diagnostic::error(method.span, "missing return on some paths")
                         .with_help("add a `return` statement on all control-flow paths"),
@@ -596,7 +617,7 @@ class Point {
     }
 
     #[test]
-    fn rejects_this_assignment_outside_constructor() {
+    fn allows_this_assignment_outside_constructor() {
         let src = r#"
 class Point {
   x: i32;
@@ -610,8 +631,7 @@ class Point {
         assert!(out.errors.is_empty(), "{:#?}", out.errors);
 
         let (diags, _) = typeck_program(src, &out.value);
-        assert_eq!(diags.len(), 1);
-        assert!(diags[0].message.contains("only belong in constructors"));
+        assert!(diags.is_empty(), "{diags:#?}");
     }
 
     #[test]

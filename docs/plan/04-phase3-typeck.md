@@ -18,9 +18,9 @@ Minimal static typing for primitives + functions + classes/interfaces (nominal).
 - [x] Type-check: direct instance method calls + `new` result typing (no vtables yet) (done 2026-04-07)
 - [x] Type-check: constructor rules (`constructor` returns `void`, assigns fields) (done 2026-04-07; enforce constructor-only `this` assignments and void constructors)
 - [x] Interface typing: nominal + `implements` checks (done 2026-04-08)
-- [ ] Add `--emit=hir` or `--print=types` debug output mode
+- [x] Add `--emit=hir` or `--print=types` debug output mode (done 2026-04-08)
 
 ## Acceptance
 
-- [ ] Reject: wrong argument types, wrong return type, missing return on non-`void`
-- [ ] Accept: small well-typed `examples/` programs with classes + methods
+- [x] Reject: wrong argument types, wrong return type, missing return on non-`void`
+- [x] Accept: small well-typed `examples/` programs with classes + methods
