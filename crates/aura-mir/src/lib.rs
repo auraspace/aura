@@ -135,3 +135,27 @@ pub enum Constant {
     String(String),
     Bool(bool),
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use aura_parser::parse_program;
+    use aura_typeck::typeck_program;
+
+    #[test]
+    fn lowers_a_typed_function_program() {
+        let source = "function main(): void { return; }";
+        let parsed = parse_program(source);
+        assert!(parsed.errors.is_empty());
+
+        let (diags, typed_program) = typeck_program(source, &parsed.value);
+        assert!(diags.is_empty(), "{diags:?}");
+
+        let mir = lower_program(source, &parsed.value, &typed_program);
+        assert_eq!(mir.functions.len(), 1);
+        assert_eq!(mir.functions[0].name, "main");
+        assert!(mir.classes.is_empty());
+        assert!(mir.interfaces.is_empty());
+        assert!(mir.method_slots.is_empty());
+    }
+}

@@ -218,6 +218,49 @@ pub enum Expr {
     },
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use aura_span::{BytePos, Span};
+
+    #[test]
+    fn constructs_nested_ast_nodes() {
+        let name_span = Span::new(BytePos::new(0), BytePos::new(3));
+        let type_span = Span::new(BytePos::new(5), BytePos::new(8));
+        let body_span = Span::new(BytePos::new(10), BytePos::new(20));
+        let function_span = Span::new(BytePos::new(0), BytePos::new(20));
+
+        let function = FunctionDecl {
+            name: Ident { span: name_span },
+            params: vec![Param {
+                name: Ident { span: name_span },
+                ty: TypeRef {
+                    name: Ident { span: type_span },
+                    span: type_span,
+                },
+                span: Span::new(BytePos::new(0), BytePos::new(8)),
+            }],
+            return_type: Some(TypeRef {
+                name: Ident { span: type_span },
+                span: type_span,
+            }),
+            body: Block {
+                stmts: vec![Stmt::Empty(body_span)],
+                span: body_span,
+            },
+            span: function_span,
+        };
+
+        let program = Program {
+            items: vec![TopLevel::Function(function.clone())],
+        };
+
+        assert_eq!(program.items.len(), 1);
+        assert_eq!(function, function.clone());
+        assert_eq!(program.items[0], TopLevel::Function(function));
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UnaryOp {
     Neg,

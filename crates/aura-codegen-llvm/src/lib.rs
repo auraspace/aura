@@ -998,3 +998,52 @@ impl<'ctx> Backend for LlvmBackend<'ctx> {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+    use std::env;
+    use std::fs;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn unique_temp_dir() -> PathBuf {
+        let mut dir = env::temp_dir();
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock before unix epoch")
+            .as_nanos();
+        dir.push(format!(
+            "aura-codegen-llvm-test-{}-{}",
+            std::process::id(),
+            stamp
+        ));
+        dir
+    }
+
+    fn empty_program() -> MirProgram {
+        MirProgram {
+            functions: Vec::new(),
+            classes: HashMap::new(),
+            interfaces: HashMap::new(),
+            method_slots: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn compiles_an_empty_program_to_an_object_file() {
+        let context = Context::create();
+        let backend = LlvmBackend::new(&context, "unit-test", &Target::host()).unwrap();
+
+        let out_dir = unique_temp_dir();
+        fs::create_dir_all(&out_dir).unwrap();
+
+        let obj_path = backend.compile(&empty_program(), &out_dir).unwrap();
+        assert_eq!(
+            obj_path.file_name().and_then(|s| s.to_str()),
+            Some("main.o")
+        );
+        assert!(obj_path.exists());
+    }
+}

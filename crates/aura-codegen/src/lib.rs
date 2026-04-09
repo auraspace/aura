@@ -70,3 +70,30 @@ impl Default for Target {
         Self::host()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_backend_kind_and_reports_name() {
+        assert_eq!(BackendKind::parse("llvm").unwrap(), BackendKind::Llvm);
+        assert_eq!(BackendKind::parse("clif").unwrap(), BackendKind::Clif);
+        assert!(BackendKind::parse("something-else").is_err());
+        assert_eq!(BackendKind::Llvm.name(), "llvm");
+        assert_eq!(BackendKind::Clif.name(), "clif");
+    }
+
+    #[test]
+    fn target_helpers_return_expected_triples() {
+        assert_eq!(
+            Target::aarch64_apple_darwin().triple,
+            Target::AARCH64_APPLE_DARWIN
+        );
+        assert_eq!(
+            Target::x86_64_unknown_linux_gnu().triple,
+            Target::X86_64_UNKNOWN_LINUX_GNU
+        );
+        assert_eq!(Target::new("custom-triple").triple, "custom-triple");
+    }
+}

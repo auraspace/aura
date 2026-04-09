@@ -29,3 +29,29 @@ impl Backend for ClifBackend {
         self.unsupported()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+    use std::path::Path;
+
+    fn empty_program() -> MirProgram {
+        MirProgram {
+            functions: Vec::new(),
+            classes: HashMap::new(),
+            interfaces: HashMap::new(),
+            method_slots: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn reports_placeholder_backend() {
+        let backend = ClifBackend::new();
+        let err = backend
+            .emit_asm(&empty_program(), Path::new("."))
+            .unwrap_err();
+
+        assert!(err.to_string().contains("placeholder"));
+    }
+}
