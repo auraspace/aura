@@ -9,22 +9,26 @@ USAGE:
   aurac <COMMAND> [ARGS...]
 
 COMMANDS:
-  build   Compile sources into a native executable
-  check   Parse/typecheck sources
-  run     Build then run the executable
-  help    Print this message
+  build                 Compile sources into a native executable
+  check                 Parse/typecheck sources
+  run                   Build then run the executable
+  help                  Print this help message
+
+OPTIONS:
+  -v, --version         Print version information
+  -h, --help            Print this help message
 
 DEBUG OPTIONS:
-  --emit=ast      Print the parsed AST
-  --print=types   Print inferred types for all expressions
-  --print=symbols  Print top-level symbols for the entry module
-  --print=imports  Print resolved imports for the entry module
-  --emit=hir      Print the annotated HIR (AST with types)
-  --emit=mir      Print the generated Mid-level IR (MIR)
-  --emit=llvm     Emit LLVM IR (.ll)
-  --emit=asm      Emit assembly (.s)
-  --emit=obj      Emit object file (.o)
-  --backend=llvm|clif  Select codegen backend (default: llvm)
+  --emit=ast            Print the parsed AST
+  --print=types         Print inferred types for all expressions
+  --print=symbols       Print top-level symbols for the entry module
+  --print=imports       Print resolved imports for the entry module
+  --emit=hir            Print the annotated HIR (AST with types)
+  --emit=mir            Print the generated Mid-level IR (MIR)
+  --emit=llvm           Emit LLVM IR (.ll)
+  --emit=asm            Emit assembly (.s)
+  --emit=obj            Emit object file (.o)
+  --backend=llvm|clif   Select codegen backend (default: llvm)
 "#;
 
 fn main() {
@@ -53,7 +57,7 @@ fn main() {
                 print_help();
                 return;
             }
-            "-V" | "--version" => {
+            "-v" | "--version" => {
                 println!("{}", env!("CARGO_PKG_VERSION"));
                 return;
             }
