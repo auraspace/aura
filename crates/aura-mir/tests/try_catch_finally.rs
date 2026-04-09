@@ -74,3 +74,47 @@ function throws(): void {
     assert!(rendered.contains("(Return)"));
     assert!(rendered.contains("(Throw)"));
 }
+
+#[test]
+fn lowers_nested_try_into_multiple_cleanup_regions() {
+    let src = r#"
+function nested(): void {
+  try {
+    try {
+      throw 1;
+    } catch (e) {
+      let inner = 1;
+    } finally {
+      let inner_cleanup = 1;
+    }
+  } finally {
+    let outer_cleanup = 1;
+  }
+}
+"#;
+
+    let parsed = parse_program(src);
+    assert!(parsed.errors.is_empty(), "{:#?}", parsed.errors);
+
+    let (diags, typed) = typeck_program(src, &parsed.value);
+    assert!(diags.is_empty(), "{diags:#?}");
+
+    let mir = lower_program(src, &parsed.value, &typed);
+    assert_eq!(mir.functions.len(), 1);
+    let function = &mir.functions[0];
+    assert_eq!(function.cleanup_regions.len(), 2, "{}", function.name);
+    assert!(
+        function
+            .cleanup_regions
+            .iter()
+            .any(|region| region.catch_block.is_some()),
+        "expected at least one catch region"
+    );
+    assert!(
+        function
+            .cleanup_regions
+            .iter()
+            .all(|region| region.finally_block.is_some()),
+        "expected finally blocks for nested cleanup"
+    );
+}

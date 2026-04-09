@@ -1388,4 +1388,95 @@ function f(): void {
             _ => panic!("expected function"),
         }
     }
+
+    #[test]
+    fn rejects_try_without_catch_or_finally() {
+        let src = r#"
+function f(): void {
+  try {
+    let done = 1;
+  }
+}
+"#;
+        let out = parse_program(src);
+        assert_eq!(out.errors.len(), 1, "{:#?}", out.errors);
+        assert!(out.errors[0]
+            .message
+            .contains("expected `catch` or `finally` after `try` block"));
+    }
+
+    #[test]
+    fn parses_try_catch_only() {
+        let src = r#"
+function f(): void {
+  try {
+    let done = 1;
+  } catch (e) {
+    return;
+  }
+}
+"#;
+        let out = parse_program(src);
+        assert!(out.errors.is_empty(), "{:#?}", out.errors);
+        match &out.value.items[0] {
+            TopLevel::Function(func) => match &func.body.stmts[0] {
+                Stmt::Try(stmt) => {
+                    assert!(stmt.catch.is_some());
+                    assert!(stmt.finally_block.is_none());
+                }
+                _ => panic!("expected try statement"),
+            },
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn parses_try_finally_only() {
+        let src = r#"
+function f(): void {
+  try {
+    let done = 1;
+  } finally {
+    let cleanup = 1;
+  }
+}
+"#;
+        let out = parse_program(src);
+        assert!(out.errors.is_empty(), "{:#?}", out.errors);
+        match &out.value.items[0] {
+            TopLevel::Function(func) => match &func.body.stmts[0] {
+                Stmt::Try(stmt) => {
+                    assert!(stmt.catch.is_none());
+                    assert!(stmt.finally_block.is_some());
+                }
+                _ => panic!("expected try statement"),
+            },
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
+    fn parses_typed_catch_binding() {
+        let src = r#"
+function f(): void {
+  try {
+    throw 1;
+  } catch (e: i32) {
+    return;
+  }
+}
+"#;
+        let out = parse_program(src);
+        assert!(out.errors.is_empty(), "{:#?}", out.errors);
+        match &out.value.items[0] {
+            TopLevel::Function(func) => match &func.body.stmts[0] {
+                Stmt::Try(stmt) => {
+                    let catch = stmt.catch.as_ref().expect("expected catch");
+                    assert!(catch.ty.is_some());
+                }
+                _ => panic!("expected try statement"),
+            },
+            _ => panic!("expected function"),
+        }
+    }
 }

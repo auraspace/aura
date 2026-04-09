@@ -1107,4 +1107,52 @@ function f(): void {
         let (diags, _) = typeck_program(src, &out.value);
         assert!(diags.is_empty(), "{diags:#?}");
     }
+
+    #[test]
+    fn accepts_typed_catch_binding_and_keeps_scope_local() {
+        let src = r#"
+function f(): i32 {
+    let e: i32 = 1;
+    try {
+        return 0;
+    } catch (e: bool) {
+        let handled = 1;
+    }
+    return e;
+}
+"#;
+        let out = aura_parser::parse_program(src);
+        assert!(out.errors.is_empty(), "{:#?}", out.errors);
+
+        let (diags, _) = typeck_program(src, &out.value);
+        assert!(diags.is_empty(), "{diags:#?}");
+    }
+
+    #[test]
+    fn accepts_try_catch_and_finally_return_paths() {
+        let src = r#"
+function returns_from_try_and_catch(): i32 {
+    try {
+        return 1;
+    } catch (e) {
+        return 2;
+    }
+}
+
+function returns_from_finally(): i32 {
+    try {
+        let done = 1;
+    } catch (e) {
+        let handled = 1;
+    } finally {
+        return 3;
+    }
+}
+"#;
+        let out = aura_parser::parse_program(src);
+        assert!(out.errors.is_empty(), "{:#?}", out.errors);
+
+        let (diags, _) = typeck_program(src, &out.value);
+        assert!(diags.is_empty(), "{diags:#?}");
+    }
 }

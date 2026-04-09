@@ -366,12 +366,10 @@ impl<'ctx> LlvmBackend<'ctx> {
                         let llvm_discr = self
                             .lower_operand(program, discr, &locals, func)?
                             .into_int_value();
+                        let discr_ty = llvm_discr.get_type();
                         let mut cases = Vec::new();
                         for (val, target) in targets {
-                            cases.push((
-                                self.context.i64_type().const_int(*val as u64, false),
-                                blocks[target],
-                            ));
+                            cases.push((discr_ty.const_int(*val as u64, false), blocks[target]));
                         }
                         self.builder
                             .build_switch(llvm_discr, blocks[otherwise], &cases)?;

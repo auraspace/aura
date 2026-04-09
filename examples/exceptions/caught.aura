@@ -1,0 +1,13 @@
+function main(): i32 {
+  try {
+    println("body");
+    throw 1;
+  } catch (e) {
+    println("caught");
+  } finally {
+    println("finally");
+  }
+
+  println("after");
+  return 0;
+}
