@@ -420,7 +420,7 @@ impl<'ctx> LlvmBackend<'ctx> {
                                 })?;
                             let header_ty = self.object_header_type();
                             let header_ptr_ty =
-                                header_ty.ptr_type(inkwell::AddressSpace::default());
+                                self.context.ptr_type(inkwell::AddressSpace::default());
                             let header_ptr = self.builder.build_pointer_cast(
                                 receiver_ptr,
                                 header_ptr_ty,
@@ -439,7 +439,7 @@ impl<'ctx> LlvmBackend<'ctx> {
                             )?;
                             let vtable_ty = self.vtable_struct_type();
                             let vtable_ptr_ty =
-                                vtable_ty.ptr_type(inkwell::AddressSpace::default());
+                                self.context.ptr_type(inkwell::AddressSpace::default());
                             let vtable_struct_ptr = self.builder.build_pointer_cast(
                                 vtable_ptr.into_pointer_value(),
                                 vtable_ptr_ty,
@@ -589,7 +589,7 @@ impl<'ctx> LlvmBackend<'ctx> {
             .build_pointer_cast(raw_ptr, obj_ptr_ty, "obj_cast")?;
 
         let header_ty = self.object_header_type();
-        let header_ptr_ty = header_ty.ptr_type(inkwell::AddressSpace::default());
+        let header_ptr_ty = self.context.ptr_type(inkwell::AddressSpace::default());
         let header_ptr = self
             .builder
             .build_pointer_cast(obj_ptr, header_ptr_ty, "header_cast")?;
