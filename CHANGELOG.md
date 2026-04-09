@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.1.1] - 2026-04-09
+## [1.0.0] - 2026-04-09
 
 ### Bug Fixes
 
@@ -23,6 +23,12 @@ All notable changes to this project will be documented in this file.
 - Update task killer documentation to enforce Conventional Commits v1.0.0 standards
 - Add formatting requirements to task killer workflow documentation
 - Clarify the status of `x86_64-unknown-linux-gnu` as a placeholder target in architecture and planning documents
+- Rename plan v1 to v0
+- Align v0 contract with current workspace
+- Rename roadmap to v1.0
+- Align v1.0 architecture and backend notes
+- Align folder structure docs with workspace
+- Close v1.0 quality gate
 
 ### Features
 
@@ -65,12 +71,15 @@ All notable changes to this project will be documented in this file.
 - Introduce aura-test-harness for enhanced end-to-end testing
 - Restructure plan files into versioned directories and add detailed phase documentation
 - Add GitHub workflows for automated release and binary packaging
+- Add comprehensive installation guide and scripts for Aura
+- Add structured target descriptor
 
 ### Miscellaneous Tasks
 
 - Add project README and MIT license file
 - Scaffold member access collection
 - Enhance CI workflow with matrix strategy for macOS builds
+- Release v0.1.1
 
 ### Refactor
 
@@ -78,11 +87,14 @@ All notable changes to this project will be documented in this file.
 - Refine lowering to handle complex L-values and enforce evaluation order
 - Remove unused lookup_mut method from TypeEnv
 - Format longjmp call in aura-rt for improved readability
+- Improve command and option formatting in usage output
+- Replace direct type pointer retrieval with context-based method for header and vtable types
 
 ### Testing
 
 - Add smoke coverage across core crates
 - Add diagnostics snapshots and debug e2e coverage
+- Cover expectation parsing
 
 ### Ci
 
