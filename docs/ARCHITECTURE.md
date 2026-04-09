@@ -4,6 +4,19 @@ Aura is an OOP, statically typed language with a TypeScript-like surface syntax 
 
 This document describes a minimal but scalable architecture for the Aura compiler and runtime. The initial implementation focuses on `aarch64-apple-darwin`.
 
+## Current Workspace Snapshot
+
+The repository currently implements the compiler as a Rust workspace with these major crates:
+
+- `aura-ast`, `aura-span`, `aura-diagnostics`
+- `aura-lexer`, `aura-parser`, `aura-driver`
+- `aura-typeck`, `aura-mir`
+- `aura-codegen`, `aura-codegen-llvm`, `aura-codegen-clif`
+- `aura-link`, `aurac`
+- `runtime/aura-rt`
+
+Planned crates such as `aura-hir`, `aura-lower`, `aura-target`, and `aura-stdlib` are still future work and should not be treated as present implementation dependencies.
+
 Target note:
 
 - `x86_64-unknown-linux-gnu` is a placeholder target for planning only.
@@ -155,6 +168,13 @@ The backend is responsible for:
 - object emission
 - linking
 
+Current implementation shape:
+
+- `aura-codegen` defines the backend trait and target helper used by the CLI.
+- `aura-codegen-llvm` is the active MVP backend and emits LLVM IR/object code via `inkwell`.
+- `aura-codegen-clif` is a placeholder backend crate and should remain non-default until it is intentionally promoted.
+- `aura-link` owns the platform linking step.
+
 For the initial milestone on `aarch64-apple-darwin`, a practical approach is:
 
 - Codegen to Mach-O object (`.o`)
@@ -175,7 +195,7 @@ Keep the abstraction so switching/adding backends is possible. For the current c
 
 ## Runtime Architecture (Embedded)
 
-Aura programs link a runtime static library (e.g. `libaura_rt.a`) into the final executable.
+Aura programs link a runtime static library (`libaura_rt.a`) into the final executable. The runtime crate currently builds as `staticlib` plus `rlib` for workspace reuse.
 
 ### Responsibilities
 
@@ -204,6 +224,8 @@ Example runtime entry points (illustrative):
 - `aura_panic(msg_ptr, msg_len) -> !`
 
 This keeps codegen and runtime evolvable independently.
+
+The current runtime implementation already exposes the C ABI used by the compiler for exception unwinding and helper calls, and the public headers live under `runtime/include/`.
 
 ### Object Layout + Dispatch
 

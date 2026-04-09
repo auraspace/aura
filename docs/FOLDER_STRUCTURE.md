@@ -12,56 +12,57 @@ Current focus target: `aarch64-apple-darwin`.
 │  ├─ ARCHITECTURE.md
 │  ├─ FOLDER_STRUCTURE.md
 │  └─ SYNTAX_DESIGN.md
-├─ .github/
-│  └─ workflows/            # GitHub Actions CI workflows
+├─ .agents/
+│  ├─ skills/
+│  └─ ...
 ├─ crates/
-│  ├─ aurac/                 # CLI + orchestration (build/check/run)
+│  ├─ aura-ast/              # AST data structures (shared)
+│  ├─ aura-diagnostics/      # Errors, warnings, formatting
 │  ├─ aura-driver/           # High-level "compile this project" API (no CLI)
 │  ├─ aura-lexer/            # Tokenizer
 │  ├─ aura-parser/           # AST + parser + error recovery
-│  ├─ aura-ast/              # AST data structures (shared)
 │  ├─ aura-span/             # Source spans, files, line/col mapping
-│  ├─ aura-diagnostics/      # Errors, warnings, formatting
-│  ├─ aura-hir/              # (Optional) lowered syntax tree
 │  ├─ aura-typeck/           # Type checking + inference (minimal)
 │  ├─ aura-mir/              # Typed IR (CFG) + utilities
-│  ├─ aura-lower/            # HIR/AST -> MIR lowering
 │  ├─ aura-codegen/          # Backend-agnostic codegen interface
-│  ├─ aura-codegen-clif/     # Cranelift backend (optional)
-│  ├─ aura-codegen-llvm/     # LLVM backend (optional)
+│  ├─ aura-codegen-clif/     # Cranelift backend placeholder
+│  ├─ aura-codegen-llvm/     # LLVM backend implementation
 │  ├─ aura-link/             # Linker abstraction + platform implementations
-│  ├─ aura-target/           # Target triples, data layouts, feature flags
-│  └─ aura-stdlib/           # (Later) language-level standard library sources
+│  └─ aurac/                 # CLI + orchestration (build/check/run)
 ├─ runtime/
-│  ├─ aura-rt/               # Runtime crate (builds staticlib)
-│  ├─ include/               # C ABI headers (generated or hand-written)
-│  └─ tests/                 # Runtime-level tests
+│  ├─ aura-rt/               # Runtime crate (builds staticlib + rlib)
+│  └─ include/               # C ABI headers (generated or hand-written)
 ├─ examples/
+│  ├─ complex_hir.aura
 │  ├─ hello/
-│  └─ oop/
+│  ├─ modules/
+│  ├─ exceptions/
+│  ├─ oop/
+│  └─ string_conversion/
 ├─ tests/
-│  ├─ e2e/                   # Compile+run tests
-│  ├─ fixtures/              # Small Aura programs
-│  └─ snapshots/             # Parser/typeck diagnostics snapshots
-├─ tools/
-│  ├─ golden/                # Golden-file harness utilities
-│  └─ ci/                    # CI scripts
+│  └─ fixtures/              # Parser/typeck/MIR/E2E fixtures
+├─ scripts/
+├─ cliff.toml
+├─ INSTALL.md
 ├─ Cargo.toml                # Rust workspace root
-└─ README.md
+├─ Cargo.lock
+├─ README.md
+├─ CHANGELOG.md
+└─ LICENSE
 ```
 
 ## Key Principles
 
 - **One crate per responsibility**: small crates avoid cyclic dependencies.
 - **Backends are plugins**: `aura-codegen` defines traits; backend crates implement them.
-- **Targets are data**: `aura-target` provides target descriptions and normalization.
 - **Driver is stable**: `aura-driver` is a library API usable by CLI, tests, and future editor tooling.
+- **Current workspace stays lean**: planned crates like `aura-hir`, `aura-lower`, `aura-target`, and `aura-stdlib` are not part of the repository yet.
 
 ## Target Support Model
 
 ### `aura-target`
 
-Centralize target logic:
+Target logic currently lives in `aura-codegen` and the CLI/backend crates.
 
 - target triple parsing/normalization
 - pointer size, endianness, OS/ABI
@@ -91,7 +92,8 @@ Keep the interface simple:
 `runtime/aura-rt` should build:
 
 - `staticlib` for embedding into executables
-- (optional) `cdylib` for experimentation or embedding into other hosts
+- `rlib` for intra-workspace reuse
+- (optional later) `cdylib` for experimentation or embedding into other hosts
 
 `runtime/include` contains the C ABI contract:
 

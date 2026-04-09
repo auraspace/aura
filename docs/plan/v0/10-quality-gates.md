@@ -13,6 +13,6 @@ _Last updated: 2026-04-09_
 ## Pre-merge checklist
 
 - [x] Syntax changed → update `docs/SYNTAX_DESIGN.md` (done 2026-04-09; aligned module syntax doc with implemented parser surface)
-- [ ] Pipeline/IR/runtime responsibilities changed → update `docs/ARCHITECTURE.md`
-- [ ] Repo layout/crates changed → update `docs/FOLDER_STRUCTURE.md`
+- [x] Pipeline/IR/runtime responsibilities changed → update `docs/ARCHITECTURE.md` (done 2026-04-09; aligned architecture doc with current workspace/backend/runtime shape)
+- [x] Repo layout/crates changed → update `docs/FOLDER_STRUCTURE.md` (done 2026-04-09; aligned folder structure doc with actual workspace crates and top-level dirs)
 - [x] Run guardrails: `bash .agents/skills/aura-dev-guardrails/scripts/check_guardrails.sh` (done 2026-04-09; contract/doc guardrails pass)
