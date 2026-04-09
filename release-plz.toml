@@ -1,0 +1,14 @@
+[workspace]
+# Disable publishing to crates.io
+publish = false
+git_tag_enable = true
+git_release_enable = false
+
+# Configuration for changelog generation
+[changelog]
+# Use conventional commits
+# release-plz will automatically generate CHANGELOG.md
+header = """
+# Changelog
+All notable changes to this project will be documented in this file.
+"""
