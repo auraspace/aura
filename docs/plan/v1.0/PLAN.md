@@ -4,6 +4,8 @@ _Last updated: 2026-04-09_
 
 v1.0 builds on the MVP contract from `docs/plan/v0/` and focuses on making the compiler/runtime more extensible without breaking the current single-binary workflow.
 
+The next draft roadmap is `docs/plan/v1.1/`, which focuses on modules, types, diagnostics, runtime/stdlib, backend policy, and quality gates.
+
 ## Draft Themes
 
 1. Target abstraction and additional host/target support
