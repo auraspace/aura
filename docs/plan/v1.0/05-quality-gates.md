@@ -19,5 +19,21 @@ _Last updated: 2026-04-09_
 
 ## Acceptance
 
-- [ ] v1.0 work can be shipped incrementally without re-opening v0 assumptions.
-- [ ] The next task in the roadmap is obvious from the docs alone.
+- [x] v1.0 work can be shipped incrementally without re-opening v0 assumptions. (done 2026-04-09)
+- [x] The next task in the roadmap is obvious from the docs alone. (done 2026-04-09)
+
+## Roadmap reading order
+
+The v1.0 plan is intentionally linear:
+
+- Start with `00-contract.md` for the invariants and success criteria.
+- Follow the numbered phase files in order.
+- Treat the next unchecked item in the next numbered file as the default next task.
+
+## Incremental delivery rule
+
+Each v1.0 phase must remain independently shippable:
+
+- Preserve the v0 single-binary workflow unless a phase explicitly replaces it.
+- Keep new target, IR, runtime, or backend capabilities behind the narrowest possible API surface.
+- Avoid broad policy changes that force follow-up work across unrelated phases.
