@@ -73,8 +73,18 @@ export function add(a: i32, b: i32): i32 { return a + b }
 ```
 
 - Import paths are relative and omit file extensions.
-- `export` is a top-level wrapper for `function`, `class`, and `interface` declarations.
+- Nothing is exported by default; declarations stay module-private unless wrapped in `export`.
+- `export` is currently valid for `function`, `class`, and `interface` declarations only.
+- Top-level `let` and `const` bindings remain module-private in the current MVP.
+- The parser rejects `export` followed by any other declaration kind.
 - Circular imports may be restricted initially.
+- Import resolution is relative to the importing file's directory.
+- Only `./` and `../` specifiers are treated as file imports in the current MVP.
+- If a specifier already includes an extension, Aura checks that exact path first.
+- If no extension is present, Aura tries `<specifier>.aura` first and then `<specifier>.ar`.
+- The first existing file wins; if neither candidate exists, the import is reported as missing.
+- Module-root and package-style imports are deferred until a later roadmap phase.
+- The loader deduplicates visited module paths while traversing imports, so simple import cycles do not recurse forever.
 
 ## Types
 

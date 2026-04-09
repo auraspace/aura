@@ -27,16 +27,16 @@ This is the first implementation phase after the contract because every later fr
 
 ## TODO
 
-- [ ] Write the module resolution order as a step-by-step algorithm.
-- [ ] Define which declarations are exported by default, and which require `export`.
-- [ ] Specify the error behavior for missing files, duplicate exports, and import cycles.
-- [ ] Add tests for same-named symbols in different modules.
-- [ ] Add tests for relative imports, module-root imports, and extensionless paths.
-- [ ] Add tests for re-export or nested import scenarios if they are allowed.
+- [x] Write the module resolution order as a step-by-step algorithm. (done 2026-04-09)
+- [x] Define which declarations are exported by default, and which require `export`. (done 2026-04-09)
+- [x] Specify the error behavior for missing files, duplicate exports, and import cycles. (done 2026-04-09)
+- [x] Add tests for same-named symbols in different modules. (done 2026-04-09)
+- [x] Add tests for relative imports, module-root imports, and extensionless paths. (done 2026-04-09)
+- [x] Add tests for re-export or nested import scenarios if they are allowed. (done 2026-04-09)
 
 ## Acceptance
 
-- [ ] A reader can resolve an import path from the docs alone.
-- [ ] Exported symbols are discoverable without guessing hidden visibility rules.
-- [ ] Cycle and missing-file behavior are documented and covered by tests.
-- [ ] Multi-file resolution failures produce stable, actionable diagnostics.
+- [x] A reader can resolve an import path from the docs alone. (done 2026-04-09)
+- [x] Exported symbols are discoverable without guessing hidden visibility rules. (done 2026-04-09)
+- [x] Cycle and missing-file behavior are documented and covered by tests. (done 2026-04-09)
+- [x] Multi-file resolution failures produce stable, actionable diagnostics. (done 2026-04-09)

@@ -131,7 +131,8 @@ The compiler should support debug/introspection modes:
 
 **Module/Package Loader**
 
-- File-based modules: resolves `import ... from "./path"` to files.
+- File-based modules: resolves relative `import ... from "./path"` specifiers to files.
+- Current MVP resolution order: honor an explicit extension, otherwise try `.aura` and then `.ar`.
 - Build root and module roots are explicit CLI options (no hidden magic).
 
 **Name Resolution**

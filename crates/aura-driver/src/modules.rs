@@ -419,4 +419,191 @@ function main(): i32 { return 0; }
         assert_eq!(diags.len(), 1);
         assert!(diags[0].message.contains("missing import target"));
     }
+
+    #[test]
+    fn module_root_imports_stay_unresolved_for_now() {
+        let dir = unique_tmp_dir("module-root-import");
+        fs::create_dir_all(&dir).unwrap();
+
+        let main = dir.join("main.aura");
+        let pkg_dir = dir.join("pkg");
+        let util = pkg_dir.join("util.aura");
+        fs::create_dir_all(&pkg_dir).unwrap();
+
+        fs::write(
+            &main,
+            r#"
+import { helper } from "pkg/util";
+
+function main(): i32 {
+  return 0;
+}
+"#,
+        )
+        .unwrap();
+        fs::write(
+            &util,
+            r#"
+export function helper(): i32 {
+  return 1;
+}
+"#,
+        )
+        .unwrap();
+
+        let graph = build_module_graph(&[&main]).unwrap();
+        assert_eq!(graph.modules.len(), 1);
+        assert_eq!(graph.edges.len(), 1);
+        assert!(graph.edges[0].resolved_to.is_none());
+        assert!(diagnose_missing_import_targets(&graph).is_empty());
+    }
+
+    #[test]
+    fn nested_relative_imports_are_traversed_transitively() {
+        let dir = unique_tmp_dir("nested-imports");
+        fs::create_dir_all(&dir).unwrap();
+
+        let main = dir.join("main.aura");
+        let foo = dir.join("foo.aura");
+        let bar = dir.join("bar.aura");
+
+        fs::write(
+            &main,
+            r#"
+import { foo } from "./foo";
+
+function main(): i32 {
+  return foo();
+}
+"#,
+        )
+        .unwrap();
+        fs::write(
+            &foo,
+            r#"
+import { bar } from "./bar";
+
+export function foo(): i32 {
+  return bar();
+}
+"#,
+        )
+        .unwrap();
+        fs::write(
+            &bar,
+            r#"
+export function bar(): i32 {
+  return 1;
+}
+"#,
+        )
+        .unwrap();
+
+        let graph = build_module_graph(&[&main]).unwrap();
+        assert_eq!(graph.modules.len(), 3);
+        assert_eq!(graph.edges.len(), 2);
+        assert_eq!(graph.edges[0].resolved_to.as_deref(), Some(foo.as_path()));
+        assert_eq!(graph.edges[1].resolved_to.as_deref(), Some(bar.as_path()));
+    }
+
+    #[test]
+    fn simple_import_cycles_are_traversed_once_each() {
+        let dir = unique_tmp_dir("import-cycle");
+        fs::create_dir_all(&dir).unwrap();
+
+        let main = dir.join("main.aura");
+        let helper = dir.join("helper.aura");
+
+        fs::write(
+            &main,
+            r#"
+import { helper } from "./helper";
+
+function main(): i32 {
+  return helper();
+}
+"#,
+        )
+        .unwrap();
+        fs::write(
+            &helper,
+            r#"
+import { main } from "./main";
+
+export function helper(): i32 {
+  return 1;
+}
+"#,
+        )
+        .unwrap();
+
+        let graph = build_module_graph(&[&main]).unwrap();
+        assert_eq!(graph.modules.len(), 2);
+        assert_eq!(graph.edges.len(), 2);
+        assert_eq!(
+            graph.edges[0].resolved_to.as_deref(),
+            Some(helper.as_path())
+        );
+        assert_eq!(graph.edges[1].resolved_to.as_deref(), Some(main.as_path()));
+    }
+
+    #[test]
+    fn same_named_exports_stay_isolated_per_module() {
+        let dir = unique_tmp_dir("same-name-modules");
+        fs::create_dir_all(&dir).unwrap();
+
+        let main = dir.join("main.aura");
+        let left = dir.join("left.aura");
+        let right = dir.join("right.aura");
+
+        fs::write(
+            &main,
+            r#"
+import { helper } from "./left";
+
+function main(): i32 {
+  return helper();
+}
+"#,
+        )
+        .unwrap();
+        fs::write(
+            &left,
+            r#"
+export function helper(): i32 {
+  return 1;
+}
+"#,
+        )
+        .unwrap();
+        fs::write(
+            &right,
+            r#"
+export function helper(): i32 {
+  return 2;
+}
+"#,
+        )
+        .unwrap();
+
+        let graph = build_module_graph(&[&main, &right]).unwrap();
+        assert_eq!(graph.modules.len(), 3);
+
+        let main_module = graph.modules.iter().find(|m| m.path == main).unwrap();
+        let left_module = graph.modules.iter().find(|m| m.path == left).unwrap();
+        let right_module = graph.modules.iter().find(|m| m.path == right).unwrap();
+
+        assert!(build_symbol_table(left_module)
+            .bindings
+            .contains_key("helper"));
+        assert!(build_symbol_table(right_module)
+            .bindings
+            .contains_key("helper"));
+        assert!(build_symbol_table(main_module)
+            .bindings
+            .contains_key("helper"));
+
+        let diags = crate::resolve::resolve_module(main_module);
+        assert!(diags.is_empty(), "{diags:#?}");
+    }
 }
