@@ -1,0 +1,162 @@
+
+[workspace]
+publish = false
+git_release_enable = false
+semver_check = false
+pr_draft = false
+git_tag_enable = true
+git_tag_name = "v{{version}}"
+
+[[package]]
+name = "aurac"
+publish = false
+git_release_enable = false
+git_tag_enable = false
+
+
+# =============================================================================
+# aura-span 
+# =============================================================================
+
+[[package]]
+name = "aura-span"
+publish = false
+git_release_enable = false
+git_tag_enable = false
+
+
+# =============================================================================
+# aura-ast
+# =============================================================================
+
+[[package]]
+name = "aura-ast"
+publish = false
+git_release_enable = false
+git_tag_enable = false
+
+# =============================================================================
+# aura-diagnostics
+# =============================================================================
+
+[[package]]
+name = "aura-diagnostics"
+publish = false
+git_release_enable = false
+git_tag_enable = false
+
+# =============================================================================
+# aura-lexer
+# =============================================================================
+
+[[package]]
+name = "aura-lexer"
+publish = false
+git_release_enable = false
+git_tag_enable = false
+
+# =============================================================================
+# aura-parser
+# =============================================================================
+
+[[package]]
+name = "aura-parser"
+publish = false
+git_release_enable = false
+git_tag_enable = false
+
+# =============================================================================
+# aura-mir
+# =============================================================================
+
+[[package]]
+name = "aura-mir"
+publish = false
+git_release_enable = false
+git_tag_enable = false
+
+
+# =============================================================================
+# aura-typeck
+# =============================================================================
+
+[[package]]
+name = "aura-typeck"
+publish = false
+git_release_enable = false
+git_tag_enable = false
+
+# =============================================================================
+# aura-codegen
+# =============================================================================
+
+[[package]]
+name = "aura-codegen"
+publish = false
+git_release_enable = false
+git_tag_enable = false
+
+
+# =============================================================================
+# aura-codegen-clif
+# =============================================================================
+
+[[package]]
+name = "aura-codegen-clif"
+publish = false
+git_release_enable = false
+git_tag_enable = false
+
+
+# =============================================================================
+# aura-codegen-llvm
+# =============================================================================
+
+[[package]]
+name = "aura-codegen-llvm"
+publish = false
+git_release_enable = false
+git_tag_enable = false
+
+
+# =============================================================================
+# aura-driver
+# =============================================================================
+
+[[package]]
+name = "aura-driver"
+publish = false
+git_release_enable = false
+git_tag_enable = false
+
+# =============================================================================
+# aura-link
+# =============================================================================
+
+[[package]]
+name = "aura-link"
+publish = false
+git_release_enable = false
+git_tag_enable = false
+
+
+# =============================================================================
+# aura-rt — runtime, có thể release riêng nếu cần versioning độc lập
+# =============================================================================
+
+[[package]]
+name = "aura-rt"
+publish = false
+git_release_enable = false
+git_tag_enable = false
+
+
+# =============================================================================
+# aura-test-harness — internal test tooling, không release
+# =============================================================================
+
+[[package]]
+name = "aura-test-harness"
+publish = false
+git_release_enable = false
+git_tag_enable = false
