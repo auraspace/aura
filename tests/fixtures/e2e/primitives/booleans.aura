@@ -1,0 +1,16 @@
+function main(): void {
+    let t: bool = true;
+    let f: bool = false;
+    
+    if (t && !f) {
+        println("true and not false is true"); // expect: true and not false is true
+    }
+    
+    if (f || t) {
+        println("false or true is true"); // expect: false or true is true
+    }
+    
+    if (!(t && f)) {
+        println("not (true and false) is true"); // expect: not (true and false) is true
+    }
+}

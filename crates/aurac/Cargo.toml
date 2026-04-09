@@ -14,3 +14,6 @@ inkwell = { version = "0.5", features = ["llvm15-0"] }
 anyhow = "1.0"
 aura-mir = { path = "../aura-mir" }
 aura-typeck = { path = "../aura-typeck" }
+
+[dev-dependencies]
+aura-test-harness = { path = "../aura-test-harness" }

@@ -243,10 +243,17 @@ fn main() {
                     let exe_path = Path::new("a.out");
                     let run_path = Path::new("./a.out");
                     // For MVP, look for the runtime in the target directory
-                    let runtime_path = Path::new("target/debug/libaura_rt.a");
+                    let mut runtime_path = build_dir.join("target/debug/libaura_rt.a");
+                    if !runtime_path.exists() {
+                        // Try workspace root if not in current dir
+                        if let Ok(root) = std::env::var("AURA_WORKSPACE_ROOT") {
+                            runtime_path =
+                                std::path::PathBuf::from(root).join("target/debug/libaura_rt.a");
+                        }
+                    }
 
                     linker
-                        .link(&[obj_path.as_path()], runtime_path, exe_path)
+                        .link(&[obj_path.as_path()], &runtime_path, exe_path)
                         .expect("Failed to link");
 
                     if command == "run" {

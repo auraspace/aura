@@ -1,0 +1,13 @@
+class Point {
+  x: i32;
+
+  function getX(): i32 {
+    return this.x;
+  }
+}
+
+function main(): void {
+  let p = new Point();
+  p.x = 42;
+  println(p.getX()); // expect: 42
+}

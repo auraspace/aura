@@ -1,0 +1,22 @@
+function main(): void {
+    let x: int = 10;
+    if (x > 5) {
+        println("x is greater than 5"); // expect: x is greater than 5
+        if (x == 10) {
+            println("x is exactly 10"); // expect: x is exactly 10
+        } else {
+            println("x is not 10");
+        }
+    } else {
+        println("x is 5 or less");
+    }
+
+    let y: int = 3;
+    if (y > 5) {
+        println("y is greater than 5");
+    } else if (y > 0) {
+        println("y is positive but 5 or less"); // expect: y is positive but 5 or less
+    } else {
+        println("y is zero or negative");
+    }
+}

@@ -1,0 +1,17 @@
+function main(): i32 {
+  try {
+    println("outer-try"); // expect: outer-try
+    try {
+      println("inner-try"); // expect: inner-try
+      throw 1;
+    } catch (e) {
+      println("inner-catch"); // expect: inner-catch
+    } finally {
+      println("inner-finally"); // expect: inner-finally
+    }
+  } finally {
+    println("outer-finally"); // expect: outer-finally
+  }
+
+  return 0;
+}

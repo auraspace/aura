@@ -1,0 +1,9 @@
+function main(): void {
+    let a: int = 10;
+    let b: int = 3;
+    println(a + b); // expect: 13
+    println(a - b); // expect: 7
+    println(a * b); // expect: 30
+    println(a / b); // expect: 3
+    println(a % b); // expect: 1
+}

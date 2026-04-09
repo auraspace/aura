@@ -1,0 +1,10 @@
+class Point {
+  x: i32;
+  y: i32;
+}
+
+function main(): void {
+  let p = new Point();
+  p.x = 42;
+  println(p.x); // expect: 42
+}

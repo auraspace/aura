@@ -1,0 +1,5 @@
+function main(): void {
+    let s1: string = "Hello, ";
+    let s2: string = "Aura!";
+    println(s1 + s2); // expect: Hello, Aura!
+}

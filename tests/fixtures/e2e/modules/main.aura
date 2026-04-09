@@ -1,0 +1,6 @@
+import { add } from "./lib.aura";
+
+function main(): void {
+    let result: int = add(5, 7);
+    println(result); // expect: 12
+}

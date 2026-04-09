@@ -1,0 +1,13 @@
+function main(): i32 {
+  try {
+    println("body"); // expect: body
+    throw 1;
+  } catch (e) {
+    println("caught"); // expect: caught
+  } finally {
+    println("finally"); // expect: finally
+  }
+
+  println("after"); // expect: after
+  return 0;
+}

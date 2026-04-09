@@ -1,0 +1,16 @@
+class Animal {
+  function speak(): string {
+    return "...";
+  }
+}
+
+class Dog extends Animal {
+  function speak(): string {
+    return "woof";
+  }
+}
+
+function main(): void {
+  let a: Animal = new Dog();
+  println(a.speak()); // expect: woof
+}

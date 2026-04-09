@@ -1,0 +1,9 @@
+[package]
+name = "aura-test-harness"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tempfile = "3.8"
+regex = "1.10"
+anyhow = "1.0"
