@@ -7,8 +7,8 @@ use aura_span::Span;
 use crate::env::Env;
 use crate::lib_utils::ident_text;
 use crate::types::{
-    is_assignable, is_comparable, is_numeric, ty_from_type_ref, unify_numeric, ClassInfo,
-    InterfaceInfo, Ty, TypePosition,
+    is_assignable, is_comparable, is_numeric, is_stringable, ty_from_type_ref, unify_numeric,
+    ClassInfo, InterfaceInfo, Ty, TypePosition,
 };
 
 pub(crate) fn typeck_block(
@@ -458,22 +458,63 @@ pub(crate) fn typeck_expr(
                     aura_ast::BinaryOp::Add
                     | aura_ast::BinaryOp::Sub
                     | aura_ast::BinaryOp::Mul
-                    | aura_ast::BinaryOp::Div => {
-                        if is_numeric(&lt) && is_numeric(&rt) {
-                            unify_numeric(&lt, &rt)
+                    | aura_ast::BinaryOp::Div
+                    | aura_ast::BinaryOp::Mod => {
+                        if matches!(op, aura_ast::BinaryOp::Add)
+                            && (lt == Ty::String || rt == Ty::String)
+                        {
+                            if (lt == Ty::String || is_stringable(&lt, classes))
+                                && (rt == Ty::String || is_stringable(&rt, classes))
+                            {
+                                Ty::String
+                            } else {
+                                diags.push(
+                                    Diagnostic::error(
+                                        *span,
+                                        format!(
+                                            "cannot concatenate `{}` and `{}`",
+                                            lt.name(),
+                                            rt.name()
+                                        ),
+                                    )
+                                    .with_help("expected stringable operands"),
+                                );
+                                Ty::Unknown
+                            }
+                        } else if matches!(op, aura_ast::BinaryOp::Mod) {
+                            if is_numeric(&lt) && is_numeric(&rt) {
+                                unify_numeric(&lt, &rt)
+                            } else {
+                                diags.push(
+                                    Diagnostic::error(
+                                        *span,
+                                        format!(
+                                            "cannot apply arithmetic operator to `{}` and `{}`",
+                                            lt.name(),
+                                            rt.name()
+                                        ),
+                                    )
+                                    .with_help("expected numeric operands"),
+                                );
+                                Ty::Unknown
+                            }
                         } else {
-                            diags.push(
-                                Diagnostic::error(
-                                    *span,
-                                    format!(
-                                        "cannot apply arithmetic operator to `{}` and `{}`",
-                                        lt.name(),
-                                        rt.name()
-                                    ),
-                                )
-                                .with_help("expected numeric operands"),
-                            );
-                            Ty::Unknown
+                            if is_numeric(&lt) && is_numeric(&rt) {
+                                unify_numeric(&lt, &rt)
+                            } else {
+                                diags.push(
+                                    Diagnostic::error(
+                                        *span,
+                                        format!(
+                                            "cannot apply arithmetic operator to `{}` and `{}`",
+                                            lt.name(),
+                                            rt.name()
+                                        ),
+                                    )
+                                    .with_help("expected numeric operands"),
+                                );
+                                Ty::Unknown
+                            }
                         }
                     }
                     aura_ast::BinaryOp::EqEq | aura_ast::BinaryOp::NotEq => {

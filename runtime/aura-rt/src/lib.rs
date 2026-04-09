@@ -272,6 +272,25 @@ pub unsafe extern "C" fn aura_string_new_utf8(ptr: *const u8, len: usize) -> *mu
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn aura_string_concat(
+    lhs: *mut AuraString,
+    rhs: *mut AuraString,
+) -> *mut AuraString {
+    let left = if lhs.is_null() {
+        ""
+    } else {
+        std::str::from_utf8(std::slice::from_raw_parts((*lhs).data, (*lhs).len)).unwrap_or("")
+    };
+    let right = if rhs.is_null() {
+        ""
+    } else {
+        std::str::from_utf8(std::slice::from_raw_parts((*rhs).data, (*rhs).len)).unwrap_or("")
+    };
+    let s = format!("{left}{right}");
+    aura_string_new_utf8(s.as_ptr(), s.len())
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn aura_println(str: *mut AuraString) {
     if !str.is_null() {
         let s = std::slice::from_raw_parts((*str).data, (*str).len);

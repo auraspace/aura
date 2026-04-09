@@ -338,6 +338,8 @@ impl<'ctx> LlvmBackend<'ctx> {
                     Statement::Assign(lval, rvalue) => {
                         let val = self.lower_rvalue(program, rvalue, &locals, func)?;
                         let ptr = self.lower_lvalue(lval, &locals, func)?;
+                        let ty = self.get_lvalue_type(lval, func);
+                        let val = self.coerce_value_for_store(val, &ty)?;
                         self.builder.build_store(ptr, val)?;
                     }
                 }
@@ -503,6 +505,8 @@ impl<'ctx> LlvmBackend<'ctx> {
 
                             let dest_ptr = self.lower_lvalue(destination, &locals, func)?;
                             if let Some(val) = call_site.try_as_basic_value().left() {
+                                let ty = self.get_lvalue_type(destination, func);
+                                let val = self.coerce_value_for_store(val, &ty)?;
                                 self.builder.build_store(dest_ptr, val)?;
                             }
 
@@ -538,6 +542,8 @@ impl<'ctx> LlvmBackend<'ctx> {
 
                         let dest_ptr = self.lower_lvalue(destination, &locals, func)?;
                         if let Some(val) = call_site.try_as_basic_value().left() {
+                            let ty = self.get_lvalue_type(destination, func);
+                            let val = self.coerce_value_for_store(val, &ty)?;
                             self.builder.build_store(dest_ptr, val)?;
                         }
 
@@ -659,6 +665,10 @@ impl<'ctx> LlvmBackend<'ctx> {
                 let fn_type = ptr_type.fn_type(&[self.context.bool_type().into()], false);
                 Ok(self.module.add_function(name, fn_type, None))
             }
+            "aura_string_concat" => {
+                let fn_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+                Ok(self.module.add_function(name, fn_type, None))
+            }
             _ => {
                 // Generic declaration placeholder
                 let fn_type = self.context.void_type().fn_type(&[], false);
@@ -735,6 +745,18 @@ impl<'ctx> LlvmBackend<'ctx> {
         match rvalue {
             Rvalue::Use(op) => self.lower_operand(program, op, locals, func_mir),
             Rvalue::BinaryOp(op, left, right) => {
+                if matches!(op, aura_ast::BinaryOp::Add)
+                    && (matches!(
+                        self.operand_type(left, func_mir),
+                        Some(aura_typeck::Ty::String)
+                    ) || matches!(
+                        self.operand_type(right, func_mir),
+                        Some(aura_typeck::Ty::String)
+                    ))
+                {
+                    return self.lower_string_concat(program, left, right, locals, func_mir);
+                }
+
                 let lop = self.lower_operand(program, left, locals, func_mir)?;
                 let rop = self.lower_operand(program, right, locals, func_mir)?;
 
@@ -754,6 +776,10 @@ impl<'ctx> LlvmBackend<'ctx> {
                         aura_ast::BinaryOp::Div => Ok(self
                             .builder
                             .build_int_signed_div(lhs, rhs, "divtmp")?
+                            .into()),
+                        aura_ast::BinaryOp::Mod => Ok(self
+                            .builder
+                            .build_int_signed_rem(lhs, rhs, "modtmp")?
                             .into()),
                         aura_ast::BinaryOp::EqEq => Ok(self
                             .builder
@@ -796,6 +822,9 @@ impl<'ctx> LlvmBackend<'ctx> {
                         }
                         aura_ast::BinaryOp::Div => {
                             Ok(self.builder.build_float_div(lhs, rhs, "fdivtmp")?.into())
+                        }
+                        aura_ast::BinaryOp::Mod => {
+                            Ok(self.builder.build_float_rem(lhs, rhs, "fmodtmp")?.into())
                         }
                         aura_ast::BinaryOp::EqEq => Ok(self
                             .builder
@@ -849,6 +878,89 @@ impl<'ctx> LlvmBackend<'ctx> {
                 }
             }
             _ => Ok(self.context.i64_type().const_int(0, false).into()),
+        }
+    }
+
+    fn lower_string_concat(
+        &self,
+        program: &MirProgram,
+        left: &Operand,
+        right: &Operand,
+        locals: &HashMap<usize, PointerValue<'ctx>>,
+        func_mir: &MirFunction,
+    ) -> Result<BasicValueEnum<'ctx>> {
+        let lhs = self.lower_operand_as_string(program, left, locals, func_mir)?;
+        let rhs = self.lower_operand_as_string(program, right, locals, func_mir)?;
+        let concat = self.get_or_declare_func("aura_string_concat")?;
+        let call = self
+            .builder
+            .build_call(concat, &[lhs.into(), rhs.into()], "strcat")?;
+        Ok(call.try_as_basic_value().left().unwrap())
+    }
+
+    fn lower_operand_as_string(
+        &self,
+        program: &MirProgram,
+        op: &Operand,
+        locals: &HashMap<usize, PointerValue<'ctx>>,
+        func_mir: &MirFunction,
+    ) -> Result<BasicValueEnum<'ctx>> {
+        let ty = self
+            .operand_type(op, func_mir)
+            .unwrap_or(aura_typeck::Ty::Unknown);
+        if ty == aura_typeck::Ty::String {
+            return self.lower_operand(program, op, locals, func_mir);
+        }
+
+        let value = self.lower_operand(program, op, locals, func_mir)?;
+        let runtime = match ty {
+            aura_typeck::Ty::I32 => Some("aura_i32_to_string"),
+            aura_typeck::Ty::I64 => Some("aura_i64_to_string"),
+            aura_typeck::Ty::F32 => Some("aura_f32_to_string"),
+            aura_typeck::Ty::F64 => Some("aura_f64_to_string"),
+            aura_typeck::Ty::Bool => Some("aura_bool_to_string"),
+            _ => None,
+        };
+
+        let Some(runtime) = runtime else {
+            return Ok(value);
+        };
+
+        let func = self.get_or_declare_func(runtime)?;
+        let call = self
+            .builder
+            .build_call(func, &[value.into()], "str_coerce")?;
+        Ok(call.try_as_basic_value().left().unwrap())
+    }
+
+    fn coerce_value_for_store(
+        &self,
+        value: BasicValueEnum<'ctx>,
+        target_ty: &aura_typeck::Ty,
+    ) -> Result<BasicValueEnum<'ctx>> {
+        let target_llvm_ty = self.aura_to_llvm_type(target_ty);
+        if value.get_type() == target_llvm_ty {
+            return Ok(value);
+        }
+
+        match (value, target_llvm_ty) {
+            (BasicValueEnum::IntValue(int_val), BasicTypeEnum::IntType(target_int)) => Ok(self
+                .builder
+                .build_int_cast(int_val, target_int, "store_cast")?
+                .into()),
+            (BasicValueEnum::PointerValue(ptr_val), BasicTypeEnum::PointerType(target_ptr)) => {
+                Ok(self
+                    .builder
+                    .build_pointer_cast(ptr_val, target_ptr, "store_ptr_cast")?
+                    .into())
+            }
+            (BasicValueEnum::FloatValue(float_val), BasicTypeEnum::FloatType(target_float)) => {
+                Ok(self
+                    .builder
+                    .build_float_cast(float_val, target_float, "store_float_cast")?
+                    .into())
+            }
+            (value, _) => Ok(value),
         }
     }
 

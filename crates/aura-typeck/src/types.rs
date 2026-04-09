@@ -203,7 +203,7 @@ pub(crate) fn ty_from_type_ref(
 
     diags.push(
         Diagnostic::error(ty.span, format!("unknown type `{name}`"))
-            .with_help("built-in types: i32, i64, f32, f64, bool, string, void"),
+            .with_help("built-in types: int/i32, i64, f32, f64, bool, string, void"),
     );
     Ty::Unknown
 }
@@ -211,6 +211,7 @@ pub(crate) fn ty_from_type_ref(
 pub(crate) fn parse_builtin_ty(name: &str) -> Option<Ty> {
     match name {
         "i32" => Some(Ty::I32),
+        "int" => Some(Ty::I32),
         "i64" => Some(Ty::I64),
         "f32" => Some(Ty::F32),
         "f64" => Some(Ty::F64),

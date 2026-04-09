@@ -17,6 +17,14 @@ use crate::lib_utils::ident_text;
 use crate::types::{ty_from_type_ref, MethodSig as TypeMethodSig, TyDefKind, TypePosition};
 
 pub fn typeck_program(source: &str, program: &Program) -> (Vec<Diagnostic>, TypedProgram) {
+    typeck_program_with_imports(source, program, &HashMap::new())
+}
+
+pub fn typeck_program_with_imports(
+    source: &str,
+    program: &Program,
+    imported_functions: &HashMap<String, MethodSig>,
+) -> (Vec<Diagnostic>, TypedProgram) {
     let mut diags = Vec::new();
 
     let mut type_defs = HashMap::<String, TyDefKind>::new();
@@ -435,6 +443,17 @@ pub fn typeck_program(source: &str, program: &Program) -> (Vec<Diagnostic>, Type
         },
     );
     top_level_functions.insert("println".to_string(), println_sig);
+
+    for (name, sig) in imported_functions {
+        globals.entry(name.clone()).or_insert_with(|| VarInfo {
+            ty: Ty::Function(Box::new(sig.clone())),
+            mutable: false,
+            decl_span: aura_span::Span::empty(aura_span::BytePos::new(0)),
+        });
+        top_level_functions
+            .entry(name.clone())
+            .or_insert_with(|| sig.clone());
+    }
 
     for item in &program.items {
         match item {

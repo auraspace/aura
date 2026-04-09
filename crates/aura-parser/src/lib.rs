@@ -490,7 +490,15 @@ impl<'a> Parser<'a> {
         );
         let then_block = self.parse_block();
         let else_block = if self.eat_keyword(Keyword::Else) {
-            Some(self.parse_block())
+            if self.at_keyword(Keyword::If) {
+                let nested_if = self.parse_if();
+                Some(Block {
+                    stmts: vec![Stmt::If(nested_if.clone())],
+                    span: nested_if.span,
+                })
+            } else {
+                Some(self.parse_block())
+            }
         } else {
             None
         };
@@ -720,6 +728,7 @@ impl<'a> Parser<'a> {
             let op = match self.current_kind() {
                 TokenKind::Operator(Operator::Star) => Some(BinaryOp::Mul),
                 TokenKind::Operator(Operator::Slash) => Some(BinaryOp::Div),
+                TokenKind::Operator(Operator::Percent) => Some(BinaryOp::Mod),
                 _ => None,
             };
             let Some(op) = op else { break };
@@ -1195,6 +1204,7 @@ fn operator_text(op: Operator) -> &'static str {
         Operator::Minus => "-",
         Operator::Star => "*",
         Operator::Slash => "/",
+        Operator::Percent => "%",
         Operator::EqEq => "==",
         Operator::NotEq => "!=",
         Operator::Lt => "<",
