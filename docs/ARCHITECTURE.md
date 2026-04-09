@@ -12,7 +12,7 @@ The repository currently implements the compiler as a Rust workspace with these 
 - `aura-lexer`, `aura-parser`, `aura-driver`
 - `aura-typeck`, `aura-mir`
 - `aura-codegen`, `aura-codegen-llvm`, `aura-codegen-clif`
-- `aura-link`, `aurac`
+- `aura-link`, `aurac`, `aura-test-harness`
 - `runtime/aura-rt`
 
 Planned crates such as `aura-hir`, `aura-lower`, `aura-target`, and `aura-stdlib` are still future work and should not be treated as present implementation dependencies.

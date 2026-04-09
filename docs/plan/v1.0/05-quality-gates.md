@@ -5,7 +5,7 @@ _Last updated: 2026-04-09_
 ## TODO (always-on)
 
 - [x] Keep `docs/ARCHITECTURE.md` aligned with target/runtime/backend changes. (done 2026-04-09)
-- [ ] Keep `docs/FOLDER_STRUCTURE.md` aligned with crate and directory layout changes.
+- [x] Keep `docs/FOLDER_STRUCTURE.md` aligned with crate and directory layout changes. (done 2026-04-09)
 - [ ] Keep `docs/SYNTAX_DESIGN.md` aligned if v1.0 touches language syntax or semantics.
 - [ ] Add or update tests when changing target, IR, runtime, or backend behavior.
 - [ ] Keep plan files small enough that `next_todo.py` stays useful.

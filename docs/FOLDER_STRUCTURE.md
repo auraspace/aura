@@ -28,7 +28,8 @@ Current focus target: `aarch64-apple-darwin`.
 │  ├─ aura-codegen-clif/     # Cranelift backend placeholder
 │  ├─ aura-codegen-llvm/     # LLVM backend implementation
 │  ├─ aura-link/             # Linker abstraction + platform implementations
-│  └─ aurac/                 # CLI + orchestration (build/check/run)
+│  ├─ aurac/                 # CLI + orchestration (build/check/run)
+│  └─ aura-test-harness/     # Shared end-to-end test helpers
 ├─ runtime/
 │  ├─ aura-rt/               # Runtime crate (builds staticlib + rlib)
 │  └─ include/               # C ABI headers (generated or hand-written)
@@ -56,6 +57,7 @@ Current focus target: `aarch64-apple-darwin`.
 - **One crate per responsibility**: small crates avoid cyclic dependencies.
 - **Backends are plugins**: `aura-codegen` defines traits; backend crates implement them.
 - **Driver is stable**: `aura-driver` is a library API usable by CLI, tests, and future editor tooling.
+- **Test harness stays reusable**: `aura-test-harness` provides shared E2E helpers without coupling tests to the CLI internals.
 - **Current workspace stays lean**: planned crates like `aura-hir`, `aura-lower`, `aura-target`, and `aura-stdlib` are not part of the repository yet.
 
 ## Target Support Model
@@ -109,6 +111,7 @@ Recommended testing layers:
 - **Unit tests** in each crate (lexer, parser, type checker, MIR passes).
 - **Snapshot tests** for diagnostics formatting and parser recovery.
 - **E2E tests**: compile fixtures to a temp directory and run the produced binary.
+- **Shared harness**: `aura-test-harness` provides reusable runner helpers for CLI-backed integration tests.
 
 Suggested conventions:
 
