@@ -170,7 +170,7 @@ fn main() {
                         std::process::exit(1);
                     }
 
-                    let target = aura_codegen::Target::host();
+                    let target = aura_codegen::Target::default();
                     let build_dir = std::path::Path::new(".");
 
                     let (obj_path, backend_name) = match backend_kind {

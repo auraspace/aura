@@ -6,6 +6,8 @@ _Last updated: 2026-04-08_
 
 Compile MIR into a Mach-O object and link it with runtime into a single executable.
 
+`x86_64-unknown-linux-gnu` is placeholder-only in the current phase and should not be generated or treated as a supported build target yet.
+
 ## TODO
 
 - [x] Pick backend for MVP (Cranelift or LLVM) and define backend interface (done 2026-04-08)

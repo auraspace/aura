@@ -151,6 +151,7 @@ This makes the backend simpler and keeps "language semantics" largely in the fro
 The backend is responsible for:
 
 - target selection (`triple`, `cpu`, `features`, pointer size, calling convention)
+- `x86_64-unknown-linux-gnu` remains placeholder-only in the current toolchain; CLI should detect it via host/target selection and fail fast with a clear "not supported yet" message instead of generating code
 - object emission
 - linking
 

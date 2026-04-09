@@ -43,9 +43,30 @@ pub struct Target {
 }
 
 impl Target {
-    pub fn host() -> Self {
+    pub const AARCH64_APPLE_DARWIN: &'static str = "aarch64-apple-darwin";
+    pub const X86_64_UNKNOWN_LINUX_GNU: &'static str = "x86_64-unknown-linux-gnu";
+
+    pub fn new(triple: impl Into<String>) -> Self {
         Self {
-            triple: target_lexicon::HOST.to_string(),
+            triple: triple.into(),
         }
+    }
+
+    pub fn host() -> Self {
+        Self::new(target_lexicon::HOST.to_string())
+    }
+
+    pub fn aarch64_apple_darwin() -> Self {
+        Self::new(Self::AARCH64_APPLE_DARWIN)
+    }
+
+    pub fn x86_64_unknown_linux_gnu() -> Self {
+        Self::new(Self::X86_64_UNKNOWN_LINUX_GNU)
+    }
+}
+
+impl Default for Target {
+    fn default() -> Self {
+        Self::host()
     }
 }
