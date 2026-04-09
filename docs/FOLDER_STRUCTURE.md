@@ -72,7 +72,7 @@ Examples:
 
 - `aarch64-apple-darwin` (MVP)
 - `x86_64-apple-darwin` (next)
-- `x86_64-unknown-linux-gnu` (later)
+- `x86_64-unknown-linux-gnu` (placeholder only; do not generate yet)
 
 ### `aura-link`
 

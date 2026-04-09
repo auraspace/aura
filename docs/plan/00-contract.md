@@ -17,5 +17,6 @@ These are the acceptance constraints for MVP. Track implementation work in the p
 - Embedded runtime shipped as static library, linked into the executable
 - Stage separation: lexer/parser → resolver → typeck → lowering → codegen → link
 - Initial target: `aarch64-apple-darwin`
+- `x86_64-unknown-linux-gnu` is placeholder-only and must not be generated or treated as an active target until the plan explicitly promotes it
 - TS-like surface syntax (`function`, `class`, `interface`, `import/export`, `let/const`)
 - Exceptions in MVP are runtime-managed unwinding (not OS zero-cost EH)

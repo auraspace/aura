@@ -4,6 +4,11 @@ Aura is an OOP, statically typed language with a TypeScript-like surface syntax 
 
 This document describes a minimal but scalable architecture for the Aura compiler and runtime. The initial implementation focuses on `aarch64-apple-darwin`.
 
+Target note:
+
+- `x86_64-unknown-linux-gnu` is a placeholder target for planning only.
+- Do not generate or hardcode support for `x86_64-unknown-linux-gnu` until the target is explicitly promoted in the contract docs and phase plan.
+
 ## Goals
 
 - **Single-binary output**: one executable per build (no external VM required).
