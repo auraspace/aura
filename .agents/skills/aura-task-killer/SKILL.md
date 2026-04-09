@@ -42,7 +42,8 @@ python3 .agents/skills/aura-task-killer/scripts/next_todo.py
 ### 3) Execute & Verify
 
 - **Implement**: Keep changes minimal and aligned with contract docs (`docs/ARCHITECTURE.md`, `docs/SYNTAX_DESIGN.md`).
-- **Verify**: Run the smallest verification that increases confidence (build, test, or lint).
+- **Test review**: Always check whether the task needs additional tests, and add them when coverage is missing or behavior changes.
+- **Verify**: Run the relevant test suite before committing. If a smaller check helps while iterating, that is fine, but the final pre-commit verification must include tests.
 - **Format**: Run `cargo fmt` before committing; include any formatter changes in the same task commit.
 - **Guardrails**: Apply `$aura-dev-guardrails` if the task touches language design or runtime.
 
@@ -55,7 +56,7 @@ python3 .agents/skills/aura-task-killer/scripts/next_todo.py
 ### 5) Commit Changes
 
 - Create a single commit containing the implementation and the updated plan file.
-- Make sure formatting is up to date before the commit step.
+- Make sure formatting is up to date and the relevant tests have passed before the commit step.
 - **Format**: follow [Conventional Commits v1.0.0](https://www.conventionalcommits.org/en/v1.0.0/#summary) using `<type>(<scope>): <description>` when a scope is useful, or `<type>: <description>` when it is not.
 - **Examples**: `fix(typeck): reject invalid string literals`, `docs: update syntax design`.
 - Include related tests and design doc updates in this same commit.
