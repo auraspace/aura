@@ -107,15 +107,54 @@ mod tests {
     use aura_span::{BytePos, Span};
 
     #[test]
-    fn formats_single_line_span() {
-        let src = "let x: i32 = 1 + 2;\n";
+    fn snapshot_formats_single_diagnostic_with_help_and_note() {
+        let src = "let value = foo;\n";
         let diag = Diagnostic::error(
-            Span::new(BytePos::new(4), BytePos::new(5)),
-            "expected identifier",
+            Span::new(BytePos::new(12), BytePos::new(15)),
+            "unknown identifier `foo`",
         );
-        let rendered = format(src, &diag);
-        assert!(rendered.contains("error[E]: expected identifier"));
-        assert!(rendered.contains("line 1, col 5"));
-        assert!(rendered.contains("^"));
+        let rendered = format(src, &diag).trim_end_matches('\n').to_string();
+        assert_eq!(
+            rendered,
+            r#"error[E]: unknown identifier `foo`
+ --> line 1, col 13
+  |
+ 1 | let value = foo;
+  |             ^^^"#
+        );
+    }
+
+    #[test]
+    fn snapshot_formats_multiple_diagnostics() {
+        let src = "let first = 1;\nlet second = 2;\n";
+        let diags = vec![
+            Diagnostic::warning(
+                Span::new(BytePos::new(4), BytePos::new(9)),
+                "unused binding `first`",
+            )
+            .with_note("remove the variable or use it in an expression"),
+            Diagnostic::error(
+                Span::new(BytePos::new(19), BytePos::new(25)),
+                "expected `;`",
+            )
+            .with_help("terminate the statement with a semicolon"),
+        ];
+        let rendered = format_all(src, &diags).trim_end_matches('\n').to_string();
+        assert_eq!(
+            rendered,
+            r#"warning[W]: unused binding `first`
+ --> line 1, col 5
+  |
+ 1 | let first = 1;
+  |     ^^^^^
+note: remove the variable or use it in an expression
+
+error[E]: expected `;`
+ --> line 2, col 5
+  |
+ 2 | let second = 2;
+  |     ^^^^^^
+help: terminate the statement with a semicolon"#
+        );
     }
 }

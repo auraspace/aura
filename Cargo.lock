@@ -142,6 +142,7 @@ dependencies = [
  "aura-driver",
  "aura-link",
  "aura-mir",
+ "aura-typeck",
  "inkwell",
 ]
 

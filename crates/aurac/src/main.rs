@@ -1,4 +1,5 @@
 use aura_codegen::Backend;
+use aura_driver::modules::{build_module_graph, build_symbol_table};
 use std::env;
 use std::path::Path;
 
@@ -14,7 +15,10 @@ COMMANDS:
   help    Print this message
 
 DEBUG OPTIONS:
+  --emit=ast      Print the parsed AST
   --print=types   Print inferred types for all expressions
+  --print=symbols  Print top-level symbols for the entry module
+  --print=imports  Print resolved imports for the entry module
   --emit=hir      Print the annotated HIR (AST with types)
   --emit=mir      Print the generated Mid-level IR (MIR)
   --emit=llvm     Emit LLVM IR (.ll)
@@ -32,7 +36,10 @@ fn main() {
 
     let mut command = None;
     let mut file_path = None;
+    let mut emit_ast = false;
     let mut print_types = false;
+    let mut print_symbols = false;
+    let mut print_imports = false;
     let mut emit_hir = false;
     let mut emit_mir = false;
     let mut emit_llvm = false;
@@ -50,7 +57,10 @@ fn main() {
                 println!("{}", env!("CARGO_PKG_VERSION"));
                 return;
             }
+            "--emit=ast" => emit_ast = true,
             "--print=types" => print_types = true,
+            "--print=symbols" => print_symbols = true,
+            "--print=imports" => print_imports = true,
             "--emit=hir" => emit_hir = true,
             "--emit=mir" => emit_mir = true,
             "--emit=llvm" => emit_llvm = true,
@@ -104,37 +114,26 @@ fn main() {
                         std::process::exit(1);
                     }
 
-                    if print_types {
-                        if let Some(ref typed) = out.typed_program {
-                            println!("--- Expression Types ---");
-                            let mut spans: Vec<_> = typed.expression_types.keys().collect();
-                            spans.sort_by_key(|s| s.start);
-                            for span in spans {
-                                let snippet = out
-                                    .source
-                                    .get(span.start.raw() as usize..span.end.raw() as usize)
-                                    .unwrap_or("???");
-                                let ty = typed.expression_types.get(span).unwrap();
-                                println!("  {:?} -> {}", snippet, ty.name());
-                            }
-                        }
+                    if let Err(err) = print_debug_views(
+                        &path,
+                        emit_ast,
+                        print_types,
+                        print_symbols,
+                        print_imports,
+                        emit_hir,
+                        emit_mir,
+                    ) {
+                        eprintln!("error: {err}");
+                        std::process::exit(2);
                     }
 
-                    if emit_hir {
-                        if let (Some(ref typed), Some(ref ast)) = (&out.typed_program, &out.ast) {
-                            println!("--- Annotated AST (HIR) ---");
-                            aura_driver::dump_hir::dump_hir(&out.source, ast, typed);
-                        }
-                    }
-
-                    if emit_mir {
-                        if let Some(ref mir) = out.mir {
-                            println!("--- Mid-level IR (MIR) ---");
-                            println!("{}", aura_mir::dump_mir(mir));
-                        }
-                    }
-
-                    if !print_types && !emit_hir && !emit_mir {
+                    if !emit_ast
+                        && !print_types
+                        && !print_symbols
+                        && !print_imports
+                        && !emit_hir
+                        && !emit_mir
+                    {
                         println!("ok");
                     }
                 }
@@ -159,6 +158,19 @@ fn main() {
                             aura_diagnostics::format_all(&out.source, &out.diagnostics)
                         );
                         std::process::exit(1);
+                    }
+
+                    if let Err(err) = print_debug_views(
+                        &path,
+                        emit_ast,
+                        print_types,
+                        print_symbols,
+                        print_imports,
+                        emit_hir,
+                        emit_mir,
+                    ) {
+                        eprintln!("error: {err}");
+                        std::process::exit(2);
                     }
 
                     let mir = out.mir.as_ref().expect("MIR should exist if no errors");
@@ -268,4 +280,106 @@ fn main() {
 
 fn print_help() {
     println!("{HELP}");
+}
+
+fn print_debug_views(
+    path: &str,
+    emit_ast: bool,
+    print_types: bool,
+    print_symbols: bool,
+    print_imports: bool,
+    emit_hir: bool,
+    emit_mir: bool,
+) -> Result<(), String> {
+    if !(emit_ast || print_types || print_symbols || print_imports || emit_hir || emit_mir) {
+        return Ok(());
+    }
+
+    let graph = build_module_graph(&[path]).map_err(|err| err.to_string())?;
+    let entry = graph
+        .modules
+        .iter()
+        .find(|module| module.path == Path::new(path))
+        .or_else(|| graph.modules.first())
+        .ok_or_else(|| "no modules were loaded".to_string())?;
+
+    let typed = if print_types || emit_hir || emit_mir {
+        let (diags, typed) = aura_typeck::typeck_program(&entry.source, &entry.ast);
+        if !diags.is_empty() {
+            return Err(diags[0].message.clone());
+        }
+        Some(typed)
+    } else {
+        None
+    };
+
+    if emit_ast {
+        println!("--- AST ---");
+        println!("{:#?}", entry.ast);
+    }
+
+    if print_symbols {
+        println!("--- Symbols ---");
+        let table = build_symbol_table(entry);
+        let mut symbols: Vec<_> = table.bindings.iter().collect();
+        symbols.sort_by(|(left_name, _), (right_name, _)| left_name.cmp(right_name));
+        for (name, symbol) in symbols {
+            let kind = match symbol.kind {
+                aura_driver::modules::SymbolKind::Function => "function",
+                aura_driver::modules::SymbolKind::Let => "let",
+                aura_driver::modules::SymbolKind::Const => "const",
+                aura_driver::modules::SymbolKind::Import => "import",
+            };
+            let start = symbol.span.start.raw() as usize;
+            let end = symbol.span.end.raw() as usize;
+            let snippet = entry.source.get(start..end).unwrap_or("???");
+            println!("  {name}: {kind} = {snippet}");
+        }
+    }
+
+    if print_imports {
+        println!("--- Imports ---");
+        let mut imports: Vec<_> = graph
+            .edges
+            .iter()
+            .filter(|edge| edge.from == entry.path)
+            .collect();
+        imports.sort_by_key(|edge| edge.specifier_span.start);
+        for edge in imports {
+            let resolved = edge
+                .resolved_to
+                .as_ref()
+                .map(|path| path.display().to_string())
+                .unwrap_or_else(|| "<unresolved>".to_string());
+            println!("  {} -> {}", edge.specifier, resolved);
+        }
+    }
+
+    if let Some(typed) = typed {
+        if print_types {
+            println!("--- Expression Types ---");
+            let mut spans: Vec<_> = typed.expression_types.keys().collect();
+            spans.sort_by_key(|span| span.start);
+            for span in spans {
+                let start = span.start.raw() as usize;
+                let end = span.end.raw() as usize;
+                let snippet = entry.source.get(start..end).unwrap_or("???");
+                let ty = typed.expression_types.get(span).unwrap();
+                println!("  {:?} -> {}", snippet, ty.name());
+            }
+        }
+
+        if emit_hir {
+            println!("--- Annotated AST (HIR) ---");
+            aura_driver::dump_hir::dump_hir(&entry.source, &entry.ast, &typed);
+        }
+
+        if emit_mir {
+            println!("--- Mid-level IR (MIR) ---");
+            let mir = aura_mir::lower_program(&entry.source, &entry.ast, &typed);
+            println!("{}", aura_mir::dump_mir(&mir));
+        }
+    }
+
+    Ok(())
 }
