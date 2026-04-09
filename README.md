@@ -11,17 +11,63 @@ This repository is in early bring-up.
 - `aurac check <FILE>` is implemented (parse + diagnostics).
 - `aurac build` / `aurac run` are stubbed (not implemented yet).
 
-## Quick start
+## Installation
+
+### Quick Install (Recommended)
+
+Install Aura with a single command:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/auraspace/aura/main/scripts/install.sh | bash
+```
+
+### Update
+
+Update to the latest version:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/auraspace/aura/main/scripts/install.sh | bash -s -- --update
+```
+
+### More Options
+
+```bash
+# List all available versions
+curl -sSL https://raw.githubusercontent.com/auraspace/aura/main/scripts/install.sh | bash -s -- --list
+
+# Interactively select a version
+curl -sSL https://raw.githubusercontent.com/auraspace/aura/main/scripts/install.sh | bash -s -- --select
+
+# Install specific version
+curl -sSL https://raw.githubusercontent.com/auraspace/aura/main/scripts/install.sh | bash -s -- --version v0.1.1
+
+# Check current version
+curl -sSL https://raw.githubusercontent.com/auraspace/aura/main/scripts/install.sh | bash -s -- --current
+```
+
+For detailed installation instructions, see [INSTALL.md](INSTALL.md).
+
+### Building from Source
 
 Prerequisites: a working Rust toolchain.
 
 Build:
 
 ```sh
-cargo build -p aurac
+cargo build -p aurac --release
 ```
 
+The binary will be at `target/release/aurac`.
+
+## Quick start
+
 Parse/check a file:
+
+```sh
+aurac check examples/hello/main.aura
+```
+
+Or if building from source:
 
 ```sh
 cargo run -p aurac -- check examples/hello/main.aura
