@@ -164,6 +164,13 @@ MIR should make these explicit:
 - object allocation and field access
 - string/array operations (lower to runtime calls)
 
+Lowering should preserve source-level semantics while removing surface syntax:
+
+- expressions should evaluate left-to-right unless the operator semantics require a different order
+- temporaries should be introduced only to preserve evaluation order or lifetime
+- statement and control-flow sugar should become explicit MIR blocks, branches, and cleanup edges
+- every exit path should run required cleanups before transferring control, including `return`, `throw`, and `finally`
+
 This makes the backend simpler and keeps "language semantics" largely in the frontend/middle-end.
 
 ### Backend
@@ -179,14 +186,27 @@ Current implementation shape:
 
 - `aura-codegen` defines the backend trait and target helper used by the CLI.
 - `aura-codegen` also owns the current `TargetDescriptor` model, which captures triple, object format, and support status.
+- `aura-codegen` exposes backend capability reporting so the CLI can reject unsupported emit modes before backend construction.
 - `aura-codegen-llvm` is the active MVP backend and emits LLVM IR/object code via `inkwell`.
 - `aura-codegen-clif` is a placeholder backend crate and should remain non-default until it is intentionally promoted.
 - `aura-link` owns the platform linking step.
+
+CLI selection rules:
+
+- `aurac` defaults to LLVM unless `--backend=clif` is requested explicitly.
+- `aurac` checks the selected backend's capabilities before compile or emit operations.
+- Unsupported emit modes should fail early with a backend-specific diagnostic rather than falling through to code generation.
 
 For the initial milestone on `aarch64-apple-darwin`, a practical approach is:
 
 - Codegen to Mach-O object (`.o`)
 - Link via the system toolchain (`clang` / `ld`) into a single executable
+
+Linker strategy notes:
+
+- macOS stays on the system linker path for the MVP so the runtime archive and generated Mach-O object files can be linked without extra tooling.
+- Future targets should use the target descriptor to choose a linker policy instead of branching directly in the CLI.
+- `aura-link` should remain the only place that knows how to turn target metadata into linker invocations.
 
 Backend should be pluggable:
 
@@ -234,6 +254,22 @@ Example runtime entry points (illustrative):
 This keeps codegen and runtime evolvable independently.
 
 The current runtime implementation already exposes the C ABI used by the compiler for exception unwinding and helper calls, and the public headers live under `runtime/include/`.
+
+The current runtime ABI surface is:
+
+- memory/object lifetime: `aura_alloc`, `aura_retain`, `aura_release`
+- exceptions: `aura_try_begin`, `aura_try_end`, `aura_current_exception`, `aura_has_active_handler`, `aura_throw`
+- strings and printing: `aura_string_new_utf8`, `aura_string_concat`, `aura_println`
+- primitive formatting helpers: `aura_i32_to_string`, `aura_i64_to_string`, `aura_f32_to_string`, `aura_f64_to_string`, `aura_bool_to_string`
+- fatal errors: `aura_panic`
+
+The exported header types define the object and handler-frame layout that codegen currently assumes:
+
+- `AuraObject` starts with `vtable` and `ref_count`
+- `AuraString` embeds `AuraObject` as its header, then stores `len` and `data`
+- `AuraHandlerFrame` carries `prev`, `catch_entry`, `cleanup_stack`, and the jump buffer used by runtime unwinding
+
+Anything not declared in the public header should be treated as provisional until it is added there and documented in the same change.
 
 ### Object Layout + Dispatch
 

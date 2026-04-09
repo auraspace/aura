@@ -30,6 +30,12 @@ pub enum BackendKind {
     Clif,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BackendCapabilities {
+    pub supports_emit_llvm: bool,
+    pub supports_emit_asm: bool,
+}
+
 impl BackendKind {
     pub fn parse(value: &str) -> Result<Self> {
         match value {
@@ -43,6 +49,19 @@ impl BackendKind {
         match self {
             Self::Llvm => "llvm",
             Self::Clif => "clif",
+        }
+    }
+
+    pub fn capabilities(self) -> BackendCapabilities {
+        match self {
+            Self::Llvm => BackendCapabilities {
+                supports_emit_llvm: true,
+                supports_emit_asm: true,
+            },
+            Self::Clif => BackendCapabilities {
+                supports_emit_llvm: false,
+                supports_emit_asm: false,
+            },
         }
     }
 }

@@ -179,9 +179,18 @@ fn main() {
 
                     let mir = out.mir.as_ref().expect("MIR should exist if no errors");
 
-                    if backend_kind == aura_codegen::BackendKind::Clif && (emit_llvm || emit_asm) {
+                    let backend_capabilities = backend_kind.capabilities();
+                    if emit_llvm && !backend_capabilities.supports_emit_llvm {
                         eprintln!(
-                            "error: backend `clif` does not support `--emit=llvm` or `--emit=asm` yet"
+                            "error: backend `{}` does not support `--emit=llvm` yet",
+                            backend_kind.name()
+                        );
+                        std::process::exit(1);
+                    }
+                    if emit_asm && !backend_capabilities.supports_emit_asm {
+                        eprintln!(
+                            "error: backend `{}` does not support `--emit=asm` yet",
+                            backend_kind.name()
                         );
                         std::process::exit(1);
                     }
