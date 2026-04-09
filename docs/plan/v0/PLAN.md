@@ -2,7 +2,7 @@
 
 _Last updated: 2026-04-09_
 
-Plan đã được tách thành các file nhỏ dạng TODO list trong `docs/plan/`.
+Plan v0 đã hoàn tất. Roadmap tiếp theo sẽ được ghi ở `docs/plan/v1.0/`.
 
 ## Plan files
 
@@ -17,3 +17,5 @@ Plan đã được tách thành các file nhỏ dạng TODO list trong `docs/pla
 9. `docs/plan/v0/08-phase7-oop.md`
 10. `docs/plan/v0/09-phase8-exceptions.md`
 11. `docs/plan/v0/10-quality-gates.md`
+12. `docs/plan/v0/11-phase8-exceptions-test-coverage.md`
+13. `docs/plan/v0/11-fix-failed-tests.md`
