@@ -10,10 +10,31 @@ concurrency:
 
 jobs:
   check:
-    name: fmt / clippy / test
-    runs-on: macos-14
+    name: fmt / clippy / test (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # - target: x86_64-unknown-linux-gnu
+          #   os: ubuntu-latest
+          #   llvm_prefix: /usr/lib/llvm-15
+          #   install_llvm: |
+          #     sudo apt-get update
+          #     sudo apt-get install -y llvm-15 clang-15 libclang-15-dev libpolly-15-dev
+          #     echo "/usr/lib/llvm-15/bin" >> "$GITHUB_PATH"
+
+          - target: aarch64-apple-darwin
+            os: macos-14
+            llvm_prefix: /opt/homebrew/opt/llvm@15
+            install_llvm: |
+              brew update
+              brew install llvm@15
+              echo "/opt/homebrew/opt/llvm@15/bin" >> "$GITHUB_PATH"
+
     env:
-      LLVM_SYS_150_PREFIX: /usr/lib/llvm-15
+      LLVM_SYS_150_PREFIX: ${{ matrix.llvm_prefix }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -24,10 +45,7 @@ jobs:
           components: clippy, rustfmt
 
       - name: Install LLVM 15
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y llvm-15 clang-15 libclang-15-dev libpolly-15-dev
-          echo "/usr/lib/llvm-15/bin" >> "$GITHUB_PATH"
+        run: ${{ matrix.install_llvm }}
 
       - name: Cache Rust artifacts
         uses: Swatinem/rust-cache@v2
@@ -41,11 +59,32 @@ jobs:
       - name: Test
         run: cargo test --workspace --locked
 
-  macos-build:
-    name: build aurac on macOS
-    runs-on: macos-14
+  build:
+    name: build aurac (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # - target: x86_64-unknown-linux-gnu
+          #   os: ubuntu-latest
+          #   llvm_prefix: /usr/lib/llvm-15
+          #   install_llvm: |
+          #     sudo apt-get update
+          #     sudo apt-get install -y llvm-15 clang-15 libclang-15-dev libpolly-15-dev
+          #     echo "/usr/lib/llvm-15/bin" >> "$GITHUB_PATH"
+
+          - target: aarch64-apple-darwin
+            os: macos-14
+            llvm_prefix: /opt/homebrew/opt/llvm@15
+            install_llvm: |
+              brew update
+              brew install llvm@15
+              echo "/opt/homebrew/opt/llvm@15/bin" >> "$GITHUB_PATH"
+
     env:
-      LLVM_SYS_150_PREFIX: /opt/homebrew/opt/llvm@15
+      LLVM_SYS_150_PREFIX: ${{ matrix.llvm_prefix }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -54,10 +93,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install LLVM 15
-        run: |
-          brew update
-          brew install llvm@15
-          echo "/opt/homebrew/opt/llvm@15/bin" >> "$GITHUB_PATH"
+        run: ${{ matrix.install_llvm }}
 
       - name: Cache Rust artifacts
         uses: Swatinem/rust-cache@v2
