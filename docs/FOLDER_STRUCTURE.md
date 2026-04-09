@@ -65,6 +65,7 @@ Current focus target: `aarch64-apple-darwin`.
 Target logic currently lives in `aura-codegen` and the CLI/backend crates.
 
 - target triple parsing/normalization
+- target descriptors that capture triple, object format, and support status
 - pointer size, endianness, OS/ABI
 - CPU/features configuration
 - data layout strings (if using LLVM)

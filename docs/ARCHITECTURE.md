@@ -21,6 +21,13 @@ Target note:
 
 - `x86_64-unknown-linux-gnu` is a placeholder target for planning only.
 - Do not generate or hardcode support for `x86_64-unknown-linux-gnu` until the target is explicitly promoted in the contract docs and phase plan.
+- Target metadata is modeled by a descriptor that records the triple, object format, and support status so the CLI, backend, and linker can share the same policy view.
+- Supported targets should be resolved through one stable API (`Target::resolve`) instead of ad hoc string handling in callers.
+- Target capability checks should fail fast before code generation or linking when the target is placeholder-only or lacks a known object format.
+- Expected unsupported-target diagnostics:
+  - placeholder-only targets: `target \`...\` is placeholder-only and cannot be used for code generation yet`
+  - unsupported linking: `target \`...\` is placeholder-only and cannot be linked yet`
+  - unknown object format: `target \`...\` has an unknown object format and cannot be used for code generation yet` or `... cannot be linked yet`
 
 ## Goals
 
@@ -171,6 +178,7 @@ The backend is responsible for:
 Current implementation shape:
 
 - `aura-codegen` defines the backend trait and target helper used by the CLI.
+- `aura-codegen` also owns the current `TargetDescriptor` model, which captures triple, object format, and support status.
 - `aura-codegen-llvm` is the active MVP backend and emits LLVM IR/object code via `inkwell`.
 - `aura-codegen-clif` is a placeholder backend crate and should remain non-default until it is intentionally promoted.
 - `aura-link` owns the platform linking step.

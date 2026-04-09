@@ -32,9 +32,10 @@ impl<'ctx> LlvmBackend<'ctx> {
         let module = context.create_module(name);
         let builder = context.create_builder();
 
+        target.ensure_codegen_supported()?;
         LlvmTarget::initialize_all(&InitializationConfig::default());
 
-        let triple = TargetTriple::create(&target.triple);
+        let triple = TargetTriple::create(target.triple());
         let target =
             LlvmTarget::from_triple(&triple).map_err(|e| anyhow::anyhow!(e.to_string()))?;
         let target_machine = target
@@ -1155,5 +1156,16 @@ mod tests {
             Some("main.o")
         );
         assert!(obj_path.exists());
+    }
+
+    #[test]
+    fn rejects_placeholder_targets_before_codegen() {
+        let context = Context::create();
+        let result = LlvmBackend::new(&context, "unit-test", &Target::x86_64_unknown_linux_gnu());
+
+        match result {
+            Ok(_) => panic!("placeholder targets should fail before LLVM setup"),
+            Err(err) => assert!(err.to_string().contains("placeholder-only")),
+        }
     }
 }

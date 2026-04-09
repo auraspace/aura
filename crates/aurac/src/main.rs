@@ -243,9 +243,13 @@ fn main() {
                         }
                     };
 
-                    let linker = aura_link::Linker::new(target.triple);
                     let exe_path = Path::new("a.out");
                     let run_path = Path::new("./a.out");
+                    if let Err(err) = target.ensure_linking_supported() {
+                        eprintln!("error: {err}");
+                        std::process::exit(1);
+                    }
+                    let linker = aura_link::Linker::new(target.linker_triple().to_string());
                     // For MVP, look for the runtime in the target directory
                     let mut runtime_path = build_dir.join("target/debug/libaura_rt.a");
                     if !runtime_path.exists() {
