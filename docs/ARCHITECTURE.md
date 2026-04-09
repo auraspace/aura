@@ -126,7 +126,8 @@ The compiler should support debug/introspection modes:
 
 **Diagnostics**
 
-- Centralized diagnostic type: span + message + optional fix-it hints.
+- Centralized diagnostic type: severity + span + message, with optional help/note details.
+- Keep the `Diagnostic` field order stable (`severity`, `span`, `message`, `help`, `note`) so formatting and future callers can rely on a predictable shape.
 - Stable error codes (useful for editor integration later).
 
 **Module/Package Loader**

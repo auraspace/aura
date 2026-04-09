@@ -1065,6 +1065,11 @@ impl<'a> Parser<'a> {
                 self.current_span(),
                 &format!("expected `{}`", punct_text(p)),
             );
+            if let Some(diag) = self.errors.last_mut() {
+                *diag = diag
+                    .clone()
+                    .with_help(format!("insert `{}`", punct_text(p)));
+            }
             self.bump();
         }
     }
@@ -1097,6 +1102,11 @@ impl<'a> Parser<'a> {
             self.current_span(),
             &format!("expected `{}`", punct_text(punct)),
         );
+        if let Some(diag) = self.errors.last_mut() {
+            *diag = diag
+                .clone()
+                .with_help(format!("insert `{}`", punct_text(punct)));
+        }
         self.synchronize(sync);
         self.eat_punct(punct);
     }
@@ -1310,6 +1320,29 @@ function f(): void {
     }
 
     #[test]
+    fn recovers_from_missing_rparen_before_block() {
+        let src = r#"
+function f(): void {
+  if (true {
+    return;
+  }
+  return;
+}
+"#;
+        let out = parse_program(src);
+        assert_eq!(out.errors.len(), 1, "{:#?}", out.errors);
+        assert_eq!(out.errors[0].help.as_deref(), Some("insert `)`"));
+        match &out.value.items[0] {
+            TopLevel::Function(func) => {
+                assert_eq!(func.body.stmts.len(), 2, "{:#?}", func.body.stmts);
+                assert!(matches!(func.body.stmts[0], Stmt::If(_)));
+                assert!(matches!(func.body.stmts[1], Stmt::Return(_)));
+            }
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test]
     fn snapshot_missing_semicolon() {
         let src = r#"function f(): void { return 1 }"#;
         let out = parse_program(src);
@@ -1321,6 +1354,7 @@ function f(): void {
   |
  1 | function f(): void { return 1 }
   |                               ^
+help: insert `;`
 "#
         );
     }
@@ -1343,6 +1377,7 @@ error[E]: expected `;`
   |
  1 | }
   |  ^
+help: insert `;`
 "#
         );
     }

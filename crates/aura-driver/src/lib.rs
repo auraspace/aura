@@ -64,8 +64,9 @@ pub fn check_file(path: impl AsRef<Path>) -> io::Result<CheckOutput> {
         }
 
         if let Some(module) = entry_module {
-            let imported_functions =
+            let (imported_functions, import_diagnostics) =
                 imported_functions_for_module(module, &graph, &exported_functions_by_module);
+            diagnostics.extend(import_diagnostics);
             if module.parse_diagnostics.is_empty() {
                 diagnostics.extend(resolve::resolve_module(module));
                 let (diags, typed) = aura_typeck::typeck_program_with_imports(
@@ -143,8 +144,12 @@ fn imported_functions_for_module(
         std::path::PathBuf,
         std::collections::HashMap<String, MethodSig>,
     >,
-) -> std::collections::HashMap<String, MethodSig> {
+) -> (
+    std::collections::HashMap<String, MethodSig>,
+    Vec<Diagnostic>,
+) {
     let mut imported_functions = std::collections::HashMap::new();
+    let mut diagnostics = Vec::new();
 
     for item in &module.ast.items {
         let aura_ast::TopLevel::Import(import) = item else {
@@ -172,11 +177,16 @@ fn imported_functions_for_module(
                         imported_functions
                             .entry(name_text)
                             .or_insert_with(|| sig.clone());
+                    } else {
+                        diagnostics.push(Diagnostic::error(
+                            name.span,
+                            format!("module `{}` does not export `{name_text}`", edge.specifier),
+                        ));
                     }
                 }
             }
         }
     }
 
-    imported_functions
+    (imported_functions, diagnostics)
 }

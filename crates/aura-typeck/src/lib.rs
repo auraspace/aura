@@ -848,6 +848,10 @@ function main(): void {
         let (diags, _) = typeck_program(src, &out.value);
         assert_eq!(diags.len(), 1, "{diags:#?}");
         assert!(diags[0].message.contains("type mismatch"));
+        assert_eq!(
+            diags[0].help.as_deref(),
+            Some("make the value match the expected type")
+        );
     }
 
     #[test]
@@ -894,6 +898,10 @@ function f(): i32 {
         let (diags, _) = typeck_program(src, &out.value);
         assert_eq!(diags.len(), 1, "{diags:#?}");
         assert!(diags[0].message.contains("type mismatch"));
+        assert_eq!(
+            diags[0].help.as_deref(),
+            Some("make the value match the expected type")
+        );
     }
 
     #[test]

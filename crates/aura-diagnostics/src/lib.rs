@@ -7,6 +7,11 @@ pub enum Severity {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+/// Structured frontend diagnostic payload.
+///
+/// The required fields are kept in a stable order: `severity`, `span`, and
+/// `message`. Optional `help` and `note` fields can add context without
+/// changing the base shape.
 pub struct Diagnostic {
     pub severity: Severity,
     pub span: Span,

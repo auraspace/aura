@@ -48,7 +48,7 @@ fn run_aurac_build_emit_llvm(source_name: &str, source: &str) -> (PathBuf, Strin
 #[test]
 fn aurac_check_prints_ast_symbols_and_imports() {
     let root = workspace_root();
-    let fixture_dir = root.join("target/e2e-debug-fixture");
+    let fixture_dir = unique_temp_dir("e2e-debug-fixture");
     let _ = fs::remove_dir_all(&fixture_dir);
     fs::create_dir_all(&fixture_dir).expect("failed to create fixture dir");
     fs::write(
@@ -65,8 +65,8 @@ function main(): i32 {
     fs::write(
         fixture_dir.join("util.aura"),
         r#"
-export function helper(x: i32): i32 {
-  return x;
+export function helper(): i32 {
+  return 1;
 }
 "#,
     )
@@ -77,7 +77,7 @@ export function helper(x: i32): i32 {
     let output = Command::new(aurac)
         .args([
             "check",
-            "target/e2e-debug-fixture/main.aura",
+            fixture_dir.join("main.aura").to_string_lossy().as_ref(),
             "--emit=ast",
             "--print=symbols",
             "--print=imports",
@@ -114,6 +114,60 @@ export function helper(x: i32): i32 {
     assert!(
         stdout.contains("./util"),
         "missing resolved import specifier: {stdout}"
+    );
+
+    let _ = fs::remove_dir_all(&fixture_dir);
+}
+
+#[test]
+fn aurac_check_reports_unresolved_exports() {
+    let root = workspace_root();
+    let fixture_dir = unique_temp_dir("e2e-debug-fixture");
+    let _ = fs::remove_dir_all(&fixture_dir);
+    fs::create_dir_all(&fixture_dir).expect("failed to create fixture dir");
+    fs::write(
+        fixture_dir.join("main.aura"),
+        r#"
+import { helper } from "./util";
+
+function main(): i32 {
+  return helper();
+}
+"#,
+    )
+    .expect("failed to write main fixture");
+    fs::write(
+        fixture_dir.join("util.aura"),
+        r#"
+export function other(): i32 {
+  return 1;
+}
+"#,
+    )
+    .expect("failed to write util fixture");
+
+    let aurac = env!("CARGO_BIN_EXE_aurac");
+
+    let output = Command::new(aurac)
+        .args([
+            "check",
+            fixture_dir.join("main.aura").to_string_lossy().as_ref(),
+        ])
+        .current_dir(&root)
+        .output()
+        .expect("failed to run aurac");
+
+    assert!(
+        !output.status.success(),
+        "expected unresolved export failure\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("does not export `helper`"),
+        "missing unresolved export diagnostic: {stderr}"
     );
 
     let _ = fs::remove_dir_all(&fixture_dir);

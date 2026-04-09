@@ -129,14 +129,17 @@ pub(crate) fn typeck_stmt(
                     && *expected != Ty::Unknown
                     && !is_assignable(&value_ty, expected, classes)
                 {
-                    diags.push(Diagnostic::error(
-                        span_of_expr(value),
-                        format!(
-                            "type mismatch: expected `{}`, got `{}`",
-                            expected.name(),
-                            value_ty.name()
-                        ),
-                    ));
+                    diags.push(
+                        Diagnostic::error(
+                            span_of_expr(value),
+                            format!(
+                                "type mismatch: expected `{}`, got `{}`",
+                                expected.name(),
+                                value_ty.name()
+                            ),
+                        )
+                        .with_help("make the value match the expected type"),
+                    );
                 }
             }
         },
@@ -653,14 +656,17 @@ pub(crate) fn typeck_expr(
                         && field_ty != Ty::Unknown
                         && !is_assignable(&value_ty, &field_ty, classes)
                     {
-                        diags.push(Diagnostic::error(
-                            span_of_expr(value),
-                            format!(
-                                "type mismatch: expected `{}`, got `{}`",
-                                field_ty.name(),
-                                value_ty.name()
-                            ),
-                        ));
+                        diags.push(
+                            Diagnostic::error(
+                                span_of_expr(value),
+                                format!(
+                                    "type mismatch: expected `{}`, got `{}`",
+                                    field_ty.name(),
+                                    value_ty.name()
+                                ),
+                            )
+                            .with_help("make the value match the expected type"),
+                        );
                     }
                     value_ty
                 } else {
@@ -703,14 +709,17 @@ pub(crate) fn typeck_expr(
                         && target_ty != Ty::Unknown
                         && !is_assignable(&value_ty, &target_ty, classes)
                     {
-                        diags.push(Diagnostic::error(
-                            span_of_expr(value),
-                            format!(
-                                "type mismatch: expected `{}`, got `{}`",
-                                target_ty.name(),
-                                value_ty.name()
-                            ),
-                        ));
+                        diags.push(
+                            Diagnostic::error(
+                                span_of_expr(value),
+                                format!(
+                                    "type mismatch: expected `{}`, got `{}`",
+                                    target_ty.name(),
+                                    value_ty.name()
+                                ),
+                            )
+                            .with_help("make the value match the expected type"),
+                        );
                     }
                     value_ty
                 } else {
@@ -857,14 +866,17 @@ pub(crate) fn typeck_expr(
                             && *param_ty != Ty::Unknown
                             && !is_assignable(&arg_ty, param_ty, classes)
                         {
-                            diags.push(Diagnostic::error(
-                                span_of_expr(arg),
-                                format!(
-                                    "type mismatch: expected `{}`, got `{}`",
-                                    param_ty.name(),
-                                    arg_ty.name()
-                                ),
-                            ));
+                            diags.push(
+                                Diagnostic::error(
+                                    span_of_expr(arg),
+                                    format!(
+                                        "type mismatch: expected `{}`, got `{}`",
+                                        param_ty.name(),
+                                        arg_ty.name()
+                                    ),
+                                )
+                                .with_help("make the value match the expected type"),
+                            );
                         }
                     }
                 }
@@ -1005,14 +1017,17 @@ fn typeck_let_like(
 
     let final_ty = if expected_ty != Ty::Unknown {
         if value_ty != Ty::Unknown && !is_assignable(&value_ty, &expected_ty, classes) {
-            diags.push(Diagnostic::error(
-                s.init.as_ref().map(span_of_expr).unwrap_or(s.span),
-                format!(
-                    "type mismatch: expected `{}`, got `{}`",
-                    expected_ty.name(),
-                    value_ty.name()
-                ),
-            ));
+            diags.push(
+                Diagnostic::error(
+                    s.init.as_ref().map(span_of_expr).unwrap_or(s.span),
+                    format!(
+                        "type mismatch: expected `{}`, got `{}`",
+                        expected_ty.name(),
+                        value_ty.name()
+                    ),
+                )
+                .with_help("make the value match the expected type"),
+            );
         }
         expected_ty
     } else {
