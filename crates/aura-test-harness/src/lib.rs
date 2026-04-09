@@ -85,21 +85,7 @@ impl TestRunner {
 
     fn parse_expectations(&self, path: &Path) -> Result<Vec<Expectation>> {
         let content = fs::read_to_string(path)?;
-        let mut expectations = Vec::new();
-
-        let re_expect = Regex::new(r"//\s*expect:\s*(.*)")?;
-        let re_error = Regex::new(r"//\s*expect-error:\s*(.*)")?;
-
-        for line in content.lines() {
-            if let Some(cap) = re_expect.captures(line) {
-                expectations.push(Expectation::Output(cap[1].trim().to_string()));
-            }
-            if let Some(cap) = re_error.captures(line) {
-                expectations.push(Expectation::Error(cap[1].trim().to_string()));
-            }
-        }
-
-        Ok(expectations)
+        parse_expectations_from_str(&content)
     }
 
     fn has_error_expectation(&self, path: &Path) -> Result<bool> {
@@ -123,6 +109,67 @@ impl TestRunner {
         });
 
         Ok(())
+    }
+}
+
+fn parse_expectations_from_str(content: &str) -> Result<Vec<Expectation>> {
+    let mut expectations = Vec::new();
+
+    let re_expect = Regex::new(r"//\s*expect:\s*(.*)")?;
+    let re_error = Regex::new(r"//\s*expect-error:\s*(.*)")?;
+
+    for line in content.lines() {
+        if let Some(cap) = re_expect.captures(line) {
+            expectations.push(Expectation::Output(cap[1].trim().to_string()));
+        }
+        if let Some(cap) = re_error.captures(line) {
+            expectations.push(Expectation::Error(cap[1].trim().to_string()));
+        }
+    }
+
+    Ok(expectations)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_expectations_from_str, Expectation};
+
+    #[test]
+    fn parses_output_and_error_expectations() {
+        let content = r#"
+// expect: hello world
+let x = 1
+// expect-error: something went wrong
+"#;
+
+        let expectations = parse_expectations_from_str(content).unwrap();
+
+        assert_eq!(
+            expectations,
+            vec![
+                Expectation::Output("hello world".to_string()),
+                Expectation::Error("something went wrong".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn ignores_non_expectation_comments() {
+        let content = r#"
+// note: this is just a comment
+// expect: ok
+// expect-error: fail
+"#;
+
+        let expectations = parse_expectations_from_str(content).unwrap();
+
+        assert_eq!(
+            expectations,
+            vec![
+                Expectation::Output("ok".to_string()),
+                Expectation::Error("fail".to_string()),
+            ]
+        );
     }
 }
 
