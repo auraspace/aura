@@ -63,16 +63,17 @@ import { Foo, bar } from "./foo"
 import Baz from "./baz"
 ```
 
-Exports:
+Notes (MVP):
 
 ```aura
+class Point { /* ... */ }
+function add(a: i32, b: i32): i32 { return a + b }
 export class Point { /* ... */ }
 export function add(a: i32, b: i32): i32 { return a + b }
 ```
 
-Notes (MVP):
-
 - Import paths are relative and omit file extensions.
+- `export` is a top-level wrapper for `function`, `class`, and `interface` declarations.
 - Circular imports may be restricted initially.
 
 ## Types

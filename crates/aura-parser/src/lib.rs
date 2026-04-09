@@ -36,6 +36,8 @@ impl<'a> Parser<'a> {
         while !self.at(TokenKind::Eof) {
             if self.at_keyword(Keyword::Import) {
                 items.push(TopLevel::Import(self.parse_import_decl()));
+            } else if self.at_keyword(Keyword::Export) {
+                items.push(TopLevel::Export(self.parse_export_decl()));
             } else if self.at_keyword(Keyword::Function) {
                 items.push(TopLevel::Function(self.parse_function_decl()));
             } else if self.at_keyword(Keyword::Class) {
@@ -49,6 +51,46 @@ impl<'a> Parser<'a> {
         ParseOutput {
             value: Program { items },
             errors: self.errors,
+        }
+    }
+
+    fn parse_export_decl(&mut self) -> ExportDecl {
+        let start = self.current_span_start();
+        self.expect_keyword(Keyword::Export);
+
+        let item = if self.at_keyword(Keyword::Function) {
+            Some(ExportedDecl::Function(self.parse_function_decl()))
+        } else if self.at_keyword(Keyword::Class) {
+            Some(ExportedDecl::Class(self.parse_class_decl()))
+        } else if self.at_keyword(Keyword::Interface) {
+            Some(ExportedDecl::Interface(self.parse_interface_decl()))
+        } else {
+            let span = self.current_span();
+            self.error(
+                span,
+                &format!(
+                    "expected `function`, `class`, or `interface` after `export`, found {}",
+                    token_desc(self.current_kind())
+                ),
+            );
+            self.bump();
+            self.synchronize(&[
+                TokenKind::Punct(Punct::Semi),
+                TokenKind::Punct(Punct::RBrace),
+            ]);
+            None
+        };
+
+        let end = match &item {
+            Some(ExportedDecl::Function(func)) => func.span.end,
+            Some(ExportedDecl::Class(class_decl)) => class_decl.span.end,
+            Some(ExportedDecl::Interface(iface)) => iface.span.end,
+            None => self.prev_span_end(),
+        };
+
+        ExportDecl {
+            item,
+            span: Span::new(start, end),
         }
     }
 
@@ -1200,6 +1242,28 @@ function main(): i32 { return 0; }
         assert!(matches!(out.value.items[0], TopLevel::Import(_)));
         assert!(matches!(out.value.items[1], TopLevel::Import(_)));
         assert!(matches!(out.value.items[2], TopLevel::Function(_)));
+    }
+
+    #[test]
+    fn parses_exported_function() {
+        let src = r#"
+export function helper(x: i32): i32 {
+  return x;
+}
+"#;
+
+        let out = parse_program(src);
+        assert!(out.errors.is_empty(), "{:#?}", out.errors);
+        assert_eq!(out.value.items.len(), 1);
+        match &out.value.items[0] {
+            TopLevel::Export(export) => match export.item.as_ref() {
+                Some(ExportedDecl::Function(func)) => {
+                    assert_eq!(func.params.len(), 1);
+                }
+                _ => panic!("expected exported function"),
+            },
+            _ => panic!("expected export"),
+        }
     }
 
     #[test]

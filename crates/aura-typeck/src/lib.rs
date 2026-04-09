@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use aura_ast::{Program, Stmt, TopLevel};
+use aura_ast::{ExportedDecl, Program, Stmt, TopLevel};
 use aura_diagnostics::Diagnostic;
 
 mod check;
@@ -32,14 +32,32 @@ pub fn typeck_program(source: &str, program: &Program) -> (Vec<Diagnostic>, Type
                     type_defs.insert(name.to_string(), TyDefKind::Interface);
                 }
             }
+            TopLevel::Export(export) => match export.item.as_ref() {
+                Some(ExportedDecl::Class(class_decl)) => {
+                    if let Some(name) = ident_text(source, &class_decl.name) {
+                        type_defs.insert(name.to_string(), TyDefKind::Class);
+                    }
+                }
+                Some(ExportedDecl::Interface(iface_decl)) => {
+                    if let Some(name) = ident_text(source, &iface_decl.name) {
+                        type_defs.insert(name.to_string(), TyDefKind::Interface);
+                    }
+                }
+                _ => {}
+            },
             _ => {}
         }
     }
 
     let mut interfaces = HashMap::<String, InterfaceInfo>::new();
     for item in &program.items {
-        let TopLevel::Interface(iface_decl) = item else {
-            continue;
+        let iface_decl = match item {
+            TopLevel::Interface(iface_decl) => iface_decl,
+            TopLevel::Export(export) => match export.item.as_ref() {
+                Some(ExportedDecl::Interface(iface_decl)) => iface_decl,
+                _ => continue,
+            },
+            _ => continue,
         };
         let Some(name) = ident_text(source, &iface_decl.name) else {
             continue;
@@ -85,8 +103,13 @@ pub fn typeck_program(source: &str, program: &Program) -> (Vec<Diagnostic>, Type
 
     let mut raw_classes = HashMap::<String, RawClassInfo>::new();
     for item in &program.items {
-        let TopLevel::Class(class_decl) = item else {
-            continue;
+        let class_decl = match item {
+            TopLevel::Class(class_decl) => class_decl,
+            TopLevel::Export(export) => match export.item.as_ref() {
+                Some(ExportedDecl::Class(class_decl)) => class_decl,
+                _ => continue,
+            },
+            _ => continue,
         };
         let Some(name) = ident_text(source, &class_decl.name) else {
             continue;
@@ -332,6 +355,13 @@ pub fn typeck_program(source: &str, program: &Program) -> (Vec<Diagnostic>, Type
                                             return Some(c.name.span);
                                         }
                                     }
+                                    if let TopLevel::Export(export) = item {
+                                        if let Some(ExportedDecl::Class(c)) = export.item.as_ref() {
+                                            if ident_text(source, &c.name) == Some(class_name) {
+                                                return Some(c.name.span);
+                                            }
+                                        }
+                                    }
                                     None
                                 })
                                 .unwrap_or(aura_span::Span::empty(aura_span::BytePos::new(0))),
@@ -356,9 +386,22 @@ pub fn typeck_program(source: &str, program: &Program) -> (Vec<Diagnostic>, Type
                                 .find_map(|item| {
                                     if let TopLevel::Class(c) = item {
                                         if ident_text(source, &c.name) == Some(class_name) {
-                                            return c.methods.iter().find(|m| {
-                                                ident_text(source, &m.name) == Some(mname)
-                                            }).map(|m| m.span);
+                                            return c
+                                                .methods
+                                                .iter()
+                                                .find(|m| ident_text(source, &m.name) == Some(mname))
+                                                .map(|m| m.span);
+                                        }
+                                    }
+                                    if let TopLevel::Export(export) = item {
+                                        if let Some(ExportedDecl::Class(c)) = export.item.as_ref() {
+                                            if ident_text(source, &c.name) == Some(class_name) {
+                                                return c
+                                                    .methods
+                                                    .iter()
+                                                    .find(|m| ident_text(source, &m.name) == Some(mname))
+                                                    .map(|m| m.span);
+                                            }
                                         }
                                     }
                                     None
@@ -438,6 +481,47 @@ pub fn typeck_program(source: &str, program: &Program) -> (Vec<Diagnostic>, Type
                 );
                 top_level_functions.insert(name.to_string(), sig);
             }
+            TopLevel::Export(export) => {
+                if let Some(ExportedDecl::Function(func)) = export.item.as_ref() {
+                    let Some(name) = ident_text(source, &func.name) else {
+                        continue;
+                    };
+                    let mut params = Vec::new();
+                    for param in &func.params {
+                        let ty = ty_from_type_ref(
+                            source,
+                            &param.ty,
+                            TypePosition::Value,
+                            &type_defs,
+                            &mut diags,
+                        );
+                        params.push(ty);
+                    }
+                    let return_ty = func
+                        .return_type
+                        .as_ref()
+                        .map(|t| {
+                            ty_from_type_ref(
+                                source,
+                                t,
+                                TypePosition::Return,
+                                &type_defs,
+                                &mut diags,
+                            )
+                        })
+                        .unwrap_or(Ty::Void);
+                    let sig = TypeMethodSig { params, return_ty };
+                    globals.insert(
+                        name.to_string(),
+                        VarInfo {
+                            ty: Ty::Function(Box::new(sig.clone())),
+                            mutable: false,
+                            decl_span: func.name.span,
+                        },
+                    );
+                    top_level_functions.insert(name.to_string(), sig);
+                }
+            }
             _ => {}
         }
     }
@@ -466,8 +550,13 @@ pub fn typeck_program(source: &str, program: &Program) -> (Vec<Diagnostic>, Type
 
     // Pass 3: type-check function bodies.
     for item in &program.items {
-        let TopLevel::Function(func) = item else {
-            continue;
+        let func = match item {
+            TopLevel::Function(func) => func,
+            TopLevel::Export(export) => match export.item.as_ref() {
+                Some(ExportedDecl::Function(func)) => func,
+                _ => continue,
+            },
+            _ => continue,
         };
 
         let mut env = global_env.child();
@@ -525,8 +614,13 @@ pub fn typeck_program(source: &str, program: &Program) -> (Vec<Diagnostic>, Type
 
     // Pass 4: type-check class methods (field access via `this`).
     for item in &program.items {
-        let TopLevel::Class(class_decl) = item else {
-            continue;
+        let class_decl = match item {
+            TopLevel::Class(class_decl) => class_decl,
+            TopLevel::Export(export) => match export.item.as_ref() {
+                Some(ExportedDecl::Class(class_decl)) => class_decl,
+                _ => continue,
+            },
+            _ => continue,
         };
         let class_name = ident_text(source, &class_decl.name);
         for method in &class_decl.methods {

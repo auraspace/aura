@@ -326,6 +326,8 @@ fn print_debug_views(
         for (name, symbol) in symbols {
             let kind = match symbol.kind {
                 aura_driver::modules::SymbolKind::Function => "function",
+                aura_driver::modules::SymbolKind::Class => "class",
+                aura_driver::modules::SymbolKind::Interface => "interface",
                 aura_driver::modules::SymbolKind::Let => "let",
                 aura_driver::modules::SymbolKind::Const => "const",
                 aura_driver::modules::SymbolKind::Import => "import",

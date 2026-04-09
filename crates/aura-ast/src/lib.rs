@@ -8,6 +8,7 @@ pub struct Program {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TopLevel {
     Import(ImportDecl),
+    Export(ExportDecl),
     Function(FunctionDecl),
     Class(ClassDecl),
     Interface(InterfaceDecl),
@@ -26,6 +27,19 @@ pub struct ImportDecl {
 pub enum ImportClause {
     Named(Vec<Ident>),
     Default(Ident),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExportDecl {
+    pub item: Option<ExportedDecl>,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ExportedDecl {
+    Function(FunctionDecl),
+    Class(ClassDecl),
+    Interface(InterfaceDecl),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

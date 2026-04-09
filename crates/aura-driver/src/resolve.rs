@@ -1,10 +1,10 @@
 use std::collections::{HashMap, HashSet};
 
-use aura_ast::{Expr, ImportClause, Stmt, TopLevel};
+use aura_ast::{ExportedDecl, Expr, ImportClause, Stmt, TopLevel};
 use aura_diagnostics::Diagnostic;
 use aura_span::Span;
 
-use crate::modules::{build_symbol_table, ident_text, Module};
+use crate::modules::{build_symbol_table, ident_text, Module, SymbolKind};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MemberAccess {
@@ -17,7 +17,16 @@ pub fn resolve_module(module: &Module) -> Vec<Diagnostic> {
     let mut diags = Vec::new();
     diags.extend(check_module_duplicates(module));
     let symbols = build_symbol_table(module);
-    let module_names: HashSet<String> = symbols.bindings.keys().cloned().collect();
+    let module_names: HashSet<String> = symbols
+        .bindings
+        .iter()
+        .filter_map(|(name, symbol)| match symbol.kind {
+            SymbolKind::Function | SymbolKind::Let | SymbolKind::Const | SymbolKind::Import => {
+                Some(name.clone())
+            }
+            SymbolKind::Class | SymbolKind::Interface => None,
+        })
+        .collect();
 
     for item in &module.ast.items {
         match item {
@@ -44,6 +53,57 @@ pub fn resolve_module(module: &Module) -> Vec<Diagnostic> {
                     &mut diags,
                 );
             }
+            TopLevel::Export(export) => match export.item.as_ref() {
+                Some(ExportedDecl::Function(func)) => {
+                    let mut scopes = Vec::<HashSet<String>>::new();
+                    let mut function_scope = HashSet::<String>::new();
+                    for param in &func.params {
+                        if let Some(name) = ident_text(&module.source, &param.name) {
+                            if !function_scope.insert(name.clone()) {
+                                diags.push(Diagnostic::error(
+                                    param.name.span,
+                                    format!("duplicate binding `{name}`"),
+                                ));
+                            }
+                        }
+                    }
+                    scopes.push(function_scope);
+                    resolve_block_like(
+                        module,
+                        &func.body.stmts,
+                        &mut scopes,
+                        &module_names,
+                        false,
+                        &mut diags,
+                    );
+                }
+                Some(ExportedDecl::Class(class_decl)) => {
+                    for method in &class_decl.methods {
+                        let mut scopes = Vec::<HashSet<String>>::new();
+                        let mut method_scope = HashSet::<String>::new();
+                        for param in &method.params {
+                            if let Some(name) = ident_text(&module.source, &param.name) {
+                                if !method_scope.insert(name.clone()) {
+                                    diags.push(Diagnostic::error(
+                                        param.name.span,
+                                        format!("duplicate binding `{name}`"),
+                                    ));
+                                }
+                            }
+                        }
+                        scopes.push(method_scope);
+                        resolve_block_like(
+                            module,
+                            &method.body.stmts,
+                            &mut scopes,
+                            &module_names,
+                            true,
+                            &mut diags,
+                        );
+                    }
+                }
+                Some(ExportedDecl::Interface(_)) | None => {}
+            },
             TopLevel::Class(class_decl) => {
                 for method in &class_decl.methods {
                     let mut scopes = Vec::<HashSet<String>>::new();
@@ -89,6 +149,21 @@ pub fn collect_member_accesses(module: &Module) -> Vec<MemberAccess> {
                     collect_member_accesses_in_stmt(module, stmt, &mut out);
                 }
             }
+            TopLevel::Export(export) => match export.item.as_ref() {
+                Some(ExportedDecl::Function(func)) => {
+                    for stmt in &func.body.stmts {
+                        collect_member_accesses_in_stmt(module, stmt, &mut out);
+                    }
+                }
+                Some(ExportedDecl::Class(class_decl)) => {
+                    for method in &class_decl.methods {
+                        for stmt in &method.body.stmts {
+                            collect_member_accesses_in_stmt(module, stmt, &mut out);
+                        }
+                    }
+                }
+                Some(ExportedDecl::Interface(_)) | None => {}
+            },
             TopLevel::Class(class_decl) => {
                 for method in &class_decl.methods {
                     for stmt in &method.body.stmts {
@@ -444,7 +519,11 @@ fn check_module_duplicates(module: &Module) -> Vec<Diagnostic> {
                     check_dup(&mut seen, &mut diags, text, func.name.span);
                 }
             }
-            TopLevel::Class(_) => {}
+            TopLevel::Class(class_decl) => {
+                if let Some(text) = ident_text(&module.source, &class_decl.name) {
+                    check_dup(&mut seen, &mut diags, text, class_decl.name.span);
+                }
+            }
             TopLevel::Stmt(stmt) => match stmt {
                 Stmt::Let(s) | Stmt::Const(s) => {
                     if let Some(text) = ident_text(&module.source, &s.name) {
@@ -460,7 +539,29 @@ fn check_module_duplicates(module: &Module) -> Vec<Diagnostic> {
                 }
                 _ => {}
             },
-            TopLevel::Interface(_) => {}
+            TopLevel::Interface(iface_decl) => {
+                if let Some(text) = ident_text(&module.source, &iface_decl.name) {
+                    check_dup(&mut seen, &mut diags, text, iface_decl.name.span);
+                }
+            }
+            TopLevel::Export(export) => match export.item.as_ref() {
+                Some(ExportedDecl::Function(func)) => {
+                    if let Some(text) = ident_text(&module.source, &func.name) {
+                        check_dup(&mut seen, &mut diags, text, func.name.span);
+                    }
+                }
+                Some(ExportedDecl::Class(class_decl)) => {
+                    if let Some(text) = ident_text(&module.source, &class_decl.name) {
+                        check_dup(&mut seen, &mut diags, text, class_decl.name.span);
+                    }
+                }
+                Some(ExportedDecl::Interface(iface_decl)) => {
+                    if let Some(text) = ident_text(&module.source, &iface_decl.name) {
+                        check_dup(&mut seen, &mut diags, text, iface_decl.name.span);
+                    }
+                }
+                None => {}
+            },
         }
     }
 

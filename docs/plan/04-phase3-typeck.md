@@ -1,6 +1,6 @@
 # Phase 3 — Type Checker (Minimal)
 
-_Last updated: 2026-04-07_
+_Last updated: 2026-04-09_
 
 ## Goal
 
@@ -12,7 +12,8 @@ Minimal static typing for primitives + functions + classes/interfaces (nominal).
 - [x] Type-check variable declarations (`let/const`) and assignments (done 2026-04-07, infer from init + enforce const/assign types)
 - [x] Type-check function params/returns + return-path checking (done 2026-04-07, check `return` types + missing return paths)
 - [x] Parse/AST: `this` and `new` expressions (prereq for OOP typing) (done 2026-04-07)
-- [x] Parse/AST: `class` declarations (fields + methods; no export yet) (done 2026-04-07)
+- [x] Parse/AST: `class` declarations (fields + methods; export wrappers now supported) (done 2026-04-07)
+- [x] Parse/AST: `export` wrappers for `function` / `class` / `interface` (done 2026-04-09)
 - [x] Resolver: allow `this` inside methods (no field validation yet) (done 2026-04-07)
 - [x] Type-check: `this.<field>` access and assignment (done 2026-04-07)
 - [x] Type-check: direct instance method calls + `new` result typing (no vtables yet) (done 2026-04-07)

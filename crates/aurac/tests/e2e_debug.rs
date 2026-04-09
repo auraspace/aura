@@ -26,7 +26,7 @@ function main(): i32 {
     fs::write(
         fixture_dir.join("util.aura"),
         r#"
-function helper(x: i32): i32 {
+export function helper(x: i32): i32 {
   return x;
 }
 "#,

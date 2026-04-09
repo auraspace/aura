@@ -1,4 +1,4 @@
-use aura_ast::{Block, Expr, Ident, Program, Stmt, TopLevel};
+use aura_ast::{Block, ExportedDecl, Expr, Ident, Program, Stmt, TopLevel};
 use aura_typeck::TypedProgram;
 
 pub fn dump_hir(source: &str, ast: &Program, typed: &TypedProgram) {
@@ -29,102 +29,124 @@ impl<'a> HirPrinter<'a> {
             TopLevel::Import(_) => {
                 // Imports don't have types in HIR usually, just skip or print briefly
             }
-            TopLevel::Function(f) => {
+            TopLevel::Export(export) => {
                 self.print_indent();
-                print!("fn ");
-                self.print_ident(&f.name);
-                print!("(");
-                for (i, param) in f.params.iter().enumerate() {
-                    if i > 0 {
-                        print!(", ");
-                    }
-                    self.print_ident(&param.name);
-                    print!(": {}", self.source_at(param.ty.span));
+                print!("export ");
+                match export.item.as_ref() {
+                    Some(ExportedDecl::Function(f)) => self.print_function(f),
+                    Some(ExportedDecl::Class(c)) => self.print_class(c),
+                    Some(ExportedDecl::Interface(i)) => self.print_interface(i),
+                    None => println!("<invalid export>"),
                 }
-                print!(")");
-                if let Some(ret) = &f.return_type {
-                    print!(": {}", self.source_at(ret.span));
-                }
-                println!(" ");
-                self.print_block(&f.body);
+            }
+            TopLevel::Function(f) => {
+                self.print_function(f);
             }
             TopLevel::Class(c) => {
-                self.print_indent();
-                print!("class ");
-                self.print_ident(&c.name);
-                if let Some(parent) = &c.extends {
-                    print!(" extends ");
-                    print!("{}", self.source_at(parent.span));
-                }
-                if !c.implements.is_empty() {
-                    print!(" implements ");
-                    for (i, imp) in c.implements.iter().enumerate() {
-                        if i > 0 {
-                            print!(", ");
-                        }
-                        print!("{}", self.source_at(imp.span));
-                    }
-                }
-                println!(" {{");
-                self.indent += 2;
-                for field in &c.fields {
-                    self.print_indent();
-                    self.print_ident(&field.name);
-                    println!(": {};", self.source_at(field.ty.span));
-                }
-                for method in &c.methods {
-                    self.print_indent();
-                    print!("method ");
-                    self.print_ident(&method.name);
-                    print!("(");
-                    for (i, param) in method.params.iter().enumerate() {
-                        if i > 0 {
-                            print!(", ");
-                        }
-                        self.print_ident(&param.name);
-                        print!(": {}", self.source_at(param.ty.span));
-                    }
-                    print!(")");
-                    if let Some(ret) = &method.return_type {
-                        print!(": {}", self.source_at(ret.span));
-                    }
-                    println!(" ");
-                    self.print_block(&method.body);
-                }
-                self.indent -= 2;
-                self.print_indent();
-                println!("}}");
+                self.print_class(c);
             }
             TopLevel::Interface(i) => {
-                self.print_indent();
-                print!("interface ");
-                self.print_ident(&i.name);
-                println!(" {{");
-                self.indent += 2;
-                for method in &i.methods {
-                    self.print_indent();
-                    print!("method ");
-                    self.print_ident(&method.name);
-                    print!("(");
-                    for (i, param) in method.params.iter().enumerate() {
-                        if i > 0 {
-                            print!(", ");
-                        }
-                        self.print_ident(&param.name);
-                        print!(": {}", self.source_at(param.ty.span));
-                    }
-                    print!(")");
-                    if let Some(ret) = &method.return_type {
-                        print!(": {}", self.source_at(ret.span));
-                    }
-                    println!(";");
-                }
-                self.indent -= 2;
-                self.print_indent();
-                println!("}}");
+                self.print_interface(i);
             }
             TopLevel::Stmt(s) => self.print_stmt(s),
         }
+    }
+
+    fn print_function(&mut self, f: &aura_ast::FunctionDecl) {
+        self.print_indent();
+        print!("fn ");
+        self.print_ident(&f.name);
+        print!("(");
+        for (i, param) in f.params.iter().enumerate() {
+            if i > 0 {
+                print!(", ");
+            }
+            self.print_ident(&param.name);
+            print!(": {}", self.source_at(param.ty.span));
+        }
+        print!(")");
+        if let Some(ret) = &f.return_type {
+            print!(": {}", self.source_at(ret.span));
+        }
+        println!(" ");
+        self.print_block(&f.body);
+    }
+
+    fn print_class(&mut self, c: &aura_ast::ClassDecl) {
+        self.print_indent();
+        print!("class ");
+        self.print_ident(&c.name);
+        if let Some(parent) = &c.extends {
+            print!(" extends ");
+            print!("{}", self.source_at(parent.span));
+        }
+        if !c.implements.is_empty() {
+            print!(" implements ");
+            for (i, imp) in c.implements.iter().enumerate() {
+                if i > 0 {
+                    print!(", ");
+                }
+                print!("{}", self.source_at(imp.span));
+            }
+        }
+        println!(" {{");
+        self.indent += 2;
+        for field in &c.fields {
+            self.print_indent();
+            self.print_ident(&field.name);
+            println!(": {};", self.source_at(field.ty.span));
+        }
+        for method in &c.methods {
+            self.print_indent();
+            print!("method ");
+            self.print_ident(&method.name);
+            print!("(");
+            for (i, param) in method.params.iter().enumerate() {
+                if i > 0 {
+                    print!(", ");
+                }
+                self.print_ident(&param.name);
+                print!(": {}", self.source_at(param.ty.span));
+            }
+            print!(")");
+            if let Some(ret) = &method.return_type {
+                print!(": {}", self.source_at(ret.span));
+            }
+            println!(" ");
+            self.print_block(&method.body);
+        }
+        self.indent -= 2;
+        self.print_indent();
+        println!("}}");
+    }
+
+    fn print_interface(&mut self, i: &aura_ast::InterfaceDecl) {
+        self.print_indent();
+        print!("interface ");
+        self.print_ident(&i.name);
+        println!(" {{");
+        self.indent += 2;
+        for method in &i.methods {
+            self.print_indent();
+            print!("method ");
+            self.print_ident(&method.name);
+            print!("(");
+            for (i, param) in method.params.iter().enumerate() {
+                if i > 0 {
+                    print!(", ");
+                }
+                self.print_ident(&param.name);
+                print!(": {}", self.source_at(param.ty.span));
+            }
+            print!(")");
+            if let Some(ret) = &method.return_type {
+                print!(": {}", self.source_at(ret.span));
+            }
+            println!(";");
+        }
+        self.indent -= 2;
+        self.print_indent();
+        println!("}}");
     }
 
     fn print_block(&mut self, block: &Block) {

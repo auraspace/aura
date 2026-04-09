@@ -3,7 +3,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use aura_ast::{Ident, ImportClause, Program, Stmt, TopLevel};
+use aura_ast::{ExportedDecl, Ident, ImportClause, Program, Stmt, TopLevel};
 use aura_diagnostics::Diagnostic;
 use aura_span::Span;
 
@@ -135,6 +135,8 @@ pub struct Symbol {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SymbolKind {
     Function,
+    Class,
+    Interface,
     Let,
     Const,
     Import,
@@ -173,7 +175,27 @@ pub fn build_symbol_table(module: &Module) -> SymbolTable {
                     });
                 }
             }
-            TopLevel::Class(_) | TopLevel::Interface(_) => {}
+            TopLevel::Export(export) => {
+                if let Some(item) = &export.item {
+                    register_exported_decl(&module.source, item, &mut bindings);
+                }
+            }
+            TopLevel::Class(class_decl) => {
+                if let Some(text) = ident_text(&module.source, &class_decl.name) {
+                    bindings.entry(text).or_insert(Symbol {
+                        kind: SymbolKind::Class,
+                        span: class_decl.name.span,
+                    });
+                }
+            }
+            TopLevel::Interface(iface_decl) => {
+                if let Some(text) = ident_text(&module.source, &iface_decl.name) {
+                    bindings.entry(text).or_insert(Symbol {
+                        kind: SymbolKind::Interface,
+                        span: iface_decl.name.span,
+                    });
+                }
+            }
             TopLevel::Stmt(stmt) => {
                 if let Some((name, kind)) = top_level_binding(stmt) {
                     if let Some(text) = ident_text(&module.source, name) {
@@ -209,6 +231,39 @@ fn top_level_binding(stmt: &Stmt) -> Option<(&Ident, SymbolKind)> {
         Stmt::Let(s) => Some((&s.name, SymbolKind::Let)),
         Stmt::Const(s) => Some((&s.name, SymbolKind::Const)),
         _ => None,
+    }
+}
+
+fn register_exported_decl(
+    source: &str,
+    decl: &ExportedDecl,
+    bindings: &mut HashMap<String, Symbol>,
+) {
+    match decl {
+        ExportedDecl::Function(func) => {
+            if let Some(text) = ident_text(source, &func.name) {
+                bindings.entry(text).or_insert(Symbol {
+                    kind: SymbolKind::Function,
+                    span: func.name.span,
+                });
+            }
+        }
+        ExportedDecl::Class(class_decl) => {
+            if let Some(text) = ident_text(source, &class_decl.name) {
+                bindings.entry(text).or_insert(Symbol {
+                    kind: SymbolKind::Class,
+                    span: class_decl.name.span,
+                });
+            }
+        }
+        ExportedDecl::Interface(iface_decl) => {
+            if let Some(text) = ident_text(source, &iface_decl.name) {
+                bindings.entry(text).or_insert(Symbol {
+                    kind: SymbolKind::Interface,
+                    span: iface_decl.name.span,
+                });
+            }
+        }
     }
 }
 

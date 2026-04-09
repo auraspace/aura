@@ -1,5 +1,5 @@
 use crate::*;
-use aura_ast::{Block, Expr, Ident, Program, Stmt, TopLevel};
+use aura_ast::{Block, ExportedDecl, Expr, Ident, Program, Stmt, TopLevel};
 use aura_span::Span;
 use aura_typeck::{Ty, TypedProgram};
 use std::collections::{BTreeSet, HashMap};
@@ -78,6 +78,76 @@ impl<'a> Lowerer<'a> {
                     );
                     self.functions.push(mir_func);
                 }
+                TopLevel::Export(export) => match export.item.as_ref() {
+                    Some(ExportedDecl::Function(func)) => {
+                        let fname = self.ident_text(&func.name);
+                        let sig = self.typed_program.functions.get(fname).cloned().unwrap_or(
+                            aura_typeck::MethodSig {
+                                params: vec![],
+                                return_ty: Ty::Void,
+                            },
+                        );
+                        let mir_func = self.lower_function(
+                            fname.to_string(),
+                            func.name.span,
+                            &func.body,
+                            &func.params,
+                            None,
+                            sig.return_ty,
+                        );
+                        self.functions.push(mir_func);
+                    }
+                    Some(ExportedDecl::Class(class_decl)) => {
+                        let class_name = self.ident_text(&class_decl.name).to_string();
+                        let mut methods = HashMap::new();
+
+                        if let Some(cinfo) = self.typed_program.classes.get(&class_name) {
+                            for method in &class_decl.methods {
+                                let mname = self.ident_text(&method.name).to_string();
+                                let sig = cinfo.methods.get(&mname).cloned().unwrap_or(
+                                    aura_typeck::MethodSig {
+                                        params: vec![],
+                                        return_ty: Ty::Void,
+                                    },
+                                );
+                                let mir_method = self.lower_function(
+                                    MirBuilder::qualified_method_name(&class_name, &mname),
+                                    method.name.span,
+                                    &method.body,
+                                    &method.params,
+                                    Some(Ty::Class(class_name.clone())),
+                                    sig.return_ty,
+                                );
+                                methods.insert(mname, mir_method);
+                            }
+                        }
+
+                        self.classes.insert(
+                            class_name.clone(),
+                            MirClass {
+                                name: class_name.clone(),
+                                extends: class_decl
+                                    .extends
+                                    .as_ref()
+                                    .map(|ty| self.ident_text(&ty.name).to_string()),
+                                fields: self
+                                    .typed_program
+                                    .classes
+                                    .get(&class_name)
+                                    .map(|c| c.fields.clone())
+                                    .unwrap_or_default(),
+                                field_order: self
+                                    .typed_program
+                                    .classes
+                                    .get(&class_name)
+                                    .map(|c| c.field_order.clone())
+                                    .unwrap_or_default(),
+                                methods,
+                            },
+                        );
+                    }
+                    Some(ExportedDecl::Interface(_)) | None => {}
+                },
                 TopLevel::Class(class_decl) => {
                     let class_name = self.ident_text(&class_decl.name).to_string();
                     let mut methods = HashMap::new();
