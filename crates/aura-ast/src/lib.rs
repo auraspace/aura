@@ -1,4 +1,4 @@
-//! Aura AST for compiler milestones C0–C2b (RFC-001 §6.0).
+//! Aura AST for compiler milestones C0–C2e (RFC-001 §6.0).
 
 use std::fmt;
 
@@ -55,11 +55,19 @@ pub struct Ident {
     pub span: Span,
 }
 
+/// Type parameter with optional bounds: `T`, `T : Named`, plus `where T : Id`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypeParam {
+    pub name: Ident,
+    /// Bound type names (interfaces in C2e); may come from inline `T : B` and/or `where`.
+    pub bounds: Vec<Ident>,
+}
+
 /// `class Name<T>(val x: T, …) : Iface { methods… }`
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClassDecl {
     pub name: Ident,
-    pub type_params: Vec<Ident>,
+    pub type_params: Vec<TypeParam>,
     /// Interfaces listed after `:` (C2).
     pub implements: Vec<Ident>,
     pub fields: Vec<FieldDecl>,
@@ -75,11 +83,11 @@ pub struct FieldDecl {
     pub span: Span,
 }
 
-/// `fun name<T>(…): T { … }`
+/// `fun name<T>(…): T { … }` / `fun name<T>(…) where T : Named { … }`
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunDecl {
     pub name: Ident,
-    pub type_params: Vec<Ident>,
+    pub type_params: Vec<TypeParam>,
     pub params: Vec<Param>,
     pub return_type: Option<TypeRef>,
     pub body: Block,

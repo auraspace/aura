@@ -470,7 +470,7 @@ fn c_type_from_opt(ret: &Option<TypeRef>, checked: &CheckedFile, params: &[Strin
 }
 
 fn emit_class_typedef(out: &mut String, checked: &CheckedFile, c: &ClassDecl, args: &[Ty]) {
-    let params: Vec<String> = c.type_params.iter().map(|p| p.name.clone()).collect();
+    let params: Vec<String> = c.type_params.iter().map(|p| p.name.name.clone()).collect();
     let mono = mono_key(&c.name.name, args);
     let _ = writeln!(out, "typedef struct {} {{", c_class_type(&mono));
     for f in &c.fields {
@@ -488,7 +488,7 @@ fn emit_class_typedef(out: &mut String, checked: &CheckedFile, c: &ClassDecl, ar
 }
 
 fn emit_class_forwards(out: &mut String, checked: &CheckedFile, c: &ClassDecl, args: &[Ty]) {
-    let params: Vec<String> = c.type_params.iter().map(|p| p.name.clone()).collect();
+    let params: Vec<String> = c.type_params.iter().map(|p| p.name.name.clone()).collect();
     let mono = mono_key(&c.name.name, args);
     let _ = writeln!(out, "{};", c_ctor_signature_mono(c, checked, &params, args, &mono));
     for m in &c.methods {
@@ -512,7 +512,7 @@ fn emit_class_forwards(out: &mut String, checked: &CheckedFile, c: &ClassDecl, a
 }
 
 fn emit_class_defs(out: &mut String, checked: &CheckedFile, c: &ClassDecl, args: &[Ty]) {
-    let params: Vec<String> = c.type_params.iter().map(|p| p.name.clone()).collect();
+    let params: Vec<String> = c.type_params.iter().map(|p| p.name.name.clone()).collect();
     let mono = mono_key(&c.name.name, args);
     emit_ctor_mono(out, c, checked, &params, args, &mono);
     out.push('\n');
@@ -576,7 +576,7 @@ fn c_method_signature_mono(
 }
 
 fn c_fun_signature(f: &FunDecl, checked: &CheckedFile, args: &[Ty]) -> String {
-    let params: Vec<String> = f.type_params.iter().map(|p| p.name.clone()).collect();
+    let params: Vec<String> = f.type_params.iter().map(|p| p.name.name.clone()).collect();
     let ret = c_type_from_opt(&f.return_type, checked, &params, args);
     let ps = if f.params.is_empty() {
         "void".into()
@@ -659,7 +659,7 @@ fn mangle_ident(name: &str) -> String {
 }
 
 fn emit_fun(out: &mut String, f: &FunDecl, checked: &CheckedFile, args: &[Ty]) {
-    let params: Vec<String> = f.type_params.iter().map(|p| p.name.clone()).collect();
+    let params: Vec<String> = f.type_params.iter().map(|p| p.name.name.clone()).collect();
     let _ = writeln!(out, "{} {{", c_fun_signature(f, checked, args));
     let mut ctx = EmitCtx {
         checked,
@@ -855,7 +855,7 @@ fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
                     .find(|f| f.name.name == id.name)
                 {
                     let params: Vec<String> =
-                        f.type_params.iter().map(|p| p.name.clone()).collect();
+                        f.type_params.iter().map(|p| p.name.name.clone()).collect();
                     if let Some(rt) = &f.return_type {
                         return type_ref_local_key(rt, &params, &targs);
                     }
@@ -1104,7 +1104,7 @@ fn emit_call(c: &CallExpr, ctx: &EmitCtx<'_>) -> String {
                 };
                 let mono = mono_key(&id.name, &targs);
                 let params: Vec<String> =
-                    class.type_params.iter().map(|p| p.name.clone()).collect();
+                    class.type_params.iter().map(|p| p.name.name.clone()).collect();
                 let args = c
                     .args
                     .iter()
@@ -1133,7 +1133,7 @@ fn emit_call(c: &CallExpr, ctx: &EmitCtx<'_>) -> String {
                         .filter_map(|t| type_ref_to_ty(t, ctx))
                         .collect()
                 };
-                let params: Vec<String> = f.type_params.iter().map(|p| p.name.clone()).collect();
+                let params: Vec<String> = f.type_params.iter().map(|p| p.name.name.clone()).collect();
                 let args = c
                     .args
                     .iter()
@@ -1159,12 +1159,17 @@ fn emit_call(c: &CallExpr, ctx: &EmitCtx<'_>) -> String {
 }
 
 fn mono_base_name<'a>(mono: &'a str, checked: &'a CheckedFile) -> Option<&'a str> {
+    mono_split(mono, checked).map(|(n, _)| n)
+}
+
+/// Resolve monomorphized key `Holder_User` → (`Holder`, `[User]`), or plain class → `(Name, [])`.
+fn mono_split<'a>(mono: &'a str, checked: &'a CheckedFile) -> Option<(&'a str, &'a [Ty])> {
     if checked.ast.classes.iter().any(|c| c.name.name == mono) {
-        return Some(mono);
+        return Some((mono, &[]));
     }
     for (name, args) in &checked.mono_classes {
         if mono_key(name, args) == mono {
-            return Some(name.as_str());
+            return Some((name.as_str(), args.as_slice()));
         }
     }
     None
@@ -1305,13 +1310,31 @@ fn resolve_type_name(expr: &Expr, ctx: &EmitCtx<'_>) -> Option<String> {
         }
         Expr::Field(f) => {
             let parent = resolve_type_name(&f.object, ctx)?;
-            ctx.checked
+            let (base, args) = mono_split(&parent, ctx.checked)?;
+            let class = ctx
+                .checked
                 .ast
                 .classes
                 .iter()
-                .find(|c| c.name.name == parent)
-                .and_then(|c| c.fields.iter().find(|x| x.name.name == f.field.name))
-                .map(|field| field.ty.name.name.clone())
+                .find(|c| c.name.name == base)?;
+            let field = class
+                .fields
+                .iter()
+                .find(|x| x.name.name == f.field.name)?;
+            let params: Vec<String> = class
+                .type_params
+                .iter()
+                .map(|p| p.name.name.clone())
+                .collect();
+            // When `this` is the open mono instance, args come from mono_split;
+            // empty args on a generic class falls back to the current emit substitution.
+            let (ps, as_) = if args.is_empty() && !params.is_empty() && !ctx.type_args.is_empty()
+            {
+                (ctx.type_params.clone(), ctx.type_args.clone())
+            } else {
+                (params, args.to_vec())
+            };
+            Some(type_ref_local_key(&field.ty, &ps, &as_))
         }
         Expr::Group(inner, _) => resolve_type_name(inner, ctx),
         Expr::String(_) => Some("String".into()),

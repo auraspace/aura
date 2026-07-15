@@ -15,7 +15,7 @@ Living plan for docs, language specs, and the Rust toolchain. RFCs remain the de
 | RFC static site (`site/`) | Implemented on `feat/rfc-static-site`; deploy via GitHub Pages Actions |
 | RFC-000 Vision | **Accepted** — product direction locked |
 | RFC-001/002/003 | Solid Draft + **MVP subset** for compiler C0–C1 (see RFC-001 §6.0) |
-| Compiler | **C0–C2 slice** — check/build/run, classes, interfaces, pretty diags |
+| Compiler | **C0–C2e slice** — check/build/run, classes, interfaces, generics+bounds, pretty diags |
 | Runtime / packages / stdlib | Stub runtime `runtime/aura_rt.c`; full GC/tasks deferred |
 
 ## Phases
@@ -58,14 +58,14 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C2b** | Generics (class/fun type params + mono) | Done |
 | **C2c** | Type-arg inference from args + expected type | Done |
 | **C2d** | Nullability flow (`if (x != null)`) + `!!` | Done |
+| **C2e** | Multi-param bounds / `where` clauses | Done |
 | **DX** | line:col diagnostics with snippets | Done |
-| **C2e** | Multi-param bounds / where clauses | Later |
 
 **Out of scope C0/C1:** generics mono, async/tasks, macros, registry, incremental, LTO.
 
 ### P3 — Expand (after hello)
 
-1. Generics → interfaces/vtable → `Result`/exceptions → `struct`
+1. ~~Generics + interfaces + bounds (C2a–C2e)~~ → next: `Result`/exceptions → `struct`
 2. Runtime: alloc/GC MVP → channels/tasks
 3. Toolchain: `aura.toml` → build graph → `aura test`
 4. Stdlib prelude + small collections

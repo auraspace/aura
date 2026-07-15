@@ -8,8 +8,8 @@ Implementation of the Aura compiler and CLI. User programs are written in **Aura
 | `aura-diagnostics` | line:col + pretty error snippets |
 | `aura-lexer` | Tokenizer |
 | `aura-parser` | Recursive-descent + Pratt parser |
-| `aura-sema` | Name resolution + typecheck (classes, interfaces) |
-| `aura-codegen` | C backend (classes, interface tagged unions) |
+| `aura-sema` | Name resolution + typecheck (classes, interfaces, generics+bounds) |
+| `aura-codegen` | C backend (mono generics, interface tagged unions) |
 | `aura-cli` | `aura` binary (`check` / `build` / `run` / `emit-c`) |
 
 Runtime stub: [`runtime/aura_rt.c`](../runtime/aura_rt.c).

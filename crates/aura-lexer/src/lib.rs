@@ -29,6 +29,8 @@ pub enum TokenKind {
     Null,
     Pub,
     This,
+    /// Generic constraint clause: `where T : Named`.
+    Where,
 
     Ident(String),
     Int(i64),
@@ -85,6 +87,7 @@ impl TokenKind {
                 | TokenKind::Null
                 | TokenKind::Pub
                 | TokenKind::This
+                | TokenKind::Where
         )
     }
 }
@@ -364,6 +367,7 @@ impl<'a> Lexer<'a> {
             "null" => TokenKind::Null,
             "pub" => TokenKind::Pub,
             "this" => TokenKind::This,
+            "where" => TokenKind::Where,
             _ => TokenKind::Ident(text.to_string()),
         };
         Ok(Token {

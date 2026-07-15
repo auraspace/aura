@@ -1,0 +1,49 @@
+// C2e corpus — type-param bounds (inline + where) + multi-bound
+package demo.generic.bounds
+
+interface Named {
+  fun name(): String
+}
+
+interface Id {
+  fun id(): Int
+}
+
+class User(val n: String) : Named {
+  fun name(): String {
+    return this.n
+  }
+}
+
+class Both(val n: String, val i: Int) : Named, Id {
+  fun name(): String {
+    return this.n
+  }
+  fun id(): Int {
+    return this.i
+  }
+}
+
+// Inline single bound
+fun greet<T : Named>(x: T) {
+  println(x.name())
+}
+
+// Where clause + multiple bounds
+fun showBoth<T>(x: T) where T : Named, T : Id {
+  println(x.name())
+}
+
+// Class type param with where bound
+class Holder<T>(val item: T) where T : Named {
+  fun label(): String {
+    return this.item.name()
+  }
+}
+
+fun main() {
+  greet(User("Hello, Aura"))
+  showBoth(Both("ok", 1))
+  val h: Holder<User> = Holder(User("boxed"))
+  println(h.label())
+}

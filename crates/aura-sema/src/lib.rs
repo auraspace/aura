@@ -1,7 +1,7 @@
-//! Name resolution + typecheck for Aura C0–C2b (generics mono).
+//! Name resolution + typecheck for Aura C0–C2e (generics + bounds).
 
 use aura_ast::{
-    BinOp, Block, CallExpr, ClassDecl, Expr, File, FunDecl, Span, Stmt, TypeRef, UnOp,
+    BinOp, Block, CallExpr, ClassDecl, Expr, File, FunDecl, Span, Stmt, TypeParam, TypeRef, UnOp,
 };
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -89,6 +89,8 @@ impl Ty {
 pub struct FunSig {
     pub name: String,
     pub type_params: Vec<String>,
+    /// Bounds per type param name (interface names in C2e).
+    pub bounds: HashMap<String, Vec<String>>,
     pub params: Vec<Ty>,
     pub ret: Ty,
     pub span: Span,
@@ -122,6 +124,8 @@ pub struct FieldSig {
 pub struct ClassSig {
     pub name: String,
     pub type_params: Vec<String>,
+    /// Bounds per type param name (interface names in C2e).
+    pub bounds: HashMap<String, Vec<String>>,
     pub implements: Vec<String>,
     pub fields: Vec<FieldSig>,
     pub methods: HashMap<String, ClassMethodSig>,
@@ -191,8 +195,8 @@ struct Checker {
     classes: HashMap<String, ClassSig>,
     interfaces: HashMap<String, InterfaceSig>,
     locals: Vec<HashMap<String, Local>>,
-    /// Type params in current generic scope (name → bound).
-    type_params: HashSet<String>,
+    /// Type params in current generic scope (name → bound interface names).
+    type_params: HashMap<String, Vec<String>>,
     current_class: Option<String>,
     mono_classes: HashSet<(String, Vec<Ty>)>,
     mono_funs: HashSet<(String, Vec<Ty>)>,
@@ -207,6 +211,7 @@ impl Checker {
             FunSig {
                 name: "println".into(),
                 type_params: Vec::new(),
+                bounds: HashMap::new(),
                 params: vec![Ty::String],
                 ret: Ty::Unit,
                 span: Span::new(0, 0),
@@ -217,12 +222,111 @@ impl Checker {
             classes: HashMap::new(),
             interfaces: HashMap::new(),
             locals: Vec::new(),
-            type_params: HashSet::new(),
+            type_params: HashMap::new(),
             current_class: None,
             mono_classes: HashSet::new(),
             mono_funs: HashSet::new(),
             call_instantiations: HashMap::new(),
         }
+    }
+
+    fn bind_type_params(&mut self, params: &[TypeParam]) -> Result<(), SemaError> {
+        self.type_params.clear();
+        for p in params {
+            if self.type_params.contains_key(&p.name.name) {
+                return Err(SemaError {
+                    message: format!("duplicate type parameter `{}`", p.name.name),
+                    span: p.name.span,
+                });
+            }
+            let mut bounds = Vec::new();
+            for b in &p.bounds {
+                if !self.interfaces.contains_key(&b.name) {
+                    // Allow class bounds later; C2e: interfaces only
+                    return Err(SemaError {
+                        message: format!(
+                            "unknown bound `{}` (C2e: bounds must be interfaces)",
+                            b.name
+                        ),
+                        span: b.span,
+                    });
+                }
+                if bounds.contains(&b.name) {
+                    return Err(SemaError {
+                        message: format!("duplicate bound `{}` on `{}`", b.name, p.name.name),
+                        span: b.span,
+                    });
+                }
+                bounds.push(b.name.clone());
+            }
+            self.type_params.insert(p.name.name.clone(), bounds);
+        }
+        Ok(())
+    }
+
+    fn bounds_map_from_params(params: &[TypeParam]) -> HashMap<String, Vec<String>> {
+        params
+            .iter()
+            .map(|p| {
+                (
+                    p.name.name.clone(),
+                    p.bounds.iter().map(|b| b.name.clone()).collect(),
+                )
+            })
+            .collect()
+    }
+
+    /// Does `ty` satisfy all interface bounds?
+    fn satisfies_bounds(&self, ty: &Ty, bounds: &[String], span: Span) -> Result<(), SemaError> {
+        for b in bounds {
+            if !self.ty_implements(ty, b) {
+                return Err(SemaError {
+                    message: format!(
+                        "type {} does not satisfy bound `{}`",
+                        ty.display(),
+                        b
+                    ),
+                    span,
+                });
+            }
+        }
+        Ok(())
+    }
+
+    fn ty_implements(&self, ty: &Ty, iface: &str) -> bool {
+        match ty {
+            Ty::Class(c) | Ty::ClassApp { name: c, .. } => self
+                .classes
+                .get(c)
+                .map(|cs| cs.implements.iter().any(|x| x == iface))
+                .unwrap_or(false),
+            Ty::Interface(i) => i == iface,
+            Ty::TypeParam(p) => self
+                .type_params
+                .get(p)
+                .map(|bs| bs.iter().any(|x| x == iface))
+                .unwrap_or(false),
+            _ => false,
+        }
+    }
+
+    fn check_type_args_bounds(
+        &self,
+        param_names: &[String],
+        bounds: &HashMap<String, Vec<String>>,
+        type_args: &[Ty],
+        span: Span,
+        what: &str,
+    ) -> Result<(), SemaError> {
+        for (name, arg) in param_names.iter().zip(type_args.iter()) {
+            if let Some(bs) = bounds.get(name) {
+                if let Err(mut e) = self.satisfies_bounds(arg, bs, span) {
+                    e.message = format!("{what}: {}", e.message);
+                    return Err(e);
+                }
+            }
+        }
+        Ok(())
     }
 
     fn check_file(&mut self, file: &File) -> Result<CheckedFile, SemaError> {
@@ -292,7 +396,8 @@ impl Checker {
                 c.name.name.clone(),
                 ClassSig {
                     name: c.name.name.clone(),
-                    type_params: c.type_params.iter().map(|p| p.name.clone()).collect(),
+                    type_params: c.type_params.iter().map(|p| p.name.name.clone()).collect(),
+                    bounds: Self::bounds_map_from_params(&c.type_params),
                     implements: Vec::new(),
                     fields: Vec::new(),
                     methods: HashMap::new(),
@@ -303,7 +408,7 @@ impl Checker {
 
         for c in &file.classes {
             // Bind type params while resolving field/method types
-            self.type_params = c.type_params.iter().map(|p| p.name.clone()).collect();
+            self.bind_type_params(&c.type_params)?;
 
             let mut implements = Vec::new();
             for iface in &c.implements {
@@ -417,7 +522,7 @@ impl Checker {
                     span: f.name.span,
                 });
             }
-            self.type_params = f.type_params.iter().map(|p| p.name.clone()).collect();
+            self.bind_type_params(&f.type_params)?;
             let params = f
                 .params
                 .iter()
@@ -431,7 +536,8 @@ impl Checker {
                 f.name.name.clone(),
                 FunSig {
                     name: f.name.name.clone(),
-                    type_params: f.type_params.iter().map(|p| p.name.clone()).collect(),
+                    type_params: f.type_params.iter().map(|p| p.name.name.clone()).collect(),
+                    bounds: Self::bounds_map_from_params(&f.type_params),
                     params,
                     ret,
                     span: f.span,
@@ -442,7 +548,7 @@ impl Checker {
 
         for c in &file.classes {
             self.current_class = Some(c.name.name.clone());
-            self.type_params = c.type_params.iter().map(|p| p.name.clone()).collect();
+            self.bind_type_params(&c.type_params)?;
             for m in &c.methods {
                 let ret = self
                     .classes
@@ -460,7 +566,7 @@ impl Checker {
         }
 
         for f in &file.functions {
-            self.type_params = f.type_params.iter().map(|p| p.name.clone()).collect();
+            self.bind_type_params(&f.type_params)?;
             let ret = self.functions.get(&f.name.name).unwrap().ret.clone();
             self.check_fun(f, &ret)?;
             self.type_params.clear();
@@ -1055,9 +1161,47 @@ impl Checker {
                 return Ok(method.ret);
             }
 
+            // Type param with interface bounds: call methods from any bound.
+            if let Ty::TypeParam(pname) = &obj_ty {
+                let bounds = self.type_params.get(pname).cloned().unwrap_or_default();
+                for iface_name in &bounds {
+                    if let Some(method) = self
+                        .interfaces
+                        .get(iface_name)
+                        .and_then(|i| i.methods.get(&fe.field.name))
+                        .cloned()
+                    {
+                        self.check_args(
+                            &method.params,
+                            &c.args,
+                            &format!("{}.{}", iface_name, method.name),
+                            c.span,
+                        )?;
+                        return Ok(method.ret);
+                    }
+                }
+                if bounds.is_empty() {
+                    return Err(SemaError {
+                        message: format!(
+                            "cannot call method `{}` on unbounded type parameter `{pname}`",
+                            fe.field.name
+                        ),
+                        span: fe.field.span,
+                    });
+                }
+                return Err(SemaError {
+                    message: format!(
+                        "method `{}` not found on bounds of `{pname}` ({})",
+                        fe.field.name,
+                        bounds.join(", ")
+                    ),
+                    span: fe.field.span,
+                });
+            }
+
             return Err(SemaError {
                 message: format!(
-                    "method call requires a class or interface type, got {}",
+                    "method call requires a class, interface, or bounded type parameter, got {}",
                     obj_ty.display()
                 ),
                 span: c.span,
@@ -1089,6 +1233,13 @@ impl Checker {
             }
 
             let type_args = self.resolve_ctor_type_args(&class, c, expected)?;
+            self.check_type_args_bounds(
+                &class.type_params,
+                &class.bounds,
+                &type_args,
+                c.span,
+                &format!("constructor `{}`", class.name),
+            )?;
 
             let subst = type_subst_map(&class.type_params, &type_args);
             for (arg, field) in c.args.iter().zip(class.fields.iter()) {
@@ -1138,6 +1289,13 @@ impl Checker {
         })?;
 
         let type_args = self.resolve_fun_type_args(&sig, c, expected)?;
+        self.check_type_args_bounds(
+            &sig.type_params,
+            &sig.bounds,
+            &type_args,
+            c.span,
+            &format!("function `{}`", sig.name),
+        )?;
 
         let subst = type_subst_map(&sig.type_params, &type_args);
         let params: Vec<Ty> = sig.params.iter().map(|p| subst_ty(p, &subst)).collect();
@@ -1368,7 +1526,7 @@ impl Checker {
             "Int" => Ty::Int,
             "Bool" => Ty::Bool,
             "String" => Ty::String,
-            other if self.type_params.contains(other) => {
+            other if self.type_params.contains_key(other) => {
                 if !type_args.is_empty() {
                     return Err(SemaError {
                         message: format!("type parameter `{other}` cannot take type arguments"),
@@ -1378,7 +1536,7 @@ impl Checker {
                 Ty::TypeParam(other.to_string())
             }
             other if self.classes.contains_key(other) => {
-                let class = self.classes.get(other).unwrap();
+                let class = self.classes.get(other).unwrap().clone();
                 if type_args.len() != class.type_params.len() {
                     return Err(SemaError {
                         message: format!(
@@ -1389,6 +1547,15 @@ impl Checker {
                         ),
                         span: t.span,
                     });
+                }
+                if !type_args.is_empty() {
+                    self.check_type_args_bounds(
+                        &class.type_params,
+                        &class.bounds,
+                        &type_args,
+                        t.span,
+                        &format!("type `{other}`"),
+                    )?;
                 }
                 if type_args.is_empty() {
                     Ty::Class(other.to_string())
@@ -1440,6 +1607,17 @@ impl Checker {
                 .classes
                 .get(c)
                 .map(|cs| cs.implements.iter().any(|x| x == i))
+                .unwrap_or(false),
+            (Ty::ClassApp { name: c, .. }, Ty::Interface(i)) => self
+                .classes
+                .get(c)
+                .map(|cs| cs.implements.iter().any(|x| x == i))
+                .unwrap_or(false),
+            // Bounded type param is assignable to its interface bounds
+            (Ty::TypeParam(p), Ty::Interface(i)) => self
+                .type_params
+                .get(p)
+                .map(|bs| bs.iter().any(|x| x == i))
                 .unwrap_or(false),
             // Type params only match themselves (handled by ==)
             _ => false,
@@ -1561,6 +1739,85 @@ mod tests {
             args: vec![Ty::String],
         };
         assert_eq!(t.mono_suffix(), "Box_String");
+    }
+
+    #[test]
+    fn bounds_allow_method_on_type_param() {
+        let src = r#"
+package t
+interface Named {
+  fun name(): String
+}
+class User(val n: String) : Named {
+  fun name(): String { return this.n }
+}
+fun greet<T : Named>(x: T): String {
+  return x.name()
+}
+fun main() {
+  val s: String = greet(User("hi"))
+}
+"#;
+        let file = parse_file(src).expect("parse");
+        check_file(&file).expect("bounded type param method call");
+    }
+
+    #[test]
+    fn where_multi_bounds_and_reject_unsatisfied() {
+        let src_ok = r#"
+package t
+interface Named { fun name(): String }
+interface Id { fun id(): Int }
+class Both(val n: String, val i: Int) : Named, Id {
+  fun name(): String { return this.n }
+  fun id(): Int { return this.i }
+}
+fun f<T>(x: T) where T : Named, T : Id {
+  println(x.name())
+}
+fun main() { f(Both("a", 1)) }
+"#;
+        let file = parse_file(src_ok).expect("parse");
+        check_file(&file).expect("multi bounds ok");
+
+        let src_bad = r#"
+package t
+interface Named { fun name(): String }
+interface Id { fun id(): Int }
+class OnlyNamed(val n: String) : Named {
+  fun name(): String { return this.n }
+}
+fun f<T>(x: T) where T : Named, T : Id {
+  println(x.name())
+}
+fun main() { f(OnlyNamed("a")) }
+"#;
+        let file = parse_file(src_bad).expect("parse");
+        let err = check_file(&file).expect_err("should reject missing Id bound");
+        assert!(
+            err.message.contains("Id") || err.message.contains("bound"),
+            "unexpected: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn unbounded_type_param_cannot_call_methods() {
+        let src = r#"
+package t
+interface Named { fun name(): String }
+fun bad<T>(x: T): String {
+  return x.name()
+}
+fun main() {}
+"#;
+        let file = parse_file(src).expect("parse");
+        let err = check_file(&file).expect_err("unbounded T");
+        assert!(
+            err.message.contains("unbounded") || err.message.contains("method"),
+            "unexpected: {}",
+            err.message
+        );
     }
 
     #[test]

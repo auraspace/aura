@@ -195,7 +195,7 @@ impl Parser {
         let start = self.peek().span.start;
         self.expect(TokenKind::Class, "`class`")?;
         let name = self.expect_ident()?;
-        let type_params = self.parse_type_params_opt()?;
+        let mut type_params = self.parse_type_params_opt()?;
         self.expect(TokenKind::LParen, "`(`")?;
         let mut fields = Vec::new();
         if !matches!(self.peek().kind, TokenKind::RParen) {
@@ -222,6 +222,7 @@ impl Parser {
                 break;
             }
         }
+        self.apply_where_clause(&mut type_params)?;
         self.expect(TokenKind::LBrace, "`{`")?;
         let mut methods = Vec::new();
         while !matches!(self.peek().kind, TokenKind::RBrace | TokenKind::Eof) {
@@ -241,14 +242,22 @@ impl Parser {
         })
     }
 
-    fn parse_type_params_opt(&mut self) -> Result<Vec<Ident>, ParseError> {
+    /// `TypeParams?` = `<` TypeParam (`,` TypeParam)* `>`
+    /// TypeParam = Ident (`:` Ident)?  — single inline bound only (multi via `where`).
+    fn parse_type_params_opt(&mut self) -> Result<Vec<TypeParam>, ParseError> {
         if !matches!(self.peek().kind, TokenKind::Lt) {
             return Ok(Vec::new());
         }
         self.bump();
         let mut params = Vec::new();
         loop {
-            params.push(self.expect_ident()?);
+            let name = self.expect_ident()?;
+            let mut bounds = Vec::new();
+            if matches!(self.peek().kind, TokenKind::Colon) {
+                self.bump();
+                bounds.push(self.expect_ident()?);
+            }
+            params.push(TypeParam { name, bounds });
             if matches!(self.peek().kind, TokenKind::Comma) {
                 self.bump();
                 continue;
@@ -257,6 +266,46 @@ impl Parser {
         }
         self.expect(TokenKind::Gt, "`>`")?;
         Ok(params)
+    }
+
+    /// Optional `where T : Bound (, U : Bound)*` — merges into type param bounds.
+    fn apply_where_clause(&mut self, type_params: &mut [TypeParam]) -> Result<(), ParseError> {
+        if !matches!(self.peek().kind, TokenKind::Where) {
+            return Ok(());
+        }
+        self.bump();
+        if type_params.is_empty() {
+            return Err(ParseError {
+                message: "`where` requires type parameters".into(),
+                span: self.peek().span,
+            });
+        }
+        loop {
+            let param_name = self.expect_ident()?;
+            self.expect(TokenKind::Colon, "`:` after type parameter in where")?;
+            let bound = self.expect_ident()?;
+            let Some(tp) = type_params
+                .iter_mut()
+                .find(|p| p.name.name == param_name.name)
+            else {
+                return Err(ParseError {
+                    message: format!(
+                        "`where` refers to unknown type parameter `{}`",
+                        param_name.name
+                    ),
+                    span: param_name.span,
+                });
+            };
+            if !tp.bounds.iter().any(|b| b.name == bound.name) {
+                tp.bounds.push(bound);
+            }
+            if matches!(self.peek().kind, TokenKind::Comma) {
+                self.bump();
+                continue;
+            }
+            break;
+        }
+        Ok(())
     }
 
     fn parse_field(&mut self) -> Result<FieldDecl, ParseError> {
@@ -293,7 +342,7 @@ impl Parser {
         let start = self.peek().span.start;
         self.expect(TokenKind::Fun, "`fun`")?;
         let name = self.expect_ident()?;
-        let type_params = self.parse_type_params_opt()?;
+        let mut type_params = self.parse_type_params_opt()?;
         self.expect(TokenKind::LParen, "`(`")?;
         let mut params = Vec::new();
         if !matches!(self.peek().kind, TokenKind::RParen) {
@@ -313,6 +362,7 @@ impl Parser {
         } else {
             None
         };
+        self.apply_where_clause(&mut type_params)?;
         let body = self.parse_block()?;
         let end = body.span.end;
         Ok(FunDecl {
@@ -930,6 +980,44 @@ fun main() {
             },
             other => panic!("expected var, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn parses_type_param_bounds_and_where() {
+        let src = r#"
+package main
+
+interface Named {
+  fun name(): String
+}
+
+interface Id {
+  fun id(): Int
+}
+
+fun greet<T : Named>(x: T): String {
+  return x.name()
+}
+
+fun both<T>(x: T) where T : Named, T : Id {
+  println(x.name())
+}
+
+class Holder<T>(val item: T) where T : Named {
+  fun label(): String {
+    return this.item.name()
+  }
+}
+"#;
+        let file = parse_file(src).expect("parse");
+        assert_eq!(file.functions[0].type_params[0].name.name, "T");
+        assert_eq!(file.functions[0].type_params[0].bounds.len(), 1);
+        assert_eq!(file.functions[0].type_params[0].bounds[0].name, "Named");
+        assert_eq!(file.functions[1].type_params[0].bounds.len(), 2);
+        assert_eq!(file.functions[1].type_params[0].bounds[0].name, "Named");
+        assert_eq!(file.functions[1].type_params[0].bounds[1].name, "Id");
+        assert_eq!(file.classes[0].type_params[0].bounds.len(), 1);
+        assert_eq!(file.classes[0].type_params[0].bounds[0].name, "Named");
     }
 
     #[test]
