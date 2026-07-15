@@ -372,3 +372,25 @@ fun main() {
         other => panic!("expected ForRange, got {other:?}"),
     }
 }
+
+#[test]
+fn parses_break_continue() {
+    let src = r#"
+package t
+fun main() {
+  while (true) {
+    break
+    continue
+  }
+}
+"#;
+    let file = parse_file(src).expect("parse");
+    let body = &file.functions[0].body.stmts[0];
+    match body {
+        Stmt::While(w) => {
+            assert!(matches!(w.body.stmts[0], Stmt::Break(_)));
+            assert!(matches!(w.body.stmts[1], Stmt::Continue(_)));
+        }
+        other => panic!("expected while, got {other:?}"),
+    }
+}

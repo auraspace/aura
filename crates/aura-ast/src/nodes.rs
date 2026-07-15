@@ -190,6 +190,10 @@ pub enum Stmt {
     While(WhileStmt),
     /// `for (i in start..end) { … }` — exclusive Int range (C3h).
     ForRange(ForRangeStmt),
+    /// `break` — only valid inside loops (C3i).
+    Break(Span),
+    /// `continue` — only valid inside loops (C3i).
+    Continue(Span),
     Match(MatchStmt),
     Try(TryStmt),
     Throw(ThrowStmt),

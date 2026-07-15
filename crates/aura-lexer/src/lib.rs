@@ -27,6 +27,8 @@ pub enum TokenKind {
     While,
     For,
     In,
+    Break,
+    Continue,
     Match,
     Case,
     Try,
@@ -101,6 +103,8 @@ impl TokenKind {
                 | TokenKind::While
                 | TokenKind::For
                 | TokenKind::In
+                | TokenKind::Break
+                | TokenKind::Continue
                 | TokenKind::Match
                 | TokenKind::Case
                 | TokenKind::Try
@@ -400,6 +404,8 @@ impl<'a> Lexer<'a> {
             "while" => TokenKind::While,
             "for" => TokenKind::For,
             "in" => TokenKind::In,
+            "break" => TokenKind::Break,
+            "continue" => TokenKind::Continue,
             "match" => TokenKind::Match,
             "case" => TokenKind::Case,
             "try" => TokenKind::Try,

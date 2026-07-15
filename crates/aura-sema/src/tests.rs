@@ -385,3 +385,34 @@ fun main() {
     let err = check_file(&file).expect_err("non-int range");
     assert!(err.message.contains("Int"), "{}", err.message);
 }
+
+#[test]
+fn break_continue_in_loop_ok() {
+    let src = r#"
+package t
+fun main() {
+  for (i in 0..3) {
+    if (i == 0) { continue }
+    if (i == 2) { break }
+  }
+  while (true) {
+    break
+  }
+}
+"#;
+    let file = parse_file(src).expect("parse");
+    check_file(&file).expect("check");
+}
+
+#[test]
+fn break_outside_loop_errors() {
+    let src = r#"
+package t
+fun main() {
+  break
+}
+"#;
+    let file = parse_file(src).expect("parse");
+    let err = check_file(&file).expect_err("break outside");
+    assert!(err.message.contains("break"), "{}", err.message);
+}

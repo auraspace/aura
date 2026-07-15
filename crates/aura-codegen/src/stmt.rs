@@ -111,6 +111,12 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
             let _ = writeln!(out, "{p}  }}");
             let _ = writeln!(out, "{p}}}");
         }
+        Stmt::Break(_) => {
+            let _ = writeln!(out, "{p}break;");
+        }
+        Stmt::Continue(_) => {
+            let _ = writeln!(out, "{p}continue;");
+        }
         Stmt::Match(m) => emit_match(out, m, indent, ctx),
         Stmt::Throw(t) => {
             let ty = infer_type_name(&t.value, ctx);

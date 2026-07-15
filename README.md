@@ -60,8 +60,10 @@ C1 uses a **C backend** (`aura emit-c` + system `cc`) linked with `runtime/aura_
 - **Compiler C3f** `import` + `pub` visibility + `[dependencies]` path deps
 - **Compiler C3g** throw/catch class & struct values (`aura_throw_obj`)
 - **Compiler C3h** `for (i in start..end)` exclusive Int range loops
+- **Compiler C3i** `break` / `continue` inside loops
 - **DX** Pretty diagnostics (`path:line:col` + source snippet)
-- **Next:** Array/collections, break/continue, registry/lockfile, LLVM, GC
+- **Debts** Tracked in [`agents/debts.md`](agents/debts.md)
+- **Next:** Array/collections, registry/lockfile, LLVM, GC
 
 ## Links
 

@@ -27,6 +27,14 @@ impl Parser {
             TokenKind::If => Ok(Stmt::If(self.parse_if()?)),
             TokenKind::While => Ok(Stmt::While(self.parse_while()?)),
             TokenKind::For => Ok(Stmt::ForRange(self.parse_for_range()?)),
+            TokenKind::Break => {
+                let tok = self.bump();
+                Ok(Stmt::Break(tok.span))
+            }
+            TokenKind::Continue => {
+                let tok = self.bump();
+                Ok(Stmt::Continue(tok.span))
+            }
             TokenKind::Match => Ok(Stmt::Match(self.parse_match()?)),
             TokenKind::Try => Ok(Stmt::Try(self.parse_try()?)),
             TokenKind::Throw => Ok(Stmt::Throw(self.parse_throw()?)),

@@ -264,8 +264,10 @@ impl Checker {
                         span: w.cond.span(),
                     });
                 }
-                self.check_block(&w.body, expected_ret)?;
-                Ok(())
+                self.loop_depth += 1;
+                let r = self.check_block(&w.body, expected_ret);
+                self.loop_depth -= 1;
+                r
             }
             Stmt::ForRange(f) => {
                 let start_ty = self.check_expr(&f.start)?;
@@ -299,10 +301,34 @@ impl Checker {
                         mutable: false,
                     },
                 );
+                self.loop_depth += 1;
+                let mut body_err = Ok(());
                 for stmt in &f.body.stmts {
-                    self.check_stmt(stmt, expected_ret)?;
+                    if let Err(e) = self.check_stmt(stmt, expected_ret) {
+                        body_err = Err(e);
+                        break;
+                    }
                 }
+                self.loop_depth -= 1;
                 self.locals.pop();
+                body_err
+            }
+            Stmt::Break(span) => {
+                if self.loop_depth == 0 {
+                    return Err(SemaError {
+                        message: "`break` is only valid inside a loop".into(),
+                        span: *span,
+                    });
+                }
+                Ok(())
+            }
+            Stmt::Continue(span) => {
+                if self.loop_depth == 0 {
+                    return Err(SemaError {
+                        message: "`continue` is only valid inside a loop".into(),
+                        span: *span,
+                    });
+                }
                 Ok(())
             }
             Stmt::Return(r) => {
