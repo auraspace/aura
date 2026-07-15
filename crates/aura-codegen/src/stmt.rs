@@ -91,16 +91,17 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
             let _ = writeln!(out, "{p}}}");
         }
         Stmt::ForRange(f) => {
-            // Evaluate bounds once; exclusive end (i from start .. end).
+            // Evaluate bounds once; `..` exclusive, `..=` inclusive (C3l).
             let start_e = emit_expr(&f.start, ctx);
             let end_e = emit_expr(&f.end, ctx);
             let bind = mangle_ident(&f.name.name);
             let end_tmp = format!("__for_end_{}", f.span.start);
+            let cmp = if f.inclusive { "<=" } else { "<" };
             let _ = writeln!(out, "{p}{{");
             let _ = writeln!(out, "{p}  int64_t {end_tmp} = {end_e};");
             let _ = writeln!(
                 out,
-                "{p}  for (int64_t {bind} = {start_e}; {bind} < {end_tmp}; {bind}++) {{"
+                "{p}  for (int64_t {bind} = {start_e}; {bind} {cmp} {end_tmp}; {bind}++) {{"
             );
             ctx.push_scope();
             ctx.define_local(&f.name.name, "Int".into());

@@ -7,12 +7,12 @@ When you resolve debt, update or remove the matching entry.
 
 ## Open
 
-### `for-in` only supports `Array` (no protocol / `..=`)
+### `for-in` only supports `Array` (no protocol)
 - Area: language / parser / sema / codegen (`ForInStmt`)
-- Symptom: no `for (x in string)` / custom iterables; no inclusive range `..=`
+- Symptom: no `for (x in string)` / custom iterables
 - Why deferred: C3k desugars Array via `get`+index; general iterator protocol needs more types
-- Next step: optional `..=`; Iterable protocol or expand for-in to more collections
-- Introduced: narrowed after C3k (was C3h range-only)
+- Next step: Iterable protocol or expand for-in to more collections
+- Introduced: narrowed after C3k (was C3h range-only); `..=` done in C3l
 
 ### `Array<T>` limited element types and no free
 - Area: builtin Array (C3j)
@@ -72,9 +72,12 @@ When you resolve debt, update or remove the matching entry.
 
 ## Resolved
 
+### No inclusive range `..=` (2026-07-15)
+- Resolved in C3l: `for (i in a..=b)` with `DotDotEq` token and `ForRangeStmt.inclusive`.
+
 ### `for` only exclusive Int ranges — no for-in (2026-07-15)
 - Resolved in C3k: `for (x in array)` for `Array<T>` (`ForInStmt`); range form kept.
-- Remaining: Array-only / no `..=` tracked under Open.
+- Remaining: Array-only tracked under Open.
 
 ### No `break` / `continue` (2026-07-15)
 - Resolved in C3i: loop-depth checked in sema; C `break`/`continue` in codegen.

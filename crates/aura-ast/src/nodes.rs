@@ -203,12 +203,14 @@ pub enum Stmt {
     Expr(Expr),
 }
 
-/// `for (name in start..end) { body }` with exclusive `end`.
+/// `for (name in start..end)` (exclusive) or `start..=end` (inclusive, C3l).
 #[derive(Debug, Clone, PartialEq)]
 pub struct ForRangeStmt {
     pub name: Ident,
     pub start: Expr,
     pub end: Expr,
+    /// `true` when written as `..=` (inclusive end).
+    pub inclusive: bool,
     pub body: Block,
     pub span: Span,
 }

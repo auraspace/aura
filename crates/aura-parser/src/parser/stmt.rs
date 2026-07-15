@@ -247,30 +247,40 @@ impl Parser {
         let name = self.expect_ident()?;
         self.expect(TokenKind::In, "`in`")?;
         let first = self.parse_expr(0)?;
-        if matches!(self.peek().kind, TokenKind::DotDot) {
-            self.bump();
-            let range_end = self.parse_expr(0)?;
-            self.expect(TokenKind::RParen, "`)`")?;
-            let body = self.parse_block()?;
-            let end = body.span.end;
-            Ok(Stmt::ForRange(ForRangeStmt {
-                name,
-                start: first,
-                end: range_end,
-                body,
-                span: Span::new(start, end),
-            }))
-        } else {
-            self.expect(TokenKind::RParen, "`)`")?;
-            let body = self.parse_block()?;
-            let end = body.span.end;
-            Ok(Stmt::ForIn(ForInStmt {
-                name,
-                iterable: first,
-                body,
-                span: Span::new(start, end),
-            }))
-        }
+        let inclusive = match &self.peek().kind {
+            TokenKind::DotDot => {
+                self.bump();
+                false
+            }
+            TokenKind::DotDotEq => {
+                self.bump();
+                true
+            }
+            _ => {
+                // for-in over iterable (C3k)
+                self.expect(TokenKind::RParen, "`)`")?;
+                let body = self.parse_block()?;
+                let end = body.span.end;
+                return Ok(Stmt::ForIn(ForInStmt {
+                    name,
+                    iterable: first,
+                    body,
+                    span: Span::new(start, end),
+                }));
+            }
+        };
+        let range_end = self.parse_expr(0)?;
+        self.expect(TokenKind::RParen, "`)`")?;
+        let body = self.parse_block()?;
+        let end = body.span.end;
+        Ok(Stmt::ForRange(ForRangeStmt {
+            name,
+            start: first,
+            end: range_end,
+            inclusive,
+            body,
+            span: Span::new(start, end),
+        }))
     }
 
     pub(crate) fn parse_return(&mut self) -> Result<ReturnStmt, ParseError> {

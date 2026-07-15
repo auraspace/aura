@@ -368,8 +368,29 @@ fun main() {
     match &file.functions[0].body.stmts[0] {
         Stmt::ForRange(f) => {
             assert_eq!(f.name.name, "i");
+            assert!(!f.inclusive);
         }
         other => panic!("expected ForRange, got {other:?}"),
+    }
+}
+
+#[test]
+fn parses_for_range_inclusive() {
+    let src = r#"
+package t
+fun main() {
+  for (i in 1..=3) {
+    println("x")
+  }
+}
+"#;
+    let file = parse_file(src).expect("parse");
+    match &file.functions[0].body.stmts[0] {
+        Stmt::ForRange(f) => {
+            assert_eq!(f.name.name, "i");
+            assert!(f.inclusive);
+        }
+        other => panic!("expected inclusive ForRange, got {other:?}"),
     }
 }
 

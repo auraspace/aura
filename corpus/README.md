@@ -28,6 +28,7 @@ Small `.aura` programs used as syntax fixtures for compiler milestone **C0** (`a
 | `control/for_range.aura` | `for (i in a..b)` exclusive range (C3h) |
 | `control/break_continue.aura` | `break` / `continue` (C3i) |
 | `control/for_in.aura` | `for (x in array)` element iteration (C3k) |
+| `control/for_inclusive.aura` | `for (i in a..=b)` inclusive range (C3l) |
 | `generic/array.aura` | Builtin `Array<T>` len/get/set (C3j) |
 | `test/smoke.aura` | `@test` + `assert` / `assert_eq` |
 | `multi/` | Multi-file package + `aura.toml` (C3e) |

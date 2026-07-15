@@ -367,6 +367,9 @@ fun main() {
   for (i in 0..5) {
     s = s + i
   }
+  for (j in 1..=3) {
+    s = s + j
+  }
 }
 "#;
     let file = parse_file(src).expect("parse");

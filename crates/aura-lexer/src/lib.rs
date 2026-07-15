@@ -71,6 +71,8 @@ pub enum TokenKind {
     Dot,
     /// `..` exclusive range (C3h `for` loops).
     DotDot,
+    /// `..=` inclusive range (C3l `for` loops).
+    DotDotEq,
     LParen,
     RParen,
     LBrace,
@@ -190,7 +192,11 @@ impl<'a> Lexer<'a> {
             b'@' => self.simple(TokenKind::At, 1),
             b'.' => {
                 if self.peek_at(1) == Some(b'.') {
-                    self.simple(TokenKind::DotDot, 2)
+                    if self.peek_at(2) == Some(b'=') {
+                        self.simple(TokenKind::DotDotEq, 3)
+                    } else {
+                        self.simple(TokenKind::DotDot, 2)
+                    }
                 } else {
                     self.simple(TokenKind::Dot, 1)
                 }
@@ -464,6 +470,13 @@ fun main() {
         let tokens = lex("// line\nfun /* block */ x").unwrap();
         assert!(matches!(tokens[0].kind, TokenKind::Fun));
         assert!(matches!(&tokens[1].kind, TokenKind::Ident(s) if s == "x"));
+    }
+
+    #[test]
+    fn lexes_range_ops() {
+        let tokens = lex("0..3 1..=5").expect("lex");
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::DotDot)));
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::DotDotEq)));
     }
 
     #[test]

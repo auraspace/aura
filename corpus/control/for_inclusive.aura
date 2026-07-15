@@ -1,0 +1,24 @@
+// C3l — inclusive Int range for-loop (..=)
+package demo.forinc
+
+fun main() {
+  // 1+2+3 = 6
+  var s: Int = 0
+  for (i in 1..=3) {
+    s = s + i
+  }
+  if (s == 6) {
+    println("for-inclusive ok")
+  } else {
+    println("for-inclusive bad")
+  }
+
+  // exclusive still works: 0+1+2 = 3
+  var t: Int = 0
+  for (i in 0..3) {
+    t = t + i
+  }
+  if (t == 3) {
+    println("for-exclusive ok")
+  }
+}
