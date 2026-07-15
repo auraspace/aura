@@ -1,0 +1,26 @@
+// C3h — exclusive Int range for-loop
+package demo.forloop
+
+fun sum_to(n: Int): Int {
+  var s: Int = 0
+  for (i in 0..n) {
+    s = s + i
+  }
+  return s
+}
+
+fun main() {
+  // 0+1+2+3+4 = 10
+  val t: Int = sum_to(5)
+  if (t == 10) {
+    println("for-range ok")
+  } else {
+    println("for-range bad")
+  }
+
+  for (i in 1..4) {
+    if (i == 2) {
+      println("two")
+    }
+  }
+}

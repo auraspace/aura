@@ -188,11 +188,23 @@ pub enum Stmt {
     Var(VarStmt),
     If(IfStmt),
     While(WhileStmt),
+    /// `for (i in start..end) { … }` — exclusive Int range (C3h).
+    ForRange(ForRangeStmt),
     Match(MatchStmt),
     Try(TryStmt),
     Throw(ThrowStmt),
     Return(ReturnStmt),
     Expr(Expr),
+}
+
+/// `for (name in start..end) { body }` with exclusive `end`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ForRangeStmt {
+    pub name: Ident,
+    pub start: Expr,
+    pub end: Expr,
+    pub body: Block,
+    pub span: Span,
 }
 
 /// `throw expr`

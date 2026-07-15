@@ -26,6 +26,7 @@ impl Parser {
             TokenKind::Val | TokenKind::Var => Ok(Stmt::Var(self.parse_var()?)),
             TokenKind::If => Ok(Stmt::If(self.parse_if()?)),
             TokenKind::While => Ok(Stmt::While(self.parse_while()?)),
+            TokenKind::For => Ok(Stmt::ForRange(self.parse_for_range()?)),
             TokenKind::Match => Ok(Stmt::Match(self.parse_match()?)),
             TokenKind::Try => Ok(Stmt::Try(self.parse_try()?)),
             TokenKind::Throw => Ok(Stmt::Throw(self.parse_throw()?)),
@@ -225,6 +226,28 @@ impl Parser {
         let end = body.span.end;
         Ok(WhileStmt {
             cond,
+            body,
+            span: Span::new(start, end),
+        })
+    }
+
+    /// `for (name in start..end) { body }` — exclusive Int range (C3h).
+    pub(crate) fn parse_for_range(&mut self) -> Result<ForRangeStmt, ParseError> {
+        let start = self.peek().span.start;
+        self.expect(TokenKind::For, "`for`")?;
+        self.expect(TokenKind::LParen, "`(`")?;
+        let name = self.expect_ident()?;
+        self.expect(TokenKind::In, "`in`")?;
+        let range_start = self.parse_expr(0)?;
+        self.expect(TokenKind::DotDot, "`..`")?;
+        let range_end = self.parse_expr(0)?;
+        self.expect(TokenKind::RParen, "`)`")?;
+        let body = self.parse_block()?;
+        let end = body.span.end;
+        Ok(ForRangeStmt {
+            name,
+            start: range_start,
+            end: range_end,
             body,
             span: Span::new(start, end),
         })

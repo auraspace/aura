@@ -166,6 +166,13 @@ fn shift_stmt(s: &mut Stmt, delta: BytePos) {
             shift_block(&mut w.body, delta);
             w.span = w.span.shift(delta);
         }
+        Stmt::ForRange(f) => {
+            shift_ident(&mut f.name, delta);
+            shift_expr(&mut f.start, delta);
+            shift_expr(&mut f.end, delta);
+            shift_block(&mut f.body, delta);
+            f.span = f.span.shift(delta);
+        }
         Stmt::Match(m) => {
             shift_expr(&mut m.scrutinee, delta);
             for a in &mut m.arms {

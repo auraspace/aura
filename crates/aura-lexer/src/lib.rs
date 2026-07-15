@@ -25,6 +25,8 @@ pub enum TokenKind {
     If,
     Else,
     While,
+    For,
+    In,
     Match,
     Case,
     Try,
@@ -65,6 +67,8 @@ pub enum TokenKind {
     /// `=>` match / lambda arrow.
     FatArrow,
     Dot,
+    /// `..` exclusive range (C3h `for` loops).
+    DotDot,
     LParen,
     RParen,
     LBrace,
@@ -95,6 +99,8 @@ impl TokenKind {
                 | TokenKind::If
                 | TokenKind::Else
                 | TokenKind::While
+                | TokenKind::For
+                | TokenKind::In
                 | TokenKind::Match
                 | TokenKind::Case
                 | TokenKind::Try
@@ -178,7 +184,13 @@ impl<'a> Lexer<'a> {
             b':' => self.simple(TokenKind::Colon, 1),
             b'?' => self.simple(TokenKind::Question, 1),
             b'@' => self.simple(TokenKind::At, 1),
-            b'.' => self.simple(TokenKind::Dot, 1),
+            b'.' => {
+                if self.peek_at(1) == Some(b'.') {
+                    self.simple(TokenKind::DotDot, 2)
+                } else {
+                    self.simple(TokenKind::Dot, 1)
+                }
+            }
             b'+' => self.simple(TokenKind::Plus, 1),
             b'-' => self.simple(TokenKind::Minus, 1),
             b'*' => self.simple(TokenKind::Star, 1),
@@ -386,6 +398,8 @@ impl<'a> Lexer<'a> {
             "if" => TokenKind::If,
             "else" => TokenKind::Else,
             "while" => TokenKind::While,
+            "for" => TokenKind::For,
+            "in" => TokenKind::In,
             "match" => TokenKind::Match,
             "case" => TokenKind::Case,
             "try" => TokenKind::Try,

@@ -357,3 +357,31 @@ fun main() {
     let err = check_file(&file).expect_err("throw null");
     assert!(err.message.contains("throw") || err.message.contains("Null"), "{}", err.message);
 }
+
+#[test]
+fn for_range_typechecks() {
+    let src = r#"
+package t
+fun main() {
+  var s: Int = 0
+  for (i in 0..5) {
+    s = s + i
+  }
+}
+"#;
+    let file = parse_file(src).expect("parse");
+    check_file(&file).expect("check");
+}
+
+#[test]
+fn for_range_rejects_non_int() {
+    let src = r#"
+package t
+fun main() {
+  for (i in "a".."b") {}
+}
+"#;
+    let file = parse_file(src).expect("parse");
+    let err = check_file(&file).expect_err("non-int range");
+    assert!(err.message.contains("Int"), "{}", err.message);
+}

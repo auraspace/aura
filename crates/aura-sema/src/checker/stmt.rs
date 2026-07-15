@@ -267,6 +267,44 @@ impl Checker {
                 self.check_block(&w.body, expected_ret)?;
                 Ok(())
             }
+            Stmt::ForRange(f) => {
+                let start_ty = self.check_expr(&f.start)?;
+                if start_ty != Ty::Int {
+                    return Err(SemaError {
+                        message: format!(
+                            "for-range start must be Int, got {}",
+                            start_ty.display()
+                        ),
+                        span: f.start.span(),
+                    });
+                }
+                let end_ty = self.check_expr(&f.end)?;
+                if end_ty != Ty::Int {
+                    return Err(SemaError {
+                        message: format!("for-range end must be Int, got {}", end_ty.display()),
+                        span: f.end.span(),
+                    });
+                }
+                self.locals.push(HashMap::new());
+                if self.current_locals().contains_key(&f.name.name) {
+                    return Err(SemaError {
+                        message: format!("duplicate binding `{}` in for loop", f.name.name),
+                        span: f.name.span,
+                    });
+                }
+                self.current_locals_mut().insert(
+                    f.name.name.clone(),
+                    Local {
+                        ty: Ty::Int,
+                        mutable: false,
+                    },
+                );
+                for stmt in &f.body.stmts {
+                    self.check_stmt(stmt, expected_ret)?;
+                }
+                self.locals.pop();
+                Ok(())
+            }
             Stmt::Return(r) => {
                 let got = match &r.value {
                     Some(e) => self.check_expr_expected(e, Some(expected_ret))?,

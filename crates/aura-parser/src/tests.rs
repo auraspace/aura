@@ -353,3 +353,22 @@ fn rejects_missing_package() {
     let err = parse_file("fun main() {}").unwrap_err();
     assert!(err.message.contains("package"));
 }
+
+#[test]
+fn parses_for_range() {
+    let src = r#"
+package t
+fun main() {
+  for (i in 0..n) {
+    println("x")
+  }
+}
+"#;
+    let file = parse_file(src).expect("parse");
+    match &file.functions[0].body.stmts[0] {
+        Stmt::ForRange(f) => {
+            assert_eq!(f.name.name, "i");
+        }
+        other => panic!("expected ForRange, got {other:?}"),
+    }
+}

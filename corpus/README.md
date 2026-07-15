@@ -25,6 +25,7 @@ Small `.aura` programs used as syntax fixtures for compiler milestone **C0** (`a
 | `enum/color.aura` / `enum/result.aura` | Enums, match, `Result` |
 | `control/try_catch.aura` | `throw` / `try` / `catch` (String/Int) |
 | `control/class_throw.aura` | throw/catch class instances (C3g) |
+| `control/for_range.aura` | `for (i in a..b)` exclusive range (C3h) |
 | `test/smoke.aura` | `@test` + `assert` / `assert_eq` |
 | `multi/` | Multi-file package + `aura.toml` (C3e) |
 | `import/app` + `import/math` | `import` + `pub` + path dep (C3f) |
