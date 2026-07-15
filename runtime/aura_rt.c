@@ -52,11 +52,12 @@ void aura_assert_eq_bool(bool a, bool b) {
 
 typedef struct {
   jmp_buf *buf;
-  const char *type_name; /* "String" | "Int" | "Bool" */
+  const char *type_name; /* "String" | "Int" | "Bool" | class name */
   union {
     const char *as_string;
     int64_t as_int;
     bool as_bool;
+    void *as_obj; /* heap copy of class/struct value (C3g) */
   } payload;
 } AuraExFrame;
 
@@ -121,6 +122,20 @@ void aura_throw_bool(bool v) {
   longjmp(*f->buf, 1);
 }
 
+/* Throw a class/struct instance. `obj` must be a heap pointer owned by the exception
+ * machinery for the duration of unwind (typically malloc + copy in generated code). */
+void aura_throw_obj(const char *type_name, void *obj) {
+  if (aura_ex_sp == 0) {
+    fprintf(stderr, "uncaught exception: %s\n", type_name ? type_name : "object");
+    abort();
+  }
+  AuraExFrame *f = &aura_ex_stack[aura_ex_sp - 1];
+  f->type_name = type_name;
+  f->payload.as_obj = obj;
+  aura_ex_pending = 1;
+  longjmp(*f->buf, 1);
+}
+
 int aura_ex_matches(const char *type_name) {
   if (aura_ex_sp == 0 || !aura_ex_pending) {
     return 0;
@@ -148,6 +163,13 @@ bool aura_ex_as_bool(void) {
     return false;
   }
   return aura_ex_stack[aura_ex_sp - 1].payload.as_bool;
+}
+
+void *aura_ex_as_obj(void) {
+  if (aura_ex_sp == 0) {
+    return NULL;
+  }
+  return aura_ex_stack[aura_ex_sp - 1].payload.as_obj;
 }
 
 void aura_ex_clear(void) {

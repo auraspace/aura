@@ -105,10 +105,20 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                     let _ = writeln!(out, "{p}aura_throw_bool({val});");
                 }
                 other => {
+                    // C3g: class/struct value — heap-copy then throw pointer + type name.
+                    let c_ty = local_key_to_c(other, ctx.checked);
+                    let tmp = format!("__throw_v_{}", t.span.start);
+                    let ptr = format!("__throw_p_{}", t.span.start);
+                    let _ = writeln!(out, "{p}{{");
+                    let _ = writeln!(out, "{p}  {c_ty} {tmp} = {val};");
                     let _ = writeln!(
                         out,
-                        "{p}/* unsupported throw type {other} */ aura_throw_string(\"throw\");"
+                        "{p}  {c_ty} *{ptr} = ({c_ty} *)malloc(sizeof({c_ty}));"
                     );
+                    let _ = writeln!(out, "{p}  *{ptr} = {tmp};");
+                    // Match key uses the Aura type name (mono key), not C typedef.
+                    let _ = writeln!(out, "{p}  aura_throw_obj(\"{other}\", {ptr});");
+                    let _ = writeln!(out, "{p}}}");
                 }
             }
         }
@@ -162,10 +172,15 @@ pub(crate) fn emit_try(out: &mut String, t: &TryStmt, indent: usize, ctx: &mut E
     let _ = writeln!(out, "{p}    aura_try_leave();");
     let _ = writeln!(out, "{p}  }} else {{");
     if let Some(c) = &t.catch {
-        let catch_ty = c.ty.name.name.as_str();
-        let _ = writeln!(out, "{p}    if (aura_ex_matches(\"{catch_ty}\")) {{");
+        // Local key for catch type (handles generics as mono key).
+        let catch_key = type_ref_local_key(
+            &c.ty,
+            &ctx.type_params,
+            &ctx.type_args,
+        );
+        let _ = writeln!(out, "{p}    if (aura_ex_matches(\"{catch_key}\")) {{");
         let bind = mangle_ident(&c.name.name);
-        match catch_ty {
+        match catch_key.as_str() {
             "String" => {
                 let _ = writeln!(out, "{p}      const char *{bind} = aura_ex_as_string();");
             }
@@ -175,13 +190,19 @@ pub(crate) fn emit_try(out: &mut String, t: &TryStmt, indent: usize, ctx: &mut E
             "Bool" => {
                 let _ = writeln!(out, "{p}      bool {bind} = aura_ex_as_bool();");
             }
-            _ => {}
+            other => {
+                let c_ty = local_key_to_c(other, ctx.checked);
+                let _ = writeln!(
+                    out,
+                    "{p}      {c_ty} {bind} = *({c_ty} *)aura_ex_as_obj();"
+                );
+            }
         }
         let _ = writeln!(out, "{p}      aura_ex_clear();");
         let _ = writeln!(out, "{p}      aura_try_leave();");
         let _ = writeln!(out, "{p}      {state} = 1;");
         ctx.push_scope();
-        ctx.define_local(&c.name.name, c.ty.name.name.clone());
+        ctx.define_local(&c.name.name, catch_key);
         for stmt in &c.body.stmts {
             emit_stmt(out, stmt, indent + 3, ctx);
         }

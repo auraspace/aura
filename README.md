@@ -58,8 +58,9 @@ C1 uses a **C backend** (`aura emit-c` + system `cc`) linked with `runtime/aura_
 - **Compiler C3d** `aura test` with `@test`, `assert`, `assert_eq` (Int/String/Bool)
 - **Compiler C3e** multi-file same package + minimal `aura.toml` (`check`/`build`/`run`/`test` on dir)
 - **Compiler C3f** `import` + `pub` visibility + `[dependencies]` path deps
+- **Compiler C3g** throw/catch class & struct values (`aura_throw_obj`)
 - **DX** Pretty diagnostics (`path:line:col` + source snippet)
-- **Next:** class exceptions, registry/lockfile, LLVM backend
+- **Next:** registry/lockfile, LLVM backend, GC MVP
 
 ## Links
 

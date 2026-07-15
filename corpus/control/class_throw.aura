@@ -1,0 +1,34 @@
+// C3g — throw / catch class instances
+package demo.excls
+
+class Error(val msg: String) {
+  fun message(): String {
+    return this.msg
+  }
+}
+
+fun boom() {
+  throw Error("class-boom")
+}
+
+fun main() {
+  try {
+    boom()
+    println("unreachable")
+  } catch (e: Error) {
+    println(e.message())
+  } finally {
+    println("finally")
+  }
+
+  // Mismatched catch type rethrows to outer handler
+  try {
+    try {
+      throw Error("inner")
+    } catch (n: Int) {
+      println("should-not-catch")
+    }
+  } catch (e: Error) {
+    println(e.msg)
+  }
+}

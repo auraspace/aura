@@ -325,3 +325,35 @@ fun main() {
         err.message
     );
 }
+
+#[test]
+fn class_throw_and_catch_typechecks() {
+    let src = r#"
+package t
+class Error(val msg: String) {}
+fun boom() { throw Error("x") }
+fun main() {
+  try {
+    boom()
+  } catch (e: Error) {
+    println(e.msg)
+  }
+}
+"#;
+    let file = parse_file(src).expect("parse");
+    check_file(&file).expect("check");
+}
+
+#[test]
+fn reject_throw_interface() {
+    let src = r#"
+package t
+interface I { fun m(): Int }
+fun main() {
+  throw null
+}
+"#;
+    let file = parse_file(src).expect("parse");
+    let err = check_file(&file).expect_err("throw null");
+    assert!(err.message.contains("throw") || err.message.contains("Null"), "{}", err.message);
+}

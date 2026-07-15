@@ -8,6 +8,15 @@ use crate::ty::Ty;
 use crate::util::{analyze_null_check, subst_ty, type_subst_map};
 
 impl Checker {
+    /// Types that may be thrown/caught (C3c primitives + C3g class/struct values).
+    pub(crate) fn is_throwable(ty: &Ty) -> bool {
+        match ty {
+            Ty::String | Ty::Int | Ty::Bool => true,
+            Ty::Class(_) | Ty::ClassApp { .. } => true,
+            _ => false,
+        }
+    }
+
     pub(crate) fn check_block(&mut self, block: &Block, expected_ret: &Ty) -> Result<(), SemaError> {
         self.locals.push(HashMap::new());
         for stmt in &block.stmts {
@@ -120,33 +129,31 @@ impl Checker {
                         span: t.value.span(),
                     });
                 }
-                // C3c: only String / Int / Bool payloads in the runtime.
-                match &ty {
-                    Ty::String | Ty::Int | Ty::Bool => Ok(()),
-                    other => Err(SemaError {
+                // C3c/C3g: String / Int / Bool / class / struct (no interface, no enum).
+                if Self::is_throwable(&ty) {
+                    Ok(())
+                } else {
+                    Err(SemaError {
                         message: format!(
-                            "C3c: can only throw String, Int, or Bool (got {})",
-                            other.display()
+                            "cannot throw {}; only String, Int, Bool, class, or struct",
+                            ty.display()
                         ),
                         span: t.value.span(),
-                    }),
+                    })
                 }
             }
             Stmt::Try(t) => {
                 self.check_block(&t.try_block, expected_ret)?;
                 if let Some(c) = &t.catch {
                     let catch_ty = self.type_from_ref(&c.ty)?;
-                    match &catch_ty {
-                        Ty::String | Ty::Int | Ty::Bool => {}
-                        other => {
-                            return Err(SemaError {
-                                message: format!(
-                                    "C3c: catch type must be String, Int, or Bool (got {})",
-                                    other.display()
-                                ),
-                                span: c.ty.span,
-                            });
-                        }
+                    if !Self::is_throwable(&catch_ty) {
+                        return Err(SemaError {
+                            message: format!(
+                                "catch type must be String, Int, Bool, class, or struct (got {})",
+                                catch_ty.display()
+                            ),
+                            span: c.ty.span,
+                        });
                     }
                     self.locals.push(HashMap::new());
                     self.current_locals_mut().insert(

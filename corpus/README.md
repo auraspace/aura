@@ -23,7 +23,8 @@ Small `.aura` programs used as syntax fixtures for compiler milestone **C0** (`a
 | `diag/undefined.aura` | **Expected fail** — diagnostics smoke (excluded from CI corpus) |
 | `struct/point.aura` | Value `struct` fields + methods |
 | `enum/color.aura` / `enum/result.aura` | Enums, match, `Result` |
-| `control/try_catch.aura` | `throw` / `try` / `catch` |
+| `control/try_catch.aura` | `throw` / `try` / `catch` (String/Int) |
+| `control/class_throw.aura` | throw/catch class instances (C3g) |
 | `test/smoke.aura` | `@test` + `assert` / `assert_eq` |
 | `multi/` | Multi-file package + `aura.toml` (C3e) |
 | `import/app` + `import/math` | `import` + `pub` + path dep (C3f) |

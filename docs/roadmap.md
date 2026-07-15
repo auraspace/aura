@@ -15,7 +15,7 @@ Living plan for docs, language specs, and the Rust toolchain. RFCs remain the de
 | RFC static site (`site/`) | Implemented on `feat/rfc-static-site`; deploy via GitHub Pages Actions |
 | RFC-000 Vision | **Accepted** — product direction locked |
 | RFC-001/002/003 | Solid Draft + **MVP subset** for compiler C0–C1 (see RFC-001 §6.0) |
-| Compiler | **C0–C3f slice** — + `import` / `pub` / path deps |
+| Compiler | **C0–C3g slice** — + class/struct throw & catch |
 | Runtime / packages / stdlib | Stub runtime `runtime/aura_rt.c`; full GC/tasks deferred |
 
 ## Phases
@@ -65,13 +65,14 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C3d** | `aura test` + `@test` + `assert` / `assert_eq` | Done |
 | **C3e** | Multi-file same package + minimal `aura.toml` | Done |
 | **C3f** | `import` + `pub` + path deps in `aura.toml` | Done |
+| **C3g** | `throw` / `catch` class & struct values | Done |
 | **DX** | line:col diagnostics with snippets | Done |
 
 **Out of scope C0/C1:** generics mono, async/tasks, macros, registry, incremental, LTO.
 
 ### P3 — Expand (after hello)
 
-1. ~~Generics + interfaces + bounds~~ · ~~struct~~ · ~~enum/match/Result~~ · ~~exceptions~~ · ~~`aura test`~~ · ~~multi-file / `aura.toml`~~ · ~~`import` / path deps (C3f)~~ → next: class throws / registry / LLVM
+1. ~~Generics + interfaces + bounds~~ · ~~struct~~ · ~~enum/match/Result~~ · ~~exceptions (+ class)~~ · ~~`aura test`~~ · ~~multi-file / `aura.toml`~~ · ~~`import` / path deps~~ → next: registry/lockfile / LLVM / GC
 2. Runtime: alloc/GC MVP → channels/tasks
 3. Toolchain: ~~minimal `aura.toml` + path deps~~ → lockfile / registry (RFC-005)
 4. Stdlib prelude + small collections
