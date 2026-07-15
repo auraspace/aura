@@ -1,0 +1,10 @@
+[package]
+name = "aura-codegen"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Aura C backend codegen for C1 hello binaries"
+
+[dependencies]
+aura-ast.workspace = true
+aura-sema.workspace = true

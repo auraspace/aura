@@ -12,3 +12,6 @@ path = "src/main.rs"
 
 [dependencies]
 aura-parser.workspace = true
+aura-sema.workspace = true
+aura-codegen.workspace = true
+

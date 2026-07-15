@@ -112,6 +112,7 @@ pub enum Expr {
     String(StringLit),
     Null(Span),
     Call(CallExpr),
+    Assign(AssignExpr),
     Binary(BinaryExpr),
     Unary(UnaryExpr),
     Group(Box<Expr>, Span),
@@ -126,11 +127,19 @@ impl Expr {
             Expr::String(l) => l.span,
             Expr::Null(s) => *s,
             Expr::Call(c) => c.span,
+            Expr::Assign(a) => a.span,
             Expr::Binary(b) => b.span,
             Expr::Unary(u) => u.span,
             Expr::Group(_, s) => *s,
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AssignExpr {
+    pub name: Ident,
+    pub value: Box<Expr>,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]

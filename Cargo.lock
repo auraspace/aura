@@ -10,7 +10,17 @@ version = "0.1.0"
 name = "aura-cli"
 version = "0.1.0"
 dependencies = [
+ "aura-codegen",
  "aura-parser",
+ "aura-sema",
+]
+
+[[package]]
+name = "aura-codegen"
+version = "0.1.0"
+dependencies = [
+ "aura-ast",
+ "aura-sema",
 ]
 
 [[package]]
@@ -26,4 +36,11 @@ version = "0.1.0"
 dependencies = [
  "aura-ast",
  "aura-lexer",
+]
+
+[[package]]
+name = "aura-sema"
+version = "0.1.0"
+dependencies = [
+ "aura-ast",
 ]

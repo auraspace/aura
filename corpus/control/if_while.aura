@@ -1,4 +1,4 @@
-// C0 corpus — control flow
+// C0+ corpus — control flow with assignment
 package demo.control
 
 fun abs(n: Int): Int {
@@ -13,8 +13,8 @@ fun sum_to(n: Int): Int {
   var i: Int = 0
   var total: Int = 0
   while (i < n) {
-    total + i
-    i + 1
+    total = total + i
+    i = i + 1
   }
   return total
 }

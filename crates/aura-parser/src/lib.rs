@@ -324,6 +324,25 @@ impl Parser {
             break;
         }
 
+        // Assignment: ident = expr (right-associative, lowest precedence)
+        if min_bp <= 0 && matches!(self.peek().kind, TokenKind::Eq) {
+            if let Expr::Ident(name) = &lhs {
+                let name = name.clone();
+                self.bump(); // =
+                let value = self.parse_expr(0)?;
+                let span = Span::new(name.span.start, value.span().end);
+                return Ok(Expr::Assign(AssignExpr {
+                    name,
+                    value: Box::new(value),
+                    span,
+                }));
+            }
+            return Err(ParseError {
+                message: "invalid assignment target".into(),
+                span: self.peek().span,
+            });
+        }
+
         loop {
             let op = match self.peek().kind {
                 TokenKind::Plus => BinOp::Add,
@@ -521,13 +540,29 @@ fun loop(n: Int): Int {
   var i: Int = 0
   var s: String? = null
   while (i < n) {
-    i + 1
+    i = i + 1
   }
   return i
 }
 "#;
         let file = parse_file(src).expect("parse");
         assert_eq!(file.functions[0].body.stmts.len(), 4);
+    }
+
+    #[test]
+    fn parses_assignment() {
+        let src = r#"
+package demo
+fun main() {
+  var x: Int = 1
+  x = x + 1
+}
+"#;
+        let file = parse_file(src).expect("parse");
+        assert!(matches!(
+            file.functions[0].body.stmts[1],
+            aura_ast::Stmt::Expr(aura_ast::Expr::Assign(_))
+        ));
     }
 
     #[test]

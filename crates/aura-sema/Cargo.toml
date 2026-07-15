@@ -1,0 +1,9 @@
+[package]
+name = "aura-sema"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Aura name resolution and type checking (C0+)"
+
+[dependencies]
+aura-ast.workspace = true

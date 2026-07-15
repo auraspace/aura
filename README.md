@@ -24,19 +24,24 @@ pnpm site:test
 pnpm site:build
 ```
 
-### Compiler C0 (`aura check`)
+### Compiler C0+ / C1
 
 ```bash
 cargo test --workspace
-cargo run -p aura-cli -- check corpus/hello/main.aura
+cargo run -p aura-cli -- check corpus/hello/main.aura   # parse + typecheck
+cargo run -p aura-cli -- run corpus/hello/main.aura     # build & execute
+cargo run -p aura-cli -- build corpus/hello/main.aura -o target/aura/hello
 ```
+
+C1 uses a **C backend** (`aura emit-c` + system `cc`) linked with `runtime/aura_rt.c`. LLVM IR is the longer-term path (RFC-004).
 
 ## Status
 
 - **RFC-000** Accepted (vision locked)
 - **RFC-001 §6.0** MVP surface for C0–C1
-- **Compiler C0** lexer + parser + `aura check` (no codegen yet)
-- **Next:** C1 hello binary via LLVM (see roadmap)
+- **Compiler C0+** lexer + parser + name resolution + typecheck
+- **Compiler C1** `aura build` / `aura run` → native hello binary (C backend)
+- **Next:** richer typecheck, better diagnostics, LLVM backend
 
 ## Links
 

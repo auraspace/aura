@@ -15,8 +15,8 @@ Living plan for docs, language specs, and the Rust toolchain. RFCs remain the de
 | RFC static site (`site/`) | Implemented on `feat/rfc-static-site`; deploy via GitHub Pages Actions |
 | RFC-000 Vision | **Accepted** — product direction locked |
 | RFC-001/002/003 | Solid Draft + **MVP subset** for compiler C0–C1 (see RFC-001 §6.0) |
-| Compiler | **C0 in progress** — lexer/parser/`aura check` workspace under `crates/` |
-| Runtime / packages / stdlib | Deferred until after hello binary (C1) |
+| Compiler | **C0+ done** (check); **C1 done** via C backend (`aura build`/`run`) |
+| Runtime / packages / stdlib | Stub runtime `runtime/aura_rt.c`; full GC/tasks deferred |
 
 ## Phases
 
@@ -50,9 +50,10 @@ Rust workspace (toolchain only; user language remains Aura):
 
 | Milestone | Scope | Exit |
 | --------- | ----- | ---- |
-| **C0** | Lexer + recursive-descent parser + `aura check` | Corpus parses; spanned diagnostics |
-| **C1** | LLVM IR + runtime stub link | `aura build` → runnable hello binary |
-| **C1b** | Simple `class` + methods + local nullability | 3–5 examples run |
+| **C0** | Lexer + recursive-descent parser + `aura check` | Done |
+| **C0+** | Name resolution + light typecheck | Done (`aura check` typechecks corpus) |
+| **C1** | Codegen + runtime stub → native binary | Done via **C backend** + `cc` (LLVM later) |
+| **C1b** | Simple `class` + methods + local nullability | Next |
 
 **Out of scope C0/C1:** generics mono, async/tasks, macros, registry, incremental, LTO.
 
