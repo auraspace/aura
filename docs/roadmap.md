@@ -15,7 +15,7 @@ Living plan for docs, language specs, and the Rust toolchain. RFCs remain the de
 | RFC static site (`site/`) | Implemented on `feat/rfc-static-site`; deploy via GitHub Pages Actions |
 | RFC-000 Vision | **Accepted** — product direction locked |
 | RFC-001/002/003 | Solid Draft + **MVP subset** for compiler C0–C1 (see RFC-001 §6.0) |
-| Compiler | **C0+ done** (check); **C1 done** via C backend (`aura build`/`run`) |
+| Compiler | **C0+ / C1 / C1b done** — check, build/run, classes + methods |
 | Runtime / packages / stdlib | Stub runtime `runtime/aura_rt.c`; full GC/tasks deferred |
 
 ## Phases
@@ -53,7 +53,8 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C0** | Lexer + recursive-descent parser + `aura check` | Done |
 | **C0+** | Name resolution + light typecheck | Done (`aura check` typechecks corpus) |
 | **C1** | Codegen + runtime stub → native binary | Done via **C backend** + `cc` (LLVM later) |
-| **C1b** | Simple `class` + methods + local nullability | Next |
+| **C1b** | Simple `class` + methods + `this` + field access | Done |
+| **C2** | Generics / interfaces (vtable) | Next language surface |
 
 **Out of scope C0/C1:** generics mono, async/tasks, macros, registry, incremental, LTO.
 

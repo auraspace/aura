@@ -1,4 +1,4 @@
-//! Name resolution + light typecheck for Aura C0+ (RFC-001 §6.0.3).
+//! Name resolution + light typecheck for Aura C0+ / C1b (RFC-001 §6.0).
 
 use aura_ast::*;
 use std::collections::HashMap;
@@ -13,15 +13,11 @@ pub enum Ty {
     /// Bottom-ish null literal; only assignable to nullable types.
     Null,
     Nullable(Box<Ty>),
-    /// Named nominal (user type) — not fully supported in C0+.
-    Named(String),
+    /// Nominal class type.
+    Class(String),
 }
 
 impl Ty {
-    pub fn is_nullable(&self) -> bool {
-        matches!(self, Ty::Nullable(_) | Ty::Null)
-    }
-
     pub fn display(&self) -> String {
         match self {
             Ty::Unit => "Unit".into(),
@@ -30,7 +26,15 @@ impl Ty {
             Ty::String => "String".into(),
             Ty::Null => "Null".into(),
             Ty::Nullable(inner) => format!("{}?", inner.display()),
-            Ty::Named(n) => n.clone(),
+            Ty::Class(n) => n.clone(),
+        }
+    }
+
+    pub fn as_class(&self) -> Option<&str> {
+        match self {
+            Ty::Class(n) => Some(n),
+            Ty::Nullable(inner) => inner.as_class(),
+            _ => None,
         }
     }
 }
@@ -44,9 +48,34 @@ pub struct FunSig {
 }
 
 #[derive(Debug, Clone)]
+pub struct MethodSig {
+    pub class: String,
+    pub name: String,
+    pub params: Vec<Ty>,
+    pub ret: Ty,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct FieldSig {
+    pub name: String,
+    pub ty: Ty,
+    pub mutable: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct ClassSig {
+    pub name: String,
+    pub fields: Vec<FieldSig>,
+    pub methods: HashMap<String, MethodSig>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
 pub struct CheckedFile {
     pub package: String,
     pub functions: Vec<FunSig>,
+    pub classes: Vec<ClassSig>,
     pub ast: File,
 }
 
@@ -80,13 +109,15 @@ struct Local {
 
 struct Checker {
     functions: HashMap<String, FunSig>,
+    classes: HashMap<String, ClassSig>,
     locals: Vec<HashMap<String, Local>>,
+    /// When typechecking a method body, the enclosing class name.
+    current_class: Option<String>,
 }
 
 impl Checker {
     fn new() -> Self {
         let mut functions = HashMap::new();
-        // Builtins
         functions.insert(
             "println".into(),
             FunSig {
@@ -98,14 +129,96 @@ impl Checker {
         );
         Self {
             functions,
+            classes: HashMap::new(),
             locals: Vec::new(),
+            current_class: None,
         }
     }
 
     fn check_file(&mut self, file: &File) -> Result<CheckedFile, SemaError> {
-        // First pass: register function signatures
+        // Pass 1: reserve class names (so fields may reference peer classes)
+        for c in &file.classes {
+            if self.classes.contains_key(&c.name.name) {
+                return Err(SemaError {
+                    message: format!("duplicate class `{}`", c.name.name),
+                    span: c.name.span,
+                });
+            }
+            if self.functions.contains_key(&c.name.name) {
+                return Err(SemaError {
+                    message: format!("class name `{}` conflicts with a function", c.name.name),
+                    span: c.name.span,
+                });
+            }
+            self.classes.insert(
+                c.name.name.clone(),
+                ClassSig {
+                    name: c.name.name.clone(),
+                    fields: Vec::new(),
+                    methods: HashMap::new(),
+                    span: c.span,
+                },
+            );
+        }
+
+        // Pass 2: fields + method signatures
+        for c in &file.classes {
+            let mut fields = Vec::new();
+            let mut seen = HashMap::new();
+            for f in &c.fields {
+                if seen.contains_key(&f.name.name) {
+                    return Err(SemaError {
+                        message: format!("duplicate field `{}`", f.name.name),
+                        span: f.name.span,
+                    });
+                }
+                let ty = self.type_from_ref(&f.ty)?;
+                seen.insert(f.name.name.clone(), ());
+                fields.push(FieldSig {
+                    name: f.name.name.clone(),
+                    ty,
+                    mutable: f.mutable,
+                });
+            }
+
+            let mut methods = HashMap::new();
+            for m in &c.methods {
+                if methods.contains_key(&m.name.name) {
+                    return Err(SemaError {
+                        message: format!("duplicate method `{}`", m.name.name),
+                        span: m.name.span,
+                    });
+                }
+                let params = m
+                    .params
+                    .iter()
+                    .map(|p| self.type_from_ref(&p.ty))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let ret = match &m.return_type {
+                    Some(t) => self.type_from_ref(t)?,
+                    None => Ty::Unit,
+                };
+                methods.insert(
+                    m.name.name.clone(),
+                    MethodSig {
+                        class: c.name.name.clone(),
+                        name: m.name.name.clone(),
+                        params,
+                        ret,
+                        span: m.span,
+                    },
+                );
+            }
+
+            let entry = self.classes.get_mut(&c.name.name).unwrap();
+            entry.fields = fields;
+            entry.methods = methods;
+        }
+
+        // Register free functions
         for f in &file.functions {
-            if self.functions.contains_key(&f.name.name) {
+            if self.functions.contains_key(&f.name.name) || self.classes.contains_key(&f.name.name)
+            {
                 return Err(SemaError {
                     message: format!("duplicate function `{}`", f.name.name),
                     span: f.name.span,
@@ -114,10 +227,10 @@ impl Checker {
             let params = f
                 .params
                 .iter()
-                .map(|p| type_from_ref(&p.ty))
+                .map(|p| self.type_from_ref(&p.ty))
                 .collect::<Result<Vec<_>, _>>()?;
             let ret = match &f.return_type {
-                Some(t) => type_from_ref(t)?,
+                Some(t) => self.type_from_ref(t)?,
                 None => Ty::Unit,
             };
             self.functions.insert(
@@ -131,9 +244,28 @@ impl Checker {
             );
         }
 
-        // Second pass: bodies
+        // Check method bodies
+        for c in &file.classes {
+            self.current_class = Some(c.name.name.clone());
+            for m in &c.methods {
+                let ret = self
+                    .classes
+                    .get(&c.name.name)
+                    .unwrap()
+                    .methods
+                    .get(&m.name.name)
+                    .unwrap()
+                    .ret
+                    .clone();
+                self.check_method(c, m, &ret)?;
+            }
+            self.current_class = None;
+        }
+
+        // Check free functions
         for f in &file.functions {
-            self.check_fun(f)?;
+            let ret = self.functions.get(&f.name.name).unwrap().ret.clone();
+            self.check_fun(f, &ret)?;
         }
 
         let package = file
@@ -150,17 +282,77 @@ impl Checker {
             .map(|f| self.functions.get(&f.name.name).unwrap().clone())
             .collect();
 
+        let classes = file
+            .classes
+            .iter()
+            .map(|c| self.classes.get(&c.name.name).unwrap().clone())
+            .collect();
+
         Ok(CheckedFile {
             package,
             functions,
+            classes,
             ast: file.clone(),
         })
     }
 
-    fn check_fun(&mut self, f: &FunDecl) -> Result<(), SemaError> {
+    fn check_method(
+        &mut self,
+        class: &ClassDecl,
+        m: &FunDecl,
+        expected_ret: &Ty,
+    ) -> Result<(), SemaError> {
+        self.locals.push(HashMap::new());
+        // Fields as locals (mutable per field)
+        let field_locals: Vec<(String, Local)> = self
+            .classes
+            .get(&class.name.name)
+            .map(|sig| {
+                sig.fields
+                    .iter()
+                    .map(|f| {
+                        (
+                            f.name.clone(),
+                            Local {
+                                ty: f.ty.clone(),
+                                mutable: f.mutable,
+                            },
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        for (name, local) in field_locals {
+            self.current_locals_mut().insert(name, local);
+        }
+        for p in &m.params {
+            let ty = self.type_from_ref(&p.ty)?;
+            if self.current_locals().contains_key(&p.name.name) {
+                return Err(SemaError {
+                    message: format!(
+                        "parameter `{}` shadows field or is duplicate",
+                        p.name.name
+                    ),
+                    span: p.name.span,
+                });
+            }
+            self.current_locals_mut().insert(
+                p.name.name.clone(),
+                Local {
+                    ty,
+                    mutable: false,
+                },
+            );
+        }
+        self.check_block(&m.body, expected_ret)?;
+        self.locals.pop();
+        Ok(())
+    }
+
+    fn check_fun(&mut self, f: &FunDecl, expected_ret: &Ty) -> Result<(), SemaError> {
         self.locals.push(HashMap::new());
         for p in &f.params {
-            let ty = type_from_ref(&p.ty)?;
+            let ty = self.type_from_ref(&p.ty)?;
             if self.current_locals().contains_key(&p.name.name) {
                 return Err(SemaError {
                     message: format!("duplicate parameter `{}`", p.name.name),
@@ -175,9 +367,7 @@ impl Checker {
                 },
             );
         }
-
-        let expected_ret = self.functions.get(&f.name.name).unwrap().ret.clone();
-        self.check_block(&f.body, &expected_ret)?;
+        self.check_block(&f.body, expected_ret)?;
         self.locals.pop();
         Ok(())
     }
@@ -213,7 +403,7 @@ impl Checker {
             Stmt::Var(v) => {
                 let init_ty = self.check_expr(&v.init)?;
                 let ty = if let Some(ann) = &v.ty {
-                    let ann_ty = type_from_ref(ann)?;
+                    let ann_ty = self.type_from_ref(ann)?;
                     if !is_assignable(&init_ty, &ann_ty) {
                         return Err(SemaError {
                             message: format!(
@@ -311,17 +501,59 @@ impl Checker {
                 if let Some(local) = self.lookup_local(&id.name) {
                     return Ok(local.ty.clone());
                 }
-                // bare function name is not a first-class value in C0+
                 Err(SemaError {
                     message: format!("undefined name `{}`", id.name),
                     span: id.span,
                 })
+            }
+            Expr::This(span) => {
+                let class = self.current_class.as_ref().ok_or_else(|| SemaError {
+                    message: "`this` is only valid inside methods".into(),
+                    span: *span,
+                })?;
+                Ok(Ty::Class(class.clone()))
             }
             Expr::Int(_) => Ok(Ty::Int),
             Expr::Bool(_) => Ok(Ty::Bool),
             Expr::String(_) => Ok(Ty::String),
             Expr::Null(_) => Ok(Ty::Null),
             Expr::Group(inner, _) => self.check_expr(inner),
+            Expr::Field(f) => {
+                let obj_ty = self.check_expr(&f.object)?;
+                let class_name = match &obj_ty {
+                    Ty::Class(n) => n.clone(),
+                    other => {
+                        return Err(SemaError {
+                            message: format!(
+                                "field access requires a class type, got {}",
+                                other.display()
+                            ),
+                            span: f.span,
+                        });
+                    }
+                };
+                let class = self.classes.get(&class_name).ok_or_else(|| SemaError {
+                    message: format!("unknown class `{class_name}`"),
+                    span: f.span,
+                })?;
+                if let Some(field) = class.fields.iter().find(|x| x.name == f.field.name) {
+                    return Ok(field.ty.clone());
+                }
+                // Method name alone is not a value; must be called.
+                if class.methods.contains_key(&f.field.name) {
+                    return Err(SemaError {
+                        message: format!(
+                            "method `{}` must be called (use `.{}()`)",
+                            f.field.name, f.field.name
+                        ),
+                        span: f.field.span,
+                    });
+                }
+                Err(SemaError {
+                    message: format!("unknown field `{}` on `{class_name}`", f.field.name),
+                    span: f.field.span,
+                })
+            }
             Expr::Unary(u) => {
                 let t = self.check_expr(&u.expr)?;
                 match u.op {
@@ -410,7 +642,7 @@ impl Checker {
                 })?;
                 if !local.mutable {
                     return Err(SemaError {
-                        message: format!("cannot assign to immutable `val` `{}`", a.name.name),
+                        message: format!("cannot assign to immutable binding `{}`", a.name.name),
                         span: a.span,
                     });
                 }
@@ -429,82 +661,159 @@ impl Checker {
                 }
                 Ok(target)
             }
-            Expr::Call(c) => {
-                let fun_name = match c.callee.as_ref() {
-                    Expr::Ident(id) => id.name.clone(),
-                    _ => {
-                        return Err(SemaError {
-                            message: "only direct function calls supported in C0+".into(),
-                            span: c.span,
-                        });
-                    }
-                };
-                let sig = self
-                    .functions
-                    .get(&fun_name)
-                    .cloned()
-                    .ok_or_else(|| SemaError {
-                        message: format!("undefined function `{}`", fun_name),
-                        span: c.callee.span(),
-                    })?;
-                if c.args.len() != sig.params.len() {
+            Expr::Call(c) => self.check_call(c),
+        }
+    }
+
+    fn check_call(&mut self, c: &CallExpr) -> Result<Ty, SemaError> {
+        // Method call: obj.method(args)
+        if let Expr::Field(fe) = c.callee.as_ref() {
+            let obj_ty = self.check_expr(&fe.object)?;
+            let class_name = match &obj_ty {
+                Ty::Class(n) => n.clone(),
+                other => {
                     return Err(SemaError {
                         message: format!(
-                            "`{}` expects {} argument(s), got {}",
-                            fun_name,
-                            sig.params.len(),
-                            c.args.len()
+                            "method call requires a class type, got {}",
+                            other.display()
                         ),
                         span: c.span,
                     });
                 }
-                for (arg, expected) in c.args.iter().zip(sig.params.iter()) {
-                    let got = self.check_expr(arg)?;
-                    if !is_assignable(&got, expected) {
-                        return Err(SemaError {
-                            message: format!(
-                                "argument type mismatch for `{}`: expected {}, got {}",
-                                fun_name,
-                                expected.display(),
-                                got.display()
-                            ),
-                            span: arg.span(),
-                        });
-                    }
-                }
-                Ok(sig.ret)
+            };
+            let method = self
+                .classes
+                .get(&class_name)
+                .and_then(|cl| cl.methods.get(&fe.field.name))
+                .cloned()
+                .ok_or_else(|| SemaError {
+                    message: format!("unknown method `{}` on `{class_name}`", fe.field.name),
+                    span: fe.field.span,
+                })?;
+            if c.args.len() != method.params.len() {
+                return Err(SemaError {
+                    message: format!(
+                        "`{}.{}` expects {} argument(s), got {}",
+                        class_name,
+                        method.name,
+                        method.params.len(),
+                        c.args.len()
+                    ),
+                    span: c.span,
+                });
             }
+            for (arg, expected) in c.args.iter().zip(method.params.iter()) {
+                let got = self.check_expr(arg)?;
+                if !is_assignable(&got, expected) {
+                    return Err(SemaError {
+                        message: format!(
+                            "argument type mismatch: expected {}, got {}",
+                            expected.display(),
+                            got.display()
+                        ),
+                        span: arg.span(),
+                    });
+                }
+            }
+            return Ok(method.ret);
         }
-    }
-}
 
-fn type_from_ref(t: &TypeRef) -> Result<Ty, SemaError> {
-    let base = match t.name.name.as_str() {
-        "Unit" => Ty::Unit,
-        "Int" => Ty::Int,
-        "Bool" => Ty::Bool,
-        "String" => Ty::String,
-        other => Ty::Named(other.to_string()),
-    };
-    if matches!(base, Ty::Named(_)) {
-        return Err(SemaError {
-            message: format!(
-                "unknown type `{}` (C0+ supports Int, Bool, String, Unit)",
-                t.name.name
-            ),
-            span: t.span,
-        });
-    }
-    if t.nullable {
-        if matches!(base, Ty::Unit) {
+        // Free function or constructor
+        let name = match c.callee.as_ref() {
+            Expr::Ident(id) => id.name.clone(),
+            _ => {
+                return Err(SemaError {
+                    message: "only direct calls and method calls supported in C1b".into(),
+                    span: c.span,
+                });
+            }
+        };
+
+        // Constructor
+        if let Some(class) = self.classes.get(&name).cloned() {
+            if c.args.len() != class.fields.len() {
+                return Err(SemaError {
+                    message: format!(
+                        "constructor `{}` expects {} argument(s), got {}",
+                        name,
+                        class.fields.len(),
+                        c.args.len()
+                    ),
+                    span: c.span,
+                });
+            }
+            for (arg, field) in c.args.iter().zip(class.fields.iter()) {
+                let got = self.check_expr(arg)?;
+                if !is_assignable(&got, &field.ty) {
+                    return Err(SemaError {
+                        message: format!(
+                            "constructor argument for `{}`: expected {}, got {}",
+                            field.name,
+                            field.ty.display(),
+                            got.display()
+                        ),
+                        span: arg.span(),
+                    });
+                }
+            }
+            return Ok(Ty::Class(name));
+        }
+
+        let sig = self.functions.get(&name).cloned().ok_or_else(|| SemaError {
+            message: format!("undefined function `{name}`"),
+            span: c.callee.span(),
+        })?;
+        if c.args.len() != sig.params.len() {
             return Err(SemaError {
-                message: "`Unit?` is not allowed".into(),
-                span: t.span,
+                message: format!(
+                    "`{name}` expects {} argument(s), got {}",
+                    sig.params.len(),
+                    c.args.len()
+                ),
+                span: c.span,
             });
         }
-        Ok(Ty::Nullable(Box::new(base)))
-    } else {
-        Ok(base)
+        for (arg, expected) in c.args.iter().zip(sig.params.iter()) {
+            let got = self.check_expr(arg)?;
+            if !is_assignable(&got, expected) {
+                return Err(SemaError {
+                    message: format!(
+                        "argument type mismatch for `{name}`: expected {}, got {}",
+                        expected.display(),
+                        got.display()
+                    ),
+                    span: arg.span(),
+                });
+            }
+        }
+        Ok(sig.ret)
+    }
+
+    fn type_from_ref(&self, t: &TypeRef) -> Result<Ty, SemaError> {
+        let base = match t.name.name.as_str() {
+            "Unit" => Ty::Unit,
+            "Int" => Ty::Int,
+            "Bool" => Ty::Bool,
+            "String" => Ty::String,
+            other if self.classes.contains_key(other) => Ty::Class(other.to_string()),
+            other => {
+                return Err(SemaError {
+                    message: format!("unknown type `{other}`"),
+                    span: t.span,
+                });
+            }
+        };
+        if t.nullable {
+            if matches!(base, Ty::Unit) {
+                return Err(SemaError {
+                    message: "`Unit?` is not allowed".into(),
+                    span: t.span,
+                });
+            }
+            Ok(Ty::Nullable(Box::new(base)))
+        } else {
+            Ok(base)
+        }
     }
 }
 
@@ -515,7 +824,6 @@ fn is_assignable(from: &Ty, to: &Ty) -> bool {
     match (from, to) {
         (Ty::Null, Ty::Nullable(_)) => true,
         (Ty::Nullable(a), Ty::Nullable(b)) => is_assignable(a, b),
-        // allow non-null to nullable
         (inner, Ty::Nullable(outer)) if inner == outer.as_ref() => true,
         _ => false,
     }

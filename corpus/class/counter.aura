@@ -1,0 +1,23 @@
+// C1b corpus — mutable field + method with param
+package demo.cls
+
+class Counter(var value: Int) {
+  fun add(n: Int): Int {
+    value = value + n
+    return value
+  }
+}
+
+fun main() {
+  val c: Counter = Counter(10)
+  c.add(5)
+  // print via string field on another type — use greeter-style: just discard
+  val g: Greeter = Greeter("done")
+  println(g.greet())
+}
+
+class Greeter(val name: String) {
+  fun greet(): String {
+    return this.name
+  }
+}

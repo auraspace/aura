@@ -74,8 +74,8 @@ This subsection freezes the **subset** that the first compiler milestones must i
 | --------- | ------------- | ---------------- |
 | **C0** | `aura check` — lex, parse, basic name checks | §6.0.1–6.0.3 |
 | **C1** | `aura build` — LLVM + runtime stub → hello binary | C0 + print/runtime hooks |
-| **C1b** | Simple classes + methods | + §6.0.4 |
-| **Post-C1** | Generics, async, exceptions, macros, packages registry | Rest of this RFC |
+| **C1b** | Simple classes + methods | + §6.0.4 (**implemented** in toolchain) |
+| **Post-C1 / C2** | Generics, interfaces, async, exceptions, macros, packages | Rest of this RFC |
 
 #### 6.0.1 Lexical (C0)
 

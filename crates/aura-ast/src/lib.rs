@@ -1,4 +1,4 @@
-//! Aura AST for compiler milestone **C0** (RFC-001 §6.0).
+//! Aura AST for compiler milestones C0–C1b (RFC-001 §6.0).
 
 use std::fmt;
 
@@ -20,6 +20,7 @@ impl Span {
 #[derive(Debug, Clone, PartialEq)]
 pub struct File {
     pub package: Path,
+    pub classes: Vec<ClassDecl>,
     pub functions: Vec<FunDecl>,
     pub span: Span,
 }
@@ -33,6 +34,23 @@ pub struct Path {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Ident {
     pub name: String,
+    pub span: Span,
+}
+
+/// `class Name(val x: T, var y: U) { methods… }`
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClassDecl {
+    pub name: Ident,
+    pub fields: Vec<FieldDecl>,
+    pub methods: Vec<FunDecl>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FieldDecl {
+    pub mutable: bool,
+    pub name: Ident,
+    pub ty: TypeRef,
     pub span: Span,
 }
 
@@ -107,11 +125,14 @@ pub struct ReturnStmt {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Ident(Ident),
+    /// Implicit/explicit `this` inside methods.
+    This(Span),
     Int(IntLit),
     Bool(BoolLit),
     String(StringLit),
     Null(Span),
     Call(CallExpr),
+    Field(FieldExpr),
     Assign(AssignExpr),
     Binary(BinaryExpr),
     Unary(UnaryExpr),
@@ -122,11 +143,13 @@ impl Expr {
     pub fn span(&self) -> Span {
         match self {
             Expr::Ident(i) => i.span,
+            Expr::This(s) => *s,
             Expr::Int(l) => l.span,
             Expr::Bool(l) => l.span,
             Expr::String(l) => l.span,
             Expr::Null(s) => *s,
             Expr::Call(c) => c.span,
+            Expr::Field(f) => f.span,
             Expr::Assign(a) => a.span,
             Expr::Binary(b) => b.span,
             Expr::Unary(u) => u.span,
@@ -136,7 +159,15 @@ impl Expr {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct FieldExpr {
+    pub object: Box<Expr>,
+    pub field: Ident,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct AssignExpr {
+    /// Simple local assign in C0; field assign not yet.
     pub name: Ident,
     pub value: Box<Expr>,
     pub span: Span,

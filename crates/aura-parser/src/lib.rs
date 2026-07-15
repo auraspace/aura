@@ -1,4 +1,4 @@
-//! Recursive-descent + Pratt expression parser for Aura C0 (RFC-001 §6.0.2).
+//! Recursive-descent + Pratt expression parser for Aura C0–C1b (RFC-001 §6.0).
 
 use aura_ast::*;
 use aura_lexer::{lex, LexError, Token, TokenKind};
@@ -89,16 +89,29 @@ impl Parser {
         self.expect(TokenKind::Package, "`package`")?;
         let package = self.parse_path()?;
         let mut functions = Vec::new();
+        let mut classes = Vec::new();
         while !matches!(self.peek().kind, TokenKind::Eof) {
-            // optional pub
             if matches!(self.peek().kind, TokenKind::Pub) {
                 self.bump();
             }
-            functions.push(self.parse_fun()?);
+            match self.peek().kind {
+                TokenKind::Class => classes.push(self.parse_class()?),
+                TokenKind::Fun => functions.push(self.parse_fun()?),
+                _ => {
+                    return Err(ParseError {
+                        message: format!(
+                            "expected `class` or `fun`, found {:?}",
+                            self.peek().kind
+                        ),
+                        span: self.peek().span,
+                    });
+                }
+            }
         }
         let end = self.peek().span.end;
         Ok(File {
             package,
+            classes,
             functions,
             span: Span::new(start, end),
         })
@@ -115,6 +128,70 @@ impl Parser {
         let end = segments.last().map(|s| s.span.end).unwrap_or(start);
         Ok(Path {
             segments,
+            span: Span::new(start, end),
+        })
+    }
+
+    fn parse_class(&mut self) -> Result<ClassDecl, ParseError> {
+        let start = self.peek().span.start;
+        self.expect(TokenKind::Class, "`class`")?;
+        let name = self.expect_ident()?;
+        self.expect(TokenKind::LParen, "`(`")?;
+        let mut fields = Vec::new();
+        if !matches!(self.peek().kind, TokenKind::RParen) {
+            loop {
+                fields.push(self.parse_field()?);
+                if matches!(self.peek().kind, TokenKind::Comma) {
+                    self.bump();
+                    continue;
+                }
+                break;
+            }
+        }
+        self.expect(TokenKind::RParen, "`)`")?;
+        self.expect(TokenKind::LBrace, "`{`")?;
+        let mut methods = Vec::new();
+        while !matches!(self.peek().kind, TokenKind::RBrace | TokenKind::Eof) {
+            if matches!(self.peek().kind, TokenKind::Pub) {
+                self.bump();
+            }
+            methods.push(self.parse_fun()?);
+        }
+        let end = self.expect(TokenKind::RBrace, "`}`")?.span.end;
+        Ok(ClassDecl {
+            name,
+            fields,
+            methods,
+            span: Span::new(start, end),
+        })
+    }
+
+    fn parse_field(&mut self) -> Result<FieldDecl, ParseError> {
+        let start = self.peek().span.start;
+        let mutable = match self.peek().kind {
+            TokenKind::Val => {
+                self.bump();
+                false
+            }
+            TokenKind::Var => {
+                self.bump();
+                true
+            }
+            _ => {
+                return Err(ParseError {
+                    message: "expected `val` or `var` in primary constructor".into(),
+                    span: self.peek().span,
+                });
+            }
+        };
+        let name = self.expect_ident()?;
+        self.expect(TokenKind::Colon, "`:`")?;
+        let ty = self.parse_type()?;
+        let end = ty.span.end;
+        Ok(FieldDecl {
+            mutable,
+            name,
+            ty,
             span: Span::new(start, end),
         })
     }
@@ -214,7 +291,7 @@ impl Parser {
     fn parse_var(&mut self) -> Result<VarStmt, ParseError> {
         let start = self.peek().span.start;
         let mutable = matches!(self.peek().kind, TokenKind::Var);
-        self.bump(); // val | var
+        self.bump();
         let name = self.expect_ident()?;
         let ty = if matches!(self.peek().kind, TokenKind::Colon) {
             self.bump();
@@ -277,33 +354,18 @@ impl Parser {
     fn parse_return(&mut self) -> Result<ReturnStmt, ParseError> {
         let start = self.peek().span.start;
         let tok = self.expect(TokenKind::Return, "`return`")?;
-        let value = if matches!(
-            self.peek().kind,
-            TokenKind::RBrace
-                | TokenKind::Eof
-                | TokenKind::Else
-                | TokenKind::Val
-                | TokenKind::Var
-                | TokenKind::If
-                | TokenKind::While
-                | TokenKind::Return
-                | TokenKind::Fun
-        ) {
-            None
-        } else {
-            // Heuristic: if next looks like expression start, parse it
-            match self.peek().kind {
-                TokenKind::Ident(_)
-                | TokenKind::Int(_)
-                | TokenKind::String(_)
-                | TokenKind::True
-                | TokenKind::False
-                | TokenKind::Null
-                | TokenKind::LParen
-                | TokenKind::Minus
-                | TokenKind::Bang => Some(self.parse_expr(0)?),
-                _ => None,
-            }
+        let value = match self.peek().kind {
+            TokenKind::Ident(_)
+            | TokenKind::Int(_)
+            | TokenKind::String(_)
+            | TokenKind::True
+            | TokenKind::False
+            | TokenKind::Null
+            | TokenKind::This
+            | TokenKind::LParen
+            | TokenKind::Minus
+            | TokenKind::Bang => Some(self.parse_expr(0)?),
+            _ => None,
         };
         let end = value.as_ref().map(|e| e.span().end).unwrap_or(tok.span.end);
         Ok(ReturnStmt {
@@ -315,20 +377,30 @@ impl Parser {
     fn parse_expr(&mut self, min_bp: u8) -> Result<Expr, ParseError> {
         let mut lhs = self.parse_prefix()?;
 
-        // calls: postfix
+        // Postfix: call and field access
         loop {
             if matches!(self.peek().kind, TokenKind::LParen) {
                 lhs = self.parse_call(lhs)?;
                 continue;
             }
+            if matches!(self.peek().kind, TokenKind::Dot) {
+                self.bump();
+                let field = self.expect_ident()?;
+                let span = Span::new(lhs.span().start, field.span.end);
+                lhs = Expr::Field(FieldExpr {
+                    object: Box::new(lhs),
+                    field,
+                    span,
+                });
+                continue;
+            }
             break;
         }
 
-        // Assignment: ident = expr (right-associative, lowest precedence)
         if min_bp <= 0 && matches!(self.peek().kind, TokenKind::Eq) {
             if let Expr::Ident(name) = &lhs {
                 let name = name.clone();
-                self.bump(); // =
+                self.bump();
                 let value = self.parse_expr(0)?;
                 let span = Span::new(name.span.start, value.span().end);
                 return Ok(Expr::Assign(AssignExpr {
@@ -413,6 +485,10 @@ impl Parser {
                 let name = name.clone();
                 self.bump();
                 Ok(Expr::Ident(Ident { name, span }))
+            }
+            TokenKind::This => {
+                let span = self.bump().span;
+                Ok(Expr::This(span))
             }
             TokenKind::Int(v) => {
                 let span = self.peek().span;
@@ -561,8 +637,42 @@ fun main() {
         let file = parse_file(src).expect("parse");
         assert!(matches!(
             file.functions[0].body.stmts[1],
-            aura_ast::Stmt::Expr(aura_ast::Expr::Assign(_))
+            Stmt::Expr(Expr::Assign(_))
         ));
+    }
+
+    #[test]
+    fn parses_class_and_method_call() {
+        let src = r#"
+package main
+
+class Greeter(val name: String) {
+  fun greet(): String {
+    return this.name
+  }
+}
+
+fun main() {
+  val g: Greeter = Greeter("Aura")
+  println(g.greet())
+}
+"#;
+        let file = parse_file(src).expect("parse");
+        assert_eq!(file.classes.len(), 1);
+        assert_eq!(file.classes[0].name.name, "Greeter");
+        assert_eq!(file.classes[0].fields.len(), 1);
+        assert_eq!(file.classes[0].methods.len(), 1);
+        assert_eq!(file.functions.len(), 1);
+        // second stmt is println(g.greet())
+        match &file.functions[0].body.stmts[1] {
+            Stmt::Expr(Expr::Call(c)) => match c.args[0].clone() {
+                Expr::Call(inner) => {
+                    assert!(matches!(inner.callee.as_ref(), Expr::Field(_)));
+                }
+                other => panic!("expected method call, got {other:?}"),
+            },
+            other => panic!("expected call stmt, got {other:?}"),
+        }
     }
 
     #[test]

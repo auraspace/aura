@@ -14,6 +14,8 @@ Small `.aura` programs used as syntax fixtures for compiler milestone **C0** (`a
 | `pkg/dotted.aura` | Dotted package path |
 | `edge/empty_main.aura` | Empty function body |
 | `edge/comments.aura` | Line and block comments |
+| `class/greeter.aura` | Class, constructor, method, `this.field` |
+| `class/counter.aura` | Mutable field + multi-class file |
 
 All files must stay within [RFC-001 §6.0](../docs/rfc/RFC-001-language-specification.md) unless marked `// @requires: post-c1`.
 

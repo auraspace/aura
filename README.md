@@ -41,7 +41,8 @@ C1 uses a **C backend** (`aura emit-c` + system `cc`) linked with `runtime/aura_
 - **RFC-001 §6.0** MVP surface for C0–C1
 - **Compiler C0+** lexer + parser + name resolution + typecheck
 - **Compiler C1** `aura build` / `aura run` → native hello binary (C backend)
-- **Next:** richer typecheck, better diagnostics, LLVM backend
+- **Compiler C1b** `class` primary constructor, methods, `this`, field access
+- **Next:** diagnostics line/col, interfaces/generics (C2), LLVM backend
 
 ## Links
 

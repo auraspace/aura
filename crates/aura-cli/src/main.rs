@@ -72,6 +72,17 @@ fn check_path(path: &Path) -> Result<String, String> {
     let mut lines = Vec::new();
     lines.push(format!("ok  {}", path.display()));
     lines.push(format!("package {}", checked.package));
+    if !checked.classes.is_empty() {
+        lines.push(format!("{} class(es)", checked.classes.len()));
+        for c in &checked.classes {
+            lines.push(format!(
+                "  class {} ({} field(s), {} method(s))",
+                c.name,
+                c.fields.len(),
+                c.methods.len()
+            ));
+        }
+    }
     lines.push(format!("{} function(s) typechecked", checked.functions.len()));
     for f in &checked.functions {
         lines.push(format!(

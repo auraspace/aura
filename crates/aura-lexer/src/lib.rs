@@ -27,6 +27,7 @@ pub enum TokenKind {
     False,
     Null,
     Pub,
+    This,
 
     Ident(String),
     Int(i64),
@@ -79,6 +80,7 @@ impl TokenKind {
                 | TokenKind::False
                 | TokenKind::Null
                 | TokenKind::Pub
+                | TokenKind::This
         )
     }
 }
@@ -354,6 +356,7 @@ impl<'a> Lexer<'a> {
             "false" => TokenKind::False,
             "null" => TokenKind::Null,
             "pub" => TokenKind::Pub,
+            "this" => TokenKind::This,
             _ => TokenKind::Ident(text.to_string()),
         };
         Ok(Token {
