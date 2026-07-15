@@ -64,6 +64,86 @@ Wave-1 foundation: every later RFC quotes keywords, declaration forms, and modul
 
 ## 6. Design
 
+### 6.0 MVP surface (compiler C0–C1)
+
+This subsection freezes the **subset** that the first compiler milestones must implement. Full v1 surface remains in later subsections; anything not listed here is **out of scope for C0/C1** unless an RFC amend expands this table.
+
+**Milestones** (aligned with RFC-004 §11 and this RFC §11):
+
+| Milestone | Compiler goal | Language surface |
+| --------- | ------------- | ---------------- |
+| **C0** | `aura check` — lex, parse, basic name checks | §6.0.1–6.0.3 |
+| **C1** | `aura build` — LLVM + runtime stub → hello binary | C0 + print/runtime hooks |
+| **C1b** | Simple classes + methods | + §6.0.4 |
+| **Post-C1** | Generics, async, exceptions, macros, packages registry | Rest of this RFC |
+
+#### 6.0.1 Lexical (C0)
+
+| Item | MVP rule |
+| ---- | -------- |
+| Encoding | UTF-8 |
+| Comments | `//` line; `/* */` non-nesting block |
+| Identifiers | ASCII `[A-Za-z_][A-Za-z0-9_]*` (Unicode XID later) |
+| Keywords (hard) | `package`, `import`, `as`, `class`, `fun`, `val`, `var`, `if`, `else`, `while`, `return`, `true`, `false`, `null`, `pub` |
+| Soft / deferred | `match`, `async`, `await`, `spawn`, `interface`, `enum`, `struct`, `for`, `in`, … — reserved but not required in corpus until implemented |
+| Literals | decimal `Int`, `true`/`false`, `"..."` strings (no interpolation in C0), `null` |
+| Operators | `+ - * / %`, `== != < <= > >=`, `&& \|\| !`, `=`, `.`, `( ) { } , : ?` |
+| Semicolons | optional; newline/brace terminated |
+
+#### 6.0.2 Grammar (C0)
+
+```ebnf
+File        = "package" Path Decl*
+Path        = Ident ("." Ident)*
+Decl        = FunDecl
+FunDecl     = "fun" Ident "(" Params? ")" (":" Type)? Block
+Params      = Param ("," Param)*
+Param       = Ident ":" Type
+Type        = Ident "?"?                 (* nominal + optional nullability *)
+Block       = "{" Stmt* "}"
+Stmt        = VarStmt | IfStmt | WhileStmt | ReturnStmt | ExprStmt
+VarStmt     = ("val" | "var") Ident (":" Type)? "=" Expr
+IfStmt      = "if" "(" Expr ")" Block ("else" Block)?
+WhileStmt   = "while" "(" Expr ")" Block
+ReturnStmt  = "return" Expr?
+ExprStmt    = Expr
+Expr        = ... Pratt: call, member, unary, binary, primary
+Primary     = Ident | Literal | "(" Expr ")"
+```
+
+- One package declaration per file; **no** multi-file packages in C0.
+- Top-level **functions only** (no `class` until C1b).
+- Entry: `fun main()` (optional `: Unit` / no return type).
+
+#### 6.0.3 Semantics (C0 check / C1 run)
+
+| Topic | MVP |
+| ----- | --- |
+| Types | `Int`, `Bool`, `String`, `Unit`; user types deferred; `T?` parse + local flow later |
+| Name resolution | Single file: funs + locals; calls to unknown names → error |
+| Control flow | `if` / `while` / `return` |
+| Runtime (C1) | Linked stub: `println(String)` (or intrinsic) + process exit |
+| Concurrency / GC | **Declared** by RFC-000/003; **not** implemented in C0/C1 (single-threaded stub OK) |
+
+#### 6.0.4 Classes (C1b only)
+
+```aura
+class Greeter(val name: String) {
+  fun greet(): String {
+    return "Hello, " // + name in later string ops
+  }
+}
+```
+
+- Final classes only; primary constructor fields; instance methods; `this` optional later.
+- No inheritance, interfaces, generics, or `companion` in C1b.
+
+#### 6.0.5 Explicitly deferred (post-C1)
+
+Generics, interfaces, enums, structs, `match`, lambdas, `async`/`await`/`spawn`, exceptions/`Result`, string interpolation, multi-file packages, `import`, attributes/macros, full Unicode identifiers.
+
+**Corpus:** programs under `corpus/` must stay within this MVP unless marked `// @requires: post-c1`.
+
 ### 6.1 Overview
 
 Aura is a **multi-paradigm** language with a **class-based OOP** core:
@@ -412,8 +492,8 @@ class EchoHandler : Handler {
 | 4   | Lambda syntax                         | `(…) =>`                   | Lang  | **Resolved**                                              |
 | 5   | Checked exceptions                    | no                         | Lang  | **Resolved** — unchecked only                             |
 | 6   | Integer overflow policy               | checked dev + wrapping ops | Lang  | **Resolved** (release elision details open with profiles) |
-| 7   | Exact keyword set / soft-keyword list |                            | Lang  | Open                                                      |
-| 8   | Range syntax `0..n`                   | inclusive/exclusive        | Lang  | Open                                                      |
+| 7   | Exact keyword set / soft-keyword list | §6.0.1 hard keywords v0    | Lang  | **Resolved** for C0 — expand as surface grows             |
+| 8   | Range syntax `0..n`                   | inclusive/exclusive        | Lang  | **Deferred** post-C1                                      |
 
 ## 8. Rationale & trade-offs
 
@@ -454,6 +534,7 @@ Java-like classes maximize familiarity for service engineers. Kotlin-inspired nu
 
 | Date       | Author | Change                                                              |
 | ---------- | ------ | ------------------------------------------------------------------- |
+| 2026-07-15 |        | Add §6.0 MVP surface for compiler C0–C1; resolve keywords v0        |
 | 2026-07-15 |        | Initial skeleton                                                    |
 | 2026-07-15 |        | Solid draft: Java-like surface, nullability, Result, tasks keywords |
 | 2026-07-15 |        | Lock lean surface decisions (final, companion, Array, lambda, …)    |

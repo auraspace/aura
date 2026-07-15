@@ -19,8 +19,10 @@ docs/
 
 | If you want…                     | Read…                                              |
 | -------------------------------- | -------------------------------------------------- |
+| Execution roadmap (phases)       | [roadmap.md](roadmap.md)                           |
 | Vision & design principles       | [RFC-000](rfc/RFC-000-vision-design-principles.md) |
 | Syntax & core language semantics | [RFC-001](rfc/RFC-001-language-specification.md)   |
+| MVP surface for compiler C0–C1   | [RFC-001 §6.0](rfc/RFC-001-language-specification.md#60-mvp-surface-compiler-c0c1) |
 | Type system                      | [RFC-002](rfc/RFC-002-type-system.md)              |
 | Memory model & concurrency       | [RFC-003](rfc/RFC-003-memory-model-concurrency.md) |
 | Full RFC catalog                 | [rfc/README.md](rfc/README.md)                     |

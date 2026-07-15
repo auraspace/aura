@@ -43,7 +43,7 @@ Details and open trade-offs are expanded in individual RFCs. **Solid Draft** con
 
 | RFC     | Title                       | Estimate     | Layer      | Status | File |
 | ------- | --------------------------- | ------------ | ---------- | ------ | ---- |
-| RFC-000 | Vision & Design Principles  | 15–20 pages  | Foundation | In Review | [RFC-000](RFC-000-vision-design-principles.md) |
+| RFC-000 | Vision & Design Principles  | 15–20 pages  | Foundation | Accepted | [RFC-000](RFC-000-vision-design-principles.md) |
 | RFC-001 | Language Specification      | 80–120 pages | Language   | Draft  | [RFC-001](RFC-001-language-specification.md) |
 | RFC-002 | Type System                 | 40–60 pages  | Language   | Draft  | [RFC-002](RFC-002-type-system.md) |
 | RFC-003 | Memory Model & Concurrency  | 40–80 pages  | Language   | Draft  | [RFC-003](RFC-003-memory-model-concurrency.md) |

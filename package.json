@@ -1,17 +1,19 @@
 {
   "name": "aura",
   "version": "1.0.0",
-  "description": "Aura language — RFCs and docs site",
+  "description": "Aura language — RFCs, docs site, and Rust toolchain",
   "private": true,
   "scripts": {
     "site:dev": "pnpm --dir site dev",
     "site:build": "pnpm --dir site build",
     "site:test": "pnpm --dir site test",
     "site:preview": "pnpm --dir site preview",
-    "test": "pnpm --dir site test"
+    "aura:test": "cargo test --workspace",
+    "aura:check-corpus": "find corpus -name '*.aura' -print0 | sort -z | xargs -0 -n1 cargo run -q -p aura-cli -- check",
+    "test": "pnpm --dir site test && cargo test --workspace"
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "devDependencies": {}
 }
