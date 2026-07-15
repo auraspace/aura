@@ -1,0 +1,17 @@
+{
+  "name": "aura",
+  "version": "1.0.0",
+  "description": "Aura language — RFCs and docs site",
+  "private": true,
+  "scripts": {
+    "site:dev": "pnpm --dir site dev",
+    "site:build": "pnpm --dir site build",
+    "site:test": "pnpm --dir site test",
+    "site:preview": "pnpm --dir site preview",
+    "test": "pnpm --dir site test"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {}
+}

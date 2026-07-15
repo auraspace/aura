@@ -1,0 +1,78 @@
+import { describe, it, expect } from 'vitest'
+import { parseRfcMarkdown, parseDependsList } from './parse-rfc'
+
+const SAMPLE = `# RFC-000: Vision & Design Principles
+
+| Field        | Value                      |
+| ------------ | -------------------------- |
+| **RFC**      | 000                        |
+| **Title**    | Vision & Design Principles |
+| **Status**   | In Review                  |
+| **Layer**    | Foundation                 |
+| **Authors**  |                            |
+| **Created**  | 2026-07-15                 |
+| **Updated**  | 2026-07-15                 |
+| **Estimate** | 15–20 pages                |
+| **Depends**  | —                          |
+| **Blocks**   | RFC-001 … RFC-003          |
+
+---
+
+## 1. Abstract
+
+Hello body.
+
+## 2. Motivation
+
+More text.
+`
+
+describe('parseDependsList', () => {
+  it('returns empty for em dash', () => {
+    expect(parseDependsList('—')).toEqual([])
+  })
+
+  it('parses single RFC id', () => {
+    expect(parseDependsList('RFC-004')).toEqual(['004'])
+  })
+
+  it('expands inclusive range with ellipsis', () => {
+    expect(parseDependsList('RFC-001 … RFC-003')).toEqual([
+      '001',
+      '002',
+      '003',
+    ])
+  })
+
+  it('parses comma-separated list', () => {
+    expect(parseDependsList('RFC-001, RFC-002')).toEqual(['001', '002'])
+  })
+})
+
+describe('parseRfcMarkdown', () => {
+  it('extracts meta and body', () => {
+    const doc = parseRfcMarkdown(
+      SAMPLE,
+      'RFC-000-vision-design-principles.md',
+    )
+    expect(doc.id).toBe('000')
+    expect(doc.title).toBe('Vision & Design Principles')
+    expect(doc.status).toBe('In Review')
+    expect(doc.layer).toBe('Foundation')
+    expect(doc.depends).toEqual([])
+    expect(doc.blocks).toEqual(['001', '002', '003'])
+    expect(doc.markdown).toContain('## 1. Abstract')
+    expect(doc.markdown).not.toContain('**Status**')
+    expect(doc.headings.map((h) => h.text)).toEqual([
+      '1. Abstract',
+      '2. Motivation',
+    ])
+    expect(doc.headings[0].id).toBe('1-abstract')
+    expect(doc.slug).toBe('rfc-000-vision-design-principles')
+  })
+
+  it('throws when RFC field missing', () => {
+    const bad = `# Title\n\n| Field | Value |\n| **Status** | Draft |\n\n---\n\n## x\n`
+    expect(() => parseRfcMarkdown(bad, 'bad.md')).toThrow(/RFC/)
+  })
+})
