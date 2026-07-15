@@ -56,12 +56,6 @@ When you resolve debt, update or remove the matching entry.
 - Next step: GC MVP + class as pointer; keep `struct` by-value
 - Introduced: C1b; still open after C3g
 
-### C equality emits extra parentheses (compiler warnings)
-- Area: codegen
-- Symptom: `if ((t == INT64_C(10)))` triggers `-Wparentheses-equality` on clang
-- Why deferred: cosmetic; does not affect correctness
-- Next step: emit bare comparisons without double parens in conditions
-- Introduced: noticed with C3h corpus
 
 ### No stdlib prelude package
 - Area: stdlib / RFC-007
@@ -71,6 +65,9 @@ When you resolve debt, update or remove the matching entry.
 - Introduced: C0–C1
 
 ## Resolved
+
+### C equality emits extra parentheses (2026-07-15)
+- Resolved in C3q: comparisons (`==`/`!=`/`</>`/…) emit without outer grouping parens so `if (x == y)` is not double-wrapped.
 
 ### No aura.lock for path deps (2026-07-15)
 - Resolved in C3p: write/verify `aura.lock` against `aura.toml` [dependencies].

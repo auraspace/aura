@@ -205,12 +205,17 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &EmitCtx<'_>) -> String {
                 BinOp::And => "&&",
                 BinOp::Or => "||",
             };
-            format!(
-                "({} {} {})",
-                emit_expr(&b.left, ctx),
-                op,
-                emit_expr(&b.right, ctx)
-            )
+            let left = emit_expr(&b.left, ctx);
+            let right = emit_expr(&b.right, ctx);
+            // C3q: comparisons without outer parens so `if (x == y)` is not
+            // `if ((x == y))` (clang -Wparentheses-equality). Arithmetic/logic
+            // keep grouping parens for precedence.
+            match b.op {
+                BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
+                    format!("{left} {op} {right}")
+                }
+                _ => format!("({left} {op} {right})"),
+            }
         }
         Expr::Assign(a) => {
             // field assign in method for bare field name
