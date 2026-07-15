@@ -43,7 +43,38 @@ pub(crate) fn emit_block(out: &mut String, block: &Block, indent: usize, ctx: &m
     for stmt in &block.stmts {
         emit_stmt(out, stmt, indent, ctx);
     }
+    // C3t: free Array buffers owned by this block before leaving the scope.
+    emit_free_array_owners(out, indent, &ctx.array_owners_current());
     ctx.pop_scope();
+}
+
+/// Free heap buffer of a local `Array` (null-safe; zeros fields).
+pub(crate) fn emit_free_array_local(out: &mut String, indent: usize, name: &str) {
+    let p = pad(indent);
+    let n = mangle_ident(name);
+    let _ = writeln!(out, "{p}if ({n}.data != NULL) {{");
+    let _ = writeln!(out, "{p}  free({n}.data);");
+    let _ = writeln!(out, "{p}  {n}.data = NULL;");
+    let _ = writeln!(out, "{p}  {n}.len = 0;");
+    let _ = writeln!(out, "{p}  {n}.cap = 0;");
+    let _ = writeln!(out, "{p}}}");
+}
+
+pub(crate) fn emit_free_array_owners(out: &mut String, indent: usize, owners: &[String]) {
+    for name in owners {
+        emit_free_array_local(out, indent, name);
+    }
+}
+
+fn is_array_type_key(key: &str) -> bool {
+    key == "Array" || key.starts_with("Array_")
+}
+
+fn is_array_ctor_expr(e: &Expr) -> bool {
+    match e {
+        Expr::Call(c) => matches!(c.callee.as_ref(), Expr::Ident(id) if id.name == "Array"),
+        _ => false,
+    }
 }
 
 pub(crate) fn pad(n: usize) -> String {
@@ -69,6 +100,10 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                 })
                 .unwrap_or_else(|| local_key_to_c(&ty_name, ctx.checked));
             ctx.define_local(&v.name.name, ty_name.clone());
+            // C3t: locals initialized from `Array(...)` own the heap buffer.
+            if is_array_type_key(&ty_name) && is_array_ctor_expr(&v.init) {
+                ctx.mark_array_owner(&v.name.name);
+            }
             let init = coerce_expr(&v.init, &ty_name, ctx);
             let _ = writeln!(
                 out,
@@ -192,14 +227,41 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
             }
         }
         Stmt::Try(t) => emit_try(out, t, indent, ctx),
-        Stmt::Return(r) => match &r.value {
-            None => {
-                let _ = writeln!(out, "{p}return;");
+        Stmt::Return(r) => {
+            // C3t: evaluate return value first, free owned Arrays, then return
+            // (so exprs like `return a.get(0)` stay valid).
+            match &r.value {
+                None => {
+                    emit_free_array_owners(out, indent, &ctx.array_owners_all());
+                    let _ = writeln!(out, "{p}return;");
+                }
+                Some(e) => {
+                    let ret_key = infer_type_name(e, ctx);
+                    let skip = match e {
+                        // Returning a named Array local transfers ownership — do not free it.
+                        Expr::Ident(id) if is_array_type_key(&ret_key) => Some(id.name.as_str()),
+                        _ => None,
+                    };
+                    let owners: Vec<String> = ctx
+                        .array_owners_all()
+                        .into_iter()
+                        .filter(|n| skip != Some(n.as_str()))
+                        .collect();
+                    if ret_key == "Unit" {
+                        let _ = writeln!(out, "{p}{};", emit_expr(e, ctx));
+                        emit_free_array_owners(out, indent, &owners);
+                        let _ = writeln!(out, "{p}return;");
+                    } else {
+                        let c_ty = local_key_to_c(&ret_key, ctx.checked);
+                        let tmp = format!("__ret_{}", r.span.start);
+                        let val = emit_expr(e, ctx);
+                        let _ = writeln!(out, "{p}{c_ty} {tmp} = {val};");
+                        emit_free_array_owners(out, indent, &owners);
+                        let _ = writeln!(out, "{p}return {tmp};");
+                    }
+                }
             }
-            Some(e) => {
-                let _ = writeln!(out, "{p}return {};", emit_expr(e, ctx));
-            }
-        },
+        }
         Stmt::Expr(e) => {
             let _ = writeln!(out, "{p}{};", emit_expr(e, ctx));
         }

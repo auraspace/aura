@@ -180,6 +180,7 @@ pub(crate) fn emit_method_mono(
         type_params: params.to_vec(),
         type_args: args.to_vec(),
         locals: vec![HashMap::new()],
+        array_owners: vec![std::collections::HashSet::new()],
     };
     for f in &c.fields {
         ctx.define_local(&f.name.name, type_ref_local_key(&f.ty, params, args));

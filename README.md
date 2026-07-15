@@ -71,9 +71,10 @@ C1 uses a **C backend** (`aura emit-c` + system `cc`) linked with `runtime/aura_
 - **Compiler C3q** Bare comparison C emit (avoids clang `-Wparentheses-equality`)
 - **Compiler C3r** `Array.pop` (returns last element; empty throws)
 - **Runtime C3s** Free exception object payloads on catch clear
+- **Compiler C3t** Free owned `Array` buffers at scope end / before return
 - **DX** Pretty diagnostics (`path:line:col` + source snippet)
 - **Debts** Tracked in [`agents/debts.md`](agents/debts.md)
-- **Next:** Array free, GC MVP, registry, LLVM
+- **Next:** Alias.Type, package type symbols, GC MVP, LLVM
 
 ## Links
 

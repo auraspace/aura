@@ -283,6 +283,7 @@ pub(crate) fn emit_fun(out: &mut String, f: &FunDecl, checked: &CheckedFile, arg
         type_params: params.clone(),
         type_args: args.to_vec(),
         locals: vec![HashMap::new()],
+        array_owners: vec![std::collections::HashSet::new()],
     };
     for p in &f.params {
         ctx.define_local(

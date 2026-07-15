@@ -14,12 +14,12 @@ When you resolve debt, update or remove the matching entry.
 - Next step: Iterable protocol or expand for-in to more collections
 - Introduced: narrowed after C3k (was C3h range-only); `..=` done in C3l
 
-### `Array<T>` limited element types and no free
-- Area: builtin Array (C3j/C3m/C3r)
-- Symptom: only `Int`/`Bool`/`String` elements; buffers from `calloc`/`realloc` never freed
-- Why deferred: heap mono without GC; C3m push + C3r pop; free still open
-- Next step: GC-owned buffers or free on scope end; class elements as refs
-- Introduced: C3j; push C3m; pop C3r
+### `Array<T>` limited element types; shallow-copy free unsound
+- Area: builtin Array (C3j–C3t)
+- Symptom: only `Int`/`Bool`/`String` elements; free tracks ctor-initialized locals only — shallow copies / pass-by-value can still leak or double-free if misused
+- Why deferred: full ownership/move or GC; C3t frees owner locals at scope end / before return
+- Next step: class elements as refs; GC-owned buffers; move-only Array or borrow
+- Introduced: C3j; push C3m; pop C3r; free owners C3t
 
 
 ### Import aliases: functions only; no type qualify
@@ -59,6 +59,9 @@ When you resolve debt, update or remove the matching entry.
 - Introduced: C0–C1
 
 ## Resolved
+
+### Array buffers never freed (2026-07-15)
+- Resolved in C3t: locals initialized from `Array(...)` are freed at scope end and before return (value computed first). Remaining: element types + shallow-copy edge cases under Open.
 
 ### Exception object payloads leak heap copies (2026-07-15)
 - Resolved in C3s: `owns_obj` on exception frame; `aura_ex_clear` frees `throw_obj` malloc after catch copies by value. Rethrow transfers ownership.
