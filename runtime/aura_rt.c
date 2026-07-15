@@ -212,11 +212,50 @@ void aura_ex_rethrow(void) {
   longjmp(*outer->buf, 1);
 }
 
+/* ---- GC MVP (C3x): tracked heap + free-all at shutdown (no mark-sweep yet) ---- */
+
+typedef struct AuraGcNode {
+  void *ptr;
+  struct AuraGcNode *next;
+} AuraGcNode;
+
+static AuraGcNode *aura_gc_list = NULL;
+
+void *aura_gc_alloc(size_t size) {
+  void *p = malloc(size);
+  if (p == NULL && size > 0) {
+    fputs("aura: GC allocation failed\n", stderr);
+    abort();
+  }
+  AuraGcNode *n = (AuraGcNode *)malloc(sizeof(AuraGcNode));
+  if (n == NULL) {
+    fputs("aura: GC metadata allocation failed\n", stderr);
+    abort();
+  }
+  n->ptr = p;
+  n->next = aura_gc_list;
+  aura_gc_list = n;
+  return p;
+}
+
+void aura_gc_shutdown(void) {
+  AuraGcNode *n = aura_gc_list;
+  while (n != NULL) {
+    AuraGcNode *next = n->next;
+    free(n->ptr);
+    free(n);
+    n = next;
+  }
+  aura_gc_list = NULL;
+}
+
 /* Provided by generated code */
 int aura_main(void);
 
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
-  return aura_main();
+  int rc = aura_main();
+  aura_gc_shutdown();
+  return rc;
 }

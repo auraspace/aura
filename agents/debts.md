@@ -40,9 +40,9 @@ When you resolve debt, update or remove the matching entry.
 ### Classes are by-value C structs (not GC refs)
 - Area: memory model / RFC-003 vs codegen
 - Symptom: class identity/reference semantics incomplete; nullable class is partial; no heap identity
-- Why deferred: C1b value-style structs/classes unblocked methods without GC
-- Next step: GC MVP + class as pointer; keep `struct` by-value
-- Introduced: C1b; still open after C3g
+- Why deferred: C1b value-style; C3x added `aura_gc_alloc` + shutdown free-all only
+- Next step: class as pointer via GC alloc; keep `struct` by-value
+- Introduced: C1b; C3x runtime hook
 
 
 ### No stdlib prelude package

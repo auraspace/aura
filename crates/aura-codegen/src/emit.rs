@@ -47,6 +47,8 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("void *aura_ex_as_obj(void);\n");
     out.push_str("void aura_ex_clear(void);\n");
     out.push_str("void aura_ex_rethrow(void);\n");
+    out.push_str("void *aura_gc_alloc(size_t size);\n");
+    out.push_str("void aura_gc_shutdown(void);\n");
     out.push_str("int aura_main(void);\n\n");
 
     // Stable class tags for interface dispatch (non-generic only)
