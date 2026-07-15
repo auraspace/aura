@@ -1,0 +1,105 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# Editors / IDEs
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json.example
+*.swp
+*.swo
+*~
+*.sublime-project
+*.sublime-workspace
+.project
+.classpath
+.settings/
+*.code-workspace
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+credentials/
+
+# Rust (toolchain implementation)
+/target/
+**/*.rs.bk
+# Uncomment if this repo is only a library workspace without a root binary:
+# Cargo.lock
+
+# Aura project build outputs (when compiler exists)
+**/target/
+!docs/**/target/
+
+# Logs & caches
+*.log
+logs/
+.cache/
+tmp/
+temp/
+*.tmp
+
+# Test / coverage
+coverage/
+*.lcov
+*.profraw
+*.profdata
+tarpaulin-report.html
+
+# Generated / local
+dist/
+build/
+out/
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+
+# Node (docs tooling, if any)
+node_modules/
+npm-debug.log*
+yarn-error.log*
+.pnpm-store/
+
+# Python (scripts, if any)
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Misc
+*.bak
+*.orig
+.direnv/
+.flake/

@@ -1,0 +1,195 @@
+# RFC-013: Binary Distribution
+
+| Field        | Value                    |
+| ------------ | ------------------------ |
+| **RFC**      | 013                      |
+| **Title**    | Binary Distribution      |
+| **Status**   | Draft                    |
+| **Layer**    | Toolchain                |
+| **Authors**  |                          |
+| **Created**  | 2026-07-15               |
+| **Updated**  | 2026-07-15               |
+| **Estimate** | 20–30 pages              |
+| **Depends**  | RFC-000, RFC-008         |
+| **Blocks**   | RFC-012 (toolchain cmds) |
+
+---
+
+## 1. Abstract
+
+This RFC covers **how Aura ships**: platform matrix for the **toolchain** and for **user applications**, installers, archive layouts, **code signing**, checksums, self-update, and packaging of **single-file app binaries**. Default application deploy remains **one executable** produced by `aura build`.
+
+## 2. Motivation
+
+### 2.1 Problem statement
+
+A language that compiles to native code still fails users if the toolchain is hard to install or app artifacts are multi-file messes. Distribution is part of the product.
+
+### 2.2 Why now
+
+Build outputs (RFC-008) and CLI (RFC-012) need install and release contracts.
+
+### 2.3 Success metrics
+
+| Metric            | Target                             |
+| ----------------- | ---------------------------------- |
+| Toolchain install | One command or single archive      |
+| App ship          | One file per OS/arch               |
+| Integrity         | Checksums + signatures on releases |
+
+## 3. Goals
+
+- Document supported OS/arch matrix for v1.
+- Standard release artifact naming.
+- Signing & verification story.
+- Self-update for toolchain (optional but designed).
+- Clear guidance for app distribution (not an app store).
+
+## 4. Non-goals
+
+- App Store / Play Store submission pipelines.
+- WASM distribution as v1 primary.
+- Guaranteeing notarization on day-one for all platforms (track per-OS requirements).
+
+## 5. Prior art & alternatives
+
+| System          | Notes                  | Take                      |
+| --------------- | ---------------------- | ------------------------- |
+| Rustup          | Toolchain install      | Inspiration               |
+| Go              | Single static binaries | App ship model            |
+| Node installers | Multi-file             | Contrast                  |
+| Docker-only     | Popular                | Compatible, not exclusive |
+
+## 6. Design
+
+### 6.1 Platform matrix (v1)
+
+| OS          | Arch         |
+| ----------- | ------------ |
+| Linux (gnu) | amd64, arm64 |
+| macOS       | amd64, arm64 |
+| Windows     | amd64, arm64 |
+
+Musl/static Linux: stretch goal for super-portable apps.
+
+### 6.2 Toolchain artifacts
+
+Naming:
+
+```text
+aura-toolchain-{version}-{os}-{arch}.tar.gz
+aura-toolchain-{version}-{os}-{arch}.zip   # windows
+```
+
+Contents:
+
+```text
+bin/aura
+lib/…          # if needed
+share/…        # licenses, man
+components…    # optional cross libs
+```
+
+### 6.3 Application artifacts
+
+- Default: `target/release/<bin>` single executable.
+- Optional: `aura pack` produces versioned tarball with binary + LICENSE + README (still one primary bin).
+- Embed version via build: `aura build --release` sets version from manifest.
+
+### 6.4 Install methods
+
+| Method                      | Audience                         |
+| --------------------------- | -------------------------------- |
+| Install script (curl \| sh) | Dev machines (document risks)    |
+| Package managers            | brew, apt, winget—when available |
+| Manual archive              | Airgapped                        |
+| `aura toolchain install`    | Self-management post-bootstrap   |
+
+### 6.5 Integrity & signing
+
+- Publish `SHA256SUMS` for every release.
+- Sign sums with release key (**minisign** for simplicity of offline verify; cosign optional later for provenance).
+- Windows Authenticode / macOS notarization: platform-specific checklist.
+
+### 6.6 Self-update
+
+- `aura toolchain upgrade` checks release API, verifies signature, replaces binaries atomically.
+- Respects offline mode.
+- Channels: `stable`, `beta`, `nightly` (optional).
+
+### 6.7 Container story
+
+- Official slim images optional; still demonstrate copying single static binary into `FROM scratch` / distroless when linked appropriately.
+
+### 6.8 Examples
+
+```text
+# install toolchain (illustrative)
+curl -fsSL https://aura.dev/install.sh | sh
+
+aura version
+aura build --release -o greeter
+scp greeter host:/usr/local/bin/
+```
+
+### 6.9 Error model / edge cases
+
+| Case                 | Behavior                       |
+| -------------------- | ------------------------------ |
+| Signature fail       | Abort update                   |
+| Partial download     | Atomic replace only on success |
+| Unsupported platform | Clear message                  |
+
+### 6.10 Compatibility & migration
+
+- Toolchain versions independent of language editions.
+- App binaries: no guarantee to run under different runtime major if dynamically linked—**static default** avoids this.
+
+## 7. Open questions
+
+| #   | Question           | Options        | Owner   | Status                               |
+| --- | ------------------ | -------------- | ------- | ------------------------------------ |
+| 1   | Signing technology | minisign first | Dist    | **Resolved** (cosign later optional) |
+| 2   | Musl tier          | tier1 / tier2  | Dist    | Open                                 |
+| 3   | Hosting URL / CDN  |                | Project | Open                                 |
+| 4   | Windows arm64 tier |                | Dist    | Open                                 |
+
+## 8. Rationale & trade-offs
+
+Single-file apps maximize operational simplicity. Toolchain archives + checksums are table stakes for professional languages. Self-update improves DX but increases supply-chain criticality—hence signatures. Cost: platform signing bureaucracy (Apple/Microsoft) is ongoing ops work.
+
+## 9. Unresolved / future work
+
+- Deb/rpm official packages
+- SBOM generation on release
+- Provenance (SLSA) levels
+
+## 10. Security & safety considerations
+
+- Install scripts are sensitive—pin versions, document checksum verification alternative.
+- Release keys offline / HSM policy.
+- Rollback path for bad toolchains.
+- Do not auto-exec downloaded app code.
+
+## 11. Implementation plan (optional)
+
+| Phase | Scope                       | Exit criteria      |
+| ----- | --------------------------- | ------------------ |
+| D0    | Manual archives + checksums | GitHub releases CI |
+| D1    | Install script + matrix     | 6 platform builds  |
+| D2    | Sign + self-update          | Verified upgrade   |
+
+## 12. References
+
+- Go install/dist; rustup
+- RFC-000, RFC-008, RFC-012
+
+---
+
+## Changelog
+
+| Date       | Author | Change                                         |
+| ---------- | ------ | ---------------------------------------------- |
+| 2026-07-15 |        | Initial skeleton                               |
+| 2026-07-15 |        | Solid draft: matrix, signing, single-file apps |
+| 2026-07-15 |        | Lock minisign for release signatures           |

@@ -1,0 +1,459 @@
+# RFC-001: Language Specification
+
+| Field        | Value                                                         |
+| ------------ | ------------------------------------------------------------- |
+| **RFC**      | 001                                                           |
+| **Title**    | Language Specification                                        |
+| **Status**   | Draft                                                         |
+| **Layer**    | Language                                                      |
+| **Authors**  |                                                               |
+| **Created**  | 2026-07-15                                                    |
+| **Updated**  | 2026-07-15                                                    |
+| **Estimate** | 80–120 pages                                                  |
+| **Depends**  | RFC-000                                                       |
+| **Blocks**   | RFC-002, RFC-003, RFC-004, RFC-006, RFC-007, RFC-009, RFC-010 |
+
+---
+
+## 1. Abstract
+
+This RFC defines the **surface syntax and core language semantics** of Aura: lexical structure, grammar sketch, declarations (classes, interfaces, functions, packages), expressions and statements, modules/visibility, and the user-visible shape of nullability, errors, async, and attributes.
+
+Deep type rules live in **RFC-002**; memory, tasks, and races in **RFC-003**; attributes/metadata detail in **RFC-009**; macros in **RFC-010**. Syntax here is **pseudo-Aura** until a frozen grammar file lands in-repo.
+
+## 2. Motivation
+
+### 2.1 Problem statement
+
+Without a single surface specification, compiler, formatter, and docs diverge. Aura needs a **statement-oriented, Java-like** surface that still supports modern expression forms, null-safe types, `Result`, exceptions, and task-based async—without requiring ownership annotations.
+
+### 2.2 Why now
+
+Wave-1 foundation: every later RFC quotes keywords, declaration forms, and module rules from here.
+
+### 2.3 Success metrics
+
+- Unambiguous programs can be written and type-checked (with RFC-002).
+- Grammar parseable by a standard approach (hand-written recursive descent first; tree-sitter grammar as companion).
+- A short “language tour” compiles once the compiler MVP exists.
+
+## 3. Goals
+
+- Formal-ish specification: lexical rules + grammar sketch + semantics prose.
+- Deterministic evaluation order where it matters (argument order, field init).
+- Stable surface for compiler, formatter, and macros.
+- Align with RFC-000 locked decisions (classes, `T?`, exceptions + `Result`, tasks).
+
+## 4. Non-goals
+
+- Full formal operational semantics (optional later appendix).
+- Stdlib API (→ RFC-007).
+- Detailed type inference algorithm (→ RFC-002).
+- Memory/concurrency operational model (→ RFC-003).
+- Complete EBNF frozen file in this draft (tracked as deliverable).
+
+## 5. Prior art & alternatives
+
+| Approach      | Notes                                            | Influence                        |
+| ------------- | ------------------------------------------------ | -------------------------------- |
+| Java / Kotlin | Classes, methods, packages, nullability (Kotlin) | Primary surface                  |
+| C#            | async, attributes                                | Secondary                        |
+| Go            | package model simplicity                         | Packages/tasks spirit only       |
+| TypeScript    | DX ergonomics                                    | Not structural typing default    |
+| Rust          | Expression-oriented blocks                       | Selective (`if`/`match` as expr) |
+
+## 6. Design
+
+### 6.1 Overview
+
+Aura is a **multi-paradigm** language with a **class-based OOP** core:
+
+| Axis          | Choice                                                                       |
+| ------------- | ---------------------------------------------------------------------------- |
+| Compilation   | Ahead-of-time to native (LLVM)                                               |
+| Execution     | Linked runtime: GC + task scheduler                                          |
+| Orientation   | **Statements** primary; **blocks / if / match** may yield values             |
+| Nominal types | Classes, interfaces, enums; value `struct` (distinct from `class`)           |
+| Modules       | Package-based; files belong to a package                                     |
+| Entry         | `fun main(...)` in a designated root (convention: package main or `[[bin]]`) |
+
+```text
+Source file
+  → package decl
+  → imports
+  → top-level decls (class, interface, enum, struct, fun, const, type alias)
+```
+
+### 6.2 Lexical structure
+
+**Character set & encoding:** UTF-8 source. Identifiers: Unicode XID rules (exact table TBD); ASCII letters/digits/`_` required for keywords.
+
+**Keywords (reserved):**  
+`package`, `import`, `as`, `class`, `interface`, `enum`, `struct`, `fun`, `val`, `var`, `const`, `if`, `else`, `match`, `case`, `while`, `for`, `in`, `break`, `continue`, `return`, `throw`, `try`, `catch`, `finally`, `async`, `await`, `spawn`, `is`, `as` (cast form disambiguated), `null`, `true`, `false`, `this`, `super`, `new` (optional sugar—prefer constructor call `Type(...)`), `pub`, `protected`, `private`, `static`, `abstract`, `override`, `open`, `final`, `where`, `type`, `unsafe`.
+
+**Soft keywords** (contextual): `get`, `set`, `field`, `init`, `from` — reserved only in specific positions.
+
+**Literals:**
+
+| Kind       | Examples                                   |
+| ---------- | ------------------------------------------ |
+| Int        | `0`, `42`, `0xFF`, `1_000`                 |
+| Float      | `3.14`, `1e-3`                             |
+| Bool       | `true`, `false`                            |
+| String     | `"hello"`, interpolation `"hi ${name}"`    |
+| Raw string | `#"path\no-escape"#` (delimiter style TBD) |
+| Char       | `'a'`                                      |
+| Null       | `null` (only for `T?`)                     |
+
+**Comments:** `//` line, `/* */` block (**non-nesting** v1). Doc comments: `///` or `/** */` attached to following decl.
+
+**Semicolons:** Statements **do not require** trailing `;` (newline/brace terminated). `;` optional separator for multiple statements on one line. No significant indentation.
+
+**Operators:** Arithmetic, comparison, logical, `?.` safe call, `?:` null-coalesce, `!!` unchecked non-null assert (discouraged; lintable), `->` in function types, `=>` in match/lambda if needed.
+
+### 6.3 Grammar sketch
+
+Source of truth will be `grammar/aura.ebnf` (future). Sketch:
+
+```ebnf
+File        = PackageDecl Import* Decl*
+PackageDecl = "package" Path
+Import      = "import" Path ("as" Ident)?
+Decl        = ClassDecl | InterfaceDecl | EnumDecl | StructDecl
+            | FunDecl | ConstDecl | TypeAlias | Attribute* Decl
+
+ClassDecl   = Attr* Modifiers "class" Ident TypeParams?
+              (":" TypeList)? ClassBody
+FunDecl     = Attr* Modifiers "fun" Ident TypeParams? "(" Params? ")"
+              (":" Type)? BlockOrExprBody
+```
+
+Parser strategy: **hand-written recursive descent** with Pratt parser for expressions (RFC-004).
+
+### 6.4 Types (surface syntax)
+
+Semantic detail → RFC-002. Surface only:
+
+| Category          | Syntax examples                                                                       |
+| ----------------- | ------------------------------------------------------------------------------------- |
+| Primitives        | `Int`, `Long`, `Float`, `Double`, `Bool`, `Char`, `Byte`, `String`, `Unit`, `Nothing` |
+| Class / interface | `User`, `List<String>`                                                                |
+| Nullable          | `String?`, `User?`                                                                    |
+| Arrays            | `Array<T>` (not `T[]`)                                                                |
+| Tuples            | `(Int, String)`                                                                       |
+| Function types    | `(Int, String) -> Bool`                                                               |
+| Result            | `Result<T, E>` (stdlib / prelude)                                                     |
+| Type alias        | `type UserId = Long`                                                                  |
+| Generics          | `class Box<T>`, constraints via `where` / bound syntax                                |
+
+**No raw nullable without `?`.** `null` has type `Nothing?` / bottom-nullable and only assigns to `T?`.
+
+### 6.5 Declarations
+
+#### Variables
+
+| Form               | Meaning                                   |
+| ------------------ | ----------------------------------------- |
+| `val x: T = ...`   | Immutable binding                         |
+| `var x: T = ...`   | Mutable binding                           |
+| `const X: T = ...` | Compile-time constant (top-level / class) |
+
+Type annotation optional when inferable (RFC-002).
+
+#### Functions
+
+```aura
+fun add(a: Int, b: Int): Int {
+  return a + b
+}
+
+// Expression body
+fun double(x: Int): Int = x * 2
+```
+
+- Named functions; default args **yes** (resolved at call site).
+- Rest/`vararg`: **yes** as `vararg xs: T`.
+- Overloads: **yes**, resolved per RFC-002.
+- Generics on functions: yes.
+
+#### Classes
+
+```aura
+open class Animal(val name: String) {
+  open fun speak(): String { return "..." }
+}
+
+class Dog(name: String, val breed: String) : Animal(name) {
+  override fun speak(): String { return "woof" }
+}
+```
+
+- Primary constructor in header (Kotlin-like) plus optional secondary `constructor` blocks.
+- Single class inheritance; multiple **interfaces**.
+- `open` / `final` / `abstract`: **classes are final by default**; mark `open` to allow subclassing.
+- Nested `companion` object for type-level / “static” members (primary model; no free-floating Java `static` as the main surface).
+
+#### Struct (value type — included in v1)
+
+```aura
+struct Point(val x: Int, val y: Int)
+```
+
+Semantics (copy vs ref) → RFC-002/003. Surface: no identity, no subclassing.
+
+#### Enums
+
+```aura
+enum Color { Red, Green, Blue }
+
+enum Shape {
+  case Circle(radius: Double)
+  case Rect(w: Double, h: Double)
+}
+```
+
+#### Interfaces
+
+```aura
+interface Drawable {
+  fun draw()
+  fun bounds(): Rect { /* default method optional */ }
+}
+```
+
+#### Modules, packages, visibility
+
+| Modifier    | Meaning                                                       |
+| ----------- | ------------------------------------------------------------- |
+| (default)   | Package-private                                               |
+| `pub`       | Public API                                                    |
+| `protected` | Class + subclasses                                            |
+| `private`   | Enclosing class / file (file-private for top-level `private`) |
+
+#### Imports
+
+```aura
+import std.io
+import std.collections.List as StdList
+```
+
+Re-exports: `pub import ...` (optional v1).
+
+### 6.6 Expressions & statements
+
+**Statements:** declarations, assignments, loops, `return`/`break`/`continue`/`throw`, expression statements.
+
+**Expression forms:** literals, calls, field/method access, operators, lambdas, `if`/`match` expressions, blocks `{ ... }` (value = last expression if used as expr).
+
+**Control flow:**
+
+```aura
+if (cond) { ... } else { ... }
+
+val msg = if (ok) "yes" else "no"
+
+match (shape) {
+  case Circle(r) => ...
+  case Rect(w, h) => ...
+}
+
+while (cond) { ... }
+for (item in iterable) { ... }
+for (i in 0..n) { ... }  // range syntax TBD
+```
+
+**Pattern matching:** destructure enums, sealed hierarchies, basics on tuples; exhaustiveness → RFC-002.
+
+**Casts:**
+
+- Smart cast after `is` check (flow-sensitive).
+- Explicit: `x as Type` (checked), `x as? Type` → `Type?`, `x as! Type` unsafe assert.
+
+**Error handling surface:**
+
+```aura
+try {
+  risky()
+} catch (e: IoError) {
+  ...
+} finally {
+  ...
+}
+
+throw AppError("boom")
+
+fun readConfig(): Result<Config, ConfigError> { ... }
+
+match readConfig() {
+  case Ok(c) => use(c)
+  case Err(e) => log(e)
+}
+```
+
+- **Exceptions:** unchecked hierarchy rooted at `Error` / `Throwable` (names TBD).
+- **`Result`:** for expected failures; not forced by the type system on all functions.
+
+**Async surface:**
+
+```aura
+async fun fetch(url: String): Bytes { ... }
+
+fun main() {
+  spawn { worker() }
+  val body = await fetch("https://example.com")
+}
+```
+
+Semantics → RFC-003. Keywords only here.
+
+**Null surface:**
+
+```aura
+val s: String? = maybe()
+val n = s?.length()
+val t = s ?: "default"
+val u = s!!   // assert non-null; panic/throw if null
+```
+
+### 6.7 Functions & calling convention (language level)
+
+- Parameters are **references to GC objects** for class types; **by-value** for primitives and structs (details RFC-003).
+- `this` receiver for instance methods; `super` for parent.
+- First-class functions and lambdas: **`(x: Int) => x + 1`** or block body `(x: Int) => { ... }`.
+- Closures: capture `val` by value/shared immutability; capture `var` by reference (shared mutable box). Exact lowering in RFC-004.
+- Generators/iterators: `Iterable` / `Iterator` protocols in stdlib; `yield` **not required v1**.
+
+### 6.8 Modules & compilation units
+
+- **Package** = namespace + visibility boundary. Directory layout convention: `src/<package/path>/File.aura` (exact layout RFC-008).
+- **Compilation unit** = package graph of a target (bin/lib).
+- **Cyclic packages:** forbidden across packages; cycles within a package allowed with restrictions (forward refs).
+- Root manifest: `aura.toml` (RFC-005) lists packages/targets.
+
+### 6.9 Attributes / decorators / annotations
+
+```aura
+@test
+@derive(Debug, Equals)
+@inline
+class Foo { }
+```
+
+Retention and meaning → RFC-009. Macro attributes → RFC-010.
+
+### 6.10 Unsafe / low-level surface
+
+```aura
+unsafe {
+  // raw pointers, unchecked casts, FFI helpers
+}
+```
+
+- `unsafe` blocks/functions required for raw memory and most FFI.
+- Safe Aura must not observe undefined behavior from other safe Aura (GC + type system); FFI breaks the seal (RFC-003/006).
+
+### 6.11 Examples
+
+```aura
+package hello
+
+import std.io.println
+
+class Greeter(val name: String) {
+  fun greet(whom: String?): String {
+    val target = whom ?: "world"
+    return "Hello, ${target}, from ${this.name}"
+  }
+}
+
+fun main() {
+  val g = Greeter("Aura")
+  println(g.greet(null))
+}
+```
+
+```aura
+package demo.http
+
+interface Handler {
+  fun handle(req: Request): Result<Response, HttpError>
+}
+
+class EchoHandler : Handler {
+  override fun handle(req: Request): Result<Response, HttpError> {
+    return Result.ok(Response(200, req.body))
+  }
+}
+```
+
+### 6.12 Error model / edge cases
+
+| Topic            | Rule                                                                                                                                                                                                                                                                  |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Ambiguous parses | Grammar prefers longest match; reserved keywords never identifiers                                                                                                                                                                                                    |
+| Soft keywords    | Allowed as identifiers outside their context                                                                                                                                                                                                                          |
+| Evaluation order | Left-to-right for arguments and operands unless specified                                                                                                                                                                                                             |
+| Overflow         | Fixed-width ints: **checked in `dev`** (trap/throw on overflow); explicit wrapping operators (`&+` style or `wrappingAdd`) always available; `release` may omit checks for speed when using wrapping ops—default arithmetic policy documented with toolchain profiles |
+| String interp    | Only expressions; no statement injection                                                                                                                                                                                                                              |
+
+### 6.13 Compatibility & migration
+
+- Language version / edition field in `aura.toml`.
+- Deprecation: `@deprecated` attribute + compiler warnings.
+- No promise of source compatibility with Java/Kotlin; “Java-like” is conceptual.
+
+## 7. Open questions
+
+| #   | Question                              | Options                    | Owner | Status                                                    |
+| --- | ------------------------------------- | -------------------------- | ----- | --------------------------------------------------------- |
+| 1   | Classes final by default?             | yes                        | Lang  | **Resolved** — final by default                           |
+| 2   | Companion vs static keyword           | companion                  | Lang  | **Resolved** — companion                                  |
+| 3   | Array syntax `Array<T>` vs `T[]`      | `Array<T>`                 | Lang  | **Resolved**                                              |
+| 4   | Lambda syntax                         | `(…) =>`                   | Lang  | **Resolved**                                              |
+| 5   | Checked exceptions                    | no                         | Lang  | **Resolved** — unchecked only                             |
+| 6   | Integer overflow policy               | checked dev + wrapping ops | Lang  | **Resolved** (release elision details open with profiles) |
+| 7   | Exact keyword set / soft-keyword list |                            | Lang  | Open                                                      |
+| 8   | Range syntax `0..n`                   | inclusive/exclusive        | Lang  | Open                                                      |
+
+## 8. Rationale & trade-offs
+
+Java-like classes maximize familiarity for service engineers. Kotlin-inspired nullability and primary constructors reduce boilerplate without adopting full Kotlin semantics. Statement orientation keeps control flow obvious; expression-`if`/`match` covers the useful 20% of expression-oriented style. Rejecting ownership keeps the surface aligned with GC (RFC-000). `Result` + exceptions avoid the false dichotomy of “all errors are exceptions” vs “all errors are values.”
+
+## 9. Unresolved / future work
+
+- Full formal grammar file in repo
+- Tree-sitter grammar
+- Spec test suite (syntax corpus)
+- Exact prelude names (`Unit`, `Nothing`, `Result`)
+
+## 10. Security & safety considerations
+
+- No `eval` of source strings in language core.
+- String interpolation does not execute code beyond expression evaluation.
+- `unsafe` and `!!` are lint targets; security-sensitive codebases can forbid them.
+- Macro expansion hygiene (RFC-010) prevents accidental identifier capture.
+
+## 11. Implementation plan (optional)
+
+| Phase | Scope                     | Exit criteria          |
+| ----- | ------------------------- | ---------------------- |
+| G0    | Lexer + subset grammar    | Parse hello            |
+| G1    | Core decls + control flow | Spec examples parse    |
+| G2    | Full surface v1           | Grammar frozen for MVP |
+
+## 12. References
+
+- RFC-000, RFC-002, RFC-003, RFC-009, RFC-010
+- Kotlin language reference (nullability, primary constructors)
+- Java Language Specification (classes, overloading concepts)
+- Go language spec (packages—contrast only)
+
+---
+
+## Changelog
+
+| Date       | Author | Change                                                              |
+| ---------- | ------ | ------------------------------------------------------------------- |
+| 2026-07-15 |        | Initial skeleton                                                    |
+| 2026-07-15 |        | Solid draft: Java-like surface, nullability, Result, tasks keywords |
+| 2026-07-15 |        | Lock lean surface decisions (final, companion, Array, lambda, …)    |
