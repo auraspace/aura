@@ -22,12 +22,6 @@ When you resolve debt, update or remove the matching entry.
 - Introduced: C3j; push C3m; pop C3r; free owners C3t
 
 
-### Import aliases: functions only; no type qualify
-- Area: sema / codegen (`import path as Alias`)
-- Symptom: `Alias.fun(...)` works (C3n); no `Alias.Type` in type positions
-- Why deferred: C3n shipped qualified free-function calls only
-- Next step: qualified types/ctors
-- Introduced: narrowed after C3n
 
 ### Classes/enums still unique across packages
 - Area: package loader / codegen
@@ -60,6 +54,9 @@ When you resolve debt, update or remove the matching entry.
 
 ## Resolved
 
+### Import aliases: functions only; no type qualify (2026-07-15)
+- Resolved in C3u: `Alias.Type` in type positions + `Alias.Type(...)` constructors; `TypeRef.qualifier` + package check.
+
 ### Array buffers never freed (2026-07-15)
 - Resolved in C3t: locals initialized from `Array(...)` are freed at scope end and before return (value computed first). Remaining: element types + shallow-copy edge cases under Open.
 
@@ -80,7 +77,7 @@ When you resolve debt, update or remove the matching entry.
 
 ### Import aliases parsed but unused (2026-07-15)
 - Resolved in C3n: `import path as Alias` → `Alias.fun(...)` free-function calls.
-- Remaining: type qualify under Open.
+- Types: see C3u resolved entry.
 
 ### No `Array.push` / grow (2026-07-15)
 - Resolved in C3m: `cap` field + `push` with doubling `realloc`.

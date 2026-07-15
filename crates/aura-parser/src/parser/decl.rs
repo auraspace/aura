@@ -360,8 +360,16 @@ impl Parser {
     }
 
     pub(crate) fn parse_type(&mut self) -> Result<TypeRef, ParseError> {
-        let name = self.expect_ident()?;
-        let start = name.span.start;
+        let first = self.expect_ident()?;
+        let start = first.span.start;
+        // C3u: `Alias.Type` package-qualified type name.
+        let (qualifier, name) = if matches!(self.peek().kind, TokenKind::Dot) {
+            self.bump();
+            let name = self.expect_ident()?;
+            (Some(first), name)
+        } else {
+            (None, first)
+        };
         let type_args = self.parse_type_args_opt()?;
         let nullable = if matches!(self.peek().kind, TokenKind::Question) {
             self.bump();
@@ -377,6 +385,7 @@ impl Parser {
             name.span.end
         };
         Ok(TypeRef {
+            qualifier,
             name,
             type_args,
             nullable,

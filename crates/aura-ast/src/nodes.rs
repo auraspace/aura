@@ -168,9 +168,11 @@ pub struct Param {
     pub span: Span,
 }
 
-/// `Box<String>?` — name, optional type arguments, optional `?`.
+/// `Box<String>?` / `Math.Point` — optional package alias qualifier (C3u), name, type args, `?`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeRef {
+    /// `import path as Alias` qualifier when type is written `Alias.Name` (C3u).
+    pub qualifier: Option<Ident>,
     pub name: Ident,
     pub type_args: Vec<TypeRef>,
     pub nullable: bool,

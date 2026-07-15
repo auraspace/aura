@@ -32,6 +32,11 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &EmitCtx<'_>) -> String {
                     .map(|a| emit_expr(a, ctx))
                     .collect::<Vec<_>>()
                     .join(", ");
+                // C3u: `Alias.Type(...)` constructor vs `Alias.fun(...)`.
+                if inst.map(|i| i.is_constructor).unwrap_or(false) {
+                    let mono = mono_key(name, &targs);
+                    return format!("{}({args})", c_ctor_name(&mono));
+                }
                 return format!("{}({args})", c_fun_name(pkg, name, &targs));
             }
         }

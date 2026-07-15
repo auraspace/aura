@@ -47,6 +47,9 @@ fn shift_type_param(tp: &mut TypeParam, delta: BytePos) {
 }
 
 fn shift_type_ref(t: &mut TypeRef, delta: BytePos) {
+    if let Some(q) = &mut t.qualifier {
+        shift_ident(q, delta);
+    }
     shift_ident(&mut t.name, delta);
     for a in &mut t.type_args {
         shift_type_ref(a, delta);

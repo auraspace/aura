@@ -11,12 +11,38 @@ impl Checker {
             .map(|a| self.type_from_ref(a))
             .collect::<Result<Vec<_>, _>>()?;
 
+        // C3u: `Alias.Type` — resolve type in the package bound to Alias.
+        let qualified_pkg = if let Some(q) = &t.qualifier {
+            let pkg = self.import_aliases.get(&q.name).ok_or_else(|| SemaError {
+                message: format!("unknown package alias `{}` in type", q.name),
+                span: q.span,
+            })?;
+            Some(pkg.as_str())
+        } else {
+            None
+        };
+
         let base = match t.name.name.as_str() {
+            "Unit" | "Int" | "Bool" | "String" if qualified_pkg.is_some() => {
+                return Err(SemaError {
+                    message: format!(
+                        "primitive type `{}` cannot be package-qualified",
+                        t.name.name
+                    ),
+                    span: t.span,
+                });
+            }
             "Unit" => Ty::Unit,
             "Int" => Ty::Int,
             "Bool" => Ty::Bool,
             "String" => Ty::String,
             other if self.type_params.contains_key(other) => {
+                if qualified_pkg.is_some() {
+                    return Err(SemaError {
+                        message: format!("type parameter `{other}` cannot be package-qualified"),
+                        span: t.span,
+                    });
+                }
                 if !type_args.is_empty() {
                     return Err(SemaError {
                         message: format!("type parameter `{other}` cannot take type arguments"),
@@ -27,6 +53,16 @@ impl Checker {
             }
             other if self.classes.contains_key(other) => {
                 let class = self.classes.get(other).unwrap().clone();
+                if let Some(pkg) = qualified_pkg {
+                    if class.package != pkg {
+                        return Err(SemaError {
+                            message: format!(
+                                "type `{other}` is not a member of package `{pkg}`"
+                            ),
+                            span: t.span,
+                        });
+                    }
+                }
                 self.check_visible(other, class.is_pub, &class.package, t.span)?;
                 if type_args.len() != class.type_params.len() {
                     return Err(SemaError {
@@ -62,6 +98,16 @@ impl Checker {
             }
             other if self.enums.contains_key(other) => {
                 let enum_sig = self.enums.get(other).unwrap().clone();
+                if let Some(pkg) = qualified_pkg {
+                    if enum_sig.package != pkg {
+                        return Err(SemaError {
+                            message: format!(
+                                "type `{other}` is not a member of package `{pkg}`"
+                            ),
+                            span: t.span,
+                        });
+                    }
+                }
                 self.check_visible(other, enum_sig.is_pub, &enum_sig.package, t.span)?;
                 if type_args.len() != enum_sig.type_params.len() {
                     return Err(SemaError {
@@ -94,6 +140,16 @@ impl Checker {
             }
             other if self.interfaces.contains_key(other) => {
                 let iface = self.interfaces.get(other).unwrap();
+                if let Some(pkg) = qualified_pkg {
+                    if iface.package != pkg {
+                        return Err(SemaError {
+                            message: format!(
+                                "type `{other}` is not a member of package `{pkg}`"
+                            ),
+                            span: t.span,
+                        });
+                    }
+                }
                 self.check_visible(other, iface.is_pub, &iface.package, t.span)?;
                 if !type_args.is_empty() {
                     return Err(SemaError {
@@ -105,7 +161,11 @@ impl Checker {
             }
             other => {
                 return Err(SemaError {
-                    message: format!("unknown type `{other}`"),
+                    message: if let Some(pkg) = qualified_pkg {
+                        format!("unknown type `{other}` in package `{pkg}`")
+                    } else {
+                        format!("unknown type `{other}`")
+                    },
                     span: t.span,
                 });
             }

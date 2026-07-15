@@ -367,6 +367,38 @@ fun main() {
 }
 
 #[test]
+fn import_alias_qualified_type() {
+    let mut lib = parse_file(
+        r#"
+package demo.math
+pub class Point(val x: Int, val y: Int) {}
+"#,
+    )
+    .expect("parse lib");
+    for c in &mut lib.classes {
+        c.origin_package = "demo.math".into();
+    }
+    let mut app = parse_file(
+        r#"
+package demo.app
+import demo.math as Math
+fun main() {
+  val p: Math.Point = Math.Point(1, 2)
+}
+"#,
+    )
+    .expect("parse app");
+    for f in &mut app.functions {
+        f.origin_package = "demo.app".into();
+    }
+    for i in &mut app.imports {
+        i.origin_package = "demo.app".into();
+    }
+    app.classes.extend(lib.classes);
+    check_file(&app).expect("alias qualified type");
+}
+
+#[test]
 fn import_rejects_private_function() {
     let mut lib = parse_file(
         r#"

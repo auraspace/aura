@@ -15,7 +15,7 @@ Living plan for docs, language specs, and the Rust toolchain. RFCs remain the de
 | RFC static site (`site/`) | Implemented on `feat/rfc-static-site`; deploy via GitHub Pages Actions |
 | RFC-000 Vision | **Accepted** — product direction locked |
 | RFC-001/002/003 | Solid Draft + **MVP subset** for compiler C0–C1 (see RFC-001 §6.0) |
-| Compiler | **C0–C3t slice** — + Array buffer free |
+| Compiler | **C0–C3u slice** — + `Alias.Type` |
 | Runtime / packages / stdlib | Stub runtime `runtime/aura_rt.c`; full GC/tasks deferred |
 
 ## Phases
@@ -79,13 +79,14 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C3r** | `Array.pop` (empty throws) | Done |
 | **C3s** | Free `throw_obj` payloads on `aura_ex_clear` | Done |
 | **C3t** | Free owned `Array` heap buffers at scope end / return | Done |
+| **C3u** | `import … as Alias` type qualify (`Alias.Type` / ctor) | Done |
 | **DX** | line:col diagnostics with snippets | Done |
 
 **Out of scope C0/C1:** generics mono, async/tasks, macros, registry, incremental, LTO.
 
 ### P3 — Expand (after hello)
 
-1. ~~Language surface C2–C3t~~ → next: Alias.Type · type C symbols · GC · LLVM (see `agents/debts.md`)
+1. ~~Language surface C2–C3u~~ → next: type C symbols · for-in String · GC · LLVM (see `agents/debts.md`)
 2. Runtime: alloc/GC MVP → channels/tasks
 3. Toolchain: ~~minimal `aura.toml` + path deps + path lock~~ → registry (RFC-005)
 4. Stdlib prelude + small collections (partial: builtin Array)

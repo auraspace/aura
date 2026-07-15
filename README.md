@@ -72,9 +72,10 @@ C1 uses a **C backend** (`aura emit-c` + system `cc`) linked with `runtime/aura_
 - **Compiler C3r** `Array.pop` (returns last element; empty throws)
 - **Runtime C3s** Free exception object payloads on catch clear
 - **Compiler C3t** Free owned `Array` buffers at scope end / before return
+- **Compiler C3u** `import … as Alias` → `Alias.Type` / `Alias.Type(...)`
 - **DX** Pretty diagnostics (`path:line:col` + source snippet)
 - **Debts** Tracked in [`agents/debts.md`](agents/debts.md)
-- **Next:** Alias.Type, package type symbols, GC MVP, LLVM
+- **Next:** package type symbols, for-in String, GC MVP, LLVM
 
 ## Links
 

@@ -11,19 +11,38 @@ use crate::util::{subst_ty, type_subst_map, unify_ty};
 impl Checker {
     pub(crate) fn check_call(&mut self, c: &CallExpr, expected: Option<&Ty>) -> Result<Ty, SemaError> {
         if let Expr::Field(fe) = c.callee.as_ref() {
-            // C3n: `Alias.fun(...)` where Alias is `import path as Alias`.
+            // C3n/C3u: `Alias.fun(...)` or `Alias.Type(...)` where Alias is `import path as Alias`.
             if let Expr::Ident(id) = fe.object.as_ref() {
                 if let Some(pkg) = self.import_aliases.get(&id.name).cloned() {
-                    if !c.type_args.is_empty() {
-                        return Err(SemaError {
-                            message: "type arguments not allowed on package-qualified calls in C3n"
-                                .into(),
-                            span: c.span,
-                        });
-                    }
                     let name = fe.field.name.clone();
-                    let sig = self.resolve_fun_in_package(&name, &pkg, fe.field.span)?;
-                    return self.check_fun_call_with_sig(&sig, c, expected);
+                    if self.fun_in_package(&name, &pkg).is_some() {
+                        if !c.type_args.is_empty() {
+                            // Generics on qualified free calls still deferred.
+                            return Err(SemaError {
+                                message:
+                                    "type arguments not allowed on package-qualified calls in C3n"
+                                        .into(),
+                                span: c.span,
+                            });
+                        }
+                        let sig = self.resolve_fun_in_package(&name, &pkg, fe.field.span)?;
+                        return self.check_fun_call_with_sig(&sig, c, expected);
+                    }
+                    if let Some(class) = self.classes.get(&name).cloned() {
+                        if class.package != pkg {
+                            return Err(SemaError {
+                                message: format!(
+                                    "`{name}` is not a member of package `{pkg}`"
+                                ),
+                                span: fe.field.span,
+                            });
+                        }
+                        return self.check_class_ctor(&class, c, expected);
+                    }
+                    return Err(SemaError {
+                        message: format!("`{name}` is not a member of package `{pkg}`"),
+                        span: fe.field.span,
+                    });
                 }
             }
 
@@ -142,72 +161,7 @@ impl Checker {
 
         // Constructor (possibly generic)
         if let Some(class) = self.classes.get(&name).cloned() {
-            self.check_visible(&name, class.is_pub, &class.package, c.callee.span())?;
-            if c.args.len() != class.fields.len() {
-                return Err(SemaError {
-                    message: format!(
-                        "constructor `{}` expects {} argument(s), got {}",
-                        name,
-                        class.fields.len(),
-                        c.args.len()
-                    ),
-                    span: c.span,
-                });
-            }
-
-            let type_args = self.resolve_ctor_type_args(&class, c, expected)?;
-            self.check_type_args_bounds(
-                &class.type_params,
-                &class.bounds,
-                &type_args,
-                c.span,
-                &format!("constructor `{}`", class.name),
-            )?;
-            if class.name == "Array" {
-                Self::check_array_type_args(&type_args, c.span)?;
-            }
-
-            let subst = type_subst_map(&class.type_params, &type_args);
-            for (arg, field) in c.args.iter().zip(class.fields.iter()) {
-                let exp = subst_ty(&field.ty, &subst);
-                let got = self.check_expr_expected(arg, Some(&exp))?;
-                if !self.is_assignable(&got, &exp) {
-                    return Err(SemaError {
-                        message: format!(
-                            "constructor argument for `{}`: expected {}, got {}",
-                            field.name,
-                            exp.display(),
-                            got.display()
-                        ),
-                        span: arg.span(),
-                    });
-                }
-            }
-
-            if !type_args.is_empty() {
-                self.call_instantiations.insert(
-                    c.span.start,
-                    CallInstantiation {
-                        is_constructor: true,
-                        name: name.clone(),
-                        package: class.package.clone(),
-                        type_args: type_args.clone(),
-                        variant: None,
-                    },
-                );
-            }
-
-            let ret = if type_args.is_empty() {
-                Ty::Class(name)
-            } else {
-                let t = Ty::ClassApp {
-                    name,
-                    args: type_args,
-                };
-                self.note_mono_ty(&t);
-                t
-            };
-            return Ok(ret);
+            return self.check_class_ctor(&class, c, expected);
         }
 
         // Enum variant constructor: Ok(...), Red()
@@ -250,6 +204,86 @@ impl Checker {
             let sig = self.resolve_fun(&name, c.callee.span())?;
             self.check_fun_call_with_sig(&sig, c, expected)
         }
+    }
+
+    /// Class/struct constructor (unqualified or `Alias.Type`, C3u).
+    pub(crate) fn check_class_ctor(
+        &mut self,
+        class: &ClassSig,
+        c: &CallExpr,
+        expected: Option<&Ty>,
+    ) -> Result<Ty, SemaError> {
+        let name = class.name.clone();
+        self.check_visible(&name, class.is_pub, &class.package, c.callee.span())?;
+        if c.args.len() != class.fields.len() {
+            return Err(SemaError {
+                message: format!(
+                    "constructor `{}` expects {} argument(s), got {}",
+                    name,
+                    class.fields.len(),
+                    c.args.len()
+                ),
+                span: c.span,
+            });
+        }
+
+        let type_args = self.resolve_ctor_type_args(class, c, expected)?;
+        self.check_type_args_bounds(
+            &class.type_params,
+            &class.bounds,
+            &type_args,
+            c.span,
+            &format!("constructor `{}`", class.name),
+        )?;
+        if class.name == "Array" {
+            Self::check_array_type_args(&type_args, c.span)?;
+        }
+
+        let subst = type_subst_map(&class.type_params, &type_args);
+        for (arg, field) in c.args.iter().zip(class.fields.iter()) {
+            let exp = subst_ty(&field.ty, &subst);
+            let got = self.check_expr_expected(arg, Some(&exp))?;
+            if !self.is_assignable(&got, &exp) {
+                return Err(SemaError {
+                    message: format!(
+                        "constructor argument for `{}`: expected {}, got {}",
+                        field.name,
+                        exp.display(),
+                        got.display()
+                    ),
+                    span: arg.span(),
+                });
+            }
+        }
+
+        // Always record so Alias.Type(...) codegen can emit a constructor (C3u).
+        self.call_instantiations.insert(
+            c.span.start,
+            CallInstantiation {
+                is_constructor: true,
+                name: name.clone(),
+                package: class.package.clone(),
+                type_args: type_args.clone(),
+                variant: None,
+            },
+        );
+        if !type_args.is_empty() {
+            let t = Ty::ClassApp {
+                name: name.clone(),
+                args: type_args.clone(),
+            };
+            self.note_mono_ty(&t);
+        }
+
+        let ret = if type_args.is_empty() {
+            Ty::Class(name)
+        } else {
+            Ty::ClassApp {
+                name,
+                args: type_args,
+            }
+        };
+        Ok(ret)
     }
 
     /// Shared path for free-function calls (unqualified or `Alias.fun`, C3n).

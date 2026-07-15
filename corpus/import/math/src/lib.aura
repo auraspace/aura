@@ -9,3 +9,10 @@ pub fun square(x: Int): Int {
 fun mul(a: Int, b: Int): Int {
   return a * b
 }
+
+// C3u — type qualify via `import … as Alias` → `Alias.Point`
+pub class Point(val x: Int, val y: Int) {
+  fun sum(): Int {
+    return this.x + this.y
+  }
+}

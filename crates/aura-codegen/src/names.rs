@@ -164,8 +164,11 @@ pub(crate) fn c_type_ref_subst(
         // nullable class pointer not fully supported
         let inner = subst_type_ref(
             &TypeRef {
+                qualifier: ty.qualifier.clone(),
+                name: ty.name.clone(),
+                type_args: ty.type_args.clone(),
                 nullable: false,
-                ..ty.clone()
+                span: ty.span,
             },
             params,
             args,
