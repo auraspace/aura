@@ -76,7 +76,19 @@ pub fn emit_c(checked: &CheckedFile) -> String {
     out.push_str("#include <stdint.h>\n");
     out.push_str("#include <stdbool.h>\n");
     out.push_str("#include <stddef.h>\n");
+    out.push_str("#include <setjmp.h>\n");
     out.push_str("void aura_println(const char *s);\n");
+    out.push_str("void aura_try_enter(jmp_buf *buf);\n");
+    out.push_str("void aura_try_leave(void);\n");
+    out.push_str("void aura_throw_string(const char *s);\n");
+    out.push_str("void aura_throw_int(int64_t v);\n");
+    out.push_str("void aura_throw_bool(_Bool v);\n");
+    out.push_str("int aura_ex_matches(const char *type_name);\n");
+    out.push_str("const char *aura_ex_as_string(void);\n");
+    out.push_str("int64_t aura_ex_as_int(void);\n");
+    out.push_str("_Bool aura_ex_as_bool(void);\n");
+    out.push_str("void aura_ex_clear(void);\n");
+    out.push_str("void aura_ex_rethrow(void);\n");
     out.push_str("int aura_main(void);\n\n");
 
     // Stable class tags for interface dispatch (non-generic only)
@@ -921,6 +933,28 @@ fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut EmitCtx<'_>
             let _ = writeln!(out, "{p}}}");
         }
         Stmt::Match(m) => emit_match(out, m, indent, ctx),
+        Stmt::Throw(t) => {
+            let ty = infer_type_name(&t.value, ctx);
+            let val = emit_expr(&t.value, ctx);
+            match ty.as_str() {
+                "String" => {
+                    let _ = writeln!(out, "{p}aura_throw_string({val});");
+                }
+                "Int" => {
+                    let _ = writeln!(out, "{p}aura_throw_int({val});");
+                }
+                "Bool" => {
+                    let _ = writeln!(out, "{p}aura_throw_bool({val});");
+                }
+                other => {
+                    let _ = writeln!(
+                        out,
+                        "{p}/* unsupported throw type {other} */ aura_throw_string(\"throw\");"
+                    );
+                }
+            }
+        }
+        Stmt::Try(t) => emit_try(out, t, indent, ctx),
         Stmt::Return(r) => match &r.value {
             None => {
                 let _ = writeln!(out, "{p}return;");
@@ -952,6 +986,63 @@ fn local_key_to_c(key: &str, checked: &CheckedFile) -> String {
         }
         n => c_class_type(n),
     }
+}
+
+fn emit_try(out: &mut String, t: &TryStmt, indent: usize, ctx: &mut EmitCtx<'_>) {
+    let p = pad(indent);
+    let jb = format!("__jb_{}", t.span.start);
+    // 0 = ok, 1 = caught, 2 = rethrow after finally (frame still on stack)
+    let state = format!("__ex_state_{}", t.span.start);
+    let _ = writeln!(out, "{p}{{");
+    let _ = writeln!(out, "{p}  jmp_buf {jb};");
+    let _ = writeln!(out, "{p}  int {state} = 0;");
+    let _ = writeln!(out, "{p}  if (setjmp({jb}) == 0) {{");
+    let _ = writeln!(out, "{p}    aura_try_enter(&{jb});");
+    for stmt in &t.try_block.stmts {
+        emit_stmt(out, stmt, indent + 2, ctx);
+    }
+    let _ = writeln!(out, "{p}    aura_try_leave();");
+    let _ = writeln!(out, "{p}  }} else {{");
+    if let Some(c) = &t.catch {
+        let catch_ty = c.ty.name.name.as_str();
+        let _ = writeln!(out, "{p}    if (aura_ex_matches(\"{catch_ty}\")) {{");
+        let bind = mangle_ident(&c.name.name);
+        match catch_ty {
+            "String" => {
+                let _ = writeln!(out, "{p}      const char *{bind} = aura_ex_as_string();");
+            }
+            "Int" => {
+                let _ = writeln!(out, "{p}      int64_t {bind} = aura_ex_as_int();");
+            }
+            "Bool" => {
+                let _ = writeln!(out, "{p}      bool {bind} = aura_ex_as_bool();");
+            }
+            _ => {}
+        }
+        let _ = writeln!(out, "{p}      aura_ex_clear();");
+        let _ = writeln!(out, "{p}      aura_try_leave();");
+        let _ = writeln!(out, "{p}      {state} = 1;");
+        ctx.push_scope();
+        ctx.define_local(&c.name.name, c.ty.name.name.clone());
+        for stmt in &c.body.stmts {
+            emit_stmt(out, stmt, indent + 3, ctx);
+        }
+        ctx.pop_scope();
+        let _ = writeln!(out, "{p}    }} else {{");
+        // Keep frame for aura_ex_rethrow (do not leave).
+        let _ = writeln!(out, "{p}      {state} = 2;");
+        let _ = writeln!(out, "{p}    }}");
+    } else {
+        let _ = writeln!(out, "{p}    {state} = 2;");
+    }
+    let _ = writeln!(out, "{p}  }}");
+    if let Some(fin) = &t.finally {
+        for stmt in &fin.stmts {
+            emit_stmt(out, stmt, indent + 1, ctx);
+        }
+    }
+    let _ = writeln!(out, "{p}  if ({state} == 2) {{ aura_ex_rethrow(); }}");
+    let _ = writeln!(out, "{p}}}");
 }
 
 fn emit_match(out: &mut String, m: &MatchStmt, indent: usize, ctx: &mut EmitCtx<'_>) {

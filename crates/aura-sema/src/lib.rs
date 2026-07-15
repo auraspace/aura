@@ -1006,6 +1006,60 @@ impl Checker {
     fn check_stmt(&mut self, stmt: &Stmt, expected_ret: &Ty) -> Result<(), SemaError> {
         match stmt {
             Stmt::Match(m) => self.check_match(m, expected_ret),
+            Stmt::Throw(t) => {
+                let ty = self.check_expr(&t.value)?;
+                if matches!(ty, Ty::Unit | Ty::Null) {
+                    return Err(SemaError {
+                        message: format!("cannot throw {}", ty.display()),
+                        span: t.value.span(),
+                    });
+                }
+                // C3c: only String / Int / Bool payloads in the runtime.
+                match &ty {
+                    Ty::String | Ty::Int | Ty::Bool => Ok(()),
+                    other => Err(SemaError {
+                        message: format!(
+                            "C3c: can only throw String, Int, or Bool (got {})",
+                            other.display()
+                        ),
+                        span: t.value.span(),
+                    }),
+                }
+            }
+            Stmt::Try(t) => {
+                self.check_block(&t.try_block, expected_ret)?;
+                if let Some(c) = &t.catch {
+                    let catch_ty = self.type_from_ref(&c.ty)?;
+                    match &catch_ty {
+                        Ty::String | Ty::Int | Ty::Bool => {}
+                        other => {
+                            return Err(SemaError {
+                                message: format!(
+                                    "C3c: catch type must be String, Int, or Bool (got {})",
+                                    other.display()
+                                ),
+                                span: c.ty.span,
+                            });
+                        }
+                    }
+                    self.locals.push(HashMap::new());
+                    self.current_locals_mut().insert(
+                        c.name.name.clone(),
+                        Local {
+                            ty: catch_ty,
+                            mutable: false,
+                        },
+                    );
+                    for stmt in &c.body.stmts {
+                        self.check_stmt(stmt, expected_ret)?;
+                    }
+                    self.locals.pop();
+                }
+                if let Some(f) = &t.finally {
+                    self.check_block(f, expected_ret)?;
+                }
+                Ok(())
+            }
             Stmt::Var(v) => {
                 let ann_ty = match &v.ty {
                     Some(t) => Some(self.type_from_ref(t)?),
@@ -2162,6 +2216,36 @@ mod tests {
             args: vec![Ty::String],
         };
         assert_eq!(t.mono_suffix(), "Box_String");
+    }
+
+    #[test]
+    fn try_catch_typechecks() {
+        let src = r#"
+package t
+fun boom() { throw "x" }
+fun main() {
+  try {
+    boom()
+  } catch (e: String) {
+    println(e)
+  }
+}
+"#;
+        let file = parse_file(src).expect("parse");
+        check_file(&file).expect("check");
+    }
+
+    #[test]
+    fn throw_rejects_unit() {
+        let src = r#"
+package t
+fun main() {
+  throw null
+}
+"#;
+        let file = parse_file(src).expect("parse");
+        let err = check_file(&file).expect_err("throw null");
+        assert!(err.message.contains("throw") || err.message.contains("Null"), "{}", err.message);
     }
 
     #[test]

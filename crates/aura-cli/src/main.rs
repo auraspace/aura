@@ -36,7 +36,7 @@ fn main() -> ExitCode {
 
 fn eprint_usage() {
     eprintln!(
-        "Aura toolchain (C0–C3b)\n\n\
+        "Aura toolchain (C0–C3c)\n\n\
          Usage:\n  \
            aura check <file.aura>              Parse + typecheck\n  \
            aura build <file.aura> [-o <bin>]   Compile to native binary (C backend)\n  \

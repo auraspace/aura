@@ -49,8 +49,9 @@ C1 uses a **C backend** (`aura emit-c` + system `cc`) linked with `runtime/aura_
 - **Compiler C2e** type-param bounds (`T : Named`) and `where T : A, T : B`
 - **Compiler C3a** `struct` value types (primary ctor fields + methods; no implements)
 - **Compiler C3b** `enum` + `match` + generic `Result<T, E>` (exhaustive arms)
+- **Compiler C3c** `throw` / `try` / `catch` / `finally` (payloads: String, Int, Bool)
 - **DX** Pretty diagnostics (`path:line:col` + source snippet)
-- **Next:** exceptions (`throw`/`try`), LLVM backend
+- **Next:** class-valued exceptions, LLVM backend, `aura test`
 
 ## Links
 

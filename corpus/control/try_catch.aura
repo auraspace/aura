@@ -1,0 +1,25 @@
+// C3c corpus — throw / try / catch / finally
+package demo.ex
+
+fun boom() {
+  throw "boom"
+}
+
+fun main() {
+  try {
+    boom()
+    println("unreachable")
+  } catch (e: String) {
+    println(e)
+  } finally {
+    println("finally")
+  }
+
+  try {
+    throw 42
+  } catch (n: Int) {
+    if (n == 42) {
+      println("caught-int")
+    }
+  }
+}

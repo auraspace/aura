@@ -149,8 +149,34 @@ pub enum Stmt {
     If(IfStmt),
     While(WhileStmt),
     Match(MatchStmt),
+    Try(TryStmt),
+    Throw(ThrowStmt),
     Return(ReturnStmt),
     Expr(Expr),
+}
+
+/// `throw expr`
+#[derive(Debug, Clone, PartialEq)]
+pub struct ThrowStmt {
+    pub value: Expr,
+    pub span: Span,
+}
+
+/// `try { … } catch (e: T) { … } finally { … }`
+#[derive(Debug, Clone, PartialEq)]
+pub struct TryStmt {
+    pub try_block: Block,
+    pub catch: Option<CatchClause>,
+    pub finally: Option<Block>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CatchClause {
+    pub name: Ident,
+    pub ty: TypeRef,
+    pub body: Block,
+    pub span: Span,
 }
 
 /// `match (scrutinee) { case Ok(v) => { … } case Err(e) => { … } }`

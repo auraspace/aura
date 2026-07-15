@@ -27,6 +27,10 @@ pub enum TokenKind {
     While,
     Match,
     Case,
+    Try,
+    Catch,
+    Finally,
+    Throw,
     Return,
     True,
     False,
@@ -91,6 +95,10 @@ impl TokenKind {
                 | TokenKind::While
                 | TokenKind::Match
                 | TokenKind::Case
+                | TokenKind::Try
+                | TokenKind::Catch
+                | TokenKind::Finally
+                | TokenKind::Throw
                 | TokenKind::Return
                 | TokenKind::True
                 | TokenKind::False
@@ -377,6 +385,10 @@ impl<'a> Lexer<'a> {
             "while" => TokenKind::While,
             "match" => TokenKind::Match,
             "case" => TokenKind::Case,
+            "try" => TokenKind::Try,
+            "catch" => TokenKind::Catch,
+            "finally" => TokenKind::Finally,
+            "throw" => TokenKind::Throw,
             "return" => TokenKind::Return,
             "true" => TokenKind::True,
             "false" => TokenKind::False,

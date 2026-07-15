@@ -530,9 +530,74 @@ impl Parser {
             TokenKind::If => Ok(Stmt::If(self.parse_if()?)),
             TokenKind::While => Ok(Stmt::While(self.parse_while()?)),
             TokenKind::Match => Ok(Stmt::Match(self.parse_match()?)),
+            TokenKind::Try => Ok(Stmt::Try(self.parse_try()?)),
+            TokenKind::Throw => Ok(Stmt::Throw(self.parse_throw()?)),
             TokenKind::Return => Ok(Stmt::Return(self.parse_return()?)),
             _ => Ok(Stmt::Expr(self.parse_expr(0)?)),
         }
+    }
+
+    fn parse_throw(&mut self) -> Result<ThrowStmt, ParseError> {
+        let start = self.peek().span.start;
+        self.expect(TokenKind::Throw, "`throw`")?;
+        let value = self.parse_expr(0)?;
+        let end = value.span().end;
+        Ok(ThrowStmt {
+            value,
+            span: Span::new(start, end),
+        })
+    }
+
+    fn parse_try(&mut self) -> Result<TryStmt, ParseError> {
+        let start = self.peek().span.start;
+        self.expect(TokenKind::Try, "`try`")?;
+        let try_block = self.parse_block()?;
+        let catch = if matches!(self.peek().kind, TokenKind::Catch) {
+            Some(self.parse_catch()?)
+        } else {
+            None
+        };
+        let finally = if matches!(self.peek().kind, TokenKind::Finally) {
+            self.bump();
+            Some(self.parse_block()?)
+        } else {
+            None
+        };
+        if catch.is_none() && finally.is_none() {
+            return Err(ParseError {
+                message: "`try` needs `catch` and/or `finally`".into(),
+                span: try_block.span,
+            });
+        }
+        let end = finally
+            .as_ref()
+            .map(|b| b.span.end)
+            .or_else(|| catch.as_ref().map(|c| c.span.end))
+            .unwrap_or(try_block.span.end);
+        Ok(TryStmt {
+            try_block,
+            catch,
+            finally,
+            span: Span::new(start, end),
+        })
+    }
+
+    fn parse_catch(&mut self) -> Result<CatchClause, ParseError> {
+        let start = self.peek().span.start;
+        self.expect(TokenKind::Catch, "`catch`")?;
+        self.expect(TokenKind::LParen, "`(`")?;
+        let name = self.expect_ident()?;
+        self.expect(TokenKind::Colon, "`:`")?;
+        let ty = self.parse_type()?;
+        self.expect(TokenKind::RParen, "`)`")?;
+        let body = self.parse_block()?;
+        let end = body.span.end;
+        Ok(CatchClause {
+            name,
+            ty,
+            body,
+            span: Span::new(start, end),
+        })
     }
 
     fn parse_match(&mut self) -> Result<MatchStmt, ParseError> {
@@ -1129,6 +1194,34 @@ fun main() {
                 other => panic!("expected call, got {other:?}"),
             },
             other => panic!("expected var, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_try_throw() {
+        let src = r#"
+package main
+fun f() {
+  try {
+    throw "x"
+  } catch (e: String) {
+    println(e)
+  } finally {
+    println("done")
+  }
+}
+"#;
+        let file = parse_file(src).expect("parse");
+        match &file.functions[0].body.stmts[0] {
+            Stmt::Try(t) => {
+                assert!(t.catch.is_some());
+                assert!(t.finally.is_some());
+                match &t.try_block.stmts[0] {
+                    Stmt::Throw(_) => {}
+                    other => panic!("expected throw, got {other:?}"),
+                }
+            }
+            other => panic!("expected try, got {other:?}"),
         }
     }
 
