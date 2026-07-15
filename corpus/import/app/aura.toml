@@ -1,0 +1,9 @@
+[package]
+name = "demo.app"
+
+[[bin]]
+name = "app"
+path = "src"
+
+[dependencies]
+demo.math = { path = "../math" }

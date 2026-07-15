@@ -9,6 +9,9 @@ use crate::ty::Ty;
 #[derive(Debug, Clone)]
 pub struct FunSig {
     pub name: String,
+    pub is_pub: bool,
+    /// Declaring package (builtins use empty package and are always visible).
+    pub package: String,
     pub is_test: bool,
     pub type_params: Vec<String>,
     /// Bounds per type param name (interface names in C2e).
@@ -45,6 +48,8 @@ pub struct FieldSig {
 #[derive(Debug, Clone)]
 pub struct ClassSig {
     pub name: String,
+    pub is_pub: bool,
+    pub package: String,
     /// `false` = class, `true` = struct (value type; no implements).
     pub is_struct: bool,
     pub type_params: Vec<String>,
@@ -59,6 +64,8 @@ pub struct ClassSig {
 #[derive(Debug, Clone)]
 pub struct InterfaceSig {
     pub name: String,
+    pub is_pub: bool,
+    pub package: String,
     pub methods: HashMap<String, IfaceMethodSig>,
     pub span: Span,
 }
@@ -74,6 +81,8 @@ pub struct EnumVariantSig {
 #[derive(Debug, Clone)]
 pub struct EnumSig {
     pub name: String,
+    pub is_pub: bool,
+    pub package: String,
     pub type_params: Vec<String>,
     pub bounds: HashMap<String, Vec<String>>,
     pub variants: Vec<EnumVariantSig>,

@@ -1,0 +1,18 @@
+// App package imports demo.math path dependency.
+package demo.app
+
+import demo.math
+
+fun main() {
+  val n: Int = square(7)
+  if (n != 49) {
+    println("import failed")
+  } else {
+    println("import ok")
+  }
+}
+
+@test
+fun test_imported_square() {
+  assert_eq(square(4), 16)
+}

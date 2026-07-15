@@ -26,6 +26,8 @@ impl Parser {
             });
         }
         Ok(EnumDecl {
+            is_pub: false,
+            origin_package: String::new(),
             name,
             type_params,
             variants,
@@ -82,6 +84,8 @@ impl Parser {
         }
         let end = self.expect(TokenKind::RBrace, "`}`")?.span.end;
         Ok(InterfaceDecl {
+            is_pub: false,
+            origin_package: String::new(),
             name,
             methods,
             span: Span::new(start, end),
@@ -194,6 +198,8 @@ impl Parser {
         }
         let end = self.expect(TokenKind::RBrace, "`}`")?.span.end;
         Ok(ClassDecl {
+            is_pub: false,
+            origin_package: String::new(),
             kind,
             name,
             type_params,
@@ -328,6 +334,8 @@ impl Parser {
         let body = self.parse_block()?;
         let end = body.span.end;
         Ok(FunDecl {
+            is_pub: false,
+            origin_package: String::new(),
             is_test: false,
             name,
             type_params,

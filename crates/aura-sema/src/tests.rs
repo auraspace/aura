@@ -244,3 +244,84 @@ fun main() {
     );
     assert!(!checked.call_instantiations.is_empty());
 }
+
+#[test]
+fn import_allows_pub_function() {
+    use aura_ast::ImportDecl;
+    let mut lib = parse_file(
+        r#"
+package demo.math
+pub fun square(x: Int): Int { return x * x }
+fun mul(a: Int, b: Int): Int { return a * b }
+"#,
+    )
+    .expect("parse lib");
+    for f in &mut lib.functions {
+        f.origin_package = "demo.math".into();
+    }
+    let mut app = parse_file(
+        r#"
+package demo.app
+import demo.math
+fun main() {
+  square(3)
+}
+"#,
+    )
+    .expect("parse app");
+    for f in &mut app.functions {
+        f.origin_package = "demo.app".into();
+    }
+    for i in &mut app.imports {
+        i.origin_package = "demo.app".into();
+    }
+    // Merge lib into app unit
+    app.functions.extend(lib.functions);
+    app.interfaces.extend(lib.interfaces);
+    app.enums.extend(lib.enums);
+    app.classes.extend(lib.classes);
+    let _ = ImportDecl {
+        path: app.imports[0].path.clone(),
+        alias: None,
+        origin_package: "demo.app".into(),
+        span: app.imports[0].span,
+    };
+    check_file(&app).expect("cross-package pub call");
+}
+
+#[test]
+fn import_rejects_private_function() {
+    let mut lib = parse_file(
+        r#"
+package demo.math
+fun mul(a: Int, b: Int): Int { return a * b }
+"#,
+    )
+    .expect("parse lib");
+    for f in &mut lib.functions {
+        f.origin_package = "demo.math".into();
+    }
+    let mut app = parse_file(
+        r#"
+package demo.app
+import demo.math
+fun main() {
+  mul(2, 3)
+}
+"#,
+    )
+    .expect("parse app");
+    for f in &mut app.functions {
+        f.origin_package = "demo.app".into();
+    }
+    for i in &mut app.imports {
+        i.origin_package = "demo.app".into();
+    }
+    app.functions.extend(lib.functions);
+    let err = check_file(&app).expect_err("private");
+    assert!(
+        err.message.contains("private") || err.message.contains("mul"),
+        "{}",
+        err.message
+    );
+}

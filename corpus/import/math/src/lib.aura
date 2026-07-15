@@ -1,0 +1,11 @@
+// Library package — only `pub` items are usable by importers.
+package demo.math
+
+pub fun square(x: Int): Int {
+  return mul(x, x)
+}
+
+// Private helper — not visible outside this package.
+fun mul(a: Int, b: Int): Int {
+  return a * b
+}

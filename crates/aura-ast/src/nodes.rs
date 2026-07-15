@@ -1,4 +1,4 @@
-//! AST node types for Aura C0–C3e.
+//! AST node types for Aura C0–C3f.
 
 use std::fmt;
 
@@ -7,6 +7,8 @@ use crate::span::{BytePos, Span};
 #[derive(Debug, Clone, PartialEq)]
 pub struct File {
     pub package: Path,
+    /// `import demo.util` / `import demo.util as U` (alias optional; C3f uses unqualified pubs).
+    pub imports: Vec<ImportDecl>,
     pub interfaces: Vec<InterfaceDecl>,
     pub enums: Vec<EnumDecl>,
     pub classes: Vec<ClassDecl>,
@@ -14,9 +16,22 @@ pub struct File {
     pub span: Span,
 }
 
+/// `import path` or `import path as Ident`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImportDecl {
+    pub path: Path,
+    pub alias: Option<Ident>,
+    /// Package that wrote this import; empty means use `File.package`.
+    pub origin_package: String,
+    pub span: Span,
+}
+
 /// `enum Result<T, E> { case Ok(value: T) case Err(error: E) }`
 #[derive(Debug, Clone, PartialEq)]
 pub struct EnumDecl {
+    pub is_pub: bool,
+    /// Declaring package; empty means use `File.package`.
+    pub origin_package: String,
     pub name: Ident,
     pub type_params: Vec<TypeParam>,
     pub variants: Vec<EnumVariant>,
@@ -34,6 +49,9 @@ pub struct EnumVariant {
 /// `interface Name { fun m(...): T  … }` (signatures only).
 #[derive(Debug, Clone, PartialEq)]
 pub struct InterfaceDecl {
+    pub is_pub: bool,
+    /// Declaring package; empty means use `File.package`.
+    pub origin_package: String,
     pub name: Ident,
     pub methods: Vec<MethodSig>,
     pub span: Span,
@@ -97,6 +115,9 @@ pub enum NominalKind {
 /// `struct Point(val x: Int, val y: Int) { … }`
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClassDecl {
+    pub is_pub: bool,
+    /// Declaring package; empty means use `File.package`.
+    pub origin_package: String,
     pub kind: NominalKind,
     pub name: Ident,
     pub type_params: Vec<TypeParam>,
@@ -118,6 +139,9 @@ pub struct FieldDecl {
 /// `fun name<T>(…): T { … }` / `@test fun name() { … }`
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunDecl {
+    pub is_pub: bool,
+    /// Declaring package; empty means use `File.package`.
+    pub origin_package: String,
     /// Discovered by `aura test` (RFC-011 MVP: only `@test`).
     pub is_test: bool,
     pub name: Ident,
@@ -126,6 +150,15 @@ pub struct FunDecl {
     pub return_type: Option<TypeRef>,
     pub body: Block,
     pub span: Span,
+}
+
+/// Resolve declaring package for a top-level item.
+pub fn decl_package<'a>(origin: &'a str, file_package: &'a str) -> &'a str {
+    if origin.is_empty() {
+        file_package
+    } else {
+        origin
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

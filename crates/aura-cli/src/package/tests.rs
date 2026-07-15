@@ -145,3 +145,91 @@ fn reject_duplicate_fun() {
     assert!(err.contains("duplicate function"), "{err}");
     let _ = fs::remove_dir_all(&root);
 }
+
+#[test]
+fn parse_path_deps() {
+    let t = parse_aura_toml(
+        r#"
+[package]
+name = "demo.app"
+
+[dependencies]
+demo.math = { path = "../math" }
+other = "vendor/other"
+"#,
+    )
+    .unwrap();
+    assert_eq!(
+        t.dependencies.get("demo.math").map(String::as_str),
+        Some("../math")
+    );
+    assert_eq!(
+        t.dependencies.get("other").map(String::as_str),
+        Some("vendor/other")
+    );
+}
+
+#[test]
+fn load_import_path_dep() {
+    let root = std::env::temp_dir().join(format!("aura-pkg-imp-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    write_tree(
+        &root,
+        &[
+            (
+                "math/aura.toml",
+                r#"[package]
+name = "demo.math"
+[[bin]]
+path = "src"
+"#,
+            ),
+            (
+                "math/src/lib.aura",
+                r#"package demo.math
+pub fun square(x: Int): Int { return x * x }
+fun mul(a: Int, b: Int): Int { return a * b }
+"#,
+            ),
+            (
+                "app/aura.toml",
+                r#"[package]
+name = "demo.app"
+[[bin]]
+name = "app"
+path = "src"
+[dependencies]
+demo.math = { path = "../math" }
+"#,
+            ),
+            (
+                "app/src/main.aura",
+                r#"package demo.app
+import demo.math
+fun main() { square(2) }
+"#,
+            ),
+        ],
+    );
+    let pkg = load_package(&root.join("app/aura.toml")).expect("load app");
+    assert_eq!(pkg.package, "demo.app");
+    assert!(pkg.sources.len() >= 2, "expected merged sources");
+    let names: Vec<_> = pkg
+        .ast
+        .functions
+        .iter()
+        .map(|f| f.name.name.as_str())
+        .collect();
+    assert!(names.contains(&"main"));
+    assert!(names.contains(&"square"));
+    assert!(names.contains(&"mul"));
+    let square = pkg
+        .ast
+        .functions
+        .iter()
+        .find(|f| f.name.name == "square")
+        .unwrap();
+    assert!(square.is_pub);
+    assert_eq!(square.origin_package, "demo.math");
+    let _ = fs::remove_dir_all(&root);
+}

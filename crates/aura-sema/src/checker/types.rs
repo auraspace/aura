@@ -27,6 +27,7 @@ impl Checker {
             }
             other if self.classes.contains_key(other) => {
                 let class = self.classes.get(other).unwrap().clone();
+                self.check_visible(other, class.is_pub, &class.package, t.span)?;
                 if type_args.len() != class.type_params.len() {
                     return Err(SemaError {
                         message: format!(
@@ -58,6 +59,7 @@ impl Checker {
             }
             other if self.enums.contains_key(other) => {
                 let enum_sig = self.enums.get(other).unwrap().clone();
+                self.check_visible(other, enum_sig.is_pub, &enum_sig.package, t.span)?;
                 if type_args.len() != enum_sig.type_params.len() {
                     return Err(SemaError {
                         message: format!(
@@ -88,6 +90,8 @@ impl Checker {
                 }
             }
             other if self.interfaces.contains_key(other) => {
+                let iface = self.interfaces.get(other).unwrap();
+                self.check_visible(other, iface.is_pub, &iface.package, t.span)?;
                 if !type_args.is_empty() {
                     return Err(SemaError {
                         message: format!("interface `{other}` cannot take type arguments in C2b"),

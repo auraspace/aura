@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use aura_ast::{File, NominalKind};
+use aura_ast::{decl_package, File, NominalKind};
 
 use super::Checker;
 use crate::error::SemaError;
@@ -9,6 +9,41 @@ use crate::ty::Ty;
 
 impl Checker {
     pub(crate) fn check_file(&mut self, file: &File) -> Result<CheckedFile, SemaError> {
+        let file_pkg = file.package.display();
+        self.current_package = file_pkg.clone();
+        self.package_imports.clear();
+        self.package_imports
+            .entry(file_pkg.clone())
+            .or_default();
+        for imp in &file.imports {
+            let from = decl_package(&imp.origin_package, &file_pkg).to_string();
+            self.package_imports
+                .entry(from)
+                .or_default()
+                .insert(imp.path.display());
+        }
+        // Every package that contributes decls can see itself.
+        for i in &file.interfaces {
+            self.package_imports
+                .entry(decl_package(&i.origin_package, &file_pkg).to_string())
+                .or_default();
+        }
+        for e in &file.enums {
+            self.package_imports
+                .entry(decl_package(&e.origin_package, &file_pkg).to_string())
+                .or_default();
+        }
+        for c in &file.classes {
+            self.package_imports
+                .entry(decl_package(&c.origin_package, &file_pkg).to_string())
+                .or_default();
+        }
+        for f in &file.functions {
+            self.package_imports
+                .entry(decl_package(&f.origin_package, &file_pkg).to_string())
+                .or_default();
+        }
+
         for i in &file.interfaces {
             if self.interfaces.contains_key(&i.name.name)
                 || self.classes.contains_key(&i.name.name)
@@ -18,6 +53,8 @@ impl Checker {
                     span: i.name.span,
                 });
             }
+            let pkg = decl_package(&i.origin_package, &file_pkg).to_string();
+            self.current_package = pkg.clone();
             let mut methods = HashMap::new();
             for m in &i.methods {
                 if methods.contains_key(&m.name.name) {
@@ -49,6 +86,8 @@ impl Checker {
                 i.name.name.clone(),
                 InterfaceSig {
                     name: i.name.name.clone(),
+                    is_pub: i.is_pub,
+                    package: pkg,
                     methods,
                     span: i.span,
                 },
@@ -67,10 +106,13 @@ impl Checker {
                     span: e.name.span,
                 });
             }
+            let pkg = decl_package(&e.origin_package, &file_pkg).to_string();
             self.enums.insert(
                 e.name.name.clone(),
                 EnumSig {
                     name: e.name.name.clone(),
+                    is_pub: e.is_pub,
+                    package: pkg,
                     type_params: e.type_params.iter().map(|p| p.name.name.clone()).collect(),
                     bounds: Self::bounds_map_from_params(&e.type_params),
                     variants: Vec::new(),
@@ -80,6 +122,7 @@ impl Checker {
         }
 
         for e in &file.enums {
+            self.current_package = decl_package(&e.origin_package, &file_pkg).to_string();
             self.bind_type_params(&e.type_params)?;
             let mut variants = Vec::new();
             let mut seen_v = HashSet::new();
@@ -153,10 +196,13 @@ impl Checker {
                     span: c.name.span,
                 });
             }
+            let pkg = decl_package(&c.origin_package, &file_pkg).to_string();
             self.classes.insert(
                 c.name.name.clone(),
                 ClassSig {
                     name: c.name.name.clone(),
+                    is_pub: c.is_pub,
+                    package: pkg,
                     is_struct: c.kind == NominalKind::Struct,
                     type_params: c.type_params.iter().map(|p| p.name.name.clone()).collect(),
                     bounds: Self::bounds_map_from_params(&c.type_params),
@@ -169,17 +215,19 @@ impl Checker {
         }
 
         for c in &file.classes {
+            self.current_package = decl_package(&c.origin_package, &file_pkg).to_string();
             // Bind type params while resolving field/method types
             self.bind_type_params(&c.type_params)?;
 
             let mut implements = Vec::new();
             for iface in &c.implements {
-                if !self.interfaces.contains_key(&iface.name) {
+                let Some(isig) = self.interfaces.get(&iface.name) else {
                     return Err(SemaError {
                         message: format!("unknown interface `{}`", iface.name),
                         span: iface.span,
                     });
-                }
+                };
+                self.check_visible(&iface.name, isig.is_pub, &isig.package, iface.span)?;
                 if implements.contains(&iface.name) {
                     return Err(SemaError {
                         message: format!("duplicate implements `{}`", iface.name),
@@ -296,10 +344,14 @@ impl Checker {
                 Some(t) => self.type_from_ref(t)?,
                 None => Ty::Unit,
             };
+            let pkg = decl_package(&f.origin_package, &file_pkg).to_string();
+            self.current_package = pkg.clone();
             self.functions.insert(
                 f.name.name.clone(),
                 FunSig {
                     name: f.name.name.clone(),
+                    is_pub: f.is_pub,
+                    package: pkg,
                     is_test: f.is_test,
                     type_params: f.type_params.iter().map(|p| p.name.name.clone()).collect(),
                     bounds: Self::bounds_map_from_params(&f.type_params),
@@ -312,6 +364,7 @@ impl Checker {
         }
 
         for c in &file.classes {
+            self.current_package = decl_package(&c.origin_package, &file_pkg).to_string();
             self.current_class = Some(c.name.name.clone());
             self.bind_type_params(&c.type_params)?;
             for m in &c.methods {
@@ -331,19 +384,14 @@ impl Checker {
         }
 
         for f in &file.functions {
+            self.current_package = decl_package(&f.origin_package, &file_pkg).to_string();
             self.bind_type_params(&f.type_params)?;
             let ret = self.functions.get(&f.name.name).unwrap().ret.clone();
             self.check_fun(f, &ret)?;
             self.type_params.clear();
         }
 
-        let package = file
-            .package
-            .segments
-            .iter()
-            .map(|s| s.name.as_str())
-            .collect::<Vec<_>>()
-            .join(".");
+        let package = file_pkg;
 
         let functions = file
             .functions

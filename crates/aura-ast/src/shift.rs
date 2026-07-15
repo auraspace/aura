@@ -10,6 +10,9 @@ pub fn shift_file_spans(file: &mut File, delta: BytePos) {
     }
     file.package.shift_spans(delta);
     file.span = file.span.shift(delta);
+    for imp in &mut file.imports {
+        shift_import(imp, delta);
+    }
     for i in &mut file.interfaces {
         shift_interface(i, delta);
     }
@@ -22,6 +25,14 @@ pub fn shift_file_spans(file: &mut File, delta: BytePos) {
     for f in &mut file.functions {
         shift_fun(f, delta);
     }
+}
+
+fn shift_import(imp: &mut ImportDecl, delta: BytePos) {
+    imp.path.shift_spans(delta);
+    if let Some(a) = &mut imp.alias {
+        shift_ident(a, delta);
+    }
+    imp.span = imp.span.shift(delta);
 }
 
 fn shift_ident(i: &mut Ident, delta: BytePos) {

@@ -126,6 +126,7 @@ impl Checker {
 
         // Constructor (possibly generic)
         if let Some(class) = self.classes.get(&name).cloned() {
+            self.check_visible(&name, class.is_pub, &class.package, c.callee.span())?;
             if c.args.len() != class.fields.len() {
                 return Err(SemaError {
                     message: format!(
@@ -230,6 +231,7 @@ impl Checker {
                 message: format!("undefined function `{name}`"),
                 span: c.callee.span(),
             })?;
+            self.check_visible(&name, sig.is_pub, &sig.package, c.callee.span())?;
 
             let type_args = self.resolve_fun_type_args(&sig, c, expected)?;
             self.check_type_args_bounds(
@@ -277,6 +279,7 @@ impl Checker {
             message: format!("unknown enum `{enum_name}`"),
             span: c.span,
         })?;
+        self.check_visible(enum_name, enum_sig.is_pub, &enum_sig.package, c.span)?;
         let variant = enum_sig
             .variants
             .iter()

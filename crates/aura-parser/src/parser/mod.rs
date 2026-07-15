@@ -60,15 +60,22 @@ impl Parser {
         let start = self.peek().span.start;
         self.expect(TokenKind::Package, "`package`")?;
         let package = self.parse_path()?;
+        let mut imports = Vec::new();
+        while matches!(self.peek().kind, TokenKind::Import) {
+            imports.push(self.parse_import()?);
+        }
         let mut functions = Vec::new();
         let mut classes = Vec::new();
         let mut interfaces = Vec::new();
         let mut enums = Vec::new();
         while !matches!(self.peek().kind, TokenKind::Eof) {
             let is_test = self.parse_test_attr()?;
-            if matches!(self.peek().kind, TokenKind::Pub) {
+            let is_pub = if matches!(self.peek().kind, TokenKind::Pub) {
                 self.bump();
-            }
+                true
+            } else {
+                false
+            };
             match self.peek().kind {
                 TokenKind::Interface => {
                     if is_test {
@@ -77,7 +84,9 @@ impl Parser {
                             span: self.peek().span,
                         });
                     }
-                    interfaces.push(self.parse_interface()?);
+                    let mut i = self.parse_interface()?;
+                    i.is_pub = is_pub;
+                    interfaces.push(i);
                 }
                 TokenKind::Enum => {
                     if is_test {
@@ -86,7 +95,9 @@ impl Parser {
                             span: self.peek().span,
                         });
                     }
-                    enums.push(self.parse_enum()?);
+                    let mut e = self.parse_enum()?;
+                    e.is_pub = is_pub;
+                    enums.push(e);
                 }
                 TokenKind::Class => {
                     if is_test {
@@ -95,7 +106,9 @@ impl Parser {
                             span: self.peek().span,
                         });
                     }
-                    classes.push(self.parse_nominal(NominalKind::Class)?);
+                    let mut c = self.parse_nominal(NominalKind::Class)?;
+                    c.is_pub = is_pub;
+                    classes.push(c);
                 }
                 TokenKind::Struct => {
                     if is_test {
@@ -104,10 +117,13 @@ impl Parser {
                             span: self.peek().span,
                         });
                     }
-                    classes.push(self.parse_nominal(NominalKind::Struct)?);
+                    let mut c = self.parse_nominal(NominalKind::Struct)?;
+                    c.is_pub = is_pub;
+                    classes.push(c);
                 }
                 TokenKind::Fun => {
                     let mut f = self.parse_fun()?;
+                    f.is_pub = is_pub;
                     f.is_test = is_test;
                     if is_test {
                         if !f.params.is_empty() {
@@ -139,10 +155,34 @@ impl Parser {
         let end = self.peek().span.end;
         Ok(File {
             package,
+            imports,
             interfaces,
             enums,
             classes,
             functions,
+            span: Span::new(start, end),
+        })
+    }
+
+    /// `import path` or `import path as Ident`.
+    pub(crate) fn parse_import(&mut self) -> Result<ImportDecl, ParseError> {
+        let start = self.peek().span.start;
+        self.expect(TokenKind::Import, "`import`")?;
+        let path = self.parse_path()?;
+        let alias = if matches!(self.peek().kind, TokenKind::As) {
+            self.bump();
+            Some(self.expect_ident()?)
+        } else {
+            None
+        };
+        let end = alias
+            .as_ref()
+            .map(|a| a.span.end)
+            .unwrap_or(path.span.end);
+        Ok(ImportDecl {
+            path,
+            alias,
+            origin_package: String::new(),
             span: Span::new(start, end),
         })
     }

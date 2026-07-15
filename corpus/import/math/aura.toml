@@ -1,0 +1,6 @@
+[package]
+name = "demo.math"
+
+[[bin]]
+name = "math"
+path = "src"

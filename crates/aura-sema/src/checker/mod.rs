@@ -30,6 +30,10 @@ pub(crate) struct Checker {
     /// Type params in current generic scope (name → bound interface names).
     type_params: HashMap<String, Vec<String>>,
     current_class: Option<String>,
+    /// Package of the item whose body/signature is being checked.
+    current_package: String,
+    /// `import` edges: package → set of imported package names.
+    package_imports: HashMap<String, HashSet<String>>,
     mono_classes: HashSet<(String, Vec<Ty>)>,
     mono_enums: HashSet<(String, Vec<Ty>)>,
     mono_funs: HashSet<(String, Vec<Ty>)>,
@@ -44,6 +48,8 @@ impl Checker {
             "println".into(),
             FunSig {
                 name: "println".into(),
+                is_pub: true,
+                package: String::new(),
                 is_test: false,
                 type_params: Vec::new(),
                 bounds: HashMap::new(),
@@ -57,6 +63,8 @@ impl Checker {
             "assert".into(),
             FunSig {
                 name: "assert".into(),
+                is_pub: true,
+                package: String::new(),
                 is_test: false,
                 type_params: Vec::new(),
                 bounds: HashMap::new(),
@@ -74,11 +82,50 @@ impl Checker {
             locals: Vec::new(),
             type_params: HashMap::new(),
             current_class: None,
+            current_package: String::new(),
+            package_imports: HashMap::new(),
             mono_classes: HashSet::new(),
             mono_enums: HashSet::new(),
             mono_funs: HashSet::new(),
             call_instantiations: HashMap::new(),
         }
+    }
+
+    /// Cross-package visibility: same package always; else must be `pub` and imported.
+    /// Builtins use empty `package` and are always visible.
+    pub(crate) fn check_visible(
+        &self,
+        name: &str,
+        is_pub: bool,
+        item_package: &str,
+        span: Span,
+    ) -> Result<(), SemaError> {
+        if item_package.is_empty() {
+            return Ok(());
+        }
+        if item_package == self.current_package {
+            return Ok(());
+        }
+        if !is_pub {
+            return Err(SemaError {
+                message: format!("`{name}` is private to package `{item_package}`"),
+                span,
+            });
+        }
+        let allowed = self
+            .package_imports
+            .get(&self.current_package)
+            .map(|s| s.contains(item_package))
+            .unwrap_or(false);
+        if !allowed {
+            return Err(SemaError {
+                message: format!(
+                    "`{name}` is in package `{item_package}` which is not imported"
+                ),
+                span,
+            });
+        }
+        Ok(())
     }
     pub(crate) fn check_method(
         &mut self,

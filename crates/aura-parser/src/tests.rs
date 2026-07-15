@@ -323,6 +323,32 @@ return this.item.name()
 }
 
 #[test]
+fn parses_import_and_pub() {
+    let src = r#"
+package demo.app
+
+import demo.math
+import demo.other as O
+
+pub fun square(x: Int): Int {
+  return x * x
+}
+
+fun private_helper(): Int {
+  return 1
+}
+"#;
+    let file = parse_file(src).expect("parse");
+    assert_eq!(file.imports.len(), 2);
+    assert_eq!(file.imports[0].path.display(), "demo.math");
+    assert!(file.imports[0].alias.is_none());
+    assert_eq!(file.imports[1].path.display(), "demo.other");
+    assert_eq!(file.imports[1].alias.as_ref().unwrap().name, "O");
+    assert!(file.functions[0].is_pub);
+    assert!(!file.functions[1].is_pub);
+}
+
+#[test]
 fn rejects_missing_package() {
     let err = parse_file("fun main() {}").unwrap_err();
     assert!(err.message.contains("package"));
