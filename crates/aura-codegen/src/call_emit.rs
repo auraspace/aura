@@ -23,19 +23,16 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &EmitCtx<'_>) -> String {
             });
             if is_alias {
                 let name = &fe.field.name;
-                let targs: Vec<Ty> = ctx
-                    .checked
-                    .call_instantiations
-                    .get(&c.span.start)
-                    .map(|i| i.type_args.clone())
-                    .unwrap_or_default();
+                let inst = ctx.checked.call_instantiations.get(&c.span.start);
+                let targs: Vec<Ty> = inst.map(|i| i.type_args.clone()).unwrap_or_default();
+                let pkg = inst.map(|i| i.package.as_str()).unwrap_or("");
                 let args = c
                     .args
                     .iter()
                     .map(|a| emit_expr(a, ctx))
                     .collect::<Vec<_>>()
                     .join(", ");
-                return format!("{}({args})", c_fun_name(name, &targs));
+                return format!("{}({args})", c_fun_name(pkg, name, &targs));
             }
         }
 
@@ -228,21 +225,19 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &EmitCtx<'_>) -> String {
                 return format!("aura_println({})", coerce_expr(&c.args[0], "String", ctx));
             }
             // Free function
-            if let Some(f) = ctx
-                .checked
-                .ast
-                .functions
-                .iter()
-                .find(|f| f.name.name == id.name)
-            {
-                let targs: Vec<Ty> = if let Some(inst) = inst {
-                    inst.type_args.clone()
-                } else {
-                    c.type_args
-                        .iter()
-                        .filter_map(|t| type_ref_to_ty(t, ctx))
-                        .collect()
-                };
+            let targs: Vec<Ty> = if let Some(inst) = inst {
+                inst.type_args.clone()
+            } else {
+                c.type_args
+                    .iter()
+                    .filter_map(|t| type_ref_to_ty(t, ctx))
+                    .collect()
+            };
+            let pkg = inst.map(|i| i.package.as_str()).unwrap_or("");
+            if let Some(f) = ctx.checked.ast.functions.iter().find(|f| {
+                f.name.name == id.name
+                    && (pkg.is_empty() || fun_decl_package(f, ctx.checked) == pkg)
+            }) {
                 let params: Vec<String> = f.type_params.iter().map(|p| p.name.name.clone()).collect();
                 let args = c
                     .args
@@ -254,7 +249,8 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &EmitCtx<'_>) -> String {
                     })
                     .collect::<Vec<_>>()
                     .join(", ");
-                return format!("{}({args})", c_fun_name(&id.name, &targs));
+                let fpkg = fun_decl_package(f, ctx.checked);
+                return format!("{}({args})", c_fun_name(&fpkg, &id.name, &targs));
             }
             let args = c
                 .args
@@ -262,7 +258,7 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &EmitCtx<'_>) -> String {
                 .map(|a| emit_expr(a, ctx))
                 .collect::<Vec<_>>()
                 .join(", ");
-            format!("{}({args})", c_fun_name(&id.name, &[]))
+            format!("{}({args})", c_fun_name(pkg, &id.name, &[]))
         }
         _ => "/* bad call */(0)".into(),
     }

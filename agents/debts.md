@@ -30,17 +30,17 @@ When you resolve debt, update or remove the matching entry.
 
 ### Import aliases: functions only; no type qualify
 - Area: sema / codegen (`import path as Alias`)
-- Symptom: `Alias.fun(...)` works (C3n); no `Alias.Type` in type positions; same-name cross-pkg still one HashMap key until C3o
+- Symptom: `Alias.fun(...)` works (C3n); no `Alias.Type` in type positions
 - Why deferred: C3n shipped qualified free-function calls only
-- Next step: qualified types/ctors; multi-name-per-package with C3o mangling
+- Next step: qualified types/ctors
 - Introduced: narrowed after C3n
 
-### Cross-package link requires unique top-level names
-- Area: package loader / sema
-- Symptom: two packages cannot both export `fun foo` even if not both imported together in a way that collides in one unit
-- Why deferred: single merged namespace for C backend mono unit
-- Next step: package-prefix mangling in C symbols while keeping Aura names per-package
-- Introduced: C3f
+### Classes/enums still unique across packages
+- Area: package loader / codegen
+- Symptom: free functions may share names (C3o); class/enum/interface simple names still collide at link
+- Why deferred: C3o fixed functions only
+- Next step: package-prefix type C symbols + multi-key class table
+- Introduced: narrowed after C3o
 
 ### Path-dep graph only from `aura.toml` (no lockfile / registry)
 - Area: toolchain / RFC-005
@@ -72,9 +72,12 @@ When you resolve debt, update or remove the matching entry.
 
 ## Resolved
 
+### Cross-package free functions require unique names (2026-07-15)
+- Resolved in C3o: package-prefixed C symbols (`aura_fn_demo_math_square`) + multi-pkg fun table.
+
 ### Import aliases parsed but unused (2026-07-15)
 - Resolved in C3n: `import path as Alias` → `Alias.fun(...)` free-function calls.
-- Remaining: type qualify / same-name multi-pkg under Open.
+- Remaining: type qualify under Open.
 
 ### No `Array.push` / grow (2026-07-15)
 - Resolved in C3m: `cap` field + `push` with doubling `realloc`.

@@ -248,7 +248,8 @@ pub(crate) fn emit_test_main(out: &mut String, checked: &CheckedFile) {
     }
     for t in &tests {
         let name = &t.name.name;
-        let fn_c = c_fun_name(name, &[]);
+        let pkg = fun_decl_package(t, checked);
+        let fn_c = c_fun_name(&pkg, name, &[]);
         let _ = writeln!(out, "  /* test {name} */");
         out.push_str("  {\n");
         out.push_str("    jmp_buf __tjb;\n");

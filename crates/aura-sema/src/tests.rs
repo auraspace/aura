@@ -290,6 +290,51 @@ fun main() {
 }
 
 #[test]
+fn same_fun_name_two_packages_via_alias() {
+    let mut a = parse_file(
+        r#"
+package demo.a
+pub fun add(x: Int, y: Int): Int { return x + y }
+"#,
+    )
+    .expect("parse a");
+    for f in &mut a.functions {
+        f.origin_package = "demo.a".into();
+    }
+    let mut b = parse_file(
+        r#"
+package demo.b
+pub fun add(x: Int, y: Int): Int { return x * y }
+"#,
+    )
+    .expect("parse b");
+    for f in &mut b.functions {
+        f.origin_package = "demo.b".into();
+    }
+    let mut app = parse_file(
+        r#"
+package demo.app
+import demo.a as A
+import demo.b as B
+fun main() {
+  A.add(1, 2)
+  B.add(1, 2)
+}
+"#,
+    )
+    .expect("parse app");
+    for f in &mut app.functions {
+        f.origin_package = "demo.app".into();
+    }
+    for i in &mut app.imports {
+        i.origin_package = "demo.app".into();
+    }
+    app.functions.extend(a.functions);
+    app.functions.extend(b.functions);
+    check_file(&app).expect("same name two packages");
+}
+
+#[test]
 fn import_alias_qualified_call() {
     let mut lib = parse_file(
         r#"

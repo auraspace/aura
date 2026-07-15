@@ -1,0 +1,10 @@
+[package]
+name = "demo.collide"
+
+[[bin]]
+name = "collide"
+path = "src"
+
+[dependencies]
+demo.lib_a = { path = "../lib_a" }
+demo.lib_b = { path = "../lib_b" }

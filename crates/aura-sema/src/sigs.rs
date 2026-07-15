@@ -94,6 +94,8 @@ pub struct EnumSig {
 pub struct CallInstantiation {
     pub is_constructor: bool,
     pub name: String,
+    /// Declaring package for free-function calls (C3o mangling); empty for builtins/ctors.
+    pub package: String,
     pub type_args: Vec<Ty>,
     /// Set for enum variant constructors (`Ok`, `Err`, …).
     pub variant: Option<String>,

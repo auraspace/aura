@@ -135,7 +135,8 @@ pub(crate) fn c_fun_signature(f: &FunDecl, checked: &CheckedFile, args: &[Ty]) -
             .collect::<Vec<_>>()
             .join(", ")
     };
-    format!("{ret} {}({ps})", c_fun_name(&f.name.name, args))
+    let pkg = fun_decl_package(f, checked);
+    format!("{ret} {}({ps})", c_fun_name(&pkg, &f.name.name, args))
 }
 
 pub(crate) fn emit_ctor_mono(

@@ -22,20 +22,7 @@ impl Checker {
                         });
                     }
                     let name = fe.field.name.clone();
-                    let sig = self.functions.get(&name).cloned().ok_or_else(|| SemaError {
-                        message: format!("undefined function `{name}` in package `{pkg}`"),
-                        span: fe.field.span,
-                    })?;
-                    if sig.package != pkg {
-                        return Err(SemaError {
-                            message: format!(
-                                "`{name}` is not a member of package `{pkg}` (found in `{}`)",
-                                sig.package
-                            ),
-                            span: fe.field.span,
-                        });
-                    }
-                    self.check_visible(&name, sig.is_pub, &sig.package, fe.field.span)?;
+                    let sig = self.resolve_fun_in_package(&name, &pkg, fe.field.span)?;
                     return self.check_fun_call_with_sig(&sig, c, expected);
                 }
             }
@@ -203,6 +190,7 @@ impl Checker {
                     CallInstantiation {
                         is_constructor: true,
                         name: name.clone(),
+                        package: class.package.clone(),
                         type_args: type_args.clone(),
                         variant: None,
                     },
@@ -259,11 +247,7 @@ impl Checker {
             }
         } else {
             // Free function (possibly generic)
-            let sig = self.functions.get(&name).cloned().ok_or_else(|| SemaError {
-                message: format!("undefined function `{name}`"),
-                span: c.callee.span(),
-            })?;
-            self.check_visible(&name, sig.is_pub, &sig.package, c.callee.span())?;
+            let sig = self.resolve_fun(&name, c.callee.span())?;
             self.check_fun_call_with_sig(&sig, c, expected)
         }
     }
@@ -289,16 +273,18 @@ impl Checker {
         let params: Vec<Ty> = sig.params.iter().map(|p| subst_ty(p, &subst)).collect();
         let ret = subst_ty(&sig.ret, &subst);
         self.check_args(&params, &c.args, &name, c.span)?;
+        // Always record target package for C3o C symbol mangling.
+        self.call_instantiations.insert(
+            c.span.start,
+            CallInstantiation {
+                is_constructor: false,
+                name: name.clone(),
+                package: sig.package.clone(),
+                type_args: type_args.clone(),
+                variant: None,
+            },
+        );
         if !type_args.is_empty() {
-            self.call_instantiations.insert(
-                c.span.start,
-                CallInstantiation {
-                    is_constructor: false,
-                    name: name.clone(),
-                    type_args: type_args.clone(),
-                    variant: None,
-                },
-            );
             self.mono_funs.insert((name, type_args));
         }
         Ok(ret)
@@ -381,6 +367,7 @@ impl Checker {
             CallInstantiation {
                 is_constructor: true,
                 name: enum_name.to_string(),
+                package: enum_sig.package.clone(),
                 type_args,
                 variant: Some(variant_name.to_string()),
             },

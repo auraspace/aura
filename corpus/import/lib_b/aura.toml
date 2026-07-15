@@ -1,0 +1,6 @@
+[package]
+name = "demo.lib_b"
+
+[[bin]]
+name = "lib_b"
+path = "src"

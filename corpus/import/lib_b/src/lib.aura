@@ -1,0 +1,5 @@
+package demo.lib_b
+
+pub fun add(x: Int, y: Int): Int {
+  return x * y
+}

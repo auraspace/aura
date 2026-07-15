@@ -66,9 +66,10 @@ C1 uses a **C backend** (`aura emit-c` + system `cc`) linked with `runtime/aura_
 - **Compiler C3l** inclusive range `for (i in a..=b)`
 - **Compiler C3m** `Array.push` with capacity grow (`realloc`)
 - **Compiler C3n** `import path as Alias` → `Alias.fun(...)` qualified calls
+- **Compiler C3o** package-prefixed free-function C symbols (same name across packages)
 - **DX** Pretty diagnostics (`path:line:col` + source snippet)
 - **Debts** Tracked in [`agents/debts.md`](agents/debts.md)
-- **Next:** package mangling, lockfile, GC
+- **Next:** lockfile, GC
 
 ## Links
 

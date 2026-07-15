@@ -1,0 +1,19 @@
+// C3o — same free-function name in two packages (C mangling + alias disambig)
+package demo.collide
+
+import demo.lib_a as A
+import demo.lib_b as B
+
+fun main() {
+  val s: Int = A.add(2, 3)
+  val p: Int = B.add(2, 3)
+  if (s != 5) {
+    println("sum bad")
+  } else {
+    if (p != 6) {
+      println("product bad")
+    } else {
+      println("collide ok")
+    }
+  }
+}

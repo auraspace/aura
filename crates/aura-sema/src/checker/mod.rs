@@ -25,7 +25,8 @@ pub(crate) struct Local {
 }
 
 pub(crate) struct Checker {
-    functions: HashMap<String, FunSig>,
+    /// Free functions by simple name; multiple packages may share a name (C3o).
+    functions: HashMap<String, Vec<FunSig>>,
     classes: HashMap<String, ClassSig>,
     enums: HashMap<String, EnumSig>,
     /// Variant name → owning enum name (unique across file for C3b).
@@ -52,10 +53,10 @@ pub(crate) struct Checker {
 
 impl Checker {
     pub(crate) fn new() -> Self {
-        let mut functions = HashMap::new();
+        let mut functions: HashMap<String, Vec<FunSig>> = HashMap::new();
         functions.insert(
             "println".into(),
-            FunSig {
+            vec![FunSig {
                 name: "println".into(),
                 is_pub: true,
                 package: String::new(),
@@ -65,12 +66,12 @@ impl Checker {
                 params: vec![Ty::String],
                 ret: Ty::Unit,
                 span: Span::new(0, 0),
-            },
+            }],
         );
         // Testing builtins (RFC-011 MVP)
         functions.insert(
             "assert".into(),
-            FunSig {
+            vec![FunSig {
                 name: "assert".into(),
                 is_pub: true,
                 package: String::new(),
@@ -80,7 +81,7 @@ impl Checker {
                 params: vec![Ty::Bool],
                 ret: Ty::Unit,
                 span: Span::new(0, 0),
-            },
+            }],
         );
 
         // Builtin Array<T> (C3j) — monomorphized; T ∈ {Int, Bool, String}.
@@ -191,6 +192,80 @@ impl Checker {
             });
         }
         Ok(())
+    }
+
+    pub(crate) fn is_visible(&self, name: &str, is_pub: bool, item_package: &str) -> bool {
+        self.check_visible(name, is_pub, item_package, Span::new(0, 0))
+            .is_ok()
+    }
+
+    /// Resolve free function by simple name (C3o: prefer same package, then unique visible).
+    pub(crate) fn resolve_fun(&self, name: &str, span: Span) -> Result<FunSig, SemaError> {
+        let list = self.functions.get(name).ok_or_else(|| SemaError {
+            message: format!("undefined function `{name}`"),
+            span,
+        })?;
+        let visible: Vec<&FunSig> = list
+            .iter()
+            .filter(|s| self.is_visible(name, s.is_pub, &s.package))
+            .collect();
+        if visible.is_empty() {
+            if let Some(s) = list.first() {
+                self.check_visible(name, s.is_pub, &s.package, span)?;
+            }
+            return Err(SemaError {
+                message: format!("undefined function `{name}`"),
+                span,
+            });
+        }
+        let same_pkg: Vec<&FunSig> = visible
+            .iter()
+            .copied()
+            .filter(|s| s.package == self.current_package)
+            .collect();
+        if same_pkg.len() == 1 {
+            return Ok(same_pkg[0].clone());
+        }
+        if visible.len() == 1 {
+            return Ok(visible[0].clone());
+        }
+        let pkgs: Vec<&str> = visible.iter().map(|s| s.package.as_str()).collect();
+        Err(SemaError {
+            message: format!(
+                "ambiguous function `{name}` from packages {}; use `import … as Alias` and `Alias.{name}`",
+                pkgs.join(", ")
+            ),
+            span,
+        })
+    }
+
+    pub(crate) fn resolve_fun_in_package(
+        &self,
+        name: &str,
+        pkg: &str,
+        span: Span,
+    ) -> Result<FunSig, SemaError> {
+        let list = self.functions.get(name).ok_or_else(|| SemaError {
+            message: format!("undefined function `{name}` in package `{pkg}`"),
+            span,
+        })?;
+        let sig = list
+            .iter()
+            .find(|s| s.package == pkg)
+            .cloned()
+            .ok_or_else(|| SemaError {
+                message: format!("`{name}` is not a member of package `{pkg}`"),
+                span,
+            })?;
+        self.check_visible(name, sig.is_pub, &sig.package, span)?;
+        Ok(sig)
+    }
+
+    pub(crate) fn fun_in_package(&self, name: &str, pkg: &str) -> Option<&FunSig> {
+        self.functions
+            .get(name)?
+            .iter()
+            .find(|s| s.package == pkg)
     }
     pub(crate) fn check_method(
         &mut self,

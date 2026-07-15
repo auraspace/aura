@@ -337,16 +337,27 @@ impl Checker {
         }
 
         for f in &file.functions {
-            if self.functions.contains_key(&f.name.name)
-                || self.classes.contains_key(&f.name.name)
+            if self.classes.contains_key(&f.name.name)
                 || self.interfaces.contains_key(&f.name.name)
                 || self.enums.contains_key(&f.name.name)
                 || self.variant_to_enum.contains_key(&f.name.name)
             {
                 return Err(SemaError {
-                    message: format!("duplicate function `{}`", f.name.name),
+                    message: format!("duplicate type/function name `{}`", f.name.name),
                     span: f.name.span,
                 });
+            }
+            let pkg = decl_package(&f.origin_package, &file_pkg).to_string();
+            if let Some(existing) = self.functions.get(&f.name.name) {
+                if existing.iter().any(|s| s.package == pkg) {
+                    return Err(SemaError {
+                        message: format!(
+                            "duplicate function `{}` in package `{pkg}`",
+                            f.name.name
+                        ),
+                        span: f.name.span,
+                    });
+                }
             }
             self.bind_type_params(&f.type_params)?;
             let params = f
@@ -358,11 +369,11 @@ impl Checker {
                 Some(t) => self.type_from_ref(t)?,
                 None => Ty::Unit,
             };
-            let pkg = decl_package(&f.origin_package, &file_pkg).to_string();
             self.current_package = pkg.clone();
-            self.functions.insert(
-                f.name.name.clone(),
-                FunSig {
+            self.functions
+                .entry(f.name.name.clone())
+                .or_default()
+                .push(FunSig {
                     name: f.name.name.clone(),
                     is_pub: f.is_pub,
                     package: pkg,
@@ -372,8 +383,7 @@ impl Checker {
                     params,
                     ret,
                     span: f.span,
-                },
-            );
+                });
             self.type_params.clear();
         }
 
@@ -398,9 +408,14 @@ impl Checker {
         }
 
         for f in &file.functions {
-            self.current_package = decl_package(&f.origin_package, &file_pkg).to_string();
+            let pkg = decl_package(&f.origin_package, &file_pkg).to_string();
+            self.current_package = pkg.clone();
             self.bind_type_params(&f.type_params)?;
-            let ret = self.functions.get(&f.name.name).unwrap().ret.clone();
+            let ret = self
+                .fun_in_package(&f.name.name, &pkg)
+                .unwrap()
+                .ret
+                .clone();
             self.check_fun(f, &ret)?;
             self.type_params.clear();
         }
@@ -410,7 +425,10 @@ impl Checker {
         let functions = file
             .functions
             .iter()
-            .map(|f| self.functions.get(&f.name.name).unwrap().clone())
+            .map(|f| {
+                let pkg = decl_package(&f.origin_package, &package).to_string();
+                self.fun_in_package(&f.name.name, &pkg).unwrap().clone()
+            })
             .collect();
         let classes = file
             .classes

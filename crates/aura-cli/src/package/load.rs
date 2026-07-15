@@ -380,7 +380,11 @@ fn merge_package(into: &mut LoadedPackage, mut dep: LoadedPackage) -> Result<(),
         }
     }
     for f in &dep.ast.functions {
-        if seen_funs.iter().any(|(n, _)| n == &f.name.name) {
+        // C3o: same simple name allowed across packages (C symbols are package-prefixed).
+        if seen_funs
+            .iter()
+            .any(|(n, p)| n == &f.name.name && p == &f.origin_package)
+        {
             return Err(format!(
                 "error: duplicate function `{}` when linking package `{}`",
                 f.name.name, dep.package

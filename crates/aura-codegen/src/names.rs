@@ -43,14 +43,39 @@ pub(crate) fn c_variant_ctor_name(mono: &str, variant: &str) -> String {
 pub(crate) fn is_enum_name(checked: &CheckedFile, name: &str) -> bool {
     checked.ast.enums.iter().any(|e| e.name.name == name)
 }
-pub(crate) fn c_fun_name(name: &str, args: &[Ty]) -> String {
+/// Sanitize package path for C identifiers (`demo.math` → `demo_math`).
+pub(crate) fn mangle_package(pkg: &str) -> String {
+    pkg.chars()
+        .map(|c| if c == '.' || c == '-' { '_' } else { c })
+        .collect()
+}
+
+/// Free-function C symbol (C3o: package-prefixed except `main` / builtins).
+pub(crate) fn c_fun_name(pkg: &str, name: &str, args: &[Ty]) -> String {
     if name == "main" {
         return "aura_fn_main".into();
     }
     if name == "println" {
         return "aura_println".into();
     }
-    format!("aura_fn_{}", mono_key(name, args))
+    if name == "assert" {
+        return "aura_assert".into();
+    }
+    let mono = mono_key(name, args);
+    if pkg.is_empty() {
+        format!("aura_fn_{mono}")
+    } else {
+        format!("aura_fn_{}_{mono}", mangle_package(pkg))
+    }
+}
+
+/// Package of a function decl for mangling.
+pub(crate) fn fun_decl_package(f: &FunDecl, checked: &CheckedFile) -> String {
+    if f.origin_package.is_empty() {
+        checked.package.clone()
+    } else {
+        f.origin_package.clone()
+    }
 }
 
 pub(crate) fn c_ctor_name(mono: &str) -> String {
