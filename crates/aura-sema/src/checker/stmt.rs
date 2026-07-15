@@ -323,13 +323,17 @@ impl Checker {
             Stmt::ForIn(f) => {
                 let iter_ty = self.check_expr(&f.iterable)?;
                 let elem_ty = match &iter_ty {
-                    Ty::ClassApp { name, args } if name == "Array" && args.len() == 1 => {
+                    // C3w: for (b in string) yields UTF-8 bytes as Int.
+                    Ty::String => Ty::Int,
+                    Ty::ClassApp { name, args }
+                        if crate::ty::split_nominal(name).0 == "Array" && args.len() == 1 =>
+                    {
                         args[0].clone()
                     }
                     other => {
                         return Err(SemaError {
                             message: format!(
-                                "for-in iterable must be Array<T>, got {}",
+                                "for-in iterable must be Array<T> or String, got {}",
                                 other.display()
                             ),
                             span: f.iterable.span(),

@@ -74,9 +74,10 @@ C1 uses a **C backend** (`aura emit-c` + system `cc`) linked with `runtime/aura_
 - **Compiler C3t** Free owned `Array` buffers at scope end / before return
 - **Compiler C3u** `import … as Alias` → `Alias.Type` / `Alias.Type(...)`
 - **Compiler C3v** Package-prefixed class/enum C symbols (same name across packages)
+- **Compiler C3w** `for (b in string)` over UTF-8 bytes as Int
 - **DX** Pretty diagnostics (`path:line:col` + source snippet)
 - **Debts** Tracked in [`agents/debts.md`](agents/debts.md)
-- **Next:** for-in String, GC MVP, std prelude, LLVM
+- **Next:** GC MVP, std prelude, LLVM
 
 ## Links
 

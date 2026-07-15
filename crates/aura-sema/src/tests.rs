@@ -609,7 +609,26 @@ fun main() {
 "#;
     let file = parse_file(src).expect("parse");
     let err = check_file(&file).expect_err("non-array for-in");
-    assert!(err.message.contains("Array"), "{}", err.message);
+    assert!(
+        err.message.contains("Array") || err.message.contains("String"),
+        "{}",
+        err.message
+    );
+}
+
+#[test]
+fn for_in_string_typechecks() {
+    let src = r#"
+package t
+fun main() {
+  var s: Int = 0
+  for (b in "ab") {
+    s = s + b
+  }
+}
+"#;
+    let file = parse_file(src).expect("parse");
+    check_file(&file).expect("for-in string");
 }
 
 #[test]

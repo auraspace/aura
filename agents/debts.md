@@ -7,12 +7,12 @@ When you resolve debt, update or remove the matching entry.
 
 ## Open
 
-### `for-in` only supports `Array` (no protocol)
+### `for-in` has no Iterable protocol (Array + String only)
 - Area: language / parser / sema / codegen (`ForInStmt`)
-- Symptom: no `for (x in string)` / custom iterables
-- Why deferred: C3k desugars Array via `get`+index; general iterator protocol needs more types
-- Next step: Iterable protocol or expand for-in to more collections
-- Introduced: narrowed after C3k (was C3h range-only); `..=` done in C3l
+- Symptom: no custom iterables / `for (x in myCollection)`
+- Why deferred: C3k Array + C3w String bytes; general protocol needs interface design
+- Next step: Iterable protocol
+- Introduced: narrowed after C3k/C3w
 
 ### `Array<T>` limited element types; shallow-copy free unsound
 - Area: builtin Array (C3j–C3t)
@@ -53,6 +53,9 @@ When you resolve debt, update or remove the matching entry.
 - Introduced: C0–C1
 
 ## Resolved
+
+### `for-in` only Array (2026-07-15)
+- Resolved in C3w: `for (b in string)` yields UTF-8 bytes as `Int`. Remaining: Iterable protocol under Open.
 
 ### Classes/enums still unique across packages (2026-07-15)
 - Resolved in C3v: multi-key class/enum tables; `Name@pkg` nominal keys; package-prefixed C mono (`aura_cls_demo_lib_a_Token`); loader allows same simple name across packages.

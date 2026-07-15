@@ -1,0 +1,23 @@
+// C3w — for (b in string) over UTF-8 bytes as Int
+package demo.forinstring
+
+fun main() {
+  // "AB" → 65 + 66 = 131
+  var sum: Int = 0
+  for (b in "AB") {
+    sum = sum + b
+  }
+  if (sum == 131) {
+    println("for-in string ok")
+  } else {
+    println("for-in string bad")
+  }
+
+  var n: Int = 0
+  for (b in "xy") {
+    n = n + 1
+  }
+  if (n == 2) {
+    println("for-in string len ok")
+  }
+}

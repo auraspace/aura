@@ -28,6 +28,7 @@ Small `.aura` programs used as syntax fixtures for compiler milestone **C0** (`a
 | `control/for_range.aura` | `for (i in a..b)` exclusive range (C3h) |
 | `control/break_continue.aura` | `break` / `continue` (C3i) |
 | `control/for_in.aura` | `for (x in array)` element iteration (C3k) |
+| `control/for_in_string.aura` | `for (b in string)` UTF-8 bytes as Int (C3w) |
 | `control/for_inclusive.aura` | `for (i in a..=b)` inclusive range (C3l) |
 | `generic/array.aura` | Builtin `Array<T>` len/get/set (C3j) |
 | `generic/array_push.aura` | `Array.push` + grow (C3m) |
@@ -35,7 +36,7 @@ Small `.aura` programs used as syntax fixtures for compiler milestone **C0** (`a
 | `test/smoke.aura` | `@test` + `assert` / `assert_eq` |
 | `multi/` | Multi-file package + `aura.toml` (C3e) |
 | `import/app` + `import/math` | `import` + `pub` + path dep (C3f); alias `Math.square` (C3n); `Math.Point` (C3u); `aura.lock` (C3p) |
-| `import/collide` + lib_a/lib_b | same `fun add` in two packages (C3o); lockfile (C3p) |
+| `import/collide` + lib_a/lib_b | same `fun add` (C3o) + same `class Token` (C3v); lockfile (C3p) |
 
 All files must stay within [RFC-001 §6.0](../docs/rfc/RFC-001-language-specification.md) unless marked `// @requires: post-c1`.
 

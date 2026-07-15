@@ -273,6 +273,10 @@ fn resolve_type_ref_package(ty: &TypeRef, checked: &CheckedFile) -> String {
         }
     }
     let name = &ty.name.name;
+    // Builtins are package-less (never inherit the file package).
+    if name == "Array" || is_primitive_name(name) {
+        return String::new();
+    }
     let matches: Vec<_> = checked
         .ast
         .classes
