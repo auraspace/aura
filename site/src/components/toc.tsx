@@ -14,7 +14,7 @@ export function Toc({ headings }: { headings: Heading[] }) {
 
   return (
     <nav className="toc" aria-label="Table of contents">
-      <h2>On this page</h2>
+      <p className="toc-title">On this page</p>
       <ul>
         {headings.map((h, index) => (
           <li key={`${h.id}-${index}`} className={`depth-${h.depth}`}>
