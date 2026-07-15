@@ -1,0 +1,4 @@
+# aura.lock — path dependencies (C3p)
+# Keep in sync with aura.toml [dependencies].
+demo.lib_a = "../lib_a"
+demo.lib_b = "../lib_b"

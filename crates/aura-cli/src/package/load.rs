@@ -6,6 +6,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use super::lock::{verify_lock_against_toml, write_lock};
 use super::toml::{parse_aura_toml, AuraToml};
 use super::types::{LoadedPackage, SourceEntry};
 use super::util::{
@@ -166,8 +167,14 @@ pub(crate) fn load_from_manifest(manifest: &Path) -> Result<LoadedPackage, Strin
         pkg.bin_name = last_segment(&pkg.package);
     }
 
+    // C3p: if aura.lock exists, path deps must match it.
+    verify_lock_against_toml(&root, &toml.dependencies)?;
+
     // Merge path deps from this manifest and from each loaded dep's own aura.toml.
     resolve_imports(&mut pkg, &toml, &root)?;
+
+    // Refresh lockfile for this package's direct path deps (path-only, C3p).
+    write_lock(&root, &toml.dependencies)?;
     Ok(pkg)
 }
 

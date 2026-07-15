@@ -1,0 +1,3 @@
+# aura.lock — path dependencies (C3p)
+# Keep in sync with aura.toml [dependencies].
+demo.math = "../math"

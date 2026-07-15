@@ -74,15 +74,16 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C3m** | `Array.push` + capacity grow | Done |
 | **C3n** | `import path as Alias` + `Alias.fun(...)` | Done |
 | **C3o** | Package-prefixed free-function C symbols | Done |
+| **C3p** | `aura.lock` for path deps (verify + write) | Done |
 | **DX** | line:col diagnostics with snippets | Done |
 
 **Out of scope C0/C1:** generics mono, async/tasks, macros, registry, incremental, LTO.
 
 ### P3 — Expand (after hello)
 
-1. ~~Language surface C2–C3o~~ → next: lockfile · GC (see `agents/debts.md`)
+1. ~~Language surface C2–C3p~~ → next: GC · registry · LLVM (see `agents/debts.md`)
 2. Runtime: alloc/GC MVP → channels/tasks
-3. Toolchain: ~~minimal `aura.toml` + path deps~~ → lockfile / registry (RFC-005)
+3. Toolchain: ~~minimal `aura.toml` + path deps + path lock~~ → registry (RFC-005)
 4. Stdlib prelude + small collections (partial: builtin Array)
 5. Cross targets + signed releases
 

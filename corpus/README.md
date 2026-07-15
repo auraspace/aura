@@ -33,8 +33,8 @@ Small `.aura` programs used as syntax fixtures for compiler milestone **C0** (`a
 | `generic/array_push.aura` | `Array.push` + grow (C3m) |
 | `test/smoke.aura` | `@test` + `assert` / `assert_eq` |
 | `multi/` | Multi-file package + `aura.toml` (C3e) |
-| `import/app` + `import/math` | `import` + `pub` + path dep (C3f); alias `Math.square` (C3n) |
-| `import/collide` + lib_a/lib_b | same `fun add` in two packages (C3o) |
+| `import/app` + `import/math` | `import` + `pub` + path dep (C3f); alias `Math.square` (C3n); `aura.lock` (C3p) |
+| `import/collide` + lib_a/lib_b | same `fun add` in two packages (C3o); lockfile (C3p) |
 
 All files must stay within [RFC-001 §6.0](../docs/rfc/RFC-001-language-specification.md) unless marked `// @requires: post-c1`.
 

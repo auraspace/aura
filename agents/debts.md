@@ -42,12 +42,12 @@ When you resolve debt, update or remove the matching entry.
 - Next step: package-prefix type C symbols + multi-key class table
 - Introduced: narrowed after C3o
 
-### Path-dep graph only from `aura.toml` (no lockfile / registry)
+### No registry / version resolve (path lock only)
 - Area: toolchain / RFC-005
-- Symptom: no `aura.lock`, no version resolve, nested deps need their own path entries or nested manifests
-- Why deferred: C3e/C3f path deps only
-- Next step: write/read minimal lockfile for path deps; registry later
-- Introduced: C3e/C3f
+- Symptom: C3p writes `aura.lock` for path deps only; no semver, git deps, or registry
+- Why deferred: path-only graph is enough for monorepo demos
+- Next step: registry + version resolve; nested lock merge
+- Introduced: narrowed after C3p
 
 ### Classes are by-value C structs (not GC refs)
 - Area: memory model / RFC-003 vs codegen
@@ -71,6 +71,9 @@ When you resolve debt, update or remove the matching entry.
 - Introduced: C0–C1
 
 ## Resolved
+
+### No aura.lock for path deps (2026-07-15)
+- Resolved in C3p: write/verify `aura.lock` against `aura.toml` [dependencies].
 
 ### Cross-package free functions require unique names (2026-07-15)
 - Resolved in C3o: package-prefixed C symbols (`aura_fn_demo_math_square`) + multi-pkg fun table.

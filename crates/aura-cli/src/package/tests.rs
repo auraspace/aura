@@ -170,6 +170,36 @@ other = "vendor/other"
 }
 
 #[test]
+fn lock_parse_and_verify() {
+    use super::lock::{parse_lock, verify_lock_against_toml, write_lock};
+    use std::collections::HashMap;
+
+    let lock = parse_lock(
+        r#"
+# comment
+demo.math = "../math"
+demo.other = "vendor/other"
+"#,
+    )
+    .expect("parse lock");
+    assert_eq!(lock.packages.get("demo.math").unwrap(), "../math");
+
+    let root = std::env::temp_dir().join(format!("aura-lock-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).unwrap();
+    let mut deps = HashMap::new();
+    deps.insert("demo.math".into(), "../math".into());
+    write_lock(&root, &deps).unwrap();
+    verify_lock_against_toml(&root, &deps).unwrap();
+
+    let mut bad = deps.clone();
+    bad.insert("demo.math".into(), "../elsewhere".into());
+    let err = verify_lock_against_toml(&root, &bad).unwrap_err();
+    assert!(err.contains("aura.lock"), "{err}");
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
 fn load_import_path_dep() {
     let root = std::env::temp_dir().join(format!("aura-pkg-imp-{}", std::process::id()));
     let _ = fs::remove_dir_all(&root);

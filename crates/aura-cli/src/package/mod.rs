@@ -1,6 +1,7 @@
 //! Multi-file package loading and minimal `aura.toml` (C3e).
 
 mod load;
+mod lock;
 mod toml;
 mod types;
 mod util;
