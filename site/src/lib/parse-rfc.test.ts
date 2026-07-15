@@ -71,6 +71,33 @@ describe('parseRfcMarkdown', () => {
     expect(doc.slug).toBe('rfc-000-vision-design-principles')
   })
 
+  it('uses github-slugger ids (ampersand → double hyphen)', () => {
+    const md = `# RFC-099: X
+
+| Field | Value |
+| **RFC** | 099 |
+| **Title** | X |
+| **Status** | Draft |
+| **Layer** | Language |
+| **Depends** | — |
+| **Blocks** | — |
+
+---
+
+## 5. Prior art & alternatives
+
+### 6.4 Pillar map (language → ecosystem)
+
+## 5. Prior art & alternatives
+`
+    const doc = parseRfcMarkdown(md, 'RFC-099-x.md')
+    expect(doc.headings.map((h) => h.id)).toEqual([
+      '5-prior-art--alternatives',
+      '64-pillar-map-language--ecosystem',
+      '5-prior-art--alternatives-1',
+    ])
+  })
+
   it('throws when RFC field missing', () => {
     const bad = `# Title\n\n| Field | Value |\n| **Status** | Draft |\n\n---\n\n## x\n`
     expect(() => parseRfcMarkdown(bad, 'bad.md')).toThrow(/RFC/)

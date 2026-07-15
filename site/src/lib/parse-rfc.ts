@@ -1,3 +1,4 @@
+import GithubSlugger from 'github-slugger'
 import type { RfcDoc, RfcStatus } from '@/types/rfc'
 import { slugify } from './slugify'
 
@@ -61,13 +62,28 @@ function extractBody(source: string): string {
   return lines.slice(lastTable + 1).join('\n').trim() + '\n'
 }
 
+/**
+ * Heading ids must match what the article renderer assigns (github-slugger /
+ * rehype-slug algorithm) so TOC and in-doc `#` links resolve.
+ */
+/**
+ * Heading ids must match what the article renderer assigns (github-slugger)
+ * so TOC and in-doc `#` links resolve.
+ */
 function extractHeadings(markdown: string) {
+  const slugger = new GithubSlugger()
   const headings: { depth: number; text: string; id: string }[] = []
+  let inFence = false
   for (const line of markdown.split('\n')) {
+    if (/^```/.test(line)) {
+      inFence = !inFence
+      continue
+    }
+    if (inFence) continue
     const m = line.match(/^(#{2,3})\s+(.+)$/)
     if (!m) continue
     const text = m[2].replace(/#+\s*$/, '').trim()
-    headings.push({ depth: m[1].length, text, id: slugify(text) })
+    headings.push({ depth: m[1].length, text, id: slugger.slug(text) })
   }
   return headings
 }
