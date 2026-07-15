@@ -18,15 +18,12 @@ function createComponents(headingIds: string[]): Components {
   let headingIndex = 0
   const nextHeadingId = () => headingIds[headingIndex++]
 
+  // Do not spread react-markdown props (includes `node`) onto DOM elements.
   const heading =
     (Tag: 'h2' | 'h3') =>
-    ({ children, ...props }: { children?: ReactNode }) => {
+    ({ children }: { children?: ReactNode }) => {
       const id = nextHeadingId()
-      return (
-        <Tag id={id} {...props}>
-          {children}
-        </Tag>
-      )
+      return <Tag id={id}>{children}</Tag>
     }
 
   return {
