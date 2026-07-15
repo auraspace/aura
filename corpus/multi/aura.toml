@@ -1,0 +1,7 @@
+# C3e — multi-file package + aura.toml
+[package]
+name = "demo.multi"
+
+[[bin]]
+name = "multi"
+path = "src"

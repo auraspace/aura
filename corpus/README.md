@@ -21,9 +21,17 @@ Small `.aura` programs used as syntax fixtures for compiler milestone **C0** (`a
 | `generic/id.aura` | `fun id<T>` monomorph |
 | `generic/infer.aura` | Infer `Box("…")` / `id("…")` without `<T>` |
 | `diag/undefined.aura` | **Expected fail** — diagnostics smoke (excluded from CI corpus) |
+| `struct/point.aura` | Value `struct` fields + methods |
+| `enum/color.aura` / `enum/result.aura` | Enums, match, `Result` |
+| `control/try_catch.aura` | `throw` / `try` / `catch` |
+| `test/smoke.aura` | `@test` + `assert` / `assert_eq` |
+| `multi/` | Multi-file package + `aura.toml` (C3e) |
 
 All files must stay within [RFC-001 §6.0](../docs/rfc/RFC-001-language-specification.md) unless marked `// @requires: post-c1`.
 
 ```bash
 cargo run -p aura-cli -- check corpus/hello/main.aura
+cargo run -p aura-cli -- check corpus/multi
+cargo run -p aura-cli -- run corpus/multi
+cargo run -p aura-cli -- test corpus/multi
 ```

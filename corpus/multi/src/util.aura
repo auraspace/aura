@@ -1,0 +1,10 @@
+// Shared helpers for multi-file package demo
+package demo.multi
+
+fun square(x: Int): Int {
+  return x * x
+}
+
+fun double(x: Int): Int {
+  return x + x
+}

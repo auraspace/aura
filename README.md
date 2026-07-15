@@ -32,6 +32,9 @@ cargo run -p aura-cli -- check corpus/hello/main.aura   # parse + typecheck
 cargo run -p aura-cli -- run corpus/hello/main.aura     # build & execute
 cargo run -p aura-cli -- test corpus/test/smoke.aura    # run @test functions
 cargo run -p aura-cli -- build corpus/hello/main.aura -o target/aura/hello
+cargo run -p aura-cli -- check corpus/multi             # multi-file + aura.toml
+cargo run -p aura-cli -- run corpus/multi
+cargo run -p aura-cli -- test corpus/multi              # package-wide @test
 ```
 
 C1 uses a **C backend** (`aura emit-c` + system `cc`) linked with `runtime/aura_rt.c`. LLVM IR is the longer-term path (RFC-004).
@@ -52,8 +55,9 @@ C1 uses a **C backend** (`aura emit-c` + system `cc`) linked with `runtime/aura_
 - **Compiler C3b** `enum` + `match` + generic `Result<T, E>` (exhaustive arms)
 - **Compiler C3c** `throw` / `try` / `catch` / `finally` (payloads: String, Int, Bool)
 - **Compiler C3d** `aura test` with `@test`, `assert`, `assert_eq` (Int/String/Bool)
+- **Compiler C3e** multi-file same package + minimal `aura.toml` (`check`/`build`/`run`/`test` on dir)
 - **DX** Pretty diagnostics (`path:line:col` + source snippet)
-- **Next:** multi-file packages / `aura.toml`, LLVM backend
+- **Next:** `import` / path deps, class exceptions, LLVM backend
 
 ## Links
 

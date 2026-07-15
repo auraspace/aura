@@ -1,11 +1,12 @@
-//! Aura CLI — check / build / run / emit-c with pretty diagnostics.
+//! Aura CLI — check / build / run / test / emit-c with pretty diagnostics.
+
+mod package;
 
 use aura_codegen::{build_from_file, build_tests_from_file, emit_c_from_ast};
 use aura_diagnostics::format_error;
-use aura_parser::{parse_file, ParseError};
 use aura_sema::{check_file, SemaError};
+use package::{load_package, load_package_default, LoadedPackage};
 use std::env;
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
@@ -37,33 +38,35 @@ fn main() -> ExitCode {
 
 fn eprint_usage() {
     eprintln!(
-        "Aura toolchain (C0–C3d)\n\n\
+        "Aura toolchain (C0–C3e)\n\n\
          Usage:\n  \
-           aura check <file.aura>              Parse + typecheck\n  \
-           aura build <file.aura> [-o <bin>]   Compile to native binary (C backend)\n  \
-           aura run <file.aura>                Build to temp and execute\n  \
-           aura test <file.aura>               Run @test functions\n  \
-           aura emit-c <file.aura>             Print generated C (debug)\n  \
+           aura check [path]                 Parse + typecheck (.aura | dir | aura.toml)\n  \
+           aura build [path] [-o <bin>]      Compile to native binary (C backend)\n  \
+           aura run [path]                   Build to temp and execute\n  \
+           aura test [path]                  Run @test functions (package-wide)\n  \
+           aura emit-c [path]                Print generated C (debug)\n  \
            aura help\n\n\
-         See docs/roadmap.md and RFC-001 §6.0."
+         Path may be a `.aura` file, a package directory, or `aura.toml`.\n\
+         With no path, commands look for `./aura.toml`.\n\n\
+         See docs/roadmap.md and RFC-001 §6.0 / RFC-005 / RFC-008."
     );
 }
 
-fn diag_parse(path: &Path, src: &str, e: ParseError) -> String {
-    format_error(&path.display().to_string(), src, &e.message, e.span)
+fn resolve_package(args: &[String]) -> Result<LoadedPackage, String> {
+    if args.is_empty() {
+        load_package_default()
+    } else {
+        load_package(Path::new(&args[0]))
+    }
 }
 
-fn diag_sema(path: &Path, src: &str, e: SemaError) -> String {
-    format_error(&path.display().to_string(), src, &e.message, e.span)
+fn diag_sema(pkg: &LoadedPackage, e: SemaError) -> String {
+    let (path, src, span) = pkg.locate(e.span);
+    format_error(&path, src, &e.message, span)
 }
 
 fn cmd_check(args: &[String]) -> ExitCode {
-    if args.is_empty() {
-        eprintln!("error: missing path\n  usage: aura check <file.aura>");
-        return ExitCode::from(2);
-    }
-    let path = Path::new(&args[0]);
-    match check_path(path) {
+    match resolve_package(args).and_then(check_package) {
         Ok(summary) => {
             println!("{summary}");
             ExitCode::SUCCESS
@@ -75,13 +78,22 @@ fn cmd_check(args: &[String]) -> ExitCode {
     }
 }
 
-fn check_path(path: &Path) -> Result<String, String> {
-    let src = fs::read_to_string(path).map_err(|e| format!("error: read {}: {e}", path.display()))?;
-    let file = parse_file(&src).map_err(|e| diag_parse(path, &src, e))?;
-    let checked = check_file(&file).map_err(|e| diag_sema(path, &src, e))?;
+fn check_package(pkg: LoadedPackage) -> Result<String, String> {
+    let checked = check_file(&pkg.ast).map_err(|e| diag_sema(&pkg, e))?;
 
     let mut lines = Vec::new();
-    lines.push(format!("ok  {}", path.display()));
+    if pkg.sources.len() == 1 {
+        lines.push(format!("ok  {}", pkg.sources[0].path.display()));
+    } else {
+        lines.push(format!(
+            "ok  {} ({} files)",
+            pkg.root.display(),
+            pkg.sources.len()
+        ));
+        for s in &pkg.sources {
+            lines.push(format!("  file {}", s.path.display()));
+        }
+    }
     lines.push(format!("package {}", checked.package));
     if !checked.interfaces.is_empty() {
         lines.push(format!("{} interface(s)", checked.interfaces.len()));
@@ -154,12 +166,12 @@ fn check_path(path: &Path) -> Result<String, String> {
 }
 
 fn cmd_emit_c(args: &[String]) -> ExitCode {
-    if args.is_empty() {
-        eprintln!("error: missing path\n  usage: aura emit-c <file.aura>");
-        return ExitCode::from(2);
-    }
-    let path = Path::new(&args[0]);
-    match load_and_emit_c(path) {
+    match resolve_package(args).and_then(|pkg| {
+        emit_c_from_ast(&pkg.ast).map_err(|e| match e {
+            aura_codegen::CodegenError::Sema(se) => diag_sema(&pkg, se),
+            other => format!("error: {other}"),
+        })
+    }) {
         Ok(c) => {
             print!("{c}");
             ExitCode::SUCCESS
@@ -169,15 +181,6 @@ fn cmd_emit_c(args: &[String]) -> ExitCode {
             ExitCode::from(1)
         }
     }
-}
-
-fn load_and_emit_c(path: &Path) -> Result<String, String> {
-    let src = fs::read_to_string(path).map_err(|e| format!("error: read {}: {e}", path.display()))?;
-    let file = parse_file(&src).map_err(|e| diag_parse(path, &src, e))?;
-    emit_c_from_ast(&file).map_err(|e| match e {
-        aura_codegen::CodegenError::Sema(se) => diag_sema(path, &src, se),
-        other => format!("error: {}: {other}", path.display()),
-    })
 }
 
 fn cmd_build(args: &[String]) -> ExitCode {
@@ -209,13 +212,20 @@ fn cmd_build(args: &[String]) -> ExitCode {
         i += 1;
     }
 
-    let Some(input) = input else {
-        eprintln!("error: missing path\n  usage: aura build <file.aura> [-o <bin>]");
-        return ExitCode::from(2);
+    let pkg = match input {
+        Some(p) => load_package(&p),
+        None => load_package_default(),
+    };
+    let pkg = match pkg {
+        Ok(p) => p,
+        Err(msg) => {
+            eprintln!("{msg}");
+            return ExitCode::from(1);
+        }
     };
 
-    let out = output.unwrap_or_else(|| default_out_path(&input));
-    match build_path(&input, &out) {
+    let out = output.unwrap_or_else(|| PathBuf::from(format!("target/aura/{}", pkg.bin_name)));
+    match build_package(&pkg, &out) {
         Ok(bin) => {
             println!("ok  {}", bin.display());
             ExitCode::SUCCESS
@@ -225,14 +235,6 @@ fn cmd_build(args: &[String]) -> ExitCode {
             ExitCode::from(1)
         }
     }
-}
-
-fn default_out_path(input: &Path) -> PathBuf {
-    let stem = input
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("a.out");
-    PathBuf::from(format!("target/aura/{stem}"))
 }
 
 fn runtime_c_path() -> Result<PathBuf, String> {
@@ -252,30 +254,24 @@ fn runtime_c_path() -> Result<PathBuf, String> {
     )
 }
 
-fn build_path(input: &Path, out: &Path) -> Result<PathBuf, String> {
-    let src = fs::read_to_string(input).map_err(|e| format!("error: read {}: {e}", input.display()))?;
-    let file = parse_file(&src).map_err(|e| diag_parse(input, &src, e))?;
+fn build_package(pkg: &LoadedPackage, out: &Path) -> Result<PathBuf, String> {
     let rt = runtime_c_path()?;
-    build_from_file(&file, out, &rt).map_err(|e| match e {
-        aura_codegen::CodegenError::Sema(se) => diag_sema(input, &src, se),
-        other => format!("error: {}: {other}", input.display()),
+    build_from_file(&pkg.ast, out, &rt).map_err(|e| match e {
+        aura_codegen::CodegenError::Sema(se) => diag_sema(pkg, se),
+        other => format!("error: {other}"),
     })
 }
 
 fn cmd_run(args: &[String]) -> ExitCode {
-    if args.is_empty() {
-        eprintln!("error: missing path\n  usage: aura run <file.aura>");
-        return ExitCode::from(2);
-    }
-    let input = Path::new(&args[0]);
-    let out = PathBuf::from(format!(
-        "target/aura/run-{}",
-        input
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("prog")
-    ));
-    match build_path(input, &out) {
+    let pkg = match resolve_package(args) {
+        Ok(p) => p,
+        Err(msg) => {
+            eprintln!("{msg}");
+            return ExitCode::from(1);
+        }
+    };
+    let out = PathBuf::from(format!("target/aura/run-{}", pkg.bin_name));
+    match build_package(&pkg, &out) {
         Ok(bin) => {
             let status = Command::new(&bin).status();
             match status {
@@ -298,19 +294,24 @@ fn cmd_run(args: &[String]) -> ExitCode {
 }
 
 fn cmd_test(args: &[String]) -> ExitCode {
-    if args.is_empty() {
-        eprintln!("error: missing path\n  usage: aura test <file.aura>");
-        return ExitCode::from(2);
+    let pkg = match resolve_package(args) {
+        Ok(p) => p,
+        Err(msg) => {
+            eprintln!("{msg}");
+            return ExitCode::from(1);
+        }
+    };
+    let n_tests = pkg.ast.functions.iter().filter(|f| f.is_test).count();
+    if n_tests == 0 {
+        eprintln!(
+            "error: no @test functions found in package `{}` ({} file(s))",
+            pkg.package,
+            pkg.sources.len()
+        );
+        return ExitCode::from(1);
     }
-    let input = Path::new(&args[0]);
-    let out = PathBuf::from(format!(
-        "target/aura/test-{}",
-        input
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("tests")
-    ));
-    match build_test_path(input, &out) {
+    let out = PathBuf::from(format!("target/aura/test-{}", pkg.bin_name));
+    match build_test_package(&pkg, &out) {
         Ok(bin) => {
             let status = Command::new(&bin).status();
             match status {
@@ -329,19 +330,10 @@ fn cmd_test(args: &[String]) -> ExitCode {
     }
 }
 
-fn build_test_path(input: &Path, out: &Path) -> Result<PathBuf, String> {
-    let src = fs::read_to_string(input).map_err(|e| format!("error: read {}: {e}", input.display()))?;
-    let file = parse_file(&src).map_err(|e| diag_parse(input, &src, e))?;
-    let n_tests = file.functions.iter().filter(|f| f.is_test).count();
-    if n_tests == 0 {
-        return Err(format!(
-            "error: {}: no @test functions found",
-            input.display()
-        ));
-    }
+fn build_test_package(pkg: &LoadedPackage, out: &Path) -> Result<PathBuf, String> {
     let rt = runtime_c_path()?;
-    build_tests_from_file(&file, out, &rt).map_err(|e| match e {
-        aura_codegen::CodegenError::Sema(se) => diag_sema(input, &src, se),
-        other => format!("error: {}: {other}", input.display()),
+    build_tests_from_file(&pkg.ast, out, &rt).map_err(|e| match e {
+        aura_codegen::CodegenError::Sema(se) => diag_sema(pkg, se),
+        other => format!("error: {other}"),
     })
 }

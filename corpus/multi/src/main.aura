@@ -1,0 +1,25 @@
+// Entry + tests spanning the package
+package demo.multi
+
+fun main() {
+  println("multi-file ok")
+  // Call helpers from util.aura so they stay linked.
+  val s: Int = square(6)
+  val d: Int = double(21)
+  if (s != 36) {
+    println("square failed")
+  }
+  if (d != 42) {
+    println("double failed")
+  }
+}
+
+@test
+fun test_square() {
+  assert_eq(square(5), 25)
+}
+
+@test
+fun test_double() {
+  assert_eq(double(3), 6)
+}
