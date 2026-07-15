@@ -1,0 +1,108 @@
+use std::collections::HashMap;
+
+use aura_ast::{Span, TypeParam};
+
+use super::Checker;
+use crate::error::SemaError;
+use crate::ty::Ty;
+
+impl Checker {
+    pub(crate) fn bind_type_params(&mut self, params: &[TypeParam]) -> Result<(), SemaError> {
+        self.type_params.clear();
+        for p in params {
+            if self.type_params.contains_key(&p.name.name) {
+                return Err(SemaError {
+                    message: format!("duplicate type parameter `{}`", p.name.name),
+                    span: p.name.span,
+                });
+            }
+            let mut bounds = Vec::new();
+            for b in &p.bounds {
+                if !self.interfaces.contains_key(&b.name) {
+                    // Allow class bounds later; C2e: interfaces only
+                    return Err(SemaError {
+                        message: format!(
+                            "unknown bound `{}` (C2e: bounds must be interfaces)",
+                            b.name
+                        ),
+                        span: b.span,
+                    });
+                }
+                if bounds.contains(&b.name) {
+                    return Err(SemaError {
+                        message: format!("duplicate bound `{}` on `{}`", b.name, p.name.name),
+                        span: b.span,
+                    });
+                }
+                bounds.push(b.name.clone());
+            }
+            self.type_params.insert(p.name.name.clone(), bounds);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn bounds_map_from_params(params: &[TypeParam]) -> HashMap<String, Vec<String>> {
+        params
+            .iter()
+            .map(|p| {
+                (
+                    p.name.name.clone(),
+                    p.bounds.iter().map(|b| b.name.clone()).collect(),
+                )
+            })
+            .collect()
+    }
+
+    /// Does `ty` satisfy all interface bounds?
+    pub(crate) fn satisfies_bounds(&self, ty: &Ty, bounds: &[String], span: Span) -> Result<(), SemaError> {
+        for b in bounds {
+            if !self.ty_implements(ty, b) {
+                return Err(SemaError {
+                    message: format!(
+                        "type {} does not satisfy bound `{}`",
+                        ty.display(),
+                        b
+                    ),
+                    span,
+                });
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn ty_implements(&self, ty: &Ty, iface: &str) -> bool {
+        match ty {
+            Ty::Class(c) | Ty::ClassApp { name: c, .. } => self
+                .classes
+                .get(c)
+                .map(|cs| cs.implements.iter().any(|x| x == iface))
+                .unwrap_or(false),
+            Ty::Interface(i) => i == iface,
+            Ty::TypeParam(p) => self
+                .type_params
+                .get(p)
+                .map(|bs| bs.iter().any(|x| x == iface))
+                .unwrap_or(false),
+            _ => false,
+        }
+    }
+
+    pub(crate) fn check_type_args_bounds(
+        &self,
+        param_names: &[String],
+        bounds: &HashMap<String, Vec<String>>,
+        type_args: &[Ty],
+        span: Span,
+        what: &str,
+    ) -> Result<(), SemaError> {
+        for (name, arg) in param_names.iter().zip(type_args.iter()) {
+            if let Some(bs) = bounds.get(name) {
+                if let Err(mut e) = self.satisfies_bounds(arg, bs, span) {
+                    e.message = format!("{what}: {}", e.message);
+                    return Err(e);
+                }
+            }
+        }
+        Ok(())
+    }
+}

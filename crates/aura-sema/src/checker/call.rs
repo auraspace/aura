@@ -1,0 +1,578 @@
+use std::collections::HashMap;
+
+use aura_ast::{CallExpr, Expr, Span};
+
+use super::Checker;
+use crate::error::SemaError;
+use crate::sigs::{CallInstantiation, ClassSig, EnumSig, EnumVariantSig, FunSig};
+use crate::ty::Ty;
+use crate::util::{subst_ty, type_subst_map, unify_ty};
+
+impl Checker {
+    pub(crate) fn check_call(&mut self, c: &CallExpr, expected: Option<&Ty>) -> Result<Ty, SemaError> {
+        if let Expr::Field(fe) = c.callee.as_ref() {
+            if !c.type_args.is_empty() {
+                return Err(SemaError {
+                    message: "type arguments not allowed on method calls in C2b".into(),
+                    span: c.span,
+                });
+            }
+            let obj_ty = self.check_expr(&fe.object)?;
+
+            if let Some(cname) = obj_ty.class_name() {
+                let class = self.classes.get(cname).cloned().ok_or_else(|| SemaError {
+                    message: format!("unknown class `{cname}`"),
+                    span: c.span,
+                })?;
+                let method = class
+                    .methods
+                    .get(&fe.field.name)
+                    .cloned()
+                    .ok_or_else(|| SemaError {
+                        message: format!("unknown method `{}` on `{cname}`", fe.field.name),
+                        span: fe.field.span,
+                    })?;
+                let subst = type_subst_map(&class.type_params, obj_ty.class_args());
+                let params: Vec<Ty> = method.params.iter().map(|p| subst_ty(p, &subst)).collect();
+                let ret = subst_ty(&method.ret, &subst);
+                self.check_args(
+                    &params,
+                    &c.args,
+                    &format!("{}.{}", cname, method.name),
+                    c.span,
+                )?;
+                self.note_mono_ty(&obj_ty);
+                return Ok(ret);
+            }
+
+            if let Ty::Interface(iface_name) = &obj_ty {
+                let method = self
+                    .interfaces
+                    .get(iface_name)
+                    .and_then(|i| i.methods.get(&fe.field.name))
+                    .cloned()
+                    .ok_or_else(|| SemaError {
+                        message: format!(
+                            "unknown method `{}` on interface `{iface_name}`",
+                            fe.field.name
+                        ),
+                        span: fe.field.span,
+                    })?;
+                self.check_args(
+                    &method.params,
+                    &c.args,
+                    &format!("{}.{}", iface_name, method.name),
+                    c.span,
+                )?;
+                return Ok(method.ret);
+            }
+
+            // Type param with interface bounds: call methods from any bound.
+            if let Ty::TypeParam(pname) = &obj_ty {
+                let bounds = self.type_params.get(pname).cloned().unwrap_or_default();
+                for iface_name in &bounds {
+                    if let Some(method) = self
+                        .interfaces
+                        .get(iface_name)
+                        .and_then(|i| i.methods.get(&fe.field.name))
+                        .cloned()
+                    {
+                        self.check_args(
+                            &method.params,
+                            &c.args,
+                            &format!("{}.{}", iface_name, method.name),
+                            c.span,
+                        )?;
+                        return Ok(method.ret);
+                    }
+                }
+                if bounds.is_empty() {
+                    return Err(SemaError {
+                        message: format!(
+                            "cannot call method `{}` on unbounded type parameter `{pname}`",
+                            fe.field.name
+                        ),
+                        span: fe.field.span,
+                    });
+                }
+                return Err(SemaError {
+                    message: format!(
+                        "method `{}` not found on bounds of `{pname}` ({})",
+                        fe.field.name,
+                        bounds.join(", ")
+                    ),
+                    span: fe.field.span,
+                });
+            }
+
+            return Err(SemaError {
+                message: format!(
+                    "method call requires a class, interface, or bounded type parameter, got {}",
+                    obj_ty.display()
+                ),
+                span: c.span,
+            });
+        }
+
+        let name = match c.callee.as_ref() {
+            Expr::Ident(id) => id.name.clone(),
+            _ => {
+                return Err(SemaError {
+                    message: "only direct calls and method calls supported".into(),
+                    span: c.span,
+                });
+            }
+        };
+
+        // Constructor (possibly generic)
+        if let Some(class) = self.classes.get(&name).cloned() {
+            if c.args.len() != class.fields.len() {
+                return Err(SemaError {
+                    message: format!(
+                        "constructor `{}` expects {} argument(s), got {}",
+                        name,
+                        class.fields.len(),
+                        c.args.len()
+                    ),
+                    span: c.span,
+                });
+            }
+
+            let type_args = self.resolve_ctor_type_args(&class, c, expected)?;
+            self.check_type_args_bounds(
+                &class.type_params,
+                &class.bounds,
+                &type_args,
+                c.span,
+                &format!("constructor `{}`", class.name),
+            )?;
+
+            let subst = type_subst_map(&class.type_params, &type_args);
+            for (arg, field) in c.args.iter().zip(class.fields.iter()) {
+                let exp = subst_ty(&field.ty, &subst);
+                let got = self.check_expr_expected(arg, Some(&exp))?;
+                if !self.is_assignable(&got, &exp) {
+                    return Err(SemaError {
+                        message: format!(
+                            "constructor argument for `{}`: expected {}, got {}",
+                            field.name,
+                            exp.display(),
+                            got.display()
+                        ),
+                        span: arg.span(),
+                    });
+                }
+            }
+
+            if !type_args.is_empty() {
+                self.call_instantiations.insert(
+                    c.span.start,
+                    CallInstantiation {
+                        is_constructor: true,
+                        name: name.clone(),
+                        type_args: type_args.clone(),
+                        variant: None,
+                    },
+                );
+            }
+
+            let ret = if type_args.is_empty() {
+                Ty::Class(name)
+            } else {
+                let t = Ty::ClassApp {
+                    name,
+                    args: type_args,
+                };
+                self.note_mono_ty(&t);
+                t
+            };
+            return Ok(ret);
+        }
+
+        // Enum variant constructor: Ok(...), Red()
+        if let Some(enum_name) = self.variant_to_enum.get(&name).cloned() {
+            return self.check_variant_ctor(&enum_name, &name, c, expected);
+        }
+
+        // assert_eq(a, b) — same-type equality for Int/String/Bool (RFC-011 MVP)
+        if name == "assert_eq" {
+            if c.args.len() != 2 {
+                return Err(SemaError {
+                    message: "`assert_eq` expects 2 arguments".into(),
+                    span: c.span,
+                });
+            }
+            let a = self.check_expr(&c.args[0])?;
+            let b = self.check_expr(&c.args[1])?;
+            if a != b {
+                return Err(SemaError {
+                    message: format!(
+                        "`assert_eq` type mismatch: {} vs {}",
+                        a.display(),
+                        b.display()
+                    ),
+                    span: c.span,
+                });
+            }
+            match a {
+                Ty::Int | Ty::String | Ty::Bool => Ok(Ty::Unit),
+                other => Err(SemaError {
+                    message: format!(
+                        "`assert_eq` supports Int, String, Bool (got {})",
+                        other.display()
+                    ),
+                    span: c.span,
+                }),
+            }
+        } else {
+            // Free function (possibly generic)
+            let sig = self.functions.get(&name).cloned().ok_or_else(|| SemaError {
+                message: format!("undefined function `{name}`"),
+                span: c.callee.span(),
+            })?;
+
+            let type_args = self.resolve_fun_type_args(&sig, c, expected)?;
+            self.check_type_args_bounds(
+                &sig.type_params,
+                &sig.bounds,
+                &type_args,
+                c.span,
+                &format!("function `{}`", sig.name),
+            )?;
+
+            let subst = type_subst_map(&sig.type_params, &type_args);
+            let params: Vec<Ty> = sig.params.iter().map(|p| subst_ty(p, &subst)).collect();
+            let ret = subst_ty(&sig.ret, &subst);
+            self.check_args(&params, &c.args, &name, c.span)?;
+            if !type_args.is_empty() {
+                self.call_instantiations.insert(
+                    c.span.start,
+                    CallInstantiation {
+                        is_constructor: false,
+                        name: name.clone(),
+                        type_args: type_args.clone(),
+                        variant: None,
+                    },
+                );
+                self.mono_funs.insert((name, type_args));
+            }
+            Ok(ret)
+        }
+    }
+
+    pub(crate) fn check_variant_ctor(
+        &mut self,
+        enum_name: &str,
+        variant_name: &str,
+        c: &CallExpr,
+        expected: Option<&Ty>,
+    ) -> Result<Ty, SemaError> {
+        if !c.type_args.is_empty() {
+            return Err(SemaError {
+                message: "type arguments go on the enum type, not the variant constructor".into(),
+                span: c.span,
+            });
+        }
+        let enum_sig = self.enums.get(enum_name).cloned().ok_or_else(|| SemaError {
+            message: format!("unknown enum `{enum_name}`"),
+            span: c.span,
+        })?;
+        let variant = enum_sig
+            .variants
+            .iter()
+            .find(|v| v.name == variant_name)
+            .cloned()
+            .ok_or_else(|| SemaError {
+                message: format!("unknown variant `{variant_name}`"),
+                span: c.span,
+            })?;
+        if c.args.len() != variant.fields.len() {
+            return Err(SemaError {
+                message: format!(
+                    "variant `{variant_name}` expects {} argument(s), got {}",
+                    variant.fields.len(),
+                    c.args.len()
+                ),
+                span: c.span,
+            });
+        }
+
+        let type_args = self.resolve_enum_type_args(&enum_sig, &variant, c, expected)?;
+        self.check_type_args_bounds(
+            &enum_sig.type_params,
+            &enum_sig.bounds,
+            &type_args,
+            c.span,
+            &format!("enum `{enum_name}`"),
+        )?;
+        let subst = type_subst_map(&enum_sig.type_params, &type_args);
+        for (arg, (_fname, fty)) in c.args.iter().zip(variant.fields.iter()) {
+            let exp = subst_ty(fty, &subst);
+            let got = self.check_expr_expected(arg, Some(&exp))?;
+            if !self.is_assignable(&got, &exp) {
+                return Err(SemaError {
+                    message: format!(
+                        "argument type mismatch for `{variant_name}`: expected {}, got {}",
+                        exp.display(),
+                        got.display()
+                    ),
+                    span: arg.span(),
+                });
+            }
+        }
+
+        let ret = if type_args.is_empty() {
+            Ty::Enum(enum_name.to_string())
+        } else {
+            let t = Ty::EnumApp {
+                name: enum_name.to_string(),
+                args: type_args.clone(),
+            };
+            self.note_mono_ty(&t);
+            t
+        };
+        self.call_instantiations.insert(
+            c.span.start,
+            CallInstantiation {
+                is_constructor: true,
+                name: enum_name.to_string(),
+                type_args,
+                variant: Some(variant_name.to_string()),
+            },
+        );
+        Ok(ret)
+    }
+
+    pub(crate) fn resolve_enum_type_args(
+        &mut self,
+        enum_sig: &EnumSig,
+        variant: &EnumVariantSig,
+        c: &CallExpr,
+        expected: Option<&Ty>,
+    ) -> Result<Vec<Ty>, SemaError> {
+        if enum_sig.type_params.is_empty() {
+            return Ok(Vec::new());
+        }
+        if let Some(Ty::EnumApp { name, args }) = expected {
+            if name == &enum_sig.name && args.len() == enum_sig.type_params.len() {
+                return Ok(args.clone());
+            }
+        }
+        if let Some(Ty::Enum(name)) = expected {
+            if name == &enum_sig.name && enum_sig.type_params.is_empty() {
+                return Ok(Vec::new());
+            }
+        }
+        let mut arg_tys = Vec::new();
+        for a in &c.args {
+            arg_tys.push(self.check_expr(a)?);
+        }
+        let patterns: Vec<&Ty> = variant.fields.iter().map(|(_, t)| t).collect();
+        self.infer_type_args_from_patterns(
+            &enum_sig.type_params,
+            &patterns,
+            &arg_tys,
+            c.span,
+            &format!("variant `{}`", variant.name),
+        )
+    }
+
+    pub(crate) fn resolve_ctor_type_args(
+        &mut self,
+        class: &ClassSig,
+        c: &CallExpr,
+        expected: Option<&Ty>,
+    ) -> Result<Vec<Ty>, SemaError> {
+        let what = format!("type `{}`", class.name);
+        if class.type_params.is_empty() {
+            if !c.type_args.is_empty() {
+                return Err(SemaError {
+                    message: format!("{what} does not take type arguments"),
+                    span: c.span,
+                });
+            }
+            return Ok(Vec::new());
+        }
+        if !c.type_args.is_empty() {
+            if c.type_args.len() != class.type_params.len() {
+                return Err(SemaError {
+                    message: format!(
+                        "{what} expects {} type argument(s), got {}",
+                        class.type_params.len(),
+                        c.type_args.len()
+                    ),
+                    span: c.span,
+                });
+            }
+            return c
+                .type_args
+                .iter()
+                .map(|t| self.type_from_ref(t))
+                .collect::<Result<Vec<_>, _>>();
+        }
+        if let Some(Ty::ClassApp { name: n, args }) = expected {
+            if n == &class.name && args.len() == class.type_params.len() {
+                return Ok(args.clone());
+            }
+        }
+        let mut arg_tys = Vec::new();
+        for a in &c.args {
+            arg_tys.push(self.check_expr(a)?);
+        }
+        let patterns: Vec<&Ty> = class.fields.iter().map(|f| &f.ty).collect();
+        self.infer_type_args_from_patterns(
+            &class.type_params,
+            &patterns,
+            &arg_tys,
+            c.span,
+            &format!("constructor `{}`", class.name),
+        )
+    }
+
+    pub(crate) fn resolve_fun_type_args(
+        &mut self,
+        sig: &FunSig,
+        c: &CallExpr,
+        expected: Option<&Ty>,
+    ) -> Result<Vec<Ty>, SemaError> {
+        let what = format!("function `{}`", sig.name);
+        if sig.type_params.is_empty() {
+            if !c.type_args.is_empty() {
+                return Err(SemaError {
+                    message: format!("{what} does not take type arguments"),
+                    span: c.span,
+                });
+            }
+            return Ok(Vec::new());
+        }
+        if !c.type_args.is_empty() {
+            if c.type_args.len() != sig.type_params.len() {
+                return Err(SemaError {
+                    message: format!(
+                        "{what} expects {} type argument(s), got {}",
+                        sig.type_params.len(),
+                        c.type_args.len()
+                    ),
+                    span: c.span,
+                });
+            }
+            return c
+                .type_args
+                .iter()
+                .map(|t| self.type_from_ref(t))
+                .collect::<Result<Vec<_>, _>>();
+        }
+        if let Some(exp) = expected {
+            let mut map = HashMap::new();
+            if unify_ty(&sig.ret, exp, &mut map).is_ok() {
+                let mut args = Vec::new();
+                let mut ok = true;
+                for p in &sig.type_params {
+                    if let Some(t) = map.get(p) {
+                        if *t == Ty::Null {
+                            ok = false;
+                            break;
+                        }
+                        args.push(t.clone());
+                    } else {
+                        ok = false;
+                        break;
+                    }
+                }
+                if ok && args.len() == sig.type_params.len() {
+                    return Ok(args);
+                }
+            }
+        }
+        let mut arg_tys = Vec::new();
+        for a in &c.args {
+            arg_tys.push(self.check_expr(a)?);
+        }
+        if arg_tys.len() != sig.params.len() {
+            return Err(SemaError {
+                message: format!(
+                    "`{}` expects {} argument(s), got {}",
+                    sig.name,
+                    sig.params.len(),
+                    arg_tys.len()
+                ),
+                span: c.span,
+            });
+        }
+        let patterns: Vec<&Ty> = sig.params.iter().collect();
+        self.infer_type_args_from_patterns(
+            &sig.type_params,
+            &patterns,
+            &arg_tys,
+            c.span,
+            &what,
+        )
+    }
+
+    pub(crate) fn infer_type_args_from_patterns(
+        &self,
+        type_params: &[String],
+        patterns: &[&Ty],
+        concretes: &[Ty],
+        span: Span,
+        what: &str,
+    ) -> Result<Vec<Ty>, SemaError> {
+        let mut map = HashMap::new();
+        for (pat, con) in patterns.iter().zip(concretes.iter()) {
+            if let Err(msg) = unify_ty(pat, con, &mut map) {
+                return Err(SemaError {
+                    message: format!("{what}: {msg}"),
+                    span,
+                });
+            }
+        }
+        let mut out = Vec::new();
+        for p in type_params {
+            match map.get(p) {
+                Some(t) if *t != Ty::Null => out.push(t.clone()),
+                _ => {
+                    return Err(SemaError {
+                        message: format!(
+                            "cannot infer type argument `{p}` for {what}; write it explicitly (e.g. `<…>`)"
+                        ),
+                        span,
+                    });
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    pub(crate) fn check_args(
+        &mut self,
+        params: &[Ty],
+        args: &[Expr],
+        name: &str,
+        span: Span,
+    ) -> Result<(), SemaError> {
+        if args.len() != params.len() {
+            return Err(SemaError {
+                message: format!(
+                    "`{name}` expects {} argument(s), got {}",
+                    params.len(),
+                    args.len()
+                ),
+                span,
+            });
+        }
+        for (arg, expected) in args.iter().zip(params.iter()) {
+            let got = self.check_expr_expected(arg, Some(expected))?;
+            if !self.is_assignable(&got, expected) {
+                return Err(SemaError {
+                    message: format!(
+                        "argument type mismatch for `{name}`: expected {}, got {}",
+                        expected.display(),
+                        got.display()
+                    ),
+                    span: arg.span(),
+                });
+            }
+        }
+        Ok(())
+    }
+}

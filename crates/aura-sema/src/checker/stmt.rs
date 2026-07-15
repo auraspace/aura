@@ -1,0 +1,286 @@
+use std::collections::{HashMap, HashSet};
+
+use aura_ast::{Block, MatchStmt, Pattern, Stmt};
+
+use super::{Checker, Local};
+use crate::error::SemaError;
+use crate::ty::Ty;
+use crate::util::{analyze_null_check, subst_ty, type_subst_map};
+
+impl Checker {
+    pub(crate) fn check_block(&mut self, block: &Block, expected_ret: &Ty) -> Result<(), SemaError> {
+        self.locals.push(HashMap::new());
+        for stmt in &block.stmts {
+            self.check_stmt(stmt, expected_ret)?;
+        }
+        self.locals.pop();
+        Ok(())
+    }
+
+    pub(crate) fn check_match(&mut self, m: &MatchStmt, expected_ret: &Ty) -> Result<(), SemaError> {
+        let scrut_ty = self.check_expr(&m.scrutinee)?;
+        let Some(ename) = scrut_ty.enum_name() else {
+            return Err(SemaError {
+                message: format!(
+                    "`match` requires an enum type, got {}",
+                    scrut_ty.display()
+                ),
+                span: m.scrutinee.span(),
+            });
+        };
+        let enum_sig = self.enums.get(ename).cloned().ok_or_else(|| SemaError {
+            message: format!("unknown enum `{ename}`"),
+            span: m.scrutinee.span(),
+        })?;
+        let type_args = scrut_ty.enum_args().to_vec();
+        let subst = type_subst_map(&enum_sig.type_params, &type_args);
+        self.note_mono_ty(&scrut_ty);
+
+        let mut covered = HashSet::new();
+        for arm in &m.arms {
+            let Pattern::Variant {
+                name,
+                bindings,
+                span,
+            } = &arm.pattern;
+            let variant = enum_sig
+                .variants
+                .iter()
+                .find(|v| v.name == name.name)
+                .ok_or_else(|| SemaError {
+                    message: format!("unknown variant `{}` for enum `{ename}`", name.name),
+                    span: *span,
+                })?;
+            if !covered.insert(variant.name.clone()) {
+                return Err(SemaError {
+                    message: format!("duplicate match arm for variant `{}`", variant.name),
+                    span: *span,
+                });
+            }
+            if bindings.len() != variant.fields.len() {
+                return Err(SemaError {
+                    message: format!(
+                        "variant `{}` has {} field(s), pattern binds {}",
+                        variant.name,
+                        variant.fields.len(),
+                        bindings.len()
+                    ),
+                    span: *span,
+                });
+            }
+            self.locals.push(HashMap::new());
+            for (bind, (fname, fty)) in bindings.iter().zip(variant.fields.iter()) {
+                if self.current_locals().contains_key(&bind.name) {
+                    return Err(SemaError {
+                        message: format!("duplicate binding `{}`", bind.name),
+                        span: bind.span,
+                    });
+                }
+                let _ = fname;
+                let ty = subst_ty(fty, &subst);
+                self.current_locals_mut().insert(
+                    bind.name.clone(),
+                    Local {
+                        ty,
+                        mutable: false,
+                    },
+                );
+            }
+            for stmt in &arm.body.stmts {
+                self.check_stmt(stmt, expected_ret)?;
+            }
+            self.locals.pop();
+        }
+        let missing: Vec<_> = enum_sig
+            .variants
+            .iter()
+            .filter(|v| !covered.contains(&v.name))
+            .map(|v| v.name.clone())
+            .collect();
+        if !missing.is_empty() {
+            return Err(SemaError {
+                message: format!(
+                    "non-exhaustive match on `{ename}`; missing: {}",
+                    missing.join(", ")
+                ),
+                span: m.span,
+            });
+        }
+        Ok(())
+    }
+
+    pub(crate) fn check_stmt(&mut self, stmt: &Stmt, expected_ret: &Ty) -> Result<(), SemaError> {
+        match stmt {
+            Stmt::Match(m) => self.check_match(m, expected_ret),
+            Stmt::Throw(t) => {
+                let ty = self.check_expr(&t.value)?;
+                if matches!(ty, Ty::Unit | Ty::Null) {
+                    return Err(SemaError {
+                        message: format!("cannot throw {}", ty.display()),
+                        span: t.value.span(),
+                    });
+                }
+                // C3c: only String / Int / Bool payloads in the runtime.
+                match &ty {
+                    Ty::String | Ty::Int | Ty::Bool => Ok(()),
+                    other => Err(SemaError {
+                        message: format!(
+                            "C3c: can only throw String, Int, or Bool (got {})",
+                            other.display()
+                        ),
+                        span: t.value.span(),
+                    }),
+                }
+            }
+            Stmt::Try(t) => {
+                self.check_block(&t.try_block, expected_ret)?;
+                if let Some(c) = &t.catch {
+                    let catch_ty = self.type_from_ref(&c.ty)?;
+                    match &catch_ty {
+                        Ty::String | Ty::Int | Ty::Bool => {}
+                        other => {
+                            return Err(SemaError {
+                                message: format!(
+                                    "C3c: catch type must be String, Int, or Bool (got {})",
+                                    other.display()
+                                ),
+                                span: c.ty.span,
+                            });
+                        }
+                    }
+                    self.locals.push(HashMap::new());
+                    self.current_locals_mut().insert(
+                        c.name.name.clone(),
+                        Local {
+                            ty: catch_ty,
+                            mutable: false,
+                        },
+                    );
+                    for stmt in &c.body.stmts {
+                        self.check_stmt(stmt, expected_ret)?;
+                    }
+                    self.locals.pop();
+                }
+                if let Some(f) = &t.finally {
+                    self.check_block(f, expected_ret)?;
+                }
+                Ok(())
+            }
+            Stmt::Var(v) => {
+                let ann_ty = match &v.ty {
+                    Some(t) => Some(self.type_from_ref(t)?),
+                    None => None,
+                };
+                let init_ty = self.check_expr_expected(&v.init, ann_ty.as_ref())?;
+                let ty = if let Some(ann_ty) = ann_ty {
+                    if !self.is_assignable(&init_ty, &ann_ty) {
+                        return Err(SemaError {
+                            message: format!(
+                                "cannot assign {} to `{}` of type {}",
+                                init_ty.display(),
+                                v.name.name,
+                                ann_ty.display()
+                            ),
+                            span: v.init.span(),
+                        });
+                    }
+                    ann_ty
+                } else {
+                    if init_ty == Ty::Null {
+                        return Err(SemaError {
+                            message: "cannot infer type of `null`; add a type annotation".into(),
+                            span: v.init.span(),
+                        });
+                    }
+                    if init_ty == Ty::Unit {
+                        return Err(SemaError {
+                            message: "cannot bind Unit to a local".into(),
+                            span: v.init.span(),
+                        });
+                    }
+                    init_ty
+                };
+                if self.current_locals().contains_key(&v.name.name) {
+                    return Err(SemaError {
+                        message: format!("duplicate local `{}`", v.name.name),
+                        span: v.name.span,
+                    });
+                }
+                self.note_mono_ty(&ty);
+                self.current_locals_mut().insert(
+                    v.name.name.clone(),
+                    Local {
+                        ty,
+                        mutable: v.mutable,
+                    },
+                );
+                Ok(())
+            }
+            Stmt::If(i) => {
+                let cond = self.check_expr(&i.cond)?;
+                if cond != Ty::Bool {
+                    return Err(SemaError {
+                        message: format!("if condition must be Bool, got {}", cond.display()),
+                        span: i.cond.span(),
+                    });
+                }
+                let fact = analyze_null_check(&i.cond);
+
+                // then-branch (narrow if `x != null`)
+                self.locals.push(HashMap::new());
+                if let Some((ref name, not_null_when_true)) = fact {
+                    if not_null_when_true {
+                        self.apply_not_null(name);
+                    }
+                }
+                self.check_block(&i.then_block, expected_ret)?;
+                self.locals.pop();
+
+                // else-branch (narrow if `x == null` was the condition)
+                if let Some(else_b) = &i.else_block {
+                    self.locals.push(HashMap::new());
+                    if let Some((ref name, not_null_when_true)) = fact {
+                        if !not_null_when_true {
+                            self.apply_not_null(name);
+                        }
+                    }
+                    self.check_block(else_b, expected_ret)?;
+                    self.locals.pop();
+                }
+                Ok(())
+            }
+            Stmt::While(w) => {
+                let cond = self.check_expr(&w.cond)?;
+                if cond != Ty::Bool {
+                    return Err(SemaError {
+                        message: format!("while condition must be Bool, got {}", cond.display()),
+                        span: w.cond.span(),
+                    });
+                }
+                self.check_block(&w.body, expected_ret)?;
+                Ok(())
+            }
+            Stmt::Return(r) => {
+                let got = match &r.value {
+                    Some(e) => self.check_expr_expected(e, Some(expected_ret))?,
+                    None => Ty::Unit,
+                };
+                if !self.is_assignable(&got, expected_ret) {
+                    return Err(SemaError {
+                        message: format!(
+                            "return type mismatch: expected {}, got {}",
+                            expected_ret.display(),
+                            got.display()
+                        ),
+                        span: r.span,
+                    });
+                }
+                Ok(())
+            }
+            Stmt::Expr(e) => {
+                let _ = self.check_expr(e)?;
+                Ok(())
+            }
+        }
+    }
+}
