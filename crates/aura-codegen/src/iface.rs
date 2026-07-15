@@ -20,12 +20,16 @@ pub(crate) fn emit_upcast(out: &mut String, checked: &CheckedFile, class: &Class
     let pkg = class_decl_package(class, checked);
     let mono = type_mono(&pkg, &class.name.name, &[]);
     let simple = &class.name.name;
+    let param_ty = if is_heap_class_decl(class) {
+        format!("{} *", c_class_type(&mono))
+    } else {
+        c_class_type(&mono)
+    };
     let _ = writeln!(
         out,
-        "{} {}({} v) {{",
+        "{} {}({param_ty} v) {{",
         c_iface_type(iface),
         c_upcast_name(simple, iface),
-        c_class_type(&mono)
     );
     let _ = writeln!(out, "  {} i;", c_iface_type(iface));
     let _ = writeln!(out, "  i.tag = AURA_TAG_{mono};");
@@ -50,10 +54,16 @@ pub(crate) fn emit_iface_dispatch(
             .iter()
             .map(|p| mangle_ident(&p.name.name))
             .collect::<Vec<_>>();
-        let call_args = if args.is_empty() {
-            format!("&self->data.as_{mono}")
+        // Heap class: union holds pointer already; struct would need & (none today).
+        let this_e = if is_heap_class_decl(c) {
+            format!("self->data.as_{mono}")
         } else {
-            format!("&self->data.as_{mono}, {}", args.join(", "))
+            format!("&self->data.as_{mono}")
+        };
+        let call_args = if args.is_empty() {
+            this_e
+        } else {
+            format!("{this_e}, {}", args.join(", "))
         };
         if ret == "void" {
             let _ = writeln!(

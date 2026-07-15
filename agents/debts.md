@@ -37,12 +37,12 @@ When you resolve debt, update or remove the matching entry.
 - Next step: registry + version resolve; nested lock merge
 - Introduced: narrowed after C3p
 
-### Classes are by-value C structs (not GC refs)
+### Nullable class / identity ops incomplete
 - Area: memory model / RFC-003 vs codegen
-- Symptom: class identity/reference semantics incomplete; nullable class is partial; no heap identity
-- Why deferred: C1b value-style; C3x added `aura_gc_alloc` + shutdown free-all only
-- Next step: class as pointer via GC alloc; keep `struct` by-value
-- Introduced: C1b; C3x runtime hook
+- Symptom: classes are GC heap refs (C3y) but `==` identity, deep nullable class edge cases, and Array of class remain partial
+- Why deferred: C3y shipped pointer + GC alloc for class; struct stays by-value
+- Next step: identity `==` for class refs; `Array<Class>`; tighten nullable class
+- Introduced: narrowed after C3y
 
 
 ### No stdlib prelude package
@@ -53,6 +53,9 @@ When you resolve debt, update or remove the matching entry.
 - Introduced: C0–C1
 
 ## Resolved
+
+### Classes are by-value C structs (2026-07-15)
+- Resolved in C3y: user `class` ctor uses `aura_gc_alloc`; locals/params are pointers; methods take `this` pointer; `struct` stays by-value.
 
 ### `for-in` only Array (2026-07-15)
 - Resolved in C3w: `for (b in string)` yields UTF-8 bytes as `Int`. Remaining: Iterable protocol under Open.

@@ -291,17 +291,28 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                     let _ = writeln!(out, "{p}aura_throw_bool({val});");
                 }
                 other => {
-                    // C3g: class/struct value — heap-copy then throw pointer + type name.
-                    let c_ty = local_key_to_c(other, ctx.checked);
+                    // C3g/C3y: class/struct — malloc a payload copy for exception machinery.
+                    let mono = full_type_mono(other, ctx.checked);
+                    let base_c = c_class_type(&mono);
                     let tmp = format!("__throw_v_{}", t.span.start);
                     let ptr = format!("__throw_p_{}", t.span.start);
                     let _ = writeln!(out, "{p}{{");
-                    let _ = writeln!(out, "{p}  {c_ty} {tmp} = {val};");
-                    let _ = writeln!(
-                        out,
-                        "{p}  {c_ty} *{ptr} = ({c_ty} *)malloc(sizeof({c_ty}));"
-                    );
-                    let _ = writeln!(out, "{p}  *{ptr} = {tmp};");
+                    if is_heap_class_mono(&mono, ctx.checked) {
+                        // val is pointer; copy pointee into malloc payload.
+                        let _ = writeln!(out, "{p}  {base_c} *{tmp} = {val};");
+                        let _ = writeln!(
+                            out,
+                            "{p}  {base_c} *{ptr} = ({base_c} *)malloc(sizeof({base_c}));"
+                        );
+                        let _ = writeln!(out, "{p}  *{ptr} = *{tmp};");
+                    } else {
+                        let _ = writeln!(out, "{p}  {base_c} {tmp} = {val};");
+                        let _ = writeln!(
+                            out,
+                            "{p}  {base_c} *{ptr} = ({base_c} *)malloc(sizeof({base_c}));"
+                        );
+                        let _ = writeln!(out, "{p}  *{ptr} = {tmp};");
+                    }
                     // Match key uses the Aura type name (mono key), not C typedef.
                     let _ = writeln!(out, "{p}  aura_throw_obj(\"{other}\", {ptr});");
                     let _ = writeln!(out, "{p}}}");
@@ -369,7 +380,7 @@ pub(crate) fn local_key_to_c(key: &str, checked: &CheckedFile) -> String {
             {
                 c_enum_type(&mono)
             } else {
-                c_class_type(&mono)
+                c_class_local_type(&mono, checked)
             }
         }
     }
@@ -410,11 +421,24 @@ pub(crate) fn emit_try(out: &mut String, t: &TryStmt, indent: usize, ctx: &mut E
                 let _ = writeln!(out, "{p}      bool {bind} = aura_ex_as_bool();");
             }
             other => {
-                let c_ty = local_key_to_c(other, ctx.checked);
-                let _ = writeln!(
-                    out,
-                    "{p}      {c_ty} {bind} = *({c_ty} *)aura_ex_as_obj();"
-                );
+                let mono = full_type_mono(other, ctx.checked);
+                let base_c = c_class_type(&mono);
+                if is_heap_class_mono(&mono, ctx.checked) {
+                    // Promote exception payload into GC heap pointer for the catch binding.
+                    let _ = writeln!(
+                        out,
+                        "{p}      {base_c} *{bind} = ({base_c} *)aura_gc_alloc(sizeof({base_c}));"
+                    );
+                    let _ = writeln!(
+                        out,
+                        "{p}      *{bind} = *({base_c} *)aura_ex_as_obj();"
+                    );
+                } else {
+                    let _ = writeln!(
+                        out,
+                        "{p}      {base_c} {bind} = *({base_c} *)aura_ex_as_obj();"
+                    );
+                }
             }
         }
         let _ = writeln!(out, "{p}      aura_ex_clear();");

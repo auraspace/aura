@@ -76,9 +76,10 @@ C1 uses a **C backend** (`aura emit-c` + system `cc`) linked with `runtime/aura_
 - **Compiler C3v** Package-prefixed class/enum C symbols (same name across packages)
 - **Compiler C3w** `for (b in string)` over UTF-8 bytes as Int
 - **Runtime C3x** GC MVP: `aura_gc_alloc` + free-all on process exit
+- **Compiler C3y** Class instances as GC heap references (`struct` remains by-value)
 - **DX** Pretty diagnostics (`path:line:col` + source snippet)
 - **Debts** Tracked in [`agents/debts.md`](agents/debts.md)
-- **Next:** class as GC refs, std prelude, LLVM
+- **Next:** std prelude, LLVM
 
 ## Links
 

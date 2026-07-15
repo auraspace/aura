@@ -119,11 +119,13 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
         for c in &impls {
             let pkg = class_decl_package(c, checked);
             let mono = type_mono(&pkg, &c.name.name, &[]);
-            let _ = writeln!(
-                out,
-                "    {} as_{mono};",
+            // C3y: heap classes stored as pointers inside the interface union.
+            let field_ty = if is_heap_class_decl(c) {
+                format!("{} *", c_class_type(&mono))
+            } else {
                 c_class_type(&mono)
-            );
+            };
+            let _ = writeln!(out, "    {field_ty} as_{mono};");
         }
         if impls.is_empty() {
             out.push_str("    char _empty;\n");

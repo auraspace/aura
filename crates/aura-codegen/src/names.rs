@@ -61,6 +61,51 @@ pub(crate) fn c_class_type(mono: &str) -> String {
     format!("aura_cls_{mono}")
 }
 
+/// C3y: user `class` (not `struct`, not builtin Array) is a GC heap pointer.
+pub(crate) fn is_heap_class_decl(c: &ClassDecl) -> bool {
+    c.kind == NominalKind::Class
+}
+
+pub(crate) fn is_heap_class_mono(mono: &str, checked: &CheckedFile) -> bool {
+    if mono == "Array" || mono.starts_with("Array_") {
+        return false;
+    }
+    // Strip package mono to simple name via checking all classes.
+    for c in &checked.ast.classes {
+        if !is_heap_class_decl(c) {
+            continue;
+        }
+        let pkg = class_decl_package(c, checked);
+        let base_mono = type_mono(&pkg, &c.name.name, &[]);
+        if mono == base_mono || mono == c.name.name {
+            return true;
+        }
+        // Generic mono: demo_pkg_Box_String
+        if mono.starts_with(&format!("{base_mono}_")) || mono.starts_with(&format!("{}_", c.name.name))
+        {
+            // Confirm a mono_classes entry exists for this simple name.
+            if checked.mono_classes.iter().any(|(n, _)| n == &c.name.name) {
+                return true;
+            }
+        }
+        let full = type_mono(&pkg, &c.name.name, &[]);
+        if mono.starts_with(&(full.clone() + "_")) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Local/parameter C type: pointer for heap classes, value for structs/Array.
+pub(crate) fn c_class_local_type(mono: &str, checked: &CheckedFile) -> String {
+    let base = c_class_type(mono);
+    if is_heap_class_mono(mono, checked) {
+        format!("{base} *")
+    } else {
+        base
+    }
+}
+
 pub(crate) fn c_enum_type(mono: &str) -> String {
     format!("aura_enum_{mono}")
 }
@@ -168,6 +213,7 @@ pub(crate) fn ty_to_c(t: &Ty) -> String {
         Ty::Unit => "void".into(),
         Ty::Null => "const char *".into(),
         Ty::Nullable(inner) => ty_to_c(inner),
+        // Without CheckedFile, emit value type; callers with class context use c_class_local_type.
         Ty::Class(n) => c_class_type(&nominal_mono_base(n)),
         Ty::ClassApp { name, args } => c_class_type(&mono_key(name, args)),
         Ty::Enum(n) => c_enum_type(&nominal_mono_base(n)),
@@ -228,7 +274,8 @@ pub(crate) fn c_type_ref_subst(
             }
             name => {
                 let pkg = resolve_type_ref_package(ty, checked);
-                c_class_type(&type_mono(&pkg, name, &[]))
+                let mono = type_mono(&pkg, name, &[]);
+                c_class_local_type(&mono, checked)
             }
         }
     } else {
@@ -255,7 +302,7 @@ pub(crate) fn c_type_ref_subst(
         if is_enum_name(checked, &ty.name.name) {
             c_enum_type(&mono)
         } else {
-            c_class_type(&mono)
+            c_class_local_type(&mono, checked)
         }
     }
 }

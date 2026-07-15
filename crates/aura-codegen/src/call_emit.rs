@@ -98,7 +98,13 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &EmitCtx<'_>) -> String {
             );
         }
 
-        let mut args = vec![format!("&({obj})")];
+        // C3y: heap classes are already pointers; structs/Array need &.
+        let this_arg = if is_heap_class_mono(&mono, ctx.checked) {
+            format!("({obj})")
+        } else {
+            format!("&({obj})")
+        };
+        let mut args = vec![this_arg];
         if let Some(m) = ctx
             .checked
             .ast

@@ -271,8 +271,19 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &EmitCtx<'_>) -> String {
         }
         Expr::Field(f) => {
             let obj = emit_expr(&f.object, ctx);
-            // this.name already becomes (*this).name if object is This
-            format!("({obj}).{}", mangle_ident(&f.field.name))
+            // C3y: heap class receivers use -> ; structs/Array/This use .
+            // `this` is already a pointer; emit This as (*this) so `.` still works.
+            let use_arrow = match f.object.as_ref() {
+                Expr::This(_) => false,
+                _ => resolve_type_name(&f.object, ctx)
+                    .map(|t| is_heap_class_mono(&full_type_mono(&t, ctx.checked), ctx.checked))
+                    .unwrap_or(false),
+            };
+            if use_arrow {
+                format!("({obj})->{}", mangle_ident(&f.field.name))
+            } else {
+                format!("({obj}).{}", mangle_ident(&f.field.name))
+            }
         }
         Expr::Call(c) => emit_call(c, ctx),
     }

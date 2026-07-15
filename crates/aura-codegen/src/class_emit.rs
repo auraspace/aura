@@ -44,12 +44,16 @@ pub(crate) fn emit_class_forwards(out: &mut String, checked: &CheckedFile, c: &C
     }
     if args.is_empty() {
         for iface in &c.implements {
+            let param_ty = if is_heap_class_decl(c) {
+                format!("{} *", c_class_type(&mono))
+            } else {
+                c_class_type(&mono)
+            };
             let _ = writeln!(
                 out,
-                "{} {}({} v);",
+                "{} {}({param_ty} v);",
                 c_iface_type(&iface.name),
                 c_upcast_name(&c.name.name, &iface.name),
-                c_class_type(&mono)
             );
         }
     }
@@ -80,7 +84,11 @@ pub(crate) fn c_ctor_signature_mono(
     args: &[Ty],
     mono: &str,
 ) -> String {
-    let ret = c_class_type(mono);
+    let ret = if is_heap_class_decl(c) {
+        format!("{} *", c_class_type(mono))
+    } else {
+        c_class_type(mono)
+    };
     let ps = if c.fields.is_empty() {
         "void".into()
     } else {
@@ -155,12 +163,26 @@ pub(crate) fn emit_ctor_mono(
         "{} {{",
         c_ctor_signature_mono(c, checked, params, args, mono)
     );
-    let _ = writeln!(out, "  {} self;", c_class_type(mono));
-    for f in &c.fields {
-        let n = mangle_ident(&f.name.name);
-        let _ = writeln!(out, "  self.{n} = {n};");
+    let cty = c_class_type(mono);
+    if is_heap_class_decl(c) {
+        // C3y: allocate class instance on GC heap.
+        let _ = writeln!(
+            out,
+            "  {cty} *self = ({cty} *)aura_gc_alloc(sizeof({cty}));"
+        );
+        for f in &c.fields {
+            let n = mangle_ident(&f.name.name);
+            let _ = writeln!(out, "  self->{n} = {n};");
+        }
+        out.push_str("  return self;\n}\n");
+    } else {
+        let _ = writeln!(out, "  {cty} self;");
+        for f in &c.fields {
+            let n = mangle_ident(&f.name.name);
+            let _ = writeln!(out, "  self.{n} = {n};");
+        }
+        out.push_str("  return self;\n}\n");
     }
-    out.push_str("  return self;\n}\n");
 }
 
 pub(crate) fn emit_method_mono(
