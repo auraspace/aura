@@ -17,6 +17,7 @@ pub enum TokenKind {
     As,
     Class,
     Struct,
+    Enum,
     Interface,
     Fun,
     Val,
@@ -24,6 +25,8 @@ pub enum TokenKind {
     If,
     Else,
     While,
+    Match,
+    Case,
     Return,
     True,
     False,
@@ -55,6 +58,8 @@ pub enum TokenKind {
     /// `!!` force-unwrap (lexed as one token).
     BangBang,
     Eq,
+    /// `=>` match / lambda arrow.
+    FatArrow,
     Dot,
     LParen,
     RParen,
@@ -76,6 +81,7 @@ impl TokenKind {
                 | TokenKind::As
                 | TokenKind::Class
                 | TokenKind::Struct
+                | TokenKind::Enum
                 | TokenKind::Interface
                 | TokenKind::Fun
                 | TokenKind::Val
@@ -83,6 +89,8 @@ impl TokenKind {
                 | TokenKind::If
                 | TokenKind::Else
                 | TokenKind::While
+                | TokenKind::Match
+                | TokenKind::Case
                 | TokenKind::Return
                 | TokenKind::True
                 | TokenKind::False
@@ -168,6 +176,8 @@ impl<'a> Lexer<'a> {
             b'=' => {
                 if self.peek_at(1) == Some(b'=') {
                     self.simple(TokenKind::EqEq, 2)
+                } else if self.peek_at(1) == Some(b'>') {
+                    self.simple(TokenKind::FatArrow, 2)
                 } else {
                     self.simple(TokenKind::Eq, 1)
                 }
@@ -357,6 +367,7 @@ impl<'a> Lexer<'a> {
             "as" => TokenKind::As,
             "class" => TokenKind::Class,
             "struct" => TokenKind::Struct,
+            "enum" => TokenKind::Enum,
             "interface" => TokenKind::Interface,
             "fun" => TokenKind::Fun,
             "val" => TokenKind::Val,
@@ -364,6 +375,8 @@ impl<'a> Lexer<'a> {
             "if" => TokenKind::If,
             "else" => TokenKind::Else,
             "while" => TokenKind::While,
+            "match" => TokenKind::Match,
+            "case" => TokenKind::Case,
             "return" => TokenKind::Return,
             "true" => TokenKind::True,
             "false" => TokenKind::False,

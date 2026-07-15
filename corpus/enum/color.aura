@@ -1,0 +1,27 @@
+// C3b corpus — unit enum + match
+package demo.color
+
+enum Color {
+  case Red
+  case Green
+  case Blue
+}
+
+fun nameOf(c: Color) {
+  match (c) {
+    case Red => {
+      println("red")
+    }
+    case Green => {
+      println("green")
+    }
+    case Blue => {
+      println("blue")
+    }
+  }
+}
+
+fun main() {
+  nameOf(Red())
+  nameOf(Green())
+}

@@ -1,8 +1,8 @@
-//! Name resolution + typecheck for Aura C0–C2e (generics + bounds).
+//! Name resolution + typecheck for Aura C0–C3b (enums, match, Result).
 
 use aura_ast::{
-    BinOp, Block, CallExpr, ClassDecl, Expr, File, FunDecl, NominalKind, Span, Stmt, TypeParam,
-    TypeRef, UnOp,
+    BinOp, Block, CallExpr, ClassDecl, Expr, File, FunDecl, MatchStmt, NominalKind, Pattern, Span,
+    Stmt, TypeParam, TypeRef, UnOp,
 };
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -19,6 +19,10 @@ pub enum Ty {
     Class(String),
     /// Instantiated generic class, e.g. `Box<String>`.
     ClassApp { name: String, args: Vec<Ty> },
+    /// Non-generic enum.
+    Enum(String),
+    /// Instantiated generic enum, e.g. `Result<Int, String>`.
+    EnumApp { name: String, args: Vec<Ty> },
     Interface(String),
     /// Type parameter in a generic definition scope (`T`).
     TypeParam(String),
@@ -33,8 +37,8 @@ impl Ty {
             Ty::String => "String".into(),
             Ty::Null => "Null".into(),
             Ty::Nullable(inner) => format!("{}?", inner.display()),
-            Ty::Class(n) => n.clone(),
-            Ty::ClassApp { name, args } => {
+            Ty::Class(n) | Ty::Enum(n) => n.clone(),
+            Ty::ClassApp { name, args } | Ty::EnumApp { name, args } => {
                 let a = args
                     .iter()
                     .map(|t| t.display())
@@ -47,7 +51,7 @@ impl Ty {
         }
     }
 
-    /// Mangle for C monomorph: `Box_String`, `id_Int`.
+    /// Mangle for C monomorph: `Box_String`, `Result_Int_String`.
     pub fn mono_suffix(&self) -> String {
         match self {
             Ty::Unit => "Unit".into(),
@@ -56,8 +60,8 @@ impl Ty {
             Ty::String => "String".into(),
             Ty::Null => "Null".into(),
             Ty::Nullable(inner) => format!("Opt_{}", inner.mono_suffix()),
-            Ty::Class(n) => n.clone(),
-            Ty::ClassApp { name, args } => {
+            Ty::Class(n) | Ty::Enum(n) => n.clone(),
+            Ty::ClassApp { name, args } | Ty::EnumApp { name, args } => {
                 let a = args
                     .iter()
                     .map(|t| t.mono_suffix())
@@ -81,6 +85,21 @@ impl Ty {
     pub fn class_args(&self) -> &[Ty] {
         match self {
             Ty::ClassApp { args, .. } => args,
+            _ => &[],
+        }
+    }
+
+    pub fn enum_name(&self) -> Option<&str> {
+        match self {
+            Ty::Enum(n) => Some(n),
+            Ty::EnumApp { name, .. } => Some(name),
+            _ => None,
+        }
+    }
+
+    pub fn enum_args(&self) -> &[Ty] {
+        match self {
+            Ty::EnumApp { args, .. } => args,
             _ => &[],
         }
     }
@@ -142,12 +161,31 @@ pub struct InterfaceSig {
     pub span: Span,
 }
 
+#[derive(Debug, Clone)]
+pub struct EnumVariantSig {
+    pub name: String,
+    pub tag: usize,
+    pub fields: Vec<(String, Ty)>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct EnumSig {
+    pub name: String,
+    pub type_params: Vec<String>,
+    pub bounds: HashMap<String, Vec<String>>,
+    pub variants: Vec<EnumVariantSig>,
+    pub span: Span,
+}
+
 /// Resolved type arguments for a call site (explicit or inferred).
 #[derive(Debug, Clone)]
 pub struct CallInstantiation {
     pub is_constructor: bool,
     pub name: String,
     pub type_args: Vec<Ty>,
+    /// Set for enum variant constructors (`Ok`, `Err`, …).
+    pub variant: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -155,9 +193,12 @@ pub struct CheckedFile {
     pub package: String,
     pub functions: Vec<FunSig>,
     pub classes: Vec<ClassSig>,
+    pub enums: Vec<EnumSig>,
     pub interfaces: Vec<InterfaceSig>,
     /// Concrete generic class instantiations used in this file.
     pub mono_classes: Vec<(String, Vec<Ty>)>,
+    /// Concrete generic enum instantiations used.
+    pub mono_enums: Vec<(String, Vec<Ty>)>,
     /// Concrete generic function instantiations used.
     pub mono_funs: Vec<(String, Vec<Ty>)>,
     /// CallExpr.span.start → resolved type arguments (for codegen).
@@ -196,12 +237,16 @@ struct Local {
 struct Checker {
     functions: HashMap<String, FunSig>,
     classes: HashMap<String, ClassSig>,
+    enums: HashMap<String, EnumSig>,
+    /// Variant name → owning enum name (unique across file for C3b).
+    variant_to_enum: HashMap<String, String>,
     interfaces: HashMap<String, InterfaceSig>,
     locals: Vec<HashMap<String, Local>>,
     /// Type params in current generic scope (name → bound interface names).
     type_params: HashMap<String, Vec<String>>,
     current_class: Option<String>,
     mono_classes: HashSet<(String, Vec<Ty>)>,
+    mono_enums: HashSet<(String, Vec<Ty>)>,
     mono_funs: HashSet<(String, Vec<Ty>)>,
     call_instantiations: HashMap<u32, CallInstantiation>,
 }
@@ -223,11 +268,14 @@ impl Checker {
         Self {
             functions,
             classes: HashMap::new(),
+            enums: HashMap::new(),
+            variant_to_enum: HashMap::new(),
             interfaces: HashMap::new(),
             locals: Vec::new(),
             type_params: HashMap::new(),
             current_class: None,
             mono_classes: HashSet::new(),
+            mono_enums: HashSet::new(),
             mono_funs: HashSet::new(),
             call_instantiations: HashMap::new(),
         }
@@ -379,9 +427,85 @@ impl Checker {
             );
         }
 
+        // First pass: register enum names (fields resolved in second pass with type params).
+        for e in &file.enums {
+            if self.enums.contains_key(&e.name.name)
+                || self.interfaces.contains_key(&e.name.name)
+                || self.classes.contains_key(&e.name.name)
+                || self.functions.contains_key(&e.name.name)
+            {
+                return Err(SemaError {
+                    message: format!("duplicate type/function name `{}`", e.name.name),
+                    span: e.name.span,
+                });
+            }
+            self.enums.insert(
+                e.name.name.clone(),
+                EnumSig {
+                    name: e.name.name.clone(),
+                    type_params: e.type_params.iter().map(|p| p.name.name.clone()).collect(),
+                    bounds: Self::bounds_map_from_params(&e.type_params),
+                    variants: Vec::new(),
+                    span: e.span,
+                },
+            );
+        }
+
+        for e in &file.enums {
+            self.bind_type_params(&e.type_params)?;
+            let mut variants = Vec::new();
+            let mut seen_v = HashSet::new();
+            for (tag, v) in e.variants.iter().enumerate() {
+                if !seen_v.insert(v.name.name.clone()) {
+                    return Err(SemaError {
+                        message: format!("duplicate variant `{}`", v.name.name),
+                        span: v.name.span,
+                    });
+                }
+                if self.variant_to_enum.contains_key(&v.name.name)
+                    || self.functions.contains_key(&v.name.name)
+                    || self.classes.contains_key(&v.name.name)
+                    || self.enums.contains_key(&v.name.name)
+                {
+                    return Err(SemaError {
+                        message: format!(
+                            "variant `{}` conflicts with an existing name",
+                            v.name.name
+                        ),
+                        span: v.name.span,
+                    });
+                }
+                let mut fields = Vec::new();
+                let mut seen_f = HashSet::new();
+                for f in &v.fields {
+                    if !seen_f.insert(f.name.name.clone()) {
+                        return Err(SemaError {
+                            message: format!(
+                                "duplicate field `{}` on variant `{}`",
+                                f.name.name, v.name.name
+                            ),
+                            span: f.name.span,
+                        });
+                    }
+                    fields.push((f.name.name.clone(), self.type_from_ref(&f.ty)?));
+                }
+                self.variant_to_enum
+                    .insert(v.name.name.clone(), e.name.name.clone());
+                variants.push(EnumVariantSig {
+                    name: v.name.name.clone(),
+                    tag,
+                    fields,
+                    span: v.span,
+                });
+            }
+            self.enums.get_mut(&e.name.name).unwrap().variants = variants;
+            self.type_params.clear();
+        }
+
         for c in &file.classes {
             if self.classes.contains_key(&c.name.name)
                 || self.interfaces.contains_key(&c.name.name)
+                || self.enums.contains_key(&c.name.name)
                 || self.functions.contains_key(&c.name.name)
             {
                 return Err(SemaError {
@@ -526,6 +650,8 @@ impl Checker {
             if self.functions.contains_key(&f.name.name)
                 || self.classes.contains_key(&f.name.name)
                 || self.interfaces.contains_key(&f.name.name)
+                || self.enums.contains_key(&f.name.name)
+                || self.variant_to_enum.contains_key(&f.name.name)
             {
                 return Err(SemaError {
                     message: format!("duplicate function `{}`", f.name.name),
@@ -605,9 +731,28 @@ impl Checker {
             .iter()
             .map(|i| self.interfaces.get(&i.name.name).unwrap().clone())
             .collect();
+        let enums = file
+            .enums
+            .iter()
+            .map(|e| self.enums.get(&e.name.name).unwrap().clone())
+            .collect();
 
         let mut mono_classes: Vec<_> = self.mono_classes.iter().cloned().collect();
         mono_classes.sort_by(|a, b| {
+            let sa = format!(
+                "{}_{}",
+                a.0,
+                a.1.iter().map(|t| t.display()).collect::<Vec<_>>().join("_")
+            );
+            let sb = format!(
+                "{}_{}",
+                b.0,
+                b.1.iter().map(|t| t.display()).collect::<Vec<_>>().join("_")
+            );
+            sa.cmp(&sb)
+        });
+        let mut mono_enums: Vec<_> = self.mono_enums.iter().cloned().collect();
+        mono_enums.sort_by(|a, b| {
             let sa = format!(
                 "{}_{}",
                 a.0,
@@ -639,8 +784,10 @@ impl Checker {
             package,
             functions,
             classes,
+            enums,
             interfaces,
             mono_classes,
+            mono_enums,
             mono_funs,
             call_instantiations: self.call_instantiations.clone(),
             ast: file.clone(),
@@ -764,8 +911,101 @@ impl Checker {
         Ok(())
     }
 
+    fn check_match(&mut self, m: &MatchStmt, expected_ret: &Ty) -> Result<(), SemaError> {
+        let scrut_ty = self.check_expr(&m.scrutinee)?;
+        let Some(ename) = scrut_ty.enum_name() else {
+            return Err(SemaError {
+                message: format!(
+                    "`match` requires an enum type, got {}",
+                    scrut_ty.display()
+                ),
+                span: m.scrutinee.span(),
+            });
+        };
+        let enum_sig = self.enums.get(ename).cloned().ok_or_else(|| SemaError {
+            message: format!("unknown enum `{ename}`"),
+            span: m.scrutinee.span(),
+        })?;
+        let type_args = scrut_ty.enum_args().to_vec();
+        let subst = type_subst_map(&enum_sig.type_params, &type_args);
+        self.note_mono_ty(&scrut_ty);
+
+        let mut covered = HashSet::new();
+        for arm in &m.arms {
+            let Pattern::Variant {
+                name,
+                bindings,
+                span,
+            } = &arm.pattern;
+            let variant = enum_sig
+                .variants
+                .iter()
+                .find(|v| v.name == name.name)
+                .ok_or_else(|| SemaError {
+                    message: format!("unknown variant `{}` for enum `{ename}`", name.name),
+                    span: *span,
+                })?;
+            if !covered.insert(variant.name.clone()) {
+                return Err(SemaError {
+                    message: format!("duplicate match arm for variant `{}`", variant.name),
+                    span: *span,
+                });
+            }
+            if bindings.len() != variant.fields.len() {
+                return Err(SemaError {
+                    message: format!(
+                        "variant `{}` has {} field(s), pattern binds {}",
+                        variant.name,
+                        variant.fields.len(),
+                        bindings.len()
+                    ),
+                    span: *span,
+                });
+            }
+            self.locals.push(HashMap::new());
+            for (bind, (fname, fty)) in bindings.iter().zip(variant.fields.iter()) {
+                if self.current_locals().contains_key(&bind.name) {
+                    return Err(SemaError {
+                        message: format!("duplicate binding `{}`", bind.name),
+                        span: bind.span,
+                    });
+                }
+                let _ = fname;
+                let ty = subst_ty(fty, &subst);
+                self.current_locals_mut().insert(
+                    bind.name.clone(),
+                    Local {
+                        ty,
+                        mutable: false,
+                    },
+                );
+            }
+            for stmt in &arm.body.stmts {
+                self.check_stmt(stmt, expected_ret)?;
+            }
+            self.locals.pop();
+        }
+        let missing: Vec<_> = enum_sig
+            .variants
+            .iter()
+            .filter(|v| !covered.contains(&v.name))
+            .map(|v| v.name.clone())
+            .collect();
+        if !missing.is_empty() {
+            return Err(SemaError {
+                message: format!(
+                    "non-exhaustive match on `{ename}`; missing: {}",
+                    missing.join(", ")
+                ),
+                span: m.span,
+            });
+        }
+        Ok(())
+    }
+
     fn check_stmt(&mut self, stmt: &Stmt, expected_ret: &Ty) -> Result<(), SemaError> {
         match stmt {
+            Stmt::Match(m) => self.check_match(m, expected_ret),
             Stmt::Var(v) => {
                 let ann_ty = match &v.ty {
                     Some(t) => Some(self.type_from_ref(t)?),
@@ -885,10 +1125,14 @@ impl Checker {
     }
 
     fn note_mono_ty(&mut self, ty: &Ty) {
-        if let Ty::ClassApp { name, args } = ty {
-            if !args.is_empty() {
+        match ty {
+            Ty::ClassApp { name, args } if !args.is_empty() => {
                 self.mono_classes.insert((name.clone(), args.clone()));
             }
+            Ty::EnumApp { name, args } if !args.is_empty() => {
+                self.mono_enums.insert((name.clone(), args.clone()));
+            }
+            _ => {}
         }
     }
 
@@ -1275,6 +1519,7 @@ impl Checker {
                         is_constructor: true,
                         name: name.clone(),
                         type_args: type_args.clone(),
+                        variant: None,
                     },
                 );
             }
@@ -1290,6 +1535,11 @@ impl Checker {
                 t
             };
             return Ok(ret);
+        }
+
+        // Enum variant constructor: Ok(...), Red()
+        if let Some(enum_name) = self.variant_to_enum.get(&name).cloned() {
+            return self.check_variant_ctor(&enum_name, &name, c, expected);
         }
 
         // Free function (possibly generic)
@@ -1318,11 +1568,129 @@ impl Checker {
                     is_constructor: false,
                     name: name.clone(),
                     type_args: type_args.clone(),
+                    variant: None,
                 },
             );
             self.mono_funs.insert((name, type_args));
         }
         Ok(ret)
+    }
+
+    fn check_variant_ctor(
+        &mut self,
+        enum_name: &str,
+        variant_name: &str,
+        c: &CallExpr,
+        expected: Option<&Ty>,
+    ) -> Result<Ty, SemaError> {
+        if !c.type_args.is_empty() {
+            return Err(SemaError {
+                message: "type arguments go on the enum type, not the variant constructor".into(),
+                span: c.span,
+            });
+        }
+        let enum_sig = self.enums.get(enum_name).cloned().ok_or_else(|| SemaError {
+            message: format!("unknown enum `{enum_name}`"),
+            span: c.span,
+        })?;
+        let variant = enum_sig
+            .variants
+            .iter()
+            .find(|v| v.name == variant_name)
+            .cloned()
+            .ok_or_else(|| SemaError {
+                message: format!("unknown variant `{variant_name}`"),
+                span: c.span,
+            })?;
+        if c.args.len() != variant.fields.len() {
+            return Err(SemaError {
+                message: format!(
+                    "variant `{variant_name}` expects {} argument(s), got {}",
+                    variant.fields.len(),
+                    c.args.len()
+                ),
+                span: c.span,
+            });
+        }
+
+        let type_args = self.resolve_enum_type_args(&enum_sig, &variant, c, expected)?;
+        self.check_type_args_bounds(
+            &enum_sig.type_params,
+            &enum_sig.bounds,
+            &type_args,
+            c.span,
+            &format!("enum `{enum_name}`"),
+        )?;
+        let subst = type_subst_map(&enum_sig.type_params, &type_args);
+        for (arg, (_fname, fty)) in c.args.iter().zip(variant.fields.iter()) {
+            let exp = subst_ty(fty, &subst);
+            let got = self.check_expr_expected(arg, Some(&exp))?;
+            if !self.is_assignable(&got, &exp) {
+                return Err(SemaError {
+                    message: format!(
+                        "argument type mismatch for `{variant_name}`: expected {}, got {}",
+                        exp.display(),
+                        got.display()
+                    ),
+                    span: arg.span(),
+                });
+            }
+        }
+
+        let ret = if type_args.is_empty() {
+            Ty::Enum(enum_name.to_string())
+        } else {
+            let t = Ty::EnumApp {
+                name: enum_name.to_string(),
+                args: type_args.clone(),
+            };
+            self.note_mono_ty(&t);
+            t
+        };
+        self.call_instantiations.insert(
+            c.span.start,
+            CallInstantiation {
+                is_constructor: true,
+                name: enum_name.to_string(),
+                type_args,
+                variant: Some(variant_name.to_string()),
+            },
+        );
+        Ok(ret)
+    }
+
+    fn resolve_enum_type_args(
+        &mut self,
+        enum_sig: &EnumSig,
+        variant: &EnumVariantSig,
+        c: &CallExpr,
+        expected: Option<&Ty>,
+    ) -> Result<Vec<Ty>, SemaError> {
+        if enum_sig.type_params.is_empty() {
+            return Ok(Vec::new());
+        }
+        if let Some(Ty::EnumApp { name, args }) = expected {
+            if name == &enum_sig.name && args.len() == enum_sig.type_params.len() {
+                return Ok(args.clone());
+            }
+        }
+        if let Some(Ty::Enum(name)) = expected {
+            if name == &enum_sig.name && enum_sig.type_params.is_empty() {
+                return Ok(Vec::new());
+            }
+        }
+        let mut arg_tys = Vec::new();
+        for a in &c.args {
+            arg_tys.push(self.check_expr(a)?);
+        }
+        let patterns: Vec<&Ty> = variant.fields.iter().map(|(_, t)| t).collect();
+        self.infer_type_args_from_patterns(
+            &enum_sig.type_params,
+            &patterns,
+            &arg_tys,
+            c.span,
+            &format!("variant `{}`", variant.name),
+        )
     }
 
     fn resolve_ctor_type_args(
@@ -1576,6 +1944,37 @@ impl Checker {
                     }
                 }
             }
+            other if self.enums.contains_key(other) => {
+                let enum_sig = self.enums.get(other).unwrap().clone();
+                if type_args.len() != enum_sig.type_params.len() {
+                    return Err(SemaError {
+                        message: format!(
+                            "type `{}` expects {} type argument(s), got {}",
+                            other,
+                            enum_sig.type_params.len(),
+                            type_args.len()
+                        ),
+                        span: t.span,
+                    });
+                }
+                if !type_args.is_empty() {
+                    self.check_type_args_bounds(
+                        &enum_sig.type_params,
+                        &enum_sig.bounds,
+                        &type_args,
+                        t.span,
+                        &format!("type `{other}`"),
+                    )?;
+                }
+                if type_args.is_empty() {
+                    Ty::Enum(other.to_string())
+                } else {
+                    Ty::EnumApp {
+                        name: other.to_string(),
+                        args: type_args,
+                    }
+                }
+            }
             other if self.interfaces.contains_key(other) => {
                 if !type_args.is_empty() {
                     return Err(SemaError {
@@ -1689,6 +2088,16 @@ fn unify_ty(pattern: &Ty, concrete: &Ty, map: &mut HashMap<String, Ty>) -> Resul
                 name: n2,
                 args: a2,
             },
+        )
+        | (
+            Ty::EnumApp {
+                name: n1,
+                args: a1,
+            },
+            Ty::EnumApp {
+                name: n2,
+                args: a2,
+            },
         ) if n1 == n2 && a1.len() == a2.len() => {
             for (a, b) in a1.iter().zip(a2.iter()) {
                 unify_ty(a, b, map)?;
@@ -1717,6 +2126,10 @@ fn subst_ty(ty: &Ty, map: &HashMap<String, Ty>) -> Ty {
         Ty::TypeParam(name) => map.get(name).cloned().unwrap_or_else(|| ty.clone()),
         Ty::Nullable(inner) => Ty::Nullable(Box::new(subst_ty(inner, map))),
         Ty::ClassApp { name, args } => Ty::ClassApp {
+            name: name.clone(),
+            args: args.iter().map(|a| subst_ty(a, map)).collect(),
+        },
+        Ty::EnumApp { name, args } => Ty::EnumApp {
             name: name.clone(),
             args: args.iter().map(|a| subst_ty(a, map)).collect(),
         },
@@ -1749,6 +2162,51 @@ mod tests {
             args: vec![Ty::String],
         };
         assert_eq!(t.mono_suffix(), "Box_String");
+    }
+
+    #[test]
+    fn result_enum_and_match() {
+        let src = r#"
+package t
+enum Result<T, E> {
+  case Ok(value: T)
+  case Err(error: E)
+}
+fun f(): Result<Int, String> {
+  return Ok(1)
+}
+fun g(r: Result<Int, String>): Int {
+  match (r) {
+    case Ok(v) => { return v }
+    case Err(e) => { return 0 }
+  }
+}
+fun main() {}
+"#;
+        let file = parse_file(src).expect("parse");
+        let checked = check_file(&file).expect("check");
+        assert!(checked.enums.iter().any(|e| e.name == "Result"));
+        assert!(checked
+            .mono_enums
+            .iter()
+            .any(|(n, a)| n == "Result" && a == &[Ty::Int, Ty::String]));
+    }
+
+    #[test]
+    fn match_nonexhaustive_errors() {
+        let src = r#"
+package t
+enum Color { case Red case Green }
+fun f(c: Color) {
+  match (c) {
+    case Red => { println("r") }
+  }
+}
+fun main() {}
+"#;
+        let file = parse_file(src).expect("parse");
+        let err = check_file(&file).expect_err("non-exhaustive");
+        assert!(err.message.contains("non-exhaustive") || err.message.contains("Green"), "{}", err.message);
     }
 
     #[test]

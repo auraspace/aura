@@ -1,4 +1,4 @@
-//! Aura AST for compiler milestones C0–C2e (RFC-001 §6.0).
+//! Aura AST for compiler milestones C0–C3b (RFC-001 §6.0).
 
 use std::fmt;
 
@@ -21,8 +21,26 @@ impl Span {
 pub struct File {
     pub package: Path,
     pub interfaces: Vec<InterfaceDecl>,
+    pub enums: Vec<EnumDecl>,
     pub classes: Vec<ClassDecl>,
     pub functions: Vec<FunDecl>,
+    pub span: Span,
+}
+
+/// `enum Result<T, E> { case Ok(value: T) case Err(error: E) }`
+#[derive(Debug, Clone, PartialEq)]
+pub struct EnumDecl {
+    pub name: Ident,
+    pub type_params: Vec<TypeParam>,
+    pub variants: Vec<EnumVariant>,
+    pub span: Span,
+}
+
+/// `case Name` or `case Name(field: Type, …)`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct EnumVariant {
+    pub name: Ident,
+    pub fields: Vec<Param>,
     pub span: Span,
 }
 
@@ -130,8 +148,35 @@ pub enum Stmt {
     Var(VarStmt),
     If(IfStmt),
     While(WhileStmt),
+    Match(MatchStmt),
     Return(ReturnStmt),
     Expr(Expr),
+}
+
+/// `match (scrutinee) { case Ok(v) => { … } case Err(e) => { … } }`
+#[derive(Debug, Clone, PartialEq)]
+pub struct MatchStmt {
+    pub scrutinee: Expr,
+    pub arms: Vec<MatchArm>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct MatchArm {
+    pub pattern: Pattern,
+    pub body: Block,
+    pub span: Span,
+}
+
+/// Variant pattern: `Ok(v)` / `Red` (unit).
+#[derive(Debug, Clone, PartialEq)]
+pub enum Pattern {
+    Variant {
+        name: Ident,
+        /// Bindings in field order (length must match variant arity).
+        bindings: Vec<Ident>,
+        span: Span,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]

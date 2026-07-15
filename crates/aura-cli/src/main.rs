@@ -36,7 +36,7 @@ fn main() -> ExitCode {
 
 fn eprint_usage() {
     eprintln!(
-        "Aura toolchain (C0–C3a)\n\n\
+        "Aura toolchain (C0–C3b)\n\n\
          Usage:\n  \
            aura check <file.aura>              Parse + typecheck\n  \
            aura build <file.aura> [-o <bin>]   Compile to native binary (C backend)\n  \
@@ -88,6 +88,16 @@ fn check_path(path: &Path) -> Result<String, String> {
                 "  interface {} ({} method(s))",
                 i.name,
                 i.methods.len()
+            ));
+        }
+    }
+    if !checked.enums.is_empty() {
+        lines.push(format!("{} enum(s)", checked.enums.len()));
+        for e in &checked.enums {
+            lines.push(format!(
+                "  enum {} ({} variant(s))",
+                e.name,
+                e.variants.len()
             ));
         }
     }

@@ -91,19 +91,21 @@ impl Parser {
         let mut functions = Vec::new();
         let mut classes = Vec::new();
         let mut interfaces = Vec::new();
+        let mut enums = Vec::new();
         while !matches!(self.peek().kind, TokenKind::Eof) {
             if matches!(self.peek().kind, TokenKind::Pub) {
                 self.bump();
             }
             match self.peek().kind {
                 TokenKind::Interface => interfaces.push(self.parse_interface()?),
+                TokenKind::Enum => enums.push(self.parse_enum()?),
                 TokenKind::Class => classes.push(self.parse_nominal(NominalKind::Class)?),
                 TokenKind::Struct => classes.push(self.parse_nominal(NominalKind::Struct)?),
                 TokenKind::Fun => functions.push(self.parse_fun()?),
                 _ => {
                     return Err(ParseError {
                         message: format!(
-                            "expected `interface`, `class`, `struct`, or `fun`, found {:?}",
+                            "expected `interface`, `enum`, `class`, `struct`, or `fun`, found {:?}",
                             self.peek().kind
                         ),
                         span: self.peek().span,
@@ -115,8 +117,70 @@ impl Parser {
         Ok(File {
             package,
             interfaces,
+            enums,
             classes,
             functions,
+            span: Span::new(start, end),
+        })
+    }
+
+    fn parse_enum(&mut self) -> Result<EnumDecl, ParseError> {
+        let start = self.peek().span.start;
+        self.expect(TokenKind::Enum, "`enum`")?;
+        let name = self.expect_ident()?;
+        let mut type_params = self.parse_type_params_opt()?;
+        self.apply_where_clause(&mut type_params)?;
+        self.expect(TokenKind::LBrace, "`{`")?;
+        let mut variants = Vec::new();
+        while !matches!(self.peek().kind, TokenKind::RBrace | TokenKind::Eof) {
+            variants.push(self.parse_enum_variant()?);
+        }
+        let end = self.expect(TokenKind::RBrace, "`}`")?.span.end;
+        if variants.is_empty() {
+            return Err(ParseError {
+                message: "enum must have at least one variant".into(),
+                span: Span::new(start, end),
+            });
+        }
+        Ok(EnumDecl {
+            name,
+            type_params,
+            variants,
+            span: Span::new(start, end),
+        })
+    }
+
+    fn parse_enum_variant(&mut self) -> Result<EnumVariant, ParseError> {
+        let start = self.peek().span.start;
+        // `case Name` or bare `Name` (unit-style Color { Red, Green })
+        if matches!(self.peek().kind, TokenKind::Case) {
+            self.bump();
+        }
+        let name = self.expect_ident()?;
+        let mut fields = Vec::new();
+        if matches!(self.peek().kind, TokenKind::LParen) {
+            self.bump();
+            if !matches!(self.peek().kind, TokenKind::RParen) {
+                loop {
+                    // Named payload fields only: `value: T`
+                    fields.push(self.parse_param()?);
+                    if matches!(self.peek().kind, TokenKind::Comma) {
+                        self.bump();
+                        continue;
+                    }
+                    break;
+                }
+            }
+            self.expect(TokenKind::RParen, "`)`")?;
+        }
+        // optional comma between variants
+        if matches!(self.peek().kind, TokenKind::Comma) {
+            self.bump();
+        }
+        let end = name.span.end;
+        Ok(EnumVariant {
+            name,
+            fields,
             span: Span::new(start, end),
         })
     }
@@ -465,8 +529,79 @@ impl Parser {
             TokenKind::Val | TokenKind::Var => Ok(Stmt::Var(self.parse_var()?)),
             TokenKind::If => Ok(Stmt::If(self.parse_if()?)),
             TokenKind::While => Ok(Stmt::While(self.parse_while()?)),
+            TokenKind::Match => Ok(Stmt::Match(self.parse_match()?)),
             TokenKind::Return => Ok(Stmt::Return(self.parse_return()?)),
             _ => Ok(Stmt::Expr(self.parse_expr(0)?)),
+        }
+    }
+
+    fn parse_match(&mut self) -> Result<MatchStmt, ParseError> {
+        let start = self.peek().span.start;
+        self.expect(TokenKind::Match, "`match`")?;
+        self.expect(TokenKind::LParen, "`(`")?;
+        let scrutinee = self.parse_expr(0)?;
+        self.expect(TokenKind::RParen, "`)`")?;
+        self.expect(TokenKind::LBrace, "`{`")?;
+        let mut arms = Vec::new();
+        while !matches!(self.peek().kind, TokenKind::RBrace | TokenKind::Eof) {
+            arms.push(self.parse_match_arm()?);
+        }
+        let end = self.expect(TokenKind::RBrace, "`}`")?.span.end;
+        if arms.is_empty() {
+            return Err(ParseError {
+                message: "`match` needs at least one `case` arm".into(),
+                span: Span::new(start, end),
+            });
+        }
+        Ok(MatchStmt {
+            scrutinee,
+            arms,
+            span: Span::new(start, end),
+        })
+    }
+
+    fn parse_match_arm(&mut self) -> Result<MatchArm, ParseError> {
+        let start = self.peek().span.start;
+        self.expect(TokenKind::Case, "`case`")?;
+        let pattern = self.parse_pattern()?;
+        self.expect(TokenKind::FatArrow, "`=>`")?;
+        let body = self.parse_block()?;
+        let end = body.span.end;
+        Ok(MatchArm {
+            pattern,
+            body,
+            span: Span::new(start, end),
+        })
+    }
+
+    fn parse_pattern(&mut self) -> Result<Pattern, ParseError> {
+        let name = self.expect_ident()?;
+        let start = name.span.start;
+        let mut bindings = Vec::new();
+        if matches!(self.peek().kind, TokenKind::LParen) {
+            self.bump();
+            if !matches!(self.peek().kind, TokenKind::RParen) {
+                loop {
+                    bindings.push(self.expect_ident()?);
+                    if matches!(self.peek().kind, TokenKind::Comma) {
+                        self.bump();
+                        continue;
+                    }
+                    break;
+                }
+            }
+            let end = self.expect(TokenKind::RParen, "`)`")?.span.end;
+            Ok(Pattern::Variant {
+                name,
+                bindings,
+                span: Span::new(start, end),
+            })
+        } else {
+            Ok(Pattern::Variant {
+                span: name.span,
+                name,
+                bindings,
+            })
         }
     }
 
@@ -994,6 +1129,31 @@ fun main() {
                 other => panic!("expected call, got {other:?}"),
             },
             other => panic!("expected var, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_enum_and_match() {
+        let src = r#"
+package main
+enum Result<T, E> {
+  case Ok(value: T)
+  case Err(error: E)
+}
+fun f(r: Result<Int, String>) {
+  match (r) {
+    case Ok(v) => { return }
+    case Err(e) => { println(e) }
+  }
+}
+"#;
+        let file = parse_file(src).expect("parse");
+        assert_eq!(file.enums.len(), 1);
+        assert_eq!(file.enums[0].variants.len(), 2);
+        assert_eq!(file.enums[0].variants[0].fields.len(), 1);
+        match &file.functions[0].body.stmts[0] {
+            Stmt::Match(m) => assert_eq!(m.arms.len(), 2),
+            other => panic!("expected match, got {other:?}"),
         }
     }
 

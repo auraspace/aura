@@ -1,0 +1,35 @@
+// C3b corpus — generic enum Result + match
+package demo.result
+
+enum Result<T, E> {
+  case Ok(value: T)
+  case Err(error: E)
+}
+
+fun parseDigit(s: String): Result<Int, String> {
+  if (s == "1") {
+    return Ok(1)
+  } else {
+    return Err("bad digit")
+  }
+}
+
+fun describe(r: Result<Int, String>) {
+  match (r) {
+    case Ok(v) => {
+      if (v == 1) {
+        println("one")
+      } else {
+        println("other")
+      }
+    }
+    case Err(e) => {
+      println(e)
+    }
+  }
+}
+
+fun main() {
+  describe(parseDigit("1"))
+  describe(parseDigit("x"))
+}
