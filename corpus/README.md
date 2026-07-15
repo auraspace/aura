@@ -30,6 +30,7 @@ Small `.aura` programs used as syntax fixtures for compiler milestone **C0** (`a
 | `control/for_in.aura` | `for (x in array)` element iteration (C3k) |
 | `control/for_inclusive.aura` | `for (i in a..=b)` inclusive range (C3l) |
 | `generic/array.aura` | Builtin `Array<T>` len/get/set (C3j) |
+| `generic/array_push.aura` | `Array.push` + grow (C3m) |
 | `test/smoke.aura` | `@test` + `assert` / `assert_eq` |
 | `multi/` | Multi-file package + `aura.toml` (C3e) |
 | `import/app` + `import/math` | `import` + `pub` + path dep (C3f) |

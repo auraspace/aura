@@ -103,6 +103,16 @@ impl Checker {
                 span: Span::new(0, 0),
             },
         );
+        array_methods.insert(
+            "push".into(),
+            ClassMethodSig {
+                class: "Array".into(),
+                name: "push".into(),
+                params: vec![Ty::TypeParam("T".into())],
+                ret: Ty::Unit,
+                span: Span::new(0, 0),
+            },
+        );
         let mut classes = HashMap::new();
         classes.insert(
             "Array".into(),

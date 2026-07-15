@@ -1,4 +1,4 @@
-//! Builtin `Array<T>` monomorphization (C3j).
+//! Builtin `Array<T>` monomorphization (C3j/C3m).
 
 use std::fmt::Write as _;
 
@@ -17,17 +17,20 @@ pub(crate) fn emit_array_mono(out: &mut String, elem: &Ty) {
     let ctor = c_ctor_name(&mono);
     let get = c_method_name(&mono, "get");
     let set = c_method_name(&mono, "set");
+    let push = c_method_name(&mono, "push");
 
     let _ = writeln!(out, "typedef struct {c_ty} {{");
     out.push_str("  int64_t len;\n");
+    out.push_str("  int64_t cap;\n");
     let _ = writeln!(out, "  {elem_c} *data;");
     let _ = writeln!(out, "}} {c_ty};\n");
 
-    // Constructor: Array(len) — zero-initialized buffer.
+    // Constructor: Array(len) — zero-initialized buffer; cap == len.
     let _ = writeln!(out, "{c_ty} {ctor}(int64_t len) {{");
     let _ = writeln!(out, "  {c_ty} self;");
     out.push_str("  if (len < 0) { len = 0; }\n");
     out.push_str("  self.len = len;\n");
+    out.push_str("  self.cap = len;\n");
     let _ = writeln!(
         out,
         "  self.data = ({elem_c} *)calloc((size_t)len, sizeof({elem_c}));"
@@ -43,7 +46,6 @@ pub(crate) fn emit_array_mono(out: &mut String, elem: &Ty) {
     out.push_str("  if (this == NULL || this->data == NULL || i < 0 || i >= this->len) {\n");
     out.push_str("    aura_throw_string(\"Array index out of bounds\");\n");
     out.push_str("  }\n");
-    // throw never returns, but silence compilers
     out.push_str("  return this->data[i];\n}\n\n");
 
     // set(i, v)
@@ -52,4 +54,26 @@ pub(crate) fn emit_array_mono(out: &mut String, elem: &Ty) {
     out.push_str("    aura_throw_string(\"Array index out of bounds\");\n");
     out.push_str("  }\n");
     out.push_str("  this->data[i] = v;\n}\n\n");
+
+    // push(v) — grow by doubling (min cap 4) via realloc (C3m).
+    let _ = writeln!(out, "void {push}({c_ty} *this, {elem_c} v) {{");
+    out.push_str("  if (this == NULL) {\n");
+    out.push_str("    aura_throw_string(\"Array push on null\");\n");
+    out.push_str("  }\n");
+    out.push_str("  if (this->len >= this->cap) {\n");
+    out.push_str("    int64_t ncap = this->cap < 4 ? 4 : this->cap * 2;\n");
+    let _ = writeln!(
+        out,
+        "    {elem_c} *nd = ({elem_c} *)realloc(this->data, (size_t)ncap * sizeof({elem_c}));"
+    );
+    out.push_str("    if (nd == NULL) {\n");
+    out.push_str("      fputs(\"aura: Array reallocation failed\\n\", stderr);\n");
+    out.push_str("      abort();\n");
+    out.push_str("    }\n");
+    out.push_str("    this->data = nd;\n");
+    out.push_str("    this->cap = ncap;\n");
+    out.push_str("  }\n");
+    out.push_str("  this->data[this->len] = v;\n");
+    out.push_str("  this->len += 1;\n");
+    out.push_str("}\n\n");
 }

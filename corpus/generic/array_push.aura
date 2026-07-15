@@ -1,0 +1,32 @@
+// C3m — Array.push with capacity grow
+package demo.arraypush
+
+fun main() {
+  val a: Array<Int> = Array(0)
+  a.push(10)
+  a.push(20)
+  a.push(30)
+  a.push(40)
+  a.push(50)
+
+  var sum: Int = 0
+  for (x in a) {
+    sum = sum + x
+  }
+  // 10+20+30+40+50 = 150
+  if (sum == 150) {
+    println("array push ok")
+  } else {
+    println("array push bad")
+  }
+  if (a.len == 5) {
+    println("array len ok")
+  }
+
+  val s: Array<String> = Array(0)
+  s.push("hi")
+  s.push("aura")
+  for (w in s) {
+    println(w)
+  }
+}

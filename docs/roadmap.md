@@ -71,13 +71,14 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C3j** | Builtin `Array<T>` (`T` = Int/Bool/String; len/get/set) | Done |
 | **C3k** | `for (x in array)` over `Array<T>` | Done |
 | **C3l** | Inclusive range `for (i in a..=b)` | Done |
+| **C3m** | `Array.push` + capacity grow | Done |
 | **DX** | line:col diagnostics with snippets | Done |
 
 **Out of scope C0/C1:** generics mono, async/tasks, macros, registry, incremental, LTO.
 
 ### P3 — Expand (after hello)
 
-1. ~~Language surface C2–C3l~~ → next: Array.push · import alias · package mangling · lockfile · GC (see `agents/debts.md`)
+1. ~~Language surface C2–C3m~~ → next: import alias · package mangling · lockfile · GC (see `agents/debts.md`)
 2. Runtime: alloc/GC MVP → channels/tasks
 3. Toolchain: ~~minimal `aura.toml` + path deps~~ → lockfile / registry (RFC-005)
 4. Stdlib prelude + small collections (partial: builtin Array)

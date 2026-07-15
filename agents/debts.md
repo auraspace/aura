@@ -15,11 +15,11 @@ When you resolve debt, update or remove the matching entry.
 - Introduced: narrowed after C3k (was C3h range-only); `..=` done in C3l
 
 ### `Array<T>` limited element types and no free
-- Area: builtin Array (C3j)
-- Symptom: only `Int`/`Bool`/`String` elements; buffers from `calloc` never freed; no grow/push
-- Why deferred: heap mono without GC; enough for index loops demos
-- Next step: GC-owned buffers or free on scope end; push/grow; class elements as refs
-- Introduced: C3j
+- Area: builtin Array (C3j/C3m)
+- Symptom: only `Int`/`Bool`/`String` elements; buffers from `calloc`/`realloc` never freed; no `pop`
+- Why deferred: heap mono without GC; C3m added push/grow only
+- Next step: GC-owned buffers or free on scope end; class elements as refs; `pop`
+- Introduced: C3j; push resolved in C3m
 
 ### Exception object payloads leak heap copies
 - Area: runtime / codegen (`aura_throw_obj`)
@@ -71,6 +71,9 @@ When you resolve debt, update or remove the matching entry.
 - Introduced: C0–C1
 
 ## Resolved
+
+### No `Array.push` / grow (2026-07-15)
+- Resolved in C3m: `cap` field + `push` with doubling `realloc`.
 
 ### No inclusive range `..=` (2026-07-15)
 - Resolved in C3l: `for (i in a..=b)` with `DotDotEq` token and `ForRangeStmt.inclusive`.
