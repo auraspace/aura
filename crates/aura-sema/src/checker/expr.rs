@@ -32,6 +32,15 @@ impl Checker {
                 if let Some(local) = self.lookup_local(&id.name) {
                     return Ok(local.ty.clone());
                 }
+                if self.import_aliases.contains_key(&id.name) {
+                    return Err(SemaError {
+                        message: format!(
+                            "package alias `{}` cannot be used as a value (use `{}.member`)",
+                            id.name, id.name
+                        ),
+                        span: id.span,
+                    });
+                }
                 Err(SemaError {
                     message: format!("undefined name `{}`", id.name),
                     span: id.span,

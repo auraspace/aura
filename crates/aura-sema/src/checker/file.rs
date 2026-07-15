@@ -12,15 +12,29 @@ impl Checker {
         let file_pkg = file.package.display();
         self.current_package = file_pkg.clone();
         self.package_imports.clear();
+        self.import_aliases.clear();
         self.package_imports
             .entry(file_pkg.clone())
             .or_default();
         for imp in &file.imports {
             let from = decl_package(&imp.origin_package, &file_pkg).to_string();
+            let target = imp.path.display();
             self.package_imports
                 .entry(from)
                 .or_default()
-                .insert(imp.path.display());
+                .insert(target.clone());
+            if let Some(alias) = &imp.alias {
+                if self.import_aliases.contains_key(&alias.name) {
+                    return Err(SemaError {
+                        message: format!("duplicate import alias `{}`", alias.name),
+                        span: alias.span,
+                    });
+                }
+                // Alias lives in the importing package's name space (used when
+                // current_package is `from`). Store globally for C3n lookup.
+                self.import_aliases
+                    .insert(alias.name.clone(), target);
+            }
         }
         // Every package that contributes decls can see itself.
         for i in &file.interfaces {

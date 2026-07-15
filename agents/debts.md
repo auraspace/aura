@@ -28,12 +28,12 @@ When you resolve debt, update or remove the matching entry.
 - Next step: free on `aura_ex_clear` when type is obj, or move to GC-managed heap
 - Introduced: C3g (`29188ae`)
 
-### Import aliases parsed but unused
-- Area: parser / sema (`import path as Ident`)
-- Symptom: `as` alias is stored on `ImportDecl` but names stay unqualified; no `Alias.foo`
-- Why deferred: C3f unqualified pub import was enough for path deps
-- Next step: qualified access or rename-on-import for colliding symbols
-- Introduced: C3f (`bcb5a20`)
+### Import aliases: functions only; no type qualify
+- Area: sema / codegen (`import path as Alias`)
+- Symptom: `Alias.fun(...)` works (C3n); no `Alias.Type` in type positions; same-name cross-pkg still one HashMap key until C3o
+- Why deferred: C3n shipped qualified free-function calls only
+- Next step: qualified types/ctors; multi-name-per-package with C3o mangling
+- Introduced: narrowed after C3n
 
 ### Cross-package link requires unique top-level names
 - Area: package loader / sema
@@ -71,6 +71,10 @@ When you resolve debt, update or remove the matching entry.
 - Introduced: C0–C1
 
 ## Resolved
+
+### Import aliases parsed but unused (2026-07-15)
+- Resolved in C3n: `import path as Alias` → `Alias.fun(...)` free-function calls.
+- Remaining: type qualify / same-name multi-pkg under Open.
 
 ### No `Array.push` / grow (2026-07-15)
 - Resolved in C3m: `cap` field + `push` with doubling `realloc`.

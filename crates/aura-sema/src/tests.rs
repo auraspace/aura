@@ -290,6 +290,38 @@ fun main() {
 }
 
 #[test]
+fn import_alias_qualified_call() {
+    let mut lib = parse_file(
+        r#"
+package demo.math
+pub fun square(x: Int): Int { return x * x }
+"#,
+    )
+    .expect("parse lib");
+    for f in &mut lib.functions {
+        f.origin_package = "demo.math".into();
+    }
+    let mut app = parse_file(
+        r#"
+package demo.app
+import demo.math as Math
+fun main() {
+  Math.square(3)
+}
+"#,
+    )
+    .expect("parse app");
+    for f in &mut app.functions {
+        f.origin_package = "demo.app".into();
+    }
+    for i in &mut app.imports {
+        i.origin_package = "demo.app".into();
+    }
+    app.functions.extend(lib.functions);
+    check_file(&app).expect("alias qualified call");
+}
+
+#[test]
 fn import_rejects_private_function() {
     let mut lib = parse_file(
         r#"

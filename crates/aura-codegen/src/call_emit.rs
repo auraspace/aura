@@ -13,6 +13,32 @@ use crate::names::*;
 pub(crate) fn emit_call(c: &CallExpr, ctx: &EmitCtx<'_>) -> String {
     // Method call: obj.method(args)
     if let Expr::Field(fe) = c.callee.as_ref() {
+        // C3n: package alias qualified free function `Math.square(...)`.
+        if let Expr::Ident(id) = fe.object.as_ref() {
+            let is_alias = ctx.checked.ast.imports.iter().any(|imp| {
+                imp.alias
+                    .as_ref()
+                    .map(|a| a.name == id.name)
+                    .unwrap_or(false)
+            });
+            if is_alias {
+                let name = &fe.field.name;
+                let targs: Vec<Ty> = ctx
+                    .checked
+                    .call_instantiations
+                    .get(&c.span.start)
+                    .map(|i| i.type_args.clone())
+                    .unwrap_or_default();
+                let args = c
+                    .args
+                    .iter()
+                    .map(|a| emit_expr(a, ctx))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                return format!("{}({args})", c_fun_name(name, &targs));
+            }
+        }
+
         let obj_ty = resolve_type_name(&fe.object, ctx);
         let obj = emit_expr(&fe.object, ctx);
 

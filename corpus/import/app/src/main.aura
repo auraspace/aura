@@ -2,17 +2,24 @@
 package demo.app
 
 import demo.math
+import demo.math as Math
 
 fun main() {
   val n: Int = square(7)
+  val m: Int = Math.square(7)
   if (n != 49) {
     println("import failed")
   } else {
-    println("import ok")
+    if (m != 49) {
+      println("import alias failed")
+    } else {
+      println("import ok")
+    }
   }
 }
 
 @test
 fun test_imported_square() {
   assert_eq(square(4), 16)
+  assert_eq(Math.square(5), 25)
 }

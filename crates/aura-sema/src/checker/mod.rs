@@ -39,6 +39,8 @@ pub(crate) struct Checker {
     current_package: String,
     /// `import` edges: package → set of imported package names.
     package_imports: HashMap<String, HashSet<String>>,
+    /// `import path as Alias` → package path (C3n). Keys are alias idents.
+    import_aliases: HashMap<String, String>,
     /// Nested loop depth for `break` / `continue` (C3i).
     loop_depth: usize,
     mono_classes: HashSet<(String, Vec<Ty>)>,
@@ -145,6 +147,7 @@ impl Checker {
             current_class: None,
             current_package: String::new(),
             package_imports: HashMap::new(),
+            import_aliases: HashMap::new(),
             loop_depth: 0,
             mono_classes: HashSet::new(),
             mono_enums: HashSet::new(),

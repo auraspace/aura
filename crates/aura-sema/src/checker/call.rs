@@ -11,6 +11,35 @@ use crate::util::{subst_ty, type_subst_map, unify_ty};
 impl Checker {
     pub(crate) fn check_call(&mut self, c: &CallExpr, expected: Option<&Ty>) -> Result<Ty, SemaError> {
         if let Expr::Field(fe) = c.callee.as_ref() {
+            // C3n: `Alias.fun(...)` where Alias is `import path as Alias`.
+            if let Expr::Ident(id) = fe.object.as_ref() {
+                if let Some(pkg) = self.import_aliases.get(&id.name).cloned() {
+                    if !c.type_args.is_empty() {
+                        return Err(SemaError {
+                            message: "type arguments not allowed on package-qualified calls in C3n"
+                                .into(),
+                            span: c.span,
+                        });
+                    }
+                    let name = fe.field.name.clone();
+                    let sig = self.functions.get(&name).cloned().ok_or_else(|| SemaError {
+                        message: format!("undefined function `{name}` in package `{pkg}`"),
+                        span: fe.field.span,
+                    })?;
+                    if sig.package != pkg {
+                        return Err(SemaError {
+                            message: format!(
+                                "`{name}` is not a member of package `{pkg}` (found in `{}`)",
+                                sig.package
+                            ),
+                            span: fe.field.span,
+                        });
+                    }
+                    self.check_visible(&name, sig.is_pub, &sig.package, fe.field.span)?;
+                    return self.check_fun_call_with_sig(&sig, c, expected);
+                }
+            }
+
             if !c.type_args.is_empty() {
                 return Err(SemaError {
                     message: "type arguments not allowed on method calls in C2b".into(),
@@ -235,34 +264,44 @@ impl Checker {
                 span: c.callee.span(),
             })?;
             self.check_visible(&name, sig.is_pub, &sig.package, c.callee.span())?;
-
-            let type_args = self.resolve_fun_type_args(&sig, c, expected)?;
-            self.check_type_args_bounds(
-                &sig.type_params,
-                &sig.bounds,
-                &type_args,
-                c.span,
-                &format!("function `{}`", sig.name),
-            )?;
-
-            let subst = type_subst_map(&sig.type_params, &type_args);
-            let params: Vec<Ty> = sig.params.iter().map(|p| subst_ty(p, &subst)).collect();
-            let ret = subst_ty(&sig.ret, &subst);
-            self.check_args(&params, &c.args, &name, c.span)?;
-            if !type_args.is_empty() {
-                self.call_instantiations.insert(
-                    c.span.start,
-                    CallInstantiation {
-                        is_constructor: false,
-                        name: name.clone(),
-                        type_args: type_args.clone(),
-                        variant: None,
-                    },
-                );
-                self.mono_funs.insert((name, type_args));
-            }
-            Ok(ret)
+            self.check_fun_call_with_sig(&sig, c, expected)
         }
+    }
+
+    /// Shared path for free-function calls (unqualified or `Alias.fun`, C3n).
+    pub(crate) fn check_fun_call_with_sig(
+        &mut self,
+        sig: &FunSig,
+        c: &CallExpr,
+        expected: Option<&Ty>,
+    ) -> Result<Ty, SemaError> {
+        let name = sig.name.clone();
+        let type_args = self.resolve_fun_type_args(sig, c, expected)?;
+        self.check_type_args_bounds(
+            &sig.type_params,
+            &sig.bounds,
+            &type_args,
+            c.span,
+            &format!("function `{}`", sig.name),
+        )?;
+
+        let subst = type_subst_map(&sig.type_params, &type_args);
+        let params: Vec<Ty> = sig.params.iter().map(|p| subst_ty(p, &subst)).collect();
+        let ret = subst_ty(&sig.ret, &subst);
+        self.check_args(&params, &c.args, &name, c.span)?;
+        if !type_args.is_empty() {
+            self.call_instantiations.insert(
+                c.span.start,
+                CallInstantiation {
+                    is_constructor: false,
+                    name: name.clone(),
+                    type_args: type_args.clone(),
+                    variant: None,
+                },
+            );
+            self.mono_funs.insert((name, type_args));
+        }
+        Ok(ret)
     }
 
     pub(crate) fn check_variant_ctor(
