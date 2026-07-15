@@ -1,8 +1,9 @@
-//! Aura CLI — C0+ check, C1 build/run (C backend).
+//! Aura CLI — check / build / run / emit-c with pretty diagnostics.
 
 use aura_codegen::{build_from_file, emit_c_from_ast};
-use aura_parser::parse_file;
-use aura_sema::check_file;
+use aura_diagnostics::format_error;
+use aura_parser::{parse_file, ParseError};
+use aura_sema::{check_file, SemaError};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -35,7 +36,7 @@ fn main() -> ExitCode {
 
 fn eprint_usage() {
     eprintln!(
-        "Aura toolchain (C0+ / C1)\n\n\
+        "Aura toolchain (C0–C2)\n\n\
          Usage:\n  \
            aura check <file.aura>              Parse + typecheck\n  \
            aura build <file.aura> [-o <bin>]   Compile to native binary (C backend)\n  \
@@ -44,6 +45,14 @@ fn eprint_usage() {
            aura help\n\n\
          See docs/roadmap.md and RFC-001 §6.0."
     );
+}
+
+fn diag_parse(path: &Path, src: &str, e: ParseError) -> String {
+    format_error(&path.display().to_string(), src, &e.message, e.span)
+}
+
+fn diag_sema(path: &Path, src: &str, e: SemaError) -> String {
+    format_error(&path.display().to_string(), src, &e.message, e.span)
 }
 
 fn cmd_check(args: &[String]) -> ExitCode {
@@ -58,32 +67,51 @@ fn cmd_check(args: &[String]) -> ExitCode {
             ExitCode::SUCCESS
         }
         Err(msg) => {
-            eprintln!("error: {msg}");
+            eprintln!("{msg}");
             ExitCode::from(1)
         }
     }
 }
 
 fn check_path(path: &Path) -> Result<String, String> {
-    let src = fs::read_to_string(path).map_err(|e| format!("read {}: {e}", path.display()))?;
-    let file = parse_file(&src).map_err(|e| format!("{}: {e}", path.display()))?;
-    let checked = check_file(&file).map_err(|e| format!("{}: {e}", path.display()))?;
+    let src = fs::read_to_string(path).map_err(|e| format!("error: read {}: {e}", path.display()))?;
+    let file = parse_file(&src).map_err(|e| diag_parse(path, &src, e))?;
+    let checked = check_file(&file).map_err(|e| diag_sema(path, &src, e))?;
 
     let mut lines = Vec::new();
     lines.push(format!("ok  {}", path.display()));
     lines.push(format!("package {}", checked.package));
+    if !checked.interfaces.is_empty() {
+        lines.push(format!("{} interface(s)", checked.interfaces.len()));
+        for i in &checked.interfaces {
+            lines.push(format!(
+                "  interface {} ({} method(s))",
+                i.name,
+                i.methods.len()
+            ));
+        }
+    }
     if !checked.classes.is_empty() {
         lines.push(format!("{} class(es)", checked.classes.len()));
         for c in &checked.classes {
+            let impls = if c.implements.is_empty() {
+                String::new()
+            } else {
+                format!(" : {}", c.implements.join(", "))
+            };
             lines.push(format!(
-                "  class {} ({} field(s), {} method(s))",
+                "  class {}{} ({} field(s), {} method(s))",
                 c.name,
+                impls,
                 c.fields.len(),
                 c.methods.len()
             ));
         }
     }
-    lines.push(format!("{} function(s) typechecked", checked.functions.len()));
+    lines.push(format!(
+        "{} function(s) typechecked",
+        checked.functions.len()
+    ));
     for f in &checked.functions {
         lines.push(format!(
             "  fun {}({}) -> {}",
@@ -111,16 +139,19 @@ fn cmd_emit_c(args: &[String]) -> ExitCode {
             ExitCode::SUCCESS
         }
         Err(msg) => {
-            eprintln!("error: {msg}");
+            eprintln!("{msg}");
             ExitCode::from(1)
         }
     }
 }
 
 fn load_and_emit_c(path: &Path) -> Result<String, String> {
-    let src = fs::read_to_string(path).map_err(|e| format!("read {}: {e}", path.display()))?;
-    let file = parse_file(&src).map_err(|e| format!("{}: {e}", path.display()))?;
-    emit_c_from_ast(&file).map_err(|e| format!("{}: {e}", path.display()))
+    let src = fs::read_to_string(path).map_err(|e| format!("error: read {}: {e}", path.display()))?;
+    let file = parse_file(&src).map_err(|e| diag_parse(path, &src, e))?;
+    emit_c_from_ast(&file).map_err(|e| match e {
+        aura_codegen::CodegenError::Sema(se) => diag_sema(path, &src, se),
+        other => format!("error: {}: {other}", path.display()),
+    })
 }
 
 fn cmd_build(args: &[String]) -> ExitCode {
@@ -164,7 +195,7 @@ fn cmd_build(args: &[String]) -> ExitCode {
             ExitCode::SUCCESS
         }
         Err(msg) => {
-            eprintln!("error: {msg}");
+            eprintln!("{msg}");
             ExitCode::from(1)
         }
     }
@@ -179,7 +210,6 @@ fn default_out_path(input: &Path) -> PathBuf {
 }
 
 fn runtime_c_path() -> Result<PathBuf, String> {
-    // Prefer relative to CARGO_MANIFEST_DIR when running via cargo, else walk up from cwd.
     let candidates = [
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../runtime/aura_rt.c"),
         PathBuf::from("runtime/aura_rt.c"),
@@ -190,14 +220,20 @@ fn runtime_c_path() -> Result<PathBuf, String> {
             return Ok(c.canonicalize().unwrap_or(c));
         }
     }
-    Err("cannot find runtime/aura_rt.c (run from repo root or via cargo run -p aura-cli)".into())
+    Err(
+        "error: cannot find runtime/aura_rt.c (run from repo root or via cargo run -p aura-cli)"
+            .into(),
+    )
 }
 
 fn build_path(input: &Path, out: &Path) -> Result<PathBuf, String> {
-    let src = fs::read_to_string(input).map_err(|e| format!("read {}: {e}", input.display()))?;
-    let file = parse_file(&src).map_err(|e| format!("{}: {e}", input.display()))?;
+    let src = fs::read_to_string(input).map_err(|e| format!("error: read {}: {e}", input.display()))?;
+    let file = parse_file(&src).map_err(|e| diag_parse(input, &src, e))?;
     let rt = runtime_c_path()?;
-    build_from_file(&file, out, &rt).map_err(|e| format!("{}: {e}", input.display()))
+    build_from_file(&file, out, &rt).map_err(|e| match e {
+        aura_codegen::CodegenError::Sema(se) => diag_sema(input, &src, se),
+        other => format!("error: {}: {other}", input.display()),
+    })
 }
 
 fn cmd_run(args: &[String]) -> ExitCode {
@@ -229,7 +265,7 @@ fn cmd_run(args: &[String]) -> ExitCode {
             }
         }
         Err(msg) => {
-            eprintln!("error: {msg}");
+            eprintln!("{msg}");
             ExitCode::from(1)
         }
     }

@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/aura-ast",
+    "crates/aura-diagnostics",
     "crates/aura-lexer",
     "crates/aura-parser",
     "crates/aura-sema",
@@ -19,6 +20,7 @@ rust-version = "1.80"
 
 [workspace.dependencies]
 aura-ast = { path = "crates/aura-ast" }
+aura-diagnostics = { path = "crates/aura-diagnostics" }
 aura-lexer = { path = "crates/aura-lexer" }
 aura-parser = { path = "crates/aura-parser" }
 aura-sema = { path = "crates/aura-sema" }

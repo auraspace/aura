@@ -9,7 +9,7 @@
     "site:test": "pnpm --dir site test",
     "site:preview": "pnpm --dir site preview",
     "aura:test": "cargo test --workspace",
-    "aura:check-corpus": "find corpus -name '*.aura' -print0 | sort -z | xargs -0 -n1 cargo run -q -p aura-cli -- check",
+    "aura:check-corpus": "find corpus -name '*.aura' ! -path 'corpus/diag/*' -print0 | sort -z | xargs -0 -n1 cargo run -q -p aura-cli -- check",
     "aura:hello": "cargo run -q -p aura-cli -- run corpus/hello/main.aura",
     "test": "pnpm --dir site test && cargo test --workspace"
   },

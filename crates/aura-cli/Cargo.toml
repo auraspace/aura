@@ -14,4 +14,6 @@ path = "src/main.rs"
 aura-parser.workspace = true
 aura-sema.workspace = true
 aura-codegen.workspace = true
+aura-diagnostics.workspace = true
+aura-ast.workspace = true
 

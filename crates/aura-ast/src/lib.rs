@@ -1,4 +1,4 @@
-//! Aura AST for compiler milestones C0–C1b (RFC-001 §6.0).
+//! Aura AST for compiler milestones C0–C2 (RFC-001 §6.0).
 
 use std::fmt;
 
@@ -20,8 +20,26 @@ impl Span {
 #[derive(Debug, Clone, PartialEq)]
 pub struct File {
     pub package: Path,
+    pub interfaces: Vec<InterfaceDecl>,
     pub classes: Vec<ClassDecl>,
     pub functions: Vec<FunDecl>,
+    pub span: Span,
+}
+
+/// `interface Name { fun m(...): T  … }` (signatures only).
+#[derive(Debug, Clone, PartialEq)]
+pub struct InterfaceDecl {
+    pub name: Ident,
+    pub methods: Vec<MethodSig>,
+    pub span: Span,
+}
+
+/// Method signature without body (interfaces).
+#[derive(Debug, Clone, PartialEq)]
+pub struct MethodSig {
+    pub name: Ident,
+    pub params: Vec<Param>,
+    pub return_type: Option<TypeRef>,
     pub span: Span,
 }
 
@@ -37,10 +55,12 @@ pub struct Ident {
     pub span: Span,
 }
 
-/// `class Name(val x: T, var y: U) { methods… }`
+/// `class Name(val x: T, …) : Iface1, Iface2 { methods… }`
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClassDecl {
     pub name: Ident,
+    /// Interfaces listed after `:` (C2).
+    pub implements: Vec<Ident>,
     pub fields: Vec<FieldDecl>,
     pub methods: Vec<FunDecl>,
     pub span: Span,

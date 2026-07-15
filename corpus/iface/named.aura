@@ -1,0 +1,23 @@
+// C2 corpus — interface + implements + interface-typed call
+package demo.iface
+
+interface Named {
+  fun name(): String
+}
+
+class User(val n: String) : Named {
+  fun name(): String {
+    return this.n
+  }
+}
+
+fun show(x: Named) {
+  println(x.name())
+}
+
+fun main() {
+  val u: User = User("Hello, Aura")
+  show(u)
+  val asNamed: Named = u
+  println(asNamed.name())
+}

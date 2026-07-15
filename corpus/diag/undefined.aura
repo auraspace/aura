@@ -1,0 +1,6 @@
+// intentionally fails typecheck — used only in manual / unit diagnostics tests
+package demo.diag
+
+fun main() {
+  println(missing)
+}

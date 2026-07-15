@@ -42,7 +42,9 @@ C1 uses a **C backend** (`aura emit-c` + system `cc`) linked with `runtime/aura_
 - **Compiler C0+** lexer + parser + name resolution + typecheck
 - **Compiler C1** `aura build` / `aura run` → native hello binary (C backend)
 - **Compiler C1b** `class` primary constructor, methods, `this`, field access
-- **Next:** diagnostics line/col, interfaces/generics (C2), LLVM backend
+- **Compiler C2a** `interface` + implements + interface-typed calls (closed-world C dispatch)
+- **DX** Pretty diagnostics (`path:line:col` + source snippet)
+- **Next:** generics (C2b), richer nullability, LLVM backend
 
 ## Links
 

@@ -90,17 +90,19 @@ impl Parser {
         let package = self.parse_path()?;
         let mut functions = Vec::new();
         let mut classes = Vec::new();
+        let mut interfaces = Vec::new();
         while !matches!(self.peek().kind, TokenKind::Eof) {
             if matches!(self.peek().kind, TokenKind::Pub) {
                 self.bump();
             }
             match self.peek().kind {
+                TokenKind::Interface => interfaces.push(self.parse_interface()?),
                 TokenKind::Class => classes.push(self.parse_class()?),
                 TokenKind::Fun => functions.push(self.parse_fun()?),
                 _ => {
                     return Err(ParseError {
                         message: format!(
-                            "expected `class` or `fun`, found {:?}",
+                            "expected `interface`, `class`, or `fun`, found {:?}",
                             self.peek().kind
                         ),
                         span: self.peek().span,
@@ -111,8 +113,65 @@ impl Parser {
         let end = self.peek().span.end;
         Ok(File {
             package,
+            interfaces,
             classes,
             functions,
+            span: Span::new(start, end),
+        })
+    }
+
+    fn parse_interface(&mut self) -> Result<InterfaceDecl, ParseError> {
+        let start = self.peek().span.start;
+        self.expect(TokenKind::Interface, "`interface`")?;
+        let name = self.expect_ident()?;
+        self.expect(TokenKind::LBrace, "`{`")?;
+        let mut methods = Vec::new();
+        while !matches!(self.peek().kind, TokenKind::RBrace | TokenKind::Eof) {
+            if matches!(self.peek().kind, TokenKind::Pub) {
+                self.bump();
+            }
+            methods.push(self.parse_method_sig()?);
+        }
+        let end = self.expect(TokenKind::RBrace, "`}`")?.span.end;
+        Ok(InterfaceDecl {
+            name,
+            methods,
+            span: Span::new(start, end),
+        })
+    }
+
+    /// `fun name(...): T` without body (interface member).
+    fn parse_method_sig(&mut self) -> Result<MethodSig, ParseError> {
+        let start = self.peek().span.start;
+        self.expect(TokenKind::Fun, "`fun`")?;
+        let name = self.expect_ident()?;
+        self.expect(TokenKind::LParen, "`(`")?;
+        let mut params = Vec::new();
+        if !matches!(self.peek().kind, TokenKind::RParen) {
+            loop {
+                params.push(self.parse_param()?);
+                if matches!(self.peek().kind, TokenKind::Comma) {
+                    self.bump();
+                    continue;
+                }
+                break;
+            }
+        }
+        self.expect(TokenKind::RParen, "`)`")?;
+        let return_type = if matches!(self.peek().kind, TokenKind::Colon) {
+            self.bump();
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
+        let end = return_type
+            .as_ref()
+            .map(|t| t.span.end)
+            .unwrap_or(name.span.end);
+        Ok(MethodSig {
+            name,
+            params,
+            return_type,
             span: Span::new(start, end),
         })
     }
@@ -149,6 +208,19 @@ impl Parser {
             }
         }
         self.expect(TokenKind::RParen, "`)`")?;
+        // Optional `: Iface, Iface2`
+        let mut implements = Vec::new();
+        if matches!(self.peek().kind, TokenKind::Colon) {
+            self.bump();
+            loop {
+                implements.push(self.expect_ident()?);
+                if matches!(self.peek().kind, TokenKind::Comma) {
+                    self.bump();
+                    continue;
+                }
+                break;
+            }
+        }
         self.expect(TokenKind::LBrace, "`{`")?;
         let mut methods = Vec::new();
         while !matches!(self.peek().kind, TokenKind::RBrace | TokenKind::Eof) {
@@ -160,6 +232,7 @@ impl Parser {
         let end = self.expect(TokenKind::RBrace, "`}`")?.span.end;
         Ok(ClassDecl {
             name,
+            implements,
             fields,
             methods,
             span: Span::new(start, end),
@@ -673,6 +746,32 @@ fun main() {
             },
             other => panic!("expected call stmt, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn parses_interface_and_implements() {
+        let src = r#"
+package main
+
+interface Named {
+  fun name(): String
+}
+
+class User(val n: String) : Named {
+  fun name(): String {
+    return this.n
+  }
+}
+
+fun show(x: Named) {
+  println(x.name())
+}
+"#;
+        let file = parse_file(src).expect("parse");
+        assert_eq!(file.interfaces.len(), 1);
+        assert_eq!(file.interfaces[0].methods.len(), 1);
+        assert_eq!(file.classes[0].implements.len(), 1);
+        assert_eq!(file.classes[0].implements[0].name, "Named");
     }
 
     #[test]
