@@ -23,12 +23,12 @@ When you resolve debt, update or remove the matching entry.
 
 
 
-### Classes/enums still unique across packages
-- Area: package loader / codegen
-- Symptom: free functions may share names (C3o); class/enum/interface simple names still collide at link
-- Why deferred: C3o fixed functions only
-- Next step: package-prefix type C symbols + multi-key class table
-- Introduced: narrowed after C3o
+### Interfaces still unique by simple name
+- Area: package loader / iface codegen
+- Symptom: class/enum may share names across packages (C3v); interfaces still one simple name per link unit
+- Why deferred: C3v focused class/enum multi-key + C mangling; iface tags/dispatch less urgent
+- Next step: package-prefix interfaces + multi-key iface table
+- Introduced: narrowed after C3v
 
 ### No registry / version resolve (path lock only)
 - Area: toolchain / RFC-005
@@ -53,6 +53,9 @@ When you resolve debt, update or remove the matching entry.
 - Introduced: C0–C1
 
 ## Resolved
+
+### Classes/enums still unique across packages (2026-07-15)
+- Resolved in C3v: multi-key class/enum tables; `Name@pkg` nominal keys; package-prefixed C mono (`aura_cls_demo_lib_a_Token`); loader allows same simple name across packages.
 
 ### Import aliases: functions only; no type qualify (2026-07-15)
 - Resolved in C3u: `Alias.Type` in type positions + `Alias.Type(...)` constructors; `TypeRef.qualifier` + package check.

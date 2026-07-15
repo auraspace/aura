@@ -5,7 +5,7 @@ use aura_ast::{CallExpr, Expr, Span};
 use super::{is_array_element_ty, Checker};
 use crate::error::SemaError;
 use crate::sigs::{CallInstantiation, ClassSig, EnumSig, EnumVariantSig, FunSig};
-use crate::ty::Ty;
+use crate::ty::{nominal_key, Ty};
 use crate::util::{subst_ty, type_subst_map, unify_ty};
 
 impl Checker {
@@ -28,15 +28,7 @@ impl Checker {
                         let sig = self.resolve_fun_in_package(&name, &pkg, fe.field.span)?;
                         return self.check_fun_call_with_sig(&sig, c, expected);
                     }
-                    if let Some(class) = self.classes.get(&name).cloned() {
-                        if class.package != pkg {
-                            return Err(SemaError {
-                                message: format!(
-                                    "`{name}` is not a member of package `{pkg}`"
-                                ),
-                                span: fe.field.span,
-                            });
-                        }
+                    if let Some(class) = self.class_in_package(&name, &pkg).cloned() {
                         return self.check_class_ctor(&class, c, expected);
                     }
                     return Err(SemaError {
@@ -55,10 +47,16 @@ impl Checker {
             let obj_ty = self.check_expr(&fe.object)?;
 
             if let Some(cname) = obj_ty.class_name() {
-                let class = self.classes.get(cname).cloned().ok_or_else(|| SemaError {
-                    message: format!("unknown class `{cname}`"),
-                    span: c.span,
-                })?;
+                let class = self
+                    .class_by_nominal_key(match &obj_ty {
+                        Ty::Class(k) | Ty::ClassApp { name: k, .. } => k.as_str(),
+                        _ => cname,
+                    })
+                    .cloned()
+                    .ok_or_else(|| SemaError {
+                        message: format!("unknown class `{cname}`"),
+                        span: c.span,
+                    })?;
                 let method = class
                     .methods
                     .get(&fe.field.name)
@@ -160,7 +158,8 @@ impl Checker {
         };
 
         // Constructor (possibly generic)
-        if let Some(class) = self.classes.get(&name).cloned() {
+        if self.classes.contains_key(&name) {
+            let class = self.resolve_class(&name, c.callee.span())?;
             return self.check_class_ctor(&class, c, expected);
         }
 
@@ -256,7 +255,8 @@ impl Checker {
             }
         }
 
-        // Always record so Alias.Type(...) codegen can emit a constructor (C3u).
+        let key = nominal_key(&class.package, &name);
+        // Always record so Alias.Type(...) codegen can emit a constructor (C3u/C3v).
         self.call_instantiations.insert(
             c.span.start,
             CallInstantiation {
@@ -269,17 +269,17 @@ impl Checker {
         );
         if !type_args.is_empty() {
             let t = Ty::ClassApp {
-                name: name.clone(),
+                name: key.clone(),
                 args: type_args.clone(),
             };
             self.note_mono_ty(&t);
         }
 
         let ret = if type_args.is_empty() {
-            Ty::Class(name)
+            Ty::Class(key)
         } else {
             Ty::ClassApp {
-                name,
+                name: key,
                 args: type_args,
             }
         };
@@ -337,10 +337,22 @@ impl Checker {
                 span: c.span,
             });
         }
-        let enum_sig = self.enums.get(enum_name).cloned().ok_or_else(|| SemaError {
-            message: format!("unknown enum `{enum_name}`"),
-            span: c.span,
-        })?;
+        let enum_sig = self
+            .enums
+            .get(enum_name)
+            .and_then(|v| {
+                if v.len() == 1 {
+                    Some(v[0].clone())
+                } else {
+                    v.iter()
+                        .find(|s| s.package == self.current_package)
+                        .cloned()
+                }
+            })
+            .ok_or_else(|| SemaError {
+                message: format!("unknown enum `{enum_name}`"),
+                span: c.span,
+            })?;
         self.check_visible(enum_name, enum_sig.is_pub, &enum_sig.package, c.span)?;
         let variant = enum_sig
             .variants
@@ -386,11 +398,12 @@ impl Checker {
             }
         }
 
+        let key = nominal_key(&enum_sig.package, enum_name);
         let ret = if type_args.is_empty() {
-            Ty::Enum(enum_name.to_string())
+            Ty::Enum(key.clone())
         } else {
             let t = Ty::EnumApp {
-                name: enum_name.to_string(),
+                name: key,
                 args: type_args.clone(),
             };
             self.note_mono_ty(&t);
@@ -420,12 +433,14 @@ impl Checker {
             return Ok(Vec::new());
         }
         if let Some(Ty::EnumApp { name, args }) = expected {
-            if name == &enum_sig.name && args.len() == enum_sig.type_params.len() {
+            let (simple, _) = crate::ty::split_nominal(name);
+            if simple == enum_sig.name && args.len() == enum_sig.type_params.len() {
                 return Ok(args.clone());
             }
         }
         if let Some(Ty::Enum(name)) = expected {
-            if name == &enum_sig.name && enum_sig.type_params.is_empty() {
+            let (simple, _) = crate::ty::split_nominal(name);
+            if simple == enum_sig.name && enum_sig.type_params.is_empty() {
                 return Ok(Vec::new());
             }
         }
@@ -499,7 +514,8 @@ impl Checker {
                 .collect::<Result<Vec<_>, _>>();
         }
         if let Some(Ty::ClassApp { name: n, args }) = expected {
-            if n == &class.name && args.len() == class.type_params.len() {
+            let (simple, _) = crate::ty::split_nominal(n);
+            if simple == class.name && args.len() == class.type_params.len() {
                 return Ok(args.clone());
             }
         }

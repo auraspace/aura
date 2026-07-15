@@ -37,10 +37,17 @@ impl Checker {
                 span: m.scrutinee.span(),
             });
         };
-        let enum_sig = self.enums.get(ename).cloned().ok_or_else(|| SemaError {
-            message: format!("unknown enum `{ename}`"),
-            span: m.scrutinee.span(),
-        })?;
+        let enum_key = match &scrut_ty {
+            crate::ty::Ty::Enum(k) | crate::ty::Ty::EnumApp { name: k, .. } => k.as_str(),
+            _ => ename,
+        };
+        let enum_sig = self
+            .enum_by_nominal_key(enum_key)
+            .cloned()
+            .ok_or_else(|| SemaError {
+                message: format!("unknown enum `{ename}`"),
+                span: m.scrutinee.span(),
+            })?;
         let type_args = scrut_ty.enum_args().to_vec();
         let subst = type_subst_map(&enum_sig.type_params, &type_args);
         self.note_mono_ty(&scrut_ty);

@@ -9,7 +9,8 @@ use crate::names::*;
 
 pub(crate) fn emit_enum_typedef(out: &mut String, checked: &CheckedFile, e: &EnumDecl, args: &[Ty]) {
     let params: Vec<String> = e.type_params.iter().map(|p| p.name.name.clone()).collect();
-    let mono = mono_key(&e.name.name, args);
+    let pkg = enum_decl_package(e, checked);
+    let mono = type_mono(&pkg, &e.name.name, args);
     let _ = writeln!(out, "typedef struct {} {{", c_enum_type(&mono));
     out.push_str("  int tag;\n  union {\n");
     for v in &e.variants {
@@ -33,7 +34,8 @@ pub(crate) fn emit_enum_typedef(out: &mut String, checked: &CheckedFile, e: &Enu
 
 pub(crate) fn emit_enum_forwards(out: &mut String, checked: &CheckedFile, e: &EnumDecl, args: &[Ty]) {
     let params: Vec<String> = e.type_params.iter().map(|p| p.name.name.clone()).collect();
-    let mono = mono_key(&e.name.name, args);
+    let pkg = enum_decl_package(e, checked);
+    let mono = type_mono(&pkg, &e.name.name, args);
     for v in &e.variants {
         let _ = writeln!(
             out,
@@ -73,7 +75,8 @@ pub(crate) fn c_variant_signature(
 
 pub(crate) fn emit_enum_defs(out: &mut String, checked: &CheckedFile, e: &EnumDecl, args: &[Ty]) {
     let params: Vec<String> = e.type_params.iter().map(|p| p.name.name.clone()).collect();
-    let mono = mono_key(&e.name.name, args);
+    let pkg = enum_decl_package(e, checked);
+    let mono = type_mono(&pkg, &e.name.name, args);
     for (tag, v) in e.variants.iter().enumerate() {
         let _ = writeln!(
             out,

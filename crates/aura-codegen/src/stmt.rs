@@ -4,10 +4,65 @@ use std::fmt::Write as _;
 
 use aura_ast::*;
 use aura_sema::{CheckedFile, Ty};
+// Ty used in type_ref_local_key_checked
 
 use crate::ctx::EmitCtx;
-use crate::expr::{coerce_expr, emit_expr, infer_type_name, mono_base_name};
+use crate::expr::{coerce_expr, emit_expr, full_type_mono, infer_type_name, mono_base_name};
 use crate::names::*;
+
+/// Local type key with C3v package mono when the TypeRef is qualified or unique.
+fn type_ref_local_key_checked(t: &TypeRef, ctx: &EmitCtx<'_>) -> String {
+    if is_primitive_name(&t.name.name) {
+        return type_ref_local_key(t, &ctx.type_params, &ctx.type_args);
+    }
+    let targs: Vec<Ty> = t
+        .type_args
+        .iter()
+        .filter_map(|a| {
+            let k = type_ref_local_key(a, &ctx.type_params, &ctx.type_args);
+            match k.as_str() {
+                "Int" => Some(Ty::Int),
+                "Bool" => Some(Ty::Bool),
+                "String" => Some(Ty::String),
+                other => Some(Ty::Class(other.to_string())),
+            }
+        })
+        .collect();
+    if let Some(q) = &t.qualifier {
+        if let Some(imp) = ctx.checked.ast.imports.iter().find(|i| {
+            i.alias
+                .as_ref()
+                .map(|a| a.name == q.name)
+                .unwrap_or(false)
+        }) {
+            return type_mono(&imp.path.display(), &t.name.name, &targs);
+        }
+    }
+    // Unique class/enum in unit → package mono.
+    let matches: Vec<_> = ctx
+        .checked
+        .ast
+        .classes
+        .iter()
+        .filter(|c| c.name.name == t.name.name)
+        .collect();
+    if matches.len() == 1 {
+        let pkg = class_decl_package(matches[0], ctx.checked);
+        return type_mono(&pkg, &t.name.name, &targs);
+    }
+    let ematches: Vec<_> = ctx
+        .checked
+        .ast
+        .enums
+        .iter()
+        .filter(|e| e.name.name == t.name.name)
+        .collect();
+    if ematches.len() == 1 {
+        let pkg = enum_decl_package(ematches[0], ctx.checked);
+        return type_mono(&pkg, &t.name.name, &targs);
+    }
+    type_ref_local_key(t, &ctx.type_params, &ctx.type_args)
+}
 
 pub(crate) fn emit_return_fallback(
     out: &mut String,
@@ -88,9 +143,7 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
             let ty_name = v
                 .ty
                 .as_ref()
-                .map(|t| {
-                    type_ref_local_key(t, &ctx.type_params, &ctx.type_args)
-                })
+                .map(|t| type_ref_local_key_checked(t, ctx))
                 .unwrap_or_else(|| infer_type_name(&v.init, ctx));
             let ty = v
                 .ty
@@ -99,7 +152,8 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                     c_type_ref_subst(t, ctx.checked, &ctx.type_params, &ctx.type_args)
                 })
                 .unwrap_or_else(|| local_key_to_c(&ty_name, ctx.checked));
-            ctx.define_local(&v.name.name, ty_name.clone());
+            // Store package mono key so method dispatch picks the right C symbol (C3v).
+            ctx.define_local(&v.name.name, full_type_mono(&ty_name, ctx.checked));
             // C3t: locals initialized from `Array(...)` own the heap buffer.
             if is_array_type_key(&ty_name) && is_array_ctor_expr(&v.init) {
                 ctx.mark_array_owner(&v.name.name);
@@ -275,15 +329,21 @@ pub(crate) fn local_key_to_c(key: &str, checked: &CheckedFile) -> String {
         "String" => "const char *".into(),
         "Unit" => "void".into(),
         n if checked.ast.interfaces.iter().any(|i| i.name.name == n) => c_iface_type(n),
-        n if is_enum_name(checked, n) => c_enum_type(n),
-        n if checked
-            .mono_enums
-            .iter()
-            .any(|(name, args)| mono_key(name, args) == n) =>
-        {
-            c_enum_type(n)
+        n => {
+            let mono = full_type_mono(n, checked);
+            let base = mono_base_name(&mono, checked).unwrap_or(n);
+            if is_enum_name(checked, base)
+                || checked.ast.enums.iter().any(|e| e.name.name == base)
+                || checked
+                    .mono_enums
+                    .iter()
+                    .any(|(name, _)| name == base)
+            {
+                c_enum_type(&mono)
+            } else {
+                c_class_type(&mono)
+            }
         }
-        n => c_class_type(n),
     }
 }
 

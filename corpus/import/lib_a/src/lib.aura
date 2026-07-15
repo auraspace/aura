@@ -3,3 +3,10 @@ package demo.lib_a
 pub fun add(x: Int, y: Int): Int {
   return x + y
 }
+
+// C3v — same simple class name as demo.lib_b
+pub class Token(val n: Int) {
+  fun kind(): Int {
+    return this.n
+  }
+}

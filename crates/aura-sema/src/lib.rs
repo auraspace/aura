@@ -12,7 +12,7 @@ mod tests;
 
 pub use error::SemaError;
 pub use sigs::*;
-pub use ty::Ty;
+pub use ty::{nominal_key, nominal_mono_base, split_nominal, Ty};
 
 use aura_ast::File;
 use checker::Checker;

@@ -27,8 +27,10 @@ pub(crate) struct Local {
 pub(crate) struct Checker {
     /// Free functions by simple name; multiple packages may share a name (C3o).
     functions: HashMap<String, Vec<FunSig>>,
-    classes: HashMap<String, ClassSig>,
-    enums: HashMap<String, EnumSig>,
+    /// Classes/structs by simple name; multiple packages may share a name (C3v).
+    classes: HashMap<String, Vec<ClassSig>>,
+    /// Enums by simple name; multiple packages may share a name (C3v).
+    enums: HashMap<String, Vec<EnumSig>>,
     /// Variant name → owning enum name (unique across file for C3b).
     variant_to_enum: HashMap<String, String>,
     interfaces: HashMap<String, InterfaceSig>,
@@ -127,10 +129,10 @@ impl Checker {
                 span: Span::new(0, 0),
             },
         );
-        let mut classes = HashMap::new();
+        let mut classes: HashMap<String, Vec<ClassSig>> = HashMap::new();
         classes.insert(
             "Array".into(),
-            ClassSig {
+            vec![ClassSig {
                 name: "Array".into(),
                 is_pub: true,
                 package: String::new(),
@@ -145,7 +147,7 @@ impl Checker {
                 }],
                 methods: array_methods,
                 span: Span::new(0, 0),
-            },
+            }],
         );
 
         Self {
@@ -278,6 +280,145 @@ impl Checker {
             .iter()
             .find(|s| s.package == pkg)
     }
+
+    pub(crate) fn class_in_package(&self, name: &str, pkg: &str) -> Option<&ClassSig> {
+        self.classes
+            .get(name)?
+            .iter()
+            .find(|s| s.package == pkg)
+    }
+
+    /// Resolve class by simple name (C3v: same-package first, else unique visible).
+    pub(crate) fn resolve_class(&self, name: &str, span: Span) -> Result<ClassSig, SemaError> {
+        let list = self.classes.get(name).ok_or_else(|| SemaError {
+            message: format!("unknown type `{name}`"),
+            span,
+        })?;
+        let visible: Vec<&ClassSig> = list
+            .iter()
+            .filter(|s| self.is_visible(name, s.is_pub, &s.package))
+            .collect();
+        if visible.is_empty() {
+            if let Some(s) = list.first() {
+                self.check_visible(name, s.is_pub, &s.package, span)?;
+            }
+            return Err(SemaError {
+                message: format!("unknown type `{name}`"),
+                span,
+            });
+        }
+        let same_pkg: Vec<&ClassSig> = visible
+            .iter()
+            .copied()
+            .filter(|s| s.package == self.current_package)
+            .collect();
+        if same_pkg.len() == 1 {
+            return Ok(same_pkg[0].clone());
+        }
+        if visible.len() == 1 {
+            return Ok(visible[0].clone());
+        }
+        let pkgs: Vec<&str> = visible.iter().map(|s| s.package.as_str()).collect();
+        Err(SemaError {
+            message: format!(
+                "ambiguous type `{name}` from packages {}; use `import … as Alias` and `Alias.{name}`",
+                pkgs.join(", ")
+            ),
+            span,
+        })
+    }
+
+    pub(crate) fn resolve_class_in_package(
+        &self,
+        name: &str,
+        pkg: &str,
+        span: Span,
+    ) -> Result<ClassSig, SemaError> {
+        let class = self
+            .class_in_package(name, pkg)
+            .cloned()
+            .ok_or_else(|| SemaError {
+                message: format!("type `{name}` is not a member of package `{pkg}`"),
+                span,
+            })?;
+        self.check_visible(name, class.is_pub, &class.package, span)?;
+        Ok(class)
+    }
+
+    pub(crate) fn enum_in_package(&self, name: &str, pkg: &str) -> Option<&EnumSig> {
+        self.enums
+            .get(name)?
+            .iter()
+            .find(|s| s.package == pkg)
+    }
+
+    pub(crate) fn resolve_enum(&self, name: &str, span: Span) -> Result<EnumSig, SemaError> {
+        let list = self.enums.get(name).ok_or_else(|| SemaError {
+            message: format!("unknown type `{name}`"),
+            span,
+        })?;
+        let visible: Vec<&EnumSig> = list
+            .iter()
+            .filter(|s| self.is_visible(name, s.is_pub, &s.package))
+            .collect();
+        if visible.is_empty() {
+            if let Some(s) = list.first() {
+                self.check_visible(name, s.is_pub, &s.package, span)?;
+            }
+            return Err(SemaError {
+                message: format!("unknown type `{name}`"),
+                span,
+            });
+        }
+        let same_pkg: Vec<&EnumSig> = visible
+            .iter()
+            .copied()
+            .filter(|s| s.package == self.current_package)
+            .collect();
+        if same_pkg.len() == 1 {
+            return Ok(same_pkg[0].clone());
+        }
+        if visible.len() == 1 {
+            return Ok(visible[0].clone());
+        }
+        let pkgs: Vec<&str> = visible.iter().map(|s| s.package.as_str()).collect();
+        Err(SemaError {
+            message: format!(
+                "ambiguous type `{name}` from packages {}; use `import … as Alias` and `Alias.{name}`",
+                pkgs.join(", ")
+            ),
+            span,
+        })
+    }
+
+    /// Look up class by nominal key (`Name` or `Name@pkg`).
+    pub(crate) fn class_by_nominal_key(&self, key: &str) -> Option<&ClassSig> {
+        let (name, pkg) = crate::ty::split_nominal(key);
+        if pkg.is_empty() {
+            let list = self.classes.get(name)?;
+            if list.len() == 1 {
+                Some(&list[0])
+            } else {
+                list.iter().find(|s| s.package == self.current_package)
+            }
+        } else {
+            self.class_in_package(name, pkg)
+        }
+    }
+
+    pub(crate) fn enum_by_nominal_key(&self, key: &str) -> Option<&EnumSig> {
+        let (name, pkg) = crate::ty::split_nominal(key);
+        if pkg.is_empty() {
+            let list = self.enums.get(name)?;
+            if list.len() == 1 {
+                Some(&list[0])
+            } else {
+                list.iter().find(|s| s.package == self.current_package)
+            }
+        } else {
+            self.enum_in_package(name, pkg)
+        }
+    }
     pub(crate) fn check_method(
         &mut self,
         class: &ClassDecl,
@@ -285,9 +426,13 @@ impl Checker {
         expected_ret: &Ty,
     ) -> Result<(), SemaError> {
         self.locals.push(HashMap::new());
+        let pkg = if class.origin_package.is_empty() {
+            self.current_package.as_str()
+        } else {
+            class.origin_package.as_str()
+        };
         let field_locals: Vec<(String, Local)> = self
-            .classes
-            .get(&class.name.name)
+            .class_in_package(&class.name.name, pkg)
             .map(|sig| {
                 sig.fields
                     .iter()

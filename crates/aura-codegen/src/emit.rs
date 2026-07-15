@@ -58,7 +58,9 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     if !tagged.is_empty() {
         out.push_str("enum {\n");
         for (i, c) in tagged.iter().enumerate() {
-            let _ = writeln!(out, "  AURA_TAG_{} = {},", c.name.name, i);
+            let pkg = class_decl_package(c, checked);
+            let mono = type_mono(&pkg, &c.name.name, &[]);
+            let _ = writeln!(out, "  AURA_TAG_{mono} = {i},");
         }
         out.push_str("  AURA_TAG__COUNT\n};\n\n");
     }
@@ -112,11 +114,12 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
         );
         out.push_str("  int tag;\n  union {\n");
         for c in &impls {
+            let pkg = class_decl_package(c, checked);
+            let mono = type_mono(&pkg, &c.name.name, &[]);
             let _ = writeln!(
                 out,
-                "    {} as_{};",
-                c_class_type(&c.name.name),
-                c.name.name
+                "    {} as_{mono};",
+                c_class_type(&mono)
             );
         }
         if impls.is_empty() {

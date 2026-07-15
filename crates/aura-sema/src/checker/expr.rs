@@ -8,11 +8,16 @@ use crate::util::{eq_compatible, subst_ty, type_subst_map};
 impl Checker {
     pub(crate) fn note_mono_ty(&mut self, ty: &Ty) {
         match ty {
+            // Store simple name for mono tables (C3v keys may be Name@pkg).
             Ty::ClassApp { name, args } if !args.is_empty() => {
-                self.mono_classes.insert((name.clone(), args.clone()));
+                let (simple, _) = crate::ty::split_nominal(name);
+                self.mono_classes
+                    .insert((simple.to_string(), args.clone()));
             }
             Ty::EnumApp { name, args } if !args.is_empty() => {
-                self.mono_enums.insert((name.clone(), args.clone()));
+                let (simple, _) = crate::ty::split_nominal(name);
+                self.mono_enums
+                    .insert((simple.to_string(), args.clone()));
             }
             _ => {}
         }
@@ -52,12 +57,20 @@ impl Checker {
                     span: *span,
                 })?;
                 // Inside generic class, this is the open Class with type params as TypeParam
-                let sig = self.classes.get(class).unwrap();
+                let sig = self
+                    .class_in_package(class, &self.current_package)
+                    .or_else(|| {
+                        self.classes
+                            .get(class)
+                            .and_then(|v| if v.len() == 1 { Some(&v[0]) } else { None })
+                    })
+                    .unwrap();
+                let key = crate::ty::nominal_key(&sig.package, class);
                 if sig.type_params.is_empty() {
-                    Ok(Ty::Class(class.clone()))
+                    Ok(Ty::Class(key))
                 } else {
                     Ok(Ty::ClassApp {
-                        name: class.clone(),
+                        name: key,
                         args: sig
                             .type_params
                             .iter()
@@ -85,9 +98,15 @@ impl Checker {
             Expr::Field(f) => {
                 let obj_ty = self.check_expr(&f.object)?;
                 if let Some(cname) = obj_ty.class_name() {
-                    let class = self.classes.get(cname).cloned().ok_or_else(|| SemaError {
-                        message: format!("unknown class `{cname}`"),
-                        span: f.span,
+                    let key = match &obj_ty {
+                        Ty::Class(k) | Ty::ClassApp { name: k, .. } => k.as_str(),
+                        _ => cname,
+                    };
+                    let class = self.class_by_nominal_key(key).cloned().ok_or_else(|| {
+                        SemaError {
+                            message: format!("unknown class `{cname}`"),
+                            span: f.span,
+                        }
                     })?;
                     let subst = type_subst_map(&class.type_params, obj_ty.class_args());
                     if let Some(field) = class.fields.iter().find(|x| x.name == f.field.name) {

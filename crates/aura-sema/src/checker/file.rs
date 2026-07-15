@@ -60,7 +60,7 @@ impl Checker {
 
         for i in &file.interfaces {
             if self.interfaces.contains_key(&i.name.name)
-                || self.classes.contains_key(&i.name.name)
+                || self.classes.contains_key(&i.name.name) // simple-name map; any class shadows iface
             {
                 return Err(SemaError {
                     message: format!("duplicate type name `{}`", i.name.name),
@@ -110,9 +110,8 @@ impl Checker {
 
         // First pass: register enum names (fields resolved in second pass with type params).
         for e in &file.enums {
-            if self.enums.contains_key(&e.name.name)
-                || self.interfaces.contains_key(&e.name.name)
-                || self.classes.contains_key(&e.name.name)
+            let pkg = decl_package(&e.origin_package, &file_pkg).to_string();
+            if self.interfaces.contains_key(&e.name.name)
                 || self.functions.contains_key(&e.name.name)
             {
                 return Err(SemaError {
@@ -120,10 +119,19 @@ impl Checker {
                     span: e.name.span,
                 });
             }
-            let pkg = decl_package(&e.origin_package, &file_pkg).to_string();
-            self.enums.insert(
-                e.name.name.clone(),
-                EnumSig {
+            // C3v: same simple name allowed across packages.
+            if let Some(existing) = self.enums.get(&e.name.name) {
+                if existing.iter().any(|s| s.package == pkg) {
+                    return Err(SemaError {
+                        message: format!("duplicate enum `{}` in package `{pkg}`", e.name.name),
+                        span: e.name.span,
+                    });
+                }
+            }
+            self.enums
+                .entry(e.name.name.clone())
+                .or_default()
+                .push(EnumSig {
                     name: e.name.name.clone(),
                     is_pub: e.is_pub,
                     package: pkg,
@@ -131,8 +139,7 @@ impl Checker {
                     bounds: Self::bounds_map_from_params(&e.type_params),
                     variants: Vec::new(),
                     span: e.span,
-                },
-            );
+                });
         }
 
         for e in &file.enums {
@@ -183,20 +190,35 @@ impl Checker {
                     span: v.span,
                 });
             }
-            self.enums.get_mut(&e.name.name).unwrap().variants = variants;
+            let pkg = decl_package(&e.origin_package, &file_pkg).to_string();
+            if let Some(list) = self.enums.get_mut(&e.name.name) {
+                if let Some(entry) = list.iter_mut().find(|s| s.package == pkg) {
+                    entry.variants = variants;
+                }
+            }
             self.type_params.clear();
         }
 
         for c in &file.classes {
-            if self.classes.contains_key(&c.name.name)
-                || self.interfaces.contains_key(&c.name.name)
-                || self.enums.contains_key(&c.name.name)
+            let pkg = decl_package(&c.origin_package, &file_pkg).to_string();
+            if self.interfaces.contains_key(&c.name.name)
                 || self.functions.contains_key(&c.name.name)
             {
                 return Err(SemaError {
                     message: format!("duplicate type/function name `{}`", c.name.name),
                     span: c.name.span,
                 });
+            }
+            if let Some(existing) = self.classes.get(&c.name.name) {
+                if existing.iter().any(|s| s.package == pkg) {
+                    return Err(SemaError {
+                        message: format!(
+                            "duplicate type/function name `{}` in package `{pkg}`",
+                            c.name.name
+                        ),
+                        span: c.name.span,
+                    });
+                }
             }
             if c.kind == NominalKind::Struct && !c.implements.is_empty() {
                 return Err(SemaError {
@@ -210,10 +232,10 @@ impl Checker {
                     span: c.name.span,
                 });
             }
-            let pkg = decl_package(&c.origin_package, &file_pkg).to_string();
-            self.classes.insert(
-                c.name.name.clone(),
-                ClassSig {
+            self.classes
+                .entry(c.name.name.clone())
+                .or_default()
+                .push(ClassSig {
                     name: c.name.name.clone(),
                     is_pub: c.is_pub,
                     package: pkg,
@@ -224,8 +246,7 @@ impl Checker {
                     fields: Vec::new(),
                     methods: HashMap::new(),
                     span: c.span,
-                },
-            );
+                });
         }
 
         for c in &file.classes {
@@ -329,18 +350,22 @@ impl Checker {
                 }
             }
 
-            let entry = self.classes.get_mut(&c.name.name).unwrap();
-            entry.implements = implements;
-            entry.fields = fields;
-            entry.methods = methods;
+            let pkg = decl_package(&c.origin_package, &file_pkg).to_string();
+            if let Some(list) = self.classes.get_mut(&c.name.name) {
+                if let Some(entry) = list.iter_mut().find(|s| s.package == pkg) {
+                    entry.implements = implements;
+                    entry.fields = fields;
+                    entry.methods = methods;
+                }
+            }
             self.type_params.clear();
         }
 
         for f in &file.functions {
-            if self.classes.contains_key(&f.name.name)
-                || self.interfaces.contains_key(&f.name.name)
-                || self.enums.contains_key(&f.name.name)
+            if self.interfaces.contains_key(&f.name.name)
                 || self.variant_to_enum.contains_key(&f.name.name)
+                || self.classes.get(&f.name.name).map(|v| !v.is_empty()).unwrap_or(false)
+                || self.enums.get(&f.name.name).map(|v| !v.is_empty()).unwrap_or(false)
             {
                 return Err(SemaError {
                     message: format!("duplicate type/function name `{}`", f.name.name),
@@ -388,13 +413,13 @@ impl Checker {
         }
 
         for c in &file.classes {
-            self.current_package = decl_package(&c.origin_package, &file_pkg).to_string();
+            let pkg = decl_package(&c.origin_package, &file_pkg).to_string();
+            self.current_package = pkg.clone();
             self.current_class = Some(c.name.name.clone());
             self.bind_type_params(&c.type_params)?;
             for m in &c.methods {
                 let ret = self
-                    .classes
-                    .get(&c.name.name)
+                    .class_in_package(&c.name.name, &pkg)
                     .unwrap()
                     .methods
                     .get(&m.name.name)
@@ -433,7 +458,10 @@ impl Checker {
         let classes = file
             .classes
             .iter()
-            .map(|c| self.classes.get(&c.name.name).unwrap().clone())
+            .map(|c| {
+                let pkg = decl_package(&c.origin_package, &package).to_string();
+                self.class_in_package(&c.name.name, &pkg).unwrap().clone()
+            })
             .collect();
         let interfaces = file
             .interfaces
@@ -443,7 +471,10 @@ impl Checker {
         let enums = file
             .enums
             .iter()
-            .map(|e| self.enums.get(&e.name.name).unwrap().clone())
+            .map(|e| {
+                let pkg = decl_package(&e.origin_package, &package).to_string();
+                self.enum_in_package(&e.name.name, &pkg).unwrap().clone()
+            })
             .collect();
 
         let mut mono_classes: Vec<_> = self.mono_classes.iter().cloned().collect();

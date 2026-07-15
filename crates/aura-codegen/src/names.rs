@@ -1,7 +1,7 @@
 //! C naming, monomorph keys, and type conversion.
 
 use aura_ast::*;
-use aura_sema::{CheckedFile, Ty};
+use aura_sema::{nominal_key, nominal_mono_base, CheckedFile, Ty};
 
 pub(crate) fn c_iface_type(name: &str) -> String {
     format!("aura_iface_{name}")
@@ -15,17 +15,45 @@ pub(crate) fn c_iface_method_name(iface: &str, method: &str) -> String {
     format!("aura_iface_{iface}_{method}")
 }
 pub(crate) fn mono_key(name: &str, args: &[Ty]) -> String {
-    if args.is_empty() {
+    // `name` may already be a C mono base or a simple/nominal key.
+    let base = if name.contains('@') {
+        nominal_mono_base(name)
+    } else {
         name.to_string()
+    };
+    if args.is_empty() {
+        base
     } else {
         format!(
-            "{}_{}",
-            name,
+            "{base}_{}",
             args.iter()
                 .map(|a| a.mono_suffix())
                 .collect::<Vec<_>>()
                 .join("_")
         )
+    }
+}
+
+/// C monomorph id for a user type in a package (C3v).
+pub(crate) fn type_mono(pkg: &str, name: &str, args: &[Ty]) -> String {
+    mono_key(&nominal_key(pkg, name), args)
+}
+
+/// Package for a class/struct decl.
+pub(crate) fn class_decl_package(c: &ClassDecl, checked: &CheckedFile) -> String {
+    if c.origin_package.is_empty() {
+        checked.package.clone()
+    } else {
+        c.origin_package.clone()
+    }
+}
+
+/// Package for an enum decl.
+pub(crate) fn enum_decl_package(e: &EnumDecl, checked: &CheckedFile) -> String {
+    if e.origin_package.is_empty() {
+        checked.package.clone()
+    } else {
+        e.origin_package.clone()
     }
 }
 
@@ -140,11 +168,11 @@ pub(crate) fn ty_to_c(t: &Ty) -> String {
         Ty::Unit => "void".into(),
         Ty::Null => "const char *".into(),
         Ty::Nullable(inner) => ty_to_c(inner),
-        Ty::Class(n) => c_class_type(n),
+        Ty::Class(n) => c_class_type(&nominal_mono_base(n)),
         Ty::ClassApp { name, args } => c_class_type(&mono_key(name, args)),
-        Ty::Enum(n) => c_enum_type(n),
+        Ty::Enum(n) => c_enum_type(&nominal_mono_base(n)),
         Ty::EnumApp { name, args } => c_enum_type(&mono_key(name, args)),
-        Ty::Interface(n) => c_iface_type(n),
+        Ty::Interface(n) => c_iface_type(&nominal_mono_base(n)),
         Ty::TypeParam(_) => "/* unbound T */ int64_t".into(),
     }
 }
@@ -194,17 +222,79 @@ pub(crate) fn c_type_ref_subst(
             name if checked.ast.interfaces.iter().any(|i| i.name.name == name) => {
                 c_iface_type(name)
             }
-            name if is_enum_name(checked, name) => c_enum_type(name),
-            name => c_class_type(name),
+            name if is_enum_name(checked, name) => {
+                let pkg = resolve_type_ref_package(ty, checked);
+                c_enum_type(&type_mono(&pkg, name, &[]))
+            }
+            name => {
+                let pkg = resolve_type_ref_package(ty, checked);
+                c_class_type(&type_mono(&pkg, name, &[]))
+            }
         }
     } else {
-        let mono = type_ref_mono(ty, params, args);
+        let pkg = resolve_type_ref_package(ty, checked);
+        let targs: Vec<Ty> = ty
+            .type_args
+            .iter()
+            .filter_map(|t| {
+                // Best-effort from local type_ref_mono pieces.
+                let m = type_ref_mono(t, params, args);
+                match m.as_str() {
+                    "Int" => Some(Ty::Int),
+                    "Bool" => Some(Ty::Bool),
+                    "String" => Some(Ty::String),
+                    other => Some(Ty::Class(other.to_string())),
+                }
+            })
+            .collect();
+        let mono = if targs.len() == ty.type_args.len() {
+            type_mono(&pkg, &ty.name.name, &targs)
+        } else {
+            type_ref_mono(ty, params, args)
+        };
         if is_enum_name(checked, &ty.name.name) {
             c_enum_type(&mono)
         } else {
             c_class_type(&mono)
         }
     }
+}
+
+/// Resolve declaring package for a TypeRef (qualifier alias or unique class/enum).
+fn resolve_type_ref_package(ty: &TypeRef, checked: &CheckedFile) -> String {
+    if let Some(q) = &ty.qualifier {
+        if let Some(imp) = checked.ast.imports.iter().find(|i| {
+            i.alias
+                .as_ref()
+                .map(|a| a.name == q.name)
+                .unwrap_or(false)
+        }) {
+            return imp.path.display();
+        }
+    }
+    let name = &ty.name.name;
+    let matches: Vec<_> = checked
+        .ast
+        .classes
+        .iter()
+        .filter(|c| c.name.name == *name)
+        .map(|c| class_decl_package(c, checked))
+        .collect();
+    if matches.len() == 1 {
+        return matches[0].clone();
+    }
+    let ematches: Vec<_> = checked
+        .ast
+        .enums
+        .iter()
+        .filter(|e| e.name.name == *name)
+        .map(|e| enum_decl_package(e, checked))
+        .collect();
+    if ematches.len() == 1 {
+        return ematches[0].clone();
+    }
+    // Fallback: file package (single-package programs).
+    checked.package.clone()
 }
 
 pub(crate) fn c_type_from_opt(ret: &Option<TypeRef>, checked: &CheckedFile, params: &[String], args: &[Ty]) -> String {
@@ -233,8 +323,15 @@ pub(crate) fn type_ref_local_key(ty: &TypeRef, params: &[String], args: &[Ty]) -
             };
         }
     }
+    // Prefer mono suffix form (package-prefixed) when args are empty and name is a nominal.
     if ty.type_args.is_empty() {
-        ty.name.name.clone()
+        if is_primitive_name(&ty.name.name) {
+            ty.name.name.clone()
+        } else {
+            // Without checked context, keep simple name; emit paths that have CheckedFile
+            // recompute via c_type_ref_subst / infer.
+            ty.name.name.clone()
+        }
     } else {
         type_ref_mono(ty, params, args)
     }

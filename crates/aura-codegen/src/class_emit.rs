@@ -13,7 +13,8 @@ use crate::stmt::{emit_block, emit_return_fallback};
 
 pub(crate) fn emit_class_typedef(out: &mut String, checked: &CheckedFile, c: &ClassDecl, args: &[Ty]) {
     let params: Vec<String> = c.type_params.iter().map(|p| p.name.name.clone()).collect();
-    let mono = mono_key(&c.name.name, args);
+    let pkg = class_decl_package(c, checked);
+    let mono = type_mono(&pkg, &c.name.name, args);
     let _ = writeln!(out, "typedef struct {} {{", c_class_type(&mono));
     for f in &c.fields {
         let _ = writeln!(
@@ -31,7 +32,8 @@ pub(crate) fn emit_class_typedef(out: &mut String, checked: &CheckedFile, c: &Cl
 
 pub(crate) fn emit_class_forwards(out: &mut String, checked: &CheckedFile, c: &ClassDecl, args: &[Ty]) {
     let params: Vec<String> = c.type_params.iter().map(|p| p.name.name.clone()).collect();
-    let mono = mono_key(&c.name.name, args);
+    let pkg = class_decl_package(c, checked);
+    let mono = type_mono(&pkg, &c.name.name, args);
     let _ = writeln!(out, "{};", c_ctor_signature_mono(c, checked, &params, args, &mono));
     for m in &c.methods {
         let _ = writeln!(
@@ -55,7 +57,8 @@ pub(crate) fn emit_class_forwards(out: &mut String, checked: &CheckedFile, c: &C
 
 pub(crate) fn emit_class_defs(out: &mut String, checked: &CheckedFile, c: &ClassDecl, args: &[Ty]) {
     let params: Vec<String> = c.type_params.iter().map(|p| p.name.name.clone()).collect();
-    let mono = mono_key(&c.name.name, args);
+    let pkg = class_decl_package(c, checked);
+    let mono = type_mono(&pkg, &c.name.name, args);
     emit_ctor_mono(out, c, checked, &params, args, &mono);
     out.push('\n');
     for m in &c.methods {
@@ -64,7 +67,7 @@ pub(crate) fn emit_class_defs(out: &mut String, checked: &CheckedFile, c: &Class
     }
     if args.is_empty() {
         for iface in &c.implements {
-            emit_upcast(out, &c.name.name, &iface.name);
+            emit_upcast(out, checked, c, &iface.name);
             out.push('\n');
         }
     }

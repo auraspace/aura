@@ -15,17 +15,21 @@ pub(crate) fn implementors<'a>(checked: &'a CheckedFile, iface: &str) -> Vec<&'a
         .filter(|c| c.implements.iter().any(|i| i.name == iface))
         .collect()
 }
-pub(crate) fn emit_upcast(out: &mut String, class: &str, iface: &str) {
+
+pub(crate) fn emit_upcast(out: &mut String, checked: &CheckedFile, class: &ClassDecl, iface: &str) {
+    let pkg = class_decl_package(class, checked);
+    let mono = type_mono(&pkg, &class.name.name, &[]);
+    let simple = &class.name.name;
     let _ = writeln!(
         out,
         "{} {}({} v) {{",
         c_iface_type(iface),
-        c_upcast_name(class, iface),
-        c_class_type(class)
+        c_upcast_name(simple, iface),
+        c_class_type(&mono)
     );
     let _ = writeln!(out, "  {} i;", c_iface_type(iface));
-    let _ = writeln!(out, "  i.tag = AURA_TAG_{class};");
-    let _ = writeln!(out, "  i.data.as_{class} = v;");
+    let _ = writeln!(out, "  i.tag = AURA_TAG_{mono};");
+    let _ = writeln!(out, "  i.data.as_{mono} = v;");
     out.push_str("  return i;\n}\n");
 }
 
@@ -39,35 +43,30 @@ pub(crate) fn emit_iface_dispatch(
     let ret = c_type_from_opt(&m.return_type, checked, &[], &[]);
     out.push_str("  switch (self->tag) {\n");
     for c in implementors(checked, iface) {
+        let pkg = class_decl_package(c, checked);
+        let mono = type_mono(&pkg, &c.name.name, &[]);
         let args = m
             .params
             .iter()
             .map(|p| mangle_ident(&p.name.name))
             .collect::<Vec<_>>();
         let call_args = if args.is_empty() {
-            format!("&self->data.as_{}", c.name.name)
+            format!("&self->data.as_{mono}")
         } else {
-            format!(
-                "&self->data.as_{}, {}",
-                c.name.name,
-                args.join(", ")
-            )
+            format!("&self->data.as_{mono}, {}", args.join(", "))
         };
-        let mono = c.name.name.as_str();
         if ret == "void" {
             let _ = writeln!(
                 out,
-                "  case AURA_TAG_{}: {}({}); return;",
-                c.name.name,
-                c_method_name(mono, &m.name.name),
+                "  case AURA_TAG_{mono}: {}({}); return;",
+                c_method_name(&mono, &m.name.name),
                 call_args
             );
         } else {
             let _ = writeln!(
                 out,
-                "  case AURA_TAG_{}: return {}({});",
-                c.name.name,
-                c_method_name(mono, &m.name.name),
+                "  case AURA_TAG_{mono}: return {}({});",
+                c_method_name(&mono, &m.name.name),
                 call_args
             );
         }

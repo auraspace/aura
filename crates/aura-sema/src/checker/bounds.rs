@@ -73,8 +73,7 @@ impl Checker {
     pub(crate) fn ty_implements(&self, ty: &Ty, iface: &str) -> bool {
         match ty {
             Ty::Class(c) | Ty::ClassApp { name: c, .. } => self
-                .classes
-                .get(c)
+                .class_by_nominal_key(c)
                 .map(|cs| cs.implements.iter().any(|x| x == iface))
                 .unwrap_or(false),
             Ty::Interface(i) => i == iface,

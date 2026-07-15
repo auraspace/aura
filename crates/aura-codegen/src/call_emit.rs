@@ -34,7 +34,7 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &EmitCtx<'_>) -> String {
                     .join(", ");
                 // C3u: `Alias.Type(...)` constructor vs `Alias.fun(...)`.
                 if inst.map(|i| i.is_constructor).unwrap_or(false) {
-                    let mono = mono_key(name, &targs);
+                    let mono = type_mono(pkg, name, &targs);
                     return format!("{}({args})", c_ctor_name(&mono));
                 }
                 return format!("{}({args})", c_fun_name(pkg, name, &targs));
@@ -77,12 +77,13 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &EmitCtx<'_>) -> String {
             );
         }
 
-        // Class method (obj_ty is mono key e.g. Box_String or User)
-        let mono = obj_ty
+        // Class method (obj_ty is mono key e.g. Box_String, demo_t_User, or User)
+        let mono_raw = obj_ty
             .as_deref()
             .or_else(|| resolve_class_of_expr(&fe.object, ctx))
             .unwrap_or("Unknown");
-        let base = mono_base_name(mono, ctx.checked).unwrap_or(mono);
+        let base = mono_base_name(mono_raw, ctx.checked).unwrap_or(mono_raw);
+        let mono = crate::expr::full_type_mono(mono_raw, ctx.checked);
 
         // Builtin Array methods
         if base == "Array" || mono.starts_with("Array_") {
@@ -92,7 +93,7 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &EmitCtx<'_>) -> String {
             }
             return format!(
                 "{}({})",
-                c_method_name(mono, &fe.field.name),
+                c_method_name(&mono, &fe.field.name),
                 args.join(", ")
             );
         }
@@ -117,7 +118,7 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &EmitCtx<'_>) -> String {
         }
         return format!(
             "{}({})",
-            c_method_name(mono, &fe.field.name),
+            c_method_name(&mono, &fe.field.name),
             args.join(", ")
         );
     }
@@ -163,7 +164,17 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &EmitCtx<'_>) -> String {
                         .filter_map(|t| type_ref_to_ty(t, ctx))
                         .collect()
                 };
-                let mono = mono_key(&id.name, &targs);
+                let pkg = inst
+                    .map(|i| i.package.as_str())
+                    .filter(|p| !p.is_empty())
+                    .unwrap_or_else(|| {
+                        if class.origin_package.is_empty() {
+                            ctx.checked.package.as_str()
+                        } else {
+                            class.origin_package.as_str()
+                        }
+                    });
+                let mono = type_mono(pkg, &id.name, &targs);
                 let params: Vec<String> =
                     class.type_params.iter().map(|p| p.name.name.clone()).collect();
                 let args = c
@@ -181,7 +192,7 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &EmitCtx<'_>) -> String {
             // Enum variant constructor: Ok(...), Err(...), Red()
             if let Some(inst) = inst {
                 if let Some(vname) = &inst.variant {
-                    let mono = mono_key(&inst.name, &inst.type_args);
+                    let mono = type_mono(&inst.package, &inst.name, &inst.type_args);
                     if let Some(e) = ctx
                         .checked
                         .ast

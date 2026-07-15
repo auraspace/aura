@@ -356,6 +356,7 @@ fn merge_package(into: &mut LoadedPackage, mut dep: LoadedPackage) -> Result<(),
     }
 
     for i in &dep.ast.interfaces {
+        // Interfaces still unique by simple name (no multi-key yet).
         if seen_types.iter().any(|(k, n, _)| k == "interface" && n == &i.name.name) {
             return Err(format!(
                 "error: duplicate interface `{}` when linking package `{}`",
@@ -364,7 +365,11 @@ fn merge_package(into: &mut LoadedPackage, mut dep: LoadedPackage) -> Result<(),
         }
     }
     for e in &dep.ast.enums {
-        if seen_types.iter().any(|(k, n, _)| k == "enum" && n == &e.name.name) {
+        // C3v: same simple name allowed across packages (C symbols are package-prefixed).
+        if seen_types
+            .iter()
+            .any(|(k, n, p)| k == "enum" && n == &e.name.name && p == &e.origin_package)
+        {
             return Err(format!(
                 "error: duplicate enum `{}` when linking package `{}`",
                 e.name.name, dep.package
@@ -376,9 +381,10 @@ fn merge_package(into: &mut LoadedPackage, mut dep: LoadedPackage) -> Result<(),
             aura_ast::NominalKind::Struct => "struct",
             aura_ast::NominalKind::Class => "class",
         };
+        // C3v: same simple name allowed across packages.
         if seen_types
             .iter()
-            .any(|(k, n, _)| k == kind && n == &c.name.name)
+            .any(|(k, n, p)| k == kind && n == &c.name.name && p == &c.origin_package)
         {
             return Err(format!(
                 "error: duplicate {kind} `{}` when linking package `{}`",

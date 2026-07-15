@@ -2,7 +2,7 @@ use aura_ast::TypeRef;
 
 use super::Checker;
 use crate::error::SemaError;
-use crate::ty::Ty;
+use crate::ty::{nominal_key, Ty};
 impl Checker {
     pub(crate) fn type_from_ref(&self, t: &TypeRef) -> Result<Ty, SemaError> {
         let type_args: Vec<Ty> = t
@@ -52,18 +52,11 @@ impl Checker {
                 Ty::TypeParam(other.to_string())
             }
             other if self.classes.contains_key(other) => {
-                let class = self.classes.get(other).unwrap().clone();
-                if let Some(pkg) = qualified_pkg {
-                    if class.package != pkg {
-                        return Err(SemaError {
-                            message: format!(
-                                "type `{other}` is not a member of package `{pkg}`"
-                            ),
-                            span: t.span,
-                        });
-                    }
-                }
-                self.check_visible(other, class.is_pub, &class.package, t.span)?;
+                let class = if let Some(pkg) = qualified_pkg {
+                    self.resolve_class_in_package(other, pkg, t.span)?
+                } else {
+                    self.resolve_class(other, t.span)?
+                };
                 if type_args.len() != class.type_params.len() {
                     return Err(SemaError {
                         message: format!(
@@ -87,28 +80,33 @@ impl Checker {
                 if other == "Array" {
                     Self::check_array_type_args(&type_args, t.span)?;
                 }
+                let key = nominal_key(&class.package, other);
                 if type_args.is_empty() {
-                    Ty::Class(other.to_string())
+                    Ty::Class(key)
                 } else {
                     Ty::ClassApp {
-                        name: other.to_string(),
+                        name: key,
                         args: type_args,
                     }
                 }
             }
             other if self.enums.contains_key(other) => {
-                let enum_sig = self.enums.get(other).unwrap().clone();
-                if let Some(pkg) = qualified_pkg {
-                    if enum_sig.package != pkg {
-                        return Err(SemaError {
+                let enum_sig = if let Some(pkg) = qualified_pkg {
+                    self.enum_in_package(other, pkg)
+                        .cloned()
+                        .ok_or_else(|| SemaError {
                             message: format!(
                                 "type `{other}` is not a member of package `{pkg}`"
                             ),
                             span: t.span,
-                        });
-                    }
+                        })?
+                } else {
+                    self.resolve_enum(other, t.span)?
+                };
+                if let Some(pkg) = qualified_pkg {
+                    self.check_visible(other, enum_sig.is_pub, &enum_sig.package, t.span)?;
+                    let _ = pkg;
                 }
-                self.check_visible(other, enum_sig.is_pub, &enum_sig.package, t.span)?;
                 if type_args.len() != enum_sig.type_params.len() {
                     return Err(SemaError {
                         message: format!(
@@ -129,11 +127,12 @@ impl Checker {
                         &format!("type `{other}`"),
                     )?;
                 }
+                let key = nominal_key(&enum_sig.package, other);
                 if type_args.is_empty() {
-                    Ty::Enum(other.to_string())
+                    Ty::Enum(key)
                 } else {
                     Ty::EnumApp {
-                        name: other.to_string(),
+                        name: key,
                         args: type_args,
                     }
                 }
@@ -192,13 +191,11 @@ impl Checker {
             (Ty::Nullable(a), Ty::Nullable(b)) => self.is_assignable(a, b),
             (inner, Ty::Nullable(outer)) if self.is_assignable(inner, outer) => true,
             (Ty::Class(c), Ty::Interface(i)) => self
-                .classes
-                .get(c)
+                .class_by_nominal_key(c)
                 .map(|cs| cs.implements.iter().any(|x| x == i))
                 .unwrap_or(false),
             (Ty::ClassApp { name: c, .. }, Ty::Interface(i)) => self
-                .classes
-                .get(c)
+                .class_by_nominal_key(c)
                 .map(|cs| cs.implements.iter().any(|x| x == i))
                 .unwrap_or(false),
             // Bounded type param is assignable to its interface bounds

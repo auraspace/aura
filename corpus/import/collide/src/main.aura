@@ -1,4 +1,4 @@
-// C3o — same free-function name in two packages (C mangling + alias disambig)
+// C3o/C3v — same free-function / class names across packages
 package demo.collide
 
 import demo.lib_a as A
@@ -14,6 +14,19 @@ fun main() {
       println("product bad")
     } else {
       println("collide ok")
+    }
+  }
+
+  // C3v: same class name Token in two packages
+  val ta: A.Token = A.Token(3)
+  val tb: B.Token = B.Token(3)
+  if (ta.kind() != 3) {
+    println("token a bad")
+  } else {
+    if (tb.kind() != 30) {
+      println("token b bad")
+    } else {
+      println("type collide ok")
     }
   }
 }
