@@ -55,6 +55,20 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &EmitCtx<'_>) -> String {
             .or_else(|| resolve_class_of_expr(&fe.object, ctx))
             .unwrap_or("Unknown");
         let base = mono_base_name(mono, ctx.checked).unwrap_or(mono);
+
+        // Builtin Array methods
+        if base == "Array" || mono.starts_with("Array_") {
+            let mut args = vec![format!("&({obj})")];
+            for a in &c.args {
+                args.push(emit_expr(a, ctx));
+            }
+            return format!(
+                "{}({})",
+                c_method_name(mono, &fe.field.name),
+                args.join(", ")
+            );
+        }
+
         let mut args = vec![format!("&({obj})")];
         if let Some(m) = ctx
             .checked
@@ -84,6 +98,26 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &EmitCtx<'_>) -> String {
         Expr::Ident(id) => {
             // Prefer type args resolved by sema (explicit or inferred)
             let inst = ctx.checked.call_instantiations.get(&c.span.start);
+
+            // Builtin Array constructor
+            if id.name == "Array" {
+                let targs: Vec<Ty> = if let Some(inst) = inst {
+                    inst.type_args.clone()
+                } else {
+                    c.type_args
+                        .iter()
+                        .filter_map(|t| type_ref_to_ty(t, ctx))
+                        .collect()
+                };
+                let mono = mono_key("Array", &targs);
+                let args = c
+                    .args
+                    .iter()
+                    .map(|a| emit_expr(a, ctx))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                return format!("{}({args})", c_ctor_name(&mono));
+            }
 
             // Constructor (optional type args)
             if let Some(class) = ctx

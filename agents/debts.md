@@ -9,10 +9,17 @@ When you resolve debt, update or remove the matching entry.
 
 ### `for` only supports exclusive Int ranges
 - Area: language / parser / sema / codegen (`ForRangeStmt`)
-- Symptom: no `for (x in iterable)`, no `Array`/`List` iteration, no inclusive `..=`
-- Why deferred: C3h shipped the RFC-001 `0..n` form only; collections not in compiler yet
-- Next step: add `Array<T>` or iterable protocol, then `for-in` over collections; optional `..=`
-- Introduced: C3h (`2b3c11e`)
+- Symptom: no `for (x in iterable)`, no inclusive `..=` (index loops work via `0..a.len`)
+- Why deferred: C3h range form; C3j added `Array` but not iterable protocol
+- Next step: `for (x in array)` desugar or iterator protocol; optional `..=`
+- Introduced: C3h (`2b3c11e`); Array partial in C3j
+
+### `Array<T>` limited element types and no free
+- Area: builtin Array (C3j)
+- Symptom: only `Int`/`Bool`/`String` elements; buffers from `calloc` never freed; no grow/push
+- Why deferred: heap mono without GC; enough for index loops demos
+- Next step: GC-owned buffers or free on scope end; push/grow; class elements as refs
+- Introduced: C3j
 
 ### Exception object payloads leak heap copies
 - Area: runtime / codegen (`aura_throw_obj`)

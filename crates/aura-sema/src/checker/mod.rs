@@ -14,6 +14,11 @@ use crate::error::SemaError;
 use crate::sigs::*;
 use crate::ty::Ty;
 
+/// Builtin `Array<T>` element types allowed in C3j (heap mono, no class elements yet).
+pub(crate) fn is_array_element_ty(ty: &Ty) -> bool {
+    matches!(ty, Ty::Int | Ty::Bool | Ty::String)
+}
+
 pub(crate) struct Local {
     ty: Ty,
     mutable: bool,
@@ -75,9 +80,53 @@ impl Checker {
                 span: Span::new(0, 0),
             },
         );
+
+        // Builtin Array<T> (C3j) — monomorphized; T ∈ {Int, Bool, String}.
+        let mut array_methods = HashMap::new();
+        array_methods.insert(
+            "get".into(),
+            ClassMethodSig {
+                class: "Array".into(),
+                name: "get".into(),
+                params: vec![Ty::Int],
+                ret: Ty::TypeParam("T".into()),
+                span: Span::new(0, 0),
+            },
+        );
+        array_methods.insert(
+            "set".into(),
+            ClassMethodSig {
+                class: "Array".into(),
+                name: "set".into(),
+                params: vec![Ty::Int, Ty::TypeParam("T".into())],
+                ret: Ty::Unit,
+                span: Span::new(0, 0),
+            },
+        );
+        let mut classes = HashMap::new();
+        classes.insert(
+            "Array".into(),
+            ClassSig {
+                name: "Array".into(),
+                is_pub: true,
+                package: String::new(),
+                is_struct: true,
+                type_params: vec!["T".into()],
+                bounds: HashMap::new(),
+                implements: Vec::new(),
+                fields: vec![FieldSig {
+                    name: "len".into(),
+                    ty: Ty::Int,
+                    mutable: false,
+                }],
+                methods: array_methods,
+                span: Span::new(0, 0),
+            },
+        );
+
         Self {
             functions,
-            classes: HashMap::new(),
+            classes,
             enums: HashMap::new(),
             variant_to_enum: HashMap::new(),
             interfaces: HashMap::new(),

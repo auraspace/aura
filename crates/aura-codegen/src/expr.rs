@@ -25,12 +25,19 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
                 mono_key(&inst.name, &inst.type_args)
             }
             Expr::Ident(id)
-                if ctx
-                    .checked
-                    .ast
-                    .classes
-                    .iter()
-                    .any(|x| x.name.name == id.name) =>
+                if id.name == "Array"
+                    || ctx
+                        .checked
+                        .ast
+                        .classes
+                        .iter()
+                        .any(|x| x.name.name == id.name)
+                    || ctx
+                        .checked
+                        .call_instantiations
+                        .get(&c.span.start)
+                        .map(|i| i.is_constructor && i.name == id.name)
+                        .unwrap_or(false) =>
             {
                 let targs: Vec<Ty> = ctx
                     .checked
@@ -103,6 +110,9 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
         Expr::Field(f) => {
             if let Some(mono) = resolve_class_of_expr(&f.object, ctx) {
                 let base = mono_base_name(mono, ctx.checked).unwrap_or(mono);
+                if (base == "Array" || mono.starts_with("Array_")) && f.field.name == "len" {
+                    return "Int".into();
+                }
                 if let Some(field) = ctx
                     .checked
                     .ast
@@ -339,6 +349,21 @@ pub(crate) fn resolve_type_name(expr: &Expr, ctx: &EmitCtx<'_>) -> Option<String
         Expr::This(_) => ctx.method_class.map(|s| s.to_string()),
         Expr::Call(c) => {
             if let Expr::Ident(id) = c.callee.as_ref() {
+                if let Some(inst) = ctx.checked.call_instantiations.get(&c.span.start) {
+                    if inst.is_constructor {
+                        return Some(mono_key(&inst.name, &inst.type_args));
+                    }
+                }
+                if id.name == "Array" {
+                    let targs: Vec<Ty> = c
+                        .type_args
+                        .iter()
+                        .filter_map(|t| type_ref_to_ty(t, ctx))
+                        .collect();
+                    if !targs.is_empty() {
+                        return Some(mono_key("Array", &targs));
+                    }
+                }
                 if ctx
                     .checked
                     .ast
@@ -387,7 +412,13 @@ pub(crate) fn resolve_type_name(expr: &Expr, ctx: &EmitCtx<'_>) -> Option<String
         }
         Expr::Field(f) => {
             let parent = resolve_type_name(&f.object, ctx)?;
+            if (parent.starts_with("Array_") || parent == "Array") && f.field.name == "len" {
+                return Some("Int".into());
+            }
             let (base, args) = mono_split(&parent, ctx.checked)?;
+            if base == "Array" && f.field.name == "len" {
+                return Some("Int".into());
+            }
             let class = ctx
                 .checked
                 .ast
@@ -428,7 +459,8 @@ pub(crate) fn resolve_class_of_expr<'a>(expr: &Expr, ctx: &'a EmitCtx<'_>) -> Op
         Expr::This(_) => ctx.method_class,
         Expr::Ident(id) => {
             let ty = ctx.lookup_local(&id.name)?;
-            if ctx.checked.ast.classes.iter().any(|c| c.name.name == ty)
+            if ty.starts_with("Array_")
+                || ctx.checked.ast.classes.iter().any(|c| c.name.name == ty)
                 || ctx
                     .checked
                     .mono_classes

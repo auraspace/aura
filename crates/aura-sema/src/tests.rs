@@ -416,3 +416,42 @@ fun main() {
     let err = check_file(&file).expect_err("break outside");
     assert!(err.message.contains("break"), "{}", err.message);
 }
+
+#[test]
+fn array_int_typechecks() {
+    let src = r#"
+package t
+fun main() {
+  val a: Array<Int> = Array(3)
+  a.set(0, 1)
+  val x: Int = a.get(0)
+  val n: Int = a.len
+}
+"#;
+    let file = parse_file(src).expect("parse");
+    let checked = check_file(&file).expect("check");
+    assert!(
+        checked
+            .mono_classes
+            .iter()
+            .any(|(n, a)| n == "Array" && a == &[Ty::Int])
+    );
+}
+
+#[test]
+fn array_rejects_class_elem() {
+    let src = r#"
+package t
+class Box(val x: Int) {}
+fun main() {
+  val a: Array<Box> = Array(1)
+}
+"#;
+    let file = parse_file(src).expect("parse");
+    let err = check_file(&file).expect_err("class elem");
+    assert!(
+        err.message.contains("Array") || err.message.contains("Int"),
+        "{}",
+        err.message
+    );
+}

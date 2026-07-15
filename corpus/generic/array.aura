@@ -1,0 +1,26 @@
+// C3j — builtin Array<T> (Int/Bool/String), len/get/set
+package demo.array
+
+fun main() {
+  val a: Array<Int> = Array(4)
+  a.set(0, 10)
+  a.set(1, 20)
+  a.set(2, 30)
+  // a[3] stays 0
+
+  var sum: Int = 0
+  for (i in 0..a.len) {
+    sum = sum + a.get(i)
+  }
+  if (sum == 60) {
+    println("array ok")
+  } else {
+    println("array bad")
+  }
+
+  val s: Array<String> = Array(2)
+  s.set(0, "hi")
+  s.set(1, "aura")
+  println(s.get(0))
+  println(s.get(1))
+}

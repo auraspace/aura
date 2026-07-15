@@ -48,6 +48,9 @@ impl Checker {
                         &format!("type `{other}`"),
                     )?;
                 }
+                if other == "Array" {
+                    Self::check_array_type_args(&type_args, t.span)?;
+                }
                 if type_args.is_empty() {
                     Ty::Class(other.to_string())
                 } else {

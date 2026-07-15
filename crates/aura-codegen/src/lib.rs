@@ -2,6 +2,7 @@
 //!
 //! Classes/structs → C structs; interfaces/enums → tagged unions.
 
+mod array_emit;
 mod build;
 mod call_emit;
 mod class_emit;

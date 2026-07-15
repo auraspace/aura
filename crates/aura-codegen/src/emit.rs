@@ -6,6 +6,7 @@ use std::fmt::Write as _;
 use aura_ast::*;
 use aura_sema::{CheckedFile, Ty};
 
+use crate::array_emit::{emit_array_mono, is_array_mono};
 use crate::class_emit::*;
 use crate::ctx::{EmitCtx, EmitOptions};
 use crate::enum_emit::*;
@@ -69,8 +70,23 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
         }
     }
     for (name, args) in &checked.mono_classes {
+        if is_array_mono(name) {
+            if let Some(elem) = args.first() {
+                // Typedef + methods emitted later with other Array defs (need one place).
+                let _ = elem;
+            }
+            continue;
+        }
         if let Some(c) = checked.ast.classes.iter().find(|c| c.name.name == *name) {
             emit_class_typedef(&mut out, checked, c, args);
+        }
+    }
+    // Builtin Array<T> mono (typedef + ctor/get/set)
+    for (name, args) in &checked.mono_classes {
+        if is_array_mono(name) {
+            if let Some(elem) = args.first() {
+                emit_array_mono(&mut out, elem);
+            }
         }
     }
 
@@ -116,6 +132,9 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
         }
     }
     for (name, args) in &checked.mono_classes {
+        if is_array_mono(name) {
+            continue; // Array defs already fully emitted
+        }
         if let Some(c) = checked.ast.classes.iter().find(|c| c.name.name == *name) {
             emit_class_forwards(&mut out, checked, c, args);
         }
@@ -161,6 +180,9 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
         }
     }
     for (name, args) in &checked.mono_classes {
+        if is_array_mono(name) {
+            continue;
+        }
         if let Some(c) = checked.ast.classes.iter().find(|c| c.name.name == *name) {
             emit_class_defs(&mut out, checked, c, args);
         }

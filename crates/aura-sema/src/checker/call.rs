@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use aura_ast::{CallExpr, Expr, Span};
 
-use super::Checker;
+use super::{is_array_element_ty, Checker};
 use crate::error::SemaError;
 use crate::sigs::{CallInstantiation, ClassSig, EnumSig, EnumVariantSig, FunSig};
 use crate::ty::Ty;
@@ -147,6 +147,9 @@ impl Checker {
                 c.span,
                 &format!("constructor `{}`", class.name),
             )?;
+            if class.name == "Array" {
+                Self::check_array_type_args(&type_args, c.span)?;
+            }
 
             let subst = type_subst_map(&class.type_params, &type_args);
             for (arg, field) in c.args.iter().zip(class.fields.iter()) {
@@ -378,6 +381,28 @@ impl Checker {
             c.span,
             &format!("variant `{}`", variant.name),
         )
+    }
+
+    pub(crate) fn check_array_type_args(type_args: &[Ty], span: Span) -> Result<(), SemaError> {
+        if type_args.len() != 1 {
+            return Err(SemaError {
+                message: format!(
+                    "`Array` expects 1 type argument, got {}",
+                    type_args.len()
+                ),
+                span,
+            });
+        }
+        if !is_array_element_ty(&type_args[0]) {
+            return Err(SemaError {
+                message: format!(
+                    "C3j: `Array` element type must be Int, Bool, or String (got {})",
+                    type_args[0].display()
+                ),
+                span,
+            });
+        }
+        Ok(())
     }
 
     pub(crate) fn resolve_ctor_type_args(

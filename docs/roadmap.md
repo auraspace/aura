@@ -15,7 +15,7 @@ Living plan for docs, language specs, and the Rust toolchain. RFCs remain the de
 | RFC static site (`site/`) | Implemented on `feat/rfc-static-site`; deploy via GitHub Pages Actions |
 | RFC-000 Vision | **Accepted** — product direction locked |
 | RFC-001/002/003 | Solid Draft + **MVP subset** for compiler C0–C1 (see RFC-001 §6.0) |
-| Compiler | **C0–C3i slice** — + `break` / `continue` |
+| Compiler | **C0–C3j slice** — + builtin `Array<T>` |
 | Runtime / packages / stdlib | Stub runtime `runtime/aura_rt.c`; full GC/tasks deferred |
 
 ## Phases
@@ -68,16 +68,17 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C3g** | `throw` / `catch` class & struct values | Done |
 | **C3h** | `for (i in start..end)` exclusive Int range | Done |
 | **C3i** | `break` / `continue` in loops | Done |
+| **C3j** | Builtin `Array<T>` (`T` = Int/Bool/String; len/get/set) | Done |
 | **DX** | line:col diagnostics with snippets | Done |
 
 **Out of scope C0/C1:** generics mono, async/tasks, macros, registry, incremental, LTO.
 
 ### P3 — Expand (after hello)
 
-1. ~~Language surface C2–C3i~~ → next: `Array` / for-in iterable · registry · LLVM · GC (see `agents/debts.md`)
+1. ~~Language surface C2–C3j~~ → next: for-in iterable · GC · registry · LLVM (see `agents/debts.md`)
 2. Runtime: alloc/GC MVP → channels/tasks
 3. Toolchain: ~~minimal `aura.toml` + path deps~~ → lockfile / registry (RFC-005)
-4. Stdlib prelude + small collections
+4. Stdlib prelude + small collections (partial: builtin Array)
 5. Cross targets + signed releases
 
 Write Wave 2–4 RFCs **as implementation needs them**, not all up front.
