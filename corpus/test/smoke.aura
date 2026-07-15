@@ -1,0 +1,23 @@
+// C3d corpus — @test + assert / assert_eq
+package demo.tests
+
+@test
+fun adds() {
+  assert_eq(1 + 1, 2)
+  assert(true)
+}
+
+@test
+fun strings() {
+  assert_eq("hi", "hi")
+}
+
+@test
+fun fails_on_purpose_demo() {
+  // This test is intentionally not failing — keep suite green.
+  assert_eq(0, 0)
+}
+
+fun main() {
+  println("not run under aura test")
+}

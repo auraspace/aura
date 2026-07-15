@@ -15,7 +15,7 @@ Living plan for docs, language specs, and the Rust toolchain. RFCs remain the de
 | RFC static site (`site/`) | Implemented on `feat/rfc-static-site`; deploy via GitHub Pages Actions |
 | RFC-000 Vision | **Accepted** — product direction locked |
 | RFC-001/002/003 | Solid Draft + **MVP subset** for compiler C0–C1 (see RFC-001 §6.0) |
-| Compiler | **C0–C3c slice** — + throw/try/catch (String/Int/Bool) |
+| Compiler | **C0–C3d slice** — + `aura test` / `@test` / assert |
 | Runtime / packages / stdlib | Stub runtime `runtime/aura_rt.c`; full GC/tasks deferred |
 
 ## Phases
@@ -62,15 +62,16 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C3a** | `struct` value types (fields + methods; no implements) | Done |
 | **C3b** | `enum` + `match` + generic `Result<T,E>` (exhaustive) | Done |
 | **C3c** | `throw` / `try` / `catch` / `finally` (String/Int/Bool) | Done |
+| **C3d** | `aura test` + `@test` + `assert` / `assert_eq` | Done |
 | **DX** | line:col diagnostics with snippets | Done |
 
 **Out of scope C0/C1:** generics mono, async/tasks, macros, registry, incremental, LTO.
 
 ### P3 — Expand (after hello)
 
-1. ~~Generics + interfaces + bounds~~ · ~~struct~~ · ~~enum/match/Result~~ · ~~exceptions (C3c)~~ → next: richer patterns / class throws
+1. ~~Generics + interfaces + bounds~~ · ~~struct~~ · ~~enum/match/Result~~ · ~~exceptions~~ · ~~`aura test` (C3d)~~ → next: class throws / multi-file
 2. Runtime: alloc/GC MVP → channels/tasks
-3. Toolchain: `aura.toml` → build graph → `aura test`
+3. Toolchain: `aura.toml` → build graph → package-wide test discovery
 4. Stdlib prelude + small collections
 5. Cross targets + signed releases
 

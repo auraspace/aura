@@ -30,6 +30,7 @@ pnpm site:build
 cargo test --workspace
 cargo run -p aura-cli -- check corpus/hello/main.aura   # parse + typecheck
 cargo run -p aura-cli -- run corpus/hello/main.aura     # build & execute
+cargo run -p aura-cli -- test corpus/test/smoke.aura    # run @test functions
 cargo run -p aura-cli -- build corpus/hello/main.aura -o target/aura/hello
 ```
 
@@ -50,8 +51,9 @@ C1 uses a **C backend** (`aura emit-c` + system `cc`) linked with `runtime/aura_
 - **Compiler C3a** `struct` value types (primary ctor fields + methods; no implements)
 - **Compiler C3b** `enum` + `match` + generic `Result<T, E>` (exhaustive arms)
 - **Compiler C3c** `throw` / `try` / `catch` / `finally` (payloads: String, Int, Bool)
+- **Compiler C3d** `aura test` with `@test`, `assert`, `assert_eq` (Int/String/Bool)
 - **DX** Pretty diagnostics (`path:line:col` + source snippet)
-- **Next:** class-valued exceptions, LLVM backend, `aura test`
+- **Next:** multi-file packages / `aura.toml`, LLVM backend
 
 ## Links
 

@@ -72,6 +72,8 @@ pub enum TokenKind {
     Comma,
     Colon,
     Question,
+    /// `@` attribute introducer (`@test`).
+    At,
 
     Eof,
 }
@@ -175,6 +177,7 @@ impl<'a> Lexer<'a> {
             b',' => self.simple(TokenKind::Comma, 1),
             b':' => self.simple(TokenKind::Colon, 1),
             b'?' => self.simple(TokenKind::Question, 1),
+            b'@' => self.simple(TokenKind::At, 1),
             b'.' => self.simple(TokenKind::Dot, 1),
             b'+' => self.simple(TokenKind::Plus, 1),
             b'-' => self.simple(TokenKind::Minus, 1),

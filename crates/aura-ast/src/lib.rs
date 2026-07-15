@@ -110,9 +110,11 @@ pub struct FieldDecl {
     pub span: Span,
 }
 
-/// `fun name<T>(…): T { … }` / `fun name<T>(…) where T : Named { … }`
+/// `fun name<T>(…): T { … }` / `@test fun name() { … }`
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunDecl {
+    /// Discovered by `aura test` (RFC-011 MVP: only `@test`).
+    pub is_test: bool,
     pub name: Ident,
     pub type_params: Vec<TypeParam>,
     pub params: Vec<Param>,

@@ -14,6 +14,38 @@ void aura_println(const char *s) {
   }
 }
 
+/* Forward decls for throw (defined below) */
+void aura_throw_string(const char *s);
+void aura_throw_int(int64_t v);
+void aura_throw_bool(bool v);
+
+void aura_assert(bool cond) {
+  if (!cond) {
+    aura_throw_string("assertion failed");
+  }
+}
+
+void aura_assert_eq_int(int64_t a, int64_t b) {
+  if (a != b) {
+    aura_throw_string("assert_eq failed (Int)");
+  }
+}
+
+void aura_assert_eq_string(const char *a, const char *b) {
+  if (a == NULL && b == NULL) {
+    return;
+  }
+  if (a == NULL || b == NULL || strcmp(a, b) != 0) {
+    aura_throw_string("assert_eq failed (String)");
+  }
+}
+
+void aura_assert_eq_bool(bool a, bool b) {
+  if (a != b) {
+    aura_throw_string("assert_eq failed (Bool)");
+  }
+}
+
 /* ---- Unchecked exceptions (setjmp / longjmp) ---- */
 
 #define AURA_EX_MAX 64

@@ -1,6 +1,6 @@
 //! Aura CLI — check / build / run / emit-c with pretty diagnostics.
 
-use aura_codegen::{build_from_file, emit_c_from_ast};
+use aura_codegen::{build_from_file, build_tests_from_file, emit_c_from_ast};
 use aura_diagnostics::format_error;
 use aura_parser::{parse_file, ParseError};
 use aura_sema::{check_file, SemaError};
@@ -21,6 +21,7 @@ fn main() -> ExitCode {
         "check" => cmd_check(&args),
         "build" => cmd_build(&args),
         "run" => cmd_run(&args),
+        "test" => cmd_test(&args),
         "emit-c" => cmd_emit_c(&args),
         "help" | "-h" | "--help" => {
             eprint_usage();
@@ -36,11 +37,12 @@ fn main() -> ExitCode {
 
 fn eprint_usage() {
     eprintln!(
-        "Aura toolchain (C0–C3c)\n\n\
+        "Aura toolchain (C0–C3d)\n\n\
          Usage:\n  \
            aura check <file.aura>              Parse + typecheck\n  \
            aura build <file.aura> [-o <bin>]   Compile to native binary (C backend)\n  \
            aura run <file.aura>                Build to temp and execute\n  \
+           aura test <file.aura>               Run @test functions\n  \
            aura emit-c <file.aura>             Print generated C (debug)\n  \
            aura help\n\n\
          See docs/roadmap.md and RFC-001 §6.0."
@@ -130,9 +132,15 @@ fn check_path(path: &Path) -> Result<String, String> {
         "{} function(s) typechecked",
         checked.functions.len()
     ));
+    let n_tests = checked.functions.iter().filter(|f| f.is_test).count();
+    if n_tests > 0 {
+        lines.push(format!("{n_tests} @test function(s)"));
+    }
     for f in &checked.functions {
+        let mark = if f.is_test { " @test" } else { "" };
         lines.push(format!(
-            "  fun {}({}) -> {}",
+            "  fun{} {}({}) -> {}",
+            mark,
             f.name,
             f.params
                 .iter()
@@ -287,4 +295,53 @@ fn cmd_run(args: &[String]) -> ExitCode {
             ExitCode::from(1)
         }
     }
+}
+
+fn cmd_test(args: &[String]) -> ExitCode {
+    if args.is_empty() {
+        eprintln!("error: missing path\n  usage: aura test <file.aura>");
+        return ExitCode::from(2);
+    }
+    let input = Path::new(&args[0]);
+    let out = PathBuf::from(format!(
+        "target/aura/test-{}",
+        input
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("tests")
+    ));
+    match build_test_path(input, &out) {
+        Ok(bin) => {
+            let status = Command::new(&bin).status();
+            match status {
+                Ok(s) if s.success() => ExitCode::SUCCESS,
+                Ok(s) => ExitCode::from(s.code().unwrap_or(1) as u8),
+                Err(e) => {
+                    eprintln!("error: failed to execute {}: {e}", bin.display());
+                    ExitCode::from(1)
+                }
+            }
+        }
+        Err(msg) => {
+            eprintln!("{msg}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+fn build_test_path(input: &Path, out: &Path) -> Result<PathBuf, String> {
+    let src = fs::read_to_string(input).map_err(|e| format!("error: read {}: {e}", input.display()))?;
+    let file = parse_file(&src).map_err(|e| diag_parse(input, &src, e))?;
+    let n_tests = file.functions.iter().filter(|f| f.is_test).count();
+    if n_tests == 0 {
+        return Err(format!(
+            "error: {}: no @test functions found",
+            input.display()
+        ));
+    }
+    let rt = runtime_c_path()?;
+    build_tests_from_file(&file, out, &rt).map_err(|e| match e {
+        aura_codegen::CodegenError::Sema(se) => diag_sema(input, &src, se),
+        other => format!("error: {}: {other}", input.display()),
+    })
 }

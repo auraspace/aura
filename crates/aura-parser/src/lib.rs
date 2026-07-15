@@ -93,15 +93,66 @@ impl Parser {
         let mut interfaces = Vec::new();
         let mut enums = Vec::new();
         while !matches!(self.peek().kind, TokenKind::Eof) {
+            let is_test = self.parse_test_attr()?;
             if matches!(self.peek().kind, TokenKind::Pub) {
                 self.bump();
             }
             match self.peek().kind {
-                TokenKind::Interface => interfaces.push(self.parse_interface()?),
-                TokenKind::Enum => enums.push(self.parse_enum()?),
-                TokenKind::Class => classes.push(self.parse_nominal(NominalKind::Class)?),
-                TokenKind::Struct => classes.push(self.parse_nominal(NominalKind::Struct)?),
-                TokenKind::Fun => functions.push(self.parse_fun()?),
+                TokenKind::Interface => {
+                    if is_test {
+                        return Err(ParseError {
+                            message: "`@test` only applies to functions".into(),
+                            span: self.peek().span,
+                        });
+                    }
+                    interfaces.push(self.parse_interface()?);
+                }
+                TokenKind::Enum => {
+                    if is_test {
+                        return Err(ParseError {
+                            message: "`@test` only applies to functions".into(),
+                            span: self.peek().span,
+                        });
+                    }
+                    enums.push(self.parse_enum()?);
+                }
+                TokenKind::Class => {
+                    if is_test {
+                        return Err(ParseError {
+                            message: "`@test` only applies to functions".into(),
+                            span: self.peek().span,
+                        });
+                    }
+                    classes.push(self.parse_nominal(NominalKind::Class)?);
+                }
+                TokenKind::Struct => {
+                    if is_test {
+                        return Err(ParseError {
+                            message: "`@test` only applies to functions".into(),
+                            span: self.peek().span,
+                        });
+                    }
+                    classes.push(self.parse_nominal(NominalKind::Struct)?);
+                }
+                TokenKind::Fun => {
+                    let mut f = self.parse_fun()?;
+                    f.is_test = is_test;
+                    if is_test {
+                        if !f.params.is_empty() {
+                            return Err(ParseError {
+                                message: "`@test` functions must take no parameters".into(),
+                                span: f.name.span,
+                            });
+                        }
+                        if !f.type_params.is_empty() {
+                            return Err(ParseError {
+                                message: "`@test` functions cannot be generic".into(),
+                                span: f.name.span,
+                            });
+                        }
+                    }
+                    functions.push(f);
+                }
                 _ => {
                     return Err(ParseError {
                         message: format!(
@@ -122,6 +173,22 @@ impl Parser {
             functions,
             span: Span::new(start, end),
         })
+    }
+
+    /// Optional `@test` (only attribute in C3d).
+    fn parse_test_attr(&mut self) -> Result<bool, ParseError> {
+        if !matches!(self.peek().kind, TokenKind::At) {
+            return Ok(false);
+        }
+        let at = self.bump();
+        let name = self.expect_ident()?;
+        if name.name != "test" {
+            return Err(ParseError {
+                message: format!("unknown attribute `@{}` (only `@test` in C3d)", name.name),
+                span: Span::new(at.span.start, name.span.end),
+            });
+        }
+        Ok(true)
     }
 
     fn parse_enum(&mut self) -> Result<EnumDecl, ParseError> {
@@ -445,6 +512,7 @@ impl Parser {
         let body = self.parse_block()?;
         let end = body.span.end;
         Ok(FunDecl {
+            is_test: false,
             name,
             type_params,
             params,
@@ -1195,6 +1263,20 @@ fun main() {
             },
             other => panic!("expected var, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn parses_test_attr() {
+        let src = r#"
+package main
+@test
+fun adds() {
+  assert_eq(1, 1)
+}
+"#;
+        let file = parse_file(src).expect("parse");
+        assert!(file.functions[0].is_test);
+        assert_eq!(file.functions[0].name.name, "adds");
     }
 
     #[test]

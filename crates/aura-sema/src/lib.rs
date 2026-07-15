@@ -108,6 +108,7 @@ impl Ty {
 #[derive(Debug, Clone)]
 pub struct FunSig {
     pub name: String,
+    pub is_test: bool,
     pub type_params: Vec<String>,
     /// Bounds per type param name (interface names in C2e).
     pub bounds: HashMap<String, Vec<String>>,
@@ -258,9 +259,23 @@ impl Checker {
             "println".into(),
             FunSig {
                 name: "println".into(),
+                is_test: false,
                 type_params: Vec::new(),
                 bounds: HashMap::new(),
                 params: vec![Ty::String],
+                ret: Ty::Unit,
+                span: Span::new(0, 0),
+            },
+        );
+        // Testing builtins (RFC-011 MVP)
+        functions.insert(
+            "assert".into(),
+            FunSig {
+                name: "assert".into(),
+                is_test: false,
+                type_params: Vec::new(),
+                bounds: HashMap::new(),
+                params: vec![Ty::Bool],
                 ret: Ty::Unit,
                 span: Span::new(0, 0),
             },
@@ -672,6 +687,7 @@ impl Checker {
                 f.name.name.clone(),
                 FunSig {
                     name: f.name.name.clone(),
+                    is_test: f.is_test,
                     type_params: f.type_params.iter().map(|p| p.name.name.clone()).collect(),
                     bounds: Self::bounds_map_from_params(&f.type_params),
                     params,
@@ -1596,38 +1612,70 @@ impl Checker {
             return self.check_variant_ctor(&enum_name, &name, c, expected);
         }
 
-        // Free function (possibly generic)
-        let sig = self.functions.get(&name).cloned().ok_or_else(|| SemaError {
-            message: format!("undefined function `{name}`"),
-            span: c.callee.span(),
-        })?;
+        // assert_eq(a, b) — same-type equality for Int/String/Bool (RFC-011 MVP)
+        if name == "assert_eq" {
+            if c.args.len() != 2 {
+                return Err(SemaError {
+                    message: "`assert_eq` expects 2 arguments".into(),
+                    span: c.span,
+                });
+            }
+            let a = self.check_expr(&c.args[0])?;
+            let b = self.check_expr(&c.args[1])?;
+            if a != b {
+                return Err(SemaError {
+                    message: format!(
+                        "`assert_eq` type mismatch: {} vs {}",
+                        a.display(),
+                        b.display()
+                    ),
+                    span: c.span,
+                });
+            }
+            match a {
+                Ty::Int | Ty::String | Ty::Bool => Ok(Ty::Unit),
+                other => Err(SemaError {
+                    message: format!(
+                        "`assert_eq` supports Int, String, Bool (got {})",
+                        other.display()
+                    ),
+                    span: c.span,
+                }),
+            }
+        } else {
+            // Free function (possibly generic)
+            let sig = self.functions.get(&name).cloned().ok_or_else(|| SemaError {
+                message: format!("undefined function `{name}`"),
+                span: c.callee.span(),
+            })?;
 
-        let type_args = self.resolve_fun_type_args(&sig, c, expected)?;
-        self.check_type_args_bounds(
-            &sig.type_params,
-            &sig.bounds,
-            &type_args,
-            c.span,
-            &format!("function `{}`", sig.name),
-        )?;
+            let type_args = self.resolve_fun_type_args(&sig, c, expected)?;
+            self.check_type_args_bounds(
+                &sig.type_params,
+                &sig.bounds,
+                &type_args,
+                c.span,
+                &format!("function `{}`", sig.name),
+            )?;
 
-        let subst = type_subst_map(&sig.type_params, &type_args);
-        let params: Vec<Ty> = sig.params.iter().map(|p| subst_ty(p, &subst)).collect();
-        let ret = subst_ty(&sig.ret, &subst);
-        self.check_args(&params, &c.args, &name, c.span)?;
-        if !type_args.is_empty() {
-            self.call_instantiations.insert(
-                c.span.start,
-                CallInstantiation {
-                    is_constructor: false,
-                    name: name.clone(),
-                    type_args: type_args.clone(),
-                    variant: None,
-                },
-            );
-            self.mono_funs.insert((name, type_args));
+            let subst = type_subst_map(&sig.type_params, &type_args);
+            let params: Vec<Ty> = sig.params.iter().map(|p| subst_ty(p, &subst)).collect();
+            let ret = subst_ty(&sig.ret, &subst);
+            self.check_args(&params, &c.args, &name, c.span)?;
+            if !type_args.is_empty() {
+                self.call_instantiations.insert(
+                    c.span.start,
+                    CallInstantiation {
+                        is_constructor: false,
+                        name: name.clone(),
+                        type_args: type_args.clone(),
+                        variant: None,
+                    },
+                );
+                self.mono_funs.insert((name, type_args));
+            }
+            Ok(ret)
         }
-        Ok(ret)
     }
 
     fn check_variant_ctor(
