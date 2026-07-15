@@ -374,6 +374,25 @@ fun main() {
 }
 
 #[test]
+fn parses_for_in() {
+    let src = r#"
+package t
+fun main() {
+  for (x in a) {
+    println("x")
+  }
+}
+"#;
+    let file = parse_file(src).expect("parse");
+    match &file.functions[0].body.stmts[0] {
+        Stmt::ForIn(f) => {
+            assert_eq!(f.name.name, "x");
+        }
+        other => panic!("expected ForIn, got {other:?}"),
+    }
+}
+
+#[test]
 fn parses_break_continue() {
     let src = r#"
 package t

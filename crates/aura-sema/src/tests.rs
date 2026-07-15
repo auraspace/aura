@@ -439,6 +439,37 @@ fun main() {
 }
 
 #[test]
+fn for_in_array_typechecks() {
+    let src = r#"
+package t
+fun main() {
+  val a: Array<Int> = Array(2)
+  a.set(0, 1)
+  a.set(1, 2)
+  var s: Int = 0
+  for (x in a) {
+    s = s + x
+  }
+}
+"#;
+    let file = parse_file(src).expect("parse");
+    check_file(&file).expect("check");
+}
+
+#[test]
+fn for_in_rejects_non_array() {
+    let src = r#"
+package t
+fun main() {
+  for (x in 1) {}
+}
+"#;
+    let file = parse_file(src).expect("parse");
+    let err = check_file(&file).expect_err("non-array for-in");
+    assert!(err.message.contains("Array"), "{}", err.message);
+}
+
+#[test]
 fn array_rejects_class_elem() {
     let src = r#"
 package t

@@ -111,6 +111,47 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
             let _ = writeln!(out, "{p}  }}");
             let _ = writeln!(out, "{p}}}");
         }
+        Stmt::ForIn(f) => {
+            // for (x in arr) → index loop + Array_get (C3k).
+            let iter_key = infer_type_name(&f.iterable, ctx);
+            let mono = if iter_key.starts_with("Array_") {
+                iter_key.clone()
+            } else if iter_key == "Array" {
+                // Should not happen after sema; fall back.
+                "Array_Int".into()
+            } else {
+                iter_key.clone()
+            };
+            let elem_key = mono
+                .strip_prefix("Array_")
+                .unwrap_or("Int")
+                .to_string();
+            let arr_c = local_key_to_c(&mono, ctx.checked);
+            let elem_c = local_key_to_c(&elem_key, ctx.checked);
+            let iter_e = emit_expr(&f.iterable, ctx);
+            let it_tmp = format!("__for_it_{}", f.span.start);
+            let idx_tmp = format!("__for_i_{}", f.span.start);
+            let bind = mangle_ident(&f.name.name);
+            let get_fn = c_method_name(&mono, "get");
+            let _ = writeln!(out, "{p}{{");
+            let _ = writeln!(out, "{p}  {arr_c} {it_tmp} = {iter_e};");
+            let _ = writeln!(
+                out,
+                "{p}  for (int64_t {idx_tmp} = 0; {idx_tmp} < {it_tmp}.len; {idx_tmp}++) {{"
+            );
+            let _ = writeln!(
+                out,
+                "{p}    {elem_c} {bind} = {get_fn}(&{it_tmp}, {idx_tmp});"
+            );
+            ctx.push_scope();
+            ctx.define_local(&f.name.name, elem_key);
+            for stmt in &f.body.stmts {
+                emit_stmt(out, stmt, indent + 2, ctx);
+            }
+            ctx.pop_scope();
+            let _ = writeln!(out, "{p}  }}");
+            let _ = writeln!(out, "{p}}}");
+        }
         Stmt::Break(_) => {
             let _ = writeln!(out, "{p}break;");
         }

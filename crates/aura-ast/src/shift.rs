@@ -173,6 +173,12 @@ fn shift_stmt(s: &mut Stmt, delta: BytePos) {
             shift_block(&mut f.body, delta);
             f.span = f.span.shift(delta);
         }
+        Stmt::ForIn(f) => {
+            shift_ident(&mut f.name, delta);
+            shift_expr(&mut f.iterable, delta);
+            shift_block(&mut f.body, delta);
+            f.span = f.span.shift(delta);
+        }
         Stmt::Break(s) => *s = s.shift(delta),
         Stmt::Continue(s) => *s = s.shift(delta),
         Stmt::Match(m) => {

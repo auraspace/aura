@@ -26,7 +26,7 @@ impl Parser {
             TokenKind::Val | TokenKind::Var => Ok(Stmt::Var(self.parse_var()?)),
             TokenKind::If => Ok(Stmt::If(self.parse_if()?)),
             TokenKind::While => Ok(Stmt::While(self.parse_while()?)),
-            TokenKind::For => Ok(Stmt::ForRange(self.parse_for_range()?)),
+            TokenKind::For => self.parse_for(),
             TokenKind::Break => {
                 let tok = self.bump();
                 Ok(Stmt::Break(tok.span))
@@ -239,26 +239,38 @@ impl Parser {
         })
     }
 
-    /// `for (name in start..end) { body }` — exclusive Int range (C3h).
-    pub(crate) fn parse_for_range(&mut self) -> Result<ForRangeStmt, ParseError> {
+    /// `for (name in start..end)` (C3h) or `for (name in iterable)` (C3k Array).
+    pub(crate) fn parse_for(&mut self) -> Result<Stmt, ParseError> {
         let start = self.peek().span.start;
         self.expect(TokenKind::For, "`for`")?;
         self.expect(TokenKind::LParen, "`(`")?;
         let name = self.expect_ident()?;
         self.expect(TokenKind::In, "`in`")?;
-        let range_start = self.parse_expr(0)?;
-        self.expect(TokenKind::DotDot, "`..`")?;
-        let range_end = self.parse_expr(0)?;
-        self.expect(TokenKind::RParen, "`)`")?;
-        let body = self.parse_block()?;
-        let end = body.span.end;
-        Ok(ForRangeStmt {
-            name,
-            start: range_start,
-            end: range_end,
-            body,
-            span: Span::new(start, end),
-        })
+        let first = self.parse_expr(0)?;
+        if matches!(self.peek().kind, TokenKind::DotDot) {
+            self.bump();
+            let range_end = self.parse_expr(0)?;
+            self.expect(TokenKind::RParen, "`)`")?;
+            let body = self.parse_block()?;
+            let end = body.span.end;
+            Ok(Stmt::ForRange(ForRangeStmt {
+                name,
+                start: first,
+                end: range_end,
+                body,
+                span: Span::new(start, end),
+            }))
+        } else {
+            self.expect(TokenKind::RParen, "`)`")?;
+            let body = self.parse_block()?;
+            let end = body.span.end;
+            Ok(Stmt::ForIn(ForInStmt {
+                name,
+                iterable: first,
+                body,
+                span: Span::new(start, end),
+            }))
+        }
     }
 
     pub(crate) fn parse_return(&mut self) -> Result<ReturnStmt, ParseError> {

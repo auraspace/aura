@@ -190,6 +190,8 @@ pub enum Stmt {
     While(WhileStmt),
     /// `for (i in start..end) { … }` — exclusive Int range (C3h).
     ForRange(ForRangeStmt),
+    /// `for (x in iterable) { … }` — Array elements (C3k).
+    ForIn(ForInStmt),
     /// `break` — only valid inside loops (C3i).
     Break(Span),
     /// `continue` — only valid inside loops (C3i).
@@ -207,6 +209,15 @@ pub struct ForRangeStmt {
     pub name: Ident,
     pub start: Expr,
     pub end: Expr,
+    pub body: Block,
+    pub span: Span,
+}
+
+/// `for (name in iterable) { body }` — currently `Array<T>` only (C3k).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ForInStmt {
+    pub name: Ident,
+    pub iterable: Expr,
     pub body: Block,
     pub span: Span,
 }

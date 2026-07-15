@@ -62,9 +62,10 @@ C1 uses a **C backend** (`aura emit-c` + system `cc`) linked with `runtime/aura_
 - **Compiler C3h** `for (i in start..end)` exclusive Int range loops
 - **Compiler C3i** `break` / `continue` inside loops
 - **Compiler C3j** builtin `Array<T>` (`Int`/`Bool`/`String`; `len` / `get` / `set`)
+- **Compiler C3k** `for (x in array)` element iteration over `Array<T>`
 - **DX** Pretty diagnostics (`path:line:col` + source snippet)
 - **Debts** Tracked in [`agents/debts.md`](agents/debts.md)
-- **Next:** for-in over Array, GC, registry/lockfile, LLVM
+- **Next:** GC, registry/lockfile, LLVM, iterable protocol
 
 ## Links
 

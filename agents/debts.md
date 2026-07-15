@@ -7,12 +7,12 @@ When you resolve debt, update or remove the matching entry.
 
 ## Open
 
-### `for` only supports exclusive Int ranges
-- Area: language / parser / sema / codegen (`ForRangeStmt`)
-- Symptom: no `for (x in iterable)`, no inclusive `..=` (index loops work via `0..a.len`)
-- Why deferred: C3h range form; C3j added `Array` but not iterable protocol
-- Next step: `for (x in array)` desugar or iterator protocol; optional `..=`
-- Introduced: C3h (`2b3c11e`); Array partial in C3j
+### `for-in` only supports `Array` (no protocol / `..=`)
+- Area: language / parser / sema / codegen (`ForInStmt`)
+- Symptom: no `for (x in string)` / custom iterables; no inclusive range `..=`
+- Why deferred: C3k desugars Array via `get`+index; general iterator protocol needs more types
+- Next step: optional `..=`; Iterable protocol or expand for-in to more collections
+- Introduced: narrowed after C3k (was C3h range-only)
 
 ### `Array<T>` limited element types and no free
 - Area: builtin Array (C3j)
@@ -71,6 +71,10 @@ When you resolve debt, update or remove the matching entry.
 - Introduced: C0–C1
 
 ## Resolved
+
+### `for` only exclusive Int ranges — no for-in (2026-07-15)
+- Resolved in C3k: `for (x in array)` for `Array<T>` (`ForInStmt`); range form kept.
+- Remaining: Array-only / no `..=` tracked under Open.
 
 ### No `break` / `continue` (2026-07-15)
 - Resolved in C3i: loop-depth checked in sema; C `break`/`continue` in codegen.

@@ -313,6 +313,48 @@ impl Checker {
                 self.locals.pop();
                 body_err
             }
+            Stmt::ForIn(f) => {
+                let iter_ty = self.check_expr(&f.iterable)?;
+                let elem_ty = match &iter_ty {
+                    Ty::ClassApp { name, args } if name == "Array" && args.len() == 1 => {
+                        args[0].clone()
+                    }
+                    other => {
+                        return Err(SemaError {
+                            message: format!(
+                                "for-in iterable must be Array<T>, got {}",
+                                other.display()
+                            ),
+                            span: f.iterable.span(),
+                        });
+                    }
+                };
+                self.locals.push(HashMap::new());
+                if self.current_locals().contains_key(&f.name.name) {
+                    return Err(SemaError {
+                        message: format!("duplicate binding `{}` in for loop", f.name.name),
+                        span: f.name.span,
+                    });
+                }
+                self.current_locals_mut().insert(
+                    f.name.name.clone(),
+                    Local {
+                        ty: elem_ty,
+                        mutable: false,
+                    },
+                );
+                self.loop_depth += 1;
+                let mut body_err = Ok(());
+                for stmt in &f.body.stmts {
+                    if let Err(e) = self.check_stmt(stmt, expected_ret) {
+                        body_err = Err(e);
+                        break;
+                    }
+                }
+                self.loop_depth -= 1;
+                self.locals.pop();
+                body_err
+            }
             Stmt::Break(span) => {
                 if self.loop_depth == 0 {
                     return Err(SemaError {
