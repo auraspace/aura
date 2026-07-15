@@ -623,6 +623,22 @@ impl Checker {
         None
     }
 
+    /// Strip one layer of `?` for `name` in the current scope (flow narrowing).
+    fn apply_not_null(&mut self, name: &str) {
+        let Some(local) = self.lookup_local(name) else {
+            return;
+        };
+        let Ty::Nullable(inner) = &local.ty else {
+            return;
+        };
+        let ty = *inner.clone();
+        let mutable = local.mutable;
+        self.current_locals_mut().insert(
+            name.to_string(),
+            Local { ty, mutable },
+        );
+    }
+
     fn check_block(&mut self, block: &Block, expected_ret: &Ty) -> Result<(), SemaError> {
         self.locals.push(HashMap::new());
         for stmt in &block.stmts {
@@ -692,9 +708,28 @@ impl Checker {
                         span: i.cond.span(),
                     });
                 }
+                let fact = analyze_null_check(&i.cond);
+
+                // then-branch (narrow if `x != null`)
+                self.locals.push(HashMap::new());
+                if let Some((ref name, not_null_when_true)) = fact {
+                    if not_null_when_true {
+                        self.apply_not_null(name);
+                    }
+                }
                 self.check_block(&i.then_block, expected_ret)?;
+                self.locals.pop();
+
+                // else-branch (narrow if `x == null` was the condition)
                 if let Some(else_b) = &i.else_block {
+                    self.locals.push(HashMap::new());
+                    if let Some((ref name, not_null_when_true)) = fact {
+                        if !not_null_when_true {
+                            self.apply_not_null(name);
+                        }
+                    }
                     self.check_block(else_b, expected_ret)?;
+                    self.locals.pop();
                 }
                 Ok(())
             }
@@ -785,6 +820,17 @@ impl Checker {
             Expr::String(_) => Ok(Ty::String),
             Expr::Null(_) => Ok(Ty::Null),
             Expr::Group(inner, _) => self.check_expr_expected(inner, expected),
+            Expr::ForceUnwrap(f) => {
+                let t = self.check_expr(&f.expr)?;
+                match t {
+                    Ty::Nullable(inner) => Ok(*inner),
+                    Ty::Null => Err(SemaError {
+                        message: "cannot force-unwrap `null`".into(),
+                        span: f.span,
+                    }),
+                    other => Ok(other), // already non-null; !! is a no-op
+                }
+            }
             Expr::Field(f) => {
                 let obj_ty = self.check_expr(&f.object)?;
                 if let Some(cname) = obj_ty.class_name() {
@@ -1401,6 +1447,29 @@ impl Checker {
     }
 }
 
+/// Detect `x != null` / `x == null` / `null != x` / `null == x` for flow narrowing.
+/// Returns `(local_name, not_null_when_condition_true)`.
+fn analyze_null_check(cond: &Expr) -> Option<(String, bool)> {
+    let cond = match cond {
+        Expr::Group(inner, _) => inner.as_ref(),
+        other => other,
+    };
+    let Expr::Binary(b) = cond else {
+        return None;
+    };
+    let not_null_when_true = match b.op {
+        BinOp::Ne => true,
+        BinOp::Eq => false,
+        _ => return None,
+    };
+    match (b.left.as_ref(), b.right.as_ref()) {
+        (Expr::Ident(id), Expr::Null(_)) | (Expr::Null(_), Expr::Ident(id)) => {
+            Some((id.name.clone(), not_null_when_true))
+        }
+        _ => None,
+    }
+}
+
 /// Unify `pattern` (may contain type params) with a concrete `concrete` type.
 fn unify_ty(pattern: &Ty, concrete: &Ty, map: &mut HashMap<String, Ty>) -> Result<(), String> {
     match (pattern, concrete) {
@@ -1492,6 +1561,37 @@ mod tests {
             args: vec![Ty::String],
         };
         assert_eq!(t.mono_suffix(), "Box_String");
+    }
+
+    #[test]
+    fn null_flow_narrows_in_if() {
+        let src = r#"
+package t
+fun f(name: String?): String {
+  if (name != null) {
+    return name
+  } else {
+    return "x"
+  }
+}
+fun main() {}
+"#;
+        let file = parse_file(src).expect("parse");
+        check_file(&file).expect("check should allow name after != null");
+    }
+
+    #[test]
+    fn null_flow_rejects_without_check() {
+        let src = r#"
+package t
+fun f(name: String?): String {
+  return name
+}
+fun main() {}
+"#;
+        let file = parse_file(src).expect("parse");
+        let err = check_file(&file).expect_err("should reject String? as String");
+        assert!(err.message.contains("return type mismatch") || err.message.contains("String"));
     }
 
     #[test]

@@ -6,7 +6,7 @@ Small `.aura` programs used as syntax fixtures for compiler milestone **C0** (`a
 | ---- | ------ |
 | `hello/main.aura` | Package + `fun main` + call + string |
 | `control/if_while.aura` | Params, types, `if`/`while`, locals |
-| `types/nullable.aura` | `T?` and `null` |
+| `types/nullable.aura` | `T?`, flow `!= null` / `== null`, `!!` |
 | `expr/arith.aura` | Arithmetic, comparisons, `&&` |
 | `expr/unary.aura` | `!` and negation |
 | `fun/multi.aura` | Multiple top-level functions |

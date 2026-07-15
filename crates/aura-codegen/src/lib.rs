@@ -907,6 +907,7 @@ fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
         Expr::Group(inner, _) => infer_type_name(inner, ctx),
         Expr::Assign(a) => infer_type_name(&a.value, ctx),
         Expr::Unary(UnaryExpr { op: UnOp::Not, .. }) => "Bool".into(),
+        Expr::ForceUnwrap(f) => infer_type_name(&f.expr, ctx),
         Expr::Binary(BinaryExpr {
             op: BinOp::Lt
                 | BinOp::Le
@@ -956,6 +957,10 @@ fn emit_expr(expr: &Expr, ctx: &EmitCtx<'_>) -> String {
                 UnOp::Not => "!",
             };
             format!("({op}{})", emit_expr(&u.expr, ctx))
+        }
+        Expr::ForceUnwrap(f) => {
+            // C: just the pointer/value; null is a runtime fault (MVP).
+            emit_expr(&f.expr, ctx)
         }
         Expr::Binary(b) => {
             let op = match b.op {

@@ -57,8 +57,9 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C2a** | `interface` + implements + closed-world dispatch | Done |
 | **C2b** | Generics (class/fun type params + mono) | Done |
 | **C2c** | Type-arg inference from args + expected type | Done |
+| **C2d** | Nullability flow (`if (x != null)`) + `!!` | Done |
 | **DX** | line:col diagnostics with snippets | Done |
-| **C2d** | Multi-param bounds / where clauses | Later |
+| **C2e** | Multi-param bounds / where clauses | Later |
 
 **Out of scope C0/C1:** generics mono, async/tasks, macros, registry, incremental, LTO.
 

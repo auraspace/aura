@@ -49,6 +49,8 @@ pub enum TokenKind {
     AndAnd,
     OrOr,
     Bang,
+    /// `!!` force-unwrap (lexed as one token).
+    BangBang,
     Eq,
     Dot,
     LParen,
@@ -168,6 +170,8 @@ impl<'a> Lexer<'a> {
             b'!' => {
                 if self.peek_at(1) == Some(b'=') {
                     self.simple(TokenKind::Ne, 2)
+                } else if self.peek_at(1) == Some(b'!') {
+                    self.simple(TokenKind::BangBang, 2)
                 } else {
                     self.simple(TokenKind::Bang, 1)
                 }

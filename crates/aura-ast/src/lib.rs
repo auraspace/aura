@@ -160,6 +160,8 @@ pub enum Expr {
     Assign(AssignExpr),
     Binary(BinaryExpr),
     Unary(UnaryExpr),
+    /// Postfix `expr!!` — force unwrap nullable (lintable).
+    ForceUnwrap(ForceUnwrapExpr),
     Group(Box<Expr>, Span),
 }
 
@@ -177,9 +179,16 @@ impl Expr {
             Expr::Assign(a) => a.span,
             Expr::Binary(b) => b.span,
             Expr::Unary(u) => u.span,
+            Expr::ForceUnwrap(f) => f.span,
             Expr::Group(_, s) => *s,
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ForceUnwrapExpr {
+    pub expr: Box<Expr>,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]

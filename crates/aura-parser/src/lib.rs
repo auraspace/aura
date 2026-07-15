@@ -518,6 +518,15 @@ impl Parser {
                 });
                 continue;
             }
+            if matches!(self.peek().kind, TokenKind::BangBang) {
+                let end = self.bump().span.end;
+                let span = Span::new(lhs.span().start, end);
+                lhs = Expr::ForceUnwrap(ForceUnwrapExpr {
+                    expr: Box::new(lhs),
+                    span,
+                });
+                continue;
+            }
             break;
         }
 
@@ -866,6 +875,23 @@ fun show(x: Named) {
         assert_eq!(file.interfaces[0].methods.len(), 1);
         assert_eq!(file.classes[0].implements.len(), 1);
         assert_eq!(file.classes[0].implements[0].name, "Named");
+    }
+
+    #[test]
+    fn parses_force_unwrap() {
+        let src = r#"
+package t
+fun f(x: String?): String {
+  return x!!
+}
+"#;
+        let file = parse_file(src).expect("parse");
+        match &file.functions[0].body.stmts[0] {
+            Stmt::Return(r) => {
+                assert!(matches!(r.value, Some(Expr::ForceUnwrap(_))));
+            }
+            other => panic!("expected return, got {other:?}"),
+        }
     }
 
     #[test]
