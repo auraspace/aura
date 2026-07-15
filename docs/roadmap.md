@@ -56,8 +56,9 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C1b** | Simple `class` + methods + `this` + field access | Done |
 | **C2a** | `interface` + implements + closed-world dispatch | Done |
 | **C2b** | Generics (class/fun type params + mono) | Done |
+| **C2c** | Type-arg inference from args + expected type | Done |
 | **DX** | line:col diagnostics with snippets | Done |
-| **C2c** | Inference of type args / multi-param bounds | Next |
+| **C2d** | Multi-param bounds / where clauses | Later |
 
 **Out of scope C0/C1:** generics mono, async/tasks, macros, registry, incremental, LTO.
 

@@ -1,0 +1,28 @@
+// C2c — type-arg inference from arguments and annotations
+package demo.generic
+
+class Box<T>(val value: T) {
+  fun get(): T {
+    return this.value
+  }
+}
+
+fun id<T>(x: T): T {
+  return x
+}
+
+fun main() {
+  // Infer T from constructor argument
+  val a = Box("Hello, Aura")
+  println(a.get())
+
+  // Infer from expected annotation
+  val b: Box<String> = Box("from expected")
+  println(b.get())
+
+  // Infer free function type args from argument
+  println(id("inferred id"))
+
+  // Explicit still works
+  println(id<String>("explicit"))
+}

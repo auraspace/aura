@@ -44,8 +44,9 @@ C1 uses a **C backend** (`aura emit-c` + system `cc`) linked with `runtime/aura_
 - **Compiler C1b** `class` primary constructor, methods, `this`, field access
 - **Compiler C2a** `interface` + implements + interface-typed calls (closed-world C dispatch)
 - **Compiler C2b** generics: `class Box<T>`, `fun id<T>`, monomorphized C (`Box_String`, …)
+- **Compiler C2c** type-arg inference: `Box("hi")`, `id(x)`, annotation-driven
 - **DX** Pretty diagnostics (`path:line:col` + source snippet)
-- **Next:** type-arg inference, nullability flow, LLVM backend
+- **Next:** nullability flow, LLVM backend
 
 ## Links
 

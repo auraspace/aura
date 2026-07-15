@@ -19,6 +19,7 @@ Small `.aura` programs used as syntax fixtures for compiler milestone **C0** (`a
 | `iface/named.aura` | Interface + implements + upcast call |
 | `generic/box.aura` | `class Box<T>` + monomorph ctor/method |
 | `generic/id.aura` | `fun id<T>` monomorph |
+| `generic/infer.aura` | Infer `Box("…")` / `id("…")` without `<T>` |
 | `diag/undefined.aura` | **Expected fail** — diagnostics smoke (excluded from CI corpus) |
 
 All files must stay within [RFC-001 §6.0](../docs/rfc/RFC-001-language-specification.md) unless marked `// @requires: post-c1`.

@@ -7,3 +7,6 @@ description = "Aura name resolution and type checking (C0+)"
 
 [dependencies]
 aura-ast.workspace = true
+
+[dev-dependencies]
+aura-parser.workspace = true

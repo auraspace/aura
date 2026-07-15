@@ -815,11 +815,17 @@ fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
                     .iter()
                     .any(|x| x.name.name == id.name) =>
             {
-                let targs: Vec<Ty> = c
-                    .type_args
-                    .iter()
-                    .filter_map(|t| type_ref_to_ty(t, ctx))
-                    .collect();
+                let targs: Vec<Ty> = ctx
+                    .checked
+                    .call_instantiations
+                    .get(&c.span.start)
+                    .map(|i| i.type_args.clone())
+                    .unwrap_or_else(|| {
+                        c.type_args
+                            .iter()
+                            .filter_map(|t| type_ref_to_ty(t, ctx))
+                            .collect()
+                    });
                 mono_key(&id.name, &targs)
             }
             Expr::Ident(id)
@@ -830,11 +836,17 @@ fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
                     .iter()
                     .any(|f| f.name.name == id.name) =>
             {
-                let targs: Vec<Ty> = c
-                    .type_args
-                    .iter()
-                    .filter_map(|t| type_ref_to_ty(t, ctx))
-                    .collect();
+                let targs: Vec<Ty> = ctx
+                    .checked
+                    .call_instantiations
+                    .get(&c.span.start)
+                    .map(|i| i.type_args.clone())
+                    .unwrap_or_else(|| {
+                        c.type_args
+                            .iter()
+                            .filter_map(|t| type_ref_to_ty(t, ctx))
+                            .collect()
+                    });
                 if let Some(f) = ctx
                     .checked
                     .ast
@@ -1066,6 +1078,9 @@ fn emit_call(c: &CallExpr, ctx: &EmitCtx<'_>) -> String {
 
     match c.callee.as_ref() {
         Expr::Ident(id) => {
+            // Prefer type args resolved by sema (explicit or inferred)
+            let inst = ctx.checked.call_instantiations.get(&c.span.start);
+
             // Constructor (optional type args)
             if let Some(class) = ctx
                 .checked
@@ -1074,11 +1089,14 @@ fn emit_call(c: &CallExpr, ctx: &EmitCtx<'_>) -> String {
                 .iter()
                 .find(|x| x.name.name == id.name)
             {
-                let targs: Vec<Ty> = c
-                    .type_args
-                    .iter()
-                    .filter_map(|t| type_ref_to_ty(t, ctx))
-                    .collect();
+                let targs: Vec<Ty> = if let Some(inst) = inst {
+                    inst.type_args.clone()
+                } else {
+                    c.type_args
+                        .iter()
+                        .filter_map(|t| type_ref_to_ty(t, ctx))
+                        .collect()
+                };
                 let mono = mono_key(&id.name, &targs);
                 let params: Vec<String> =
                     class.type_params.iter().map(|p| p.name.clone()).collect();
@@ -1102,11 +1120,14 @@ fn emit_call(c: &CallExpr, ctx: &EmitCtx<'_>) -> String {
                 .iter()
                 .find(|f| f.name.name == id.name)
             {
-                let targs: Vec<Ty> = c
-                    .type_args
-                    .iter()
-                    .filter_map(|t| type_ref_to_ty(t, ctx))
-                    .collect();
+                let targs: Vec<Ty> = if let Some(inst) = inst {
+                    inst.type_args.clone()
+                } else {
+                    c.type_args
+                        .iter()
+                        .filter_map(|t| type_ref_to_ty(t, ctx))
+                        .collect()
+                };
                 let params: Vec<String> = f.type_params.iter().map(|p| p.name.clone()).collect();
                 let args = c
                     .args
