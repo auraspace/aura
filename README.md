@@ -36,6 +36,7 @@ cargo run -p aura-cli -- check corpus/multi             # multi-file + aura.toml
 cargo run -p aura-cli -- run corpus/multi
 cargo run -p aura-cli -- test corpus/multi              # package-wide @test
 cargo run -p aura-cli -- run corpus/import/app          # import + path dep
+cargo run -p aura-cli -- run corpus/std_io/app          # std.io.println (C3z)
 ```
 
 C1 uses a **C backend** (`aura emit-c` + system `cc`) linked with `runtime/aura_rt.c`. LLVM IR is the longer-term path (RFC-004).
@@ -77,9 +78,10 @@ C1 uses a **C backend** (`aura emit-c` + system `cc`) linked with `runtime/aura_
 - **Compiler C3w** `for (b in string)` over UTF-8 bytes as Int
 - **Runtime C3x** GC MVP: `aura_gc_alloc` + free-all on process exit
 - **Compiler C3y** Class instances as GC heap references (`struct` remains by-value)
+- **Stdlib C3z** Minimal `std.io.println` (`std/io`, path dep; builtins remain)
 - **DX** Pretty diagnostics (`path:line:col` + source snippet)
 - **Debts** Tracked in [`agents/debts.md`](agents/debts.md)
-- **Next:** std prelude, LLVM
+- **Next:** LLVM, registry, Iterable protocol
 
 ## Links
 

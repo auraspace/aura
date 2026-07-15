@@ -128,11 +128,14 @@ pub(crate) fn c_fun_name(pkg: &str, name: &str, args: &[Ty]) -> String {
     if name == "main" {
         return "aura_fn_main".into();
     }
-    if name == "println" {
-        return "aura_println".into();
-    }
-    if name == "assert" {
-        return "aura_assert".into();
+    // Builtins only when package is empty (not std.io re-exports, C3z).
+    if pkg.is_empty() {
+        if name == "println" {
+            return "aura_println".into();
+        }
+        if name == "assert" {
+            return "aura_assert".into();
+        }
     }
     let mono = mono_key(name, args);
     if pkg.is_empty() {

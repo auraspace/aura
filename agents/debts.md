@@ -45,14 +45,17 @@ When you resolve debt, update or remove the matching entry.
 - Introduced: narrowed after C3y
 
 
-### No stdlib prelude package
+### Stdlib incomplete (prelude auto-import, assert, collections)
 - Area: stdlib / RFC-007
-- Symptom: `println` / `assert` are compiler builtins, not `import std…`
-- Why deferred: single-file hello path needed builtins first
-- Next step: real `std` package + optional auto-prelude
-- Introduced: C0–C1
+- Symptom: C3z added `std.io.println` via path dep; builtins still available; no auto-prelude; no `assert` in std
+- Why deferred: path-dep std.io is enough for demos
+- Next step: auto-prelude option; more std packages; collections
+- Introduced: narrowed after C3z
 
 ## Resolved
+
+### No stdlib prelude package (2026-07-15)
+- Resolved in C3z: `std/io` package with `pub fun println` (intrinsic → `aura_println`); corpus path-deps it. Builtins remain for single-file hello.
 
 ### Classes are by-value C structs (2026-07-15)
 - Resolved in C3y: user `class` ctor uses `aura_gc_alloc`; locals/params are pointers; methods take `this` pointer; `struct` stays by-value.

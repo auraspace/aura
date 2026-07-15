@@ -1,0 +1,9 @@
+[package]
+name = "demo.stdio"
+
+[[bin]]
+name = "app"
+path = "src"
+
+[dependencies]
+std.io = { path = "../../../std/io" }

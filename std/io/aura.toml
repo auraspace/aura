@@ -1,0 +1,6 @@
+[package]
+name = "std.io"
+
+[[bin]]
+name = "io"
+path = "src"

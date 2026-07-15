@@ -1,0 +1,7 @@
+// Minimal std.io (C3z) — println re-export of runtime builtin.
+package std.io
+
+/// Print a string followed by a newline (runtime `aura_println`).
+pub fun println(s: String) {
+  // Body replaced by codegen with aura_println(s) (intrinsic).
+}

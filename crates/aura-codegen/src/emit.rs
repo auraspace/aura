@@ -285,6 +285,14 @@ pub(crate) fn emit_test_main(out: &mut String, checked: &CheckedFile) {
 pub(crate) fn emit_fun(out: &mut String, f: &FunDecl, checked: &CheckedFile, args: &[Ty]) {
     let params: Vec<String> = f.type_params.iter().map(|p| p.name.name.clone()).collect();
     let _ = writeln!(out, "{} {{", c_fun_signature(f, checked, args));
+    let pkg = fun_decl_package(f, checked);
+    // C3z: std.io.println is an intrinsic wrapping aura_println.
+    if pkg == "std.io" && f.name.name == "println" && f.params.len() == 1 {
+        let arg = mangle_ident(&f.params[0].name.name);
+        let _ = writeln!(out, "  aura_println({arg});");
+        out.push_str("}\n");
+        return;
+    }
     let mut ctx = EmitCtx {
         checked,
         method_class: None,
