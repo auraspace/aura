@@ -63,12 +63,21 @@ pub struct TypeParam {
     pub bounds: Vec<Ident>,
 }
 
+/// Nominal product type: `class` (reference identity later) or `struct` (value).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NominalKind {
+    Class,
+    Struct,
+}
+
 /// `class Name<T>(val x: T, …) : Iface { methods… }`
+/// `struct Point(val x: Int, val y: Int) { … }`
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClassDecl {
+    pub kind: NominalKind,
     pub name: Ident,
     pub type_params: Vec<TypeParam>,
-    /// Interfaces listed after `:` (C2).
+    /// Interfaces listed after `:` (classes only; structs reject implements).
     pub implements: Vec<Ident>,
     pub fields: Vec<FieldDecl>,
     pub methods: Vec<FunDecl>,

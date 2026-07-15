@@ -1,0 +1,28 @@
+// C3a corpus — value struct with methods and copy-by-value params
+package demo.point
+
+struct Point(val x: Int, val y: Int) {
+  fun sum(): Int {
+    return this.x + this.y
+  }
+}
+
+fun addX(p: Point, dx: Int): Point {
+  return Point(p.x + dx, p.y)
+}
+
+fun main() {
+  val origin: Point = Point(1, 2)
+  val moved: Point = addX(origin, 10)
+  // println takes String; print coordinates via method side channel
+  if (moved.sum() == 13) {
+    println("ok")
+  } else {
+    println("fail")
+  }
+  if (origin.sum() == 3) {
+    println("copy")
+  } else {
+    println("mutated")
+  }
+}

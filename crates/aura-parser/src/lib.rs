@@ -97,12 +97,13 @@ impl Parser {
             }
             match self.peek().kind {
                 TokenKind::Interface => interfaces.push(self.parse_interface()?),
-                TokenKind::Class => classes.push(self.parse_class()?),
+                TokenKind::Class => classes.push(self.parse_nominal(NominalKind::Class)?),
+                TokenKind::Struct => classes.push(self.parse_nominal(NominalKind::Struct)?),
                 TokenKind::Fun => functions.push(self.parse_fun()?),
                 _ => {
                     return Err(ParseError {
                         message: format!(
-                            "expected `interface`, `class`, or `fun`, found {:?}",
+                            "expected `interface`, `class`, `struct`, or `fun`, found {:?}",
                             self.peek().kind
                         ),
                         span: self.peek().span,
@@ -191,9 +192,16 @@ impl Parser {
         })
     }
 
-    fn parse_class(&mut self) -> Result<ClassDecl, ParseError> {
+    fn parse_nominal(&mut self, kind: NominalKind) -> Result<ClassDecl, ParseError> {
         let start = self.peek().span.start;
-        self.expect(TokenKind::Class, "`class`")?;
+        match kind {
+            NominalKind::Class => {
+                self.expect(TokenKind::Class, "`class`")?;
+            }
+            NominalKind::Struct => {
+                self.expect(TokenKind::Struct, "`struct`")?;
+            }
+        }
         let name = self.expect_ident()?;
         let mut type_params = self.parse_type_params_opt()?;
         self.expect(TokenKind::LParen, "`(`")?;
@@ -209,9 +217,15 @@ impl Parser {
             }
         }
         self.expect(TokenKind::RParen, "`)`")?;
-        // Optional `: Iface, Iface2`
+        // Optional `: Iface, Iface2` — classes only
         let mut implements = Vec::new();
         if matches!(self.peek().kind, TokenKind::Colon) {
+            if kind == NominalKind::Struct {
+                return Err(ParseError {
+                    message: "structs cannot implement interfaces (use a class)".into(),
+                    span: self.peek().span,
+                });
+            }
             self.bump();
             loop {
                 implements.push(self.expect_ident()?);
@@ -233,6 +247,7 @@ impl Parser {
         }
         let end = self.expect(TokenKind::RBrace, "`}`")?.span.end;
         Ok(ClassDecl {
+            kind,
             name,
             type_params,
             implements,
@@ -980,6 +995,37 @@ fun main() {
             },
             other => panic!("expected var, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn parses_struct() {
+        let src = r#"
+package main
+struct Point(val x: Int, val y: Int) {
+  fun sum(): Int {
+    return this.x + this.y
+  }
+}
+"#;
+        let file = parse_file(src).expect("parse");
+        assert_eq!(file.classes.len(), 1);
+        assert_eq!(file.classes[0].kind, NominalKind::Struct);
+        assert_eq!(file.classes[0].name.name, "Point");
+        assert_eq!(file.classes[0].fields.len(), 2);
+        assert_eq!(file.classes[0].methods.len(), 1);
+    }
+
+    #[test]
+    fn rejects_struct_implements() {
+        let src = r#"
+package main
+interface Named { fun name(): String }
+struct S(val n: String) : Named {
+  fun name(): String { return this.n }
+}
+"#;
+        let err = parse_file(src).expect_err("struct implements");
+        assert!(err.message.contains("struct"), "{}", err.message);
     }
 
     #[test]

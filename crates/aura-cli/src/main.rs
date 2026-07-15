@@ -36,7 +36,7 @@ fn main() -> ExitCode {
 
 fn eprint_usage() {
     eprintln!(
-        "Aura toolchain (C0–C2)\n\n\
+        "Aura toolchain (C0–C3a)\n\n\
          Usage:\n  \
            aura check <file.aura>              Parse + typecheck\n  \
            aura build <file.aura> [-o <bin>]   Compile to native binary (C backend)\n  \
@@ -92,15 +92,23 @@ fn check_path(path: &Path) -> Result<String, String> {
         }
     }
     if !checked.classes.is_empty() {
-        lines.push(format!("{} class(es)", checked.classes.len()));
+        let n_cls = checked.classes.iter().filter(|c| !c.is_struct).count();
+        let n_st = checked.classes.iter().filter(|c| c.is_struct).count();
+        if n_cls > 0 {
+            lines.push(format!("{n_cls} class(es)"));
+        }
+        if n_st > 0 {
+            lines.push(format!("{n_st} struct(s)"));
+        }
         for c in &checked.classes {
+            let kind = if c.is_struct { "struct" } else { "class" };
             let impls = if c.implements.is_empty() {
                 String::new()
             } else {
                 format!(" : {}", c.implements.join(", "))
             };
             lines.push(format!(
-                "  class {}{} ({} field(s), {} method(s))",
+                "  {kind} {}{} ({} field(s), {} method(s))",
                 c.name,
                 impls,
                 c.fields.len(),

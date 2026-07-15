@@ -16,6 +16,7 @@ pub enum TokenKind {
     Import,
     As,
     Class,
+    Struct,
     Interface,
     Fun,
     Val,
@@ -74,6 +75,7 @@ impl TokenKind {
                 | TokenKind::Import
                 | TokenKind::As
                 | TokenKind::Class
+                | TokenKind::Struct
                 | TokenKind::Interface
                 | TokenKind::Fun
                 | TokenKind::Val
@@ -354,6 +356,7 @@ impl<'a> Lexer<'a> {
             "import" => TokenKind::Import,
             "as" => TokenKind::As,
             "class" => TokenKind::Class,
+            "struct" => TokenKind::Struct,
             "interface" => TokenKind::Interface,
             "fun" => TokenKind::Fun,
             "val" => TokenKind::Val,

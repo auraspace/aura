@@ -47,8 +47,9 @@ C1 uses a **C backend** (`aura emit-c` + system `cc`) linked with `runtime/aura_
 - **Compiler C2c** type-arg inference: `Box("hi")`, `id(x)`, annotation-driven
 - **Compiler C2d** nullability flow (`if (x != null)`) and force-unwrap `!!`
 - **Compiler C2e** type-param bounds (`T : Named`) and `where T : A, T : B`
+- **Compiler C3a** `struct` value types (primary ctor fields + methods; no implements)
 - **DX** Pretty diagnostics (`path:line:col` + source snippet)
-- **Next:** `struct` / `Result`, LLVM backend, richer control-flow analysis
+- **Next:** `Result`/exceptions (enum + match), LLVM backend
 
 ## Links
 

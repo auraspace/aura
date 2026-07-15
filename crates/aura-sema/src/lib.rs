@@ -1,7 +1,8 @@
 //! Name resolution + typecheck for Aura C0–C2e (generics + bounds).
 
 use aura_ast::{
-    BinOp, Block, CallExpr, ClassDecl, Expr, File, FunDecl, Span, Stmt, TypeParam, TypeRef, UnOp,
+    BinOp, Block, CallExpr, ClassDecl, Expr, File, FunDecl, NominalKind, Span, Stmt, TypeParam,
+    TypeRef, UnOp,
 };
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -123,6 +124,8 @@ pub struct FieldSig {
 #[derive(Debug, Clone)]
 pub struct ClassSig {
     pub name: String,
+    /// `false` = class, `true` = struct (value type; no implements).
+    pub is_struct: bool,
     pub type_params: Vec<String>,
     /// Bounds per type param name (interface names in C2e).
     pub bounds: HashMap<String, Vec<String>>,
@@ -386,6 +389,12 @@ impl Checker {
                     span: c.name.span,
                 });
             }
+            if c.kind == NominalKind::Struct && !c.implements.is_empty() {
+                return Err(SemaError {
+                    message: "structs cannot implement interfaces".into(),
+                    span: c.name.span,
+                });
+            }
             if !c.type_params.is_empty() && !c.implements.is_empty() {
                 return Err(SemaError {
                     message: "C2b: generic classes cannot implement interfaces yet".into(),
@@ -396,6 +405,7 @@ impl Checker {
                 c.name.name.clone(),
                 ClassSig {
                     name: c.name.name.clone(),
+                    is_struct: c.kind == NominalKind::Struct,
                     type_params: c.type_params.iter().map(|p| p.name.name.clone()).collect(),
                     bounds: Self::bounds_map_from_params(&c.type_params),
                     implements: Vec::new(),
@@ -1739,6 +1749,24 @@ mod tests {
             args: vec![Ty::String],
         };
         assert_eq!(t.mono_suffix(), "Box_String");
+    }
+
+    #[test]
+    fn struct_fields_and_methods() {
+        let src = r#"
+package t
+struct Point(val x: Int, val y: Int) {
+  fun sum(): Int { return this.x + this.y }
+}
+fun f(): Int {
+  val p: Point = Point(1, 2)
+  return p.sum()
+}
+fun main() {}
+"#;
+        let file = parse_file(src).expect("parse");
+        let checked = check_file(&file).expect("check");
+        assert!(checked.classes.iter().any(|c| c.is_struct && c.name == "Point"));
     }
 
     #[test]
