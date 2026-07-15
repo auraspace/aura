@@ -1,0 +1,6 @@
+// C0 corpus — dotted package path
+package org.aura.samples
+
+fun main() {
+  println("dotted package")
+}

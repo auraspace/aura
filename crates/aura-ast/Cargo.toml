@@ -1,0 +1,8 @@
+[package]
+name = "aura-ast"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Aura abstract syntax tree types (C0 subset)"
+
+[dependencies]

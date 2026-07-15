@@ -1,0 +1,20 @@
+// C0 corpus — control flow
+package demo.control
+
+fun abs(n: Int): Int {
+  if (n < 0) {
+    return 0 - n
+  } else {
+    return n
+  }
+}
+
+fun sum_to(n: Int): Int {
+  var i: Int = 0
+  var total: Int = 0
+  while (i < n) {
+    total + i
+    i + 1
+  }
+  return total
+}

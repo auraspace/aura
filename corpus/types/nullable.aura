@@ -1,0 +1,10 @@
+// C0 corpus — nullable type syntax (no flow yet)
+package demo.types
+
+fun label(name: String?): String {
+  if (name == null) {
+    return "anonymous"
+  } else {
+    return "ok"
+  }
+}

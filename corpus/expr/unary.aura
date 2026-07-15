@@ -1,0 +1,10 @@
+// C0 corpus — unary ops
+package demo.expr
+
+fun flip(flag: Bool): Bool {
+  return !flag
+}
+
+fun neg(n: Int): Int {
+  return 0 - n
+}

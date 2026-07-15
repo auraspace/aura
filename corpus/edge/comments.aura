@@ -1,0 +1,9 @@
+// C0 corpus — comments
+package edge
+
+/* block comment */
+fun main() {
+  // line comment
+  val n: Int = 42
+  println("ok")
+}

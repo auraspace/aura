@@ -1,0 +1,9 @@
+[package]
+name = "aura-lexer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Aura lexer (C0 subset)"
+
+[dependencies]
+aura-ast.workspace = true

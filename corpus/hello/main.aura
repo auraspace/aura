@@ -1,0 +1,6 @@
+// C0 corpus — hello
+package main
+
+fun main() {
+  println("Hello, Aura")
+}

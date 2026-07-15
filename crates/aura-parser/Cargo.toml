@@ -1,0 +1,10 @@
+[package]
+name = "aura-parser"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Aura recursive-descent parser (C0 subset)"
+
+[dependencies]
+aura-ast.workspace = true
+aura-lexer.workspace = true

@@ -1,0 +1,10 @@
+// C0 corpus — multiple top-level functions
+package demo.fns
+
+fun square(x: Int): Int {
+  return x * x
+}
+
+fun main() {
+  square(4)
+}

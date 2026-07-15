@@ -1,0 +1,12 @@
+// C0 corpus — arithmetic and comparisons
+package demo.expr
+
+fun mix(a: Int, b: Int): Int {
+  val x: Int = a * b + 1
+  val ok: Bool = x >= a && b != 0
+  if (ok) {
+    return x
+  } else {
+    return 0 - 1
+  }
+}

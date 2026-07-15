@@ -1,0 +1,538 @@
+//! Recursive-descent + Pratt expression parser for Aura C0 (RFC-001 §6.0.2).
+
+use aura_ast::*;
+use aura_lexer::{lex, LexError, Token, TokenKind};
+use std::fmt;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParseError {
+    pub message: String,
+    pub span: Span,
+}
+
+impl fmt::Display for ParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{} at bytes {}..{}",
+            self.message, self.span.start, self.span.end
+        )
+    }
+}
+
+impl std::error::Error for ParseError {}
+
+impl From<LexError> for ParseError {
+    fn from(e: LexError) -> Self {
+        Self {
+            message: e.message,
+            span: e.span,
+        }
+    }
+}
+
+pub fn parse_file(src: &str) -> Result<File, ParseError> {
+    let tokens = lex(src)?;
+    let mut p = Parser::new(tokens);
+    p.parse_file()
+}
+
+struct Parser {
+    tokens: Vec<Token>,
+    idx: usize,
+}
+
+impl Parser {
+    fn new(tokens: Vec<Token>) -> Self {
+        Self { tokens, idx: 0 }
+    }
+
+    fn peek(&self) -> &Token {
+        &self.tokens[self.idx]
+    }
+
+    fn bump(&mut self) -> Token {
+        let t = self.tokens[self.idx].clone();
+        if self.idx + 1 < self.tokens.len() {
+            self.idx += 1;
+        }
+        t
+    }
+
+    fn expect(&mut self, kind: TokenKind, what: &str) -> Result<Token, ParseError> {
+        if self.peek().kind == kind {
+            return Ok(self.bump());
+        }
+        Err(ParseError {
+            message: format!("expected {what}, found {:?}", self.peek().kind),
+            span: self.peek().span,
+        })
+    }
+
+    fn expect_ident(&mut self) -> Result<Ident, ParseError> {
+        match &self.peek().kind {
+            TokenKind::Ident(name) => {
+                let span = self.peek().span;
+                let name = name.clone();
+                self.bump();
+                Ok(Ident { name, span })
+            }
+            _ => Err(ParseError {
+                message: format!("expected identifier, found {:?}", self.peek().kind),
+                span: self.peek().span,
+            }),
+        }
+    }
+
+    fn parse_file(&mut self) -> Result<File, ParseError> {
+        let start = self.peek().span.start;
+        self.expect(TokenKind::Package, "`package`")?;
+        let package = self.parse_path()?;
+        let mut functions = Vec::new();
+        while !matches!(self.peek().kind, TokenKind::Eof) {
+            // optional pub
+            if matches!(self.peek().kind, TokenKind::Pub) {
+                self.bump();
+            }
+            functions.push(self.parse_fun()?);
+        }
+        let end = self.peek().span.end;
+        Ok(File {
+            package,
+            functions,
+            span: Span::new(start, end),
+        })
+    }
+
+    fn parse_path(&mut self) -> Result<Path, ParseError> {
+        let first = self.expect_ident()?;
+        let start = first.span.start;
+        let mut segments = vec![first];
+        while matches!(self.peek().kind, TokenKind::Dot) {
+            self.bump();
+            segments.push(self.expect_ident()?);
+        }
+        let end = segments.last().map(|s| s.span.end).unwrap_or(start);
+        Ok(Path {
+            segments,
+            span: Span::new(start, end),
+        })
+    }
+
+    fn parse_fun(&mut self) -> Result<FunDecl, ParseError> {
+        let start = self.peek().span.start;
+        self.expect(TokenKind::Fun, "`fun`")?;
+        let name = self.expect_ident()?;
+        self.expect(TokenKind::LParen, "`(`")?;
+        let mut params = Vec::new();
+        if !matches!(self.peek().kind, TokenKind::RParen) {
+            loop {
+                params.push(self.parse_param()?);
+                if matches!(self.peek().kind, TokenKind::Comma) {
+                    self.bump();
+                    continue;
+                }
+                break;
+            }
+        }
+        self.expect(TokenKind::RParen, "`)`")?;
+        let return_type = if matches!(self.peek().kind, TokenKind::Colon) {
+            self.bump();
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
+        let body = self.parse_block()?;
+        let end = body.span.end;
+        Ok(FunDecl {
+            name,
+            params,
+            return_type,
+            body,
+            span: Span::new(start, end),
+        })
+    }
+
+    fn parse_param(&mut self) -> Result<Param, ParseError> {
+        let name = self.expect_ident()?;
+        let start = name.span.start;
+        self.expect(TokenKind::Colon, "`:`")?;
+        let ty = self.parse_type()?;
+        let end = ty.span.end;
+        Ok(Param {
+            name,
+            ty,
+            span: Span::new(start, end),
+        })
+    }
+
+    fn parse_type(&mut self) -> Result<TypeRef, ParseError> {
+        let name = self.expect_ident()?;
+        let start = name.span.start;
+        let nullable = if matches!(self.peek().kind, TokenKind::Question) {
+            self.bump();
+            true
+        } else {
+            false
+        };
+        let end = if nullable {
+            self.tokens[self.idx.saturating_sub(1)].span.end
+        } else {
+            name.span.end
+        };
+        Ok(TypeRef {
+            name,
+            nullable,
+            span: Span::new(start, end),
+        })
+    }
+
+    fn parse_block(&mut self) -> Result<Block, ParseError> {
+        let start = self.peek().span.start;
+        self.expect(TokenKind::LBrace, "`{`")?;
+        let mut stmts = Vec::new();
+        while !matches!(self.peek().kind, TokenKind::RBrace | TokenKind::Eof) {
+            stmts.push(self.parse_stmt()?);
+        }
+        let end_tok = self.expect(TokenKind::RBrace, "`}`")?;
+        Ok(Block {
+            stmts,
+            span: Span::new(start, end_tok.span.end),
+        })
+    }
+
+    fn parse_stmt(&mut self) -> Result<Stmt, ParseError> {
+        match self.peek().kind {
+            TokenKind::Val | TokenKind::Var => Ok(Stmt::Var(self.parse_var()?)),
+            TokenKind::If => Ok(Stmt::If(self.parse_if()?)),
+            TokenKind::While => Ok(Stmt::While(self.parse_while()?)),
+            TokenKind::Return => Ok(Stmt::Return(self.parse_return()?)),
+            _ => Ok(Stmt::Expr(self.parse_expr(0)?)),
+        }
+    }
+
+    fn parse_var(&mut self) -> Result<VarStmt, ParseError> {
+        let start = self.peek().span.start;
+        let mutable = matches!(self.peek().kind, TokenKind::Var);
+        self.bump(); // val | var
+        let name = self.expect_ident()?;
+        let ty = if matches!(self.peek().kind, TokenKind::Colon) {
+            self.bump();
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
+        self.expect(TokenKind::Eq, "`=`")?;
+        let init = self.parse_expr(0)?;
+        let end = init.span().end;
+        Ok(VarStmt {
+            mutable,
+            name,
+            ty,
+            init,
+            span: Span::new(start, end),
+        })
+    }
+
+    fn parse_if(&mut self) -> Result<IfStmt, ParseError> {
+        let start = self.peek().span.start;
+        self.expect(TokenKind::If, "`if`")?;
+        self.expect(TokenKind::LParen, "`(`")?;
+        let cond = self.parse_expr(0)?;
+        self.expect(TokenKind::RParen, "`)`")?;
+        let then_block = self.parse_block()?;
+        let else_block = if matches!(self.peek().kind, TokenKind::Else) {
+            self.bump();
+            Some(self.parse_block()?)
+        } else {
+            None
+        };
+        let end = else_block
+            .as_ref()
+            .map(|b| b.span.end)
+            .unwrap_or(then_block.span.end);
+        Ok(IfStmt {
+            cond,
+            then_block,
+            else_block,
+            span: Span::new(start, end),
+        })
+    }
+
+    fn parse_while(&mut self) -> Result<WhileStmt, ParseError> {
+        let start = self.peek().span.start;
+        self.expect(TokenKind::While, "`while`")?;
+        self.expect(TokenKind::LParen, "`(`")?;
+        let cond = self.parse_expr(0)?;
+        self.expect(TokenKind::RParen, "`)`")?;
+        let body = self.parse_block()?;
+        let end = body.span.end;
+        Ok(WhileStmt {
+            cond,
+            body,
+            span: Span::new(start, end),
+        })
+    }
+
+    fn parse_return(&mut self) -> Result<ReturnStmt, ParseError> {
+        let start = self.peek().span.start;
+        let tok = self.expect(TokenKind::Return, "`return`")?;
+        let value = if matches!(
+            self.peek().kind,
+            TokenKind::RBrace
+                | TokenKind::Eof
+                | TokenKind::Else
+                | TokenKind::Val
+                | TokenKind::Var
+                | TokenKind::If
+                | TokenKind::While
+                | TokenKind::Return
+                | TokenKind::Fun
+        ) {
+            None
+        } else {
+            // Heuristic: if next looks like expression start, parse it
+            match self.peek().kind {
+                TokenKind::Ident(_)
+                | TokenKind::Int(_)
+                | TokenKind::String(_)
+                | TokenKind::True
+                | TokenKind::False
+                | TokenKind::Null
+                | TokenKind::LParen
+                | TokenKind::Minus
+                | TokenKind::Bang => Some(self.parse_expr(0)?),
+                _ => None,
+            }
+        };
+        let end = value.as_ref().map(|e| e.span().end).unwrap_or(tok.span.end);
+        Ok(ReturnStmt {
+            value,
+            span: Span::new(start, end),
+        })
+    }
+
+    fn parse_expr(&mut self, min_bp: u8) -> Result<Expr, ParseError> {
+        let mut lhs = self.parse_prefix()?;
+
+        // calls: postfix
+        loop {
+            if matches!(self.peek().kind, TokenKind::LParen) {
+                lhs = self.parse_call(lhs)?;
+                continue;
+            }
+            break;
+        }
+
+        loop {
+            let op = match self.peek().kind {
+                TokenKind::Plus => BinOp::Add,
+                TokenKind::Minus => BinOp::Sub,
+                TokenKind::Star => BinOp::Mul,
+                TokenKind::Slash => BinOp::Div,
+                TokenKind::Percent => BinOp::Rem,
+                TokenKind::EqEq => BinOp::Eq,
+                TokenKind::Ne => BinOp::Ne,
+                TokenKind::Lt => BinOp::Lt,
+                TokenKind::Le => BinOp::Le,
+                TokenKind::Gt => BinOp::Gt,
+                TokenKind::Ge => BinOp::Ge,
+                TokenKind::AndAnd => BinOp::And,
+                TokenKind::OrOr => BinOp::Or,
+                _ => break,
+            };
+            let (l_bp, r_bp) = infix_binding_power(op);
+            if l_bp < min_bp {
+                break;
+            }
+            self.bump();
+            let rhs = self.parse_expr(r_bp)?;
+            let span = Span::new(lhs.span().start, rhs.span().end);
+            lhs = Expr::Binary(BinaryExpr {
+                op,
+                left: Box::new(lhs),
+                right: Box::new(rhs),
+                span,
+            });
+        }
+
+        Ok(lhs)
+    }
+
+    fn parse_prefix(&mut self) -> Result<Expr, ParseError> {
+        match &self.peek().kind {
+            TokenKind::Minus => {
+                let start = self.peek().span.start;
+                self.bump();
+                let expr = self.parse_expr(prefix_binding_power())?;
+                let span = Span::new(start, expr.span().end);
+                Ok(Expr::Unary(UnaryExpr {
+                    op: UnOp::Neg,
+                    expr: Box::new(expr),
+                    span,
+                }))
+            }
+            TokenKind::Bang => {
+                let start = self.peek().span.start;
+                self.bump();
+                let expr = self.parse_expr(prefix_binding_power())?;
+                let span = Span::new(start, expr.span().end);
+                Ok(Expr::Unary(UnaryExpr {
+                    op: UnOp::Not,
+                    expr: Box::new(expr),
+                    span,
+                }))
+            }
+            _ => self.parse_primary(),
+        }
+    }
+
+    fn parse_primary(&mut self) -> Result<Expr, ParseError> {
+        match &self.peek().kind {
+            TokenKind::Ident(name) => {
+                let span = self.peek().span;
+                let name = name.clone();
+                self.bump();
+                Ok(Expr::Ident(Ident { name, span }))
+            }
+            TokenKind::Int(v) => {
+                let span = self.peek().span;
+                let value = *v;
+                self.bump();
+                Ok(Expr::Int(IntLit { value, span }))
+            }
+            TokenKind::String(s) => {
+                let span = self.peek().span;
+                let value = s.clone();
+                self.bump();
+                Ok(Expr::String(StringLit { value, span }))
+            }
+            TokenKind::True => {
+                let span = self.bump().span;
+                Ok(Expr::Bool(BoolLit { value: true, span }))
+            }
+            TokenKind::False => {
+                let span = self.bump().span;
+                Ok(Expr::Bool(BoolLit {
+                    value: false,
+                    span,
+                }))
+            }
+            TokenKind::Null => {
+                let span = self.bump().span;
+                Ok(Expr::Null(span))
+            }
+            TokenKind::LParen => {
+                let start = self.bump().span.start;
+                let inner = self.parse_expr(0)?;
+                let end = self.expect(TokenKind::RParen, "`)`")?.span.end;
+                Ok(Expr::Group(Box::new(inner), Span::new(start, end)))
+            }
+            _ => Err(ParseError {
+                message: format!("expected expression, found {:?}", self.peek().kind),
+                span: self.peek().span,
+            }),
+        }
+    }
+
+    fn parse_call(&mut self, callee: Expr) -> Result<Expr, ParseError> {
+        let start = callee.span().start;
+        self.expect(TokenKind::LParen, "`(`")?;
+        let mut args = Vec::new();
+        if !matches!(self.peek().kind, TokenKind::RParen) {
+            loop {
+                args.push(self.parse_expr(0)?);
+                if matches!(self.peek().kind, TokenKind::Comma) {
+                    self.bump();
+                    continue;
+                }
+                break;
+            }
+        }
+        let end = self.expect(TokenKind::RParen, "`)`")?.span.end;
+        Ok(Expr::Call(CallExpr {
+            callee: Box::new(callee),
+            args,
+            span: Span::new(start, end),
+        }))
+    }
+}
+
+fn prefix_binding_power() -> u8 {
+    9
+}
+
+fn infix_binding_power(op: BinOp) -> (u8, u8) {
+    match op {
+        BinOp::Or => (1, 2),
+        BinOp::And => (3, 4),
+        BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => (5, 6),
+        BinOp::Add | BinOp::Sub => (7, 8),
+        BinOp::Mul | BinOp::Div | BinOp::Rem => (9, 10),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_hello() {
+        let src = r#"
+package main
+
+fun main() {
+  println("Hello, Aura")
+}
+"#;
+        let file = parse_file(src).expect("parse");
+        assert_eq!(file.package.segments[0].name, "main");
+        assert_eq!(file.functions.len(), 1);
+        assert_eq!(file.functions[0].name.name, "main");
+        assert_eq!(file.functions[0].body.stmts.len(), 1);
+    }
+
+    #[test]
+    fn parses_control_flow() {
+        let src = r#"
+package demo
+
+fun add(a: Int, b: Int): Int {
+  val sum: Int = a + b
+  if (sum > 0) {
+    return sum
+  } else {
+    return 0
+  }
+}
+"#;
+        let file = parse_file(src).expect("parse");
+        assert_eq!(file.functions[0].params.len(), 2);
+        assert!(file.functions[0].return_type.is_some());
+        assert_eq!(file.functions[0].body.stmts.len(), 2);
+    }
+
+    #[test]
+    fn parses_while_and_nullable() {
+        let src = r#"
+package demo
+
+fun loop(n: Int): Int {
+  var i: Int = 0
+  var s: String? = null
+  while (i < n) {
+    i + 1
+  }
+  return i
+}
+"#;
+        let file = parse_file(src).expect("parse");
+        assert_eq!(file.functions[0].body.stmts.len(), 4);
+    }
+
+    #[test]
+    fn rejects_missing_package() {
+        let err = parse_file("fun main() {}").unwrap_err();
+        assert!(err.message.contains("package"));
+    }
+}

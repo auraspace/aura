@@ -1,0 +1,5 @@
+// C0 corpus — empty body
+package edge
+
+fun main() {
+}

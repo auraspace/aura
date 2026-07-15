@@ -1,0 +1,10 @@
+// C0 corpus — nested calls
+package demo.fns
+
+fun id(x: Int): Int {
+  return x
+}
+
+fun main() {
+  id(id(1))
+}
