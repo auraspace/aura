@@ -53,6 +53,7 @@ void aura_assert_eq_bool(bool a, bool b) {
 typedef struct {
   jmp_buf *buf;
   const char *type_name; /* "String" | "Int" | "Bool" | class name */
+  int owns_obj;          /* C3s: payload.as_obj is malloc'd by throw_obj */
   union {
     const char *as_string;
     int64_t as_int;
@@ -73,6 +74,8 @@ void aura_try_enter(jmp_buf *buf) {
   AuraExFrame *f = &aura_ex_stack[aura_ex_sp++];
   f->buf = buf;
   f->type_name = NULL;
+  f->owns_obj = 0;
+  f->payload.as_obj = NULL;
 }
 
 void aura_try_leave(void) {
@@ -93,6 +96,7 @@ void aura_throw_string(const char *s) {
   }
   AuraExFrame *f = &aura_ex_stack[aura_ex_sp - 1];
   f->type_name = "String";
+  f->owns_obj = 0;
   f->payload.as_string = s;
   aura_ex_pending = 1;
   longjmp(*f->buf, 1);
@@ -105,6 +109,7 @@ void aura_throw_int(int64_t v) {
   }
   AuraExFrame *f = &aura_ex_stack[aura_ex_sp - 1];
   f->type_name = "Int";
+  f->owns_obj = 0;
   f->payload.as_int = v;
   aura_ex_pending = 1;
   longjmp(*f->buf, 1);
@@ -117,13 +122,15 @@ void aura_throw_bool(bool v) {
   }
   AuraExFrame *f = &aura_ex_stack[aura_ex_sp - 1];
   f->type_name = "Bool";
+  f->owns_obj = 0;
   f->payload.as_bool = v;
   aura_ex_pending = 1;
   longjmp(*f->buf, 1);
 }
 
 /* Throw a class/struct instance. `obj` must be a heap pointer owned by the exception
- * machinery for the duration of unwind (typically malloc + copy in generated code). */
+ * machinery for the duration of unwind (typically malloc + copy in generated code).
+ * Freed on aura_ex_clear after a successful catch (C3s). */
 void aura_throw_obj(const char *type_name, void *obj) {
   if (aura_ex_sp == 0) {
     fprintf(stderr, "uncaught exception: %s\n", type_name ? type_name : "object");
@@ -131,6 +138,7 @@ void aura_throw_obj(const char *type_name, void *obj) {
   }
   AuraExFrame *f = &aura_ex_stack[aura_ex_sp - 1];
   f->type_name = type_name;
+  f->owns_obj = 1;
   f->payload.as_obj = obj;
   aura_ex_pending = 1;
   longjmp(*f->buf, 1);
@@ -173,10 +181,17 @@ void *aura_ex_as_obj(void) {
 }
 
 void aura_ex_clear(void) {
-  aura_ex_pending = 0;
   if (aura_ex_sp > 0) {
-    aura_ex_stack[aura_ex_sp - 1].type_name = NULL;
+    AuraExFrame *f = &aura_ex_stack[aura_ex_sp - 1];
+    /* Catch path copies by value first; free the throw heap copy (C3s). */
+    if (f->owns_obj && f->payload.as_obj != NULL) {
+      free(f->payload.as_obj);
+      f->payload.as_obj = NULL;
+    }
+    f->owns_obj = 0;
+    f->type_name = NULL;
   }
+  aura_ex_pending = 0;
 }
 
 void aura_ex_rethrow(void) {
@@ -187,10 +202,12 @@ void aura_ex_rethrow(void) {
   AuraExFrame cur = aura_ex_stack[aura_ex_sp - 1];
   aura_ex_sp--;
   if (aura_ex_sp == 0) {
+    /* Process aborts; skip free (payload dies with process). */
     aura_throw_uncaught(cur.type_name);
   }
   AuraExFrame *outer = &aura_ex_stack[aura_ex_sp - 1];
   outer->type_name = cur.type_name;
+  outer->owns_obj = cur.owns_obj;
   outer->payload = cur.payload;
   longjmp(*outer->buf, 1);
 }

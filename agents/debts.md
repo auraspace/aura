@@ -21,12 +21,6 @@ When you resolve debt, update or remove the matching entry.
 - Next step: GC-owned buffers or free on scope end; class elements as refs
 - Introduced: C3j; push C3m; pop C3r
 
-### Exception object payloads leak heap copies
-- Area: runtime / codegen (`aura_throw_obj`)
-- Symptom: thrown class/struct values are `malloc`'d and never freed; no GC ownership
-- Why deferred: C3g needed a working payload path without a GC
-- Next step: free on `aura_ex_clear` when type is obj, or move to GC-managed heap
-- Introduced: C3g (`29188ae`)
 
 ### Import aliases: functions only; no type qualify
 - Area: sema / codegen (`import path as Alias`)
@@ -65,6 +59,9 @@ When you resolve debt, update or remove the matching entry.
 - Introduced: C0–C1
 
 ## Resolved
+
+### Exception object payloads leak heap copies (2026-07-15)
+- Resolved in C3s: `owns_obj` on exception frame; `aura_ex_clear` frees `throw_obj` malloc after catch copies by value. Rethrow transfers ownership.
 
 ### No `Array.pop` (2026-07-15)
 - Resolved in C3r: `pop()` returns last element, shrinks `len`; empty throws `"Array pop on empty"`.
