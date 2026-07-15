@@ -116,6 +116,17 @@ impl Checker {
                 span: Span::new(0, 0),
             },
         );
+        // C3r: pop last element (throws if empty).
+        array_methods.insert(
+            "pop".into(),
+            ClassMethodSig {
+                class: "Array".into(),
+                name: "pop".into(),
+                params: vec![],
+                ret: Ty::TypeParam("T".into()),
+                span: Span::new(0, 0),
+            },
+        );
         let mut classes = HashMap::new();
         classes.insert(
             "Array".into(),

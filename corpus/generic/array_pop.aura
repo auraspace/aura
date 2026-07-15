@@ -1,0 +1,41 @@
+// C3r — Array.pop (returns last element; throws if empty)
+package demo.arraypop
+
+fun main() {
+  val a: Array<Int> = Array(0)
+  a.push(10)
+  a.push(20)
+  a.push(30)
+
+  val x: Int = a.pop()
+  if (x == 30) {
+    println("pop value ok")
+  } else {
+    println("pop value bad")
+  }
+  if (a.len == 2) {
+    println("pop len ok")
+  } else {
+    println("pop len bad")
+  }
+
+  val y: Int = a.pop()
+  val z: Int = a.pop()
+  if (y == 20) {
+    println("pop mid ok")
+  }
+  if (z == 10) {
+    println("pop last ok")
+  }
+  if (a.len == 0) {
+    println("pop empty len ok")
+  }
+
+  val s: Array<String> = Array(0)
+  s.push("hi")
+  s.push("aura")
+  val w: String = s.pop()
+  println(w)
+  val v: String = s.pop()
+  println(v)
+}

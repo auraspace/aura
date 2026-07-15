@@ -15,11 +15,11 @@ When you resolve debt, update or remove the matching entry.
 - Introduced: narrowed after C3k (was C3h range-only); `..=` done in C3l
 
 ### `Array<T>` limited element types and no free
-- Area: builtin Array (C3j/C3m)
-- Symptom: only `Int`/`Bool`/`String` elements; buffers from `calloc`/`realloc` never freed; no `pop`
-- Why deferred: heap mono without GC; C3m added push/grow only
-- Next step: GC-owned buffers or free on scope end; class elements as refs; `pop`
-- Introduced: C3j; push resolved in C3m
+- Area: builtin Array (C3j/C3m/C3r)
+- Symptom: only `Int`/`Bool`/`String` elements; buffers from `calloc`/`realloc` never freed
+- Why deferred: heap mono without GC; C3m push + C3r pop; free still open
+- Next step: GC-owned buffers or free on scope end; class elements as refs
+- Introduced: C3j; push C3m; pop C3r
 
 ### Exception object payloads leak heap copies
 - Area: runtime / codegen (`aura_throw_obj`)
@@ -65,6 +65,9 @@ When you resolve debt, update or remove the matching entry.
 - Introduced: C0–C1
 
 ## Resolved
+
+### No `Array.pop` (2026-07-15)
+- Resolved in C3r: `pop()` returns last element, shrinks `len`; empty throws `"Array pop on empty"`.
 
 ### C equality emits extra parentheses (2026-07-15)
 - Resolved in C3q: comparisons (`==`/`!=`/`</>`/…) emit without outer grouping parens so `if (x == y)` is not double-wrapped.

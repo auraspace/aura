@@ -534,6 +534,22 @@ fun main() {
 }
 
 #[test]
+fn array_pop_typechecks() {
+    let src = r#"
+package t
+fun main() {
+  val a: Array<Int> = Array(0)
+  a.push(1)
+  a.push(2)
+  val x: Int = a.pop()
+  val n: Int = a.len
+}
+"#;
+    let file = parse_file(src).expect("parse");
+    check_file(&file).expect("check");
+}
+
+#[test]
 fn for_in_array_typechecks() {
     let src = r#"
 package t
