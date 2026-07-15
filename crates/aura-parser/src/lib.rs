@@ -195,6 +195,7 @@ impl Parser {
         let start = self.peek().span.start;
         self.expect(TokenKind::Class, "`class`")?;
         let name = self.expect_ident()?;
+        let type_params = self.parse_type_params_opt()?;
         self.expect(TokenKind::LParen, "`(`")?;
         let mut fields = Vec::new();
         if !matches!(self.peek().kind, TokenKind::RParen) {
@@ -232,11 +233,30 @@ impl Parser {
         let end = self.expect(TokenKind::RBrace, "`}`")?.span.end;
         Ok(ClassDecl {
             name,
+            type_params,
             implements,
             fields,
             methods,
             span: Span::new(start, end),
         })
+    }
+
+    fn parse_type_params_opt(&mut self) -> Result<Vec<Ident>, ParseError> {
+        if !matches!(self.peek().kind, TokenKind::Lt) {
+            return Ok(Vec::new());
+        }
+        self.bump();
+        let mut params = Vec::new();
+        loop {
+            params.push(self.expect_ident()?);
+            if matches!(self.peek().kind, TokenKind::Comma) {
+                self.bump();
+                continue;
+            }
+            break;
+        }
+        self.expect(TokenKind::Gt, "`>`")?;
+        Ok(params)
     }
 
     fn parse_field(&mut self) -> Result<FieldDecl, ParseError> {
@@ -273,6 +293,7 @@ impl Parser {
         let start = self.peek().span.start;
         self.expect(TokenKind::Fun, "`fun`")?;
         let name = self.expect_ident()?;
+        let type_params = self.parse_type_params_opt()?;
         self.expect(TokenKind::LParen, "`(`")?;
         let mut params = Vec::new();
         if !matches!(self.peek().kind, TokenKind::RParen) {
@@ -296,6 +317,7 @@ impl Parser {
         let end = body.span.end;
         Ok(FunDecl {
             name,
+            type_params,
             params,
             return_type,
             body,
@@ -319,6 +341,7 @@ impl Parser {
     fn parse_type(&mut self) -> Result<TypeRef, ParseError> {
         let name = self.expect_ident()?;
         let start = name.span.start;
+        let type_args = self.parse_type_args_opt()?;
         let nullable = if matches!(self.peek().kind, TokenKind::Question) {
             self.bump();
             true
@@ -327,14 +350,35 @@ impl Parser {
         };
         let end = if nullable {
             self.tokens[self.idx.saturating_sub(1)].span.end
+        } else if let Some(last) = type_args.last() {
+            last.span.end
         } else {
             name.span.end
         };
         Ok(TypeRef {
             name,
+            type_args,
             nullable,
             span: Span::new(start, end),
         })
+    }
+
+    fn parse_type_args_opt(&mut self) -> Result<Vec<TypeRef>, ParseError> {
+        if !matches!(self.peek().kind, TokenKind::Lt) {
+            return Ok(Vec::new());
+        }
+        self.bump();
+        let mut args = Vec::new();
+        loop {
+            args.push(self.parse_type()?);
+            if matches!(self.peek().kind, TokenKind::Comma) {
+                self.bump();
+                continue;
+            }
+            break;
+        }
+        self.expect(TokenKind::Gt, "`>`")?;
+        Ok(args)
     }
 
     fn parse_block(&mut self) -> Result<Block, ParseError> {
@@ -450,10 +494,17 @@ impl Parser {
     fn parse_expr(&mut self, min_bp: u8) -> Result<Expr, ParseError> {
         let mut lhs = self.parse_prefix()?;
 
-        // Postfix: call and field access
+        // Postfix: generic call `F<T>(...)`, call, field access
         loop {
+            // `Ident<TypeArgs>(...)` — only if `<...>` is followed by `(`
+            if matches!(self.peek().kind, TokenKind::Lt) {
+                if let Some(call) = self.try_parse_generic_call(lhs.clone())? {
+                    lhs = call;
+                    continue;
+                }
+            }
             if matches!(self.peek().kind, TokenKind::LParen) {
-                lhs = self.parse_call(lhs)?;
+                lhs = self.parse_call(lhs, Vec::new())?;
                 continue;
             }
             if matches!(self.peek().kind, TokenKind::Dot) {
@@ -603,7 +654,7 @@ impl Parser {
         }
     }
 
-    fn parse_call(&mut self, callee: Expr) -> Result<Expr, ParseError> {
+    fn parse_call(&mut self, callee: Expr, type_args: Vec<TypeRef>) -> Result<Expr, ParseError> {
         let start = callee.span().start;
         self.expect(TokenKind::LParen, "`(`")?;
         let mut args = Vec::new();
@@ -620,9 +671,52 @@ impl Parser {
         let end = self.expect(TokenKind::RParen, "`)`")?.span.end;
         Ok(Expr::Call(CallExpr {
             callee: Box::new(callee),
+            type_args,
             args,
             span: Span::new(start, end),
         }))
+    }
+
+    /// Try `lhs<T, U>(...)`. Restores position if it is a comparison (`a < b`).
+    fn try_parse_generic_call(&mut self, lhs: Expr) -> Result<Option<Expr>, ParseError> {
+        if !matches!(lhs, Expr::Ident(_)) {
+            return Ok(None);
+        }
+        let saved = self.idx;
+        if !matches!(self.peek().kind, TokenKind::Lt) {
+            return Ok(None);
+        }
+        self.bump(); // <
+        let mut type_args = Vec::new();
+        // Must start with a type (ident)
+        if !matches!(self.peek().kind, TokenKind::Ident(_)) {
+            self.idx = saved;
+            return Ok(None);
+        }
+        loop {
+            match self.parse_type() {
+                Ok(t) => type_args.push(t),
+                Err(_) => {
+                    self.idx = saved;
+                    return Ok(None);
+                }
+            }
+            if matches!(self.peek().kind, TokenKind::Comma) {
+                self.bump();
+                continue;
+            }
+            break;
+        }
+        if !matches!(self.peek().kind, TokenKind::Gt) {
+            self.idx = saved;
+            return Ok(None);
+        }
+        self.bump(); // >
+        if !matches!(self.peek().kind, TokenKind::LParen) {
+            self.idx = saved;
+            return Ok(None);
+        }
+        Ok(Some(self.parse_call(lhs, type_args)?))
     }
 }
 
@@ -772,6 +866,44 @@ fun show(x: Named) {
         assert_eq!(file.interfaces[0].methods.len(), 1);
         assert_eq!(file.classes[0].implements.len(), 1);
         assert_eq!(file.classes[0].implements[0].name, "Named");
+    }
+
+    #[test]
+    fn parses_generic_class_and_ctor() {
+        let src = r#"
+package main
+
+class Box<T>(val value: T) {
+  fun get(): T {
+    return this.value
+  }
+}
+
+fun id<T>(x: T): T {
+  return x
+}
+
+fun main() {
+  val b: Box<String> = Box<String>("hi")
+  println(b.get())
+  println(id<String>("ok"))
+}
+"#;
+        let file = parse_file(src).expect("parse");
+        assert_eq!(file.classes[0].type_params.len(), 1);
+        assert_eq!(file.functions[0].type_params.len(), 1);
+        assert_eq!(file.functions[0].name.name, "id");
+        // first stmt init is Call with type_args
+        match &file.functions[1].body.stmts[0] {
+            Stmt::Var(v) => match &v.init {
+                Expr::Call(c) => {
+                    assert_eq!(c.type_args.len(), 1);
+                    assert_eq!(c.type_args[0].name.name, "String");
+                }
+                other => panic!("expected call, got {other:?}"),
+            },
+            other => panic!("expected var, got {other:?}"),
+        }
     }
 
     #[test]

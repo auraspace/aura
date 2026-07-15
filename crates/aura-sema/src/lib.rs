@@ -1,12 +1,12 @@
-//! Name resolution + typecheck for Aura C0–C2 (RFC-001 §6.0).
+//! Name resolution + typecheck for Aura C0–C2b (generics mono).
 
 use aura_ast::{
     BinOp, Block, CallExpr, ClassDecl, Expr, File, FunDecl, Span, Stmt, TypeRef, UnOp,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Ty {
     Unit,
     Int,
@@ -14,8 +14,13 @@ pub enum Ty {
     String,
     Null,
     Nullable(Box<Ty>),
+    /// Non-generic class, or generic with zero type args.
     Class(String),
+    /// Instantiated generic class, e.g. `Box<String>`.
+    ClassApp { name: String, args: Vec<Ty> },
     Interface(String),
+    /// Type parameter in a generic definition scope (`T`).
+    TypeParam(String),
 }
 
 impl Ty {
@@ -28,23 +33,54 @@ impl Ty {
             Ty::Null => "Null".into(),
             Ty::Nullable(inner) => format!("{}?", inner.display()),
             Ty::Class(n) => n.clone(),
+            Ty::ClassApp { name, args } => {
+                let a = args
+                    .iter()
+                    .map(|t| t.display())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("{name}<{a}>")
+            }
             Ty::Interface(n) => n.clone(),
+            Ty::TypeParam(n) => n.clone(),
         }
     }
 
-    pub fn as_class(&self) -> Option<&str> {
+    /// Mangle for C monomorph: `Box_String`, `id_Int`.
+    pub fn mono_suffix(&self) -> String {
+        match self {
+            Ty::Unit => "Unit".into(),
+            Ty::Int => "Int".into(),
+            Ty::Bool => "Bool".into(),
+            Ty::String => "String".into(),
+            Ty::Null => "Null".into(),
+            Ty::Nullable(inner) => format!("Opt_{}", inner.mono_suffix()),
+            Ty::Class(n) => n.clone(),
+            Ty::ClassApp { name, args } => {
+                let a = args
+                    .iter()
+                    .map(|t| t.mono_suffix())
+                    .collect::<Vec<_>>()
+                    .join("_");
+                format!("{name}_{a}")
+            }
+            Ty::Interface(n) => n.clone(),
+            Ty::TypeParam(n) => n.clone(),
+        }
+    }
+
+    pub fn class_name(&self) -> Option<&str> {
         match self {
             Ty::Class(n) => Some(n),
-            Ty::Nullable(inner) => inner.as_class(),
+            Ty::ClassApp { name, .. } => Some(name),
             _ => None,
         }
     }
 
-    pub fn as_interface(&self) -> Option<&str> {
+    pub fn class_args(&self) -> &[Ty] {
         match self {
-            Ty::Interface(n) => Some(n),
-            Ty::Nullable(inner) => inner.as_interface(),
-            _ => None,
+            Ty::ClassApp { args, .. } => args,
+            _ => &[],
         }
     }
 }
@@ -52,6 +88,7 @@ impl Ty {
 #[derive(Debug, Clone)]
 pub struct FunSig {
     pub name: String,
+    pub type_params: Vec<String>,
     pub params: Vec<Ty>,
     pub ret: Ty,
     pub span: Span,
@@ -84,6 +121,7 @@ pub struct FieldSig {
 #[derive(Debug, Clone)]
 pub struct ClassSig {
     pub name: String,
+    pub type_params: Vec<String>,
     pub implements: Vec<String>,
     pub fields: Vec<FieldSig>,
     pub methods: HashMap<String, ClassMethodSig>,
@@ -103,6 +141,10 @@ pub struct CheckedFile {
     pub functions: Vec<FunSig>,
     pub classes: Vec<ClassSig>,
     pub interfaces: Vec<InterfaceSig>,
+    /// Concrete generic class instantiations used in this file.
+    pub mono_classes: Vec<(String, Vec<Ty>)>,
+    /// Concrete generic function instantiations used.
+    pub mono_funs: Vec<(String, Vec<Ty>)>,
     pub ast: File,
 }
 
@@ -139,7 +181,11 @@ struct Checker {
     classes: HashMap<String, ClassSig>,
     interfaces: HashMap<String, InterfaceSig>,
     locals: Vec<HashMap<String, Local>>,
+    /// Type params in current generic scope (name → bound).
+    type_params: HashSet<String>,
     current_class: Option<String>,
+    mono_classes: HashSet<(String, Vec<Ty>)>,
+    mono_funs: HashSet<(String, Vec<Ty>)>,
 }
 
 impl Checker {
@@ -149,6 +195,7 @@ impl Checker {
             "println".into(),
             FunSig {
                 name: "println".into(),
+                type_params: Vec::new(),
                 params: vec![Ty::String],
                 ret: Ty::Unit,
                 span: Span::new(0, 0),
@@ -159,12 +206,14 @@ impl Checker {
             classes: HashMap::new(),
             interfaces: HashMap::new(),
             locals: Vec::new(),
+            type_params: HashSet::new(),
             current_class: None,
+            mono_classes: HashSet::new(),
+            mono_funs: HashSet::new(),
         }
     }
 
     fn check_file(&mut self, file: &File) -> Result<CheckedFile, SemaError> {
-        // Interfaces first
         for i in &file.interfaces {
             if self.interfaces.contains_key(&i.name.name)
                 || self.classes.contains_key(&i.name.name)
@@ -211,7 +260,6 @@ impl Checker {
             );
         }
 
-        // Reserve class names
         for c in &file.classes {
             if self.classes.contains_key(&c.name.name)
                 || self.interfaces.contains_key(&c.name.name)
@@ -222,10 +270,17 @@ impl Checker {
                     span: c.name.span,
                 });
             }
+            if !c.type_params.is_empty() && !c.implements.is_empty() {
+                return Err(SemaError {
+                    message: "C2b: generic classes cannot implement interfaces yet".into(),
+                    span: c.name.span,
+                });
+            }
             self.classes.insert(
                 c.name.name.clone(),
                 ClassSig {
                     name: c.name.name.clone(),
+                    type_params: c.type_params.iter().map(|p| p.name.clone()).collect(),
                     implements: Vec::new(),
                     fields: Vec::new(),
                     methods: HashMap::new(),
@@ -234,8 +289,10 @@ impl Checker {
             );
         }
 
-        // Fill classes
         for c in &file.classes {
+            // Bind type params while resolving field/method types
+            self.type_params = c.type_params.iter().map(|p| p.name.clone()).collect();
+
             let mut implements = Vec::new();
             for iface in &c.implements {
                 if !self.interfaces.contains_key(&iface.name) {
@@ -273,6 +330,13 @@ impl Checker {
 
             let mut methods = HashMap::new();
             for m in &c.methods {
+                if !m.type_params.is_empty() {
+                    return Err(SemaError {
+                        message: "C2b: methods cannot declare their own type parameters yet"
+                            .into(),
+                        span: m.name.span,
+                    });
+                }
                 if methods.contains_key(&m.name.name) {
                     return Err(SemaError {
                         message: format!("duplicate method `{}`", m.name.name),
@@ -300,7 +364,6 @@ impl Checker {
                 );
             }
 
-            // Verify implements: class has matching methods
             for iface_name in &implements {
                 let iface = self.interfaces.get(iface_name).unwrap().clone();
                 for (mname, im) in &iface.methods {
@@ -329,9 +392,9 @@ impl Checker {
             entry.implements = implements;
             entry.fields = fields;
             entry.methods = methods;
+            self.type_params.clear();
         }
 
-        // Free functions
         for f in &file.functions {
             if self.functions.contains_key(&f.name.name)
                 || self.classes.contains_key(&f.name.name)
@@ -342,6 +405,7 @@ impl Checker {
                     span: f.name.span,
                 });
             }
+            self.type_params = f.type_params.iter().map(|p| p.name.clone()).collect();
             let params = f
                 .params
                 .iter()
@@ -355,16 +419,18 @@ impl Checker {
                 f.name.name.clone(),
                 FunSig {
                     name: f.name.name.clone(),
+                    type_params: f.type_params.iter().map(|p| p.name.clone()).collect(),
                     params,
                     ret,
                     span: f.span,
                 },
             );
+            self.type_params.clear();
         }
 
-        // Method bodies
         for c in &file.classes {
             self.current_class = Some(c.name.name.clone());
+            self.type_params = c.type_params.iter().map(|p| p.name.clone()).collect();
             for m in &c.methods {
                 let ret = self
                     .classes
@@ -378,11 +444,14 @@ impl Checker {
                 self.check_method(c, m, &ret)?;
             }
             self.current_class = None;
+            self.type_params.clear();
         }
 
         for f in &file.functions {
+            self.type_params = f.type_params.iter().map(|p| p.name.clone()).collect();
             let ret = self.functions.get(&f.name.name).unwrap().ret.clone();
             self.check_fun(f, &ret)?;
+            self.type_params.clear();
         }
 
         let package = file
@@ -409,11 +478,42 @@ impl Checker {
             .map(|i| self.interfaces.get(&i.name.name).unwrap().clone())
             .collect();
 
+        let mut mono_classes: Vec<_> = self.mono_classes.iter().cloned().collect();
+        mono_classes.sort_by(|a, b| {
+            let sa = format!(
+                "{}_{}",
+                a.0,
+                a.1.iter().map(|t| t.display()).collect::<Vec<_>>().join("_")
+            );
+            let sb = format!(
+                "{}_{}",
+                b.0,
+                b.1.iter().map(|t| t.display()).collect::<Vec<_>>().join("_")
+            );
+            sa.cmp(&sb)
+        });
+        let mut mono_funs: Vec<_> = self.mono_funs.iter().cloned().collect();
+        mono_funs.sort_by(|a, b| {
+            let sa = format!(
+                "{}_{}",
+                a.0,
+                a.1.iter().map(|t| t.display()).collect::<Vec<_>>().join("_")
+            );
+            let sb = format!(
+                "{}_{}",
+                b.0,
+                b.1.iter().map(|t| t.display()).collect::<Vec<_>>().join("_")
+            );
+            sa.cmp(&sb)
+        });
+
         Ok(CheckedFile {
             package,
             functions,
             classes,
             interfaces,
+            mono_classes,
+            mono_funs,
             ast: file.clone(),
         })
     }
@@ -558,6 +658,7 @@ impl Checker {
                         span: v.name.span,
                     });
                 }
+                self.note_mono_ty(&ty);
                 self.current_locals_mut().insert(
                     v.name.name.clone(),
                     Local {
@@ -616,6 +717,14 @@ impl Checker {
         }
     }
 
+    fn note_mono_ty(&mut self, ty: &Ty) {
+        if let Ty::ClassApp { name, args } = ty {
+            if !args.is_empty() {
+                self.mono_classes.insert((name.clone(), args.clone()));
+            }
+        }
+    }
+
     fn check_expr(&mut self, expr: &Expr) -> Result<Ty, SemaError> {
         match expr {
             Expr::Ident(id) => {
@@ -632,7 +741,20 @@ impl Checker {
                     message: "`this` is only valid inside methods".into(),
                     span: *span,
                 })?;
-                Ok(Ty::Class(class.clone()))
+                // Inside generic class, this is the open Class with type params as TypeParam
+                let sig = self.classes.get(class).unwrap();
+                if sig.type_params.is_empty() {
+                    Ok(Ty::Class(class.clone()))
+                } else {
+                    Ok(Ty::ClassApp {
+                        name: class.clone(),
+                        args: sig
+                            .type_params
+                            .iter()
+                            .map(|p| Ty::TypeParam(p.clone()))
+                            .collect(),
+                    })
+                }
             }
             Expr::Int(_) => Ok(Ty::Int),
             Expr::Bool(_) => Ok(Ty::Bool),
@@ -641,13 +763,14 @@ impl Checker {
             Expr::Group(inner, _) => self.check_expr(inner),
             Expr::Field(f) => {
                 let obj_ty = self.check_expr(&f.object)?;
-                if let Ty::Class(class_name) = &obj_ty {
-                    let class = self.classes.get(class_name).ok_or_else(|| SemaError {
-                        message: format!("unknown class `{class_name}`"),
+                if let Some(cname) = obj_ty.class_name() {
+                    let class = self.classes.get(cname).cloned().ok_or_else(|| SemaError {
+                        message: format!("unknown class `{cname}`"),
                         span: f.span,
                     })?;
+                    let subst = type_subst_map(&class.type_params, obj_ty.class_args());
                     if let Some(field) = class.fields.iter().find(|x| x.name == f.field.name) {
-                        return Ok(field.ty.clone());
+                        return Ok(subst_ty(&field.ty, &subst));
                     }
                     if class.methods.contains_key(&f.field.name) {
                         return Err(SemaError {
@@ -659,7 +782,7 @@ impl Checker {
                         });
                     }
                     return Err(SemaError {
-                        message: format!("unknown field `{}` on `{class_name}`", f.field.name),
+                        message: format!("unknown field `{}` on `{cname}`", f.field.name),
                         span: f.field.span,
                     });
                 }
@@ -806,24 +929,40 @@ impl Checker {
 
     fn check_call(&mut self, c: &CallExpr) -> Result<Ty, SemaError> {
         if let Expr::Field(fe) = c.callee.as_ref() {
+            if !c.type_args.is_empty() {
+                return Err(SemaError {
+                    message: "type arguments not allowed on method calls in C2b".into(),
+                    span: c.span,
+                });
+            }
             let obj_ty = self.check_expr(&fe.object)?;
 
-            // Class method
-            if let Ty::Class(class_name) = &obj_ty {
-                let method = self
-                    .classes
-                    .get(class_name)
-                    .and_then(|cl| cl.methods.get(&fe.field.name))
+            if let Some(cname) = obj_ty.class_name() {
+                let class = self.classes.get(cname).cloned().ok_or_else(|| SemaError {
+                    message: format!("unknown class `{cname}`"),
+                    span: c.span,
+                })?;
+                let method = class
+                    .methods
+                    .get(&fe.field.name)
                     .cloned()
                     .ok_or_else(|| SemaError {
-                        message: format!("unknown method `{}` on `{class_name}`", fe.field.name),
+                        message: format!("unknown method `{}` on `{cname}`", fe.field.name),
                         span: fe.field.span,
                     })?;
-                self.check_args(&method.params, &c.args, &format!("{}.{}", class_name, method.name), c.span)?;
-                return Ok(method.ret);
+                let subst = type_subst_map(&class.type_params, obj_ty.class_args());
+                let params: Vec<Ty> = method.params.iter().map(|p| subst_ty(p, &subst)).collect();
+                let ret = subst_ty(&method.ret, &subst);
+                self.check_args(
+                    &params,
+                    &c.args,
+                    &format!("{}.{}", cname, method.name),
+                    c.span,
+                )?;
+                self.note_mono_ty(&obj_ty);
+                return Ok(ret);
             }
 
-            // Interface method
             if let Ty::Interface(iface_name) = &obj_ty {
                 let method = self
                     .interfaces
@@ -865,8 +1004,25 @@ impl Checker {
             }
         };
 
-        // Constructor
+        // Constructor (possibly generic)
         if let Some(class) = self.classes.get(&name).cloned() {
+            let type_args: Vec<Ty> = c
+                .type_args
+                .iter()
+                .map(|t| self.type_from_ref(t))
+                .collect::<Result<Vec<_>, _>>()?;
+            if type_args.len() != class.type_params.len() {
+                return Err(SemaError {
+                    message: format!(
+                        "type `{}` expects {} type argument(s), got {}",
+                        name,
+                        class.type_params.len(),
+                        type_args.len()
+                    ),
+                    span: c.span,
+                });
+            }
+            let subst = type_subst_map(&class.type_params, &type_args);
             if c.args.len() != class.fields.len() {
                 return Err(SemaError {
                     message: format!(
@@ -879,28 +1035,61 @@ impl Checker {
                 });
             }
             for (arg, field) in c.args.iter().zip(class.fields.iter()) {
+                let expected = subst_ty(&field.ty, &subst);
                 let got = self.check_expr(arg)?;
-                if !self.is_assignable(&got, &field.ty) {
+                if !self.is_assignable(&got, &expected) {
                     return Err(SemaError {
                         message: format!(
                             "constructor argument for `{}`: expected {}, got {}",
                             field.name,
-                            field.ty.display(),
+                            expected.display(),
                             got.display()
                         ),
                         span: arg.span(),
                     });
                 }
             }
-            return Ok(Ty::Class(name));
+            let ret = if type_args.is_empty() {
+                Ty::Class(name)
+            } else {
+                let t = Ty::ClassApp {
+                    name,
+                    args: type_args,
+                };
+                self.note_mono_ty(&t);
+                t
+            };
+            return Ok(ret);
         }
 
+        // Free function (possibly generic)
         let sig = self.functions.get(&name).cloned().ok_or_else(|| SemaError {
             message: format!("undefined function `{name}`"),
             span: c.callee.span(),
         })?;
-        self.check_args(&sig.params, &c.args, &name, c.span)?;
-        Ok(sig.ret)
+        let type_args: Vec<Ty> = c
+            .type_args
+            .iter()
+            .map(|t| self.type_from_ref(t))
+            .collect::<Result<Vec<_>, _>>()?;
+        if type_args.len() != sig.type_params.len() {
+            return Err(SemaError {
+                message: format!(
+                    "function `{name}` expects {} type argument(s), got {}",
+                    sig.type_params.len(),
+                    type_args.len()
+                ),
+                span: c.span,
+            });
+        }
+        let subst = type_subst_map(&sig.type_params, &type_args);
+        let params: Vec<Ty> = sig.params.iter().map(|p| subst_ty(p, &subst)).collect();
+        let ret = subst_ty(&sig.ret, &subst);
+        self.check_args(&params, &c.args, &name, c.span)?;
+        if !type_args.is_empty() {
+            self.mono_funs.insert((name, type_args));
+        }
+        Ok(ret)
     }
 
     fn check_args(
@@ -937,13 +1126,57 @@ impl Checker {
     }
 
     fn type_from_ref(&self, t: &TypeRef) -> Result<Ty, SemaError> {
+        let type_args: Vec<Ty> = t
+            .type_args
+            .iter()
+            .map(|a| self.type_from_ref(a))
+            .collect::<Result<Vec<_>, _>>()?;
+
         let base = match t.name.name.as_str() {
             "Unit" => Ty::Unit,
             "Int" => Ty::Int,
             "Bool" => Ty::Bool,
             "String" => Ty::String,
-            other if self.classes.contains_key(other) => Ty::Class(other.to_string()),
-            other if self.interfaces.contains_key(other) => Ty::Interface(other.to_string()),
+            other if self.type_params.contains(other) => {
+                if !type_args.is_empty() {
+                    return Err(SemaError {
+                        message: format!("type parameter `{other}` cannot take type arguments"),
+                        span: t.span,
+                    });
+                }
+                Ty::TypeParam(other.to_string())
+            }
+            other if self.classes.contains_key(other) => {
+                let class = self.classes.get(other).unwrap();
+                if type_args.len() != class.type_params.len() {
+                    return Err(SemaError {
+                        message: format!(
+                            "type `{}` expects {} type argument(s), got {}",
+                            other,
+                            class.type_params.len(),
+                            type_args.len()
+                        ),
+                        span: t.span,
+                    });
+                }
+                if type_args.is_empty() {
+                    Ty::Class(other.to_string())
+                } else {
+                    Ty::ClassApp {
+                        name: other.to_string(),
+                        args: type_args,
+                    }
+                }
+            }
+            other if self.interfaces.contains_key(other) => {
+                if !type_args.is_empty() {
+                    return Err(SemaError {
+                        message: format!("interface `{other}` cannot take type arguments in C2b"),
+                        span: t.span,
+                    });
+                }
+                Ty::Interface(other.to_string())
+            }
             other => {
                 return Err(SemaError {
                     message: format!("unknown type `{other}`"),
@@ -972,14 +1205,34 @@ impl Checker {
             (Ty::Null, Ty::Nullable(_)) => true,
             (Ty::Nullable(a), Ty::Nullable(b)) => self.is_assignable(a, b),
             (inner, Ty::Nullable(outer)) if self.is_assignable(inner, outer) => true,
-            // class → interface if implements
             (Ty::Class(c), Ty::Interface(i)) => self
                 .classes
                 .get(c)
                 .map(|cs| cs.implements.iter().any(|x| x == i))
                 .unwrap_or(false),
+            // Type params only match themselves (handled by ==)
             _ => false,
         }
+    }
+}
+
+fn type_subst_map(params: &[String], args: &[Ty]) -> HashMap<String, Ty> {
+    params
+        .iter()
+        .cloned()
+        .zip(args.iter().cloned())
+        .collect()
+}
+
+fn subst_ty(ty: &Ty, map: &HashMap<String, Ty>) -> Ty {
+    match ty {
+        Ty::TypeParam(name) => map.get(name).cloned().unwrap_or_else(|| ty.clone()),
+        Ty::Nullable(inner) => Ty::Nullable(Box::new(subst_ty(inner, map))),
+        Ty::ClassApp { name, args } => Ty::ClassApp {
+            name: name.clone(),
+            args: args.iter().map(|a| subst_ty(a, map)).collect(),
+        },
+        other => other.clone(),
     }
 }
 
@@ -1001,8 +1254,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn class_to_iface_needs_implements() {
-        // unit-level only via is_assignable after full check — smoke
-        assert_eq!(Ty::Int.display(), "Int");
+    fn mono_suffix() {
+        let t = Ty::ClassApp {
+            name: "Box".into(),
+            args: vec![Ty::String],
+        };
+        assert_eq!(t.mono_suffix(), "Box_String");
     }
 }

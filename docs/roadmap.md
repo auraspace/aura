@@ -55,8 +55,9 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C1** | Codegen + runtime stub → native binary | Done via **C backend** + `cc` (LLVM later) |
 | **C1b** | Simple `class` + methods + `this` + field access | Done |
 | **C2a** | `interface` + implements + closed-world dispatch | Done |
-| **C2b** | Generics (monomorphization) | Next |
+| **C2b** | Generics (class/fun type params + mono) | Done |
 | **DX** | line:col diagnostics with snippets | Done |
+| **C2c** | Inference of type args / multi-param bounds | Next |
 
 **Out of scope C0/C1:** generics mono, async/tasks, macros, registry, incremental, LTO.
 

@@ -1,4 +1,4 @@
-//! Aura AST for compiler milestones C0–C2 (RFC-001 §6.0).
+//! Aura AST for compiler milestones C0–C2b (RFC-001 §6.0).
 
 use std::fmt;
 
@@ -55,10 +55,11 @@ pub struct Ident {
     pub span: Span,
 }
 
-/// `class Name(val x: T, …) : Iface1, Iface2 { methods… }`
+/// `class Name<T>(val x: T, …) : Iface { methods… }`
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClassDecl {
     pub name: Ident,
+    pub type_params: Vec<Ident>,
     /// Interfaces listed after `:` (C2).
     pub implements: Vec<Ident>,
     pub fields: Vec<FieldDecl>,
@@ -74,9 +75,11 @@ pub struct FieldDecl {
     pub span: Span,
 }
 
+/// `fun name<T>(…): T { … }`
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunDecl {
     pub name: Ident,
+    pub type_params: Vec<Ident>,
     pub params: Vec<Param>,
     pub return_type: Option<TypeRef>,
     pub body: Block,
@@ -90,9 +93,11 @@ pub struct Param {
     pub span: Span,
 }
 
+/// `Box<String>?` — name, optional type arguments, optional `?`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeRef {
     pub name: Ident,
+    pub type_args: Vec<TypeRef>,
     pub nullable: bool,
     pub span: Span,
 }
@@ -145,7 +150,6 @@ pub struct ReturnStmt {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Ident(Ident),
-    /// Implicit/explicit `this` inside methods.
     This(Span),
     Int(IntLit),
     Bool(BoolLit),
@@ -187,7 +191,6 @@ pub struct FieldExpr {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AssignExpr {
-    /// Simple local assign in C0; field assign not yet.
     pub name: Ident,
     pub value: Box<Expr>,
     pub span: Span,
@@ -211,9 +214,11 @@ pub struct StringLit {
     pub span: Span,
 }
 
+/// `id(args)` or `Box<String>(args)` (type_args on generic ctor/fun).
 #[derive(Debug, Clone, PartialEq)]
 pub struct CallExpr {
     pub callee: Box<Expr>,
+    pub type_args: Vec<TypeRef>,
     pub args: Vec<Expr>,
     pub span: Span,
 }

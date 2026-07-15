@@ -3,7 +3,7 @@
 //! Classes → C structs; interfaces → tagged unions (closed-world dispatch).
 
 use aura_ast::*;
-use aura_sema::{check_file, CheckedFile, SemaError};
+use aura_sema::{check_file, CheckedFile, SemaError, Ty};
 use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::fs;
@@ -36,9 +36,11 @@ impl From<SemaError> for CodegenError {
 
 struct EmitCtx<'a> {
     checked: &'a CheckedFile,
-    /// When emitting a method body, class name for bare field → this->field
+    /// Mono class key for `this` (e.g. `Box_String` or `User`).
     method_class: Option<&'a str>,
-    /// Local name → type name (`Int`, `String`, class name, …)
+    type_params: Vec<String>,
+    type_args: Vec<Ty>,
+    /// Local name → type key (`Int`, `Box_String`, `Named`, …)
     locals: Vec<HashMap<String, String>>,
 }
 
@@ -77,30 +79,31 @@ pub fn emit_c(checked: &CheckedFile) -> String {
     out.push_str("void aura_println(const char *s);\n");
     out.push_str("int aura_main(void);\n\n");
 
-    // Stable class tags for interface dispatch
-    if !checked.ast.classes.is_empty() {
+    // Stable class tags for interface dispatch (non-generic only)
+    let tagged: Vec<_> = checked
+        .ast
+        .classes
+        .iter()
+        .filter(|c| c.type_params.is_empty())
+        .collect();
+    if !tagged.is_empty() {
         out.push_str("enum {\n");
-        for (i, c) in checked.ast.classes.iter().enumerate() {
+        for (i, c) in tagged.iter().enumerate() {
             let _ = writeln!(out, "  AURA_TAG_{} = {},", c.name.name, i);
         }
         out.push_str("  AURA_TAG__COUNT\n};\n\n");
     }
 
-    // Class typedefs
+    // Class typedefs — non-generic classes + monomorphized generic classes
     for c in &checked.ast.classes {
-        let _ = writeln!(out, "typedef struct {} {{", c_class_type(&c.name.name));
-        for f in &c.fields {
-            let _ = writeln!(
-                out,
-                "  {} {};",
-                c_type_ref(&f.ty, checked),
-                mangle_ident(&f.name.name)
-            );
+        if c.type_params.is_empty() {
+            emit_class_typedef(&mut out, checked, c, &[]);
         }
-        if c.fields.is_empty() {
-            out.push_str("  char _pad;\n");
+    }
+    for (name, args) in &checked.mono_classes {
+        if let Some(c) = checked.ast.classes.iter().find(|c| c.name.name == *name) {
+            emit_class_typedef(&mut out, checked, c, args);
         }
-        let _ = writeln!(out, "}} {};\n", c_class_type(&c.name.name));
     }
 
     // Interface tagged unions
@@ -126,20 +129,15 @@ pub fn emit_c(checked: &CheckedFile) -> String {
         let _ = writeln!(out, "  }} data;\n}} {};\n", c_iface_type(&iface.name.name));
     }
 
-    // Forward decls: constructors, methods, free functions, upcasts, iface dispatch
+    // Forward decls
     for c in &checked.ast.classes {
-        let _ = writeln!(out, "{};", c_ctor_signature(c, checked));
-        for m in &c.methods {
-            let _ = writeln!(out, "{};", c_method_signature(c, m, checked));
+        if c.type_params.is_empty() {
+            emit_class_forwards(&mut out, checked, c, &[]);
         }
-        for iface in &c.implements {
-            let _ = writeln!(
-                out,
-                "{} {}({} v);",
-                c_iface_type(&iface.name),
-                c_upcast_name(&c.name.name, &iface.name),
-                c_class_type(&c.name.name)
-            );
+    }
+    for (name, args) in &checked.mono_classes {
+        if let Some(c) = checked.ast.classes.iter().find(|c| c.name.name == *name) {
+            emit_class_forwards(&mut out, checked, c, args);
         }
     }
     for iface in &checked.ast.interfaces {
@@ -155,21 +153,26 @@ pub fn emit_c(checked: &CheckedFile) -> String {
         if f.name.name == "main" {
             continue;
         }
-        let _ = writeln!(out, "{};", c_fun_signature(f, checked));
+        if f.type_params.is_empty() {
+            let _ = writeln!(out, "{};", c_fun_signature(f, checked, &[]));
+        }
+    }
+    for (name, args) in &checked.mono_funs {
+        if let Some(f) = checked.ast.functions.iter().find(|f| f.name.name == *name) {
+            let _ = writeln!(out, "{};", c_fun_signature(f, checked, args));
+        }
     }
     out.push('\n');
 
     // Definitions
     for c in &checked.ast.classes {
-        emit_ctor(&mut out, c, checked);
-        out.push('\n');
-        for m in &c.methods {
-            emit_method(&mut out, c, m, checked);
-            out.push('\n');
+        if c.type_params.is_empty() {
+            emit_class_defs(&mut out, checked, c, &[]);
         }
-        for iface in &c.implements {
-            emit_upcast(&mut out, &c.name.name, &iface.name);
-            out.push('\n');
+    }
+    for (name, args) in &checked.mono_classes {
+        if let Some(c) = checked.ast.classes.iter().find(|c| c.name.name == *name) {
+            emit_class_defs(&mut out, checked, c, args);
         }
     }
 
@@ -181,8 +184,16 @@ pub fn emit_c(checked: &CheckedFile) -> String {
     }
 
     for f in &checked.ast.functions {
-        emit_fun(&mut out, f, checked);
-        out.push('\n');
+        if f.type_params.is_empty() {
+            emit_fun(&mut out, f, checked, &[]);
+            out.push('\n');
+        }
+    }
+    for (name, args) in &checked.mono_funs {
+        if let Some(f) = checked.ast.functions.iter().find(|f| f.name.name == *name) {
+            emit_fun(&mut out, f, checked, args);
+            out.push('\n');
+        }
     }
 
     out.push_str("int aura_main(void) {\n");
@@ -235,7 +246,7 @@ fn emit_iface_dispatch(
     m: &MethodSig,
 ) {
     let _ = writeln!(out, "{} {{", c_iface_method_signature(iface, m, checked));
-    let ret = c_type_from_opt(&m.return_type, checked);
+    let ret = c_type_from_opt(&m.return_type, checked, &[], &[]);
     out.push_str("  switch (self->tag) {\n");
     for c in implementors(checked, iface) {
         let args = m
@@ -252,12 +263,13 @@ fn emit_iface_dispatch(
                 args.join(", ")
             )
         };
+        let mono = c.name.name.as_str();
         if ret == "void" {
             let _ = writeln!(
                 out,
                 "  case AURA_TAG_{}: {}({}); return;",
                 c.name.name,
-                c_method_name(&c.name.name, &m.name.name),
+                c_method_name(mono, &m.name.name),
                 call_args
             );
         } else {
@@ -265,7 +277,7 @@ fn emit_iface_dispatch(
                 out,
                 "  case AURA_TAG_{}: return {}({});",
                 c.name.name,
-                c_method_name(&c.name.name, &m.name.name),
+                c_method_name(mono, &m.name.name),
                 call_args
             );
         }
@@ -286,7 +298,7 @@ fn emit_iface_dispatch(
 }
 
 fn c_iface_method_signature(iface: &str, m: &MethodSig, checked: &CheckedFile) -> String {
-    let ret = c_type_from_opt(&m.return_type, checked);
+    let ret = c_type_from_opt(&m.return_type, checked, &[], &[]);
     let mut params = vec![format!("{} *self", c_iface_type(iface))];
     for p in &m.params {
         params.push(format!(
@@ -302,78 +314,229 @@ fn c_iface_method_signature(iface: &str, m: &MethodSig, checked: &CheckedFile) -
     )
 }
 
-fn c_class_type(name: &str) -> String {
-    format!("aura_cls_{name}")
-}
-
-fn c_fun_name(name: &str) -> String {
-    if name == "main" {
-        "aura_fn_main".into()
-    } else if name == "println" {
-        "aura_println".into()
+fn mono_key(name: &str, args: &[Ty]) -> String {
+    if args.is_empty() {
+        name.to_string()
     } else {
-        format!("aura_fn_{name}")
+        format!(
+            "{}_{}",
+            name,
+            args.iter()
+                .map(|a| a.mono_suffix())
+                .collect::<Vec<_>>()
+                .join("_")
+        )
     }
 }
 
-fn c_ctor_name(class: &str) -> String {
-    format!("aura_new_{class}")
+fn c_class_type(mono: &str) -> String {
+    format!("aura_cls_{mono}")
 }
 
-fn c_method_name(class: &str, method: &str) -> String {
-    format!("aura_method_{class}_{method}")
+fn c_fun_name(name: &str, args: &[Ty]) -> String {
+    if name == "main" {
+        return "aura_fn_main".into();
+    }
+    if name == "println" {
+        return "aura_println".into();
+    }
+    format!("aura_fn_{}", mono_key(name, args))
+}
+
+fn c_ctor_name(mono: &str) -> String {
+    format!("aura_new_{mono}")
+}
+
+fn c_method_name(mono: &str, method: &str) -> String {
+    format!("aura_method_{mono}_{method}")
+}
+
+fn subst_type_ref(ty: &TypeRef, params: &[String], args: &[Ty]) -> String {
+    // Resolve type param names to concrete Ty display / mono
+    if let Some(idx) = params.iter().position(|p| p == &ty.name.name) {
+        if let Some(t) = args.get(idx) {
+            return ty_to_c(t);
+        }
+    }
+    if !ty.type_args.is_empty() {
+        let mono = type_ref_mono(ty, params, args);
+        if is_primitive_name(&ty.name.name) {
+            return ty_to_c(&Ty::Class(ty.name.name.clone())); // shouldn't
+        }
+        return c_class_type(&mono);
+    }
+    match ty.name.name.as_str() {
+        "Int" => "int64_t".into(),
+        "Bool" => "bool".into(),
+        "String" => "const char *".into(),
+        "Unit" => "void".into(),
+        name => c_class_type(name),
+    }
+}
+
+fn is_primitive_name(n: &str) -> bool {
+    matches!(n, "Int" | "Bool" | "String" | "Unit")
+}
+
+fn type_ref_mono(ty: &TypeRef, params: &[String], args: &[Ty]) -> String {
+    if let Some(idx) = params.iter().position(|p| p == &ty.name.name) {
+        if let Some(t) = args.get(idx) {
+            return t.mono_suffix();
+        }
+    }
+    if ty.type_args.is_empty() {
+        ty.name.name.clone()
+    } else {
+        let a = ty
+            .type_args
+            .iter()
+            .map(|t| type_ref_mono(t, params, args))
+            .collect::<Vec<_>>()
+            .join("_");
+        format!("{}_{a}", ty.name.name)
+    }
+}
+
+fn ty_to_c(t: &Ty) -> String {
+    match t {
+        Ty::Int => "int64_t".into(),
+        Ty::Bool => "bool".into(),
+        Ty::String => "const char *".into(),
+        Ty::Unit => "void".into(),
+        Ty::Null => "const char *".into(),
+        Ty::Nullable(inner) => ty_to_c(inner),
+        Ty::Class(n) => c_class_type(n),
+        Ty::ClassApp { name, args } => c_class_type(&mono_key(name, args)),
+        Ty::Interface(n) => c_iface_type(n),
+        Ty::TypeParam(_) => "/* unbound T */ int64_t".into(),
+    }
 }
 
 fn c_type_ref(ty: &TypeRef, checked: &CheckedFile) -> String {
-    match (ty.name.name.as_str(), ty.nullable) {
-        ("Int", false) => "int64_t".into(),
-        ("Bool", false) => "bool".into(),
-        ("String", false) | ("String", true) => "const char *".into(),
-        ("Unit", false) => "void".into(),
-        (name, false) if checked.ast.classes.iter().any(|c| c.name.name == name) => {
-            c_class_type(name)
+    c_type_ref_subst(ty, checked, &[], &[])
+}
+
+fn c_type_ref_subst(
+    ty: &TypeRef,
+    checked: &CheckedFile,
+    params: &[String],
+    args: &[Ty],
+) -> String {
+    let _ = checked;
+    if ty.nullable {
+        // nullable class pointer not fully supported
+        let inner = subst_type_ref(
+            &TypeRef {
+                nullable: false,
+                ..ty.clone()
+            },
+            params,
+            args,
+        );
+        if inner.starts_with("aura_cls_") {
+            return format!("{inner} *");
         }
-        (name, false) if checked.ast.interfaces.iter().any(|i| i.name.name == name) => {
-            c_iface_type(name)
+        return inner;
+    }
+    // interface?
+    // handled via name
+    if ty.type_args.is_empty() {
+        if let Some(idx) = params.iter().position(|p| p == &ty.name.name) {
+            if let Some(t) = args.get(idx) {
+                return ty_to_c(t);
+            }
         }
-        (name, true) if checked.ast.classes.iter().any(|c| c.name.name == name) => {
-            format!("{} *", c_class_type(name))
+        match ty.name.name.as_str() {
+            "Int" => "int64_t".into(),
+            "Bool" => "bool".into(),
+            "String" => "const char *".into(),
+            "Unit" => "void".into(),
+            name if checked.ast.interfaces.iter().any(|i| i.name.name == name) => {
+                c_iface_type(name)
+            }
+            name => c_class_type(name),
         }
-        _ => "/* unknown type */ int64_t".into(),
+    } else {
+        c_class_type(&type_ref_mono(ty, params, args))
     }
 }
 
-fn c_type_from_opt(ret: &Option<TypeRef>, checked: &CheckedFile) -> String {
+fn c_type_from_opt(ret: &Option<TypeRef>, checked: &CheckedFile, params: &[String], args: &[Ty]) -> String {
     match ret {
         None => "void".into(),
-        Some(t) if t.name.name == "Unit" => "void".into(),
-        Some(t) => c_type_ref(t, checked),
+        Some(t) if t.name.name == "Unit" && t.type_args.is_empty() => "void".into(),
+        Some(t) => c_type_ref_subst(t, checked, params, args),
     }
 }
 
-fn c_fun_signature(f: &FunDecl, checked: &CheckedFile) -> String {
-    let ret = c_type_from_opt(&f.return_type, checked);
-    let params = if f.params.is_empty() {
-        "void".into()
-    } else {
-        f.params
-            .iter()
-            .map(|p| {
-                format!(
-                    "{} {}",
-                    c_type_ref(&p.ty, checked),
-                    mangle_ident(&p.name.name)
-                )
-            })
-            .collect::<Vec<_>>()
-            .join(", ")
-    };
-    format!("{ret} {}({params})", c_fun_name(&f.name.name))
+fn emit_class_typedef(out: &mut String, checked: &CheckedFile, c: &ClassDecl, args: &[Ty]) {
+    let params: Vec<String> = c.type_params.iter().map(|p| p.name.clone()).collect();
+    let mono = mono_key(&c.name.name, args);
+    let _ = writeln!(out, "typedef struct {} {{", c_class_type(&mono));
+    for f in &c.fields {
+        let _ = writeln!(
+            out,
+            "  {} {};",
+            c_type_ref_subst(&f.ty, checked, &params, args),
+            mangle_ident(&f.name.name)
+        );
+    }
+    if c.fields.is_empty() {
+        out.push_str("  char _pad;\n");
+    }
+    let _ = writeln!(out, "}} {};\n", c_class_type(&mono));
 }
 
-fn c_ctor_signature(c: &ClassDecl, checked: &CheckedFile) -> String {
-    let ret = c_class_type(&c.name.name);
-    let params = if c.fields.is_empty() {
+fn emit_class_forwards(out: &mut String, checked: &CheckedFile, c: &ClassDecl, args: &[Ty]) {
+    let params: Vec<String> = c.type_params.iter().map(|p| p.name.clone()).collect();
+    let mono = mono_key(&c.name.name, args);
+    let _ = writeln!(out, "{};", c_ctor_signature_mono(c, checked, &params, args, &mono));
+    for m in &c.methods {
+        let _ = writeln!(
+            out,
+            "{};",
+            c_method_signature_mono(c, m, checked, &params, args, &mono)
+        );
+    }
+    if args.is_empty() {
+        for iface in &c.implements {
+            let _ = writeln!(
+                out,
+                "{} {}({} v);",
+                c_iface_type(&iface.name),
+                c_upcast_name(&c.name.name, &iface.name),
+                c_class_type(&mono)
+            );
+        }
+    }
+}
+
+fn emit_class_defs(out: &mut String, checked: &CheckedFile, c: &ClassDecl, args: &[Ty]) {
+    let params: Vec<String> = c.type_params.iter().map(|p| p.name.clone()).collect();
+    let mono = mono_key(&c.name.name, args);
+    emit_ctor_mono(out, c, checked, &params, args, &mono);
+    out.push('\n');
+    for m in &c.methods {
+        emit_method_mono(out, c, m, checked, &params, args, &mono);
+        out.push('\n');
+    }
+    if args.is_empty() {
+        for iface in &c.implements {
+            emit_upcast(out, &c.name.name, &iface.name);
+            out.push('\n');
+        }
+    }
+}
+
+fn c_ctor_signature_mono(
+    c: &ClassDecl,
+    checked: &CheckedFile,
+    params: &[String],
+    args: &[Ty],
+    mono: &str,
+) -> String {
+    let ret = c_class_type(mono);
+    let ps = if c.fields.is_empty() {
         "void".into()
     } else {
         c.fields
@@ -381,31 +544,109 @@ fn c_ctor_signature(c: &ClassDecl, checked: &CheckedFile) -> String {
             .map(|f| {
                 format!(
                     "{} {}",
-                    c_type_ref(&f.ty, checked),
+                    c_type_ref_subst(&f.ty, checked, params, args),
                     mangle_ident(&f.name.name)
                 )
             })
             .collect::<Vec<_>>()
             .join(", ")
     };
-    format!("{ret} {}({params})", c_ctor_name(&c.name.name))
+    format!("{ret} {}({ps})", c_ctor_name(mono))
 }
 
-fn c_method_signature(c: &ClassDecl, m: &FunDecl, checked: &CheckedFile) -> String {
-    let ret = c_type_from_opt(&m.return_type, checked);
-    let mut params = vec![format!("{} *this", c_class_type(&c.name.name))];
+fn c_method_signature_mono(
+    c: &ClassDecl,
+    m: &FunDecl,
+    checked: &CheckedFile,
+    params: &[String],
+    args: &[Ty],
+    mono: &str,
+) -> String {
+    let _ = c;
+    let ret = c_type_from_opt(&m.return_type, checked, params, args);
+    let mut ps = vec![format!("{} *this", c_class_type(mono))];
     for p in &m.params {
-        params.push(format!(
+        ps.push(format!(
             "{} {}",
-            c_type_ref(&p.ty, checked),
+            c_type_ref_subst(&p.ty, checked, params, args),
             mangle_ident(&p.name.name)
         ));
     }
-    format!(
-        "{ret} {}({})",
-        c_method_name(&c.name.name, &m.name.name),
-        params.join(", ")
-    )
+    format!("{ret} {}({})", c_method_name(mono, &m.name.name), ps.join(", "))
+}
+
+fn c_fun_signature(f: &FunDecl, checked: &CheckedFile, args: &[Ty]) -> String {
+    let params: Vec<String> = f.type_params.iter().map(|p| p.name.clone()).collect();
+    let ret = c_type_from_opt(&f.return_type, checked, &params, args);
+    let ps = if f.params.is_empty() {
+        "void".into()
+    } else {
+        f.params
+            .iter()
+            .map(|p| {
+                format!(
+                    "{} {}",
+                    c_type_ref_subst(&p.ty, checked, &params, args),
+                    mangle_ident(&p.name.name)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    format!("{ret} {}({ps})", c_fun_name(&f.name.name, args))
+}
+
+fn emit_ctor_mono(
+    out: &mut String,
+    c: &ClassDecl,
+    checked: &CheckedFile,
+    params: &[String],
+    args: &[Ty],
+    mono: &str,
+) {
+    let _ = writeln!(
+        out,
+        "{} {{",
+        c_ctor_signature_mono(c, checked, params, args, mono)
+    );
+    let _ = writeln!(out, "  {} self;", c_class_type(mono));
+    for f in &c.fields {
+        let n = mangle_ident(&f.name.name);
+        let _ = writeln!(out, "  self.{n} = {n};");
+    }
+    out.push_str("  return self;\n}\n");
+}
+
+fn emit_method_mono(
+    out: &mut String,
+    c: &ClassDecl,
+    m: &FunDecl,
+    checked: &CheckedFile,
+    params: &[String],
+    args: &[Ty],
+    mono: &str,
+) {
+    let _ = writeln!(
+        out,
+        "{} {{",
+        c_method_signature_mono(c, m, checked, params, args, mono)
+    );
+    let mut ctx = EmitCtx {
+        checked,
+        method_class: Some(mono),
+        type_params: params.to_vec(),
+        type_args: args.to_vec(),
+        locals: vec![HashMap::new()],
+    };
+    for f in &c.fields {
+        ctx.define_local(&f.name.name, type_ref_local_key(&f.ty, params, args));
+    }
+    for p in &m.params {
+        ctx.define_local(&p.name.name, type_ref_local_key(&p.ty, params, args));
+    }
+    emit_block(out, &m.body, 1, &mut ctx);
+    emit_return_fallback(out, &m.return_type, checked, params, args);
+    out.push_str("}\n");
 }
 
 fn mangle_ident(name: &str) -> String {
@@ -417,54 +658,56 @@ fn mangle_ident(name: &str) -> String {
     }
 }
 
-fn emit_ctor(out: &mut String, c: &ClassDecl, checked: &CheckedFile) {
-    let _ = writeln!(out, "{} {{", c_ctor_signature(c, checked));
-    let _ = writeln!(out, "  {} self;", c_class_type(&c.name.name));
-    for f in &c.fields {
-        let n = mangle_ident(&f.name.name);
-        let _ = writeln!(out, "  self.{n} = {n};");
-    }
-    out.push_str("  return self;\n}\n");
-}
-
-fn emit_method(out: &mut String, c: &ClassDecl, m: &FunDecl, checked: &CheckedFile) {
-    let _ = writeln!(out, "{} {{", c_method_signature(c, m, checked));
-    let mut ctx = EmitCtx {
-        checked,
-        method_class: Some(&c.name.name),
-        locals: vec![HashMap::new()],
-    };
-    // fields as locals (type only)
-    for f in &c.fields {
-        ctx.define_local(&f.name.name, f.ty.name.name.clone());
-    }
-    for p in &m.params {
-        ctx.define_local(&p.name.name, p.ty.name.name.clone());
-    }
-    emit_block(out, &m.body, 1, &mut ctx);
-    emit_return_fallback(out, &m.return_type, checked);
-    out.push_str("}\n");
-}
-
-fn emit_fun(out: &mut String, f: &FunDecl, checked: &CheckedFile) {
-    let _ = writeln!(out, "{} {{", c_fun_signature(f, checked));
+fn emit_fun(out: &mut String, f: &FunDecl, checked: &CheckedFile, args: &[Ty]) {
+    let params: Vec<String> = f.type_params.iter().map(|p| p.name.clone()).collect();
+    let _ = writeln!(out, "{} {{", c_fun_signature(f, checked, args));
     let mut ctx = EmitCtx {
         checked,
         method_class: None,
+        type_params: params.clone(),
+        type_args: args.to_vec(),
         locals: vec![HashMap::new()],
     };
     for p in &f.params {
-        ctx.define_local(&p.name.name, p.ty.name.name.clone());
+        ctx.define_local(
+            &p.name.name,
+            type_ref_local_key(&p.ty, &params, args),
+        );
     }
     emit_block(out, &f.body, 1, &mut ctx);
-    emit_return_fallback(out, &f.return_type, checked);
+    emit_return_fallback(out, &f.return_type, checked, &params, args);
     out.push_str("}\n");
 }
 
-fn emit_return_fallback(out: &mut String, ret: &Option<TypeRef>, checked: &CheckedFile) {
+fn type_ref_local_key(ty: &TypeRef, params: &[String], args: &[Ty]) -> String {
+    if let Some(idx) = params.iter().position(|p| p == &ty.name.name) {
+        if let Some(t) = args.get(idx) {
+            return match t {
+                Ty::ClassApp { .. } | Ty::Class(_) => t.mono_suffix(),
+                other => other.display(),
+            };
+        }
+    }
+    if ty.type_args.is_empty() {
+        ty.name.name.clone()
+    } else {
+        type_ref_mono(ty, params, args)
+    }
+}
+
+fn emit_return_fallback(
+    out: &mut String,
+    ret: &Option<TypeRef>,
+    checked: &CheckedFile,
+    params: &[String],
+    args: &[Ty],
+) {
     match ret {
-        Some(t) if t.name.name != "Unit" => {
-            let ct = c_type_ref(t, checked);
+        Some(t) if t.name.name != "Unit" || !t.type_args.is_empty() => {
+            let ct = c_type_ref_subst(t, checked, params, args);
+            if ct == "void" {
+                return;
+            }
             if ct == "int64_t" {
                 out.push_str("  return 0; /* fallback */\n");
             } else if ct == "bool" {
@@ -472,6 +715,8 @@ fn emit_return_fallback(out: &mut String, ret: &Option<TypeRef>, checked: &Check
             } else if ct == "const char *" {
                 out.push_str("  return \"\"; /* fallback */\n");
             } else if ct.starts_with("aura_cls_") {
+                let _ = writeln!(out, "  return ({ct}){{0}}; /* fallback */");
+            } else if ct.starts_with("aura_iface_") {
                 let _ = writeln!(out, "  return ({ct}){{0}}; /* fallback */");
             }
         }
@@ -498,13 +743,17 @@ fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut EmitCtx<'_>
             let ty_name = v
                 .ty
                 .as_ref()
-                .map(|t| t.name.name.clone())
+                .map(|t| {
+                    type_ref_local_key(t, &ctx.type_params, &ctx.type_args)
+                })
                 .unwrap_or_else(|| infer_type_name(&v.init, ctx));
             let ty = v
                 .ty
                 .as_ref()
-                .map(|t| c_type_ref(t, ctx.checked))
-                .unwrap_or_else(|| infer_c_type_from_expr(&v.init, ctx.checked));
+                .map(|t| {
+                    c_type_ref_subst(t, ctx.checked, &ctx.type_params, &ctx.type_args)
+                })
+                .unwrap_or_else(|| local_key_to_c(&ty_name, ctx.checked));
             ctx.define_local(&v.name.name, ty_name.clone());
             let init = coerce_expr(&v.init, &ty_name, ctx);
             let _ = writeln!(
@@ -541,6 +790,17 @@ fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut EmitCtx<'_>
     }
 }
 
+fn local_key_to_c(key: &str, checked: &CheckedFile) -> String {
+    match key {
+        "Int" => "int64_t".into(),
+        "Bool" => "bool".into(),
+        "String" => "const char *".into(),
+        "Unit" => "void".into(),
+        n if checked.ast.interfaces.iter().any(|i| i.name.name == n) => c_iface_type(n),
+        n => c_class_type(n),
+    }
+}
+
 fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
     match e {
         Expr::Int(_) => "Int".into(),
@@ -555,24 +815,56 @@ fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
                     .iter()
                     .any(|x| x.name.name == id.name) =>
             {
-                id.name.clone()
+                let targs: Vec<Ty> = c
+                    .type_args
+                    .iter()
+                    .filter_map(|t| type_ref_to_ty(t, ctx))
+                    .collect();
+                mono_key(&id.name, &targs)
+            }
+            Expr::Ident(id)
+                if ctx
+                    .checked
+                    .ast
+                    .functions
+                    .iter()
+                    .any(|f| f.name.name == id.name) =>
+            {
+                let targs: Vec<Ty> = c
+                    .type_args
+                    .iter()
+                    .filter_map(|t| type_ref_to_ty(t, ctx))
+                    .collect();
+                if let Some(f) = ctx
+                    .checked
+                    .ast
+                    .functions
+                    .iter()
+                    .find(|f| f.name.name == id.name)
+                {
+                    let params: Vec<String> =
+                        f.type_params.iter().map(|p| p.name.clone()).collect();
+                    if let Some(rt) = &f.return_type {
+                        return type_ref_local_key(rt, &params, &targs);
+                    }
+                }
+                "Unit".into()
             }
             Expr::Field(fe) => {
-                // method return type
-                if let Some(class) = resolve_class_of_expr(&fe.object, ctx) {
+                if let Some(mono) = resolve_class_of_expr(&fe.object, ctx) {
+                    let base = mono_base_name(mono, ctx.checked).unwrap_or(mono);
                     if let Some(m) = ctx
                         .checked
                         .ast
                         .classes
                         .iter()
-                        .find(|c| c.name.name == class)
+                        .find(|c| c.name.name == base)
                         .and_then(|c| c.methods.iter().find(|m| m.name.name == fe.field.name))
                     {
-                        return m
-                            .return_type
-                            .as_ref()
-                            .map(|t| t.name.name.clone())
-                            .unwrap_or_else(|| "Unit".into());
+                        if let Some(rt) = &m.return_type {
+                            // substitute class type args from mono key is hard; use name only for primitives
+                            return type_ref_local_key(rt, &[], &[]);
+                        }
                     }
                 }
                 "Int".into()
@@ -580,16 +872,17 @@ fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
             _ => "Int".into(),
         },
         Expr::Field(f) => {
-            if let Some(class) = resolve_class_of_expr(&f.object, ctx) {
+            if let Some(mono) = resolve_class_of_expr(&f.object, ctx) {
+                let base = mono_base_name(mono, ctx.checked).unwrap_or(mono);
                 if let Some(field) = ctx
                     .checked
                     .ast
                     .classes
                     .iter()
-                    .find(|c| c.name.name == class)
+                    .find(|c| c.name.name == base)
                     .and_then(|c| c.fields.iter().find(|x| x.name.name == f.field.name))
                 {
-                    return field.ty.name.name.clone();
+                    return type_ref_local_key(&field.ty, &[], &[]);
                 }
             }
             "String".into()
@@ -617,32 +910,6 @@ fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
     }
 }
 
-fn infer_c_type_from_expr(e: &Expr, checked: &CheckedFile) -> String {
-    match e {
-        Expr::Int(_) => "int64_t".into(),
-        Expr::Bool(_) => "bool".into(),
-        Expr::String(_) | Expr::Null(_) => "const char *".into(),
-        Expr::Call(c) => match c.callee.as_ref() {
-            Expr::Ident(id) if checked.ast.classes.iter().any(|x| x.name.name == id.name) => {
-                c_class_type(&id.name)
-            }
-            _ => "int64_t".into(),
-        },
-        Expr::Unary(UnaryExpr { op: UnOp::Not, .. }) => "bool".into(),
-        Expr::Binary(BinaryExpr {
-            op: BinOp::Lt
-                | BinOp::Le
-                | BinOp::Gt
-                | BinOp::Ge
-                | BinOp::Eq
-                | BinOp::Ne
-                | BinOp::And
-                | BinOp::Or,
-            ..
-        }) => "bool".into(),
-        _ => "int64_t".into(),
-    }
-}
 
 
 
@@ -766,22 +1033,24 @@ fn emit_call(c: &CallExpr, ctx: &EmitCtx<'_>) -> String {
             );
         }
 
-        // Class method
-        let class = obj_ty
+        // Class method (obj_ty is mono key e.g. Box_String or User)
+        let mono = obj_ty
             .as_deref()
             .or_else(|| resolve_class_of_expr(&fe.object, ctx))
             .unwrap_or("Unknown");
+        let base = mono_base_name(mono, ctx.checked).unwrap_or(mono);
         let mut args = vec![format!("&({obj})")];
         if let Some(m) = ctx
             .checked
             .ast
             .classes
             .iter()
-            .find(|c| c.name.name == class)
+            .find(|c| c.name.name == base)
             .and_then(|c| c.methods.iter().find(|m| m.name.name == fe.field.name))
         {
             for (a, p) in c.args.iter().zip(m.params.iter()) {
-                args.push(coerce_expr(a, &p.ty.name.name, ctx));
+                let expected = type_ref_local_key(&p.ty, &[], &[]);
+                args.push(coerce_expr(a, &expected, ctx));
             }
         } else {
             for a in &c.args {
@@ -790,36 +1059,40 @@ fn emit_call(c: &CallExpr, ctx: &EmitCtx<'_>) -> String {
         }
         return format!(
             "{}({})",
-            c_method_name(class, &fe.field.name),
+            c_method_name(mono, &fe.field.name),
             args.join(", ")
         );
     }
 
     match c.callee.as_ref() {
         Expr::Ident(id) => {
-            // Constructor
-            if ctx
+            // Constructor (optional type args)
+            if let Some(class) = ctx
                 .checked
                 .ast
                 .classes
                 .iter()
-                .any(|x| x.name.name == id.name)
+                .find(|x| x.name.name == id.name)
             {
-                let class = ctx
-                    .checked
-                    .ast
-                    .classes
+                let targs: Vec<Ty> = c
+                    .type_args
                     .iter()
-                    .find(|x| x.name.name == id.name)
-                    .unwrap();
+                    .filter_map(|t| type_ref_to_ty(t, ctx))
+                    .collect();
+                let mono = mono_key(&id.name, &targs);
+                let params: Vec<String> =
+                    class.type_params.iter().map(|p| p.name.clone()).collect();
                 let args = c
                     .args
                     .iter()
                     .zip(class.fields.iter())
-                    .map(|(a, f)| coerce_expr(a, &f.ty.name.name, ctx))
+                    .map(|(a, f)| {
+                        let expected = type_ref_local_key(&f.ty, &params, &targs);
+                        coerce_expr(a, &expected, ctx)
+                    })
                     .collect::<Vec<_>>()
                     .join(", ");
-                return format!("{}({args})", c_ctor_name(&id.name));
+                return format!("{}({args})", c_ctor_name(&mono));
             }
             // Free function
             if let Some(f) = ctx
@@ -829,14 +1102,23 @@ fn emit_call(c: &CallExpr, ctx: &EmitCtx<'_>) -> String {
                 .iter()
                 .find(|f| f.name.name == id.name)
             {
+                let targs: Vec<Ty> = c
+                    .type_args
+                    .iter()
+                    .filter_map(|t| type_ref_to_ty(t, ctx))
+                    .collect();
+                let params: Vec<String> = f.type_params.iter().map(|p| p.name.clone()).collect();
                 let args = c
                     .args
                     .iter()
                     .zip(f.params.iter())
-                    .map(|(a, p)| coerce_expr(a, &p.ty.name.name, ctx))
+                    .map(|(a, p)| {
+                        let expected = type_ref_local_key(&p.ty, &params, &targs);
+                        coerce_expr(a, &expected, ctx)
+                    })
                     .collect::<Vec<_>>()
                     .join(", ");
-                return format!("{}({args})", c_fun_name(&id.name));
+                return format!("{}({args})", c_fun_name(&id.name, &targs));
             }
             let args = c
                 .args
@@ -844,9 +1126,54 @@ fn emit_call(c: &CallExpr, ctx: &EmitCtx<'_>) -> String {
                 .map(|a| emit_expr(a, ctx))
                 .collect::<Vec<_>>()
                 .join(", ");
-            format!("{}({args})", c_fun_name(&id.name))
+            format!("{}({args})", c_fun_name(&id.name, &[]))
         }
         _ => "/* bad call */(0)".into(),
+    }
+}
+
+fn mono_base_name<'a>(mono: &'a str, checked: &'a CheckedFile) -> Option<&'a str> {
+    if checked.ast.classes.iter().any(|c| c.name.name == mono) {
+        return Some(mono);
+    }
+    for (name, args) in &checked.mono_classes {
+        if mono_key(name, args) == mono {
+            return Some(name.as_str());
+        }
+    }
+    None
+}
+
+fn type_ref_to_ty(t: &TypeRef, ctx: &EmitCtx<'_>) -> Option<Ty> {
+    if !t.type_args.is_empty() {
+        let args: Vec<Ty> = t
+            .type_args
+            .iter()
+            .filter_map(|a| type_ref_to_ty(a, ctx))
+            .collect();
+        return Some(Ty::ClassApp {
+            name: t.name.name.clone(),
+            args,
+        });
+    }
+    match t.name.name.as_str() {
+        "Int" => Some(Ty::Int),
+        "Bool" => Some(Ty::Bool),
+        "String" => Some(Ty::String),
+        "Unit" => Some(Ty::Unit),
+        name if ctx.checked.ast.classes.iter().any(|c| c.name.name == name) => {
+            Some(Ty::Class(name.into()))
+        }
+        name if ctx
+            .checked
+            .ast
+            .interfaces
+            .iter()
+            .any(|i| i.name.name == name) =>
+        {
+            Some(Ty::Interface(name.into()))
+        }
+        _ => None,
     }
 }
 
@@ -969,38 +1296,47 @@ fn resolve_type_name(expr: &Expr, ctx: &EmitCtx<'_>) -> Option<String> {
 }
 
 /// Best-effort class name for method receiver (for mangling).
-fn resolve_class_of_expr<'a>(expr: &Expr, ctx: &EmitCtx<'a>) -> Option<&'a str> {
+/// Returns mono class key for a receiver expression.
+fn resolve_class_of_expr<'a>(expr: &Expr, ctx: &'a EmitCtx<'_>) -> Option<&'a str> {
     match expr {
         Expr::This(_) => ctx.method_class,
         Expr::Ident(id) => {
             let ty = ctx.lookup_local(&id.name)?;
-            ctx.checked
-                .ast
-                .classes
-                .iter()
-                .find(|c| c.name.name == ty)
-                .map(|c| c.name.name.as_str())
-        }
-        Expr::Field(f) => {
-            let parent = resolve_class_of_expr(&f.object, ctx)?;
-            let cl = ctx.checked.ast.classes.iter().find(|c| c.name.name == parent)?;
-            let field = cl.fields.iter().find(|x| x.name.name == f.field.name)?;
-            ctx.checked
-                .ast
-                .classes
-                .iter()
-                .find(|c| c.name.name == field.ty.name.name)
-                .map(|c| c.name.name.as_str())
+            if ctx.checked.ast.classes.iter().any(|c| c.name.name == ty)
+                || ctx
+                    .checked
+                    .mono_classes
+                    .iter()
+                    .any(|(n, a)| mono_key(n, a) == ty)
+            {
+                // Need to return ref into locals or mono list - use leak-free approach:
+                // return from mono_classes storage
+                return ctx.lookup_local(&id.name);
+            }
+            None
         }
         Expr::Call(c) => {
             if let Expr::Ident(id) = c.callee.as_ref() {
-                return ctx
+                if ctx
                     .checked
                     .ast
                     .classes
                     .iter()
-                    .find(|x| x.name.name == id.name)
-                    .map(|x| x.name.name.as_str());
+                    .any(|x| x.name.name == id.name)
+                {
+                    // mono from type args — stored not as ref; fall back base name for non-generic
+                    if c.type_args.is_empty() {
+                        return ctx
+                            .checked
+                            .ast
+                            .classes
+                            .iter()
+                            .find(|x| x.name.name == id.name)
+                            .map(|x| x.name.name.as_str());
+                    }
+                    // For generic ctor, resolve_type_name is better
+                    return None;
+                }
             }
             None
         }

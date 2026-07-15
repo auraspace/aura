@@ -1,0 +1,13 @@
+// C2b corpus — generic class monomorphized at use site
+package demo.generic
+
+class Box<T>(val value: T) {
+  fun get(): T {
+    return this.value
+  }
+}
+
+fun main() {
+  val s: Box<String> = Box<String>("Hello, Aura")
+  println(s.get())
+}
