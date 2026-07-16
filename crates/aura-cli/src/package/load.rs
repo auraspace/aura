@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use super::lock::{verify_lock_against_toml, write_lock};
+use super::lock::{verify_lock_against_toml, write_lock_with_direct};
 use super::toml::{parse_aura_toml, AuraToml};
 use super::types::{LoadedPackage, SourceEntry};
 use super::util::{
@@ -175,12 +175,51 @@ pub(crate) fn load_from_manifest(manifest: &Path) -> Result<LoadedPackage, Strin
     apply_std_io_prelude(&mut pkg, &mut effective, &root)?;
 
     // Merge path deps from this manifest and from each loaded dep's own aura.toml.
-    resolve_imports(&mut pkg, &effective, &root)?;
+    // C4j: also collect the full resolved path map for aura.lock.
+    let resolved = resolve_imports(&mut pkg, &effective, &root)?;
 
-    // Refresh lockfile for this package's direct path deps (path-only, C3p).
-    // Do not write auto-prelude entries into lock (only user-declared deps).
-    write_lock(&root, &toml.dependencies)?;
+    // Refresh lockfile: user-declared direct deps + transitive path deps (C4j).
+    // Exclude auto-prelude-only entries not declared in the user's aura.toml.
+    let mut lock_all: HashMap<String, String> = HashMap::new();
+    for (name, abs) in &resolved {
+        if toml.dependencies.contains_key(name) {
+            lock_all.insert(name.clone(), toml.dependencies[name].clone());
+        } else if name.starts_with("std.") {
+            // Auto std path resolve — omit from lock (not user-declared).
+            continue;
+        } else {
+            // Transitive: store path relative to this package root when possible.
+            let rel = path_for_lock(&root, abs);
+            lock_all.insert(name.clone(), rel);
+        }
+    }
+    write_lock_with_direct(&root, &lock_all, &toml.dependencies)?;
     Ok(pkg)
+}
+
+/// Prefer a relative path for lock entries when `abs` is under or near `root`.
+fn path_for_lock(root: &Path, abs: &Path) -> String {
+    if let (Ok(r), Ok(a)) = (fs::canonicalize(root), fs::canonicalize(abs)) {
+        if let Ok(rel) = a.strip_prefix(&r) {
+            return rel.display().to_string();
+        }
+        // Walk up from root to find a relative path with `../`.
+        let mut prefix = r.as_path();
+        let mut ups = String::new();
+        loop {
+            if let Ok(rel) = a.strip_prefix(prefix) {
+                return format!("{ups}{}", rel.display());
+            }
+            match prefix.parent() {
+                Some(p) if p != prefix => {
+                    ups.push_str("../");
+                    prefix = p;
+                }
+                _ => break,
+            }
+        }
+    }
+    abs.display().to_string()
 }
 
 /// C4g: resolve `std/io` on disk and inject `import std.io` for non-std packages.
@@ -258,11 +297,12 @@ fn find_std_io_dir(from: &Path) -> Option<PathBuf> {
 
 
 /// Load path dependencies for `import` and merge their ASTs into the unit.
+/// Returns the resolved package name → absolute path map (C4j).
 fn resolve_imports(
     pkg: &mut LoadedPackage,
     toml: &AuraToml,
     root: &Path,
-) -> Result<(), String> {
+) -> Result<HashMap<String, PathBuf>, String> {
     let mut pending: Vec<String> = pkg
         .ast
         .imports
@@ -324,7 +364,7 @@ fn resolve_imports(
         }
         merge_package(pkg, dep_pkg)?;
     }
-    Ok(())
+    Ok(deps)
 }
 
 fn read_manifest_deps(root: &Path) -> Result<HashMap<String, String>, String> {

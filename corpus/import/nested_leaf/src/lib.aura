@@ -1,0 +1,5 @@
+package demo.nested_leaf
+
+pub fun tag(): String {
+  return "leaf"
+}

@@ -27,10 +27,10 @@ When you resolve debt, update or remove the matching entry.
 
 ### No registry / version resolve (path lock only)
 - Area: toolchain / RFC-005
-- Symptom: C3p writes `aura.lock` for path deps only; no semver, git deps, or registry
+- Symptom: C3p/C4j write `aura.lock` for path deps including transitive; no semver, git deps, or registry
 - Why deferred: path-only graph is enough for monorepo demos
-- Next step: registry + version resolve; nested lock merge
-- Introduced: narrowed after C3p
+- Next step: registry + version resolve
+- Introduced: narrowed after C3p; nested paths C4j
 
 ### Array element types / shallow free
 - Area: builtin Array (C3j–C4c)
@@ -48,6 +48,9 @@ When you resolve debt, update or remove the matching entry.
 - Introduced: narrowed after C4h
 
 ## Resolved
+
+### Nested path deps not in aura.lock (2026-07-16)
+- Resolved in C4j: lock records transitive path deps (`# transitive`); verify only requires direct toml entries.
 
 ### Struct/enum `==` failed at C compile (2026-07-16)
 - Resolved in C4i: sema rejects struct/enum/interface equality with a clear diagnostic; class identity and String content remain.

@@ -1,0 +1,8 @@
+// C4j — transitive path dep demo.nested_leaf via demo.nested_mid
+package demo.nested_app
+
+import demo.nested_mid
+
+fun main() {
+  println(wrap())
+}

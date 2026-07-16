@@ -1,0 +1,4 @@
+# aura.lock — path dependencies (C3p/C4j)
+# Direct deps match aura.toml; extra entries are transitive path deps.
+demo.nested_leaf = "../nested_leaf"  # transitive
+demo.nested_mid = "../nested_mid"

@@ -52,7 +52,8 @@ fn parse_quoted(v: &str) -> Result<String, String> {
     Err(format!("expected quoted path string, got {v}"))
 }
 
-/// Ensure `aura.toml` path deps match an existing lockfile (if any).
+/// Ensure direct `aura.toml` path deps match an existing lockfile (if any).
+/// C4j: lock may list extra transitive packages; those are not required in toml.
 pub(crate) fn verify_lock_against_toml(
     root: &Path,
     toml_deps: &std::collections::HashMap<String, String>,
@@ -77,34 +78,41 @@ pub(crate) fn verify_lock_against_toml(
             Some(_) => {}
         }
     }
-    for name in lock.packages.keys() {
-        if !toml_deps.contains_key(name) {
-            return Err(format!(
-                "error: aura.lock has package `{name}` not listed in aura.toml [dependencies]\n  \
-                 hint: remove it from aura.lock or add it to aura.toml"
-            ));
-        }
-    }
     Ok(())
 }
 
-/// Write `aura.lock` from current path deps (sorted, stable).
+/// Write `aura.lock` from path deps (direct + optional transitive; sorted, stable).
 /// No-op when there are no path dependencies (avoids empty lockfiles).
+///
+/// `direct` is used for comments; `all` is written (must include direct).
 pub(crate) fn write_lock(
     root: &Path,
-    toml_deps: &std::collections::HashMap<String, String>,
+    all_deps: &std::collections::HashMap<String, String>,
 ) -> Result<(), String> {
-    if toml_deps.is_empty() {
+    write_lock_with_direct(root, all_deps, all_deps)
+}
+
+/// Write lock with optional direct-vs-transitive annotation (C4j).
+pub(crate) fn write_lock_with_direct(
+    root: &Path,
+    all_deps: &std::collections::HashMap<String, String>,
+    direct: &std::collections::HashMap<String, String>,
+) -> Result<(), String> {
+    if all_deps.is_empty() {
         return Ok(());
     }
     let path = lock_path(root);
     let mut body = String::from(
-        "# aura.lock — path dependencies (C3p)\n\
-         # Keep in sync with aura.toml [dependencies].\n",
+        "# aura.lock — path dependencies (C3p/C4j)\n\
+         # Direct deps match aura.toml; extra entries are transitive path deps.\n",
     );
-    let sorted: BTreeMap<_, _> = toml_deps.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+    let sorted: BTreeMap<_, _> = all_deps.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
     for (name, p) in sorted {
-        body.push_str(&format!("{name} = \"{p}\"\n"));
+        if direct.contains_key(&name) {
+            body.push_str(&format!("{name} = \"{p}\"\n"));
+        } else {
+            body.push_str(&format!("{name} = \"{p}\"  # transitive\n"));
+        }
     }
     // Skip write if identical (avoids dirty mtime).
     if path.is_file() {

@@ -1,0 +1,9 @@
+[package]
+name = "demo.nested_app"
+
+[[bin]]
+name = "nested_app"
+path = "src"
+
+[dependencies]
+demo.nested_mid = { path = "../nested_mid" }

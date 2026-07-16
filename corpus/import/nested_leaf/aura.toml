@@ -1,0 +1,6 @@
+[package]
+name = "demo.nested_leaf"
+
+[[bin]]
+name = "nested_leaf"
+path = "src"
