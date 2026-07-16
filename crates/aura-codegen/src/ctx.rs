@@ -14,17 +14,21 @@ pub(crate) struct EmitCtx<'a> {
     pub(crate) locals: Vec<HashMap<String, String>>,
     /// Per-scope locals that own an `Array` heap buffer (C3t).
     pub(crate) array_owners: Vec<HashSet<String>>,
+    /// Per-scope heap-class locals registered as GC roots (C5g).
+    pub(crate) gc_roots: Vec<HashSet<String>>,
 }
 
 impl<'a> EmitCtx<'a> {
     pub(crate) fn push_scope(&mut self) {
         self.locals.push(HashMap::new());
         self.array_owners.push(HashSet::new());
+        self.gc_roots.push(HashSet::new());
     }
 
     pub(crate) fn pop_scope(&mut self) {
         self.locals.pop();
         self.array_owners.pop();
+        self.gc_roots.pop();
     }
 
     pub(crate) fn define_local(&mut self, name: &str, ty: String) {
@@ -73,6 +77,33 @@ impl<'a> EmitCtx<'a> {
                 names
             })
             .unwrap_or_default()
+    }
+
+    pub(crate) fn mark_gc_root(&mut self, name: &str) {
+        if let Some(scope) = self.gc_roots.last_mut() {
+            scope.insert(name.to_string());
+        }
+    }
+
+    pub(crate) fn gc_roots_current(&self) -> Vec<String> {
+        self.gc_roots
+            .last()
+            .map(|s| {
+                let mut names: Vec<_> = s.iter().cloned().collect();
+                names.sort();
+                names
+            })
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn gc_roots_all(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        for scope in self.gc_roots.iter().rev() {
+            let mut names: Vec<_> = scope.iter().cloned().collect();
+            names.sort();
+            out.extend(names);
+        }
+        out
     }
 
     pub(crate) fn lookup_local(&self, name: &str) -> Option<&str> {

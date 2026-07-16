@@ -222,14 +222,35 @@ pub(crate) fn emit_method_mono(
         type_args: args.to_vec(),
         locals: vec![HashMap::new()],
         array_owners: vec![std::collections::HashSet::new()],
+        gc_roots: vec![std::collections::HashSet::new()],
     };
     for f in &c.fields {
         ctx.define_local(&f.name.name, type_ref_local_key(&f.ty, params, args));
     }
     for p in &m.params {
-        ctx.define_local(&p.name.name, type_ref_local_key(&p.ty, params, args));
+        let key = type_ref_local_key(&p.ty, params, args);
+        ctx.define_local(&p.name.name, key.clone());
+        let mono = crate::expr::full_type_mono(&key, checked);
+        if is_heap_class_mono(&mono, checked) {
+            ctx.mark_gc_root(&p.name.name);
+            let n = mangle_ident(&p.name.name);
+            let _ = writeln!(out, "  aura_gc_add_root((void **)&{n});");
+        }
+    }
+    // `this` is a heap pointer for classes — root it for the method body.
+    if is_heap_class_mono(mono, checked) {
+        ctx.mark_gc_root("this");
+        out.push_str("  aura_gc_add_root((void **)&this);\n");
     }
     emit_block(out, &m.body, 1, &mut ctx);
+    for name in ctx.gc_roots_all() {
+        let n = if name == "this" {
+            "this".to_string()
+        } else {
+            mangle_ident(&name)
+        };
+        let _ = writeln!(out, "  aura_gc_remove_root((void **)&{n});");
+    }
     emit_return_fallback(out, &m.return_type, checked, params, args);
     out.push_str("}\n");
 }

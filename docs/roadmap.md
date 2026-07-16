@@ -118,6 +118,7 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C5d** | Close C4u–C5d batch (debts/roadmap/plan Done) | Done |
 | **C5e** | Array move on assign `b = a` (owner) | Done |
 | **C5f** | GC collect mark+sweep when roots registered | Done |
+| **C5g** | Codegen GC roots for heap-class locals/params/`this` | Done |
 | **DX** | line:col diagnostics with snippets | Done |
 
 **Out of scope C0/C1:** generics mono, async/tasks, macros, registry, incremental, LTO.

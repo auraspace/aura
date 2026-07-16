@@ -10,6 +10,7 @@ use crate::array_emit::{emit_array_mono, is_array_mono};
 use crate::class_emit::*;
 use crate::ctx::{EmitCtx, EmitOptions};
 use crate::enum_emit::*;
+use crate::expr::full_type_mono;
 use crate::iface::*;
 use crate::names::*;
 use crate::stmt::{emit_block, emit_return_fallback};
@@ -337,14 +338,29 @@ pub(crate) fn emit_fun(out: &mut String, f: &FunDecl, checked: &CheckedFile, arg
         type_args: args.to_vec(),
         locals: vec![HashMap::new()],
         array_owners: vec![std::collections::HashSet::new()],
+        gc_roots: vec![std::collections::HashSet::new()],
     };
     for p in &f.params {
-        ctx.define_local(
-            &p.name.name,
-            type_ref_local_key(&p.ty, &params, args),
-        );
+        let key = type_ref_local_key(&p.ty, &params, args);
+        ctx.define_local(&p.name.name, key.clone());
+        // C5g: heap-class params are GC roots for the function body.
+        let mono = full_type_mono(&key, checked);
+        if is_heap_class_mono(&mono, checked) {
+            ctx.mark_gc_root(&p.name.name);
+            let n = mangle_ident(&p.name.name);
+            let _ = writeln!(out, "  aura_gc_add_root((void **)&{n});");
+        }
     }
     emit_block(out, &f.body, 1, &mut ctx);
+    // Drop param roots when leaving the function.
+    for name in ctx.gc_roots_all() {
+        let n = if name == "this" {
+            "this".to_string()
+        } else {
+            mangle_ident(&name)
+        };
+        let _ = writeln!(out, "  aura_gc_remove_root((void **)&{n});");
+    }
     emit_return_fallback(out, &f.return_type, checked, &params, args);
     out.push_str("}\n");
 }

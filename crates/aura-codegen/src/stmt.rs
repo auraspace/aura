@@ -104,6 +104,8 @@ pub(crate) fn emit_block(out: &mut String, block: &Block, indent: usize, ctx: &m
     for stmt in &block.stmts {
         emit_stmt(out, stmt, indent, ctx);
     }
+    // C5g: unregister GC roots for heap-class locals in this scope.
+    emit_remove_gc_roots(out, indent, &ctx.gc_roots_current());
     // C3t: free Array buffers owned by this block before leaving the scope.
     emit_free_array_owners(out, indent, &ctx.array_owners_current());
     ctx.pop_scope();
@@ -124,6 +126,23 @@ pub(crate) fn emit_free_array_local(out: &mut String, indent: usize, name: &str)
 pub(crate) fn emit_free_array_owners(out: &mut String, indent: usize, owners: &[String]) {
     for name in owners {
         emit_free_array_local(out, indent, name);
+    }
+}
+
+/// C name of a GC root local. Method `this` is emitted as the C param `this` (not mangled).
+fn gc_root_c_name(name: &str) -> String {
+    if name == "this" {
+        "this".into()
+    } else {
+        mangle_ident(name)
+    }
+}
+
+fn emit_remove_gc_roots(out: &mut String, indent: usize, names: &[String]) {
+    let p = pad(indent);
+    for name in names {
+        let n = gc_root_c_name(name);
+        let _ = writeln!(out, "{p}aura_gc_remove_root((void **)&{n});");
     }
 }
 
@@ -192,6 +211,12 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                     "{p}{src_m}.data = NULL; {src_m}.len = 0; {src_m}.cap = 0;"
                 );
                 ctx.unmark_array_owner(&src);
+            }
+            // C5g: heap-class locals are GC roots until scope exit.
+            let mono = full_type_mono(&ty_name, ctx.checked);
+            if is_heap_class_mono(&mono, ctx.checked) {
+                ctx.mark_gc_root(&v.name.name);
+                let _ = writeln!(out, "{p}aura_gc_add_root((void **)&{dst});");
             }
         }
         Stmt::If(i) => {
@@ -427,8 +452,10 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
         Stmt::Return(r) => {
             // C3t: evaluate return value first, free owned Arrays, then return
             // (so exprs like `return a.get(0)` stay valid).
+            // C5g: drop GC roots before leaving so they do not dangle.
             match &r.value {
                 None => {
+                    emit_remove_gc_roots(out, indent, &ctx.gc_roots_all());
                     emit_free_array_owners(out, indent, &ctx.array_owners_all());
                     let _ = writeln!(out, "{p}return;");
                 }
@@ -446,6 +473,7 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                         .collect();
                     if ret_key == "Unit" {
                         let _ = writeln!(out, "{p}{};", emit_expr(e, ctx));
+                        emit_remove_gc_roots(out, indent, &ctx.gc_roots_all());
                         emit_free_array_owners(out, indent, &owners);
                         let _ = writeln!(out, "{p}return;");
                     } else {
@@ -453,6 +481,7 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                         let tmp = format!("__ret_{}", r.span.start);
                         let val = emit_expr(e, ctx);
                         let _ = writeln!(out, "{p}{c_ty} {tmp} = {val};");
+                        emit_remove_gc_roots(out, indent, &ctx.gc_roots_all());
                         emit_free_array_owners(out, indent, &owners);
                         let _ = writeln!(out, "{p}return {tmp};");
                     }

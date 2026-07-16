@@ -65,7 +65,7 @@ When you resolve debt, update or remove the matching entry.
 - Resolved in C4y (partial): duck Iterable — class/struct with `len` field or `len(): Int` plus `get(Int)`. Corpus `control/for_in_duck.aura`. Full protocol still Open.
 
 ### GC free-all only / no collect (2026-07-16)
-- Resolved in C4z/C5f (partial): roots + collect mark; C5f sweeps unmarked when roots registered (mark-all if no roots). Next: deep mark, compiler root emission (C5g).
+- Resolved in C4z/C5f/C5g (partial): roots + mark+sweep; codegen roots heap-class locals/params/`this`. Next: deep mark of object graphs; optional `gc.collect()` surface.
 
 ### No std.collections package path (2026-07-16)
 - Resolved in C5a: `std/collections` stub + README; Map/Set still Open under Stdlib incomplete.
