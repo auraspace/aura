@@ -1,0 +1,12 @@
+// C4o — Array.reserve
+package demo.gen
+
+fun main() {
+  val a: Array<Int> = Array(0)
+  a.reserve(8)
+  a.push(1)
+  a.push(2)
+  if (a.len == 2) {
+    println("reserved")
+  }
+}

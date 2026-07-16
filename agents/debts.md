@@ -56,6 +56,9 @@ When you resolve debt, update or remove the matching entry.
 
 ## Resolved
 
+### No Array.reserve (2026-07-16)
+- Resolved in C4o: `reserve(n)` grows capacity without changing len.
+
 ### No Array.isEmpty (2026-07-16)
 - Resolved in C4n: `isEmpty()` returns len==0.
 
