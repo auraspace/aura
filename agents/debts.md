@@ -15,11 +15,11 @@ When you resolve debt, update or remove the matching entry.
 - Introduced: narrowed after C3k/C3w; duck C4y
 
 ### `Array` shallow-copy free unsound
-- Area: builtin Array free (C3t/C4r)
-- Symptom: C4r frees on owner reassignment from Array(...); shallow copies still leak/double-free if misused
-- Why deferred: full move/borrow
-- Next step: move-only Array or borrow
-- Introduced: C3j; free C3t; reassign C4r
+- Area: builtin Array free (C3t/C4r/C5b)
+- Symptom: C5b moves on `val b = a` (source zeroed); assign `b = a` and field/params still shallow-copy
+- Why deferred: full move/borrow system
+- Next step: move on assign / params or borrow
+- Introduced: C3j; free C3t; reassign C4r; move bind C5b
 
 
 
@@ -69,6 +69,9 @@ When you resolve debt, update or remove the matching entry.
 
 ### No std.collections package path (2026-07-16)
 - Resolved in C5a: `std/collections` stub + README; Map/Set still Open under Stdlib incomplete.
+
+### Array `val b = a` double-free / UAF (2026-07-16)
+- Resolved in C5b (partial): binding from an owning Array local moves ownership (zero source). Corpus `generic/array_move.aura`. Assign/params still Open.
 
 ### No if-expression (2026-07-16)
 - Resolved in C4t: `if`/`else` as expr; branch value = last expression; requires else.

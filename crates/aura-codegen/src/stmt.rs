@@ -164,12 +164,35 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
             if is_array_type_key(&ty_name) && is_array_ctor_expr(&v.init) {
                 ctx.mark_array_owner(&v.name.name);
             }
+            // C5b: move ownership on `val b = a` when `a` owns an Array buffer.
+            let moved_from = if is_array_type_key(&ty_name) {
+                if let Expr::Ident(id) = &v.init {
+                    if ctx.is_array_owner(&id.name) {
+                        Some(id.name.clone())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            if moved_from.is_some() {
+                ctx.mark_array_owner(&v.name.name);
+            }
             let init = coerce_expr(&v.init, &ty_name, ctx);
-            let _ = writeln!(
-                out,
-                "{p}{ty} {} = {init};",
-                mangle_ident(&v.name.name)
-            );
+            let dst = mangle_ident(&v.name.name);
+            let _ = writeln!(out, "{p}{ty} {dst} = {init};");
+            if let Some(src) = moved_from {
+                let src_m = mangle_ident(&src);
+                // Zero source so later free of src is a no-op; dst is the sole owner.
+                let _ = writeln!(
+                    out,
+                    "{p}{src_m}.data = NULL; {src_m}.len = 0; {src_m}.cap = 0;"
+                );
+                ctx.unmark_array_owner(&src);
+            }
         }
         Stmt::If(i) => {
             let _ = writeln!(out, "{p}if ({}) {{", emit_expr(&i.cond, ctx));

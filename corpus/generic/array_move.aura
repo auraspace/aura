@@ -1,0 +1,19 @@
+// C5b — Array ownership moves on val b = a (source zeroed)
+package demo.generic
+
+fun main() {
+  val a: Array<Int> = Array(2)
+  a.set(0, 10)
+  a.set(1, 20)
+  val b = a
+  // b owns the buffer; a is empty after move
+  if (b.len == 2) {
+    println("b2")
+  }
+  if (a.len == 0) {
+    println("a0")
+  }
+  if (b.get(0) == 10) {
+    println("ok")
+  }
+}

@@ -39,6 +39,15 @@ impl<'a> EmitCtx<'a> {
         }
     }
 
+    /// C5b: drop ownership (after move into another local).
+    pub(crate) fn unmark_array_owner(&mut self, name: &str) {
+        for scope in self.array_owners.iter_mut().rev() {
+            if scope.remove(name) {
+                return;
+            }
+        }
+    }
+
     /// C4r: is this local marked as owning an Array buffer?
     pub(crate) fn is_array_owner(&self, name: &str) -> bool {
         self.array_owners.iter().any(|s| s.contains(name))
