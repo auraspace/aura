@@ -7,7 +7,9 @@ use aura_sema::{CheckedFile, Ty};
 // Ty used in type_ref_local_key_checked
 
 use crate::ctx::EmitCtx;
-use crate::expr::{coerce_expr, emit_expr, full_type_mono, infer_type_name, mono_base_name};
+use crate::expr::{
+    coerce_expr, emit_expr, full_type_mono, infer_type_name, mono_base_name, mono_split,
+};
 use crate::names::*;
 
 /// Local type key with C3v package mono when the TypeRef is qualified or unique.
@@ -239,14 +241,17 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                 }
                 ctx.pop_scope();
                 let _ = writeln!(out, "{p}  }}");
-            } else {
+            } else if iter_key == "Array"
+                || iter_key.starts_with("Array_")
+                || mono_base_name(&iter_key, ctx.checked) == Some("Array")
+            {
                 // for (x in arr) → index loop + Array_get (C3k).
                 let mono = if iter_key.starts_with("Array_") {
                     iter_key.clone()
                 } else if iter_key == "Array" {
                     "Array_Int".into()
                 } else {
-                    iter_key.clone()
+                    full_type_mono(&iter_key, ctx.checked)
                 };
                 let elem_key = mono
                     .strip_prefix("Array_")
@@ -263,6 +268,78 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                 let _ = writeln!(
                     out,
                     "{p}    {elem_c} {bind} = {get_fn}(&{it_tmp}, {idx_tmp});"
+                );
+                ctx.push_scope();
+                ctx.define_local(&f.name.name, elem_key);
+                for stmt in &f.body.stmts {
+                    emit_stmt(out, stmt, indent + 2, ctx);
+                }
+                ctx.pop_scope();
+                let _ = writeln!(out, "{p}  }}");
+            } else {
+                // C4y: duck Iterable — class/struct with len field/method + get(i).
+                let mono = full_type_mono(&iter_key, ctx.checked);
+                let base = mono_base_name(&mono, ctx.checked).unwrap_or(mono.as_str());
+                let class = ctx
+                    .checked
+                    .ast
+                    .classes
+                    .iter()
+                    .find(|c| c.name.name == base);
+                let has_len_field = class
+                    .map(|c| c.fields.iter().any(|f| f.name.name == "len"))
+                    .unwrap_or(false);
+                let has_len_method = class
+                    .map(|c| c.methods.iter().any(|m| m.name.name == "len"))
+                    .unwrap_or(false);
+                let elem_key = class
+                    .and_then(|c| {
+                        c.methods
+                            .iter()
+                            .find(|m| m.name.name == "get")
+                            .and_then(|m| m.return_type.as_ref())
+                            .map(|rt| {
+                                let params: Vec<String> = c
+                                    .type_params
+                                    .iter()
+                                    .map(|p| p.name.name.clone())
+                                    .collect();
+                                let targs = mono_split(&mono, ctx.checked)
+                                    .map(|(_, a)| a.to_vec())
+                                    .unwrap_or_default();
+                                type_ref_local_key(rt, &params, &targs)
+                            })
+                    })
+                    .unwrap_or_else(|| "Int".into());
+                let recv_c = local_key_to_c(&mono, ctx.checked);
+                let elem_c = local_key_to_c(&elem_key, ctx.checked);
+                let get_fn = c_method_name(&mono, "get");
+                let len_fn = c_method_name(&mono, "len");
+                let heap = is_heap_class_mono(&mono, ctx.checked);
+                let this_arg = if heap {
+                    format!("({it_tmp})")
+                } else {
+                    format!("&({it_tmp})")
+                };
+                let _ = writeln!(out, "{p}  {recv_c} {it_tmp} = {iter_e};");
+                let len_expr = if has_len_field {
+                    if heap {
+                        format!("({it_tmp})->len")
+                    } else {
+                        format!("({it_tmp}).len")
+                    }
+                } else if has_len_method {
+                    format!("{len_fn}({this_arg})")
+                } else {
+                    format!("({it_tmp}).len")
+                };
+                let _ = writeln!(
+                    out,
+                    "{p}  for (int64_t {idx_tmp} = 0; {idx_tmp} < {len_expr}; {idx_tmp}++) {{"
+                );
+                let _ = writeln!(
+                    out,
+                    "{p}    {elem_c} {bind} = {get_fn}({this_arg}, {idx_tmp});"
                 );
                 ctx.push_scope();
                 ctx.define_local(&f.name.name, elem_key);

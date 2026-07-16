@@ -15,7 +15,7 @@ Living plan for docs, language specs, and the Rust toolchain. RFCs remain the de
 | RFC static site (`site/`) | Implemented on `feat/rfc-static-site`; deploy via GitHub Pages Actions |
 | RFC-000 … RFC-013 | **All Accepted** — open questions resolved or Deferred (2026-07-16) |
 | Language MVP | RFC-001 §6.0 + post-C1 surface in roadmap; async/macros/Iterable still deferred in code |
-| Compiler | **C0–C4x done** — nested mono, String APIs, Array enum diag, if-expr |
+| Compiler | **C0–C4y done** — nested mono, String APIs, duck for-in, Array enum diag |
 | Runtime / packages / stdlib | GC free-all MVP + `std.io` / `std.assert`; next GC = STW mark-sweep; tasks/collections deferred |
 
 ## Phases
@@ -110,6 +110,7 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C4v** | `String.isEmpty()` (byte length == 0) | Done |
 | **C4w** | `String.charAt(i)` (UTF-8 byte as Int; OOB throws) | Done |
 | **C4x** | Clear `Array` of enum/interface reject diagnostic | Done |
+| **C4y** | Duck Iterable `for-in` (`len` + `get(Int)`) | Done |
 | **DX** | line:col diagnostics with snippets | Done |
 
 **Out of scope C0/C1:** generics mono, async/tasks, macros, registry, incremental, LTO.

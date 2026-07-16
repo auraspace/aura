@@ -7,12 +7,12 @@ When you resolve debt, update or remove the matching entry.
 
 ## Open
 
-### `for-in` has no Iterable protocol (Array + String only)
+### `for-in` has no Iterable protocol (duck only)
 - Area: language / parser / sema / codegen (`ForInStmt`)
-- Symptom: no custom iterables / `for (x in myCollection)`
-- Why deferred: C3k Array + C3w String bytes; general protocol needs interface design
+- Symptom: C4y duck (`len` + `get(Int)`) works; no formal Iterable interface
+- Why deferred: interface design + std collections
 - Next step: Iterable protocol
-- Introduced: narrowed after C3k/C3w
+- Introduced: narrowed after C3k/C3w; duck C4y
 
 ### `Array` shallow-copy free unsound
 - Area: builtin Array free (C3t/C4r)
@@ -60,6 +60,9 @@ When you resolve debt, update or remove the matching entry.
 
 ### Vague Array-of-enum diagnostic (2026-07-16)
 - Resolved in C4x: dedicated message for `Array` of enum/interface; corpus `diag/array_enum.aura`. Enum elements still unsupported (see Open).
+
+### for-in only Array + String (2026-07-16)
+- Resolved in C4y (partial): duck Iterable — class/struct with `len` field or `len(): Int` plus `get(Int)`. Corpus `control/for_in_duck.aura`. Full protocol still Open.
 
 ### No if-expression (2026-07-16)
 - Resolved in C4t: `if`/`else` as expr; branch value = last expression; requires else.

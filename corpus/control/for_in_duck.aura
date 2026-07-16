@@ -1,0 +1,38 @@
+// C4y — duck Iterable: class with len field + get(i)
+package demo.control
+
+class Range3(val len: Int) {
+  fun get(i: Int): Int {
+    return i
+  }
+}
+
+class CountDown(val start: Int) {
+  fun len(): Int {
+    return this.start
+  }
+  fun get(i: Int): Int {
+    return this.start - i
+  }
+}
+
+fun main() {
+  var s: Int = 0
+  val r = Range3(3)
+  for (x in r) {
+    s = s + x
+  }
+  if (s == 3) {
+    println("range")
+  }
+
+  var t: Int = 0
+  val c = CountDown(3)
+  for (x in c) {
+    t = t + x
+  }
+  // 3 + 2 + 1 = 6
+  if (t == 6) {
+    println("countdown")
+  }
+}

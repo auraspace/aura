@@ -690,6 +690,23 @@ fun main() {
 }
 
 #[test]
+fn for_in_duck_len_get() {
+    // C4y: class with len field + get(i).
+    let src = r#"
+package t
+class R(val len: Int) {
+  fun get(i: Int): Int { return i }
+}
+fun main() {
+  var s: Int = 0
+  for (x in R(2)) { s = s + x }
+}
+"#;
+    let file = parse_file(src).expect("parse");
+    check_file(&file).expect("duck for-in");
+}
+
+#[test]
 fn array_accepts_class_elem() {
     let src = r#"
 package t

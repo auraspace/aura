@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use aura_ast::{Block, MatchStmt, Pattern, Stmt};
+use aura_ast::{Block, MatchStmt, Pattern, Span, Stmt};
 
 use super::{Checker, Local};
 use crate::error::SemaError;
@@ -8,6 +8,47 @@ use crate::ty::Ty;
 use crate::util::{analyze_null_check, subst_ty, type_subst_map};
 
 impl Checker {
+    /// C4y: duck Iterable — `len` field or `len(): Int` + `get(i: Int): E`.
+    /// Returns element type of `get`, or an error message.
+    pub(crate) fn duck_iterable_elem(
+        &self,
+        iter_ty: &Ty,
+        nominal_key: &str,
+        _span: Span,
+    ) -> Result<Ty, String> {
+        let class = self.class_by_nominal_key(nominal_key).ok_or_else(|| {
+            format!(
+                "for-in iterable must be Array<T>, String, or a type with `len` and `get(Int)`, got {}",
+                iter_ty.display()
+            )
+        })?;
+        let subst = type_subst_map(&class.type_params, iter_ty.class_args());
+        let (simple, _) = crate::ty::split_nominal(nominal_key);
+
+        let has_len_field = class.fields.iter().any(|f| {
+            f.name == "len" && matches!(subst_ty(&f.ty, &subst), Ty::Int)
+        });
+        let has_len_method = class.methods.get("len").map(|m| {
+            m.params.is_empty() && matches!(subst_ty(&m.ret, &subst), Ty::Int)
+        }) == Some(true);
+        if !has_len_field && !has_len_method {
+            return Err(format!(
+                "for-in over `{simple}` requires field or method `len: Int` (or `len(): Int`) and method `get(Int)`"
+            ));
+        }
+        let get = class.methods.get("get").ok_or_else(|| {
+            format!(
+                "for-in over `{simple}` requires method `get(Int)` (found `len` but no `get`)"
+            )
+        })?;
+        if get.params.len() != 1 || !matches!(subst_ty(&get.params[0], &subst), Ty::Int) {
+            return Err(format!(
+                "for-in over `{simple}`: `get` must take a single `Int` index"
+            ));
+        }
+        Ok(subst_ty(&get.ret, &subst))
+    }
+
     /// Types that may be thrown/caught (C3c primitives + C3g class/struct values).
     pub(crate) fn is_throwable(ty: &Ty) -> bool {
         match ty {
@@ -364,10 +405,22 @@ impl Checker {
                     {
                         args[0].clone()
                     }
+                    // C4y: duck Iterable — class/struct with `len` (field or ()) and `get(Int)`.
+                    Ty::Class(n) | Ty::ClassApp { name: n, .. } => {
+                        match self.duck_iterable_elem(&iter_ty, n, f.iterable.span()) {
+                            Ok(t) => t,
+                            Err(msg) => {
+                                return Err(SemaError {
+                                    message: msg,
+                                    span: f.iterable.span(),
+                                });
+                            }
+                        }
+                    }
                     other => {
                         return Err(SemaError {
                             message: format!(
-                                "for-in iterable must be Array<T> or String, got {}",
+                                "for-in iterable must be Array<T>, String, or a type with `len` and `get(Int)`, got {}",
                                 other.display()
                             ),
                             span: f.iterable.span(),
