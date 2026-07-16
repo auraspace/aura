@@ -215,6 +215,10 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
             right,
             ..
         }) => infer_type_name(right, ctx),
+        Expr::If(i) => match i.then_block.stmts.last() {
+            Some(Stmt::Expr(e)) => infer_type_name(e, ctx),
+            _ => "Int".into(),
+        },
         _ => "Int".into(),
     }
 }
@@ -390,6 +394,28 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &EmitCtx<'_>) -> String {
             }
         }
         Expr::Call(c) => emit_call(c, ctx),
+        Expr::If(i) => {
+            // C4t: GNU statement-expression; last expr of each branch is the value.
+            // MVP: single-expression branches (no prefix statements).
+            let cond = emit_expr(&i.cond, ctx);
+            let then_v = block_last_expr_code(&i.then_block, ctx);
+            let else_v = block_last_expr_code(&i.else_block, ctx);
+            let ty_key = match i.then_block.stmts.last() {
+                Some(Stmt::Expr(e)) => infer_type_name(e, ctx),
+                _ => "Int".into(),
+            };
+            let c_ty = crate::stmt::local_key_to_c(&ty_key, ctx.checked);
+            format!(
+                "({{ {c_ty} __ifv; if ({cond}) {{ __ifv = ({then_v}); }} else {{ __ifv = ({else_v}); }} __ifv; }})"
+            )
+        }
+    }
+}
+
+fn block_last_expr_code(block: &Block, ctx: &EmitCtx<'_>) -> String {
+    match block.stmts.last() {
+        Some(Stmt::Expr(e)) => emit_expr(e, ctx),
+        _ => "0".into(),
     }
 }
 

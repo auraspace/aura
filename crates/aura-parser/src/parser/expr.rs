@@ -187,6 +187,41 @@ impl Parser {
                 let end = self.expect(TokenKind::RParen, "`)`")?.span.end;
                 Ok(Expr::Group(Box::new(inner), Span::new(start, end)))
             }
+            // C4t: if-expression requires `else` branch.
+            TokenKind::If => {
+                let start = self.peek().span.start;
+                self.expect(TokenKind::If, "`if`")?;
+                self.expect(TokenKind::LParen, "`(`")?;
+                let cond = self.parse_expr(0)?;
+                self.expect(TokenKind::RParen, "`)`")?;
+                let then_block = self.parse_block()?;
+                if !matches!(self.peek().kind, TokenKind::Else) {
+                    return Err(ParseError {
+                        message: "if-expression requires an `else` branch".into(),
+                        span: then_block.span,
+                    });
+                }
+                self.bump();
+                // Allow `else if` by nesting as expression? For MVP require block or if.
+                let else_block = if matches!(self.peek().kind, TokenKind::If) {
+                    // `else if` → wrap if-expr as single-stmt block of Expr::If
+                    let nested = self.parse_primary()?; // will re-enter If
+                    let span = nested.span();
+                    Block {
+                        stmts: vec![Stmt::Expr(nested)],
+                        span,
+                    }
+                } else {
+                    self.parse_block()?
+                };
+                let end = else_block.span.end;
+                Ok(Expr::If(Box::new(IfExpr {
+                    cond,
+                    then_block,
+                    else_block,
+                    span: Span::new(start, end),
+                })))
+            }
             _ => Err(ParseError {
                 message: format!("expected expression, found {:?}", self.peek().kind),
                 span: self.peek().span,

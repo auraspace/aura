@@ -98,9 +98,10 @@ C1 uses a **C backend** (`aura emit-c` + system `cc`) linked with `runtime/aura_
 - **Compiler C4q** `Array` of struct by-value elements
 - **Compiler C4r** Free Array buffer on owner reassignment
 - **Compiler C4s** Safe call `?.` on nullable receivers
+- **Compiler C4t** If as expression (value from last branch expr)
 - **DX** Pretty diagnostics (`path:line:col` + source snippet)
 - **Debts** Tracked in [`agents/debts.md`](agents/debts.md)
-- **Next:** if-expression, Iterable, registry
+- **Next:** Iterable protocol, LLVM, registry
 
 ## Links
 

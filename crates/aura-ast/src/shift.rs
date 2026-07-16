@@ -281,5 +281,11 @@ fn shift_expr(e: &mut Expr, delta: BytePos) {
             shift_expr(inner, delta);
             *s = s.shift(delta);
         }
+        Expr::If(i) => {
+            shift_expr(&mut i.cond, delta);
+            shift_block(&mut i.then_block, delta);
+            shift_block(&mut i.else_block, delta);
+            i.span = i.span.shift(delta);
+        }
     }
 }

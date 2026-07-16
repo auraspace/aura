@@ -26,6 +26,40 @@ impl Checker {
         Ok(())
     }
 
+    /// C4t: type of last expression in a block (if-expression branch).
+    pub(crate) fn block_result_ty(&mut self, block: &Block) -> Result<Ty, SemaError> {
+        if block.stmts.is_empty() {
+            return Err(SemaError {
+                message: "if-expression branch cannot be empty".into(),
+                span: block.span,
+            });
+        }
+        self.locals.push(HashMap::new());
+        let last = block.stmts.len() - 1;
+        for (i, stmt) in block.stmts.iter().enumerate() {
+            if i == last {
+                if let Stmt::Expr(e) = stmt {
+                    let ty = self.check_expr(e)?;
+                    self.locals.pop();
+                    return Ok(ty);
+                }
+                // Nested if-stmt as only/last statement — not for if-expr value.
+                self.check_stmt(stmt, &Ty::Unit)?;
+                self.locals.pop();
+                return Err(SemaError {
+                    message: "if-expression branch must end with an expression".into(),
+                    span: block.span,
+                });
+            }
+            self.check_stmt(stmt, &Ty::Unit)?;
+        }
+        self.locals.pop();
+        Err(SemaError {
+            message: "if-expression branch must end with an expression".into(),
+            span: block.span,
+        })
+    }
+
     pub(crate) fn check_match(&mut self, m: &MatchStmt, expected_ret: &Ty) -> Result<(), SemaError> {
         let scrut_ty = self.check_expr(&m.scrutinee)?;
         let Some(ename) = scrut_ty.enum_name() else {

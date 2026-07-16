@@ -84,6 +84,35 @@ impl Checker {
             Expr::String(_) => Ok(Ty::String),
             Expr::Null(_) => Ok(Ty::Null),
             Expr::Group(inner, _) => self.check_expr_expected(inner, expected),
+            Expr::If(i) => {
+                // C4t: if-expression — both branches yield same type from last expr.
+                let ct = self.check_expr(&i.cond)?;
+                if ct != Ty::Bool {
+                    return Err(SemaError {
+                        message: format!("if condition must be Bool, got {}", ct.display()),
+                        span: i.cond.span(),
+                    });
+                }
+                let then_ty = self.block_result_ty(&i.then_block)?;
+                let else_ty = self.block_result_ty(&i.else_block)?;
+                if !self.is_assignable(&then_ty, &else_ty) && !self.is_assignable(&else_ty, &then_ty)
+                {
+                    return Err(SemaError {
+                        message: format!(
+                            "if-expression branches have incompatible types {} and {}",
+                            then_ty.display(),
+                            else_ty.display()
+                        ),
+                        span: i.span,
+                    });
+                }
+                // Prefer non-null / more specific when one assignable to other.
+                if self.is_assignable(&then_ty, &else_ty) {
+                    Ok(else_ty)
+                } else {
+                    Ok(then_ty)
+                }
+            }
             Expr::ForceUnwrap(f) => {
                 let t = self.check_expr(&f.expr)?;
                 match t {

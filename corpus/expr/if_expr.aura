@@ -1,0 +1,20 @@
+// C4t — if as expression
+package demo.expr
+
+fun main() {
+  val x: Int = 2
+  val s: String = if (x == 2) {
+    "two"
+  } else {
+    "other"
+  }
+  println(s)
+  val n: Int = if (x == 1) {
+    10
+  } else {
+    20
+  }
+  if (n == 20) {
+    println("ok")
+  }
+}

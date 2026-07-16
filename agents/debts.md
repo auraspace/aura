@@ -56,6 +56,9 @@ When you resolve debt, update or remove the matching entry.
 
 ## Resolved
 
+### No if-expression (2026-07-16)
+- Resolved in C4t: `if`/`else` as expr; branch value = last expression; requires else.
+
 ### No safe call `?.` (2026-07-16)
 - Resolved in C4s: `?.` field/method on nullable receivers; short-circuit to null.
 

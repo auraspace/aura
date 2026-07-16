@@ -322,6 +322,17 @@ pub enum Expr {
     /// Postfix `expr!!` — force unwrap nullable (lintable).
     ForceUnwrap(ForceUnwrapExpr),
     Group(Box<Expr>, Span),
+    /// C4t: `if (cond) { … } else { … }` as expression (value = last expr in each branch).
+    If(Box<IfExpr>),
+}
+
+/// Expression-form `if` (C4t).
+#[derive(Debug, Clone, PartialEq)]
+pub struct IfExpr {
+    pub cond: Expr,
+    pub then_block: Block,
+    pub else_block: Block,
+    pub span: Span,
 }
 
 impl Expr {
@@ -340,6 +351,7 @@ impl Expr {
             Expr::Unary(u) => u.span,
             Expr::ForceUnwrap(f) => f.span,
             Expr::Group(_, s) => *s,
+            Expr::If(i) => i.span,
         }
     }
 }
