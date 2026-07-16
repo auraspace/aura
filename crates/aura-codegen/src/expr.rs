@@ -339,7 +339,19 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &EmitCtx<'_>) -> String {
             } else {
                 mangle_ident(&a.name.name)
             };
-            format!("({lhs} = {})", emit_expr(&a.value, ctx))
+            let rhs = emit_expr(&a.value, ctx);
+            // C4r: free previous Array buffer when reassigning an owning local from Array(...).
+            let is_ctor = matches!(
+                a.value.as_ref(),
+                Expr::Call(c) if matches!(c.callee.as_ref(), Expr::Ident(id) if id.name == "Array")
+            );
+            if ctx.is_array_owner(&a.name.name) && is_ctor {
+                let n = mangle_ident(&a.name.name);
+                return format!(
+                    "({{ if (({n}).data != NULL) {{ free(({n}).data); ({n}).data = NULL; ({n}).len = 0; ({n}).cap = 0; }} ({lhs} = {rhs}); }})"
+                );
+            }
+            format!("({lhs} = {rhs})")
         }
         Expr::Field(f) => {
             let obj = emit_expr(&f.object, ctx);

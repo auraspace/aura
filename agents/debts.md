@@ -22,11 +22,11 @@ When you resolve debt, update or remove the matching entry.
 - Introduced: narrowed after C3k/C3w
 
 ### `Array` shallow-copy free unsound
-- Area: builtin Array free (C3t)
-- Symptom: free tracks ctor-initialized locals only — shallow copies / pass-by-value can still leak or double-free if misused
-- Why deferred: full ownership/move; C4c class elems are GC pointers (buffer free only)
+- Area: builtin Array free (C3t/C4r)
+- Symptom: C4r frees on owner reassignment from Array(...); shallow copies still leak/double-free if misused
+- Why deferred: full move/borrow
 - Next step: move-only Array or borrow
-- Introduced: C3j; free C3t; class elems C4c
+- Introduced: C3j; free C3t; reassign C4r
 
 
 
@@ -55,6 +55,9 @@ When you resolve debt, update or remove the matching entry.
 - Introduced: narrowed after C4h
 
 ## Resolved
+
+### Array owner reassignment leaked (2026-07-16)
+- Resolved in C4r: free buffer before `a = Array(...)` on owner locals.
 
 ### No Array of struct (2026-07-16)
 - Resolved in C4q: struct elements by-value in Array mono; corpus generic/array_struct.

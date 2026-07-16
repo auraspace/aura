@@ -39,6 +39,11 @@ impl<'a> EmitCtx<'a> {
         }
     }
 
+    /// C4r: is this local marked as owning an Array buffer?
+    pub(crate) fn is_array_owner(&self, name: &str) -> bool {
+        self.array_owners.iter().any(|s| s.contains(name))
+    }
+
     /// All Array-owning locals from innermost to outermost (for free-before-return).
     pub(crate) fn array_owners_all(&self) -> Vec<String> {
         let mut out = Vec::new();
