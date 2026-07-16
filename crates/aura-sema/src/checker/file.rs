@@ -59,15 +59,30 @@ impl Checker {
         }
 
         for i in &file.interfaces {
-            if self.interfaces.contains_key(&i.name.name)
-                || self.classes.contains_key(&i.name.name) // simple-name map; any class shadows iface
+            let pkg = decl_package(&i.origin_package, &file_pkg).to_string();
+            // C4d: same simple name ok across packages; shadow only same-package class/iface.
+            if self
+                .classes
+                .get(&i.name.name)
+                .map(|v| v.iter().any(|c| c.package == pkg))
+                .unwrap_or(false)
             {
                 return Err(SemaError {
-                    message: format!("duplicate type name `{}`", i.name.name),
+                    message: format!("duplicate type name `{}` in package `{pkg}`", i.name.name),
                     span: i.name.span,
                 });
             }
-            let pkg = decl_package(&i.origin_package, &file_pkg).to_string();
+            if let Some(existing) = self.interfaces.get(&i.name.name) {
+                if existing.iter().any(|s| s.package == pkg) {
+                    return Err(SemaError {
+                        message: format!(
+                            "duplicate type name `{}` in package `{pkg}`",
+                            i.name.name
+                        ),
+                        span: i.name.span,
+                    });
+                }
+            }
             self.current_package = pkg.clone();
             let mut methods = HashMap::new();
             for m in &i.methods {
@@ -96,22 +111,26 @@ impl Checker {
                     },
                 );
             }
-            self.interfaces.insert(
-                i.name.name.clone(),
-                InterfaceSig {
+            self.interfaces
+                .entry(i.name.name.clone())
+                .or_default()
+                .push(InterfaceSig {
                     name: i.name.name.clone(),
                     is_pub: i.is_pub,
                     package: pkg,
                     methods,
                     span: i.span,
-                },
-            );
+                });
         }
 
         // First pass: register enum names (fields resolved in second pass with type params).
         for e in &file.enums {
             let pkg = decl_package(&e.origin_package, &file_pkg).to_string();
-            if self.interfaces.contains_key(&e.name.name)
+            if self
+                .interfaces
+                .get(&e.name.name)
+                .map(|v| v.iter().any(|i| i.package == pkg))
+                .unwrap_or(false)
                 || self.functions.contains_key(&e.name.name)
             {
                 return Err(SemaError {
@@ -201,11 +220,19 @@ impl Checker {
 
         for c in &file.classes {
             let pkg = decl_package(&c.origin_package, &file_pkg).to_string();
-            if self.interfaces.contains_key(&c.name.name)
-                || self.functions.contains_key(&c.name.name)
+            if self
+                .interfaces
+                .get(&c.name.name)
+                .map(|v| v.iter().any(|i| i.package == pkg))
+                .unwrap_or(false)
+                || self
+                    .functions
+                    .get(&c.name.name)
+                    .map(|v| v.iter().any(|f| f.package == pkg))
+                    .unwrap_or(false)
             {
                 return Err(SemaError {
-                    message: format!("duplicate type/function name `{}`", c.name.name),
+                    message: format!("duplicate type/function name `{}` in package `{pkg}`", c.name.name),
                     span: c.name.span,
                 });
             }
@@ -256,20 +283,15 @@ impl Checker {
 
             let mut implements = Vec::new();
             for iface in &c.implements {
-                let Some(isig) = self.interfaces.get(&iface.name) else {
-                    return Err(SemaError {
-                        message: format!("unknown interface `{}`", iface.name),
-                        span: iface.span,
-                    });
-                };
-                self.check_visible(&iface.name, isig.is_pub, &isig.package, iface.span)?;
-                if implements.contains(&iface.name) {
+                let isig = self.resolve_interface(&iface.name, iface.span)?;
+                let ikey = crate::ty::nominal_key(&isig.package, &iface.name);
+                if implements.contains(&ikey) {
                     return Err(SemaError {
                         message: format!("duplicate implements `{}`", iface.name),
                         span: iface.span,
                     });
                 }
-                implements.push(iface.name.clone());
+                implements.push(ikey);
             }
 
             let mut fields = Vec::new();
@@ -326,14 +348,17 @@ impl Checker {
                 );
             }
 
-            for iface_name in &implements {
-                let iface = self.interfaces.get(iface_name).unwrap().clone();
+            for iface_key in &implements {
+                let iface = self
+                    .iface_by_nominal_key(iface_key)
+                    .cloned()
+                    .expect("implements key must resolve");
                 for (mname, im) in &iface.methods {
                     let Some(cm) = methods.get(mname) else {
                         return Err(SemaError {
                             message: format!(
                                 "class `{}` does not implement method `{}` required by `{}`",
-                                c.name.name, mname, iface_name
+                                c.name.name, mname, iface.name
                             ),
                             span: c.name.span,
                         });
@@ -342,7 +367,7 @@ impl Checker {
                         return Err(SemaError {
                             message: format!(
                                 "method `{}` on `{}` does not match interface `{}`",
-                                mname, c.name.name, iface_name
+                                mname, c.name.name, iface.name
                             ),
                             span: cm.span,
                         });
@@ -362,7 +387,12 @@ impl Checker {
         }
 
         for f in &file.functions {
-            if self.interfaces.contains_key(&f.name.name)
+            let pkg = decl_package(&f.origin_package, &file_pkg).to_string();
+            if self
+                .interfaces
+                .get(&f.name.name)
+                .map(|v| v.iter().any(|i| i.package == pkg))
+                .unwrap_or(false)
                 || self.variant_to_enum.contains_key(&f.name.name)
                 || self.classes.get(&f.name.name).map(|v| !v.is_empty()).unwrap_or(false)
                 || self.enums.get(&f.name.name).map(|v| !v.is_empty()).unwrap_or(false)
@@ -372,7 +402,6 @@ impl Checker {
                     span: f.name.span,
                 });
             }
-            let pkg = decl_package(&f.origin_package, &file_pkg).to_string();
             if let Some(existing) = self.functions.get(&f.name.name) {
                 if existing.iter().any(|s| s.package == pkg) {
                     return Err(SemaError {
@@ -466,7 +495,10 @@ impl Checker {
         let interfaces = file
             .interfaces
             .iter()
-            .map(|i| self.interfaces.get(&i.name.name).unwrap().clone())
+            .map(|i| {
+                let pkg = decl_package(&i.origin_package, &package).to_string();
+                self.iface_in_package(&i.name.name, &pkg).unwrap().clone()
+            })
             .collect();
         let enums = file
             .enums

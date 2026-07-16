@@ -1,0 +1,21 @@
+// C4d — same interface name across packages
+package demo.iface_app
+
+import demo.iface_a as A
+import demo.iface_b as B
+
+fun show_a(x: A.Named) {
+  println(x.name())
+}
+
+fun show_b(x: B.Named) {
+  println(x.name())
+}
+
+fun main() {
+  val a: A.Item = A.Item("from_a")
+  val b: B.Item = B.Item("from_b")
+  show_a(a)
+  show_b(b)
+  println("iface collide ok")
+}

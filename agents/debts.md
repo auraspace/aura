@@ -23,12 +23,7 @@ When you resolve debt, update or remove the matching entry.
 
 
 
-### Interfaces still unique by simple name
-- Area: package loader / iface codegen
-- Symptom: class/enum may share names across packages (C3v); interfaces still one simple name per link unit
-- Why deferred: C3v focused class/enum multi-key + C mangling; iface tags/dispatch less urgent
-- Next step: package-prefix interfaces + multi-key iface table
-- Introduced: narrowed after C3v
+
 
 ### No registry / version resolve (path lock only)
 - Area: toolchain / RFC-005
@@ -53,6 +48,9 @@ When you resolve debt, update or remove the matching entry.
 - Introduced: narrowed after C3z
 
 ## Resolved
+
+### Interfaces unique by simple name (2026-07-16)
+- Resolved in C4d: multi-key iface table + package-prefixed C mono; loader allows same name across packages; corpus `import/iface_app`.
 
 ### No Array of class (2026-07-16)
 - Resolved in C4c: heap class elements as pointers; package mono for `Array_<Class>`; corpus `generic/array_class.aura`.

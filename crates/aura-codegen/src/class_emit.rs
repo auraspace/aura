@@ -43,18 +43,26 @@ pub(crate) fn emit_class_forwards(out: &mut String, checked: &CheckedFile, c: &C
         );
     }
     if args.is_empty() {
-        for iface in &c.implements {
-            let param_ty = if is_heap_class_decl(c) {
-                format!("{} *", c_class_type(&mono))
-            } else {
-                c_class_type(&mono)
-            };
-            let _ = writeln!(
-                out,
-                "{} {}({param_ty} v);",
-                c_iface_type(&iface.name),
-                c_upcast_name(&c.name.name, &iface.name),
-            );
+        for iface_id in &c.implements {
+            if let Some(iface) = checked
+                .ast
+                .interfaces
+                .iter()
+                .find(|i| i.name.name == iface_id.name)
+            {
+                let imono = iface_mono(iface, checked);
+                let param_ty = if is_heap_class_decl(c) {
+                    format!("{} *", c_class_type(&mono))
+                } else {
+                    c_class_type(&mono)
+                };
+                let _ = writeln!(
+                    out,
+                    "{} {}({param_ty} v);",
+                    c_iface_type(&imono),
+                    c_upcast_name(&mono, &imono),
+                );
+            }
         }
     }
 }
@@ -70,9 +78,16 @@ pub(crate) fn emit_class_defs(out: &mut String, checked: &CheckedFile, c: &Class
         out.push('\n');
     }
     if args.is_empty() {
-        for iface in &c.implements {
-            emit_upcast(out, checked, c, &iface.name);
-            out.push('\n');
+        for iface_id in &c.implements {
+            if let Some(iface) = checked
+                .ast
+                .interfaces
+                .iter()
+                .find(|i| i.name.name == iface_id.name)
+            {
+                emit_upcast(out, checked, c, iface);
+                out.push('\n');
+            }
         }
     }
 }

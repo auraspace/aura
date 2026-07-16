@@ -80,8 +80,7 @@ impl Checker {
 
             if let Ty::Interface(iface_name) = &obj_ty {
                 let method = self
-                    .interfaces
-                    .get(iface_name)
+                    .iface_by_nominal_key(iface_name)
                     .and_then(|i| i.methods.get(&fe.field.name))
                     .cloned()
                     .ok_or_else(|| SemaError {
@@ -105,8 +104,7 @@ impl Checker {
                 let bounds = self.type_params.get(pname).cloned().unwrap_or_default();
                 for iface_name in &bounds {
                     if let Some(method) = self
-                        .interfaces
-                        .get(iface_name)
+                        .iface_by_nominal_key(iface_name)
                         .and_then(|i| i.methods.get(&fe.field.name))
                         .cloned()
                     {

@@ -371,7 +371,12 @@ pub(crate) fn local_key_to_c(key: &str, checked: &CheckedFile) -> String {
         "Bool" => "bool".into(),
         "String" => "const char *".into(),
         "Unit" => "void".into(),
-        n if checked.ast.interfaces.iter().any(|i| i.name.name == n) => c_iface_type(n),
+        n if checked.ast.interfaces.iter().any(|i| {
+            i.name.name == n || iface_mono(i, checked) == n
+        }) =>
+        {
+            c_iface_type(&iface_mono_from_key(n, checked))
+        }
         n => {
             let mono = full_type_mono(n, checked);
             let base = mono_base_name(&mono, checked).unwrap_or(n);

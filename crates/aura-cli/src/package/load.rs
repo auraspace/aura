@@ -356,8 +356,10 @@ fn merge_package(into: &mut LoadedPackage, mut dep: LoadedPackage) -> Result<(),
     }
 
     for i in &dep.ast.interfaces {
-        // Interfaces still unique by simple name (no multi-key yet).
-        if seen_types.iter().any(|(k, n, _)| k == "interface" && n == &i.name.name) {
+        // C4d: same simple name allowed across packages (C symbols package-prefixed).
+        if seen_types.iter().any(|(k, n, p)| {
+            k == "interface" && n == &i.name.name && p == &i.origin_package
+        }) {
             return Err(format!(
                 "error: duplicate interface `{}` when linking package `{}`",
                 i.name.name, dep.package

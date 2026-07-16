@@ -44,22 +44,21 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &EmitCtx<'_>) -> String {
         let obj_ty = resolve_type_name(&fe.object, ctx);
         let obj = emit_expr(&fe.object, ctx);
 
-        // Interface method
-        if let Some(iface) = obj_ty.as_ref().filter(|t| {
-            ctx.checked
-                .ast
-                .interfaces
-                .iter()
-                .any(|i| i.name.name == **t)
+        // Interface method (C4d: package-prefixed mono)
+        if let Some(iface_key) = obj_ty.as_ref().filter(|t| {
+            let im = iface_mono_from_key(t, ctx.checked);
+            ctx.checked.ast.interfaces.iter().any(|i| {
+                iface_mono(i, ctx.checked) == im || i.name.name == **t
+            })
         }) {
+            let imono = iface_mono_from_key(iface_key, ctx.checked);
             let mut args = vec![format!("&({obj})")];
-            // param types from interface method
             if let Some(m) = ctx
                 .checked
                 .ast
                 .interfaces
                 .iter()
-                .find(|i| i.name.name == *iface)
+                .find(|i| iface_mono(i, ctx.checked) == imono || i.name.name == *iface_key)
                 .and_then(|i| i.methods.iter().find(|m| m.name.name == fe.field.name))
             {
                 for (a, p) in c.args.iter().zip(m.params.iter()) {
@@ -72,7 +71,7 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &EmitCtx<'_>) -> String {
             }
             return format!(
                 "{}({})",
-                c_iface_method_name(iface, &fe.field.name),
+                c_iface_method_name(&imono, &fe.field.name),
                 args.join(", ")
             );
         }

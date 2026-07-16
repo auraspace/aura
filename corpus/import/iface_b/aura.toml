@@ -1,0 +1,6 @@
+[package]
+name = "demo.iface_b"
+
+[[bin]]
+name = "iface_b"
+path = "src"

@@ -33,7 +33,8 @@ pub(crate) struct Checker {
     enums: HashMap<String, Vec<EnumSig>>,
     /// Variant name → owning enum name (unique across file for C3b).
     variant_to_enum: HashMap<String, String>,
-    interfaces: HashMap<String, InterfaceSig>,
+    /// Interfaces by simple name; multiple packages may share a name (C4d).
+    interfaces: HashMap<String, Vec<InterfaceSig>>,
     locals: Vec<HashMap<String, Local>>,
     /// Type params in current generic scope (name → bound interface names).
     type_params: HashMap<String, Vec<String>>,
@@ -155,7 +156,7 @@ impl Checker {
             classes,
             enums: HashMap::new(),
             variant_to_enum: HashMap::new(),
-            interfaces: HashMap::new(),
+            interfaces: HashMap::new(), // Vec per simple name (C4d)
             locals: Vec::new(),
             type_params: HashMap::new(),
             current_class: None,
@@ -417,6 +418,89 @@ impl Checker {
             }
         } else {
             self.enum_in_package(name, pkg)
+        }
+    }
+
+    pub(crate) fn iface_in_package(&self, name: &str, pkg: &str) -> Option<&InterfaceSig> {
+        self.interfaces
+            .get(name)?
+            .iter()
+            .find(|s| s.package == pkg)
+    }
+
+    /// C4d: resolve interface by simple name (same-package first, else unique visible).
+    pub(crate) fn resolve_interface(
+        &self,
+        name: &str,
+        span: Span,
+    ) -> Result<InterfaceSig, SemaError> {
+        let list = self.interfaces.get(name).ok_or_else(|| SemaError {
+            message: format!("unknown type `{name}`"),
+            span,
+        })?;
+        let visible: Vec<&InterfaceSig> = list
+            .iter()
+            .filter(|s| self.is_visible(name, s.is_pub, &s.package))
+            .collect();
+        if visible.is_empty() {
+            if let Some(s) = list.first() {
+                self.check_visible(name, s.is_pub, &s.package, span)?;
+            }
+            return Err(SemaError {
+                message: format!("unknown type `{name}`"),
+                span,
+            });
+        }
+        let same_pkg: Vec<&InterfaceSig> = visible
+            .iter()
+            .copied()
+            .filter(|s| s.package == self.current_package)
+            .collect();
+        if same_pkg.len() == 1 {
+            return Ok(same_pkg[0].clone());
+        }
+        if visible.len() == 1 {
+            return Ok(visible[0].clone());
+        }
+        let pkgs: Vec<&str> = visible.iter().map(|s| s.package.as_str()).collect();
+        Err(SemaError {
+            message: format!(
+                "ambiguous type `{name}` from packages {}; use `import … as Alias` and `Alias.{name}`",
+                pkgs.join(", ")
+            ),
+            span,
+        })
+    }
+
+    pub(crate) fn resolve_interface_in_package(
+        &self,
+        name: &str,
+        pkg: &str,
+        span: Span,
+    ) -> Result<InterfaceSig, SemaError> {
+        let iface = self
+            .iface_in_package(name, pkg)
+            .cloned()
+            .ok_or_else(|| SemaError {
+                message: format!("type `{name}` is not a member of package `{pkg}`"),
+                span,
+            })?;
+        self.check_visible(name, iface.is_pub, &iface.package, span)?;
+        Ok(iface)
+    }
+
+    /// Look up interface by nominal key (`Name` or `Name@pkg`).
+    pub(crate) fn iface_by_nominal_key(&self, key: &str) -> Option<&InterfaceSig> {
+        let (name, pkg) = crate::ty::split_nominal(key);
+        if pkg.is_empty() {
+            let list = self.interfaces.get(name)?;
+            if list.len() == 1 {
+                Some(&list[0])
+            } else {
+                list.iter().find(|s| s.package == self.current_package)
+            }
+        } else {
+            self.iface_in_package(name, pkg)
         }
     }
     pub(crate) fn check_method(

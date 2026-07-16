@@ -107,14 +107,11 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
         }
     }
 
-    // Interface tagged unions
+    // Interface tagged unions (C4d: package-prefixed iface mono)
     for iface in &checked.ast.interfaces {
-        let impls = implementors(checked, &iface.name.name);
-        let _ = writeln!(
-            out,
-            "typedef struct {} {{",
-            c_iface_type(&iface.name.name)
-        );
+        let imono = iface_mono(iface, checked);
+        let impls = implementors_for_iface(checked, iface);
+        let _ = writeln!(out, "typedef struct {} {{", c_iface_type(&imono));
         out.push_str("  int tag;\n  union {\n");
         for c in &impls {
             let pkg = class_decl_package(c, checked);
@@ -130,7 +127,7 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
         if impls.is_empty() {
             out.push_str("    char _empty;\n");
         }
-        let _ = writeln!(out, "  }} data;\n}} {};\n", c_iface_type(&iface.name.name));
+        let _ = writeln!(out, "  }} data;\n}} {};\n", c_iface_type(&imono));
     }
 
     // Forward decls
@@ -158,11 +155,12 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
         }
     }
     for iface in &checked.ast.interfaces {
+        let imono = iface_mono(iface, checked);
         for m in &iface.methods {
             let _ = writeln!(
                 out,
                 "{};",
-                c_iface_method_signature(&iface.name.name, m, checked)
+                c_iface_method_signature(&imono, m, checked)
             );
         }
     }
@@ -209,7 +207,7 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
 
     for iface in &checked.ast.interfaces {
         for m in &iface.methods {
-            emit_iface_dispatch(&mut out, checked, &iface.name.name, m);
+            emit_iface_dispatch(&mut out, checked, iface, m);
             out.push('\n');
         }
     }

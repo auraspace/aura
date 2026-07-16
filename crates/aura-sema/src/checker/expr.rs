@@ -127,7 +127,7 @@ impl Checker {
                     });
                 }
                 if let Ty::Interface(iface_name) = &obj_ty {
-                    let iface = self.interfaces.get(iface_name).ok_or_else(|| SemaError {
+                    let iface = self.iface_by_nominal_key(iface_name).ok_or_else(|| SemaError {
                         message: format!("unknown interface `{iface_name}`"),
                         span: f.span,
                     })?;

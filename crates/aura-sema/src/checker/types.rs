@@ -138,25 +138,18 @@ impl Checker {
                 }
             }
             other if self.interfaces.contains_key(other) => {
-                let iface = self.interfaces.get(other).unwrap();
-                if let Some(pkg) = qualified_pkg {
-                    if iface.package != pkg {
-                        return Err(SemaError {
-                            message: format!(
-                                "type `{other}` is not a member of package `{pkg}`"
-                            ),
-                            span: t.span,
-                        });
-                    }
-                }
-                self.check_visible(other, iface.is_pub, &iface.package, t.span)?;
+                let iface = if let Some(pkg) = qualified_pkg {
+                    self.resolve_interface_in_package(other, pkg, t.span)?
+                } else {
+                    self.resolve_interface(other, t.span)?
+                };
                 if !type_args.is_empty() {
                     return Err(SemaError {
                         message: format!("interface `{other}` cannot take type arguments in C2b"),
                         span: t.span,
                     });
                 }
-                Ty::Interface(other.to_string())
+                Ty::Interface(crate::ty::nominal_key(&iface.package, other))
             }
             other => {
                 return Err(SemaError {
@@ -192,17 +185,29 @@ impl Checker {
             (inner, Ty::Nullable(outer)) if self.is_assignable(inner, outer) => true,
             (Ty::Class(c), Ty::Interface(i)) => self
                 .class_by_nominal_key(c)
-                .map(|cs| cs.implements.iter().any(|x| x == i))
+                .map(|cs| {
+                    cs.implements.iter().any(|x| {
+                        x == i || crate::ty::split_nominal(x).0 == crate::ty::split_nominal(i).0
+                    })
+                })
                 .unwrap_or(false),
             (Ty::ClassApp { name: c, .. }, Ty::Interface(i)) => self
                 .class_by_nominal_key(c)
-                .map(|cs| cs.implements.iter().any(|x| x == i))
+                .map(|cs| {
+                    cs.implements.iter().any(|x| {
+                        x == i || crate::ty::split_nominal(x).0 == crate::ty::split_nominal(i).0
+                    })
+                })
                 .unwrap_or(false),
             // Bounded type param is assignable to its interface bounds
             (Ty::TypeParam(p), Ty::Interface(i)) => self
                 .type_params
                 .get(p)
-                .map(|bs| bs.iter().any(|x| x == i))
+                .map(|bs| {
+                    bs.iter().any(|x| {
+                        x == i || crate::ty::split_nominal(x).0 == crate::ty::split_nominal(i).0
+                    })
+                })
                 .unwrap_or(false),
             // Type params only match themselves (handled by ==)
             _ => false,

@@ -82,9 +82,10 @@ C1 uses a **C backend** (`aura emit-c` + system `cc`) linked with `runtime/aura_
 - **Compiler C4a** Class identity `==` / `!=` (reference / pointer; corpus)
 - **Compiler C4b** Nullable class `Class?` (correct heap pointer C emit + flow)
 - **Compiler C4c** `Array` of class heap references
+- **Compiler C4d** Package-prefixed interface C symbols (same name across packages)
 - **DX** Pretty diagnostics (`path:line:col` + source snippet)
 - **Debts** Tracked in [`agents/debts.md`](agents/debts.md)
-- **Next:** iface packages, String content ==, auto-prelude
+- **Next:** String content ==, Array.clear, auto-prelude
 
 ## Links
 

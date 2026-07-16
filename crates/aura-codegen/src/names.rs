@@ -3,16 +3,51 @@
 use aura_ast::*;
 use aura_sema::{nominal_key, nominal_mono_base, CheckedFile, Ty};
 
-pub(crate) fn c_iface_type(name: &str) -> String {
-    format!("aura_iface_{name}")
+/// `iface` is a C mono base (`Named` or `demo_iface_Named`).
+pub(crate) fn c_iface_type(iface_mono: &str) -> String {
+    format!("aura_iface_{iface_mono}")
 }
 
-pub(crate) fn c_upcast_name(class: &str, iface: &str) -> String {
-    format!("aura_upcast_{class}_to_{iface}")
+pub(crate) fn c_upcast_name(class_mono: &str, iface_mono: &str) -> String {
+    format!("aura_upcast_{class_mono}_to_{iface_mono}")
 }
 
-pub(crate) fn c_iface_method_name(iface: &str, method: &str) -> String {
-    format!("aura_iface_{iface}_{method}")
+pub(crate) fn c_iface_method_name(iface_mono: &str, method: &str) -> String {
+    format!("aura_iface_{iface_mono}_{method}")
+}
+
+/// Package for an interface decl (C4d).
+pub(crate) fn iface_decl_package(i: &InterfaceDecl, checked: &CheckedFile) -> String {
+    if i.origin_package.is_empty() {
+        checked.package.clone()
+    } else {
+        i.origin_package.clone()
+    }
+}
+
+/// C mono id for an interface (`demo_iface_Named`).
+pub(crate) fn iface_mono(i: &InterfaceDecl, checked: &CheckedFile) -> String {
+    type_mono(&iface_decl_package(i, checked), &i.name.name, &[])
+}
+
+/// Resolve interface mono from a local/type key (simple name or already-mangled).
+pub(crate) fn iface_mono_from_key(key: &str, checked: &CheckedFile) -> String {
+    let (simple, pkg) = {
+        // Local keys may be package mono already (`demo_iface_Named`) or simple.
+        if let Some(i) = checked.ast.interfaces.iter().find(|i| {
+            let m = type_mono(&iface_decl_package(i, checked), &i.name.name, &[]);
+            m == key || i.name.name == key
+        }) {
+            return type_mono(&iface_decl_package(i, checked), &i.name.name, &[]);
+        }
+        if key.contains('@') {
+            let (n, p) = aura_sema::split_nominal(key);
+            return type_mono(p, n, &[]);
+        }
+        (key, "")
+    };
+    let _ = (simple, pkg);
+    key.to_string()
 }
 pub(crate) fn mono_key(name: &str, args: &[Ty]) -> String {
     // `name` may already be a C mono base or a simple/nominal key.
@@ -250,7 +285,8 @@ pub(crate) fn c_type_ref_subst(
             "String" => "const char *".into(),
             "Unit" => "void".into(),
             name if checked.ast.interfaces.iter().any(|i| i.name.name == name) => {
-                c_iface_type(name)
+                let imono = iface_mono_from_key(name, checked);
+                c_iface_type(&imono)
             }
             name if is_enum_name(checked, name) => {
                 let pkg = resolve_type_ref_package(ty, checked);

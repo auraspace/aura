@@ -454,17 +454,30 @@ pub(crate) fn type_ref_to_ty(t: &TypeRef, ctx: &EmitCtx<'_>) -> Option<Ty> {
                 let pkg = class_decl_package(c, ctx.checked);
                 return Some(Ty::Class(nominal_key(&pkg, name)));
             }
-            if ctx
+            if let Some(i) = ctx
                 .checked
                 .ast
                 .interfaces
                 .iter()
-                .any(|i| i.name.name == name)
+                .find(|i| i.name.name == name)
             {
-                return Some(Ty::Interface(name.into()));
+                let pkg = iface_decl_package(i, ctx.checked);
+                return Some(Ty::Interface(nominal_key(&pkg, name)));
             }
             None
         }
+    }
+}
+
+fn expected_iface_mono(expected_ty: &str, checked: &CheckedFile) -> Option<String> {
+    // expected may be simple name, mono, or local key.
+    let im = iface_mono_from_key(expected_ty, checked);
+    if checked.ast.interfaces.iter().any(|i| {
+        iface_mono(i, checked) == im || i.name.name == expected_ty
+    }) {
+        Some(im)
+    } else {
+        None
     }
 }
 
@@ -472,42 +485,45 @@ pub(crate) fn type_ref_to_ty(t: &TypeRef, ctx: &EmitCtx<'_>) -> Option<Ty> {
 pub(crate) fn coerce_expr(expr: &Expr, expected_ty: &str, ctx: &EmitCtx<'_>) -> String {
     let actual = resolve_type_name(expr, ctx);
     let code = emit_expr(expr, ctx);
+    let Some(imono) = expected_iface_mono(expected_ty, ctx.checked) else {
+        return code;
+    };
+    let iface_simple = ctx
+        .checked
+        .ast
+        .interfaces
+        .iter()
+        .find(|i| iface_mono(i, ctx.checked) == imono)
+        .map(|i| i.name.name.as_str())
+        .unwrap_or(expected_ty);
+
     if let Some(from) = actual {
-        let base = mono_base_name(&from, ctx.checked).unwrap_or(from.as_str());
-        if base != expected_ty
-            && ctx
-                .checked
-                .ast
-                .interfaces
-                .iter()
-                .any(|i| i.name.name == expected_ty)
+        let class_mono = full_type_mono(&from, ctx.checked);
+        let base = mono_base_name(&class_mono, ctx.checked).unwrap_or(from.as_str());
+        if class_mono != imono
             && ctx.checked.ast.classes.iter().any(|c| {
-                c.name.name == base && c.implements.iter().any(|i| i.name == expected_ty)
+                c.name.name == base && c.implements.iter().any(|i| i.name == iface_simple)
             })
         {
-            return format!("{}({code})", c_upcast_name(base, expected_ty));
+            return format!("{}({code})", c_upcast_name(&class_mono, &imono));
         }
     }
     // Constructor expr Greeter(...) inferred as class, expected interface
     if let Expr::Call(c) = expr {
         if let Expr::Ident(id) = c.callee.as_ref() {
-            if ctx
+            if let Some(cl) = ctx
                 .checked
                 .ast
                 .classes
                 .iter()
-                .any(|cl| {
+                .find(|cl| {
                     cl.name.name == id.name
-                        && cl.implements.iter().any(|i| i.name == expected_ty)
+                        && cl.implements.iter().any(|i| i.name == iface_simple)
                 })
-                && ctx
-                    .checked
-                    .ast
-                    .interfaces
-                    .iter()
-                    .any(|i| i.name.name == expected_ty)
             {
-                return format!("{}({code})", c_upcast_name(&id.name, expected_ty));
+                let pkg = class_decl_package(cl, ctx.checked);
+                let cmono = type_mono(&pkg, &id.name, &[]);
+                return format!("{}({code})", c_upcast_name(&cmono, &imono));
             }
         }
     }

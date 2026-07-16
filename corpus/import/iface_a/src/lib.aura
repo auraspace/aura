@@ -1,0 +1,12 @@
+package demo.iface_a
+
+// C4d — same simple interface name as demo.iface_b
+pub interface Named {
+  fun name(): String
+}
+
+pub class Item(val n: String) : Named {
+  fun name(): String {
+    return this.n
+  }
+}

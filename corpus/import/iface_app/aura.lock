@@ -1,0 +1,4 @@
+# aura.lock — path dependencies (C3p)
+# Keep in sync with aura.toml [dependencies].
+demo.iface_a = "../iface_a"
+demo.iface_b = "../iface_b"

@@ -1,0 +1,10 @@
+[package]
+name = "demo.iface_app"
+
+[[bin]]
+name = "iface_app"
+path = "src"
+
+[dependencies]
+demo.iface_a = { path = "../iface_a" }
+demo.iface_b = { path = "../iface_b" }

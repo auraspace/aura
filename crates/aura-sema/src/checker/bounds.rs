@@ -18,23 +18,26 @@ impl Checker {
             }
             let mut bounds = Vec::new();
             for b in &p.bounds {
-                if !self.interfaces.contains_key(&b.name) {
-                    // Allow class bounds later; C2e: interfaces only
-                    return Err(SemaError {
-                        message: format!(
-                            "unknown bound `{}` (C2e: bounds must be interfaces)",
-                            b.name
-                        ),
-                        span: b.span,
-                    });
-                }
-                if bounds.contains(&b.name) {
+                let isig = match self.resolve_interface(&b.name, b.span) {
+                    Ok(i) => i,
+                    Err(_) => {
+                        return Err(SemaError {
+                            message: format!(
+                                "unknown bound `{}` (C2e: bounds must be interfaces)",
+                                b.name
+                            ),
+                            span: b.span,
+                        });
+                    }
+                };
+                let ikey = crate::ty::nominal_key(&isig.package, &b.name);
+                if bounds.contains(&ikey) || bounds.contains(&b.name) {
                     return Err(SemaError {
                         message: format!("duplicate bound `{}` on `{}`", b.name, p.name.name),
                         span: b.span,
                     });
                 }
-                bounds.push(b.name.clone());
+                bounds.push(ikey);
             }
             self.type_params.insert(p.name.name.clone(), bounds);
         }
@@ -71,16 +74,19 @@ impl Checker {
     }
 
     pub(crate) fn ty_implements(&self, ty: &Ty, iface: &str) -> bool {
+        let same = |x: &str| {
+            x == iface || crate::ty::split_nominal(x).0 == crate::ty::split_nominal(iface).0
+        };
         match ty {
             Ty::Class(c) | Ty::ClassApp { name: c, .. } => self
                 .class_by_nominal_key(c)
-                .map(|cs| cs.implements.iter().any(|x| x == iface))
+                .map(|cs| cs.implements.iter().any(|x| same(x)))
                 .unwrap_or(false),
-            Ty::Interface(i) => i == iface,
+            Ty::Interface(i) => same(i),
             Ty::TypeParam(p) => self
                 .type_params
                 .get(p)
-                .map(|bs| bs.iter().any(|x| x == iface))
+                .map(|bs| bs.iter().any(|x| same(x)))
                 .unwrap_or(false),
             _ => false,
         }
