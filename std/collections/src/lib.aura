@@ -1,0 +1,3 @@
+// C5a — std.collections stub (Map/Set not implemented yet).
+// Use builtin Array<T> and duck Iterable (len + get) until Map lands.
+package std.collections

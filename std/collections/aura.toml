@@ -1,0 +1,6 @@
+[package]
+name = "std.collections"
+
+[[bin]]
+name = "collections"
+path = "src"

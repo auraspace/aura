@@ -42,10 +42,10 @@ When you resolve debt, update or remove the matching entry.
 
 ### Stdlib incomplete (collections)
 - Area: stdlib / RFC-007
-- Symptom: C4g/C4h cover std.io + std.assert; no Map/Set or Iterable std collections
-- Why deferred: builtin Array is enough for demos
-- Next step: collections package or Iterable protocol
-- Introduced: narrowed after C4h
+- Symptom: C5a adds `std/collections` stub package; still no Map/Set APIs
+- Why deferred: builtin Array + duck for-in cover demos
+- Next step: Map implementation or Iterable protocol
+- Introduced: narrowed after C4h; stub C5a
 
 ## Resolved
 
@@ -66,6 +66,9 @@ When you resolve debt, update or remove the matching entry.
 
 ### GC free-all only / no collect (2026-07-16)
 - Resolved in C4z (partial): root registry (`aura_gc_add_root` / `remove_root`) + `aura_gc_collect` shallow mark; still no sweep (free-all at shutdown). Next: deep mark + sweep, compiler root emission.
+
+### No std.collections package path (2026-07-16)
+- Resolved in C5a: `std/collections` stub + README; Map/Set still Open under Stdlib incomplete.
 
 ### No if-expression (2026-07-16)
 - Resolved in C4t: `if`/`else` as expr; branch value = last expression; requires else.
