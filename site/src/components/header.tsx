@@ -4,11 +4,11 @@ import { ThemeToggle } from './theme-toggle'
 export function Header() {
   return (
     <header className="header">
-      <Link to="/" className="brand">
+      <Link to="/rfc" className="brand">
         Aura RFCs
       </Link>
       <nav>
-        <Link to="/">Home</Link>
+        <Link to="/rfc">RFCs</Link>
         <Link to="/graph">Graph</Link>
       </nav>
       <ThemeToggle />

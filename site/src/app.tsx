@@ -9,7 +9,9 @@ export function App() {
   return (
     <Routes>
       <Route element={<Layout />}>
+        {/* Catalog is canonical at /rfc (GitHub Pages: …/aura/rfc) */}
         <Route index element={<HomePage />} />
+        <Route path="rfc" element={<HomePage />} />
         <Route path="rfc/:id" element={<RfcPage />} />
         <Route path="graph" element={<GraphPage />} />
         <Route path="*" element={<NotFoundPage />} />

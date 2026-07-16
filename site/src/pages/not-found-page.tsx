@@ -6,7 +6,7 @@ export function NotFoundPage() {
       <h1>Not found</h1>
       <p className="muted">That page does not exist.</p>
       <p>
-        <Link to="/">Back to catalog</Link>
+        <Link to="/rfc">Back to catalog</Link>
       </p>
     </div>
   )

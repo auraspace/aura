@@ -20,6 +20,8 @@ This repository currently holds:
 
 ### Docs site
 
+RFC catalog is published at **https://auraspace.github.io/aura/rfc** (GitHub Pages).
+
 ```bash
 pnpm site:dev      # http://localhost:5173
 pnpm site:test

@@ -23,6 +23,14 @@ pnpm build
 2. Workflow: `.github/workflows/deploy-site.yml`
 3. Base path is `/<repo-name>/` (set via `VITE_BASE` in CI)
 
+Public URLs (repo `aura`):
+
+| Path | Page |
+| ---- | ---- |
+| https://auraspace.github.io/aura/rfc | RFC catalog |
+| https://auraspace.github.io/aura/rfc/000 | RFC-000 detail |
+| https://auraspace.github.io/aura/graph | Dependency graph |
+
 ## Content
 
 RFC markdown stays in `../docs/rfc/RFC-*.md` (read-only). Rebuild the site after editing RFCs.

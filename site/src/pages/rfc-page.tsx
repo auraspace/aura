@@ -24,7 +24,7 @@ export function RfcPage() {
   return (
     <div>
       <p className="muted">
-        <Link to="/">← Catalog</Link>
+        <Link to="/rfc">← Catalog</Link>
       </p>
       <header className="rfc-header">
         <div className="rfc-meta">
