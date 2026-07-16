@@ -212,14 +212,61 @@ void aura_ex_rethrow(void) {
   longjmp(*outer->buf, 1);
 }
 
-/* ---- GC MVP (C3x): tracked heap + free-all at shutdown (no mark-sweep yet) ---- */
+/* ---- GC MVP (C3x free-all + C4z STW mark skeleton) ----
+ * Still reclaim-all only at shutdown. C4z adds root registry + collect entry
+ * that marks roots (shallow); no sweep yet so live objects stay valid.
+ */
 
 typedef struct AuraGcNode {
   void *ptr;
+  int marked; /* C4z: mark bit for STW collect */
   struct AuraGcNode *next;
 } AuraGcNode;
 
 static AuraGcNode *aura_gc_list = NULL;
+
+/* Conservative root slots: pointers to variables that hold GC pointers. */
+#define AURA_GC_MAX_ROOTS 256
+static void **aura_gc_roots[AURA_GC_MAX_ROOTS];
+static int aura_gc_root_n = 0;
+
+void aura_gc_add_root(void **slot) {
+  if (slot == NULL) {
+    return;
+  }
+  for (int i = 0; i < aura_gc_root_n; i++) {
+    if (aura_gc_roots[i] == slot) {
+      return;
+    }
+  }
+  if (aura_gc_root_n >= AURA_GC_MAX_ROOTS) {
+    fputs("aura: GC root table full\n", stderr);
+    abort();
+  }
+  aura_gc_roots[aura_gc_root_n++] = slot;
+}
+
+void aura_gc_remove_root(void **slot) {
+  if (slot == NULL) {
+    return;
+  }
+  for (int i = 0; i < aura_gc_root_n; i++) {
+    if (aura_gc_roots[i] == slot) {
+      aura_gc_roots[i] = aura_gc_roots[aura_gc_root_n - 1];
+      aura_gc_root_n--;
+      return;
+    }
+  }
+}
+
+static AuraGcNode *aura_gc_find(void *ptr) {
+  for (AuraGcNode *n = aura_gc_list; n != NULL; n = n->next) {
+    if (n->ptr == ptr) {
+      return n;
+    }
+  }
+  return NULL;
+}
 
 void *aura_gc_alloc(size_t size) {
   void *p = malloc(size);
@@ -233,9 +280,32 @@ void *aura_gc_alloc(size_t size) {
     abort();
   }
   n->ptr = p;
+  n->marked = 0;
   n->next = aura_gc_list;
   aura_gc_list = n;
   return p;
+}
+
+/* C4z: stop-the-world mark from registered roots (shallow). No sweep yet. */
+void aura_gc_collect(void) {
+  for (AuraGcNode *n = aura_gc_list; n != NULL; n = n->next) {
+    n->marked = 0;
+  }
+  for (int i = 0; i < aura_gc_root_n; i++) {
+    void **slot = aura_gc_roots[i];
+    if (slot == NULL) {
+      continue;
+    }
+    void *obj = *slot;
+    if (obj == NULL) {
+      continue;
+    }
+    AuraGcNode *n = aura_gc_find(obj);
+    if (n != NULL) {
+      n->marked = 1;
+    }
+  }
+  /* Sweep deferred: free-all remains only in aura_gc_shutdown. */
 }
 
 void aura_gc_shutdown(void) {
@@ -247,6 +317,7 @@ void aura_gc_shutdown(void) {
     n = next;
   }
   aura_gc_list = NULL;
+  aura_gc_root_n = 0;
 }
 
 /* Provided by generated code */

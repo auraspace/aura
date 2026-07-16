@@ -15,8 +15,8 @@ Living plan for docs, language specs, and the Rust toolchain. RFCs remain the de
 | RFC static site (`site/`) | Implemented on `feat/rfc-static-site`; deploy via GitHub Pages Actions |
 | RFC-000 … RFC-013 | **All Accepted** — open questions resolved or Deferred (2026-07-16) |
 | Language MVP | RFC-001 §6.0 + post-C1 surface in roadmap; async/macros/Iterable still deferred in code |
-| Compiler | **C0–C4y done** — nested mono, String APIs, duck for-in, Array enum diag |
-| Runtime / packages / stdlib | GC free-all MVP + `std.io` / `std.assert`; next GC = STW mark-sweep; tasks/collections deferred |
+| Compiler | **C0–C4z done** — nested mono, String APIs, duck for-in, GC mark skeleton |
+| Runtime / packages / stdlib | GC free-all + C4z root/mark skeleton; `std.io` / `std.assert`; tasks/collections deferred |
 
 ## Phases
 
@@ -111,6 +111,7 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C4w** | `String.charAt(i)` (UTF-8 byte as Int; OOB throws) | Done |
 | **C4x** | Clear `Array` of enum/interface reject diagnostic | Done |
 | **C4y** | Duck Iterable `for-in` (`len` + `get(Int)`) | Done |
+| **C4z** | GC STW mark skeleton (roots + collect; free-all still) | Done |
 | **DX** | line:col diagnostics with snippets | Done |
 
 **Out of scope C0/C1:** generics mono, async/tasks, macros, registry, incremental, LTO.
@@ -118,7 +119,7 @@ Rust workspace (toolchain only; user language remains Aura):
 ### P3 — Expand (after hello)
 
 1. ~~Language surface C2–C4u~~ → next: String API · Iterable duck · GC skeleton (see `agents/debts.md`, plan C4v–C5d)
-2. Runtime: ~~alloc/GC MVP + class heap refs~~ → channels/tasks
+2. Runtime: ~~alloc/GC MVP + class heap refs + C4z root/mark skeleton~~ → real STW sweep · channels/tasks
 3. Toolchain: ~~minimal `aura.toml` + path deps + path lock (incl. transitive)~~ → registry (RFC-005)
 4. Stdlib: ~~std.io + auto-prelude + std.assert~~ → collections (partial: builtin Array)
 5. Cross targets + signed releases

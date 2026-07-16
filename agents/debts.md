@@ -64,6 +64,9 @@ When you resolve debt, update or remove the matching entry.
 ### for-in only Array + String (2026-07-16)
 - Resolved in C4y (partial): duck Iterable — class/struct with `len` field or `len(): Int` plus `get(Int)`. Corpus `control/for_in_duck.aura`. Full protocol still Open.
 
+### GC free-all only / no collect (2026-07-16)
+- Resolved in C4z (partial): root registry (`aura_gc_add_root` / `remove_root`) + `aura_gc_collect` shallow mark; still no sweep (free-all at shutdown). Next: deep mark + sweep, compiler root emission.
+
 ### No if-expression (2026-07-16)
 - Resolved in C4t: `if`/`else` as expr; branch value = last expression; requires else.
 
