@@ -1,0 +1,12 @@
+// C4p — String.len (UTF-8 byte length)
+package demo.expr
+
+fun main() {
+  val s: String = "hi"
+  if (s.len == 2) {
+    println("len2")
+  }
+  if ("abc".len == 3) {
+    println("lit3")
+  }
+}

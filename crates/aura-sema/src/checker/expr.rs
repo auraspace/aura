@@ -97,6 +97,10 @@ impl Checker {
             }
             Expr::Field(f) => {
                 let obj_ty = self.check_expr(&f.object)?;
+                // C4p: String.len — UTF-8 byte length.
+                if obj_ty == Ty::String && f.field.name == "len" {
+                    return Ok(Ty::Int);
+                }
                 if let Some(cname) = obj_ty.class_name() {
                     let key = match &obj_ty {
                         Ty::Class(k) | Ty::ClassApp { name: k, .. } => k.as_str(),

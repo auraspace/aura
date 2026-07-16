@@ -143,6 +143,14 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
             _ => "Int".into(),
         },
         Expr::Field(f) => {
+            if f.field.name == "len" {
+                let recv = resolve_type_name(&f.object, ctx);
+                if matches!(recv.as_deref(), Some("String"))
+                    || matches!(f.object.as_ref(), Expr::String(_))
+                {
+                    return "Int".into();
+                }
+            }
             if let Some(mono) = resolve_class_of_expr(&f.object, ctx) {
                 let base = mono_base_name(mono, ctx.checked).unwrap_or(mono);
                 if (base == "Array" || mono.starts_with("Array_")) && f.field.name == "len" {
@@ -335,6 +343,15 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &EmitCtx<'_>) -> String {
         }
         Expr::Field(f) => {
             let obj = emit_expr(&f.object, ctx);
+            // C4p: String.len → strlen (UTF-8 bytes).
+            if f.field.name == "len" {
+                let recv = resolve_type_name(&f.object, ctx);
+                if matches!(recv.as_deref(), Some("String"))
+                    || matches!(f.object.as_ref(), Expr::String(_))
+                {
+                    return format!("((int64_t)strlen({obj}))");
+                }
+            }
             // C3y: heap class receivers use -> ; structs/Array/This use .
             // `this` is already a pointer; emit This as (*this) so `.` still works.
             let use_arrow = match f.object.as_ref() {

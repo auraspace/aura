@@ -56,6 +56,9 @@ When you resolve debt, update or remove the matching entry.
 
 ## Resolved
 
+### No String.len (2026-07-16)
+- Resolved in C4p: `s.len` is UTF-8 byte length via strlen.
+
 ### No Array.reserve (2026-07-16)
 - Resolved in C4o: `reserve(n)` grows capacity without changing len.
 
