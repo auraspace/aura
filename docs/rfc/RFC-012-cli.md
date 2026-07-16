@@ -4,11 +4,11 @@
 | ------------ | ---------------------------------- |
 | **RFC**      | 012                                |
 | **Title**    | CLI                                |
-| **Status**   | Draft                              |
+| **Status**   | Accepted                   |
 | **Layer**    | Toolchain                          |
 | **Authors**  |                                    |
 | **Created**  | 2026-07-15                         |
-| **Updated**  | 2026-07-16                         |
+| **Updated**  | 2026-07-16                 |
 | **Estimate** | 20–30 pages                        |
 | **Depends**  | RFC-005, RFC-008, RFC-011, RFC-013 |
 | **Blocks**   | —                                  |
@@ -151,8 +151,8 @@ aura check --format json
 | #   | Question                           | Options           | Owner | Status       |
 | --- | ---------------------------------- | ----------------- | ----- | ------------ |
 | 1   | `aura pkg` namespace vs flat `add` | flat (`aura add`) | CLI   | **Resolved** |
-| 2   | Plugin subcommands                 | later             | CLI   | Open         |
-| 3   | Shell completion packaging         |                   | CLI   | Open         |
+| 2   | Plugin subcommands                 | later             | CLI   | **Deferred** — post-MVP |
+| 3   | Shell completion packaging         |                   | CLI   | **Resolved** — `aura completions <shell>` generates scripts (not separate pkgs) |
 
 ## 8. Rationale & trade-offs
 
@@ -189,6 +189,8 @@ Cargo-like flat verbs optimize for daily memory. Single binary matches product s
 
 | Date       | Author | Change                               |
 | ---------- | ------ | ------------------------------------ |
+| 2026-07-16 |        | Defer plugin cmds; lock `aura completions <shell>` |
+| 2026-07-16 |        | Status → **Accepted** — Review: command map matches shipped check/build/run/test |
 | 2026-07-16 |        | Note shipped check/build/run/test/emit-c |
 | 2026-07-15 |        | Initial skeleton                     |
 | 2026-07-15 |        | Solid draft: command map, exit codes |

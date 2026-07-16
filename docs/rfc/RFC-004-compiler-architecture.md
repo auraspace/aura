@@ -4,11 +4,11 @@
 | ------------ | ------------------------------------------- |
 | **RFC**      | 004                                         |
 | **Title**    | Compiler Architecture                       |
-| **Status**   | Draft                                       |
+| **Status**   | Accepted                   |
 | **Layer**    | Toolchain                                   |
 | **Authors**  |                                             |
 | **Created**  | 2026-07-15                                  |
-| **Updated**  | 2026-07-15                                  |
+| **Updated**  | 2026-07-16                 |
 | **Estimate** | 60–100 pages                                |
 | **Depends**  | RFC-001, RFC-002, RFC-003, RFC-009, RFC-010 |
 | **Blocks**   | RFC-008, RFC-012, RFC-013                   |
@@ -197,10 +197,10 @@ aura build --release -o hello
 
 | #   | Question                                        | Options                            | Owner       | Status       |
 | --- | ----------------------------------------------- | ---------------------------------- | ----------- | ------------ |
-| 1   | GC statepoint style vs shadow stack             |                                    | Compiler+RT | Open         |
+| 1   | GC statepoint style vs shadow stack             |                                    | Compiler+RT | **Resolved** — shadow stack on C backend; LLVM statepoints with LLVM backend |
 | 2   | Full Salsa from day one vs multipass→query      | multipass first, evolve to queries | Compiler    | **Resolved** |
-| 3   | CGU partitioning heuristic                      |                                    | Compiler    | Open         |
-| 4   | Exception model on LLVM (Itanium ABI vs custom) |                                    | Compiler    | Open         |
+| 3   | CGU partitioning heuristic                      |                                    | Compiler    | **Resolved** — package (or file group) as CGU default; refine later |
+| 4   | Exception model on LLVM (Itanium ABI vs custom) |                                    | Compiler    | **Resolved** — setjmp/custom on C backend; Itanium personality on LLVM |
 
 ## 8. Rationale & trade-offs
 
@@ -245,6 +245,8 @@ Long-term backend remains **LLVM**. The living milestone table is [docs/roadmap.
 
 | Date       | Author | Change                                   |
 | ---------- | ------ | ---------------------------------------- |
+| 2026-07-16 |        | Lock shadow-stack→statepoints, CGU=package, exception ABI path |
+| 2026-07-16 |        | Status → **Accepted** — Review: Rust multipass + C-backend interim matches shipped toolchain |
 | 2026-07-16 |        | §11: C backend interim + C0–C4t status   |
 | 2026-07-15 |        | Initial skeleton                         |
 | 2026-07-15 |        | Solid draft: Rust pipeline, LLVM primary |

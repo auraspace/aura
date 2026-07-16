@@ -8,7 +8,7 @@
 | **Layer**    | Foundation                 |
 | **Authors**  | Aura contributors          |
 | **Created**  | 2026-07-15                 |
-| **Updated**  | 2026-07-15                 |
+| **Updated**  | 2026-07-16                 |
 | **Estimate** | 15–20 pages                |
 | **Depends**  | —                          |
 | **Blocks**   | RFC-001 … RFC-013          |
@@ -249,11 +249,11 @@ N/A at vision level for program errors. Process-level edge cases:
 
 | #   | Question                                                       | Options               | Owner   | Status                              |
 | --- | -------------------------------------------------------------- | --------------------- | ------- | ----------------------------------- |
-| 1   | Exact GC algorithm (Immix, Go-style, concurrent mark-sweep, …) | TBD in RFC-006        | Runtime | Open                                |
+| 1   | Exact GC algorithm (Immix, Go-style, concurrent mark-sweep, …) | TBD in RFC-006        | Runtime | **Resolved** — phased: free-all MVP → STW mark-sweep → concurrent later (RFC-006) |
 | 2   | Checked exceptions vs unchecked-only + Result                  | Unchecked + Result    | Lang    | **Resolved** — unchecked + `Result` |
 | 3   | Value types / `struct` distinct from `class` in v1?            | Yes                   | Lang    | **Resolved** — yes                  |
-| 4   | Brand, license, governance                                     | Brand **Aura**; **MIT** license; governance TBD | Project | **Resolved** — MIT; governance open |
-| 5   | Release signing technology                                     | cosign / minisign / … | Dist    | Open (post-C1; lean minisign)       |
+| 4   | Brand, license, governance                                     | Brand **Aura**; **MIT** license; governance TBD | Project | **Resolved** — MIT; governance lightweight/Deferred until community |
+| 5   | Release signing technology                                     | cosign / minisign / … | Dist    | **Resolved** — minisign first (align RFC-013); cosign optional later |
 
 ## 8. Rationale & trade-offs
 
@@ -302,6 +302,7 @@ Security is a design axis, not an add-on:
 
 | Date       | Author | Change                                                 |
 | ---------- | ------ | ------------------------------------------------------ |
+| 2026-07-16 |        | Lock remaining open Qs: phased GC, minisign, governance Deferred |
 | 2026-07-15 |        | **Accepted**; MIT license; execution via docs/roadmap  |
 | 2026-07-15 |        | Initial skeleton                                       |
 | 2026-07-15 |        | Solid draft: locked decisions, principles, non-goals   |

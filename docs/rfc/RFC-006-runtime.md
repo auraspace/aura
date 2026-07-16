@@ -4,11 +4,11 @@
 | ------------ | ------------------------- |
 | **RFC**      | 006                       |
 | **Title**    | Runtime                   |
-| **Status**   | Draft                     |
+| **Status**   | Accepted                   |
 | **Layer**    | Runtime                   |
 | **Authors**  |                           |
 | **Created**  | 2026-07-15                |
-| **Updated**  | 2026-07-16                |
+| **Updated**  | 2026-07-16                 |
 | **Estimate** | 40–60 pages               |
 | **Depends**  | RFC-000, RFC-001, RFC-003 |
 | **Blocks**   | RFC-007, RFC-008, RFC-013 |
@@ -93,7 +93,7 @@ Runtime components may be implemented in **Rust** (and/or C for tiny stubs), exp
 | Topic        | Direction                                                    |
 | ------------ | ------------------------------------------------------------ |
 | Model        | Tracing GC, precise preferred                                |
-| Concurrency  | Concurrent or stop-the-world generational—**algorithm open** |
+| Concurrency  | Phased: free-all MVP → precise **STW mark-sweep** → concurrent later |
 | Roots        | Stack maps / statepoints from LLVM; global roots registry    |
 | Finalization | Weak; prefer explicit resource management                    |
 | Tuning       | Env/`AURA_GC_*` or runtime flags: heap size, pacing          |
@@ -188,10 +188,10 @@ AURA_WORKERS=4 AURA_GC_MAX_HEAP=512m ./app
 
 | #   | Question                                   | Options        | Owner   | Status                        |
 | --- | ------------------------------------------ | -------------- | ------- | ----------------------------- |
-| 1   | Exact GC algorithm                         |                | Runtime | Open                          |
+| 1   | Exact GC algorithm                         |                | Runtime | **Resolved** — free-all MVP → precise STW mark-sweep → concurrent later |
 | 2   | Static linking only vs optional dynamic RT | static default | Dist    | **Resolved** — static default |
 | 3   | OOM: abort vs throw                        | abort MVP      | Runtime | **Resolved**                  |
-| 4   | Preemption                                 |                | Runtime | Open                          |
+| 4   | Preemption                                 |                | Runtime | **Resolved** — cooperative await + safepoint polls (hybrid with RFC-003) |
 
 ## 8. Rationale & trade-offs
 
@@ -232,6 +232,8 @@ Linking the runtime into each binary matches single-file deploy and avoids “in
 
 | Date       | Author | Change                                  |
 | ---------- | ------ | --------------------------------------- |
+| 2026-07-16 |        | Lock GC/preemption; Status → **Accepted** |
+| 2026-07-16 |        | Status → **In Review** — Review: solid runtime design; GC algo + scheduler still open |
 | 2026-07-16 |        | Note C runtime MVP status vs full RFC   |
 | 2026-07-15 |        | Initial skeleton                        |
 | 2026-07-15 |        | Solid draft: GC, M:N, FFI, ABI sketch   |

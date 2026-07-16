@@ -4,7 +4,7 @@
 | ------------ | -------------------------- |
 | **RFC**      | 003                        |
 | **Title**    | Memory Model & Concurrency |
-| **Status**   | Draft                      |
+| **Status**   | Accepted                   |
 | **Layer**    | Language                   |
 | **Authors**  |                            |
 | **Created**  | 2026-07-15                 |
@@ -99,7 +99,7 @@ Compiler lowering, stdlib sync primitives, and diagnostics all depend on a singl
 | Hybrid arenas            | Optional later for buffers |
 | Regions                  | Future                     |
 
-**Decision:** Tracing GC (algorithm choice in RFC-006: concurrent mark-sweep / Immix-like / etc. TBD).
+**Decision:** Tracing GC. Phased algorithm (RFC-006): free-all MVP (shipped) → precise **stop-the-world mark-sweep** next → concurrent collector later.
 
 Safe Aura guarantees:
 
@@ -234,11 +234,11 @@ async fun handle(conn: Conn) {
 
 | #   | Question                              | Options                              | Owner   | Status                                |
 | --- | ------------------------------------- | ------------------------------------ | ------- | ------------------------------------- |
-| 1   | GC algorithm                          | Immix / CMS / Go-like                | Runtime | Open                                  |
+| 1   | GC algorithm                          | Immix / CMS / Go-like                | Runtime | **Resolved** — phased STW mark-sweep next; concurrent later (RFC-006) |
 | 2   | Structured concurrency mandatory?     | encourage                            | Lang    | **Resolved** — encourage, not require |
 | 3   | Preemptive vs cooperative task switch | cooperative await + safepoint hybrid | Runtime | **Resolved** (direction); tuning open |
 | 4   | String mutability                     | immutable                            | Lang    | **Resolved**                          |
-| 5   | `spawn` supervision defaults          | log + join surfaces error            | Lang    | Open (defaults refine with runtime)   |
+| 5   | `spawn` supervision defaults          | log + join surfaces error            | Lang    | **Resolved** — log + `join` surfaces error; no auto-restart |
 
 ## 8. Rationale & trade-offs
 
@@ -279,6 +279,8 @@ Go-like tasks + GC maximize concurrency productivity for servers. Stackless asyn
 
 | Date       | Author | Change                                                     |
 | ---------- | ------ | ---------------------------------------------------------- |
+| 2026-07-16 |        | Lock GC phased path + spawn supervision defaults |
+| 2026-07-16 |        | Status → **Accepted** — Review: GC + tasks language contract locked; algo/scheduler detail in 006 |
 | 2026-07-16 |        | Note GC MVP vs full concurrency model                      |
 | 2026-07-15 |        | Initial skeleton                                           |
 | 2026-07-15 |        | Solid draft: GC, M:N tasks, race policy, async             |

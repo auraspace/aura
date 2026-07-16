@@ -13,10 +13,10 @@ Living plan for docs, language specs, and the Rust toolchain. RFCs remain the de
 | Track | Status |
 | ----- | ------ |
 | RFC static site (`site/`) | Implemented on `feat/rfc-static-site`; deploy via GitHub Pages Actions |
-| RFC-000 Vision | **Accepted** — product direction locked |
-| RFC-001/002/003 | Solid Draft + **MVP subset** for compiler C0–C1 (see RFC-001 §6.0) |
+| RFC-000 … RFC-013 | **All Accepted** — open questions resolved or Deferred (2026-07-16) |
+| Language MVP | RFC-001 §6.0 + post-C1 surface in roadmap; async/macros/Iterable still deferred in code |
 | Compiler | **C0–C4t done** — through if-expression, `?.`, Array/String APIs |
-| Runtime / packages / stdlib | GC MVP + `std.io` / `std.assert`; full GC/tasks/collections deferred |
+| Runtime / packages / stdlib | GC free-all MVP + `std.io` / `std.assert`; next GC = STW mark-sweep; tasks/collections deferred |
 
 ## Phases
 
@@ -36,11 +36,12 @@ Living plan for docs, language specs, and the Rust toolchain. RFCs remain the de
 
 | Step | Work | Exit |
 | ---- | ---- | ---- |
-| 1.1 | Accept RFC-000 | Status **Accepted** |
-| 1.2 | Freeze RFC-001 MVP surface (G0/G1) | §6.0 + keyword list v0 |
-| 1.3 | RFC-002 subset for nullability + nominal basics | Enough for `aura check` on corpus |
-| 1.4 | RFC-003: declare GC/tasks; defer runtime depth | Explicit “not in C0/C1” |
-| 1.5 | Corpus under `corpus/` | ≥10 programs; C0 parses them |
+| 1.1 | Accept RFC-000 | Status **Accepted** ✓ |
+| 1.2 | Freeze RFC-001 MVP surface (G0/G1) | §6.0 + keyword list v0 ✓ |
+| 1.3 | RFC-002 subset for nullability + nominal basics | Enough for `aura check` on corpus ✓ |
+| 1.4 | RFC-003: declare GC/tasks; defer runtime depth | Explicit “not in C0/C1” ✓ |
+| 1.5 | Corpus under `corpus/` | ≥10 programs; C0 parses them ✓ |
+| 1.6 | Status review + lock open Qs (2026-07-16) | All RFC-000…013 **Accepted**; remaining items Deferred or phased ✓ |
 
 **Out of scope for P1 depth:** full 005–013, macros (010), reflection (009).
 

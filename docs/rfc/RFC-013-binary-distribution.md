@@ -4,11 +4,11 @@
 | ------------ | ------------------------ |
 | **RFC**      | 013                      |
 | **Title**    | Binary Distribution      |
-| **Status**   | Draft                    |
+| **Status**   | Accepted                   |
 | **Layer**    | Toolchain                |
 | **Authors**  |                          |
 | **Created**  | 2026-07-15               |
-| **Updated**  | 2026-07-15               |
+| **Updated**  | 2026-07-16                 |
 | **Estimate** | 20–30 pages              |
 | **Depends**  | RFC-000, RFC-008         |
 | **Blocks**   | RFC-012 (toolchain cmds) |
@@ -150,9 +150,9 @@ scp greeter host:/usr/local/bin/
 | #   | Question           | Options        | Owner   | Status                               |
 | --- | ------------------ | -------------- | ------- | ------------------------------------ |
 | 1   | Signing technology | minisign first | Dist    | **Resolved** (cosign later optional) |
-| 2   | Musl tier          | tier1 / tier2  | Dist    | Open                                 |
-| 3   | Hosting URL / CDN  |                | Project | Open                                 |
-| 4   | Windows arm64 tier |                | Dist    | Open                                 |
+| 2   | Musl tier          | tier1 / tier2  | Dist    | **Resolved** — musl **tier2** initially |
+| 3   | Hosting URL / CDN  |                | Project | **Resolved** — toolchain via GitHub Releases + docs site; registry per RFC-005 |
+| 4   | Windows arm64 tier |                | Dist    | **Resolved** — Windows arm64 **tier2** |
 
 ## 8. Rationale & trade-offs
 
@@ -190,6 +190,8 @@ Single-file apps maximize operational simplicity. Toolchain archives + checksums
 
 | Date       | Author | Change                                         |
 | ---------- | ------ | ---------------------------------------------- |
+| 2026-07-16 |        | Lock tiers + hosting; Status → **Accepted** |
+| 2026-07-16 |        | Status → **In Review** — Review: single-file + minisign locked; tiers/hosting still open |
 | 2026-07-15 |        | Initial skeleton                               |
 | 2026-07-15 |        | Solid draft: matrix, signing, single-file apps |
 | 2026-07-15 |        | Lock minisign for release signatures           |

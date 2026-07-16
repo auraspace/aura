@@ -13,7 +13,7 @@ Catalog of Request for Comments (RFCs) for the **Aura core**: language, compiler
 | **Toolchain implementation** | **Rust** — compiler, package manager, CLI, build/dist tooling |
 | **User-facing language** | Aura (source programs and stdlib) |
 
-Details and open trade-offs are expanded in individual RFCs. **Solid Draft** content (2026-07-15) locks the cross-cutting decisions below; remaining open questions are per-RFC tables.
+Details and residual trade-offs are expanded in individual RFCs. Locked cross-cutting decisions below were frozen in the 2026-07-15 solid drafts. On **2026-07-16** all core RFCs (**000–013**) were reviewed and set to **Accepted**, with remaining open questions resolved or explicitly Deferred (see per-RFC §7).
 
 ### Locked design decisions (Solid Draft)
 
@@ -33,30 +33,33 @@ Details and open trade-offs are expanded in individual RFCs. **Solid Draft** con
 | Deploy | Single executable; minisign release signatures |
 | Interop v1 | C ABI FFI |
 | Targets v1 | Server + CLI; linux/mac/win × amd64/arm64 |
-| Macros v1 | Derives + declarative; proc macros later in **process** sandbox |
-| Packages | `aura.toml` + lockfile (**always committed**); flat CLI (`aura add`) |
-| Build | No build scripts in MVP; LTO opt-in |
-| Stdlib | Core only; **no** `std.http` framework/client in v1; small prelude |
-| Test | `@test` package-private OK; same-process default |
+| Macros v1 | Derives first; hygienic pattern macros later; proc in **process** sandbox; macros in normal packages |
+| Packages | `aura.toml` + lockfile (**always committed**); flat CLI (`aura add`); flat names; reserve `std`/`aura` |
+| Build | No build scripts in MVP; LTO opt-in; no stable intermediate lib format yet |
+| Stdlib | Core only; **no** `std.http` in v1; small prelude; growable `List<T>` (+ builtin `Array`) |
+| Test | `@test` package-private OK; same-process default; fixtures deferred |
+| Attributes | Unknown `@attr` → hard **error** |
+| GC path | free-all MVP → STW mark-sweep → concurrent later |
+| Dist | minisign; musl & win-arm64 **tier2**; toolchain via GitHub Releases |
 
 ## RFC matrix
 
-| RFC     | Title                       | Estimate     | Layer      | Status | File |
-| ------- | --------------------------- | ------------ | ---------- | ------ | ---- |
+| RFC     | Title                       | Estimate     | Layer      | Status   | File |
+| ------- | --------------------------- | ------------ | ---------- | -------- | ---- |
 | RFC-000 | Vision & Design Principles  | 15–20 pages  | Foundation | Accepted | [RFC-000](RFC-000-vision-design-principles.md) |
-| RFC-001 | Language Specification      | 80–120 pages | Language   | Draft  | [RFC-001](RFC-001-language-specification.md) |
-| RFC-002 | Type System                 | 40–60 pages  | Language   | Draft  | [RFC-002](RFC-002-type-system.md) |
-| RFC-003 | Memory Model & Concurrency  | 40–80 pages  | Language   | Draft  | [RFC-003](RFC-003-memory-model-concurrency.md) |
-| RFC-004 | Compiler Architecture       | 60–100 pages | Toolchain  | Draft  | [RFC-004](RFC-004-compiler-architecture.md) |
-| RFC-005 | Package Manager             | 20–40 pages  | Toolchain  | Draft  | [RFC-005](RFC-005-package-manager.md) |
-| RFC-006 | Runtime                     | 40–60 pages  | Runtime    | Draft  | [RFC-006](RFC-006-runtime.md) |
-| RFC-007 | Standard Library            | 40–80 pages  | Runtime    | Draft  | [RFC-007](RFC-007-standard-library.md) |
-| RFC-008 | Build System                | 20–40 pages  | Toolchain  | Draft  | [RFC-008](RFC-008-build-system.md) |
-| RFC-009 | Reflection & Metadata       | 30–50 pages  | Language   | Draft  | [RFC-009](RFC-009-reflection-metadata.md) |
-| RFC-010 | Plugin & Macro System       | 50–80 pages  | Language   | Draft  | [RFC-010](RFC-010-plugin-macro-system.md) |
-| RFC-011 | Testing Framework           | 20–40 pages  | Toolchain  | Draft  | [RFC-011](RFC-011-testing-framework.md) |
-| RFC-012 | CLI                         | 20–30 pages  | Toolchain  | Draft  | [RFC-012](RFC-012-cli.md) |
-| RFC-013 | Binary Distribution         | 20–30 pages  | Toolchain  | Draft  | [RFC-013](RFC-013-binary-distribution.md) |
+| RFC-001 | Language Specification      | 80–120 pages | Language   | Accepted | [RFC-001](RFC-001-language-specification.md) |
+| RFC-002 | Type System                 | 40–60 pages  | Language   | Accepted | [RFC-002](RFC-002-type-system.md) |
+| RFC-003 | Memory Model & Concurrency  | 40–80 pages  | Language   | Accepted | [RFC-003](RFC-003-memory-model-concurrency.md) |
+| RFC-004 | Compiler Architecture       | 60–100 pages | Toolchain  | Accepted | [RFC-004](RFC-004-compiler-architecture.md) |
+| RFC-005 | Package Manager             | 20–40 pages  | Toolchain  | Accepted | [RFC-005](RFC-005-package-manager.md) |
+| RFC-006 | Runtime                     | 40–60 pages  | Runtime    | Accepted | [RFC-006](RFC-006-runtime.md) |
+| RFC-007 | Standard Library            | 40–80 pages  | Runtime    | Accepted | [RFC-007](RFC-007-standard-library.md) |
+| RFC-008 | Build System                | 20–40 pages  | Toolchain  | Accepted | [RFC-008](RFC-008-build-system.md) |
+| RFC-009 | Reflection & Metadata       | 30–50 pages  | Language   | Accepted | [RFC-009](RFC-009-reflection-metadata.md) |
+| RFC-010 | Plugin & Macro System       | 50–80 pages  | Language   | Accepted | [RFC-010](RFC-010-plugin-macro-system.md) |
+| RFC-011 | Testing Framework           | 20–40 pages  | Toolchain  | Accepted | [RFC-011](RFC-011-testing-framework.md) |
+| RFC-012 | CLI                         | 20–30 pages  | Toolchain  | Accepted | [RFC-012](RFC-012-cli.md) |
+| RFC-013 | Binary Distribution         | 20–30 pages  | Toolchain  | Accepted | [RFC-013](RFC-013-binary-distribution.md) |
 
 **Total estimate (core):** ~475–810 pages.
 

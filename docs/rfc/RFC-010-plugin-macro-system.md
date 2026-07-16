@@ -4,11 +4,11 @@
 | ------------ | ------------------------- |
 | **RFC**      | 010                       |
 | **Title**    | Plugin & Macro System     |
-| **Status**   | Draft                     |
+| **Status**   | Accepted                   |
 | **Layer**    | Language                  |
 | **Authors**  |                           |
 | **Created**  | 2026-07-15                |
-| **Updated**  | 2026-07-15                |
+| **Updated**  | 2026-07-16                 |
 | **Estimate** | 50–80 pages               |
 | **Depends**  | RFC-001, RFC-009          |
 | **Blocks**   | RFC-004, RFC-007, RFC-011 |
@@ -82,7 +82,8 @@ macro! vec {
 
 - Pattern-based; expands to tokens/AST.
 - Hygienic identifiers by default; explicit `span`/`unhygienic` opt-in rare.
-- Invoked as `vec!(1, 2, 3)` or function-like form finalized in grammar.
+- Invoked as `vec!(1, 2, 3)` or function-like form; exact grammar amended before implement (derives ship first).
+- **Packaging:** macros live in normal packages (no separate macro package kind); consumers depend like any library.
 
 ### 6.3 Derive macros
 
@@ -141,9 +142,9 @@ fun demo() {
 
 | #   | Question                      | Options                | Owner     | Status       |
 | --- | ----------------------------- | ---------------------- | --------- | ------------ |
-| 1   | Declarative syntax exact form |                        | Lang      | Open         |
+| 1   | Declarative syntax exact form |                        | Lang      | **Resolved** — derives first; decl form = hygienic pattern macros (syntax amend pre-impl) |
 | 2   | Proc sandbox: WASM vs process | separate process first | Toolchain | **Resolved** |
-| 3   | Macro packaging unit          |                        | Pkg       | Open         |
+| 3   | Macro packaging unit          |                        | Pkg       | **Resolved** — normal packages export macros; no separate macro package kind |
 
 ## 8. Rationale & trade-offs
 
@@ -181,6 +182,8 @@ MVP without full proc macros reduces security and stability risk while covering 
 
 | Date       | Author | Change                                         |
 | ---------- | ------ | ---------------------------------------------- |
+| 2026-07-16 |        | Lock derives-first + package-export macros; Status → **Accepted** |
+| 2026-07-16 |        | Status → **In Review** — Review: derives MVP + process sandbox locked; declarative syntax open |
 | 2026-07-15 |        | Initial skeleton                               |
 | 2026-07-15 |        | Solid draft: derives MVP, sandboxed proc later |
 | 2026-07-15 |        | Lock process sandbox for proc macros           |

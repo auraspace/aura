@@ -4,11 +4,11 @@
 | ------------ | ------------------------- |
 | **RFC**      | 002                       |
 | **Title**    | Type System               |
-| **Status**   | Draft                     |
+| **Status**   | Accepted                   |
 | **Layer**    | Language                  |
 | **Authors**  |                           |
 | **Created**  | 2026-07-15                |
-| **Updated**  | 2026-07-16                |
+| **Updated**  | 2026-07-16                 |
 | **Estimate** | 40–60 pages               |
 | **Depends**  | RFC-000, RFC-001          |
 | **Blocks**   | RFC-004, RFC-007, RFC-009 |
@@ -258,8 +258,8 @@ fun parseInt(text: String): Result<Int, ParseError> {
 | 2   | Field smart-cast policy                 | locals only                        | Lang  | **Resolved**              |
 | 3   | Primitive boxing implicit?              | minimal                            | Lang  | **Resolved**              |
 | 4   | `Any` vs no top type                    | keep                               | Lang  | **Resolved** — keep `Any` |
-| 5   | Sealed class syntax                     |                                    | Lang  | Open                      |
-| 6   | Variance annotation syntax (`out`/`in`) |                                    | Lang  | Open                      |
+| 5   | Sealed class syntax                     |                                    | Lang  | **Resolved** — `sealed class` / `sealed interface` (Kotlin-like); post-MVP implement |
+| 6   | Variance annotation syntax (`out`/`in`) |                                    | Lang  | **Resolved** — `out`/`in` when introduced; default invariant until then |
 
 ## 8. Rationale & trade-offs
 
@@ -297,6 +297,8 @@ Nominal typing fits Java-like classes and stable APIs. Nullability as types elim
 
 | Date       | Author | Change                                          |
 | ---------- | ------ | ----------------------------------------------- |
+| 2026-07-16 |        | Lock sealed (`sealed class`/`interface`) + `out`/`in` variance direction |
+| 2026-07-16 |        | Status → **Accepted** — Review: nominal/null/generics direction locked; sealed/variance deferred |
 | 2026-07-16 |        | Note implemented type surface vs deferred       |
 | 2026-07-15 |        | Initial skeleton                                |
 | 2026-07-15 |        | Solid draft: nominal, T?, Result, mono generics |

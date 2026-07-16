@@ -4,11 +4,11 @@
 | ------------ | ------------------------------------------------------------- |
 | **RFC**      | 001                                                           |
 | **Title**    | Language Specification                                        |
-| **Status**   | Draft                                                         |
+| **Status**   | Accepted                   |
 | **Layer**    | Language                                                      |
 | **Authors**  |                                                               |
 | **Created**  | 2026-07-15                                                    |
-| **Updated**  | 2026-07-15                                                    |
+| **Updated**  | 2026-07-16                 |
 | **Estimate** | 80–120 pages                                                  |
 | **Depends**  | RFC-000                                                       |
 | **Blocks**   | RFC-002, RFC-003, RFC-004, RFC-006, RFC-007, RFC-009, RFC-010 |
@@ -547,6 +547,7 @@ Java-like classes maximize familiarity for service engineers. Kotlin-inspired nu
 
 | Date       | Author | Change                                                              |
 | ---------- | ------ | ------------------------------------------------------------------- |
+| 2026-07-16 |        | Status → **Accepted** — Review: MVP surface frozen, open Qs resolved, C0–C4t implement against it |
 | 2026-07-16 |        | Sync §6.0 notes with C4t toolchain; resolve range `..` / `..=` (Q8) |
 | 2026-07-15 |        | Add §6.0 MVP surface for compiler C0–C1; resolve keywords v0        |
 | 2026-07-15 |        | Initial skeleton                                                    |

@@ -4,11 +4,11 @@
 | ------------ | ---------------------------------- |
 | **RFC**      | 007                                |
 | **Title**    | Standard Library                   |
-| **Status**   | Draft                              |
+| **Status**   | Accepted                   |
 | **Layer**    | Runtime                            |
 | **Authors**  |                                    |
 | **Created**  | 2026-07-15                         |
-| **Updated**  | 2026-07-16                         |
+| **Updated**  | 2026-07-16                 |
 | **Estimate** | 40–80 pages                        |
 | **Depends**  | RFC-001, RFC-002, RFC-003, RFC-006 |
 | **Blocks**   | RFC-011                            |
@@ -106,6 +106,7 @@ m.put("a", 1)
 
 - Generics monomorphized per RFC-002.
 - Iteration via `Iterable` interface.
+- **Naming:** one growable `List<T>` in `std.collections`; language builtin `Array<T>` stays for dense buffers. No separate `Vec` type.
 
 ### 6.4 Concurrency surface
 
@@ -172,7 +173,7 @@ fun main() {
 | #   | Question                      | Options                                | Owner  | Status                         |
 | --- | ----------------------------- | -------------------------------------- | ------ | ------------------------------ |
 | 1   | Thin `std.http` client in v1? | defer                                  | Stdlib | **Resolved** — defer           |
-| 2   | List naming: List vs Vec      | `List` + growable `Vec` or single type | Stdlib | Open                           |
+| 2   | List naming: List vs Vec      | `List` + growable `Vec` or single type | Stdlib | **Resolved** — single growable `List<T>`; keep builtin `Array<T>`; no `Vec` |
 | 3   | Password hash in std?         | no                                     | Stdlib | **Resolved** — ecosystem       |
 | 4   | Prelude size                  | small                                  | Stdlib | **Resolved** — minimal prelude |
 
@@ -213,6 +214,8 @@ Go-like pragmatic breadth without framework lock-in. Async-first net matches run
 
 | Date       | Author | Change                                               |
 | ---------- | ------ | ---------------------------------------------------- |
+| 2026-07-16 |        | Lock `List<T>` naming; Status → **Accepted** |
+| 2026-07-16 |        | Status → **In Review** — Review: package map locked; most packages still sketch-level |
 | 2026-07-16 |        | Note shipped std.io / std.assert + Array MVP         |
 | 2026-07-15 |        | Initial skeleton                                     |
 | 2026-07-15 |        | Solid draft: package map, core-only scope            |

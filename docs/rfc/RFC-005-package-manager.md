@@ -4,11 +4,11 @@
 | ------------ | ------------------------- |
 | **RFC**      | 005                       |
 | **Title**    | Package Manager           |
-| **Status**   | Draft                     |
+| **Status**   | Accepted                   |
 | **Layer**    | Toolchain                 |
 | **Authors**  |                           |
 | **Created**  | 2026-07-15                |
-| **Updated**  | 2026-07-16                |
+| **Updated**  | 2026-07-16                 |
 | **Estimate** | 20–40 pages               |
 | **Depends**  | RFC-000                   |
 | **Blocks**   | RFC-008, RFC-012, RFC-013 |
@@ -176,9 +176,9 @@ aura build
 
 | #   | Question                              | Options       | Owner   | Status       |
 | --- | ------------------------------------- | ------------- | ------- | ------------ |
-| 1   | Default registry hosting              |               | Project | Open         |
+| 1   | Default registry hosting              |               | Project | **Resolved** — self-hosted index + static CDN (GH Releases OK for toolchain) |
 | 2   | Lockfile for pure libraries required? | always commit | Pkg     | **Resolved** |
-| 3   | Namespace policy                      |               | Project | Open         |
+| 3   | Namespace policy                      |               | Project | **Resolved** — flat names; reserve `std`/`aura`; reverse-DNS encouraged public |
 
 ## 8. Rationale & trade-offs
 
@@ -216,6 +216,8 @@ Cargo-like design is proven for compiled languages with features and workspaces.
 
 | Date       | Author | Change                                 |
 | ---------- | ------ | -------------------------------------- |
+| 2026-07-16 |        | Lock registry hosting model + flat namespace with reserved prefixes |
+| 2026-07-16 |        | Status → **Accepted** — Review: aura.toml + path lockfile locked; registry deferred cleanly |
 | 2026-07-16 |        | Note path deps + lock MVP vs registry  |
 | 2026-07-15 |        | Initial skeleton                       |
 | 2026-07-15 |        | Solid draft: aura.toml, lock, resolver |
