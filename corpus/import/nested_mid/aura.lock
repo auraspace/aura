@@ -1,4 +1,3 @@
 # aura.lock — path dependencies (C3p/C4j)
 # Direct deps match aura.toml; extra entries are transitive path deps.
-demo.iface_a = "../iface_a"
-demo.iface_b = "../iface_b"
+demo.nested_leaf = "../nested_leaf"
