@@ -1,0 +1,7 @@
+// C5k — assign type mismatch uses expected/found wording
+package demo.diag
+
+fun main() {
+  var x: Int = 1
+  x = "no"
+}

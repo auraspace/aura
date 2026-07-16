@@ -263,12 +263,13 @@ impl Checker {
                 let init_ty = self.check_expr_expected(&v.init, ann_ty.as_ref())?;
                 let ty = if let Some(ann_ty) = ann_ty {
                     if !self.is_assignable(&init_ty, &ann_ty) {
+                        // C5k: expected/found for annotated var init.
                         return Err(SemaError {
                             message: format!(
-                                "cannot assign {} to `{}` of type {}",
-                                init_ty.display(),
+                                "type mismatch initializing `{}`: expected {}, found {}",
                                 v.name.name,
-                                ann_ty.display()
+                                ann_ty.display(),
+                                init_ty.display()
                             ),
                             span: v.init.span(),
                         });

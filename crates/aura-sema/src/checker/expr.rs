@@ -409,12 +409,13 @@ impl Checker {
                 let target = local.ty.clone();
                 let value_ty = self.check_expr_expected(&a.value, Some(&target))?;
                 if !self.is_assignable(&value_ty, &target) {
+                    // C5k: explicit expected/found wording for assign mismatches.
                     return Err(SemaError {
                         message: format!(
-                            "cannot assign {} to `{}` of type {}",
-                            value_ty.display(),
+                            "type mismatch assigning to `{}`: expected {}, found {}",
                             a.name.name,
-                            target.display()
+                            target.display(),
+                            value_ty.display()
                         ),
                         span: a.value.span(),
                     });
