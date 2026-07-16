@@ -8,7 +8,7 @@
 | **Layer**    | Toolchain                          |
 | **Authors**  |                                    |
 | **Created**  | 2026-07-15                         |
-| **Updated**  | 2026-07-15                         |
+| **Updated**  | 2026-07-16                         |
 | **Estimate** | 20–40 pages                        |
 | **Depends**  | RFC-001, RFC-007, RFC-009, RFC-012 |
 | **Blocks**   | —                                  |
@@ -18,6 +18,8 @@
 ## 1. Abstract
 
 This RFC specifies Aura’s **built-in testing** support: discovery via `@test`, assertions, async tests, unit vs integration layout, filtering, and coverage hooks. Tests run through `aura test` using the same compiler and runtime as production code.
+
+**Toolchain today (2026-07-16):** `aura test` discovers `@test` functions; builtins `assert` / `assert_eq` (Int/String/Bool); `std.assert` package for package-mode asserts (C3d, C4h). No async tests, tags/filters, or coverage hooks yet.
 
 ## 2. Motivation
 
@@ -196,6 +198,7 @@ Built-in tests lower friction and unify CI. Keeping mocks out of core avoids fra
 
 | Date       | Author | Change                                       |
 | ---------- | ------ | -------------------------------------------- |
+| 2026-07-16 |        | Note `aura test` + assert MVP shipped        |
 | 2026-07-15 |        | Initial skeleton                             |
 | 2026-07-15 |        | Solid draft: @test, runner, async            |
 | 2026-07-15 |        | Lock discovery layout + same-process default |

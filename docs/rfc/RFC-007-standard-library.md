@@ -8,7 +8,7 @@
 | **Layer**    | Runtime                            |
 | **Authors**  |                                    |
 | **Created**  | 2026-07-15                         |
-| **Updated**  | 2026-07-15                         |
+| **Updated**  | 2026-07-16                         |
 | **Estimate** | 40–80 pages                        |
 | **Depends**  | RFC-001, RFC-002, RFC-003, RFC-006 |
 | **Blocks**   | RFC-011                            |
@@ -20,6 +20,8 @@
 This RFC outlines the **Aura standard library** for servers and CLIs: prelude, collections, I/O, networking primitives, JSON, logging, synchronization, crypto baseline, testing support types, and FFI helpers. It is **core-only**—no HTTP application framework, ORM, or DI container.
 
 Implementation is primarily **Aura**, with thin runtime/FFI bridges where required.
+
+**Toolchain today (2026-07-16):** repo packages `std/io` (`println`) and `std/assert` (`assert`); package builds auto-prelude `std.io` and resolve `std.*` path deps (C3z, C4g, C4h). Builtin language `Array<T>` covers early collections; no `std.collections` Map/Set, net, json, or full I/O yet.
 
 ## 2. Motivation
 
@@ -211,6 +213,7 @@ Go-like pragmatic breadth without framework lock-in. Async-first net matches run
 
 | Date       | Author | Change                                               |
 | ---------- | ------ | ---------------------------------------------------- |
+| 2026-07-16 |        | Note shipped std.io / std.assert + Array MVP         |
 | 2026-07-15 |        | Initial skeleton                                     |
 | 2026-07-15 |        | Solid draft: package map, core-only scope            |
 | 2026-07-15 |        | Defer std.http; lock small prelude, no password hash |

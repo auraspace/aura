@@ -8,7 +8,7 @@
 | **Layer**    | Toolchain                          |
 | **Authors**  |                                    |
 | **Created**  | 2026-07-15                         |
-| **Updated**  | 2026-07-15                         |
+| **Updated**  | 2026-07-16                         |
 | **Estimate** | 20–30 pages                        |
 | **Depends**  | RFC-005, RFC-008, RFC-011, RFC-013 |
 | **Blocks**   | —                                  |
@@ -18,6 +18,8 @@
 ## 1. Abstract
 
 This RFC defines the unified **`aura` CLI** (implemented in **Rust**): the single entrypoint for create, build, run, test, check, format, package, and toolchain management. Subcommands delegate to compiler, package manager, build, and test subsystems while presenting a consistent UX, exit codes, and machine-readable output modes.
+
+**Toolchain today (2026-07-16):** shipped subcommands — `check`, `build`, `run`, `test`, `emit-c` on files or package dirs (`aura.toml`). Pretty diagnostics with line:col snippets. Not yet: `new`/`init`, `fmt`, registry/`add`/`publish`, JSON machine output, release profiles beyond basic link.
 
 ## 2. Motivation
 
@@ -187,6 +189,7 @@ Cargo-like flat verbs optimize for daily memory. Single binary matches product s
 
 | Date       | Author | Change                               |
 | ---------- | ------ | ------------------------------------ |
+| 2026-07-16 |        | Note shipped check/build/run/test/emit-c |
 | 2026-07-15 |        | Initial skeleton                     |
 | 2026-07-15 |        | Solid draft: command map, exit codes |
 | 2026-07-15 |        | Lock flat package commands           |

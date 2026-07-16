@@ -7,12 +7,16 @@ Design documents and specifications for the **Aura** language core and toolchain
 ```
 docs/
 ├── README.md          ← you are here
-└── rfc/
-    ├── README.md      ← RFC index, status, dependencies
-    ├── TEMPLATE.md    ← required template for every new RFC
-    ├── RFC-000-….md
-    ├── …
-    └── RFC-013-….md
+├── roadmap.md         ← execution phases (P0–P3, compiler C0–C4t+)
+├── rfc/
+│   ├── README.md      ← RFC index, status, dependencies
+│   ├── TEMPLATE.md    ← required template for every new RFC
+│   ├── RFC-000-….md
+│   ├── …
+│   └── RFC-013-….md
+└── superpowers/       ← session plans/specs (not product RFCs)
+    ├── plans/
+    └── specs/
 ```
 
 ## Where to start

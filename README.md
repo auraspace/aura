@@ -7,10 +7,12 @@ This repository currently holds:
 | Path | Purpose |
 | ---- | ------- |
 | [`docs/rfc/`](docs/rfc/) | Language & toolchain RFCs |
-| [`docs/roadmap.md`](docs/roadmap.md) | Execution phases (P0–P3, C0–C1) |
+| [`docs/roadmap.md`](docs/roadmap.md) | Execution phases (P0–P3, compiler C0–C4t) |
 | [`site/`](site/) | Static RFC docs site (Vite + React) |
-| [`crates/`](crates/) | Rust toolchain (`aura` CLI) — **C0**: parse / check |
+| [`crates/`](crates/) | Rust toolchain (`aura` CLI) — check / build / run / test (C backend) |
 | [`corpus/`](corpus/) | Sample `.aura` programs for the compiler |
+| [`std/`](std/) | Minimal std packages (`io`, `assert`) |
+| [`runtime/`](runtime/) | Linked C runtime (`aura_rt.c`) |
 
 **License:** [MIT](LICENSE)
 
@@ -24,7 +26,7 @@ pnpm site:test
 pnpm site:build
 ```
 
-### Compiler C0+ / C1
+### Compiler (through C4t)
 
 ```bash
 cargo test --workspace
@@ -37,9 +39,11 @@ cargo run -p aura-cli -- run corpus/multi
 cargo run -p aura-cli -- test corpus/multi              # package-wide @test
 cargo run -p aura-cli -- run corpus/import/app          # import + path dep
 cargo run -p aura-cli -- run corpus/std_io/app          # std.io.println (C3z)
+cargo run -p aura-cli -- run corpus/std_io/prelude      # auto-prelude std.io (C4g)
+cargo run -p aura-cli -- run corpus/std_assert/app      # std.assert (C4h)
 ```
 
-C1 uses a **C backend** (`aura emit-c` + system `cc`) linked with `runtime/aura_rt.c`. LLVM IR is the longer-term path (RFC-004).
+Native builds use a **C backend** (`aura emit-c` + system `cc`) linked with `runtime/aura_rt.c`. LLVM IR is the longer-term path (RFC-004).
 
 ## Status
 

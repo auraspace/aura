@@ -8,7 +8,7 @@
 | **Layer**    | Language                   |
 | **Authors**  |                            |
 | **Created**  | 2026-07-15                 |
-| **Updated**  | 2026-07-15                 |
+| **Updated**  | 2026-07-16                 |
 | **Estimate** | 40–80 pages                |
 | **Depends**  | RFC-000, RFC-001, RFC-002  |
 | **Blocks**   | RFC-004, RFC-006, RFC-007  |
@@ -20,6 +20,8 @@
 This RFC defines Aura’s **memory and concurrency model**: tracing GC, reference vs value semantics, M:N lightweight **tasks**, channels, `async`/`await`, shared-memory synchronization, happens-before rules, and the policy that **data races are bugs**—detected in development, not licensed as silent undefined behavior.
 
 Runtime implementation details (scheduler, collector algorithm) are expanded in **RFC-006**; this document is the language-level contract.
+
+**Toolchain today (2026-07-16):** class instances as GC heap refs (MVP alloc + free-all); `struct` by-value; single-threaded execution. Tasks, channels, `async`/`await`, race detector, and concurrent GC are **not** implemented — declared design only until later milestones.
 
 ## 2. Motivation
 
@@ -277,6 +279,7 @@ Go-like tasks + GC maximize concurrency productivity for servers. Stackless asyn
 
 | Date       | Author | Change                                                     |
 | ---------- | ------ | ---------------------------------------------------------- |
+| 2026-07-16 |        | Note GC MVP vs full concurrency model                      |
 | 2026-07-15 |        | Initial skeleton                                           |
 | 2026-07-15 |        | Solid draft: GC, M:N tasks, race policy, async             |
 | 2026-07-15 |        | Lock string immutability, structured concurrency encourage |

@@ -60,6 +60,18 @@ Details and open trade-offs are expanded in individual RFCs. **Solid Draft** con
 
 **Total estimate (core):** ~475–810 pages.
 
+### Implementation pulse (2026-07-16)
+
+Living execution status is [docs/roadmap.md](../roadmap.md) (compiler **C0–C4t**). RFCs stay design docs; each has a short **Toolchain today** note where relevant.
+
+| Layer | Shipped (subset) | Still deferred |
+| ----- | ---------------- | -------------- |
+| Language / types | classes, iface, generics, struct/enum, null ops, Array, packages | async, lambdas, macros, Iterable |
+| Compiler | C backend + `aura check/build/run/test` | LLVM, incremental |
+| Runtime | println, exceptions, Array, GC MVP | tasks, channels, concurrent GC |
+| Packages / CLI | path deps + `aura.lock`, core subcommands | registry, fmt, publish |
+| Stdlib / test | `std.io`, `std.assert`, `@test` | collections, net, async tests |
+
 ## Synopsis (one glance per RFC)
 
 | RFC | Synopsis |

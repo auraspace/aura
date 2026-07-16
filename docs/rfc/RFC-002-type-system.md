@@ -8,7 +8,7 @@
 | **Layer**    | Language                  |
 | **Authors**  |                           |
 | **Created**  | 2026-07-15                |
-| **Updated**  | 2026-07-15                |
+| **Updated**  | 2026-07-16                |
 | **Estimate** | 40–60 pages               |
 | **Depends**  | RFC-000, RFC-001          |
 | **Blocks**   | RFC-004, RFC-007, RFC-009 |
@@ -20,6 +20,8 @@
 This RFC specifies Aura’s **static type system**: nominal class/interface types, nullability (`T` vs `T?`), generics with monomorphization, subtyping via inheritance and interface implementation, local type inference, overload resolution, flow-sensitive narrowing, and soundness goals.
 
 It assumes the surface from **RFC-001** and leaves runtime representation details to **RFC-004** / **RFC-006**.
+
+**Toolchain today (2026-07-16):** nominal classes/interfaces/`struct`/`enum`, monomorphized generics + bounds, local null flow + `!!` / `?:` / `?.`, type-arg inference from args/expected type. Not yet: inheritance hierarchy, full overloading, lambdas/function types, structural typing.
 
 ## 2. Motivation
 
@@ -295,6 +297,7 @@ Nominal typing fits Java-like classes and stable APIs. Nullability as types elim
 
 | Date       | Author | Change                                          |
 | ---------- | ------ | ----------------------------------------------- |
+| 2026-07-16 |        | Note implemented type surface vs deferred       |
 | 2026-07-15 |        | Initial skeleton                                |
 | 2026-07-15 |        | Solid draft: nominal, T?, Result, mono generics |
 | 2026-07-15 |        | Lock orphan rule, smart-cast, Any, boxing       |

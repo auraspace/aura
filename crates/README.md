@@ -8,16 +8,17 @@ Implementation of the Aura compiler and CLI. User programs are written in **Aura
 | `aura-diagnostics` | line:col + pretty error snippets |
 | `aura-lexer` | Tokenizer |
 | `aura-parser` | Recursive-descent + Pratt parser |
-| `aura-sema` | Name resolution + typecheck (classes, interfaces, generics+bounds) |
-| `aura-codegen` | C backend (mono generics, interface tagged unions) |
-| `aura-cli` | `aura` binary (`check` / `build` / `run` / `test` / `emit-c`; multi-file + `aura.toml`) |
+| `aura-sema` | Name resolution + typecheck (classes, interfaces, generics+bounds, null flow) |
+| `aura-codegen` | C backend (mono generics, GC class refs, Array, exceptions) |
+| `aura-cli` | `aura` binary (`check` / `build` / `run` / `test` / `emit-c`; multi-file + `aura.toml` + path deps / lock) |
 
-Runtime stub: [`runtime/aura_rt.c`](../runtime/aura_rt.c).
+Runtime: [`runtime/aura_rt.c`](../runtime/aura_rt.c) (println, exceptions, Array helpers, GC MVP).
 
-See [docs/roadmap.md](../docs/roadmap.md) and RFC-001 §6.0 / RFC-004.
+Milestone status: [docs/roadmap.md](../docs/roadmap.md) (through **C4t**). Language MVP freeze: RFC-001 §6.0; architecture: RFC-004. Corpus: [`corpus/`](../corpus/).
 
 ```bash
 cargo test --workspace
 cargo run -p aura-cli -- check corpus/hello/main.aura
 cargo run -p aura-cli -- run corpus/hello/main.aura
+cargo run -p aura-cli -- test corpus/test/smoke.aura
 ```

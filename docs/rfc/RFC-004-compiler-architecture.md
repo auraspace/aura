@@ -222,12 +222,16 @@ Rust toolchain maximizes delivery speed and memory safety of the compiler itself
 
 ## 11. Implementation plan (optional)
 
-| Phase | Scope                          | Exit criteria    |
-| ----- | ------------------------------ | ---------------- |
-| C0    | Parse + typecheck subset       | `aura check`     |
-| C1    | LLVM hello + runtime link      | Run hello binary |
-| C2    | Generics mono + classes vtable | Stdlib subset    |
-| C3    | Async lowering + incremental   | Server toy       |
+Long-term backend remains **LLVM**. The living milestone table is [docs/roadmap.md](../roadmap.md).
+
+| Phase | Scope | Status (2026-07-16) |
+| ----- | ----- | ------------------- |
+| C0 | Parse + typecheck subset → `aura check` | **Done** |
+| C1 | Native hello + runtime link | **Done** via interim **C backend** (`emit-c` + system `cc` + `runtime/aura_rt.c`); LLVM still target |
+| C2 | Generics mono + classes/interfaces | **Done** (C2a–C2e) |
+| C3 | Packages, Array, exceptions, GC MVP (not full async) | **Done** as C3a–C3z slices; async/incremental deferred |
+| C4 | Equality, std prelude/assert, Array/String APIs, `?.` / `?:` / if-expr | **Done** through **C4t** |
+| Later | LLVM IR backend, Iterable protocol, registry, channels/tasks | Open (see `agents/debts.md`) |
 
 ## 12. References
 
@@ -241,6 +245,7 @@ Rust toolchain maximizes delivery speed and memory safety of the compiler itself
 
 | Date       | Author | Change                                   |
 | ---------- | ------ | ---------------------------------------- |
+| 2026-07-16 |        | §11: C backend interim + C0–C4t status   |
 | 2026-07-15 |        | Initial skeleton                         |
 | 2026-07-15 |        | Solid draft: Rust pipeline, LLVM primary |
 | 2026-07-15 |        | Lock multipass→query evolution           |

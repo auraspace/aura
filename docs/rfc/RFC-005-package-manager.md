@@ -8,7 +8,7 @@
 | **Layer**    | Toolchain                 |
 | **Authors**  |                           |
 | **Created**  | 2026-07-15                |
-| **Updated**  | 2026-07-15                |
+| **Updated**  | 2026-07-16                |
 | **Estimate** | 20–40 pages               |
 | **Depends**  | RFC-000                   |
 | **Blocks**   | RFC-008, RFC-012, RFC-013 |
@@ -18,6 +18,8 @@
 ## 1. Abstract
 
 This RFC defines the **Aura package manager**: manifest format (`aura.toml`), lockfile, dependency resolver, registry client, workspaces, and publish flow. Implemented in **Rust** as part of the `aura` CLI, it ensures **reproducible** dependency graphs for libraries and binaries.
+
+**Toolchain today (2026-07-16):** multi-file packages with minimal `aura.toml`, **path** dependencies only, and `aura.lock` write/verify including nested/transitive path entries (C3e–C3p, C4j). No registry, semver resolve, git deps, workspaces, or publish yet — see [roadmap](../roadmap.md) and `agents/debts.md`.
 
 ## 2. Motivation
 
@@ -197,11 +199,11 @@ Cargo-like design is proven for compiled languages with features and workspaces.
 
 ## 11. Implementation plan (optional)
 
-| Phase | Scope            | Exit criteria       |
-| ----- | ---------------- | ------------------- |
-| K0    | Path deps + lock | Multi-package build |
-| K1    | Registry fetch   | Hello from registry |
-| K2    | Publish          | Round-trip          |
+| Phase | Scope            | Exit criteria       | Status |
+| ----- | ---------------- | ------------------- | ------ |
+| K0    | Path deps + lock | Multi-package build | **Done** (incl. nested path lock C4j) |
+| K1    | Registry fetch   | Hello from registry | Deferred |
+| K2    | Publish          | Round-trip          | Deferred |
 
 ## 12. References
 
@@ -214,6 +216,7 @@ Cargo-like design is proven for compiled languages with features and workspaces.
 
 | Date       | Author | Change                                 |
 | ---------- | ------ | -------------------------------------- |
+| 2026-07-16 |        | Note path deps + lock MVP vs registry  |
 | 2026-07-15 |        | Initial skeleton                       |
 | 2026-07-15 |        | Solid draft: aura.toml, lock, resolver |
 | 2026-07-15 |        | Lock always-commit lockfiles           |

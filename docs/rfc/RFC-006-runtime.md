@@ -8,7 +8,7 @@
 | **Layer**    | Runtime                   |
 | **Authors**  |                           |
 | **Created**  | 2026-07-15                |
-| **Updated**  | 2026-07-15                |
+| **Updated**  | 2026-07-16                |
 | **Estimate** | 40–60 pages               |
 | **Depends**  | RFC-000, RFC-001, RFC-003 |
 | **Blocks**   | RFC-007, RFC-008, RFC-013 |
@@ -18,6 +18,8 @@
 ## 1. Abstract
 
 This RFC specifies the **Aura runtime** linked into application binaries: tracing **GC**, **M:N task scheduler**, async I/O reactor, exception personality support, panic/abort paths, timers, and **C ABI FFI** bridges. The runtime is shipped as libraries produced by the Rust toolchain and linked by `aura build`, not installed as a separate end-user package.
+
+**Toolchain today (2026-07-16):** C runtime stub [`runtime/aura_rt.c`](../../runtime/aura_rt.c) linked by the C backend — println, exception frames (`throw`/`catch` object payloads), Array helpers, and **GC MVP** (`aura_gc_alloc` + free-all on exit). No M:N scheduler, channels, async I/O, or full concurrent GC yet.
 
 ## 2. Motivation
 
@@ -211,12 +213,12 @@ Linking the runtime into each binary matches single-file deploy and avoids “in
 
 ## 11. Implementation plan (optional)
 
-| Phase | Scope                    | Exit criteria    |
-| ----- | ------------------------ | ---------------- |
-| R0    | Alloc + print + exit     | Hello            |
-| R1    | GC correct single-thread | Alloc stress     |
-| R2    | Scheduler + channels     | Concurrent tests |
-| R3    | Async net + exceptions   | Echo server      |
+| Phase | Scope                    | Exit criteria    | Status |
+| ----- | ------------------------ | ---------------- | ------ |
+| R0    | Alloc + print + exit     | Hello            | **Done** (C1 + C3x path) |
+| R1    | GC MVP single-thread     | Class heap refs  | **Partial** — alloc + free-all (C3x/C3y); not full tracing |
+| R2    | Scheduler + channels     | Concurrent tests | Deferred |
+| R3    | Async net + exceptions   | Echo server      | Exceptions partial (C3c/C3g/C3s); async net deferred |
 
 ## 12. References
 
@@ -230,6 +232,7 @@ Linking the runtime into each binary matches single-file deploy and avoids “in
 
 | Date       | Author | Change                                  |
 | ---------- | ------ | --------------------------------------- |
+| 2026-07-16 |        | Note C runtime MVP status vs full RFC   |
 | 2026-07-15 |        | Initial skeleton                        |
 | 2026-07-15 |        | Solid draft: GC, M:N, FFI, ABI sketch   |
 | 2026-07-15 |        | Lock static link default, OOM abort MVP |

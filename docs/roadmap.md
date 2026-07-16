@@ -15,8 +15,8 @@ Living plan for docs, language specs, and the Rust toolchain. RFCs remain the de
 | RFC static site (`site/`) | Implemented on `feat/rfc-static-site`; deploy via GitHub Pages Actions |
 | RFC-000 Vision | **Accepted** — product direction locked |
 | RFC-001/002/003 | Solid Draft + **MVP subset** for compiler C0–C1 (see RFC-001 §6.0) |
-| Compiler | **C0–C4t slice** — null coalesce |
-| Runtime / packages / stdlib | Stub runtime `runtime/aura_rt.c`; full GC/tasks deferred |
+| Compiler | **C0–C4t done** — through if-expression, `?.`, Array/String APIs |
+| Runtime / packages / stdlib | GC MVP + `std.io` / `std.assert`; full GC/tasks/collections deferred |
 
 ## Phases
 
@@ -98,6 +98,13 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C4k** | Type-param heap class pointers + field method recv | Done |
 | **C4l** | `else if` chaining (desugar to nested if) | Done |
 | **C4m** | Null coalesce `?:` | Done |
+| **C4n** | `Array.isEmpty` | Done |
+| **C4o** | `Array.reserve(n)` (grow cap, keep len) | Done |
+| **C4p** | `String.len` (UTF-8 byte length) | Done |
+| **C4q** | `Array` of struct by-value elements | Done |
+| **C4r** | Free Array buffer on owner reassignment | Done |
+| **C4s** | Safe call `?.` on nullable receivers | Done |
+| **C4t** | `if` as expression (last branch expr; requires else) | Done |
 | **DX** | line:col diagnostics with snippets | Done |
 
 **Out of scope C0/C1:** generics mono, async/tasks, macros, registry, incremental, LTO.
