@@ -56,6 +56,9 @@ When you resolve debt, update or remove the matching entry.
 
 ## Resolved
 
+### No else-if chaining (2026-07-16)
+- Resolved in C4l: `else if` desugars to nested if in else block; corpus `control/else_if.aura`.
+
 ### Bounded generic method this wrong for heap class (2026-07-16)
 - Resolved in C4k: type-param substitution uses heap pointers; method calls on field chains resolve receiver type. `corpus/generic/bounds.aura` runs.
 

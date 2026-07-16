@@ -15,7 +15,7 @@ Living plan for docs, language specs, and the Rust toolchain. RFCs remain the de
 | RFC static site (`site/`) | Implemented on `feat/rfc-static-site`; deploy via GitHub Pages Actions |
 | RFC-000 Vision | **Accepted** — product direction locked |
 | RFC-001/002/003 | Solid Draft + **MVP subset** for compiler C0–C1 (see RFC-001 §6.0) |
-| Compiler | **C0–C4k slice** — bounds mono fix |
+| Compiler | **C0–C4l slice** — else if |
 | Runtime / packages / stdlib | Stub runtime `runtime/aura_rt.c`; full GC/tasks deferred |
 
 ## Phases
@@ -96,13 +96,14 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C4i** | Reject struct/enum/interface `==` in sema | Done |
 | **C4j** | Nested path deps recorded in `aura.lock` | Done |
 | **C4k** | Type-param heap class pointers + field method recv | Done |
+| **C4l** | `else if` chaining (desugar to nested if) | Done |
 | **DX** | line:col diagnostics with snippets | Done |
 
 **Out of scope C0/C1:** generics mono, async/tasks, macros, registry, incremental, LTO.
 
 ### P3 — Expand (after hello)
 
-1. ~~Language surface C2–C4k~~ → next: else-if · `?:` · Array/String API (see `agents/debts.md`)
+1. ~~Language surface C2–C4l~~ → next: `?:` · Array/String API · `?.` (see `agents/debts.md`)
 2. Runtime: ~~alloc/GC MVP + class heap refs~~ → channels/tasks
 3. Toolchain: ~~minimal `aura.toml` + path deps + path lock (incl. transitive)~~ → registry (RFC-005)
 4. Stdlib: ~~std.io + auto-prelude + std.assert~~ → collections (partial: builtin Array)

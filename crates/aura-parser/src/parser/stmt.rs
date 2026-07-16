@@ -206,9 +206,19 @@ impl Parser {
         let cond = self.parse_expr(0)?;
         self.expect(TokenKind::RParen, "`)`")?;
         let then_block = self.parse_block()?;
+        // C4l: `else if` desugars to `else { if … }` (nested IfStmt in a block).
         let else_block = if matches!(self.peek().kind, TokenKind::Else) {
             self.bump();
-            Some(self.parse_block()?)
+            if matches!(self.peek().kind, TokenKind::If) {
+                let nested = self.parse_if()?;
+                let span = nested.span;
+                Some(Block {
+                    stmts: vec![Stmt::If(nested)],
+                    span,
+                })
+            } else {
+                Some(self.parse_block()?)
+            }
         } else {
             None
         };
