@@ -1,3 +1,4 @@
+import { IconMoon, IconSun } from '@tabler/icons-react'
 import { useEffect, useState } from 'react'
 
 type Theme = 'light' | 'dark'
@@ -34,11 +35,16 @@ export function ThemeToggle() {
   return (
     <button
       type="button"
-      className="cursor-pointer rounded-lg border border-border bg-bg px-2.5 py-1.5 text-sm text-fg"
+      className="grid h-9 w-9 place-items-center rounded-full border border-border-strong bg-card text-fg transition-colors hover:border-accent"
       onClick={toggle}
       aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+      title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
     >
-      {theme === 'dark' ? 'Light' : 'Dark'}
+      {theme === 'dark' ? (
+        <IconSun size={16} stroke={1.75} aria-hidden />
+      ) : (
+        <IconMoon size={16} stroke={1.75} aria-hidden />
+      )}
     </button>
   )
 }

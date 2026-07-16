@@ -1,11 +1,12 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { Layout } from '@/components/layout'
+import { HomePage } from '@/pages/home-page'
 import { CatalogPage, DetailPage, GraphPage } from '@/pages/rfc'
 import { NotFoundPage } from '@/pages/not-found-page'
 
 /**
- * Route map (extensible for /docs, landing, …):
- *   /              → redirect to /rfc
+ * Route map:
+ *   /              → marketing homepage
  *   /rfc           → catalog
  *   /rfc/:id       → detail
  *   /rfc/graph     → dependency graph
@@ -15,7 +16,7 @@ export function App() {
   return (
     <Routes>
       <Route element={<Layout />}>
-        <Route index element={<Navigate to="/rfc" replace />} />
+        <Route index element={<HomePage />} />
         <Route path="rfc">
           <Route index element={<CatalogPage />} />
           <Route path="graph" element={<GraphPage />} />

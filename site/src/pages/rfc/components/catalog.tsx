@@ -11,19 +11,19 @@ interface RfcCatalogProps {
 
 export function RfcCatalog({ items, visibleIds }: RfcCatalogProps) {
   return (
-    <table className="w-full overflow-hidden rounded-lg border border-border border-collapse bg-card">
+    <table className="w-full overflow-hidden rounded-2xl border border-border border-collapse bg-card">
       <thead>
         <tr>
-          <th className="bg-bg px-3 py-2.5 text-left text-xs font-semibold tracking-wide text-muted uppercase align-top">
+          <th className="bg-tint px-3 py-2.5 text-left font-mono text-[11px] font-medium tracking-[0.12em] text-muted uppercase align-top">
             RFC
           </th>
-          <th className="bg-bg px-3 py-2.5 text-left text-xs font-semibold tracking-wide text-muted uppercase align-top">
+          <th className="bg-tint px-3 py-2.5 text-left font-mono text-[11px] font-medium tracking-[0.12em] text-muted uppercase align-top">
             Title
           </th>
-          <th className="bg-bg px-3 py-2.5 text-left text-xs font-semibold tracking-wide text-muted uppercase align-top">
+          <th className="bg-tint px-3 py-2.5 text-left font-mono text-[11px] font-medium tracking-[0.12em] text-muted uppercase align-top">
             Status
           </th>
-          <th className="bg-bg px-3 py-2.5 text-left text-xs font-semibold tracking-wide text-muted uppercase align-top">
+          <th className="bg-tint px-3 py-2.5 text-left font-mono text-[11px] font-medium tracking-[0.12em] text-muted uppercase align-top">
             Layer
           </th>
         </tr>

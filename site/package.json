@@ -12,8 +12,10 @@
     "lint": "oxlint"
   },
   "dependencies": {
+    "@tabler/icons-react": "^3.44.0",
     "github-slugger": "^2.0.0",
     "minisearch": "^7.2.0",
+    "motion": "^12.42.2",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-markdown": "^10.1.0",

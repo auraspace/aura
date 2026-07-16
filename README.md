@@ -8,7 +8,7 @@ This repository currently holds:
 | ---- | ------- |
 | [`docs/rfc/`](docs/rfc/) | Language & toolchain RFCs |
 | [`docs/roadmap.md`](docs/roadmap.md) | Execution phases (P0–P3, compiler C0–C5n) |
-| [`site/`](site/) | Static RFC docs site (Vite + React) |
+| [`site/`](site/) | Homepage + RFC docs site (Vite + React) |
 | [`crates/`](crates/) | Rust toolchain (`aura` CLI) — check / build / run / test (C backend) |
 | [`corpus/`](corpus/) | Sample `.aura` programs for the compiler |
 | [`std/`](std/) | Minimal std packages (`io`, `assert`) |
@@ -20,7 +20,7 @@ This repository currently holds:
 
 ### Docs site
 
-RFC catalog is published at **https://auraspace.github.io/aura/rfc** (GitHub Pages).
+Homepage + RFC catalog: **https://auraspace.github.io/aura/** (GitHub Pages).
 
 ```bash
 pnpm site:dev      # http://localhost:5173

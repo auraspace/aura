@@ -1,6 +1,6 @@
-# Aura RFC site
+# Aura site
 
-Static docs site for Aura RFCs (`docs/rfc/`). Built with Vite + React + Tailwind CSS v4; prerenders HTML for GitHub Pages.
+Marketing homepage + static docs for Aura RFCs (`docs/rfc/`). Built with Vite + React + Tailwind CSS v4; prerenders HTML for GitHub Pages.
 
 ## Commands
 
@@ -26,6 +26,7 @@ src/
   app.tsx                 # top-level routes
   components/layout/      # shared chrome (header, theme)
   pages/
+    home-page.tsx         # / marketing landing
     not-found-page.tsx
     rfc/                  # /rfc feature
       catalog-page.tsx
@@ -49,7 +50,7 @@ Public URLs (repo `aura`):
 
 | Path | Page |
 | ---- | ---- |
-| https://auraspace.github.io/aura/ | Redirect → `/rfc` |
+| https://auraspace.github.io/aura/ | Marketing homepage |
 | https://auraspace.github.io/aura/rfc | RFC catalog |
 | https://auraspace.github.io/aura/rfc/000 | RFC-000 detail |
 | https://auraspace.github.io/aura/rfc/graph | Dependency graph |

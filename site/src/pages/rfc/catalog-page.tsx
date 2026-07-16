@@ -38,19 +38,20 @@ export function CatalogPage() {
       ids = new Set([...ids].filter((id) => hitIds.has(id)))
     }
 
-    // null means “no client filter yet” only when all empty — always pass set
-    // so SSR and client show same rows when filters empty
     if (!status && !layer && !query.trim()) return null
     return ids
   }, [items, status, layer, query, index])
 
   return (
-    <div>
-      <h1>Aura RFC catalog</h1>
-      <p className="text-muted">
+    <main className="page-shell">
+      <p className="eyebrow">Language & toolchain</p>
+      <h1 className="mt-3 font-display text-[34px] font-medium tracking-tight md:text-[40px]">
+        RFC catalog
+      </h1>
+      <p className="mt-2 max-w-[520px] text-muted">
         Internal index of language and toolchain RFCs ({items.length} documents).
       </p>
-      <div className="my-4 mb-5 flex flex-wrap items-end gap-3">
+      <div className="my-6 flex flex-wrap items-end gap-3">
         <SearchBox value={query} onChange={setQuery} />
         <FilterBar
           status={status}
@@ -61,6 +62,6 @@ export function CatalogPage() {
         />
       </div>
       <RfcCatalog items={items} visibleIds={visibleIds} />
-    </div>
+    </main>
   )
 }

@@ -22,19 +22,23 @@ export function DetailPage() {
   if (!doc) return <NotFoundPage />
 
   return (
-    <div>
-      <p className="text-muted">
-        <Link to="/rfc">← Catalog</Link>
+    <main className="page-shell">
+      <p className="text-[14px] text-muted">
+        <Link to="/rfc" className="navlink">
+          ← Catalog
+        </Link>
       </p>
-      <header className="mb-4">
+      <header className="mb-6 mt-4">
         <div className="mb-3 flex flex-wrap items-center gap-2">
-          <span className="inline-block rounded-full border border-border bg-card px-2 py-0.5 text-xs text-muted">
+          <span className="inline-block rounded-full border border-border bg-card px-2.5 py-0.5 font-mono text-[11px] uppercase tracking-[0.12em] text-muted">
             RFC-{doc.id}
           </span>
           <StatusBadge status={doc.status} />
           <LayerChip layer={doc.layer} />
         </div>
-        <h1 className="mt-1 mb-2 leading-tight">{doc.title}</h1>
+        <h1 className="mt-1 mb-2 font-display text-[32px] leading-tight font-medium tracking-tight md:text-[40px]">
+          {doc.title}
+        </h1>
         <DepLinks label="Depends" ids={doc.depends} />
         <DepLinks label="Blocks" ids={doc.blocks} />
       </header>
@@ -42,6 +46,6 @@ export function DetailPage() {
         <Toc headings={doc.headings} />
         <RfcArticle doc={doc} />
       </div>
-    </div>
+    </main>
   )
 }

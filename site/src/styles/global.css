@@ -3,78 +3,171 @@
 /* Theme via data-theme (set in index.html + ThemeToggle). */
 @custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
 
+/*
+ * Warm editorial product tokens.
+ * Accent: sage green (accent / accent-deep).
+ */
 :root,
 [data-theme='light'] {
-  --bg: #fafafa;
-  --fg: #1a1a1a;
-  --muted: #666;
-  --border: #e0e0e0;
-  --accent: #0b57d0;
-  --card: #fff;
-  --code-bg: #f4f4f5;
+  --bg: #fafaf7;
+  --fg: #0f1311;
+  --muted: #6b7066;
+  --ink-muted: #9a9a93;
+  --border: #e8e7e2;
+  --border-strong: #d8d6cf;
+  --accent: #3d9b62;
+  --accent-deep: #2c7548;
+  --card: #ffffff;
+  --tint: #f3f0e8;
+  --code-bg: #f3f1e9;
   --danger: #b3261e;
   --status-review: #8a6d00;
   --status-review-border: #c9a227;
   --status-ok: #1b5e20;
   --status-ok-border: #2e7d32;
+  --header-bg: color-mix(in oklab, var(--bg) 88%, transparent);
+  --lift:
+    0 1px 2px rgb(15 19 17 / 4%), 0 12px 32px rgb(15 19 17 / 6%);
 }
 
 [data-theme='dark'] {
-  --bg: #121212;
-  --fg: #e8e8e8;
-  --muted: #a0a0a0;
-  --border: #333;
-  --accent: #8ab4f8;
-  --card: #1e1e1e;
-  --code-bg: #2a2a2a;
+  --bg: #121412;
+  --fg: #eceae4;
+  --muted: #9a9e96;
+  --ink-muted: #6f726c;
+  --border: #2a2c29;
+  --border-strong: #3a3d38;
+  --accent: #5fbf82;
+  --accent-deep: #3d9b62;
+  --card: #1a1c19;
+  --tint: #1e211c;
+  --code-bg: #222520;
   --danger: #f2b8b5;
   --status-review: #f5d76e;
   --status-review-border: #c9a227;
   --status-ok: #81c784;
   --status-ok-border: #2e7d32;
+  --header-bg: color-mix(in oklab, var(--bg) 88%, transparent);
+  --lift:
+    0 1px 2px rgb(0 0 0 / 30%), 0 16px 40px rgb(0 0 0 / 35%);
 }
 
 @theme inline {
   --color-bg: var(--bg);
   --color-fg: var(--fg);
   --color-muted: var(--muted);
+  --color-ink-muted: var(--ink-muted);
   --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
   --color-accent: var(--accent);
+  --color-accent-deep: var(--accent-deep);
   --color-card: var(--card);
+  --color-tint: var(--tint);
   --color-code: var(--code-bg);
   --color-danger: var(--danger);
   --color-status-review: var(--status-review);
   --color-status-review-border: var(--status-review-border);
   --color-status-ok: var(--status-ok);
   --color-status-ok-border: var(--status-ok-border);
-  --font-sans:
-    system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-display: 'Bricolage Grotesque', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   --breakpoint-rfc: 800px;
 }
 
 @layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
   body {
-    @apply m-0 bg-bg font-sans text-fg leading-[1.55];
+    @apply m-0 bg-bg font-sans text-fg antialiased leading-[1.55];
   }
 
   a {
     @apply text-accent;
   }
+
+  ::selection {
+    background: color-mix(in oklab, var(--accent) 22%, transparent);
+  }
 }
 
-/*
- * Markdown body + SVG graph: nested selectors that are awkward as
- * per-element utilities in ReactMarkdown / raw SVG.
- */
 @layer components {
+  .font-display {
+    font-family: var(--font-display);
+  }
+
+  .page-shell {
+    @apply mx-auto w-full max-w-[1100px] flex-1 px-6 py-8;
+  }
+
+  .navlink {
+    position: relative;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--muted);
+    padding: 4px 0;
+    text-decoration: none;
+    transition: color 200ms;
+  }
+
+  .navlink:hover {
+    color: var(--fg);
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-full bg-fg px-6 py-3 text-[14px] font-medium text-bg no-underline transition-colors;
+  }
+
+  .btn-primary:hover {
+    background: var(--accent-deep);
+    color: var(--card);
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center gap-1.5 text-[14px] font-medium text-fg no-underline underline decoration-border-strong decoration-[1.5px] underline-offset-[6px] transition-colors;
+  }
+
+  .btn-ghost:hover {
+    text-decoration-color: var(--accent);
+  }
+
+  .eyebrow {
+    @apply font-mono text-[11px] uppercase tracking-[0.14em] text-muted;
+  }
+
+  .lift-md {
+    box-shadow: var(--lift);
+  }
+
+  .home-section {
+    @apply mx-auto w-full max-w-[1280px] px-6;
+  }
+
+  /* Soft float — same idea as vochi.xyz `.float-y` */
+  .float-y {
+    animation: floaty 7s ease-in-out infinite;
+  }
+
+  @keyframes floaty {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-6px);
+    }
+  }
+
+  /* Markdown body + SVG graph */
   .rfc-article {
-    @apply overflow-x-auto rounded-lg border border-border bg-card px-6 py-5;
+    @apply overflow-x-auto rounded-2xl border border-border bg-card px-6 py-5;
   }
 
   .rfc-article h2,
   .rfc-article h3 {
-    scroll-margin-top: 4.5rem;
+    scroll-margin-top: 5rem;
   }
 
   .rfc-article table {
@@ -87,7 +180,7 @@
   }
 
   .rfc-article pre {
-    @apply overflow-x-auto rounded-[0.4rem] bg-code px-4 py-3;
+    @apply overflow-x-auto rounded-xl bg-code px-4 py-3;
   }
 
   .rfc-article code {
@@ -119,5 +212,23 @@
     stroke-width: 1.25;
     stroke-dasharray: 4 3;
     fill: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .float-y {
+    animation: none;
   }
 }

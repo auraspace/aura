@@ -50,8 +50,8 @@ async function main() {
     }
 
     const rfcs = getAllRfcs()
-    // Feature routes under /rfc (add /docs, landing, … here later).
     const routes = [
+      '/',
       '/rfc',
       '/rfc/graph',
       ...rfcs.map((r) => `/rfc/${r.id}`),
