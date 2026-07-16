@@ -7,7 +7,7 @@ This repository currently holds:
 | Path | Purpose |
 | ---- | ------- |
 | [`docs/rfc/`](docs/rfc/) | Language & toolchain RFCs |
-| [`docs/roadmap.md`](docs/roadmap.md) | Execution phases (P0–P3, compiler C0–C5c) |
+| [`docs/roadmap.md`](docs/roadmap.md) | Execution phases (P0–P3, compiler C0–C5d) |
 | [`site/`](site/) | Static RFC docs site (Vite + React) |
 | [`crates/`](crates/) | Rust toolchain (`aura` CLI) — check / build / run / test (C backend) |
 | [`corpus/`](corpus/) | Sample `.aura` programs for the compiler |
@@ -26,7 +26,7 @@ pnpm site:test
 pnpm site:build
 ```
 
-### Compiler (through C5c)
+### Compiler (through C5d)
 
 ```bash
 cargo test --workspace
@@ -112,6 +112,7 @@ Native builds use a **C backend** (`aura emit-c` + system `cc`) linked with `run
 - **Stdlib C5a** `std/collections` stub (Map/Set not yet; use Array)
 - **Compiler C5b** Array ownership move on `val b = a` (source buffer zeroed)
 - **Compiler C5c** Undefined-name diagnostics with `did you mean …?`
+- **Docs C5d** C4u–C5d batch closed (plan/roadmap/debts)
 - **DX** Pretty diagnostics (`path:line:col` + source snippet)
 - **Debts** Tracked in [`agents/debts.md`](agents/debts.md)
 - **Next:** Iterable protocol, LLVM, registry
