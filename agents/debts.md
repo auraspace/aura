@@ -56,6 +56,9 @@ When you resolve debt, update or remove the matching entry.
 
 ## Resolved
 
+### No null coalesce `?:` (2026-07-16)
+- Resolved in C4m: `T? ?: T` → non-null T; corpus `types/coalesce.aura`.
+
 ### No else-if chaining (2026-07-16)
 - Resolved in C4l: `else if` desugars to nested if in else block; corpus `control/else_if.aura`.
 

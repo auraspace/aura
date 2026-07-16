@@ -79,6 +79,7 @@ impl Parser {
                 TokenKind::Ge => BinOp::Ge,
                 TokenKind::AndAnd => BinOp::And,
                 TokenKind::OrOr => BinOp::Or,
+                TokenKind::QuestionColon => BinOp::Coalesce,
                 _ => break,
             };
             let (l_bp, r_bp) = infix_binding_power(op);
@@ -251,11 +252,13 @@ fn prefix_binding_power() -> u8 {
 
 fn infix_binding_power(op: BinOp) -> (u8, u8) {
     match op {
-        BinOp::Or => (1, 2),
-        BinOp::And => (3, 4),
-        BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => (5, 6),
-        BinOp::Add | BinOp::Sub => (7, 8),
-        BinOp::Mul | BinOp::Div | BinOp::Rem => (9, 10),
+        // C4m: `?:` binds looser than `||` (right-associative-ish via r_bp).
+        BinOp::Coalesce => (1, 1),
+        BinOp::Or => (2, 3),
+        BinOp::And => (4, 5),
+        BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => (6, 7),
+        BinOp::Add | BinOp::Sub => (8, 9),
+        BinOp::Mul | BinOp::Div | BinOp::Rem => (10, 11),
     }
 }
 

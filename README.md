@@ -91,9 +91,10 @@ C1 uses a **C backend** (`aura emit-c` + system `cc`) linked with `runtime/aura_
 - **CLI C4j** Nested path deps recorded in `aura.lock` (`# transitive`)
 - **Compiler C4k** Type-param mono as heap pointers; field-chain method receivers
 - **Compiler C4l** `else if` chaining
+- **Compiler C4m** Null coalesce `?:`
 - **DX** Pretty diagnostics (`path:line:col` + source snippet)
 - **Debts** Tracked in [`agents/debts.md`](agents/debts.md)
-- **Next:** `?:`, Array/String API, `?.`
+- **Next:** Array/String API, `?.`, if-expr
 
 ## Links
 

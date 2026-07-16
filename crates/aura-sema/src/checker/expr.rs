@@ -259,6 +259,29 @@ impl Checker {
                         }
                         Ok(Ty::Bool)
                     }
+                    BinOp::Coalesce => {
+                        // C4m: `a ?: b` — a is T?, b assignable to T; result T.
+                        let Ty::Nullable(inner) = &l else {
+                            return Err(SemaError {
+                                message: format!(
+                                    "`?:` left operand must be nullable, got {}",
+                                    l.display()
+                                ),
+                                span: b.span,
+                            });
+                        };
+                        if !self.is_assignable(&r, inner) {
+                            return Err(SemaError {
+                                message: format!(
+                                    "`?:` right operand type {} is not assignable to {}",
+                                    r.display(),
+                                    inner.display()
+                                ),
+                                span: b.span,
+                            });
+                        }
+                        Ok(inner.as_ref().clone())
+                    }
                 }
             }
             Expr::Assign(a) => {

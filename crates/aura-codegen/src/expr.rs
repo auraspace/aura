@@ -202,6 +202,11 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
                 | BinOp::Or,
             ..
         }) => "Bool".into(),
+        Expr::Binary(BinaryExpr {
+            op: BinOp::Coalesce,
+            right,
+            ..
+        }) => infer_type_name(right, ctx),
         _ => "Int".into(),
     }
 }
@@ -256,6 +261,10 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &EmitCtx<'_>) -> String {
             let left = emit_expr(&b.left, ctx);
             let right = emit_expr(&b.right, ctx);
             // C4e: String content equality (null-safe strcmp); class stays pointer identity.
+            if matches!(b.op, BinOp::Coalesce) {
+                // C4m: pointer/string null-coalesce ternary.
+                return format!("(({left}) != NULL ? ({left}) : ({right}))");
+            }
             if matches!(b.op, BinOp::Eq | BinOp::Ne) {
                 let lt = resolve_type_name(&b.left, ctx);
                 let rt = resolve_type_name(&b.right, ctx);
@@ -288,6 +297,7 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &EmitCtx<'_>) -> String {
                 BinOp::Ge => ">=",
                 BinOp::And => "&&",
                 BinOp::Or => "||",
+                BinOp::Coalesce => "?:", // handled above
             };
             // C3q: comparisons without outer parens so `if (x == y)` is not
             // `if ((x == y))` (clang -Wparentheses-equality). Arithmetic/logic

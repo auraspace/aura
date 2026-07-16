@@ -1,0 +1,11 @@
+// C4m — null coalesce ?:
+package demo.types
+
+fun main() {
+  var s: String? = null
+  val a: String = s ?: "def"
+  println(a)
+  s = "hi"
+  val b: String = s ?: "def"
+  println(b)
+}

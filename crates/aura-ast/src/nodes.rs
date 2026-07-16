@@ -406,6 +406,8 @@ pub enum BinOp {
     Ge,
     And,
     Or,
+    /// Null-coalesce `?:` (C4m).
+    Coalesce,
 }
 
 impl fmt::Display for BinOp {
@@ -424,6 +426,7 @@ impl fmt::Display for BinOp {
             BinOp::Ge => ">=",
             BinOp::And => "&&",
             BinOp::Or => "||",
+            BinOp::Coalesce => "?:",
         };
         f.write_str(s)
     }
