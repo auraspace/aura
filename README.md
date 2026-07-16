@@ -87,9 +87,10 @@ C1 uses a **C backend** (`aura emit-c` + system `cc`) linked with `runtime/aura_
 - **Compiler C4f** `Array.clear` (len=0, keep capacity)
 - **CLI C4g** Auto-prelude `std.io` for package builds (`AURA_STD` or walk-up)
 - **Stdlib C4h** `std.assert` package + auto path resolve for `std.*` imports
+- **Compiler C4i** Reject struct/enum/interface equality in sema
 - **DX** Pretty diagnostics (`path:line:col` + source snippet)
 - **Debts** Tracked in [`agents/debts.md`](agents/debts.md)
-- **Next:** reject aggregate ==, nested lock
+- **Next:** nested path lock, Iterable, registry
 
 ## Links
 

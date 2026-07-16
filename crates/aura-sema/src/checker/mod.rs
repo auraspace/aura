@@ -531,6 +531,19 @@ impl Checker {
             self.iface_in_package(name, pkg)
         }
     }
+
+    /// C4i: true if ty is a user struct (by-value aggregate).
+    pub(crate) fn is_struct_ty(&self, ty: &Ty) -> bool {
+        match ty {
+            Ty::Class(n) | Ty::ClassApp { name: n, .. } => self
+                .class_by_nominal_key(n)
+                .map(|c| c.is_struct)
+                .unwrap_or(false),
+            Ty::Nullable(inner) => self.is_struct_ty(inner),
+            _ => false,
+        }
+    }
+
     pub(crate) fn check_method(
         &mut self,
         class: &ClassDecl,

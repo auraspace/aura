@@ -49,6 +49,9 @@ When you resolve debt, update or remove the matching entry.
 
 ## Resolved
 
+### Struct/enum `==` failed at C compile (2026-07-16)
+- Resolved in C4i: sema rejects struct/enum/interface equality with a clear diagnostic; class identity and String content remain.
+
 ### No std.assert package (2026-07-16)
 - Resolved in C4h: `std/assert` with `assert` intrinsic; auto path resolve for `std.*` imports; `assert_eq` remains language builtin.
 

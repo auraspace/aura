@@ -210,10 +210,34 @@ impl Checker {
                         Ok(Ty::Bool)
                     }
                     BinOp::Eq | BinOp::Ne => {
-                        if !eq_compatible(&l, &r) {
+                        // C4i: reject struct/enum/interface equality (no C aggregate ==).
+                        if self.is_struct_ty(&l) || self.is_struct_ty(&r) {
                             return Err(SemaError {
                                 message: format!(
-                                    "cannot compare {} and {}",
+                                    "cannot compare struct values with `==`/`!=` (got {} and {}); compare fields instead",
+                                    l.display(),
+                                    r.display()
+                                ),
+                                span: b.span,
+                            });
+                        }
+                        if !eq_compatible(&l, &r) {
+                            let hint = if matches!(
+                                (&l, &r),
+                                (Ty::Enum(_), _)
+                                    | (_, Ty::Enum(_))
+                                    | (Ty::EnumApp { .. }, _)
+                                    | (_, Ty::EnumApp { .. })
+                                    | (Ty::Interface(_), _)
+                                    | (_, Ty::Interface(_))
+                            ) {
+                                " (enum/interface equality is not supported in MVP)"
+                            } else {
+                                ""
+                            };
+                            return Err(SemaError {
+                                message: format!(
+                                    "cannot compare {} and {}{hint}",
                                     l.display(),
                                     r.display()
                                 ),

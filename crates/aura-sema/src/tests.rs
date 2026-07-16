@@ -663,3 +663,43 @@ fun main() {
         err.message
     );
 }
+
+#[test]
+fn reject_struct_equality() {
+    let src = r#"
+package t
+struct Point(val x: Int) {}
+fun main() {
+  val a: Point = Point(1)
+  val b: Point = Point(1)
+  if (a == b) {}
+}
+"#;
+    let file = parse_file(src).expect("parse");
+    let err = check_file(&file).expect_err("struct ==");
+    assert!(
+        err.message.contains("struct") || err.message.contains("compare"),
+        "{}",
+        err.message
+    );
+}
+
+#[test]
+fn reject_enum_equality() {
+    let src = r#"
+package t
+enum Color { case Red case Blue }
+fun main() {
+  val a: Color = Red()
+  val b: Color = Red()
+  if (a == b) {}
+}
+"#;
+    let file = parse_file(src).expect("parse");
+    let err = check_file(&file).expect_err("enum ==");
+    assert!(
+        err.message.contains("enum") || err.message.contains("compare"),
+        "{}",
+        err.message
+    );
+}

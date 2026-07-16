@@ -107,6 +107,9 @@ pub(crate) fn subst_ty(ty: &Ty, map: &HashMap<String, Ty>) -> Ty {
 }
 
 pub(crate) fn eq_compatible(a: &Ty, b: &Ty) -> bool {
+    if is_aggregate_eq_forbidden(a) || is_aggregate_eq_forbidden(b) {
+        return false;
+    }
     if a == b {
         return true;
     }
@@ -115,6 +118,17 @@ pub(crate) fn eq_compatible(a: &Ty, b: &Ty) -> bool {
         (Ty::Null, Ty::Null) => true,
         (Ty::Nullable(x), y) if x.as_ref() == y => true,
         (x, Ty::Nullable(y)) if x == y.as_ref() => true,
+        _ => false,
+    }
+}
+
+/// C4i: struct/enum (and interface) values cannot use `==` / `!=` in MVP.
+/// Class refs use pointer identity; primitives/String compare by value/content.
+fn is_aggregate_eq_forbidden(ty: &Ty) -> bool {
+    match ty {
+        Ty::Enum(_) | Ty::EnumApp { .. } | Ty::Interface(_) => true,
+        Ty::Nullable(inner) => is_aggregate_eq_forbidden(inner),
+        // Structs are Ty::Class with is_struct in ClassSig — checked in expr with Checker.
         _ => false,
     }
 }
