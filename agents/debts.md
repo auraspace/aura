@@ -37,12 +37,12 @@ When you resolve debt, update or remove the matching entry.
 - Next step: registry + version resolve; nested lock merge
 - Introduced: narrowed after C3p
 
-### Nullable class / identity ops incomplete
+### Nullable class / Array of class incomplete
 - Area: memory model / RFC-003 vs codegen
-- Symptom: classes are GC heap refs (C3y) but `==` identity, deep nullable class edge cases, and Array of class remain partial
-- Why deferred: C3y shipped pointer + GC alloc for class; struct stays by-value
-- Next step: identity `==` for class refs; `Array<Class>`; tighten nullable class
-- Introduced: narrowed after C3y
+- Symptom: class identity `==` works (C4a corpus); `Class?` C emit and `Array<Class>` still partial
+- Why deferred: C4a shipped identity corpus; emit fix + Array next
+- Next step: C4b nullable class emit; C4c `Array<Class>`
+- Introduced: narrowed after C4a
 
 
 ### Stdlib incomplete (prelude auto-import, assert, collections)
@@ -53,6 +53,9 @@ When you resolve debt, update or remove the matching entry.
 - Introduced: narrowed after C3z
 
 ## Resolved
+
+### Class identity `==` untested (2026-07-16)
+- Resolved in C4a: class refs compare by pointer identity; corpus `corpus/class/identity.aura`.
 
 ### No stdlib prelude package (2026-07-15)
 - Resolved in C3z: `std/io` package with `pub fun println` (intrinsic → `aura_println`); corpus path-deps it. Builtins remain for single-file hello.

@@ -1,0 +1,21 @@
+// C4a — class ==/!= is reference identity (GC heap pointers)
+package demo.cls
+
+class Box(val x: Int) {}
+
+fun main() {
+  val a: Box = Box(1)
+  val b: Box = a
+  val c: Box = Box(1)
+  if (a == b) {
+    println("same")
+  }
+  if (a != c) {
+    println("diff")
+  }
+  if (a == c) {
+    println("unexpected")
+  } else {
+    println("distinct")
+  }
+}

@@ -79,9 +79,10 @@ C1 uses a **C backend** (`aura emit-c` + system `cc`) linked with `runtime/aura_
 - **Runtime C3x** GC MVP: `aura_gc_alloc` + free-all on process exit
 - **Compiler C3y** Class instances as GC heap references (`struct` remains by-value)
 - **Stdlib C3z** Minimal `std.io.println` (`std/io`, path dep; builtins remain)
+- **Compiler C4a** Class identity `==` / `!=` (reference / pointer; corpus)
 - **DX** Pretty diagnostics (`path:line:col` + source snippet)
 - **Debts** Tracked in [`agents/debts.md`](agents/debts.md)
-- **Next:** LLVM, registry, Iterable protocol
+- **Next:** nullable class, Array&lt;Class&gt;, iface packages, auto-prelude
 
 ## Links
 
