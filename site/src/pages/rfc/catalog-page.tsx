@@ -1,11 +1,11 @@
 import { useMemo, useState } from 'react'
-import { getAllMeta, getAllRfcs } from '@/lib/load-rfcs'
-import { buildSearchIndex } from '@/lib/search'
-import { RfcCatalog } from '@/components/rfc-catalog'
-import { FilterBar } from '@/components/filter-bar'
-import { SearchBox } from '@/components/search-box'
+import { getAllMeta, getAllRfcs } from '@/lib/rfc/load-rfcs'
+import { buildSearchIndex } from '@/lib/rfc/search'
+import { RfcCatalog } from '@/pages/rfc/components/catalog'
+import { FilterBar } from '@/pages/rfc/components/filter-bar'
+import { SearchBox } from '@/pages/rfc/components/search-box'
 
-export function HomePage() {
+export function CatalogPage() {
   const items = getAllMeta()
   const docs = getAllRfcs()
   const [status, setStatus] = useState('')
@@ -47,10 +47,10 @@ export function HomePage() {
   return (
     <div>
       <h1>Aura RFC catalog</h1>
-      <p className="muted">
+      <p className="text-muted">
         Internal index of language and toolchain RFCs ({items.length} documents).
       </p>
-      <div className="toolbar">
+      <div className="my-4 mb-5 flex flex-wrap items-end gap-3">
         <SearchBox value={query} onChange={setQuery} />
         <FilterBar
           status={status}

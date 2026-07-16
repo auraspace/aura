@@ -1,4 +1,4 @@
-import type { RfcStatus } from '@/types/rfc'
+import type { RfcStatus } from '@/lib/rfc/types'
 
 const STATUSES: Array<RfcStatus | ''> = [
   '',
@@ -18,6 +18,9 @@ interface FilterBarProps {
   onLayerChange: (v: string) => void
 }
 
+const fieldClass =
+  'min-w-40 rounded-[0.4rem] border border-border bg-card px-2.5 py-1.5 text-fg'
+
 export function FilterBar({
   status,
   layer,
@@ -27,9 +30,10 @@ export function FilterBar({
 }: FilterBarProps) {
   return (
     <>
-      <label>
+      <label className="flex flex-col gap-1 text-xs text-muted">
         Status
         <select
+          className={fieldClass}
           value={status}
           onChange={(e) => onStatusChange(e.target.value)}
         >
@@ -41,9 +45,13 @@ export function FilterBar({
           ))}
         </select>
       </label>
-      <label>
+      <label className="flex flex-col gap-1 text-xs text-muted">
         Layer
-        <select value={layer} onChange={(e) => onLayerChange(e.target.value)}>
+        <select
+          className={fieldClass}
+          value={layer}
+          onChange={(e) => onLayerChange(e.target.value)}
+        >
           <option value="">All</option>
           {layers.map((l) => (
             <option key={l} value={l}>

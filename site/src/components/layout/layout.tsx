@@ -3,9 +3,9 @@ import { Header } from './header'
 
 export function Layout() {
   return (
-    <div className="layout">
+    <div className="flex min-h-screen flex-col">
       <Header />
-      <main className="main">
+      <main className="mx-auto w-full max-w-[1100px] flex-1 p-5">
         <Outlet />
       </main>
     </div>

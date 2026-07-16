@@ -1,5 +1,5 @@
 import MiniSearch from 'minisearch'
-import type { RfcDoc } from '@/types/rfc'
+import type { RfcDoc } from '@/lib/rfc/types'
 
 export function buildSearchIndex(docs: RfcDoc[]) {
   const mini = new MiniSearch({

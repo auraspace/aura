@@ -1,7 +1,7 @@
 import { parseRfcMarkdown } from './parse-rfc'
-import type { RfcDoc, RfcMeta } from '@/types/rfc'
+import type { RfcDoc, RfcMeta } from '@/lib/rfc/types'
 
-const modules = import.meta.glob('../../../docs/rfc/RFC-*.md', {
+const modules = import.meta.glob('../../../../docs/rfc/RFC-*.md', {
   query: '?raw',
   import: 'default',
   eager: true,

@@ -34,7 +34,7 @@ export function ThemeToggle() {
   return (
     <button
       type="button"
-      className="theme-toggle"
+      className="cursor-pointer rounded-lg border border-border bg-bg px-2.5 py-1.5 text-sm text-fg"
       onClick={toggle}
       aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
     >

@@ -1,4 +1,4 @@
-import type { RfcMeta } from '@/types/rfc'
+import type { RfcMeta } from '@/lib/rfc/types'
 
 export type GraphEdgeKind = 'depends' | 'blocks'
 

@@ -1,6 +1,6 @@
 # Aura RFC site
 
-Static docs site for Aura RFCs (`docs/rfc/`). Built with Vite + React; prerenders HTML for GitHub Pages.
+Static docs site for Aura RFCs (`docs/rfc/`). Built with Vite + React + Tailwind CSS v4; prerenders HTML for GitHub Pages.
 
 ## Commands
 
@@ -17,6 +17,28 @@ pnpm test
 pnpm build
 ```
 
+## Source layout
+
+Feature-first folders so `/docs`, landing, etc. can land beside `/rfc`:
+
+```text
+src/
+  app.tsx                 # top-level routes
+  components/layout/      # shared chrome (header, theme)
+  pages/
+    not-found-page.tsx
+    rfc/                  # /rfc feature
+      catalog-page.tsx
+      detail-page.tsx
+      graph-page.tsx
+      components/         # RFC-only UI
+      index.ts
+  lib/rfc/                # parse, search, graph, types
+  styles/
+```
+
+Scaffold a new section the same way: `pages/<name>/`, optional `pages/<name>/components/`, `lib/<name>/`, then mount under `<Route path="…">` in `app.tsx`.
+
 ## GitHub Pages
 
 1. Repo **Settings → Pages → Source: GitHub Actions**
@@ -27,9 +49,12 @@ Public URLs (repo `aura`):
 
 | Path | Page |
 | ---- | ---- |
+| https://auraspace.github.io/aura/ | Redirect → `/rfc` |
 | https://auraspace.github.io/aura/rfc | RFC catalog |
 | https://auraspace.github.io/aura/rfc/000 | RFC-000 detail |
-| https://auraspace.github.io/aura/graph | Dependency graph |
+| https://auraspace.github.io/aura/rfc/graph | Dependency graph |
+
+Legacy `/graph` redirects to `/rfc/graph`.
 
 ## Content
 

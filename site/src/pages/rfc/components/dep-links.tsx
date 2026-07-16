@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { getRfcById } from '@/lib/load-rfcs'
+import { getRfcById } from '@/lib/rfc/load-rfcs'
 
 export function DepLinks({
   label,
@@ -10,26 +10,26 @@ export function DepLinks({
 }) {
   if (!ids.length) {
     return (
-      <p className="dep-links">
+      <p className="my-1.5 text-[0.9rem] text-muted">
         <strong>{label}:</strong> —
       </p>
     )
   }
 
   return (
-    <p className="dep-links">
+    <p className="my-1.5 text-[0.9rem] text-muted">
       <strong>{label}:</strong>{' '}
       {ids.map((id) => {
         const doc = getRfcById(id)
         if (!doc) {
           return (
-            <span key={id} className="missing">
+            <span key={id} className="text-danger line-through">
               RFC-{id}{' '}
             </span>
           )
         }
         return (
-          <Link key={id} to={`/rfc/${id}`}>
+          <Link key={id} to={`/rfc/${id}`} className="mr-1.5">
             RFC-{id}
           </Link>
         )

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { buildGraph } from './graph'
-import type { RfcMeta } from '@/types/rfc'
+import type { RfcMeta } from '@/lib/rfc/types'
 
 const meta = (
   partial: Partial<RfcMeta> & Pick<RfcMeta, 'id'>,

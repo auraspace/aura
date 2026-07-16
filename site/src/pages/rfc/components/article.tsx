@@ -3,8 +3,8 @@ import remarkGfm from 'remark-gfm'
 import rehypeSlug from 'rehype-slug'
 import { Link } from 'react-router-dom'
 import type { Components } from 'react-markdown'
-import type { RfcDoc } from '@/types/rfc'
-import { linkifyRfcRefs } from '@/lib/links'
+import type { RfcDoc } from '@/lib/rfc/types'
+import { linkifyRfcRefs } from '@/lib/rfc/links'
 
 function normalizeHref(href: string | undefined): string | undefined {
   if (!href) return href

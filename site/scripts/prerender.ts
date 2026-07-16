@@ -44,17 +44,16 @@ async function main() {
       render: (url: string, basename?: string) => string
     }
     const { getAllRfcs } = (await vite.ssrLoadModule(
-      '/src/lib/load-rfcs.ts',
+      '/src/lib/rfc/load-rfcs.ts',
     )) as {
       getAllRfcs: () => { id: string }[]
     }
 
     const rfcs = getAllRfcs()
-    // Catalog lives at /rfc (public URL …/aura/rfc); / also serves catalog.
+    // Feature routes under /rfc (add /docs, landing, … here later).
     const routes = [
-      '/',
       '/rfc',
-      '/graph',
+      '/rfc/graph',
       ...rfcs.map((r) => `/rfc/${r.id}`),
     ]
 

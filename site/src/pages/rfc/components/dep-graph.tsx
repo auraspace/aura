@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import type { GraphEdge, GraphNode } from '@/lib/graph'
+import type { GraphEdge, GraphNode } from '@/lib/rfc/graph'
 
 const LAYER_ORDER = [
   'Foundation',
@@ -62,9 +62,9 @@ export function DepGraph({
   }
 
   return (
-    <div className="graph-wrap">
+    <div className="overflow-auto rounded-lg border border-border bg-card p-4">
       <svg
-        className="graph-svg"
+        className="block h-auto w-full min-w-[720px]"
         viewBox={`0 0 ${maxX} ${maxY}`}
         role="img"
         aria-label="RFC dependency graph"
@@ -105,7 +105,7 @@ export function DepGraph({
           )
         })}
       </svg>
-      <p className="muted" style={{ marginTop: '0.75rem', fontSize: '0.85rem' }}>
+      <p className="mt-3 text-[0.85rem] text-muted">
         Solid = depends on · Dashed = blocks
       </p>
     </div>

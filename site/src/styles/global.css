@@ -1,3 +1,8 @@
+@import 'tailwindcss';
+
+/* Theme via data-theme (set in index.html + ThemeToggle). */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
 :root,
 [data-theme='light'] {
   --bg: #fafafa;
@@ -8,6 +13,10 @@
   --card: #fff;
   --code-bg: #f4f4f5;
   --danger: #b3261e;
+  --status-review: #8a6d00;
+  --status-review-border: #c9a227;
+  --status-ok: #1b5e20;
+  --status-ok-border: #2e7d32;
 }
 
 [data-theme='dark'] {
@@ -19,357 +28,96 @@
   --card: #1e1e1e;
   --code-bg: #2a2a2a;
   --danger: #f2b8b5;
+  --status-review: #f5d76e;
+  --status-review-border: #c9a227;
+  --status-ok: #81c784;
+  --status-ok-border: #2e7d32;
 }
 
-* {
-  box-sizing: border-box;
+@theme inline {
+  --color-bg: var(--bg);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-border: var(--border);
+  --color-accent: var(--accent);
+  --color-card: var(--card);
+  --color-code: var(--code-bg);
+  --color-danger: var(--danger);
+  --color-status-review: var(--status-review);
+  --color-status-review-border: var(--status-review-border);
+  --color-status-ok: var(--status-ok);
+  --color-status-ok-border: var(--status-ok-border);
+  --font-sans:
+    system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --breakpoint-rfc: 800px;
 }
 
-body {
-  margin: 0;
-  font-family:
-    system-ui,
-    -apple-system,
-    'Segoe UI',
-    sans-serif;
-  background: var(--bg);
-  color: var(--fg);
-  line-height: 1.55;
-}
+@layer base {
+  body {
+    @apply m-0 bg-bg font-sans text-fg leading-[1.55];
+  }
 
-a {
-  color: var(--accent);
-}
-
-.layout {
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-}
-
-.header {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  padding: 0.75rem 1.25rem;
-  border-bottom: 1px solid var(--border);
-  background: var(--card);
-  position: sticky;
-  top: 0;
-  z-index: 10;
-}
-
-.header .brand {
-  font-weight: 700;
-  text-decoration: none;
-  color: var(--fg);
-  white-space: nowrap;
-}
-
-.header nav {
-  display: flex;
-  gap: 1rem;
-  flex: 1;
-}
-
-.header nav a {
-  text-decoration: none;
-  color: var(--fg);
-  font-weight: 500;
-}
-
-.header nav a:hover {
-  color: var(--accent);
-}
-
-.theme-toggle {
-  border: 1px solid var(--border);
-  background: var(--bg);
-  color: var(--fg);
-  border-radius: 0.5rem;
-  padding: 0.35rem 0.65rem;
-  cursor: pointer;
-  font-size: 0.875rem;
-}
-
-.main {
-  flex: 1;
-  padding: 1.25rem;
-  max-width: 1100px;
-  width: 100%;
-  margin: 0 auto;
-}
-
-.badge {
-  display: inline-block;
-  font-size: 0.75rem;
-  padding: 0.15rem 0.5rem;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  color: var(--muted);
-  background: var(--card);
-}
-
-.badge.status-in-review {
-  border-color: #c9a227;
-  color: #8a6d00;
-}
-
-[data-theme='dark'] .badge.status-in-review {
-  color: #f5d76e;
-}
-
-.badge.status-accepted,
-.badge.status-frozen {
-  border-color: #2e7d32;
-  color: #1b5e20;
-}
-
-[data-theme='dark'] .badge.status-accepted,
-[data-theme='dark'] .badge.status-frozen {
-  color: #81c784;
-}
-
-.toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-  margin: 1rem 0 1.25rem;
-  align-items: end;
-}
-
-.toolbar label {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  font-size: 0.8rem;
-  color: var(--muted);
-}
-
-.toolbar input,
-.toolbar select {
-  font: inherit;
-  padding: 0.4rem 0.55rem;
-  border-radius: 0.4rem;
-  border: 1px solid var(--border);
-  background: var(--card);
-  color: var(--fg);
-  min-width: 10rem;
-}
-
-.catalog {
-  width: 100%;
-  border-collapse: collapse;
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 0.5rem;
-  overflow: hidden;
-}
-
-.catalog th,
-.catalog td {
-  text-align: left;
-  padding: 0.65rem 0.75rem;
-  border-bottom: 1px solid var(--border);
-  vertical-align: top;
-}
-
-.catalog th {
-  font-size: 0.8rem;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  color: var(--muted);
-  background: var(--bg);
-}
-
-.catalog tr[data-hidden='true'] {
-  display: none;
-}
-
-.catalog a {
-  text-decoration: none;
-  font-weight: 600;
-}
-
-.rfc-layout {
-  display: grid;
-  grid-template-columns: 220px 1fr;
-  gap: 1.5rem;
-  align-items: start;
-}
-
-@media (max-width: 800px) {
-  .rfc-layout {
-    grid-template-columns: 1fr;
+  a {
+    @apply text-accent;
   }
 }
 
-.toc {
-  position: sticky;
-  top: 4rem;
-  border: 1px solid var(--border);
-  border-radius: 0.5rem;
-  padding: 0.75rem 1rem;
-  background: var(--card);
-  font-size: 0.875rem;
-  max-height: calc(100vh - 5rem);
-  overflow: auto;
-}
+/*
+ * Markdown body + SVG graph: nested selectors that are awkward as
+ * per-element utilities in ReactMarkdown / raw SVG.
+ */
+@layer components {
+  .rfc-article {
+    @apply overflow-x-auto rounded-lg border border-border bg-card px-6 py-5;
+  }
 
-.toc-title {
-  margin: 0 0 0.5rem;
-  font-size: 0.8rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  color: var(--muted);
-  letter-spacing: 0.04em;
-}
+  .rfc-article h2,
+  .rfc-article h3 {
+    scroll-margin-top: 4.5rem;
+  }
 
-.toc ul {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
+  .rfc-article table {
+    @apply my-4 w-full border-collapse text-[0.9rem];
+  }
 
-.toc li {
-  margin: 0.25rem 0;
-}
+  .rfc-article th,
+  .rfc-article td {
+    @apply border border-border px-2.5 py-1.5;
+  }
 
-.toc a {
-  text-decoration: none;
-  color: var(--fg);
-}
+  .rfc-article pre {
+    @apply overflow-x-auto rounded-[0.4rem] bg-code px-4 py-3;
+  }
 
-.toc a:hover {
-  color: var(--accent);
-}
+  .rfc-article code {
+    @apply font-mono text-[0.9em];
+  }
 
-.toc .depth-3 {
-  padding-left: 0.75rem;
-  font-size: 0.8rem;
-  color: var(--muted);
-}
+  .rfc-article :not(pre) > code {
+    @apply rounded bg-code px-[0.35em] py-[0.1em];
+  }
 
-.rfc-header {
-  margin-bottom: 1rem;
-}
+  .graph-node rect {
+    fill: var(--bg);
+    stroke: var(--border);
+  }
 
-.rfc-header h1 {
-  margin: 0.25rem 0 0.5rem;
-  line-height: 1.25;
-}
+  .graph-node text {
+    fill: var(--fg);
+    font-size: 12px;
+  }
 
-.rfc-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  align-items: center;
-  margin-bottom: 0.75rem;
-}
+  .graph-edge-depends {
+    stroke: var(--accent);
+    stroke-width: 1.5;
+    fill: none;
+  }
 
-.dep-links {
-  font-size: 0.9rem;
-  color: var(--muted);
-  margin: 0.35rem 0;
-}
-
-.dep-links a {
-  margin-right: 0.35rem;
-}
-
-.missing {
-  color: var(--danger);
-  text-decoration: line-through;
-}
-
-.rfc-article {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 0.5rem;
-  padding: 1.25rem 1.5rem;
-  overflow-x: auto;
-}
-
-.rfc-article h2,
-.rfc-article h3 {
-  scroll-margin-top: 4.5rem;
-}
-
-.rfc-article table {
-  border-collapse: collapse;
-  width: 100%;
-  margin: 1rem 0;
-  font-size: 0.9rem;
-}
-
-.rfc-article th,
-.rfc-article td {
-  border: 1px solid var(--border);
-  padding: 0.4rem 0.55rem;
-}
-
-.rfc-article pre {
-  background: var(--code-bg);
-  padding: 0.75rem 1rem;
-  border-radius: 0.4rem;
-  overflow-x: auto;
-}
-
-.rfc-article code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.9em;
-}
-
-.rfc-article :not(pre) > code {
-  background: var(--code-bg);
-  padding: 0.1em 0.35em;
-  border-radius: 0.25rem;
-}
-
-.graph-wrap {
-  overflow: auto;
-  border: 1px solid var(--border);
-  border-radius: 0.5rem;
-  background: var(--card);
-  padding: 1rem;
-}
-
-.graph-svg {
-  display: block;
-  min-width: 720px;
-  width: 100%;
-  height: auto;
-}
-
-.graph-node rect {
-  fill: var(--bg);
-  stroke: var(--border);
-}
-
-.graph-node text {
-  fill: var(--fg);
-  font-size: 12px;
-}
-
-.graph-edge-depends {
-  stroke: var(--accent);
-  stroke-width: 1.5;
-  fill: none;
-}
-
-.graph-edge-blocks {
-  stroke: var(--muted);
-  stroke-width: 1.25;
-  stroke-dasharray: 4 3;
-  fill: none;
-}
-
-.graph-fallback {
-  margin-top: 1.5rem;
-  font-size: 0.9rem;
-  color: var(--muted);
-}
-
-.muted {
-  color: var(--muted);
+  .graph-edge-blocks {
+    stroke: var(--muted);
+    stroke-width: 1.25;
+    stroke-dasharray: 4 3;
+    fill: none;
+  }
 }

@@ -1,5 +1,5 @@
 import GithubSlugger from 'github-slugger'
-import type { RfcDoc, RfcStatus } from '@/types/rfc'
+import type { RfcDoc, RfcStatus } from '@/lib/rfc/types'
 import { slugify } from './slugify'
 
 const VALID_STATUS = new Set<RfcStatus>([
