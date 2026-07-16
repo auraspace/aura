@@ -121,6 +121,59 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                 }
                 return call;
             }
+            // C5h: startsWith — prefix match via strncmp.
+            if fe.field.name == "startsWith" {
+                let pref = if c.args.len() == 1 {
+                    emit_expr(&c.args[0], ctx)
+                } else {
+                    "\"\"".into()
+                };
+                let call = format!(
+                    "({{ const char *__s = ({obj}); const char *__p = ({pref}); \
+                     if (__s == NULL) __s = \"\"; if (__p == NULL) __p = \"\"; \
+                     size_t __pl = strlen(__p); \
+                     (strncmp(__s, __p, __pl) == 0); }})"
+                );
+                if fe.safe {
+                    return format!("(({obj}) == NULL ? false : {call})");
+                }
+                return call;
+            }
+            // C5i: contains — strstr.
+            if fe.field.name == "contains" {
+                let sub = if c.args.len() == 1 {
+                    emit_expr(&c.args[0], ctx)
+                } else {
+                    "\"\"".into()
+                };
+                let call = format!(
+                    "({{ const char *__s = ({obj}); const char *__n = ({sub}); \
+                     if (__s == NULL) __s = \"\"; if (__n == NULL) __n = \"\"; \
+                     (strstr(__s, __n) != NULL); }})"
+                );
+                if fe.safe {
+                    return format!("(({obj}) == NULL ? false : {call})");
+                }
+                return call;
+            }
+            // C5j: endsWith — compare suffix bytes.
+            if fe.field.name == "endsWith" {
+                let suf = if c.args.len() == 1 {
+                    emit_expr(&c.args[0], ctx)
+                } else {
+                    "\"\"".into()
+                };
+                let call = format!(
+                    "({{ const char *__s = ({obj}); const char *__u = ({suf}); \
+                     if (__s == NULL) __s = \"\"; if (__u == NULL) __u = \"\"; \
+                     size_t __sl = strlen(__s), __ul = strlen(__u); \
+                     (__ul <= __sl && strcmp(__s + (__sl - __ul), __u) == 0); }})"
+                );
+                if fe.safe {
+                    return format!("(({obj}) == NULL ? false : {call})");
+                }
+                return call;
+            }
         }
 
         // Builtin Array methods

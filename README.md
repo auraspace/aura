@@ -7,7 +7,7 @@ This repository currently holds:
 | Path | Purpose |
 | ---- | ------- |
 | [`docs/rfc/`](docs/rfc/) | Language & toolchain RFCs |
-| [`docs/roadmap.md`](docs/roadmap.md) | Execution phases (P0–P3, compiler C0–C5d) |
+| [`docs/roadmap.md`](docs/roadmap.md) | Execution phases (P0–P3, compiler C0–C5j) |
 | [`site/`](site/) | Static RFC docs site (Vite + React) |
 | [`crates/`](crates/) | Rust toolchain (`aura` CLI) — check / build / run / test (C backend) |
 | [`corpus/`](corpus/) | Sample `.aura` programs for the compiler |
@@ -26,7 +26,7 @@ pnpm site:test
 pnpm site:build
 ```
 
-### Compiler (through C5d)
+### Compiler (through C5j)
 
 ```bash
 cargo test --workspace
@@ -113,6 +113,10 @@ Native builds use a **C backend** (`aura emit-c` + system `cc`) linked with `run
 - **Compiler C5b** Array ownership move on `val b = a` (source buffer zeroed)
 - **Compiler C5c** Undefined-name diagnostics with `did you mean …?`
 - **Docs C5d** C4u–C5d batch closed (plan/roadmap/debts)
+- **Compiler C5e** Array move on assign `b = a`
+- **Runtime C5f** GC collect sweep when roots registered
+- **Codegen C5g** GC roots for heap-class locals
+- **Compiler C5h–C5j** String.startsWith / contains / endsWith
 - **DX** Pretty diagnostics (`path:line:col` + source snippet)
 - **Debts** Tracked in [`agents/debts.md`](agents/debts.md)
 - **Next:** Iterable protocol, LLVM, registry

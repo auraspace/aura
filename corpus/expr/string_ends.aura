@@ -1,0 +1,15 @@
+// C5j — String.endsWith
+package demo.expr
+
+fun main() {
+  val s: String = "Hello"
+  if (s.endsWith("lo")) {
+    println("lo")
+  }
+  if (!s.endsWith("x")) {
+    println("notx")
+  }
+  if ("abc".endsWith("c")) {
+    println("c")
+  }
+}

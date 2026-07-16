@@ -203,6 +203,34 @@ impl Checker {
                             Ty::Int
                         });
                     }
+                    // C5h/C5i/C5j: String predicate methods.
+                    "startsWith" | "contains" | "endsWith" => {
+                        let mname = fe.field.name.as_str();
+                        if c.args.len() != 1 {
+                            return Err(SemaError {
+                                message: format!(
+                                    "`String.{mname}` expects 1 argument, got {}",
+                                    c.args.len()
+                                ),
+                                span: c.span,
+                            });
+                        }
+                        let arg = self.check_expr(&c.args[0])?;
+                        if arg != Ty::String {
+                            return Err(SemaError {
+                                message: format!(
+                                    "`String.{mname}` argument must be String, got {}",
+                                    arg.display()
+                                ),
+                                span: c.args[0].span(),
+                            });
+                        }
+                        return Ok(if safe_wrap {
+                            Ty::Nullable(Box::new(Ty::Bool))
+                        } else {
+                            Ty::Bool
+                        });
+                    }
                     other => {
                         return Err(SemaError {
                             message: format!("unknown method `{other}` on `String`"),

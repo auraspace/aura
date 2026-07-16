@@ -76,6 +76,9 @@ When you resolve debt, update or remove the matching entry.
 ### Array assign `b = a` shallow copy (2026-07-16)
 - Resolved in C5e: assign from owning Array local moves (free old dst if owner, zero source). Corpus `generic/array_assign_move.aura`. Params still Open.
 
+### No String.startsWith/contains/endsWith (2026-07-16)
+- Resolved in C5h–C5j: prefix/substring/suffix predicates via strncmp/strstr/suffix strcmp. Corpora `expr/string_starts|contains|ends.aura`.
+
 ### Undefined name with no typo hint (2026-07-16)
 - Resolved in C5c: Levenshtein suggestion against locals/funs/types/aliases. Corpus `diag/undefined_typo.aura`. Multi-error collect still deferred.
 

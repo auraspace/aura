@@ -1,0 +1,15 @@
+// C5i — String.contains
+package demo.expr
+
+fun main() {
+  val s: String = "Hello"
+  if (s.contains("ll")) {
+    println("ll")
+  }
+  if (!s.contains("xyz")) {
+    println("noxy")
+  }
+  if ("abc".contains("b")) {
+    println("b")
+  }
+}

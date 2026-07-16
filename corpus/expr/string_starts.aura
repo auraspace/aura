@@ -1,0 +1,15 @@
+// C5h — String.startsWith
+package demo.expr
+
+fun main() {
+  val s: String = "Hello"
+  if (s.startsWith("He")) {
+    println("he")
+  }
+  if (!s.startsWith("x")) {
+    println("notx")
+  }
+  if ("abc".startsWith("a")) {
+    println("a")
+  }
+}
