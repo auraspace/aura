@@ -569,6 +569,25 @@ fun main() {
 }
 
 #[test]
+fn array_rejects_enum_elem_clearly() {
+    // C4x: dedicated diagnostic for Array of enum.
+    let src = r#"
+package t
+enum Color { Red, Green }
+fun main() {
+  val a: Array<Color> = Array(1)
+}
+"#;
+    let file = parse_file(src).expect("parse");
+    let err = check_file(&file).expect_err("array of enum");
+    assert!(
+        err.message.contains("enum") && err.message.contains("Color"),
+        "{}",
+        err.message
+    );
+}
+
+#[test]
 fn array_int_typechecks() {
     let src = r#"
 package t

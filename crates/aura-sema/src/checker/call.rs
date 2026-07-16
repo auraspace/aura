@@ -548,11 +548,27 @@ impl Checker {
             });
         }
         if !self.is_array_element_ty(&type_args[0]) {
-            return Err(SemaError {
-                message: format!(
+            // C4x: dedicated messages for enum / interface (layout not supported yet).
+            let detail = match &type_args[0] {
+                Ty::Enum(n) | Ty::EnumApp { name: n, .. } => {
+                    let (simple, _) = crate::ty::split_nominal(n);
+                    format!(
+                        "`Array` of enum `{simple}` is not supported yet (elements must be Int, Bool, String, class, or struct)"
+                    )
+                }
+                Ty::Interface(n) => {
+                    let (simple, _) = crate::ty::split_nominal(n);
+                    format!(
+                        "`Array` of interface `{simple}` is not supported yet (elements must be Int, Bool, String, class, or struct)"
+                    )
+                }
+                other => format!(
                     "`Array` element type must be Int, Bool, String, class, or struct (got {})",
-                    type_args[0].display()
+                    other.display()
                 ),
+            };
+            return Err(SemaError {
+                message: detail,
                 span,
             });
         }

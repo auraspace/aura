@@ -1,0 +1,11 @@
+// C4x — Array of enum is rejected with a clear diagnostic (not supported yet)
+package demo.diag
+
+enum Color {
+  Red,
+  Green,
+}
+
+fun main() {
+  val a: Array<Color> = Array(1)
+}

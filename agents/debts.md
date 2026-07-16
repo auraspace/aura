@@ -34,10 +34,10 @@ When you resolve debt, update or remove the matching entry.
 
 ### Array shallow free / enum elements
 - Area: builtin Array
-- Symptom: C4q allows struct by-value; enum still rejected; free buffer-only
+- Symptom: C4q allows struct by-value; C4x clear reject for enum/interface elements; free buffer-only
 - Why deferred: enum layout + ownership
 - Next step: enum elements or move-only Array
-- Introduced: narrowed after C4q
+- Introduced: narrowed after C4q; message C4x
 
 
 ### Stdlib incomplete (collections)
@@ -57,6 +57,9 @@ When you resolve debt, update or remove the matching entry.
 
 ### No String.charAt (2026-07-16)
 - Resolved in C4w: `s.charAt(i)` returns UTF-8 byte as Int; out of bounds / null throws. Corpus `expr/string_charat.aura`.
+
+### Vague Array-of-enum diagnostic (2026-07-16)
+- Resolved in C4x: dedicated message for `Array` of enum/interface; corpus `diag/array_enum.aura`. Enum elements still unsupported (see Open).
 
 ### No if-expression (2026-07-16)
 - Resolved in C4t: `if`/`else` as expr; branch value = last expression; requires else.
