@@ -473,7 +473,7 @@ impl Checker {
         if !self.is_array_element_ty(&type_args[0]) {
             return Err(SemaError {
                 message: format!(
-                    "`Array` element type must be Int, Bool, String, or class (got {})",
+                    "`Array` element type must be Int, Bool, String, class, or struct (got {})",
                     type_args[0].display()
                 ),
                 span,
@@ -482,7 +482,7 @@ impl Checker {
         Ok(())
     }
 
-    /// C4c: primitives + heap classes (not struct / enum / interface).
+    /// C4c/C4q: primitives + heap classes + structs (not enum / interface).
     pub(crate) fn is_array_element_ty(&self, ty: &Ty) -> bool {
         if is_array_primitive_elem(ty) {
             return true;
@@ -497,8 +497,7 @@ impl Checker {
             None => return false,
         };
         list.iter().any(|c| {
-            !c.is_struct
-                && (pkg.is_empty() || c.package == pkg || (c.package.is_empty() && pkg.is_empty()))
+            pkg.is_empty() || c.package == pkg || (c.package.is_empty() && pkg.is_empty())
         })
     }
 

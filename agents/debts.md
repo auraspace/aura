@@ -39,12 +39,12 @@ When you resolve debt, update or remove the matching entry.
 - Next step: registry + version resolve
 - Introduced: narrowed after C3p; nested paths C4j
 
-### Array element types / shallow free
-- Area: builtin Array (C3j–C4c)
-- Symptom: Int/Bool/String/class elements; struct/enum still rejected; free is buffer-only (class elems GC-owned)
-- Why deferred: C4c shipped class refs; deep ownership/move still open
-- Next step: optional struct-by-value arrays or move-only Array
-- Introduced: narrowed after C4c
+### Array shallow free / enum elements
+- Area: builtin Array
+- Symptom: C4q allows struct by-value; enum still rejected; free buffer-only
+- Why deferred: enum layout + ownership
+- Next step: enum elements or move-only Array
+- Introduced: narrowed after C4q
 
 
 ### Stdlib incomplete (collections)
@@ -55,6 +55,9 @@ When you resolve debt, update or remove the matching entry.
 - Introduced: narrowed after C4h
 
 ## Resolved
+
+### No Array of struct (2026-07-16)
+- Resolved in C4q: struct elements by-value in Array mono; corpus generic/array_struct.
 
 ### No String.len (2026-07-16)
 - Resolved in C4p: `s.len` is UTF-8 byte length via strlen.

@@ -238,12 +238,18 @@ pub(crate) fn ty_to_c(t: &Ty) -> String {
     }
 }
 
-/// C type for `Array` elements (C4c): heap class refs are pointers.
-pub(crate) fn ty_to_c_array_elem(t: &Ty) -> String {
+/// C type for `Array` elements (C4c/C4q): heap class refs are pointers; structs by value.
+pub(crate) fn ty_to_c_array_elem(t: &Ty, checked: &CheckedFile) -> String {
     match t {
-        Ty::Class(n) => format!("{} *", c_class_type(&nominal_mono_base(n))),
-        Ty::ClassApp { name, args } => format!("{} *", c_class_type(&mono_key(name, args))),
-        Ty::Nullable(inner) => ty_to_c_array_elem(inner),
+        Ty::Class(n) => {
+            let mono = nominal_mono_base(n);
+            c_class_local_type(&mono, checked)
+        }
+        Ty::ClassApp { name, args } => {
+            let mono = mono_key(name, args);
+            c_class_local_type(&mono, checked)
+        }
+        Ty::Nullable(inner) => ty_to_c_array_elem(inner, checked),
         other => ty_to_c(other),
     }
 }

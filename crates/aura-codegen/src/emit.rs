@@ -90,7 +90,7 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     for (name, args) in &checked.mono_classes {
         if is_array_mono(name) {
             if let Some(elem) = args.first() {
-                emit_array_mono(&mut out, elem);
+                emit_array_mono(&mut out, elem, checked);
             }
         }
     }

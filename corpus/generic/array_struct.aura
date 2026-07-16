@@ -1,0 +1,18 @@
+// C4q — Array of struct by-value elements
+package demo.gen
+
+struct Point(val x: Int, val y: Int) {
+  fun sum(): Int {
+    return this.x + this.y
+  }
+}
+
+fun main() {
+  val a: Array<Point> = Array(0)
+  a.push(Point(1, 2))
+  a.push(Point(3, 4))
+  val p: Point = a.get(0)
+  if (p.sum() == 3) {
+    println("struct arr")
+  }
+}

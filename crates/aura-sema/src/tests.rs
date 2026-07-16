@@ -647,21 +647,18 @@ fun main() {
 }
 
 #[test]
-fn array_rejects_struct_elem() {
+fn array_accepts_struct_elem() {
     let src = r#"
 package t
 struct Point(val x: Int) {}
 fun main() {
   val a: Array<Point> = Array(1)
+  a.set(0, Point(2))
+  val p: Point = a.get(0)
 }
 "#;
     let file = parse_file(src).expect("parse");
-    let err = check_file(&file).expect_err("struct elem");
-    assert!(
-        err.message.contains("Array") || err.message.contains("class"),
-        "{}",
-        err.message
-    );
+    check_file(&file).expect("struct Array elem");
 }
 
 #[test]

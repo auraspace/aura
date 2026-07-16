@@ -95,6 +95,7 @@ C1 uses a **C backend** (`aura emit-c` + system `cc`) linked with `runtime/aura_
 - **Compiler C4n** `Array.isEmpty`
 - **Compiler C4o** `Array.reserve`
 - **Compiler C4p** `String.len` (UTF-8 byte length)
+- **Compiler C4q** `Array` of struct by-value elements
 - **DX** Pretty diagnostics (`path:line:col` + source snippet)
 - **Debts** Tracked in [`agents/debts.md`](agents/debts.md)
 - **Next:** Array/String API, `?.`, if-expr
