@@ -14,12 +14,12 @@ When you resolve debt, update or remove the matching entry.
 - Next step: Iterable protocol
 - Introduced: narrowed after C3k/C3w
 
-### `Array<T>` limited element types; shallow-copy free unsound
-- Area: builtin Array (C3j–C3t)
-- Symptom: only `Int`/`Bool`/`String` elements; free tracks ctor-initialized locals only — shallow copies / pass-by-value can still leak or double-free if misused
-- Why deferred: full ownership/move or GC; C3t frees owner locals at scope end / before return
-- Next step: class elements as refs; GC-owned buffers; move-only Array or borrow
-- Introduced: C3j; push C3m; pop C3r; free owners C3t
+### `Array` shallow-copy free unsound
+- Area: builtin Array free (C3t)
+- Symptom: free tracks ctor-initialized locals only — shallow copies / pass-by-value can still leak or double-free if misused
+- Why deferred: full ownership/move; C4c class elems are GC pointers (buffer free only)
+- Next step: move-only Array or borrow
+- Introduced: C3j; free C3t; class elems C4c
 
 
 
@@ -37,12 +37,12 @@ When you resolve debt, update or remove the matching entry.
 - Next step: registry + version resolve; nested lock merge
 - Introduced: narrowed after C3p
 
-### Array of class incomplete
-- Area: builtin Array / codegen
-- Symptom: class identity + `Class?` work (C4a/C4b); `Array<Class>` still rejected
-- Why deferred: C4b fixed nullable emit; element-type gate next
-- Next step: C4c allow heap class element types in Array mono
-- Introduced: narrowed after C4b
+### Array element types / shallow free
+- Area: builtin Array (C3j–C4c)
+- Symptom: Int/Bool/String/class elements; struct/enum still rejected; free is buffer-only (class elems GC-owned)
+- Why deferred: C4c shipped class refs; deep ownership/move still open
+- Next step: optional struct-by-value arrays or move-only Array
+- Introduced: narrowed after C4c
 
 
 ### Stdlib incomplete (prelude auto-import, assert, collections)
@@ -53,6 +53,9 @@ When you resolve debt, update or remove the matching entry.
 - Introduced: narrowed after C3z
 
 ## Resolved
+
+### No Array of class (2026-07-16)
+- Resolved in C4c: heap class elements as pointers; package mono for `Array_<Class>`; corpus `generic/array_class.aura`.
 
 ### Nullable class C emit wrong mono (2026-07-16)
 - Resolved in C4b: `Class?` reuses package-aware class local type (heap pointer); corpus `corpus/class/nullable.aura`.

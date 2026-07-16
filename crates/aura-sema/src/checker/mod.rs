@@ -14,8 +14,8 @@ use crate::error::SemaError;
 use crate::sigs::*;
 use crate::ty::Ty;
 
-/// Builtin `Array<T>` element types allowed in C3j (heap mono, no class elements yet).
-pub(crate) fn is_array_element_ty(ty: &Ty) -> bool {
+/// Builtin `Array<T>` primitives (C3j). Heap class elements allowed in C4c via Checker.
+pub(crate) fn is_array_primitive_elem(ty: &Ty) -> bool {
     matches!(ty, Ty::Int | Ty::Bool | Ty::String)
 }
 
@@ -86,7 +86,7 @@ impl Checker {
             }],
         );
 
-        // Builtin Array<T> (C3j) — monomorphized; T ∈ {Int, Bool, String}.
+        // Builtin Array<T> (C3j/C4c) — monomorphized; T ∈ primitives or heap class.
         let mut array_methods = HashMap::new();
         array_methods.insert(
             "get".into(),

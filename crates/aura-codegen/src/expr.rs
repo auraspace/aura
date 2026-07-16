@@ -1,7 +1,7 @@
 //! Expression emission.
 
 use aura_ast::*;
-use aura_sema::{CheckedFile, Ty};
+use aura_sema::{nominal_key, CheckedFile, Ty};
 
 use crate::ctx::EmitCtx;
 use crate::call_emit::emit_call;
@@ -352,7 +352,20 @@ pub(crate) fn mono_split<'a>(mono: &'a str, checked: &'a CheckedFile) -> Option<
 
 /// Full C mono id for a local/type key (simple name or already-mangled mono).
 pub(crate) fn full_type_mono(key: &str, checked: &CheckedFile) -> String {
-    if key == "Array" || key.starts_with("Array_") {
+    if key == "Array" {
+        return key.to_string();
+    }
+    // C4c: upgrade `Array_Box` → `Array_demo_pkg_Box` when element is a known class.
+    if let Some(elem) = key.strip_prefix("Array_") {
+        if elem == "Int" || elem == "Bool" || elem == "String" {
+            return key.to_string();
+        }
+        // Already package-mangled (contains `_` from pkg_Name) or simple class name.
+        if let Some(c) = checked.ast.classes.iter().find(|c| c.name.name == elem) {
+            let pkg = class_decl_package(c, checked);
+            return mono_key("Array", &[Ty::Class(nominal_key(&pkg, elem))]);
+        }
+        // Leave fully-mangled keys (Array_demo_gen_Box) as-is.
         return key.to_string();
     }
     if let Some((base, args)) = mono_split(key, checked) {
@@ -394,8 +407,34 @@ pub(crate) fn type_ref_to_ty(t: &TypeRef, ctx: &EmitCtx<'_>) -> Option<Ty> {
             .iter()
             .filter_map(|a| type_ref_to_ty(a, ctx))
             .collect();
+        // C4c: package-qualify class type args so Array mono matches emit.
+        if t.name.name == "Array" {
+            return Some(Ty::ClassApp {
+                name: "Array".into(),
+                args,
+            });
+        }
+        let pkg = if let Some(q) = &t.qualifier {
+            ctx.checked
+                .ast
+                .imports
+                .iter()
+                .find(|i| i.alias.as_ref().map(|a| a.name == q.name).unwrap_or(false))
+                .map(|i| i.path.display())
+                .unwrap_or_default()
+        } else if let Some(c) = ctx
+            .checked
+            .ast
+            .classes
+            .iter()
+            .find(|c| c.name.name == t.name.name)
+        {
+            class_decl_package(c, ctx.checked)
+        } else {
+            String::new()
+        };
         return Some(Ty::ClassApp {
-            name: t.name.name.clone(),
+            name: nominal_key(&pkg, &t.name.name),
             args,
         });
     }
@@ -404,19 +443,28 @@ pub(crate) fn type_ref_to_ty(t: &TypeRef, ctx: &EmitCtx<'_>) -> Option<Ty> {
         "Bool" => Some(Ty::Bool),
         "String" => Some(Ty::String),
         "Unit" => Some(Ty::Unit),
-        name if ctx.checked.ast.classes.iter().any(|c| c.name.name == name) => {
-            Some(Ty::Class(name.into()))
+        name => {
+            if let Some(c) = ctx
+                .checked
+                .ast
+                .classes
+                .iter()
+                .find(|c| c.name.name == name)
+            {
+                let pkg = class_decl_package(c, ctx.checked);
+                return Some(Ty::Class(nominal_key(&pkg, name)));
+            }
+            if ctx
+                .checked
+                .ast
+                .interfaces
+                .iter()
+                .any(|i| i.name.name == name)
+            {
+                return Some(Ty::Interface(name.into()));
+            }
+            None
         }
-        name if ctx
-            .checked
-            .ast
-            .interfaces
-            .iter()
-            .any(|i| i.name.name == name) =>
-        {
-            Some(Ty::Interface(name.into()))
-        }
-        _ => None,
     }
 }
 

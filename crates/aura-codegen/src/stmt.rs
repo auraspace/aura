@@ -12,21 +12,25 @@ use crate::names::*;
 
 /// Local type key with C3v package mono when the TypeRef is qualified or unique.
 fn type_ref_local_key_checked(t: &TypeRef, ctx: &EmitCtx<'_>) -> String {
-    if is_primitive_name(&t.name.name) || t.name.name == "Array" {
+    if is_primitive_name(&t.name.name) {
+        return type_ref_local_key(t, &ctx.type_params, &ctx.type_args);
+    }
+    // C4c: Array mono must package-qualify class element types (match emit_array_mono).
+    if t.name.name == "Array" {
+        let targs: Vec<Ty> = t
+            .type_args
+            .iter()
+            .filter_map(|a| crate::expr::type_ref_to_ty(a, ctx))
+            .collect();
+        if !targs.is_empty() {
+            return mono_key("Array", &targs);
+        }
         return type_ref_local_key(t, &ctx.type_params, &ctx.type_args);
     }
     let targs: Vec<Ty> = t
         .type_args
         .iter()
-        .filter_map(|a| {
-            let k = type_ref_local_key(a, &ctx.type_params, &ctx.type_args);
-            match k.as_str() {
-                "Int" => Some(Ty::Int),
-                "Bool" => Some(Ty::Bool),
-                "String" => Some(Ty::String),
-                other => Some(Ty::Class(other.to_string())),
-            }
-        })
+        .filter_map(|a| crate::expr::type_ref_to_ty(a, ctx))
         .collect();
     if let Some(q) = &t.qualifier {
         if let Some(imp) = ctx.checked.ast.imports.iter().find(|i| {

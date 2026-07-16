@@ -632,18 +632,33 @@ fun main() {
 }
 
 #[test]
-fn array_rejects_class_elem() {
+fn array_accepts_class_elem() {
     let src = r#"
 package t
 class Box(val x: Int) {}
 fun main() {
   val a: Array<Box> = Array(1)
+  a.set(0, Box(2))
+  val b: Box = a.get(0)
 }
 "#;
     let file = parse_file(src).expect("parse");
-    let err = check_file(&file).expect_err("class elem");
+    check_file(&file).expect("class Array elem");
+}
+
+#[test]
+fn array_rejects_struct_elem() {
+    let src = r#"
+package t
+struct Point(val x: Int) {}
+fun main() {
+  val a: Array<Point> = Array(1)
+}
+"#;
+    let file = parse_file(src).expect("parse");
+    let err = check_file(&file).expect_err("struct elem");
     assert!(
-        err.message.contains("Array") || err.message.contains("Int"),
+        err.message.contains("Array") || err.message.contains("class"),
         "{}",
         err.message
     );

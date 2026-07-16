@@ -78,7 +78,7 @@ impl Checker {
                     )?;
                 }
                 if other == "Array" {
-                    Self::check_array_type_args(&type_args, t.span)?;
+                    self.check_array_type_args(&type_args, t.span)?;
                 }
                 let key = nominal_key(&class.package, other);
                 if type_args.is_empty() {

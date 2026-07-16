@@ -4,7 +4,7 @@ use std::fmt::Write as _;
 
 use aura_sema::Ty;
 
-use crate::names::{c_class_type, c_ctor_name, c_method_name, mono_key, ty_to_c};
+use crate::names::{c_class_type, c_ctor_name, c_method_name, mono_key, ty_to_c_array_elem};
 
 pub(crate) fn is_array_mono(name: &str) -> bool {
     name == "Array"
@@ -13,7 +13,8 @@ pub(crate) fn is_array_mono(name: &str) -> bool {
 pub(crate) fn emit_array_mono(out: &mut String, elem: &Ty) {
     let mono = mono_key("Array", std::slice::from_ref(elem));
     let c_ty = c_class_type(&mono);
-    let elem_c = ty_to_c(elem);
+    // C4c: class elements are heap pointers; primitives stay by value.
+    let elem_c = ty_to_c_array_elem(elem);
     let ctor = c_ctor_name(&mono);
     let get = c_method_name(&mono, "get");
     let set = c_method_name(&mono, "set");

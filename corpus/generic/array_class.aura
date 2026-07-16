@@ -1,0 +1,23 @@
+// C4c — Array of class heap references
+package demo.gen
+
+class Box(val x: Int) {
+  fun label(): String {
+    return "box"
+  }
+}
+
+fun main() {
+  val a: Array<Box> = Array(0)
+  a.push(Box(1))
+  a.push(Box(2))
+  val first: Box = a.get(0)
+  println(first.label())
+  val second: Box = a.get(1)
+  if (first != second) {
+    println("two")
+  }
+  if (a.len == 2) {
+    println("len2")
+  }
+}

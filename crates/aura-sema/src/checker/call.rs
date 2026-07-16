@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use aura_ast::{CallExpr, Expr, Span};
 
-use super::{is_array_element_ty, Checker};
+use super::{is_array_primitive_elem, Checker};
 use crate::error::SemaError;
 use crate::sigs::{CallInstantiation, ClassSig, EnumSig, EnumVariantSig, FunSig};
 use crate::ty::{nominal_key, Ty};
@@ -235,7 +235,7 @@ impl Checker {
             &format!("constructor `{}`", class.name),
         )?;
         if class.name == "Array" {
-            Self::check_array_type_args(&type_args, c.span)?;
+            self.check_array_type_args(&type_args, c.span)?;
         }
 
         let subst = type_subst_map(&class.type_params, &type_args);
@@ -458,7 +458,11 @@ impl Checker {
         )
     }
 
-    pub(crate) fn check_array_type_args(type_args: &[Ty], span: Span) -> Result<(), SemaError> {
+    pub(crate) fn check_array_type_args(
+        &self,
+        type_args: &[Ty],
+        span: Span,
+    ) -> Result<(), SemaError> {
         if type_args.len() != 1 {
             return Err(SemaError {
                 message: format!(
@@ -468,16 +472,36 @@ impl Checker {
                 span,
             });
         }
-        if !is_array_element_ty(&type_args[0]) {
+        if !self.is_array_element_ty(&type_args[0]) {
             return Err(SemaError {
                 message: format!(
-                    "C3j: `Array` element type must be Int, Bool, or String (got {})",
+                    "`Array` element type must be Int, Bool, String, or class (got {})",
                     type_args[0].display()
                 ),
                 span,
             });
         }
         Ok(())
+    }
+
+    /// C4c: primitives + heap classes (not struct / enum / interface).
+    pub(crate) fn is_array_element_ty(&self, ty: &Ty) -> bool {
+        if is_array_primitive_elem(ty) {
+            return true;
+        }
+        let (simple, pkg) = match ty {
+            Ty::Class(n) => crate::ty::split_nominal(n),
+            Ty::ClassApp { name, .. } => crate::ty::split_nominal(name),
+            _ => return false,
+        };
+        let list = match self.classes.get(simple) {
+            Some(l) => l,
+            None => return false,
+        };
+        list.iter().any(|c| {
+            !c.is_struct
+                && (pkg.is_empty() || c.package == pkg || (c.package.is_empty() && pkg.is_empty()))
+        })
     }
 
     pub(crate) fn resolve_ctor_type_args(

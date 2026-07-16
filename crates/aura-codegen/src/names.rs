@@ -203,6 +203,16 @@ pub(crate) fn ty_to_c(t: &Ty) -> String {
     }
 }
 
+/// C type for `Array` elements (C4c): heap class refs are pointers.
+pub(crate) fn ty_to_c_array_elem(t: &Ty) -> String {
+    match t {
+        Ty::Class(n) => format!("{} *", c_class_type(&nominal_mono_base(n))),
+        Ty::ClassApp { name, args } => format!("{} *", c_class_type(&mono_key(name, args))),
+        Ty::Nullable(inner) => ty_to_c_array_elem(inner),
+        other => ty_to_c(other),
+    }
+}
+
 pub(crate) fn c_type_ref(ty: &TypeRef, checked: &CheckedFile) -> String {
     c_type_ref_subst(ty, checked, &[], &[])
 }
@@ -258,13 +268,40 @@ pub(crate) fn c_type_ref_subst(
             .type_args
             .iter()
             .filter_map(|t| {
-                // Best-effort from local type_ref_mono pieces.
-                let m = type_ref_mono(t, params, args);
-                match m.as_str() {
+                if let Some(idx) = params.iter().position(|p| p == &t.name.name) {
+                    return args.get(idx).cloned();
+                }
+                match t.name.name.as_str() {
                     "Int" => Some(Ty::Int),
                     "Bool" => Some(Ty::Bool),
                     "String" => Some(Ty::String),
-                    other => Some(Ty::Class(other.to_string())),
+                    other => {
+                        // C4c: package-qualify class type args (Array<Box@pkg>).
+                        let epkg = resolve_type_ref_package(t, checked);
+                        if t.type_args.is_empty() {
+                            Some(Ty::Class(nominal_key(&epkg, other)))
+                        } else {
+                            let nested: Vec<Ty> = t
+                                .type_args
+                                .iter()
+                                .filter_map(|n| {
+                                    match n.name.name.as_str() {
+                                        "Int" => Some(Ty::Int),
+                                        "Bool" => Some(Ty::Bool),
+                                        "String" => Some(Ty::String),
+                                        o => {
+                                            let p = resolve_type_ref_package(n, checked);
+                                            Some(Ty::Class(nominal_key(&p, o)))
+                                        }
+                                    }
+                                })
+                                .collect();
+                            Some(Ty::ClassApp {
+                                name: nominal_key(&epkg, other),
+                                args: nested,
+                            })
+                        }
+                    }
                 }
             })
             .collect();
