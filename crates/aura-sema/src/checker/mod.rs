@@ -130,6 +130,17 @@ impl Checker {
                 span: Span::new(0, 0),
             },
         );
+        // C4f: clear length (keep capacity).
+        array_methods.insert(
+            "clear".into(),
+            ClassMethodSig {
+                class: "Array".into(),
+                name: "clear".into(),
+                params: vec![],
+                ret: Ty::Unit,
+                span: Span::new(0, 0),
+            },
+        );
         let mut classes: HashMap<String, Vec<ClassSig>> = HashMap::new();
         classes.insert(
             "Array".into(),

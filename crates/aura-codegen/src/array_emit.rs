@@ -20,6 +20,7 @@ pub(crate) fn emit_array_mono(out: &mut String, elem: &Ty) {
     let set = c_method_name(&mono, "set");
     let push = c_method_name(&mono, "push");
     let pop = c_method_name(&mono, "pop");
+    let clear = c_method_name(&mono, "clear");
 
     let _ = writeln!(out, "typedef struct {c_ty} {{");
     out.push_str("  int64_t len;\n");
@@ -86,5 +87,13 @@ pub(crate) fn emit_array_mono(out: &mut String, elem: &Ty) {
     out.push_str("  }\n");
     out.push_str("  this->len -= 1;\n");
     out.push_str("  return this->data[this->len];\n");
+    out.push_str("}\n\n");
+
+    // clear() — set len = 0; keep capacity and buffer (C4f).
+    let _ = writeln!(out, "void {clear}({c_ty} *this) {{");
+    out.push_str("  if (this == NULL) {\n");
+    out.push_str("    aura_throw_string(\"Array clear on null\");\n");
+    out.push_str("  }\n");
+    out.push_str("  this->len = 0;\n");
     out.push_str("}\n\n");
 }

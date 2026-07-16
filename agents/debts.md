@@ -49,6 +49,9 @@ When you resolve debt, update or remove the matching entry.
 
 ## Resolved
 
+### No Array.clear (2026-07-16)
+- Resolved in C4f: `clear()` sets len=0, keeps capacity; corpus `generic/array_clear.aura`.
+
 ### String equality was pointer identity (2026-07-16)
 - Resolved in C4e: String `==`/`!=` use null-safe `strcmp`; class stays pointer identity.
 

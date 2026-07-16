@@ -1,0 +1,19 @@
+// C4f — Array.clear keeps capacity, zeros length
+package demo.gen
+
+fun main() {
+  val a: Array<Int> = Array(0)
+  a.push(1)
+  a.push(2)
+  a.push(3)
+  a.clear()
+  if (a.len == 0) {
+    println("cleared")
+  }
+  a.push(9)
+  if (a.len == 1) {
+    if (a.get(0) == 9) {
+      println("reuse")
+    }
+  }
+}
