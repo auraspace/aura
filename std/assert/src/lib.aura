@@ -1,0 +1,7 @@
+// Minimal std.assert (C4h) — assert intrinsic → aura_assert.
+package std.assert
+
+/// Fail the process if `cond` is false (runtime `aura_assert`).
+pub fun assert(cond: Bool) {
+  // Body replaced by codegen with aura_assert(cond) (intrinsic).
+}

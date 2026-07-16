@@ -1,0 +1,8 @@
+[package]
+name = "demo.stdassert"
+
+[[bin]]
+name = "app"
+path = "src"
+
+# std.assert path auto-resolved when imported (C4h)

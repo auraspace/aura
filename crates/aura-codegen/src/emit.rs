@@ -291,6 +291,13 @@ pub(crate) fn emit_fun(out: &mut String, f: &FunDecl, checked: &CheckedFile, arg
         out.push_str("}\n");
         return;
     }
+    // C4h: std.assert.assert → aura_assert.
+    if pkg == "std.assert" && f.name.name == "assert" && f.params.len() == 1 {
+        let arg = mangle_ident(&f.params[0].name.name);
+        let _ = writeln!(out, "  aura_assert({arg});");
+        out.push_str("}\n");
+        return;
+    }
     let mut ctx = EmitCtx {
         checked,
         method_class: None,

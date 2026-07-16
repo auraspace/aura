@@ -231,11 +231,10 @@ fn apply_std_io_prelude(
     Ok(())
 }
 
-/// Walk up from `root` (and env `AURA_STD`) looking for `std/io` package dir.
-/// Returns a canonical absolute path so `root.join(dep)` is not used incorrectly.
-fn find_std_io_dir(from: &Path) -> Option<PathBuf> {
+/// Walk up from `from` (and env `AURA_STD`) looking for `std/<leaf>` package dir.
+fn find_std_package_dir(from: &Path, leaf: &str) -> Option<PathBuf> {
     if let Ok(std_root) = std::env::var("AURA_STD") {
-        let p = PathBuf::from(std_root).join("io");
+        let p = PathBuf::from(std_root).join(leaf);
         if p.is_dir() && p.join("aura.toml").is_file() {
             return fs::canonicalize(&p).ok().or(Some(p));
         }
@@ -243,13 +242,17 @@ fn find_std_io_dir(from: &Path) -> Option<PathBuf> {
     let start = fs::canonicalize(from).unwrap_or_else(|_| from.to_path_buf());
     let mut cur = Some(start.as_path());
     while let Some(dir) = cur {
-        let candidate = dir.join("std").join("io");
+        let candidate = dir.join("std").join(leaf);
         if candidate.is_dir() && candidate.join("aura.toml").is_file() {
             return fs::canonicalize(&candidate).ok().or(Some(candidate));
         }
         cur = dir.parent();
     }
     None
+}
+
+fn find_std_io_dir(from: &Path) -> Option<PathBuf> {
+    find_std_package_dir(from, "io")
 }
 
 
@@ -275,6 +278,18 @@ fn resolve_imports(
         .iter()
         .map(|(k, p)| (k.clone(), root.join(p)))
         .collect();
+
+    // C4h: auto-resolve std.* path when imported but not declared (assert, etc.).
+    for imp in pending.iter() {
+        if deps.contains_key(imp) {
+            continue;
+        }
+        if let Some(leaf) = imp.strip_prefix("std.") {
+            if let Some(p) = find_std_package_dir(root, leaf) {
+                deps.insert(imp.clone(), p);
+            }
+        }
+    }
 
     while let Some(imp) = pending.pop() {
         if !loaded.insert(imp.clone()) {

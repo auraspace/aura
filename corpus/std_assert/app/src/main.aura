@@ -1,0 +1,10 @@
+// C4h — import std.assert without path dep in aura.toml
+package demo.stdassert
+
+import std.assert
+
+fun main() {
+  assert(true)
+  assert_eq(1 + 1, 2)
+  println("assert ok")
+}

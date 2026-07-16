@@ -40,14 +40,17 @@ When you resolve debt, update or remove the matching entry.
 - Introduced: narrowed after C4c
 
 
-### Stdlib incomplete (assert, collections)
+### Stdlib incomplete (collections)
 - Area: stdlib / RFC-007
-- Symptom: C4g auto-prelude injects `std.io` for packages; no `assert` in std; no collections package
-- Why deferred: prelude covers println demos
-- Next step: std.assert; collections
-- Introduced: narrowed after C4g
+- Symptom: C4g/C4h cover std.io + std.assert; no Map/Set or Iterable std collections
+- Why deferred: builtin Array is enough for demos
+- Next step: collections package or Iterable protocol
+- Introduced: narrowed after C4h
 
 ## Resolved
+
+### No std.assert package (2026-07-16)
+- Resolved in C4h: `std/assert` with `assert` intrinsic; auto path resolve for `std.*` imports; `assert_eq` remains language builtin.
 
 ### No auto-prelude for std.io (2026-07-16)
 - Resolved in C4g: package builds discover `std/io` (or `AURA_STD`) and inject `import std.io`; prefer std over builtins for free-fun resolve.
