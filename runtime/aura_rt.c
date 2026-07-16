@@ -212,9 +212,10 @@ void aura_ex_rethrow(void) {
   longjmp(*outer->buf, 1);
 }
 
-/* ---- GC MVP (C3x free-all + C4z STW mark skeleton) ----
- * Still reclaim-all only at shutdown. C4z adds root registry + collect entry
- * that marks roots (shallow); no sweep yet so live objects stay valid.
+/* ---- GC (C3x free-all + C4z roots + C5f mark/sweep) ----
+ * aura_gc_collect: if roots registered → shallow mark from roots + sweep
+ * unmarked. If no roots → mark-all (safe: reclaim nothing until compiler
+ * emits roots). Shutdown still free-all remaining.
  */
 
 typedef struct AuraGcNode {
@@ -286,10 +287,17 @@ void *aura_gc_alloc(size_t size) {
   return p;
 }
 
-/* C4z: stop-the-world mark from registered roots (shallow). No sweep yet. */
+/* C4z/C5f: stop-the-world mark (+ sweep when roots are registered). */
 void aura_gc_collect(void) {
   for (AuraGcNode *n = aura_gc_list; n != NULL; n = n->next) {
     n->marked = 0;
+  }
+  if (aura_gc_root_n == 0) {
+    /* No roots: keep everything (compiler may not have registered yet). */
+    for (AuraGcNode *n = aura_gc_list; n != NULL; n = n->next) {
+      n->marked = 1;
+    }
+    return;
   }
   for (int i = 0; i < aura_gc_root_n; i++) {
     void **slot = aura_gc_roots[i];
@@ -305,7 +313,18 @@ void aura_gc_collect(void) {
       n->marked = 1;
     }
   }
-  /* Sweep deferred: free-all remains only in aura_gc_shutdown. */
+  /* C5f: sweep unmarked objects. */
+  AuraGcNode **link = &aura_gc_list;
+  while (*link != NULL) {
+    AuraGcNode *n = *link;
+    if (!n->marked) {
+      *link = n->next;
+      free(n->ptr);
+      free(n);
+    } else {
+      link = &n->next;
+    }
+  }
 }
 
 void aura_gc_shutdown(void) {
