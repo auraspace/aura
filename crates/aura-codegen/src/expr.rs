@@ -87,8 +87,11 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
                 "Unit".into()
             }
             Expr::Field(fe) => {
-                if let Some(mono) = resolve_class_of_expr(&fe.object, ctx) {
-                    let base = mono_base_name(mono, ctx.checked).unwrap_or(mono);
+                // C4k: resolve receiver via type name (handles field chains like this.item).
+                let mono = resolve_type_name(&fe.object, ctx)
+                    .or_else(|| resolve_class_of_expr(&fe.object, ctx).map(|s| s.to_string()));
+                if let Some(mono) = mono {
+                    let base = mono_base_name(&mono, ctx.checked).unwrap_or(mono.as_str());
                     if let Some(m) = ctx
                         .checked
                         .ast
@@ -98,7 +101,39 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
                         .and_then(|c| c.methods.iter().find(|m| m.name.name == fe.field.name))
                     {
                         if let Some(rt) = &m.return_type {
-                            // substitute class type args from mono key is hard; use name only for primitives
+                            let (ps, as_) = if let Some((_, args)) =
+                                mono_split(&mono, ctx.checked)
+                            {
+                                let params: Vec<String> = ctx
+                                    .checked
+                                    .ast
+                                    .classes
+                                    .iter()
+                                    .find(|c| c.name.name == base)
+                                    .map(|c| {
+                                        c.type_params
+                                            .iter()
+                                            .map(|p| p.name.name.clone())
+                                            .collect()
+                                    })
+                                    .unwrap_or_default();
+                                (params, args.to_vec())
+                            } else {
+                                (Vec::new(), Vec::new())
+                            };
+                            return type_ref_local_key(rt, &ps, &as_);
+                        }
+                    }
+                    // Interface method return type
+                    if let Some(m) = ctx
+                        .checked
+                        .ast
+                        .interfaces
+                        .iter()
+                        .find(|i| i.name.name == base || iface_mono(i, ctx.checked) == mono)
+                        .and_then(|i| i.methods.iter().find(|m| m.name.name == fe.field.name))
+                    {
+                        if let Some(rt) = &m.return_type {
                             return type_ref_local_key(rt, &[], &[]);
                         }
                     }

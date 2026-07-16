@@ -248,6 +248,25 @@ pub(crate) fn ty_to_c_array_elem(t: &Ty) -> String {
     }
 }
 
+/// C type for locals/params with CheckedFile (C4k: heap classes are pointers).
+pub(crate) fn ty_to_c_local(t: &Ty, checked: &CheckedFile) -> String {
+    match t {
+        Ty::Class(n) => {
+            let mono = nominal_mono_base(n);
+            c_class_local_type(&mono, checked)
+        }
+        Ty::ClassApp { name, args } => {
+            let mono = mono_key(name, args);
+            c_class_local_type(&mono, checked)
+        }
+        Ty::Nullable(inner) => ty_to_c_local(inner, checked),
+        Ty::Interface(n) => c_iface_type(&nominal_mono_base(n)),
+        Ty::Enum(n) => c_enum_type(&nominal_mono_base(n)),
+        Ty::EnumApp { name, args } => c_enum_type(&mono_key(name, args)),
+        other => ty_to_c(other),
+    }
+}
+
 pub(crate) fn c_type_ref(ty: &TypeRef, checked: &CheckedFile) -> String {
     c_type_ref_subst(ty, checked, &[], &[])
 }
@@ -276,7 +295,8 @@ pub(crate) fn c_type_ref_subst(
     if ty.type_args.is_empty() {
         if let Some(idx) = params.iter().position(|p| p == &ty.name.name) {
             if let Some(t) = args.get(idx) {
-                return ty_to_c(t);
+                // C4k: monomorphized type params that are heap classes must be pointers.
+                return ty_to_c_local(t, checked);
             }
         }
         match ty.name.name.as_str() {

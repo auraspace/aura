@@ -77,10 +77,15 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &EmitCtx<'_>) -> String {
         }
 
         // Class method (obj_ty is mono key e.g. Box_String, demo_t_User, or User)
-        let mono_raw = obj_ty
-            .as_deref()
-            .or_else(|| resolve_class_of_expr(&fe.object, ctx))
-            .unwrap_or("Unknown");
+        // C4k: also resolve field chains (this.item) via resolve_type_name.
+        let mono_from_ty = resolve_type_name(&fe.object, ctx);
+        let mono_from_cls = resolve_class_of_expr(&fe.object, ctx).map(|s| s.to_string());
+        let mono_owned = obj_ty
+            .clone()
+            .or(mono_from_ty)
+            .or(mono_from_cls)
+            .unwrap_or_else(|| "Unknown".into());
+        let mono_raw = mono_owned.as_str();
         let base = mono_base_name(mono_raw, ctx.checked).unwrap_or(mono_raw);
         let mono = crate::expr::full_type_mono(mono_raw, ctx.checked);
 

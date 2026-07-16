@@ -89,9 +89,10 @@ C1 uses a **C backend** (`aura emit-c` + system `cc`) linked with `runtime/aura_
 - **Stdlib C4h** `std.assert` package + auto path resolve for `std.*` imports
 - **Compiler C4i** Reject struct/enum/interface equality in sema
 - **CLI C4j** Nested path deps recorded in `aura.lock` (`# transitive`)
+- **Compiler C4k** Type-param mono as heap pointers; field-chain method receivers
 - **DX** Pretty diagnostics (`path:line:col` + source snippet)
 - **Debts** Tracked in [`agents/debts.md`](agents/debts.md)
-- **Next:** Iterable protocol, LLVM, registry
+- **Next:** else-if, `?:`, Array/String API
 
 ## Links
 

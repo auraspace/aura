@@ -7,6 +7,13 @@ When you resolve debt, update or remove the matching entry.
 
 ## Open
 
+### Type-param mono edge cases
+- Area: codegen mono / generics
+- Symptom: C4k fixed heap-class type params as pointers + field-chain method receivers; deeper nested mono inference may still default wrongly
+- Why deferred: bounds.aura green
+- Next step: audit remaining mono return-type inference
+- Introduced: narrowed after C4k
+
 ### `for-in` has no Iterable protocol (Array + String only)
 - Area: language / parser / sema / codegen (`ForInStmt`)
 - Symptom: no custom iterables / `for (x in myCollection)`
@@ -48,6 +55,9 @@ When you resolve debt, update or remove the matching entry.
 - Introduced: narrowed after C4h
 
 ## Resolved
+
+### Bounded generic method this wrong for heap class (2026-07-16)
+- Resolved in C4k: type-param substitution uses heap pointers; method calls on field chains resolve receiver type. `corpus/generic/bounds.aura` runs.
 
 ### Nested path deps not in aura.lock (2026-07-16)
 - Resolved in C4j: lock records transitive path deps (`# transitive`); verify only requires direct toml entries.
