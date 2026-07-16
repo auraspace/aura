@@ -21,6 +21,8 @@ pub(crate) fn emit_array_mono(out: &mut String, elem: &Ty) {
     let push = c_method_name(&mono, "push");
     let pop = c_method_name(&mono, "pop");
     let clear = c_method_name(&mono, "clear");
+    let is_empty = c_method_name(&mono, "isEmpty");
+    let reserve = c_method_name(&mono, "reserve");
 
     let _ = writeln!(out, "typedef struct {c_ty} {{");
     out.push_str("  int64_t len;\n");
@@ -95,5 +97,31 @@ pub(crate) fn emit_array_mono(out: &mut String, elem: &Ty) {
     out.push_str("    aura_throw_string(\"Array clear on null\");\n");
     out.push_str("  }\n");
     out.push_str("  this->len = 0;\n");
+    out.push_str("}\n\n");
+
+    // isEmpty() — C4n.
+    let _ = writeln!(out, "bool {is_empty}({c_ty} *this) {{");
+    out.push_str("  if (this == NULL) {\n");
+    out.push_str("    aura_throw_string(\"Array isEmpty on null\");\n");
+    out.push_str("  }\n");
+    out.push_str("  return this->len == 0;\n");
+    out.push_str("}\n\n");
+
+    // reserve(n) — grow capacity only (C4o).
+    let _ = writeln!(out, "void {reserve}({c_ty} *this, int64_t n) {{");
+    out.push_str("  if (this == NULL) {\n");
+    out.push_str("    aura_throw_string(\"Array reserve on null\");\n");
+    out.push_str("  }\n");
+    out.push_str("  if (n <= this->cap) { return; }\n");
+    let _ = writeln!(
+        out,
+        "  {elem_c} *nd = ({elem_c} *)realloc(this->data, (size_t)n * sizeof({elem_c}));"
+    );
+    out.push_str("  if (nd == NULL) {\n");
+    out.push_str("    fputs(\"aura: Array reallocation failed\\n\", stderr);\n");
+    out.push_str("    abort();\n");
+    out.push_str("  }\n");
+    out.push_str("  this->data = nd;\n");
+    out.push_str("  this->cap = n;\n");
     out.push_str("}\n\n");
 }

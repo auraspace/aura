@@ -56,6 +56,9 @@ When you resolve debt, update or remove the matching entry.
 
 ## Resolved
 
+### No Array.isEmpty (2026-07-16)
+- Resolved in C4n: `isEmpty()` returns len==0.
+
 ### No null coalesce `?:` (2026-07-16)
 - Resolved in C4m: `T? ?: T` → non-null T; corpus `types/coalesce.aura`.
 

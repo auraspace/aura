@@ -15,7 +15,7 @@ Living plan for docs, language specs, and the Rust toolchain. RFCs remain the de
 | RFC static site (`site/`) | Implemented on `feat/rfc-static-site`; deploy via GitHub Pages Actions |
 | RFC-000 Vision | **Accepted** — product direction locked |
 | RFC-001/002/003 | Solid Draft + **MVP subset** for compiler C0–C1 (see RFC-001 §6.0) |
-| Compiler | **C0–C4m slice** — null coalesce |
+| Compiler | **C0–C4n slice** — null coalesce |
 | Runtime / packages / stdlib | Stub runtime `runtime/aura_rt.c`; full GC/tasks deferred |
 
 ## Phases

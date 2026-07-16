@@ -1,0 +1,15 @@
+// C4n — Array.isEmpty
+package demo.gen
+
+fun main() {
+  val a: Array<Int> = Array(0)
+  if (a.isEmpty()) {
+    println("empty")
+  }
+  a.push(1)
+  if (a.isEmpty()) {
+    println("bad")
+  } else {
+    println("nonempty")
+  }
+}

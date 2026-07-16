@@ -141,6 +141,28 @@ impl Checker {
                 span: Span::new(0, 0),
             },
         );
+        // C4n: isEmpty — len == 0.
+        array_methods.insert(
+            "isEmpty".into(),
+            ClassMethodSig {
+                class: "Array".into(),
+                name: "isEmpty".into(),
+                params: vec![],
+                ret: Ty::Bool,
+                span: Span::new(0, 0),
+            },
+        );
+        // C4o: reserve(n) — ensure capacity >= n.
+        array_methods.insert(
+            "reserve".into(),
+            ClassMethodSig {
+                class: "Array".into(),
+                name: "reserve".into(),
+                params: vec![Ty::Int],
+                ret: Ty::Unit,
+                span: Span::new(0, 0),
+            },
+        );
         let mut classes: HashMap<String, Vec<ClassSig>> = HashMap::new();
         classes.insert(
             "Array".into(),
