@@ -1,0 +1,7 @@
+// C5c — undefined name with did-you-mean suggestion
+package demo.diag
+
+fun main() {
+  val count: Int = 1
+  println(cout)
+}

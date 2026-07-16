@@ -86,8 +86,13 @@ impl Checker {
                         span: id.span,
                     });
                 }
+                // C5c: suggest similar local / function / type names.
+                let mut msg = format!("undefined name `{}`", id.name);
+                if let Some(hint) = self.suggest_name(&id.name) {
+                    msg.push_str(&format!("; did you mean `{hint}`?"));
+                }
                 Err(SemaError {
-                    message: format!("undefined name `{}`", id.name),
+                    message: msg,
                     span: id.span,
                 })
             }

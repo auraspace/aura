@@ -690,6 +690,25 @@ fun main() {
 }
 
 #[test]
+fn undefined_name_suggests_similar() {
+    // C5c: typo hint.
+    let src = r#"
+package t
+fun main() {
+  val count: Int = 1
+  println(cout)
+}
+"#;
+    let file = parse_file(src).expect("parse");
+    let err = check_file(&file).expect_err("undefined");
+    assert!(
+        err.message.contains("undefined name") && err.message.contains("count"),
+        "{}",
+        err.message
+    );
+}
+
+#[test]
 fn for_in_duck_len_get() {
     // C4y: class with len field + get(i).
     let src = r#"

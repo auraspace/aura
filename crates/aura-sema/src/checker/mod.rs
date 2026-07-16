@@ -662,6 +662,44 @@ impl Checker {
         None
     }
 
+    /// C5c: best-effort similar name among locals, functions, and types.
+    pub(crate) fn suggest_name(&self, bad: &str) -> Option<String> {
+        if bad.is_empty() {
+            return None;
+        }
+        let mut candidates: Vec<String> = Vec::new();
+        for scope in &self.locals {
+            candidates.extend(scope.keys().cloned());
+        }
+        candidates.extend(self.functions.keys().cloned());
+        candidates.extend(self.classes.keys().cloned());
+        candidates.extend(self.enums.keys().cloned());
+        candidates.extend(self.interfaces.keys().cloned());
+        candidates.extend(self.import_aliases.keys().cloned());
+        candidates.sort();
+        candidates.dedup();
+        let mut best: Option<(usize, String)> = None;
+        for c in candidates {
+            if c == bad {
+                continue;
+            }
+            let d = edit_distance(bad, &c);
+            // Only suggest close names (typos / case).
+            if d == 0 || d > 2 {
+                continue;
+            }
+            if d <= bad.len().max(1) {
+                match &best {
+                    None => best = Some((d, c)),
+                    Some((bd, _)) if d < *bd => best = Some((d, c)),
+                    Some((bd, bname)) if d == *bd && c < *bname => best = Some((d, c)),
+                    _ => {}
+                }
+            }
+        }
+        best.map(|(_, s)| s)
+    }
+
     /// Strip one layer of `?` for `name` in the current scope (flow narrowing).
     pub(crate) fn apply_not_null(&mut self, name: &str) {
         let Some(local) = self.lookup_local(name) else {
@@ -677,4 +715,29 @@ impl Checker {
             Local { ty, mutable },
         );
     }
+}
+
+/// Levenshtein distance for C5c name suggestions (small strings only).
+fn edit_distance(a: &str, b: &str) -> usize {
+    let (a, b) = (a.as_bytes(), b.as_bytes());
+    let (n, m) = (a.len(), b.len());
+    if n == 0 {
+        return m;
+    }
+    if m == 0 {
+        return n;
+    }
+    let mut prev: Vec<usize> = (0..=m).collect();
+    let mut cur = vec![0; m + 1];
+    for i in 1..=n {
+        cur[0] = i;
+        for j in 1..=m {
+            let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
+            cur[j] = (prev[j] + 1)
+                .min(cur[j - 1] + 1)
+                .min(prev[j - 1] + cost);
+        }
+        std::mem::swap(&mut prev, &mut cur);
+    }
+    prev[m]
 }

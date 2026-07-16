@@ -15,7 +15,7 @@ Living plan for docs, language specs, and the Rust toolchain. RFCs remain the de
 | RFC static site (`site/`) | Implemented on `feat/rfc-static-site`; deploy via GitHub Pages Actions |
 | RFC-000 … RFC-013 | **All Accepted** — open questions resolved or Deferred (2026-07-16) |
 | Language MVP | RFC-001 §6.0 + post-C1 surface in roadmap; async/macros/Iterable still deferred in code |
-| Compiler | **C0–C5b done** — through Array move bind, GC skeleton, duck for-in |
+| Compiler | **C0–C5c done** — through name suggestions, Array move, duck for-in |
 | Runtime / packages / stdlib | GC free-all + C4z root/mark skeleton; `std.io` / `std.assert`; tasks/collections deferred |
 
 ## Phases
@@ -114,6 +114,7 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C4z** | GC STW mark skeleton (roots + collect; free-all still) | Done |
 | **C5a** | `std/collections` stub package (Map/Set deferred) | Done |
 | **C5b** | Array move on `val b = a` (zero source owner) | Done |
+| **C5c** | Undefined-name `did you mean` suggestions | Done |
 | **DX** | line:col diagnostics with snippets | Done |
 
 **Out of scope C0/C1:** generics mono, async/tasks, macros, registry, incremental, LTO.

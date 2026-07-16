@@ -73,6 +73,9 @@ When you resolve debt, update or remove the matching entry.
 ### Array `val b = a` double-free / UAF (2026-07-16)
 - Resolved in C5b (partial): binding from an owning Array local moves ownership (zero source). Corpus `generic/array_move.aura`. Assign/params still Open.
 
+### Undefined name with no typo hint (2026-07-16)
+- Resolved in C5c: Levenshtein suggestion against locals/funs/types/aliases. Corpus `diag/undefined_typo.aura`. Multi-error collect still deferred.
+
 ### No if-expression (2026-07-16)
 - Resolved in C4t: `if`/`else` as expr; branch value = last expression; requires else.
 
