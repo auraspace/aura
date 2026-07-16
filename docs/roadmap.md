@@ -15,7 +15,7 @@ Living plan for docs, language specs, and the Rust toolchain. RFCs remain the de
 | RFC static site (`site/`) | Implemented on `feat/rfc-static-site`; deploy via GitHub Pages Actions |
 | RFC-000 … RFC-013 | **All Accepted** — open questions resolved or Deferred (2026-07-16) |
 | Language MVP | RFC-001 §6.0 + post-C1 surface in roadmap; async/macros/Iterable still deferred in code |
-| Compiler | **C0–C5d done** — C4u–C5d batch (nested mono … docs close) |
+| Compiler | **C0–C5e in progress** — Array assign move; next C5f–C5n |
 | Runtime / packages / stdlib | GC free-all + C4z root/mark skeleton; `std.io` / `std.assert`; tasks/collections deferred |
 
 ## Phases
@@ -116,6 +116,7 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C5b** | Array move on `val b = a` (zero source owner) | Done |
 | **C5c** | Undefined-name `did you mean` suggestions | Done |
 | **C5d** | Close C4u–C5d batch (debts/roadmap/plan Done) | Done |
+| **C5e** | Array move on assign `b = a` (owner) | Done |
 | **DX** | line:col diagnostics with snippets | Done |
 
 **Out of scope C0/C1:** generics mono, async/tasks, macros, registry, incremental, LTO.

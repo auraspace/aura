@@ -226,7 +226,7 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
 
 
 
-pub(crate) fn emit_expr(expr: &Expr, ctx: &EmitCtx<'_>) -> String {
+pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
     match expr {
         Expr::Ident(i) => {
             // Inside method: bare field names → this->field
@@ -344,16 +344,43 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &EmitCtx<'_>) -> String {
                 mangle_ident(&a.name.name)
             };
             let rhs = emit_expr(&a.value, ctx);
+            let dst_name = &a.name.name;
+            let dst_ty = ctx.lookup_local(dst_name);
+            let dst_is_array = dst_ty
+                .map(|t| t == "Array" || t.starts_with("Array_"))
+                .unwrap_or(false);
             // C4r: free previous Array buffer when reassigning an owning local from Array(...).
             let is_ctor = matches!(
                 a.value.as_ref(),
                 Expr::Call(c) if matches!(c.callee.as_ref(), Expr::Ident(id) if id.name == "Array")
             );
-            if ctx.is_array_owner(&a.name.name) && is_ctor {
-                let n = mangle_ident(&a.name.name);
+            if ctx.is_array_owner(dst_name) && is_ctor {
+                let n = mangle_ident(dst_name);
                 return format!(
                     "({{ if (({n}).data != NULL) {{ free(({n}).data); ({n}).data = NULL; ({n}).len = 0; ({n}).cap = 0; }} ({lhs} = {rhs}); }})"
                 );
+            }
+            // C5e: move ownership on `b = a` when `a` owns an Array buffer.
+            if dst_is_array {
+                if let Expr::Ident(src) = a.value.as_ref() {
+                    if ctx.is_array_owner(&src.name) && src.name != *dst_name {
+                        let n = mangle_ident(dst_name);
+                        let s = mangle_ident(&src.name);
+                        // Free old dst if it owned a buffer; then move; zero source.
+                        let free_dst = if ctx.is_array_owner(dst_name) {
+                            format!(
+                                "if (({n}).data != NULL) {{ free(({n}).data); ({n}).data = NULL; ({n}).len = 0; ({n}).cap = 0; }} "
+                            )
+                        } else {
+                            String::new()
+                        };
+                        ctx.mark_array_owner(dst_name);
+                        ctx.unmark_array_owner(&src.name);
+                        return format!(
+                            "({{ {free_dst}({lhs} = {rhs}); {s}.data = NULL; {s}.len = 0; {s}.cap = 0; }})"
+                        );
+                    }
+                }
             }
             format!("({lhs} = {rhs})")
         }
@@ -412,7 +439,7 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &EmitCtx<'_>) -> String {
     }
 }
 
-fn block_last_expr_code(block: &Block, ctx: &EmitCtx<'_>) -> String {
+fn block_last_expr_code(block: &Block, ctx: &mut EmitCtx<'_>) -> String {
     match block.stmts.last() {
         Some(Stmt::Expr(e)) => emit_expr(e, ctx),
         _ => "0".into(),
@@ -612,7 +639,7 @@ fn expected_iface_mono(expected_ty: &str, checked: &CheckedFile) -> Option<Strin
 }
 
 /// If `expr` has class type `from` and expected is interface, emit upcast.
-pub(crate) fn coerce_expr(expr: &Expr, expected_ty: &str, ctx: &EmitCtx<'_>) -> String {
+pub(crate) fn coerce_expr(expr: &Expr, expected_ty: &str, ctx: &mut EmitCtx<'_>) -> String {
     let actual = resolve_type_name(expr, ctx);
     let code = emit_expr(expr, ctx);
     let Some(imono) = expected_iface_mono(expected_ty, ctx.checked) else {

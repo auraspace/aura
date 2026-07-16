@@ -1,0 +1,18 @@
+// C5e — Array ownership moves on assign b = a
+package demo.generic
+
+fun main() {
+  var a: Array<Int> = Array(1)
+  a.set(0, 7)
+  var b: Array<Int> = Array(0)
+  b = a
+  if (b.len == 1) {
+    println("b1")
+  }
+  if (a.len == 0) {
+    println("a0")
+  }
+  if (b.get(0) == 7) {
+    println("ok")
+  }
+}

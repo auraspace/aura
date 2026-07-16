@@ -10,7 +10,7 @@ use crate::expr::{
 };
 use crate::names::*;
 
-pub(crate) fn emit_call(c: &CallExpr, ctx: &EmitCtx<'_>) -> String {
+pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
     // Method call: obj.method(args)
     if let Expr::Field(fe) = c.callee.as_ref() {
         // C3n: package alias qualified free function `Math.square(...)`.
