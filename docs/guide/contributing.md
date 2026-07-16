@@ -39,6 +39,9 @@ pnpm site:test
 pnpm site:build
 ```
 
+CI (`.github/workflows/ci.yml`) runs the same gates on every PR and push to `main`:
+workspace tests, corpus `check` (excluding `corpus/diag/`), a few `run`/`test` smokes, plus site test + build.
+
 ## Communication
 
 - Issues and PRs on [GitHub](https://github.com/auraspace/aura)
