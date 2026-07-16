@@ -7,7 +7,7 @@ This repository currently holds:
 | Path | Purpose |
 | ---- | ------- |
 | [`docs/rfc/`](docs/rfc/) | Language & toolchain RFCs |
-| [`docs/roadmap.md`](docs/roadmap.md) | Execution phases (P0–P3, compiler C0–C4v) |
+| [`docs/roadmap.md`](docs/roadmap.md) | Execution phases (P0–P3, compiler C0–C4w) |
 | [`site/`](site/) | Static RFC docs site (Vite + React) |
 | [`crates/`](crates/) | Rust toolchain (`aura` CLI) — check / build / run / test (C backend) |
 | [`corpus/`](corpus/) | Sample `.aura` programs for the compiler |
@@ -26,7 +26,7 @@ pnpm site:test
 pnpm site:build
 ```
 
-### Compiler (through C4v)
+### Compiler (through C4w)
 
 ```bash
 cargo test --workspace
@@ -105,6 +105,7 @@ Native builds use a **C backend** (`aura emit-c` + system `cc`) linked with `run
 - **Compiler C4t** If as expression (value from last branch expr)
 - **Compiler C4u** Nested mono audit (skip open monomorphs, return-type resolve, C struct forwards)
 - **Compiler C4v** `String.isEmpty()` (UTF-8 byte length == 0)
+- **Compiler C4w** `String.charAt(i)` (UTF-8 byte as Int; OOB throws)
 - **DX** Pretty diagnostics (`path:line:col` + source snippet)
 - **Debts** Tracked in [`agents/debts.md`](agents/debts.md)
 - **Next:** Iterable protocol, LLVM, registry

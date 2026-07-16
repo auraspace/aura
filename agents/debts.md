@@ -55,6 +55,9 @@ When you resolve debt, update or remove the matching entry.
 ### No String.isEmpty (2026-07-16)
 - Resolved in C4v: `s.isEmpty()` → true when UTF-8 byte length is 0. Corpus `expr/string_isempty.aura`.
 
+### No String.charAt (2026-07-16)
+- Resolved in C4w: `s.charAt(i)` returns UTF-8 byte as Int; out of bounds / null throws. Corpus `expr/string_charat.aura`.
+
 ### No if-expression (2026-07-16)
 - Resolved in C4t: `if`/`else` as expr; branch value = last expression; requires else.
 

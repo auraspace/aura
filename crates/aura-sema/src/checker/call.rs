@@ -157,7 +157,7 @@ impl Checker {
                 });
             }
 
-            // C4v: builtin String methods.
+            // C4v/C4w: builtin String methods.
             if obj_ty == Ty::String {
                 match fe.field.name.as_str() {
                     "isEmpty" => {
@@ -174,6 +174,33 @@ impl Checker {
                             Ty::Nullable(Box::new(Ty::Bool))
                         } else {
                             Ty::Bool
+                        });
+                    }
+                    "charAt" => {
+                        // C4w: UTF-8 byte at index as Int (0..255); OOB throws.
+                        if c.args.len() != 1 {
+                            return Err(SemaError {
+                                message: format!(
+                                    "`String.charAt` expects 1 argument, got {}",
+                                    c.args.len()
+                                ),
+                                span: c.span,
+                            });
+                        }
+                        let at = self.check_expr(&c.args[0])?;
+                        if at != Ty::Int {
+                            return Err(SemaError {
+                                message: format!(
+                                    "`String.charAt` index must be Int, got {}",
+                                    at.display()
+                                ),
+                                span: c.args[0].span(),
+                            });
+                        }
+                        return Ok(if safe_wrap {
+                            Ty::Nullable(Box::new(Ty::Int))
+                        } else {
+                            Ty::Int
                         });
                     }
                     other => {

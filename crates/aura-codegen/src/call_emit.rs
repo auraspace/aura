@@ -89,7 +89,7 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &EmitCtx<'_>) -> String {
         let base = mono_base_name(mono_raw, ctx.checked).unwrap_or(mono_raw);
         let mono = crate::expr::full_type_mono(mono_raw, ctx.checked);
 
-        // C4v: builtin String methods.
+        // C4v/C4w: builtin String methods.
         if mono_raw == "String"
             || matches!(fe.object.as_ref(), Expr::String(_))
             || matches!(obj_ty.as_deref(), Some("String"))
@@ -99,6 +99,25 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &EmitCtx<'_>) -> String {
                 let call = format!("(({obj}) == NULL || ({obj})[0] == '\\0')");
                 if fe.safe {
                     return format!("(({obj}) == NULL ? true : {call})");
+                }
+                return call;
+            }
+            if fe.field.name == "charAt" {
+                // C4w: byte at index as int64_t; OOB / null throws.
+                let idx = if c.args.len() == 1 {
+                    emit_expr(&c.args[0], ctx)
+                } else {
+                    "0".into()
+                };
+                let call = format!(
+                    "({{ const char *__s = ({obj}); int64_t __i = ({idx}); \
+                     if (__s == NULL) aura_throw_string(\"String charAt on null\"); \
+                     size_t __n = strlen(__s); \
+                     if (__i < 0 || (size_t)__i >= __n) aura_throw_string(\"String charAt out of bounds\"); \
+                     (int64_t)(unsigned char)__s[__i]; }})"
+                );
+                if fe.safe {
+                    return format!("(({obj}) == NULL ? INT64_C(0) : {call})");
                 }
                 return call;
             }
