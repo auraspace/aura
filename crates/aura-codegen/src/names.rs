@@ -162,29 +162,6 @@ pub(crate) fn c_method_name(mono: &str, method: &str) -> String {
     format!("aura_method_{mono}_{method}")
 }
 
-pub(crate) fn subst_type_ref(ty: &TypeRef, params: &[String], args: &[Ty]) -> String {
-    // Resolve type param names to concrete Ty display / mono
-    if let Some(idx) = params.iter().position(|p| p == &ty.name.name) {
-        if let Some(t) = args.get(idx) {
-            return ty_to_c(t);
-        }
-    }
-    if !ty.type_args.is_empty() {
-        let mono = type_ref_mono(ty, params, args);
-        if is_primitive_name(&ty.name.name) {
-            return ty_to_c(&Ty::Class(ty.name.name.clone())); // shouldn't
-        }
-        return c_class_type(&mono);
-    }
-    match ty.name.name.as_str() {
-        "Int" => "int64_t".into(),
-        "Bool" => "bool".into(),
-        "String" => "const char *".into(),
-        "Unit" => "void".into(),
-        name => c_class_type(name),
-    }
-}
-
 pub(crate) fn is_primitive_name(n: &str) -> bool {
     matches!(n, "Int" | "Bool" | "String" | "Unit")
 }
@@ -236,24 +213,18 @@ pub(crate) fn c_type_ref_subst(
     params: &[String],
     args: &[Ty],
 ) -> String {
-    let _ = checked;
     if ty.nullable {
-        // nullable class pointer not fully supported
-        let inner = subst_type_ref(
-            &TypeRef {
-                qualifier: ty.qualifier.clone(),
-                name: ty.name.clone(),
-                type_args: ty.type_args.clone(),
-                nullable: false,
-                span: ty.span,
-            },
-            params,
-            args,
-        );
-        if inner.starts_with("aura_cls_") {
-            return format!("{inner} *");
-        }
-        return inner;
+        // C4b: `T?` shares the C representation of `T` for pointer-like types
+        // (heap class*, String, interfaces). Do not re-mangle via subst_type_ref
+        // (drops package mono) or add an extra `*`.
+        let non_null = TypeRef {
+            qualifier: ty.qualifier.clone(),
+            name: ty.name.clone(),
+            type_args: ty.type_args.clone(),
+            nullable: false,
+            span: ty.span,
+        };
+        return c_type_ref_subst(&non_null, checked, params, args);
     }
     // interface?
     // handled via name

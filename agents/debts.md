@@ -37,12 +37,12 @@ When you resolve debt, update or remove the matching entry.
 - Next step: registry + version resolve; nested lock merge
 - Introduced: narrowed after C3p
 
-### Nullable class / Array of class incomplete
-- Area: memory model / RFC-003 vs codegen
-- Symptom: class identity `==` works (C4a corpus); `Class?` C emit and `Array<Class>` still partial
-- Why deferred: C4a shipped identity corpus; emit fix + Array next
-- Next step: C4b nullable class emit; C4c `Array<Class>`
-- Introduced: narrowed after C4a
+### Array of class incomplete
+- Area: builtin Array / codegen
+- Symptom: class identity + `Class?` work (C4a/C4b); `Array<Class>` still rejected
+- Why deferred: C4b fixed nullable emit; element-type gate next
+- Next step: C4c allow heap class element types in Array mono
+- Introduced: narrowed after C4b
 
 
 ### Stdlib incomplete (prelude auto-import, assert, collections)
@@ -53,6 +53,9 @@ When you resolve debt, update or remove the matching entry.
 - Introduced: narrowed after C3z
 
 ## Resolved
+
+### Nullable class C emit wrong mono (2026-07-16)
+- Resolved in C4b: `Class?` reuses package-aware class local type (heap pointer); corpus `corpus/class/nullable.aura`.
 
 ### Class identity `==` untested (2026-07-16)
 - Resolved in C4a: class refs compare by pointer identity; corpus `corpus/class/identity.aura`.
