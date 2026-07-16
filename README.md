@@ -7,7 +7,7 @@ This repository currently holds:
 | Path | Purpose |
 | ---- | ------- |
 | [`docs/rfc/`](docs/rfc/) | Language & toolchain RFCs |
-| [`docs/roadmap.md`](docs/roadmap.md) | Execution phases (P0–P3, compiler C0–C5j) |
+| [`docs/roadmap.md`](docs/roadmap.md) | Execution phases (P0–P3, compiler C0–C5n) |
 | [`site/`](site/) | Static RFC docs site (Vite + React) |
 | [`crates/`](crates/) | Rust toolchain (`aura` CLI) — check / build / run / test (C backend) |
 | [`corpus/`](corpus/) | Sample `.aura` programs for the compiler |
@@ -26,7 +26,7 @@ pnpm site:test
 pnpm site:build
 ```
 
-### Compiler (through C5j)
+### Compiler (through C5n)
 
 ```bash
 cargo test --workspace
@@ -117,6 +117,9 @@ Native builds use a **C backend** (`aura emit-c` + system `cc`) linked with `run
 - **Runtime C5f** GC collect sweep when roots registered
 - **Codegen C5g** GC roots for heap-class locals
 - **Compiler C5h–C5j** String.startsWith / contains / endsWith
+- **Compiler C5k** Assign type mismatch expected/found
+- **Runtime C5m** Builtin `gc_collect()` + roots corpus
+- **Docs C5n** C5e–C5n batch closed
 - **DX** Pretty diagnostics (`path:line:col` + source snippet)
 - **Debts** Tracked in [`agents/debts.md`](agents/debts.md)
 - **Next:** Iterable protocol, LLVM, registry

@@ -15,7 +15,7 @@ Living plan for docs, language specs, and the Rust toolchain. RFCs remain the de
 | RFC static site (`site/`) | Implemented on `feat/rfc-static-site`; deploy via GitHub Pages Actions |
 | RFC-000 … RFC-013 | **All Accepted** — open questions resolved or Deferred (2026-07-16) |
 | Language MVP | RFC-001 §6.0 + post-C1 surface in roadmap; async/macros/Iterable still deferred in code |
-| Compiler | **C0–C5e in progress** — Array assign move; next C5f–C5n |
+| Compiler | **C0–C5n done** — C5e–C5n batch (Array move, GC sweep/roots, String APIs) |
 | Runtime / packages / stdlib | GC free-all + C4z root/mark skeleton; `std.io` / `std.assert`; tasks/collections deferred |
 
 ## Phases
@@ -125,13 +125,14 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C5k** | Assign type mismatch expected/found | Done |
 | **C5l** | Document Array non-owner shallow copy | Done |
 | **C5m** | Builtin `gc_collect` + roots corpus | Done |
+| **C5n** | Close C5e–C5n batch | Done |
 | **DX** | line:col diagnostics with snippets | Done |
 
 **Out of scope C0/C1:** generics mono, async/tasks, macros, registry, incremental, LTO.
 
 ### P3 — Expand (after hello)
 
-1. ~~Language surface C2–C5d~~ → next: Iterable protocol · GC sweep · registry (see `agents/debts.md`)
+1. ~~Language surface C2–C5n~~ → next: Iterable protocol · deep GC mark · registry (see `agents/debts.md`)
 2. Runtime: ~~alloc/GC MVP + class heap refs + C4z root/mark skeleton~~ → real STW sweep · channels/tasks
 3. Toolchain: ~~minimal `aura.toml` + path deps + path lock (incl. transitive)~~ → registry (RFC-005)
 4. Stdlib: ~~std.io + auto-prelude + std.assert~~ → collections (partial: builtin Array)
