@@ -1,0 +1,8 @@
+[package]
+name = "demo.prelude"
+
+[[bin]]
+name = "prelude"
+path = "src"
+
+# C4g: no [dependencies] — std.io auto-injected by the CLI

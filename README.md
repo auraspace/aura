@@ -85,9 +85,10 @@ C1 uses a **C backend** (`aura emit-c` + system `cc`) linked with `runtime/aura_
 - **Compiler C4d** Package-prefixed interface C symbols (same name across packages)
 - **Compiler C4e** String content equality (`strcmp`; class stays identity)
 - **Compiler C4f** `Array.clear` (len=0, keep capacity)
+- **CLI C4g** Auto-prelude `std.io` for package builds (`AURA_STD` or walk-up)
 - **DX** Pretty diagnostics (`path:line:col` + source snippet)
 - **Debts** Tracked in [`agents/debts.md`](agents/debts.md)
-- **Next:** auto-prelude, std.assert, reject aggregate ==
+- **Next:** std.assert, reject aggregate ==, nested lock
 
 ## Links
 

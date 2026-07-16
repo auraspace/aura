@@ -40,14 +40,17 @@ When you resolve debt, update or remove the matching entry.
 - Introduced: narrowed after C4c
 
 
-### Stdlib incomplete (prelude auto-import, assert, collections)
+### Stdlib incomplete (assert, collections)
 - Area: stdlib / RFC-007
-- Symptom: C3z added `std.io.println` via path dep; builtins still available; no auto-prelude; no `assert` in std
-- Why deferred: path-dep std.io is enough for demos
-- Next step: auto-prelude option; more std packages; collections
-- Introduced: narrowed after C3z
+- Symptom: C4g auto-prelude injects `std.io` for packages; no `assert` in std; no collections package
+- Why deferred: prelude covers println demos
+- Next step: std.assert; collections
+- Introduced: narrowed after C4g
 
 ## Resolved
+
+### No auto-prelude for std.io (2026-07-16)
+- Resolved in C4g: package builds discover `std/io` (or `AURA_STD`) and inject `import std.io`; prefer std over builtins for free-fun resolve.
 
 ### No Array.clear (2026-07-16)
 - Resolved in C4f: `clear()` sets len=0, keeps capacity; corpus `generic/array_clear.aura`.

@@ -1,6 +1,6 @@
 //! Package loading from files, directories, and manifests (C3e/C3f).
 
-use aura_ast::{shift_file_spans, File, Path as AstPath, Span};
+use aura_ast::{shift_file_spans, File, ImportDecl, Path as AstPath, Span};
 use aura_parser::parse_file;
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -170,13 +170,89 @@ pub(crate) fn load_from_manifest(manifest: &Path) -> Result<LoadedPackage, Strin
     // C3p: if aura.lock exists, path deps must match it.
     verify_lock_against_toml(&root, &toml.dependencies)?;
 
+    // C4g: auto-prelude — make std.io available and import it for app packages.
+    let mut effective = toml.clone();
+    apply_std_io_prelude(&mut pkg, &mut effective, &root)?;
+
     // Merge path deps from this manifest and from each loaded dep's own aura.toml.
-    resolve_imports(&mut pkg, &toml, &root)?;
+    resolve_imports(&mut pkg, &effective, &root)?;
 
     // Refresh lockfile for this package's direct path deps (path-only, C3p).
+    // Do not write auto-prelude entries into lock (only user-declared deps).
     write_lock(&root, &toml.dependencies)?;
     Ok(pkg)
 }
+
+/// C4g: resolve `std/io` on disk and inject `import std.io` for non-std packages.
+fn apply_std_io_prelude(
+    pkg: &mut LoadedPackage,
+    toml: &mut AuraToml,
+    root: &Path,
+) -> Result<(), String> {
+    // Never prelude the std packages themselves.
+    if pkg.package == "std.io" || pkg.package.starts_with("std.") {
+        return Ok(());
+    }
+    let std_io = match find_std_io_dir(root) {
+        Some(p) => p,
+        None => return Ok(()), // silent skip if std not discoverable
+    };
+    if !toml.dependencies.contains_key("std.io") {
+        // Prefer absolute path so nested packages resolve reliably.
+        toml.dependencies
+            .insert("std.io".into(), std_io.display().to_string());
+    }
+    let already = pkg
+        .ast
+        .imports
+        .iter()
+        .any(|i| i.path.display() == "std.io");
+    if !already {
+        pkg.ast.imports.push(ImportDecl {
+            path: AstPath {
+                segments: vec![
+                    aura_ast::Ident {
+                        name: "std".into(),
+                        span: Span::new(0, 0),
+                    },
+                    aura_ast::Ident {
+                        name: "io".into(),
+                        span: Span::new(0, 0),
+                    },
+                ],
+                span: Span::new(0, 0),
+            },
+            alias: None,
+            origin_package: pkg.package.clone(),
+            span: Span::new(0, 0),
+        });
+    }
+    let _ = std_io;
+    Ok(())
+}
+
+/// Walk up from `root` (and env `AURA_STD`) looking for `std/io` package dir.
+/// Returns a canonical absolute path so `root.join(dep)` is not used incorrectly.
+fn find_std_io_dir(from: &Path) -> Option<PathBuf> {
+    if let Ok(std_root) = std::env::var("AURA_STD") {
+        let p = PathBuf::from(std_root).join("io");
+        if p.is_dir() && p.join("aura.toml").is_file() {
+            return fs::canonicalize(&p).ok().or(Some(p));
+        }
+    }
+    let start = fs::canonicalize(from).unwrap_or_else(|_| from.to_path_buf());
+    let mut cur = Some(start.as_path());
+    while let Some(dir) = cur {
+        let candidate = dir.join("std").join("io");
+        if candidate.is_dir() && candidate.join("aura.toml").is_file() {
+            return fs::canonicalize(&candidate).ok().or(Some(candidate));
+        }
+        cur = dir.parent();
+    }
+    None
+}
+
+
 
 /// Load path dependencies for `import` and merge their ASTs into the unit.
 fn resolve_imports(

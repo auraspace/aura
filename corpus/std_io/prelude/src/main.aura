@@ -1,0 +1,6 @@
+// C4g — package auto-prelude injects std.io (no path dep in aura.toml)
+package demo.prelude
+
+fun main() {
+  println("prelude ok")
+}

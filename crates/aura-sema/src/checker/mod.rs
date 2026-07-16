@@ -254,6 +254,23 @@ impl Checker {
         if visible.len() == 1 {
             return Ok(visible[0].clone());
         }
+        // C4g: prefer std.* over builtins (empty package) when both are visible.
+        let non_builtin: Vec<&FunSig> = visible
+            .iter()
+            .copied()
+            .filter(|s| !s.package.is_empty())
+            .collect();
+        if non_builtin.len() == 1 {
+            return Ok(non_builtin[0].clone());
+        }
+        let std_pref: Vec<&FunSig> = non_builtin
+            .iter()
+            .copied()
+            .filter(|s| s.package.starts_with("std."))
+            .collect();
+        if std_pref.len() == 1 {
+            return Ok(std_pref[0].clone());
+        }
         let pkgs: Vec<&str> = visible.iter().map(|s| s.package.as_str()).collect();
         Err(SemaError {
             message: format!(
