@@ -8,18 +8,58 @@ use crate::util::{eq_compatible, subst_ty, type_subst_map};
 impl Checker {
     pub(crate) fn note_mono_ty(&mut self, ty: &Ty) {
         match ty {
-            // Store simple name for mono tables (C3v keys may be Name@pkg).
+            // C4u: only concrete monomorphs — skip open `Box<T>` from generic method bodies.
             Ty::ClassApp { name, args } if !args.is_empty() => {
+                if args.iter().any(|a| a.is_open()) {
+                    return;
+                }
                 let (simple, _) = crate::ty::split_nominal(name);
-                self.mono_classes
-                    .insert((simple.to_string(), args.clone()));
+                let key = (simple.to_string(), args.clone());
+                if !self.mono_classes.insert(key) {
+                    return;
+                }
+                // Nested field types (Wrapper_String → Box_String) for codegen.
+                self.expand_nested_mono(simple, args);
             }
             Ty::EnumApp { name, args } if !args.is_empty() => {
+                if args.iter().any(|a| a.is_open()) {
+                    return;
+                }
                 let (simple, _) = crate::ty::split_nominal(name);
                 self.mono_enums
                     .insert((simple.to_string(), args.clone()));
             }
+            Ty::Nullable(inner) => self.note_mono_ty(inner),
             _ => {}
+        }
+    }
+
+    /// After recording a concrete class mono, note monomorphs of field types under substitution.
+    fn expand_nested_mono(&mut self, simple: &str, args: &[Ty]) {
+        let sig = self
+            .classes
+            .get(simple)
+            .and_then(|v| {
+                if v.len() == 1 {
+                    Some(v[0].clone())
+                } else {
+                    // Prefer current package; else first match with same type_param arity.
+                    v.iter()
+                        .find(|s| s.package == self.current_package)
+                        .or_else(|| v.iter().find(|s| s.type_params.len() == args.len()))
+                        .cloned()
+                }
+            });
+        let Some(sig) = sig else {
+            return;
+        };
+        if sig.type_params.len() != args.len() {
+            return;
+        }
+        let map = type_subst_map(&sig.type_params, args);
+        for f in &sig.fields {
+            let ft = subst_ty(&f.ty, &map);
+            self.note_mono_ty(&ft);
         }
     }
 

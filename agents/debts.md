@@ -7,13 +7,6 @@ When you resolve debt, update or remove the matching entry.
 
 ## Open
 
-### Type-param mono edge cases
-- Area: codegen mono / generics
-- Symptom: C4k fixed heap-class type params as pointers + field-chain method receivers; deeper nested mono inference may still default wrongly
-- Why deferred: bounds.aura green
-- Next step: audit remaining mono return-type inference
-- Introduced: narrowed after C4k
-
 ### `for-in` has no Iterable protocol (Array + String only)
 - Area: language / parser / sema / codegen (`ForInStmt`)
 - Symptom: no custom iterables / `for (x in myCollection)`
@@ -55,6 +48,9 @@ When you resolve debt, update or remove the matching entry.
 - Introduced: narrowed after C4h
 
 ## Resolved
+
+### Type-param mono edge cases / nested mono (2026-07-16)
+- Resolved in C4u: skip open monomorphs (`Box_T`); expand nested concrete field monomorphs; method/fun return resolve substitutes type args; incomplete C struct forwards for nested mono order. Corpus `generic/nested.aura`.
 
 ### No if-expression (2026-07-16)
 - Resolved in C4t: `if`/`else` as expr; branch value = last expression; requires else.

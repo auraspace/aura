@@ -15,7 +15,8 @@ pub(crate) fn emit_class_typedef(out: &mut String, checked: &CheckedFile, c: &Cl
     let params: Vec<String> = c.type_params.iter().map(|p| p.name.name.clone()).collect();
     let pkg = class_decl_package(c, checked);
     let mono = type_mono(&pkg, &c.name.name, args);
-    let _ = writeln!(out, "typedef struct {} {{", c_class_type(&mono));
+    // Body only — incomplete `typedef struct X X` may already exist (C4u forwards).
+    let _ = writeln!(out, "struct {} {{", c_class_type(&mono));
     for f in &c.fields {
         let _ = writeln!(
             out,
@@ -27,7 +28,7 @@ pub(crate) fn emit_class_typedef(out: &mut String, checked: &CheckedFile, c: &Cl
     if c.fields.is_empty() {
         out.push_str("  char _pad;\n");
     }
-    let _ = writeln!(out, "}} {};\n", c_class_type(&mono));
+    out.push_str("};\n\n");
 }
 
 pub(crate) fn emit_class_forwards(out: &mut String, checked: &CheckedFile, c: &ClassDecl, args: &[Ty]) {

@@ -15,7 +15,7 @@ Living plan for docs, language specs, and the Rust toolchain. RFCs remain the de
 | RFC static site (`site/`) | Implemented on `feat/rfc-static-site`; deploy via GitHub Pages Actions |
 | RFC-000 … RFC-013 | **All Accepted** — open questions resolved or Deferred (2026-07-16) |
 | Language MVP | RFC-001 §6.0 + post-C1 surface in roadmap; async/macros/Iterable still deferred in code |
-| Compiler | **C0–C4t done** — through if-expression, `?.`, Array/String APIs |
+| Compiler | **C0–C4u done** — through nested mono audit, if-expression, `?.`, Array/String APIs |
 | Runtime / packages / stdlib | GC free-all MVP + `std.io` / `std.assert`; next GC = STW mark-sweep; tasks/collections deferred |
 
 ## Phases
@@ -106,13 +106,14 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C4r** | Free Array buffer on owner reassignment | Done |
 | **C4s** | Safe call `?.` on nullable receivers | Done |
 | **C4t** | `if` as expression (last branch expr; requires else) | Done |
+| **C4u** | Nested mono audit (open skip, return resolve, C forwards) | Done |
 | **DX** | line:col diagnostics with snippets | Done |
 
 **Out of scope C0/C1:** generics mono, async/tasks, macros, registry, incremental, LTO.
 
 ### P3 — Expand (after hello)
 
-1. ~~Language surface C2–C4t~~ → next: Iterable · LLVM · registry (see `agents/debts.md`)
+1. ~~Language surface C2–C4u~~ → next: String API · Iterable duck · GC skeleton (see `agents/debts.md`, plan C4v–C5d)
 2. Runtime: ~~alloc/GC MVP + class heap refs~~ → channels/tasks
 3. Toolchain: ~~minimal `aura.toml` + path deps + path lock (incl. transitive)~~ → registry (RFC-005)
 4. Stdlib: ~~std.io + auto-prelude + std.assert~~ → collections (partial: builtin Array)

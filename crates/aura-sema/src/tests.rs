@@ -246,6 +246,45 @@ fun main() {
 }
 
 #[test]
+fn nested_mono_skips_open_type_params() {
+    // C4u: Wrapper<T> field Box<T> must not record open Box_T monomorphs.
+    let src = r#"
+package t
+class Box<T>(val value: T) {
+  fun get(): T { return this.value }
+}
+class Wrapper<T>(val inner: Box<T>) {
+  fun unwrap(): T { return this.inner.get() }
+}
+fun main() {
+  val w: Wrapper<String> = Wrapper(Box("x"))
+  w.unwrap()
+}
+"#;
+    let file = parse_file(src).expect("parse");
+    let checked = check_file(&file).expect("check");
+    assert!(
+        checked
+            .mono_classes
+            .iter()
+            .any(|(n, a)| n == "Wrapper" && a == &[Ty::String]),
+        "expected Wrapper_String"
+    );
+    assert!(
+        checked
+            .mono_classes
+            .iter()
+            .any(|(n, a)| n == "Box" && a == &[Ty::String]),
+        "expected Box_String from nested expand"
+    );
+    assert!(
+        !checked.mono_classes.iter().any(|(_, a)| a.iter().any(|t| t.is_open())),
+        "open monomorphs must not be recorded: {:?}",
+        checked.mono_classes
+    );
+}
+
+#[test]
 fn import_allows_pub_function() {
     use aura_ast::ImportDecl;
     let mut lib = parse_file(

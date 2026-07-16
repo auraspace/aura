@@ -125,6 +125,18 @@ impl Ty {
         }
     }
 
+    /// True if this type still mentions an unbound type parameter (open mono).
+    pub fn is_open(&self) -> bool {
+        match self {
+            Ty::TypeParam(_) => true,
+            Ty::Nullable(inner) => inner.is_open(),
+            Ty::ClassApp { args, .. } | Ty::EnumApp { args, .. } => {
+                args.iter().any(|a| a.is_open())
+            }
+            _ => false,
+        }
+    }
+
     /// Package of a class/enum nominal key (`""` if none).
     pub fn nominal_package(&self) -> &str {
         match self {

@@ -68,7 +68,36 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
         out.push_str("  AURA_TAG__COUNT\n};\n\n");
     }
 
-    // Class typedefs — non-generic classes + monomorphized generic classes
+    // Class typedefs — non-generic classes + monomorphized generic classes.
+    // C4u: incomplete struct forwards so nested monomorph field pointers compile
+    // regardless of alphabetical mono_classes order (Outer_String → Wrapper_String).
+    for c in &checked.ast.classes {
+        if c.type_params.is_empty() {
+            let pkg = class_decl_package(c, checked);
+            let mono = type_mono(&pkg, &c.name.name, &[]);
+            let _ = writeln!(
+                out,
+                "typedef struct {} {};",
+                c_class_type(&mono),
+                c_class_type(&mono)
+            );
+        }
+    }
+    for (name, args) in &checked.mono_classes {
+        if is_array_mono(name) {
+            continue;
+        }
+        if let Some(c) = checked.ast.classes.iter().find(|c| c.name.name == *name) {
+            let pkg = class_decl_package(c, checked);
+            let mono = type_mono(&pkg, &c.name.name, args);
+            let _ = writeln!(
+                out,
+                "typedef struct {} {};",
+                c_class_type(&mono),
+                c_class_type(&mono)
+            );
+        }
+    }
     for c in &checked.ast.classes {
         if c.type_params.is_empty() {
             emit_class_typedef(&mut out, checked, c, &[]);

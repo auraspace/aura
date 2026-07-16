@@ -681,6 +681,7 @@ pub(crate) fn resolve_type_name(expr: &Expr, ctx: &EmitCtx<'_>) -> Option<String
                         return Some(mono_key("Array", &targs));
                     }
                 }
+                // Class constructor when instantiation missing `is_constructor` (defensive).
                 if let Some(class) = ctx
                     .checked
                     .ast
@@ -688,9 +689,28 @@ pub(crate) fn resolve_type_name(expr: &Expr, ctx: &EmitCtx<'_>) -> Option<String
                     .iter()
                     .find(|x| x.name.name == id.name)
                 {
-                    let pkg = class_decl_package(class, ctx.checked);
-                    return Some(type_mono(&pkg, &id.name, &[]));
+                    let inst = ctx.checked.call_instantiations.get(&c.span.start);
+                    let targs: Vec<Ty> = inst
+                        .map(|i| i.type_args.clone())
+                        .unwrap_or_else(|| {
+                            c.type_args
+                                .iter()
+                                .filter_map(|t| type_ref_to_ty(t, ctx))
+                                .collect()
+                        });
+                    let pkg = inst
+                        .map(|i| i.package.as_str())
+                        .filter(|p| !p.is_empty())
+                        .unwrap_or_else(|| {
+                            if class.origin_package.is_empty() {
+                                ctx.checked.package.as_str()
+                            } else {
+                                class.origin_package.as_str()
+                            }
+                        });
+                    return Some(type_mono(pkg, &id.name, &targs));
                 }
+                // Free function return: substitute type params (C4u).
                 if let Some(f) = ctx
                     .checked
                     .ast
@@ -698,32 +718,80 @@ pub(crate) fn resolve_type_name(expr: &Expr, ctx: &EmitCtx<'_>) -> Option<String
                     .iter()
                     .find(|f| f.name.name == id.name)
                 {
-                    return f.return_type.as_ref().map(|t| t.name.name.clone());
+                    let targs: Vec<Ty> = ctx
+                        .checked
+                        .call_instantiations
+                        .get(&c.span.start)
+                        .map(|i| i.type_args.clone())
+                        .unwrap_or_else(|| {
+                            c.type_args
+                                .iter()
+                                .filter_map(|t| type_ref_to_ty(t, ctx))
+                                .collect()
+                        });
+                    let params: Vec<String> =
+                        f.type_params.iter().map(|p| p.name.name.clone()).collect();
+                    return f
+                        .return_type
+                        .as_ref()
+                        .map(|t| type_ref_local_key(t, &params, &targs));
                 }
             }
             if let Expr::Field(fe) = c.callee.as_ref() {
-                // method return
-                if let Some(recv) = resolve_type_name(&fe.object, ctx) {
+                // C4u: method return with mono type-arg substitution (mirror infer_type_name).
+                if let Some(recv) = resolve_type_name(&fe.object, ctx)
+                    .or_else(|| resolve_class_of_expr(&fe.object, ctx).map(|s| s.to_string()))
+                {
                     let base = mono_base_name(&recv, ctx.checked).unwrap_or(recv.as_str());
-                    if let Some(m) = ctx
+                    if let Some(class) = ctx
                         .checked
                         .ast
                         .classes
                         .iter()
                         .find(|c| c.name.name == base)
-                        .and_then(|c| c.methods.iter().find(|m| m.name.name == fe.field.name))
                     {
-                        return m.return_type.as_ref().map(|t| t.name.name.clone());
+                        if let Some(m) = class
+                            .methods
+                            .iter()
+                            .find(|m| m.name.name == fe.field.name)
+                        {
+                            if let Some(rt) = &m.return_type {
+                                let (ps, as_) =
+                                    if let Some((_, args)) = mono_split(&recv, ctx.checked) {
+                                        let params: Vec<String> = class
+                                            .type_params
+                                            .iter()
+                                            .map(|p| p.name.name.clone())
+                                            .collect();
+                                        (params, args.to_vec())
+                                    } else if !ctx.type_args.is_empty()
+                                        && class.name.name
+                                            == ctx.method_class.unwrap_or("")
+                                    {
+                                        (ctx.type_params.clone(), ctx.type_args.clone())
+                                    } else {
+                                        (Vec::new(), Vec::new())
+                                    };
+                                return Some(type_ref_local_key(rt, &ps, &as_));
+                            }
+                        }
                     }
                     if let Some(m) = ctx
                         .checked
                         .ast
                         .interfaces
                         .iter()
-                        .find(|i| i.name.name == recv)
+                        .find(|i| {
+                            i.name.name == recv
+                                || iface_mono(i, ctx.checked) == recv
+                                || i.name.name == base
+                        })
                         .and_then(|i| i.methods.iter().find(|m| m.name.name == fe.field.name))
                     {
-                        return m.return_type.as_ref().map(|t| t.name.name.clone());
+                        return m
+                            .return_type
+                            .as_ref()
+                            .map(|t| type_ref_local_key(t, &[], &[]));
                     }
                 }
             }

@@ -7,7 +7,7 @@ This repository currently holds:
 | Path | Purpose |
 | ---- | ------- |
 | [`docs/rfc/`](docs/rfc/) | Language & toolchain RFCs |
-| [`docs/roadmap.md`](docs/roadmap.md) | Execution phases (P0–P3, compiler C0–C4t) |
+| [`docs/roadmap.md`](docs/roadmap.md) | Execution phases (P0–P3, compiler C0–C4u) |
 | [`site/`](site/) | Static RFC docs site (Vite + React) |
 | [`crates/`](crates/) | Rust toolchain (`aura` CLI) — check / build / run / test (C backend) |
 | [`corpus/`](corpus/) | Sample `.aura` programs for the compiler |
@@ -26,7 +26,7 @@ pnpm site:test
 pnpm site:build
 ```
 
-### Compiler (through C4t)
+### Compiler (through C4u)
 
 ```bash
 cargo test --workspace
@@ -103,6 +103,7 @@ Native builds use a **C backend** (`aura emit-c` + system `cc`) linked with `run
 - **Compiler C4r** Free Array buffer on owner reassignment
 - **Compiler C4s** Safe call `?.` on nullable receivers
 - **Compiler C4t** If as expression (value from last branch expr)
+- **Compiler C4u** Nested mono audit (skip open monomorphs, return-type resolve, C struct forwards)
 - **DX** Pretty diagnostics (`path:line:col` + source snippet)
 - **Debts** Tracked in [`agents/debts.md`](agents/debts.md)
 - **Next:** Iterable protocol, LLVM, registry

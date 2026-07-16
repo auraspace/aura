@@ -1,0 +1,38 @@
+// C4u — nested generic monomorphs + method return chains
+package demo.generic.nested
+
+class Box<T>(val value: T) {
+  fun get(): T {
+    return this.value
+  }
+}
+
+class Wrapper<T>(val inner: Box<T>) {
+  fun unwrap(): T {
+    return this.inner.get()
+  }
+}
+
+class Outer<T>(val w: Wrapper<T>) {
+  fun deep(): T {
+    return this.w.unwrap()
+  }
+}
+
+class Maker() {
+  fun makeBox(): Box<String> {
+    return Box("from maker")
+  }
+}
+
+fun main() {
+  val w: Wrapper<String> = Wrapper(Box("nested"))
+  println(w.unwrap())
+  println(w.inner.get())
+
+  val o: Outer<String> = Outer(Wrapper(Box("deep")))
+  println(o.deep())
+
+  val m = Maker()
+  println(m.makeBox().get())
+}

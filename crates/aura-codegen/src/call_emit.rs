@@ -5,7 +5,7 @@ use aura_sema::Ty;
 
 use crate::ctx::EmitCtx;
 use crate::expr::{
-    coerce_expr, emit_expr, infer_type_name, mono_base_name, resolve_class_of_expr,
+    coerce_expr, emit_expr, infer_type_name, mono_base_name, mono_split, resolve_class_of_expr,
     resolve_type_name, type_ref_to_ty,
 };
 use crate::names::*;
@@ -109,17 +109,35 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &EmitCtx<'_>) -> String {
             format!("&({obj})")
         };
         let mut args = vec![this_arg];
-        if let Some(m) = ctx
+        if let Some(class) = ctx
             .checked
             .ast
             .classes
             .iter()
             .find(|c| c.name.name == base)
-            .and_then(|c| c.methods.iter().find(|m| m.name.name == fe.field.name))
         {
-            for (a, p) in c.args.iter().zip(m.params.iter()) {
-                let expected = type_ref_local_key(&p.ty, &[], &[]);
-                args.push(coerce_expr(a, &expected, ctx));
+            if let Some(m) = class
+                .methods
+                .iter()
+                .find(|m| m.name.name == fe.field.name)
+            {
+                // C4u: substitute class type params for method parameter expected types.
+                let params: Vec<String> = class
+                    .type_params
+                    .iter()
+                    .map(|p| p.name.name.clone())
+                    .collect();
+                let targs: Vec<Ty> = mono_split(mono_raw, ctx.checked)
+                    .map(|(_, a)| a.to_vec())
+                    .unwrap_or_default();
+                for (a, p) in c.args.iter().zip(m.params.iter()) {
+                    let expected = type_ref_local_key(&p.ty, &params, &targs);
+                    args.push(coerce_expr(a, &expected, ctx));
+                }
+            } else {
+                for a in &c.args {
+                    args.push(emit_expr(a, ctx));
+                }
             }
         } else {
             for a in &c.args {

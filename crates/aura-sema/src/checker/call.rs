@@ -337,7 +337,8 @@ impl Checker {
                 variant: None,
             },
         );
-        if !type_args.is_empty() {
+        // C4u: only concrete free-function monomorphs.
+        if !type_args.is_empty() && !type_args.iter().any(|a| a.is_open()) {
             self.mono_funs.insert((name, type_args));
         }
         Ok(ret)
