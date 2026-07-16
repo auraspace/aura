@@ -30,6 +30,20 @@ impl Parser {
                 lhs = Expr::Field(FieldExpr {
                     object: Box::new(lhs),
                     field,
+                    safe: false,
+                    span,
+                });
+                continue;
+            }
+            // C4s: `?.` safe field / method chain.
+            if matches!(self.peek().kind, TokenKind::QuestionDot) {
+                self.bump();
+                let field = self.expect_ident()?;
+                let span = Span::new(lhs.span().start, field.span.end);
+                lhs = Expr::Field(FieldExpr {
+                    object: Box::new(lhs),
+                    field,
+                    safe: true,
                     span,
                 });
                 continue;

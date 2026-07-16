@@ -44,7 +44,24 @@ impl Checker {
                     span: c.span,
                 });
             }
-            let obj_ty = self.check_expr(&fe.object)?;
+            let raw_obj_ty = self.check_expr(&fe.object)?;
+            // C4s: `?.` method call on nullable receiver → nullable result.
+            let (obj_ty, safe_wrap) = if fe.safe {
+                match &raw_obj_ty {
+                    Ty::Nullable(inner) => (inner.as_ref().clone(), true),
+                    other => {
+                        return Err(SemaError {
+                            message: format!(
+                                "`?.` requires a nullable receiver, got {}",
+                                other.display()
+                            ),
+                            span: c.span,
+                        });
+                    }
+                }
+            } else {
+                (raw_obj_ty, false)
+            };
 
             if let Some(cname) = obj_ty.class_name() {
                 let class = self
@@ -75,7 +92,11 @@ impl Checker {
                     c.span,
                 )?;
                 self.note_mono_ty(&obj_ty);
-                return Ok(ret);
+                return Ok(if safe_wrap {
+                    Ty::Nullable(Box::new(ret))
+                } else {
+                    ret
+                });
             }
 
             if let Ty::Interface(iface_name) = &obj_ty {

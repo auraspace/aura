@@ -1,0 +1,21 @@
+// C4s — safe call ?. on nullable class receivers
+package demo.cls
+
+class Greeter(val name: String) {
+  fun greet(): String {
+    return this.name
+  }
+}
+
+fun main() {
+  var g: Greeter? = null
+  val a: String? = g?.greet()
+  if (a == null) {
+    println("null")
+  }
+  g = Greeter("hi")
+  val b: String? = g?.greet()
+  if (b != null) {
+    println(b)
+  }
+}

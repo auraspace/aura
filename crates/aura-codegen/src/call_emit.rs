@@ -126,11 +126,16 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &EmitCtx<'_>) -> String {
                 args.push(emit_expr(a, ctx));
             }
         }
-        return format!(
+        let call = format!(
             "{}({})",
             c_method_name(&mono, &fe.field.name),
             args.join(", ")
         );
+        // C4s: `?.` short-circuit to NULL when receiver is null (pointer-like results).
+        if fe.safe {
+            return format!("(({obj}) == NULL ? NULL : {call})");
+        }
+        return call;
     }
 
     match c.callee.as_ref() {

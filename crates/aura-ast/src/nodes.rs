@@ -354,6 +354,8 @@ pub struct ForceUnwrapExpr {
 pub struct FieldExpr {
     pub object: Box<Expr>,
     pub field: Ident,
+    /// C4s: true when accessed with `?.` (safe call / optional chain).
+    pub safe: bool,
     pub span: Span,
 }
 

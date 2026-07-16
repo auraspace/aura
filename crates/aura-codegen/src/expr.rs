@@ -361,7 +361,12 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &EmitCtx<'_>) -> String {
                 if matches!(recv.as_deref(), Some("String"))
                     || matches!(f.object.as_ref(), Expr::String(_))
                 {
-                    return format!("((int64_t)strlen({obj}))");
+                    let len_e = format!("((int64_t)strlen({obj}))");
+                    if f.safe {
+                        // Nullable Int not representable; treat as 0 when null (MVP).
+                        return format!("(({obj}) == NULL ? INT64_C(0) : {len_e})");
+                    }
+                    return len_e;
                 }
             }
             // C3y: heap class receivers use -> ; structs/Array/This use .
@@ -370,12 +375,18 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &EmitCtx<'_>) -> String {
                 Expr::This(_) => false,
                 _ => resolve_type_name(&f.object, ctx)
                     .map(|t| is_heap_class_mono(&full_type_mono(&t, ctx.checked), ctx.checked))
-                    .unwrap_or(false),
+                    .unwrap_or(false)
+                    || f.safe, // C4s: nullable class receivers are pointers
             };
-            if use_arrow {
+            let access = if use_arrow {
                 format!("({obj})->{}", mangle_ident(&f.field.name))
             } else {
                 format!("({obj}).{}", mangle_ident(&f.field.name))
+            };
+            if f.safe {
+                format!("(({obj}) == NULL ? NULL : {access})")
+            } else {
+                access
             }
         }
         Expr::Call(c) => emit_call(c, ctx),

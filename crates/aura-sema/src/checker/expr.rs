@@ -97,9 +97,37 @@ impl Checker {
             }
             Expr::Field(f) => {
                 let obj_ty = self.check_expr(&f.object)?;
+                // C4s: `?.` requires nullable receiver; result is nullable unless already.
+                let (obj_ty, safe_wrap) = if f.safe {
+                    match &obj_ty {
+                        Ty::Nullable(inner) => (inner.as_ref().clone(), true),
+                        Ty::Null => {
+                            return Err(SemaError {
+                                message: "`?.` on null literal is not useful".into(),
+                                span: f.span,
+                            });
+                        }
+                        other => {
+                            return Err(SemaError {
+                                message: format!(
+                                    "`?.` requires a nullable receiver, got {}",
+                                    other.display()
+                                ),
+                                span: f.span,
+                            });
+                        }
+                    }
+                } else {
+                    (obj_ty, false)
+                };
                 // C4p: String.len — UTF-8 byte length.
                 if obj_ty == Ty::String && f.field.name == "len" {
-                    return Ok(Ty::Int);
+                    let t = Ty::Int;
+                    return Ok(if safe_wrap {
+                        Ty::Nullable(Box::new(t))
+                    } else {
+                        t
+                    });
                 }
                 if let Some(cname) = obj_ty.class_name() {
                     let key = match &obj_ty {
@@ -114,7 +142,12 @@ impl Checker {
                     })?;
                     let subst = type_subst_map(&class.type_params, obj_ty.class_args());
                     if let Some(field) = class.fields.iter().find(|x| x.name == f.field.name) {
-                        return Ok(subst_ty(&field.ty, &subst));
+                        let t = subst_ty(&field.ty, &subst);
+                        return Ok(if safe_wrap {
+                            Ty::Nullable(Box::new(t))
+                        } else {
+                            t
+                        });
                     }
                     if class.methods.contains_key(&f.field.name) {
                         return Err(SemaError {

@@ -82,6 +82,8 @@ pub enum TokenKind {
     Question,
     /// `?:` null-coalesce (C4m).
     QuestionColon,
+    /// `?.` safe field/method access (C4s).
+    QuestionDot,
     /// `@` attribute introducer (`@test`).
     At,
 
@@ -191,10 +193,10 @@ impl<'a> Lexer<'a> {
             b',' => self.simple(TokenKind::Comma, 1),
             b':' => self.simple(TokenKind::Colon, 1),
             b'?' => {
-                if self.bytes.get(self.pos + 1) == Some(&b':') {
-                    self.simple(TokenKind::QuestionColon, 2)
-                } else {
-                    self.simple(TokenKind::Question, 1)
+                match self.bytes.get(self.pos + 1) {
+                    Some(&b':') => self.simple(TokenKind::QuestionColon, 2),
+                    Some(&b'.') => self.simple(TokenKind::QuestionDot, 2),
+                    _ => self.simple(TokenKind::Question, 1),
                 }
             }
             b'@' => self.simple(TokenKind::At, 1),

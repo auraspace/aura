@@ -56,6 +56,9 @@ When you resolve debt, update or remove the matching entry.
 
 ## Resolved
 
+### No safe call `?.` (2026-07-16)
+- Resolved in C4s: `?.` field/method on nullable receivers; short-circuit to null.
+
 ### Array owner reassignment leaked (2026-07-16)
 - Resolved in C4r: free buffer before `a = Array(...)` on owner locals.
 
