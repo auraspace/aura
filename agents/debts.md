@@ -49,6 +49,9 @@ When you resolve debt, update or remove the matching entry.
 
 ## Resolved
 
+### String equality was pointer identity (2026-07-16)
+- Resolved in C4e: String `==`/`!=` use null-safe `strcmp`; class stays pointer identity.
+
 ### Interfaces unique by simple name (2026-07-16)
 - Resolved in C4d: multi-key iface table + package-prefixed C mono; loader allows same name across packages; corpus `import/iface_app`.
 

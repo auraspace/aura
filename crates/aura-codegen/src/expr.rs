@@ -218,6 +218,27 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &EmitCtx<'_>) -> String {
             emit_expr(&f.expr, ctx)
         }
         Expr::Binary(b) => {
+            let left = emit_expr(&b.left, ctx);
+            let right = emit_expr(&b.right, ctx);
+            // C4e: String content equality (null-safe strcmp); class stays pointer identity.
+            if matches!(b.op, BinOp::Eq | BinOp::Ne) {
+                let lt = resolve_type_name(&b.left, ctx);
+                let rt = resolve_type_name(&b.right, ctx);
+                let is_string = matches!(lt.as_deref(), Some("String"))
+                    || matches!(rt.as_deref(), Some("String"))
+                    || matches!((&*b.left, &*b.right), (Expr::String(_), _) | (_, Expr::String(_)));
+                if is_string {
+                    // Both non-null and equal content, or both null.
+                    let cmp = format!(
+                        "(({left}) == NULL ? ({right}) == NULL : (({right}) != NULL && strcmp(({left}), ({right})) == 0))"
+                    );
+                    return if matches!(b.op, BinOp::Ne) {
+                        format!("!({cmp})")
+                    } else {
+                        cmp
+                    };
+                }
+            }
             let op = match b.op {
                 BinOp::Add => "+",
                 BinOp::Sub => "-",
@@ -233,8 +254,6 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &EmitCtx<'_>) -> String {
                 BinOp::And => "&&",
                 BinOp::Or => "||",
             };
-            let left = emit_expr(&b.left, ctx);
-            let right = emit_expr(&b.right, ctx);
             // C3q: comparisons without outer parens so `if (x == y)` is not
             // `if ((x == y))` (clang -Wparentheses-equality). Arithmetic/logic
             // keep grouping parens for precedence.

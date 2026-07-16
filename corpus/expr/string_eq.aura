@@ -1,0 +1,17 @@
+// C4e — String == is content equality (not pointer identity)
+package demo.expr
+
+fun main() {
+  val a: String = "hi"
+  val b: String = "hi"
+  val c: String = "no"
+  if (a == b) {
+    println("eq")
+  }
+  if (a != c) {
+    println("ne")
+  }
+  if ("x" == "x") {
+    println("lit")
+  }
+}
