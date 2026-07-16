@@ -38,6 +38,13 @@ async function main() {
   })
 
   try {
+    const { ensureHighlighter } = (await vite.ssrLoadModule(
+      '/src/lib/highlight.ts',
+    )) as {
+      ensureHighlighter: () => Promise<unknown>
+    }
+    await ensureHighlighter()
+
     const { render } = (await vite.ssrLoadModule(
       '/src/entry-server.tsx',
     )) as {
@@ -48,10 +55,18 @@ async function main() {
     )) as {
       getAllRfcs: () => { id: string }[]
     }
+    const { getAllGuides } = (await vite.ssrLoadModule(
+      '/src/lib/docs/load-guides.ts',
+    )) as {
+      getAllGuides: () => { slug: string }[]
+    }
 
     const rfcs = getAllRfcs()
+    const guides = getAllGuides()
     const routes = [
       '/',
+      '/docs',
+      ...guides.map((g) => `/docs/${g.slug}`),
       '/rfc',
       '/rfc/graph',
       ...rfcs.map((r) => `/rfc/${r.id}`),

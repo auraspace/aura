@@ -8,9 +8,13 @@ export function NotFoundPage() {
         Not found
       </h1>
       <p className="mt-2 text-muted">That page does not exist.</p>
-      <p className="mt-6">
+      <p className="mt-6 flex flex-wrap gap-4">
         <Link to="/" className="btn-ghost">
           Back home
+          <span aria-hidden="true">→</span>
+        </Link>
+        <Link to="/docs" className="btn-ghost">
+          Docs
           <span aria-hidden="true">→</span>
         </Link>
       </p>

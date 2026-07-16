@@ -48,6 +48,9 @@ export function Header() {
           <Link to={{ pathname: '/', hash: 'features' }} className="navlink">
             Features
           </Link>
+          <Link to="/docs" className="navlink">
+            Docs
+          </Link>
           <Link to="/rfc" className="navlink">
             RFCs
           </Link>
@@ -69,10 +72,10 @@ export function Header() {
         <div className="flex items-center gap-3">
           <ThemeToggle />
           <Link
-            to="/rfc"
+            to="/docs"
             className="hidden rounded-full bg-fg px-4 py-2 text-[13px] font-medium text-bg no-underline transition-colors hover:bg-accent-deep hover:text-card md:inline-block"
           >
-            Read RFCs
+            Read docs
           </Link>
         </div>
       </div>

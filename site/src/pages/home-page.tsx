@@ -217,8 +217,8 @@ export function HomePage() {
 
               <Reveal onMount y={10} delay={0.26}>
                 <div className="mt-9 flex flex-wrap items-center gap-4">
-                  <Link to="/rfc/000" className="btn-primary">
-                    Read the vision
+                  <Link to="/docs" className="btn-primary">
+                    Read the docs
                     <IconArrowRight size={16} stroke={1.75} aria-hidden />
                   </Link>
                   <Link to="/rfc" className="btn-ghost">
@@ -461,18 +461,22 @@ export function HomePage() {
           <div className="home-section">
             <Reveal y={16}>
               <div className="lift-md rounded-[28px] border border-border-strong bg-card px-8 py-12 text-center md:px-16 md:py-16">
-                <p className="eyebrow">Start with the paper trail</p>
+                <p className="eyebrow">Start here</p>
                 <h2 className="mx-auto mt-4 max-w-[640px] font-display text-[32px] leading-[1.12] font-medium tracking-tight text-balance md:text-[44px]">
-                  Learn the language the way it was designed —
+                  Learn with the guides,
                   <span className="italic text-muted">
                     {' '}
-                    decision by decision.
+                    design with the RFCs.
                   </span>
                 </h2>
                 <div className="mt-9 flex flex-wrap items-center justify-center gap-4">
-                  <Link to="/rfc" className="btn-primary">
-                    Open the RFC catalog
+                  <Link to="/docs" className="btn-primary">
+                    Open the docs
                     <IconArrowRight size={16} stroke={1.75} aria-hidden />
+                  </Link>
+                  <Link to="/rfc" className="btn-ghost">
+                    RFC catalog
+                    <IconArrowRight size={15} stroke={1.75} aria-hidden />
                   </Link>
                   <a
                     href="https://github.com/auraspace/aura"
@@ -499,6 +503,9 @@ export function HomePage() {
               MIT license · Spec-driven language & toolchain
             </p>
             <nav className="flex flex-wrap gap-5">
+              <Link to="/docs" className="navlink">
+                Docs
+              </Link>
               <Link to="/rfc" className="navlink">
                 RFCs
               </Link>

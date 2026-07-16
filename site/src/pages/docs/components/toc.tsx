@@ -1,5 +1,5 @@
 import { HeadingLabel } from '@/components/markdown/heading-label'
-import type { Heading } from '@/lib/rfc/types'
+import type { GuideHeading } from '@/lib/docs'
 
 function scrollToId(id: string) {
   const el = document.getElementById(id)
@@ -9,22 +9,20 @@ function scrollToId(id: string) {
   return true
 }
 
-export function Toc({ headings }: { headings: Heading[] }) {
+export function DocsToc({ headings }: { headings: GuideHeading[] }) {
   if (!headings.length) return null
 
   return (
     <nav
-      className="sticky top-16 max-h-[calc(100vh-5rem)] overflow-auto rounded-lg border border-border bg-card px-4 py-3 text-sm"
-      aria-label="Table of contents"
+      className="sticky top-24 max-h-[calc(100vh-7rem)] overflow-auto rounded-2xl border border-border bg-card px-4 py-3 text-sm"
+      aria-label="On this page"
     >
-      <p className="mb-2 text-xs font-semibold tracking-wide text-muted uppercase">
-        On this page
-      </p>
+      <p className="eyebrow mb-3">On this page</p>
       <ul className="m-0 list-none p-0">
         {headings.map((h, index) => (
           <li
             key={`${h.id}-${index}`}
-            className={h.depth === 3 ? 'my-1 pl-3 text-xs text-muted' : 'my-1'}
+            className={h.depth === 3 ? 'my-1 pl-3 text-xs text-muted' : 'my-1.5'}
           >
             <a
               href={`#${h.id}`}

@@ -1,4 +1,5 @@
 import GithubSlugger from 'github-slugger'
+import { plainHeadingText } from '@/lib/markdown/heading-text'
 import type { RfcDoc, RfcStatus } from '@/lib/rfc/types'
 import { slugify } from './slugify'
 
@@ -82,8 +83,9 @@ function extractHeadings(markdown: string) {
     if (inFence) continue
     const m = line.match(/^(#{2,3})\s+(.+)$/)
     if (!m) continue
-    const text = m[2].replace(/#+\s*$/, '').trim()
-    headings.push({ depth: m[1].length, text, id: slugger.slug(text) })
+    const text = m[2].replace(/\s+#+\s*$/, '').trim()
+    const plain = plainHeadingText(text)
+    headings.push({ depth: m[1].length, text, id: slugger.slug(plain) })
   }
   return headings
 }

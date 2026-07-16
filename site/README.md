@@ -1,6 +1,6 @@
 # Aura site
 
-Marketing homepage + static docs for Aura RFCs (`docs/rfc/`). Built with Vite + React + Tailwind CSS v4; prerenders HTML for GitHub Pages.
+Marketing homepage, user guide (`docs/guide/` → `/docs`), and RFC catalog (`docs/rfc/` → `/rfc`). Built with Vite + React + Tailwind CSS v4; prerenders HTML for GitHub Pages.
 
 ## Commands
 
@@ -28,12 +28,18 @@ src/
   pages/
     home-page.tsx         # / marketing landing
     not-found-page.tsx
+    docs/                 # /docs user guide
+      hub-page.tsx
+      detail-page.tsx
+      components/
+      index.ts
     rfc/                  # /rfc feature
       catalog-page.tsx
       detail-page.tsx
       graph-page.tsx
       components/         # RFC-only UI
       index.ts
+  lib/docs/               # guide parse + nav
   lib/rfc/                # parse, search, graph, types
   styles/
 ```
@@ -51,6 +57,8 @@ Public URLs (repo `aura`):
 | Path | Page |
 | ---- | ---- |
 | https://auraspace.github.io/aura/ | Marketing homepage |
+| https://auraspace.github.io/aura/docs | User guide hub |
+| https://auraspace.github.io/aura/docs/getting-started | Guide article |
 | https://auraspace.github.io/aura/rfc | RFC catalog |
 | https://auraspace.github.io/aura/rfc/000 | RFC-000 detail |
 | https://auraspace.github.io/aura/rfc/graph | Dependency graph |
@@ -59,4 +67,9 @@ Legacy `/graph` redirects to `/rfc/graph`.
 
 ## Content
 
-RFC markdown stays in `../docs/rfc/RFC-*.md` (read-only). Rebuild the site after editing RFCs.
+| Source | Site route |
+| ------ | ---------- |
+| `../docs/guide/*.md` | `/docs`, `/docs/:slug` |
+| `../docs/rfc/RFC-*.md` | `/rfc`, `/rfc/:id` |
+
+Rebuild the site after editing guide or RFC markdown.

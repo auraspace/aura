@@ -7,7 +7,11 @@ Design documents and specifications for the **Aura** language core and toolchain
 ```
 docs/
 ├── README.md          ← you are here
-├── roadmap.md         ← execution phases (P0–P3, compiler C0–C4t+)
+├── roadmap.md         ← execution phases (P0–P3, compiler C-series)
+├── guide/             ← user-facing docs (site /docs)
+│   ├── introduction.md
+│   ├── getting-started.md
+│   └── …
 ├── rfc/
 │   ├── README.md      ← RFC index, status, dependencies
 │   ├── TEMPLATE.md    ← required template for every new RFC
@@ -23,6 +27,7 @@ docs/
 
 | If you want…                     | Read…                                              |
 | -------------------------------- | -------------------------------------------------- |
+| **User guide (site)**            | [guide/](guide/) → published at `/docs`            |
 | Execution roadmap (phases)       | [roadmap.md](roadmap.md)                           |
 | Vision & design principles       | [RFC-000](rfc/RFC-000-vision-design-principles.md) |
 | Syntax & core language semantics | [RFC-001](rfc/RFC-001-language-specification.md)   |
@@ -30,6 +35,19 @@ docs/
 | Type system                      | [RFC-002](rfc/RFC-002-type-system.md)              |
 | Memory model & concurrency       | [RFC-003](rfc/RFC-003-memory-model-concurrency.md) |
 | Full RFC catalog                 | [rfc/README.md](rfc/README.md)                     |
+
+## User guide pages (`docs/guide/`)
+
+Markdown with simple frontmatter (`title`, `section`, `order`, `summary`). Published by the site as `/docs` and `/docs/:slug`.
+
+Typical sections:
+
+| Section | Examples |
+| ------- | -------- |
+| Start | introduction, getting-started |
+| Language | language-tour, types, classes, control-flow, arrays, cheatsheet |
+| Toolchain | cli, packages, standard-library, testing |
+| Project | roadmap (RFC vs implemented map), FAQ, contributing |
 
 ## Scope
 

@@ -1,12 +1,15 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { Layout } from '@/components/layout'
 import { HomePage } from '@/pages/home-page'
+import { DocsDetailPage, DocsHubPage } from '@/pages/docs'
 import { CatalogPage, DetailPage, GraphPage } from '@/pages/rfc'
 import { NotFoundPage } from '@/pages/not-found-page'
 
 /**
  * Route map:
  *   /              → marketing homepage
+ *   /docs          → guide hub
+ *   /docs/:slug    → guide article
  *   /rfc           → catalog
  *   /rfc/:id       → detail
  *   /rfc/graph     → dependency graph
@@ -17,6 +20,10 @@ export function App() {
     <Routes>
       <Route element={<Layout />}>
         <Route index element={<HomePage />} />
+        <Route path="docs">
+          <Route index element={<DocsHubPage />} />
+          <Route path=":slug" element={<DocsDetailPage />} />
+        </Route>
         <Route path="rfc">
           <Route index element={<CatalogPage />} />
           <Route path="graph" element={<GraphPage />} />

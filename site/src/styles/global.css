@@ -166,8 +166,115 @@
   }
 
   .rfc-article h2,
-  .rfc-article h3 {
+  .rfc-article h3,
+  .docs-article h2,
+  .docs-article h3 {
     scroll-margin-top: 5rem;
+  }
+
+  .docs-article h2 {
+    @apply mt-10 mb-3 font-display text-[1.45rem] font-medium tracking-tight;
+  }
+
+  .docs-article h3 {
+    @apply mt-7 mb-2 font-display text-[1.15rem] font-medium tracking-tight;
+  }
+
+  .docs-article p {
+    @apply my-3;
+  }
+
+  .docs-article ul,
+  .docs-article ol {
+    @apply my-3 pl-5;
+  }
+
+  .docs-article li {
+    @apply my-1;
+  }
+
+  .docs-article blockquote {
+    @apply my-4 border-l-2 border-accent pl-4 text-muted italic;
+  }
+
+  /* Fenced code: toolbar + Shiki */
+  .code-block {
+    @apply overflow-hidden rounded-xl border border-border bg-code;
+  }
+
+  .code-block-toolbar {
+    @apply flex items-center justify-between gap-3 border-b border-border px-3 py-1.5;
+  }
+
+  .code-block-lang {
+    @apply font-mono text-[10px] font-medium tracking-[0.14em] text-ink-muted uppercase;
+  }
+
+  .code-block-copy {
+    @apply inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-border-strong bg-card px-2.5 py-1 font-mono text-[11px] font-medium text-muted transition-colors;
+  }
+
+  .code-block-copy:hover {
+    @apply border-accent text-fg;
+  }
+
+  .code-block-copy:focus-visible {
+    @apply outline-2 outline-offset-2 outline-accent;
+  }
+
+  /* Shiki dual-theme: github-light / github-dark via CSS vars */
+  .shiki-wrap {
+    @apply overflow-x-auto;
+  }
+
+  .code-block .shiki-wrap {
+    @apply my-0 border-0;
+  }
+
+  .shiki-wrap pre.shiki,
+  .rfc-article pre.shiki,
+  .docs-article pre.shiki {
+    @apply m-0 overflow-x-auto rounded-none bg-transparent px-4 py-3 text-[0.85rem] leading-[1.6];
+  }
+
+  .code-block .shiki-wrap pre.shiki {
+    @apply rounded-none;
+  }
+
+  .shiki-wrap code,
+  .rfc-article pre.shiki code,
+  .docs-article pre.shiki code {
+    @apply bg-transparent p-0 text-[0.85rem];
+    font-family: var(--font-mono);
+  }
+
+  html:not([data-theme='dark']) .shiki,
+  html:not([data-theme='dark']) .shiki span {
+    color: var(--shiki-light) !important;
+    background-color: var(--shiki-light-bg) !important;
+    font-style: var(--shiki-light-font-style) !important;
+    font-weight: var(--shiki-light-font-weight) !important;
+    text-decoration: var(--shiki-light-text-decoration) !important;
+  }
+
+  html[data-theme='dark'] .shiki,
+  html[data-theme='dark'] .shiki span {
+    color: var(--shiki-dark) !important;
+    background-color: var(--shiki-dark-bg) !important;
+    font-style: var(--shiki-dark-font-style) !important;
+    font-weight: var(--shiki-dark-font-weight) !important;
+    text-decoration: var(--shiki-dark-text-decoration) !important;
+  }
+
+  .shiki-fallback {
+    @apply bg-code;
+  }
+
+  .line-clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
   }
 
   .rfc-article table {
