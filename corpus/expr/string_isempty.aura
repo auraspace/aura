@@ -1,0 +1,16 @@
+// C4v — String.isEmpty (UTF-8 byte length == 0)
+package demo.expr
+
+fun main() {
+  val empty: String = ""
+  val hi: String = "hi"
+  if (empty.isEmpty()) {
+    println("empty")
+  }
+  if (!hi.isEmpty()) {
+    println("hi")
+  }
+  if ("".isEmpty()) {
+    println("lit")
+  }
+}

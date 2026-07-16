@@ -52,6 +52,9 @@ When you resolve debt, update or remove the matching entry.
 ### Type-param mono edge cases / nested mono (2026-07-16)
 - Resolved in C4u: skip open monomorphs (`Box_T`); expand nested concrete field monomorphs; method/fun return resolve substitutes type args; incomplete C struct forwards for nested mono order. Corpus `generic/nested.aura`.
 
+### No String.isEmpty (2026-07-16)
+- Resolved in C4v: `s.isEmpty()` → true when UTF-8 byte length is 0. Corpus `expr/string_isempty.aura`.
+
 ### No if-expression (2026-07-16)
 - Resolved in C4t: `if`/`else` as expr; branch value = last expression; requires else.
 

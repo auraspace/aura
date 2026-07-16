@@ -89,6 +89,21 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &EmitCtx<'_>) -> String {
         let base = mono_base_name(mono_raw, ctx.checked).unwrap_or(mono_raw);
         let mono = crate::expr::full_type_mono(mono_raw, ctx.checked);
 
+        // C4v: builtin String methods.
+        if mono_raw == "String"
+            || matches!(fe.object.as_ref(), Expr::String(_))
+            || matches!(obj_ty.as_deref(), Some("String"))
+        {
+            if fe.field.name == "isEmpty" {
+                // UTF-8 byte length via strlen; null-safe → true when null (empty-ish MVP).
+                let call = format!("(({obj}) == NULL || ({obj})[0] == '\\0')");
+                if fe.safe {
+                    return format!("(({obj}) == NULL ? true : {call})");
+                }
+                return call;
+            }
+        }
+
         // Builtin Array methods
         if base == "Array" || mono.starts_with("Array_") {
             let mut args = vec![format!("&({obj})")];

@@ -15,7 +15,7 @@ Living plan for docs, language specs, and the Rust toolchain. RFCs remain the de
 | RFC static site (`site/`) | Implemented on `feat/rfc-static-site`; deploy via GitHub Pages Actions |
 | RFC-000 … RFC-013 | **All Accepted** — open questions resolved or Deferred (2026-07-16) |
 | Language MVP | RFC-001 §6.0 + post-C1 surface in roadmap; async/macros/Iterable still deferred in code |
-| Compiler | **C0–C4u done** — through nested mono audit, if-expression, `?.`, Array/String APIs |
+| Compiler | **C0–C4v done** — through nested mono, String.isEmpty, if-expression, Array APIs |
 | Runtime / packages / stdlib | GC free-all MVP + `std.io` / `std.assert`; next GC = STW mark-sweep; tasks/collections deferred |
 
 ## Phases
@@ -107,6 +107,7 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C4s** | Safe call `?.` on nullable receivers | Done |
 | **C4t** | `if` as expression (last branch expr; requires else) | Done |
 | **C4u** | Nested mono audit (open skip, return resolve, C forwards) | Done |
+| **C4v** | `String.isEmpty()` (byte length == 0) | Done |
 | **DX** | line:col diagnostics with snippets | Done |
 
 **Out of scope C0/C1:** generics mono, async/tasks, macros, registry, incremental, LTO.

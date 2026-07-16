@@ -157,9 +157,37 @@ impl Checker {
                 });
             }
 
+            // C4v: builtin String methods.
+            if obj_ty == Ty::String {
+                match fe.field.name.as_str() {
+                    "isEmpty" => {
+                        if !c.args.is_empty() {
+                            return Err(SemaError {
+                                message: format!(
+                                    "`String.isEmpty` expects 0 arguments, got {}",
+                                    c.args.len()
+                                ),
+                                span: c.span,
+                            });
+                        }
+                        return Ok(if safe_wrap {
+                            Ty::Nullable(Box::new(Ty::Bool))
+                        } else {
+                            Ty::Bool
+                        });
+                    }
+                    other => {
+                        return Err(SemaError {
+                            message: format!("unknown method `{other}` on `String`"),
+                            span: fe.field.span,
+                        });
+                    }
+                }
+            }
+
             return Err(SemaError {
                 message: format!(
-                    "method call requires a class, interface, or bounded type parameter, got {}",
+                    "method call requires a class, interface, String, or bounded type parameter, got {}",
                     obj_ty.display()
                 ),
                 span: c.span,
