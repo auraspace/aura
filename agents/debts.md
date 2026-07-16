@@ -79,6 +79,15 @@ When you resolve debt, update or remove the matching entry.
 ### No String.startsWith/contains/endsWith (2026-07-16)
 - Resolved in C5h–C5j: prefix/substring/suffix predicates via strncmp/strstr/suffix strcmp. Corpora `expr/string_starts|contains|ends.aura`.
 
+### Vague assign type mismatch message (2026-07-16)
+- Resolved in C5k: expected/found for assign and annotated init.
+
+### Array non-owner Ident copy (2026-07-16)
+- C5l: still shallow when source is not an owner local (params/fields). Documented; move only for tracked owners (C5b/C5e).
+
+### No gc_collect surface (2026-07-16)
+- Resolved in C5m: builtin `gc_collect()` → `aura_gc_collect`; corpus `class/gc_roots.aura`.
+
 ### Undefined name with no typo hint (2026-07-16)
 - Resolved in C5c: Levenshtein suggestion against locals/funs/types/aliases. Corpus `diag/undefined_typo.aura`. Multi-error collect still deferred.
 

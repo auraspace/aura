@@ -360,6 +360,10 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
             if id.name == "println" && c.args.len() == 1 {
                 return format!("aura_println({})", coerce_expr(&c.args[0], "String", ctx));
             }
+            // C5m: builtin STW GC collect.
+            if id.name == "gc_collect" && c.args.is_empty() {
+                return "aura_gc_collect()".into();
+            }
             // Free function
             let targs: Vec<Ty> = if let Some(inst) = inst {
                 inst.type_args.clone()

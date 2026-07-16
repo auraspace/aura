@@ -122,6 +122,9 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C5h** | `String.startsWith` | Done |
 | **C5i** | `String.contains` | Done |
 | **C5j** | `String.endsWith` | Done |
+| **C5k** | Assign type mismatch expected/found | Done |
+| **C5l** | Document Array non-owner shallow copy | Done |
+| **C5m** | Builtin `gc_collect` + roots corpus | Done |
 | **DX** | line:col diagnostics with snippets | Done |
 
 **Out of scope C0/C1:** generics mono, async/tasks, macros, registry, incremental, LTO.

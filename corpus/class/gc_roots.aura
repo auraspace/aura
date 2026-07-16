@@ -1,0 +1,16 @@
+// C5m — heap class locals are GC roots; collect keeps them alive
+package demo.cls
+
+class Counter(val n: Int) {
+  fun value(): Int {
+    return this.n
+  }
+}
+
+fun main() {
+  val c = Counter(42)
+  gc_collect()
+  if (c.value() == 42) {
+    println("alive")
+  }
+}

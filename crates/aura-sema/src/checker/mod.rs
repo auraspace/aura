@@ -86,6 +86,21 @@ impl Checker {
                 span: Span::new(0, 0),
             }],
         );
+        // C5m: runtime STW collect (roots from codegen C5g).
+        functions.insert(
+            "gc_collect".into(),
+            vec![FunSig {
+                name: "gc_collect".into(),
+                is_pub: true,
+                package: String::new(),
+                is_test: false,
+                type_params: Vec::new(),
+                bounds: HashMap::new(),
+                params: vec![],
+                ret: Ty::Unit,
+                span: Span::new(0, 0),
+            }],
+        );
 
         // Builtin Array<T> (C3j/C4c) — monomorphized; T ∈ primitives or heap class.
         let mut array_methods = HashMap::new();
