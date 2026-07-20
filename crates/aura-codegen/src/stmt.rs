@@ -276,13 +276,8 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
             } else {
                 None
             };
-            // C7c: move out of Array field (`val b = this.items` / `h.items`).
-            let moved_field = if moved_from.is_none() && is_array_type_key(&ty_name) {
-                array_field_move_out_lvalue(&v.init, ctx)
-            } else {
-                None
-            };
-            if moved_from.is_some() || moved_field.is_some() {
+            // C8j: Array field bind is a non-owning view (no move-out). Return still moves (C7c).
+            if moved_from.is_some() {
                 ctx.mark_array_owner(&v.name.name);
             }
             let init = coerce_expr(&v.init, &ty_name, ctx);
@@ -296,9 +291,6 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                     "{p}{src_m}.data = NULL; {src_m}.len = 0; {src_m}.cap = 0;"
                 );
                 ctx.unmark_array_owner(&src);
-            }
-            if let Some(lv) = moved_field {
-                let _ = writeln!(out, "{p}{lv}.data = NULL; {lv}.len = 0; {lv}.cap = 0;");
             }
             // C5g: heap-class locals are GC roots until scope exit.
             let mono = full_type_mono(&ty_name, ctx.checked);

@@ -445,20 +445,8 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
                         );
                     }
                 }
-                // C7c: move out of Array field into local/field assign.
-                if let Some(lv) = array_field_move_out_lvalue(&a.value, ctx) {
-                    let free_dst = if dst_is_field || ctx.is_array_owner(dst_name) {
-                        free_array_lvalue(&lhs)
-                    } else {
-                        String::new()
-                    };
-                    if !dst_is_field {
-                        ctx.mark_array_owner(dst_name);
-                    }
-                    return format!(
-                        "({{ {free_dst}({lhs} = {rhs}); {lv}.data = NULL; {lv}.len = 0; {lv}.cap = 0; }})"
-                    );
-                }
+                // C8j: Array field assign is a non-owning shallow copy (no move-out).
+                // Deep ownership transfer remains on return (C7c) and local-to-local moves.
             }
             format!("({lhs} = {rhs})")
         }

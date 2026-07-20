@@ -34,13 +34,13 @@ fun main() {
     println("ok")
   }
 
-  // binding from field also moves
+  // C8j: binding from field is a non-owning view (field keeps buffer)
   val c: Array<Int> = Array(1)
   c.set(0, 99)
   val h2 = Holder(c)
   val d = h2.items
-  if (h2.len() == 0) {
-    println("h2e")
+  if (h2.len() == 1) {
+    println("h2k")
   }
   if (d.get(0) == 99) {
     println("d99")
