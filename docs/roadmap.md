@@ -10,13 +10,13 @@ Living plan for docs, language specs, and the Rust toolchain. RFCs remain the de
 
 ## Status snapshot
 
-| Track                       | Status                                                                                 |
-| --------------------------- | -------------------------------------------------------------------------------------- |
-| RFC static site (`site/`)   | Implemented; Cloudflare Pages → **https://aura.fadosoft.com**                          |
-| RFC-000 … RFC-013           | **All Accepted** — open questions resolved or Deferred (2026-07-16)                    |
-| Language MVP                | RFC-001 §6.0 + post-C1 surface; Iterable protocol (C6c) partial; async/macros deferred |
-| Compiler                    | **C0–C7d in progress** — C7a–c opt/GC field/move-out Done; C7e–j open                  |
-| Runtime / packages / stdlib | GC dtor/mark Array fields; `std.io` / `assert` / Map; Set + generic Map deferred       |
+| Track                       | Status                                                                                  |
+| --------------------------- | --------------------------------------------------------------------------------------- |
+| RFC static site (`site/`)   | Implemented; Cloudflare Pages → **https://aura.fadosoft.com**                           |
+| RFC-000 … RFC-013           | **All Accepted** — open questions resolved or Deferred (2026-07-16)                     |
+| Language MVP                | RFC-001 §6.0 + post-C1; generic iface mono (C8c); Iterable (C8d); async/macros deferred |
+| Compiler                    | **C0–C8l Done** — C8c–l generic iface, nested Array, collections, lock schema           |
+| Runtime / packages / stdlib | GC + nested Array free; Map/Set/HashMap; path lock + registry schema v0                 |
 
 ## Phases
 
@@ -146,16 +146,28 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C7h**   | Array-of-interface decision (reject MVP vs fat ptr)                | Done                                       |
 | **C7i**   | Generic interfaces foundation (parse; implements mono deferred)    | Done                                       |
 | **C7j**   | Array element drop: document defer (buffer-only free)              | Done                                       |
+| **C8a**   | Generic `Map<K,V>`                                                 | Done                                       |
+| **C8b**   | Path lock existence check + registry spike note                    | Done                                       |
+| **C8c**   | Generic interface implements mono (`: Iface<T>`)                   | Done                                       |
+| **C8d**   | `std.collections` `Iterable<E>` + for-in                           | Done                                       |
+| **C8e**   | Nested `Array<Array<T>>` mono                                      | Done                                       |
+| **C8f**   | Free nested Array element buffers                                  | Done                                       |
+| **C8g**   | Generic `Set<T>`                                                   | Done                                       |
+| **C8h**   | for-in over Map.keys / Set                                         | Done                                       |
+| **C8i**   | `HashMap` String→Int open addressing                               | Done                                       |
+| **C8j**   | Non-destructive Array field bind                                   | Done                                       |
+| **C8k**   | `aura.lock` registry schema v0                                     | Done                                       |
+| **C8l**   | Close C8c–C8l batch (roadmap/debts/plan)                           | Done                                       |
 | **DX**    | line:col diagnostics with snippets                                 | Done                                       |
 
 **Out of scope C0/C1:** generics mono, async/tasks, macros, registry, incremental, LTO.
 
 ### P3 — Expand (after hello)
 
-1. ~~Language surface C2–C6j~~ → C7a–d Done; next C7e–j (Set, Map API, decl multi-error, iface Array, generic Iterable, elem drop)
-2. Runtime: ~~alloc/GC + deep mark/sweep + class heap refs + Array field dtor/mark~~ → channels/tasks
-3. Toolchain: ~~minimal `aura.toml` + path deps + path lock (incl. transitive)~~ → registry (RFC-005)
-4. Stdlib: ~~std.io + auto-prelude + std.assert + Map String→Int~~ → Set; generic Map later
+1. ~~Language surface C2–C8l~~ → next: generic class implements, true borrow, Array-of-iface post-MVP
+2. Runtime: ~~alloc/GC + deep mark/sweep + nested Array free~~ → channels/tasks
+3. Toolchain: ~~path deps + path lock + registry lock schema~~ → registry client / semver (RFC-005)
+4. Stdlib: ~~io + assert + Map/Set/HashMap + Iterable~~ → HashMap resize; richer collections
 5. Cross targets + signed releases
 
 Write Wave 2–4 RFCs **as implementation needs them**, not all up front.
