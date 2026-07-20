@@ -176,8 +176,11 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                     .unwrap_or_else(|| local_key_to_c(&ty_name, ctx.checked));
             // Store package mono key so method dispatch picks the right C symbol (C3v).
             ctx.define_local(&v.name.name, full_type_mono(&ty_name, ctx.checked));
-            // C3t: locals initialized from `Array(...)` own the heap buffer.
-            if is_array_type_key(&ty_name) && is_array_ctor_expr(&v.init) {
+            // C3t: locals from `Array(...)` own the heap buffer.
+            // C6d: call/return results that are Array also transfer ownership to the binding.
+            if is_array_type_key(&ty_name)
+                && (is_array_ctor_expr(&v.init) || matches!(&v.init, Expr::Call(_)))
+            {
                 ctx.mark_array_owner(&v.name.name);
             }
             // C5b: move ownership on `val b = a` when `a` owns an Array buffer.

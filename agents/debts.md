@@ -7,13 +7,13 @@ When you resolve debt, update or remove the matching entry.
 
 ## Open
 
-### `Array` shallow-copy free unsound (fields / return bind)
+### `Array` shallow-copy free unsound (fields)
 
-- Area: builtin Array free (C3t/C4r/C5b/C5e/C6b)
-- Symptom: C6b moves into params; bind/assign move; **fields** and **return-value bindings** still shallow / non-owner
+- Area: builtin Array free (C3t/C4r/C5b/C5e/C6b/C6d)
+- Symptom: bind/assign/params/return-call own; **fields** still shallow-copy
 - Why deferred: full move/borrow system
-- Next step: C6d return ownership; C6i field ownership
-- Introduced: C3j; free C3t; reassign C4r; move bind C5b; assign C5e; params C6b
+- Next step: C6i field ownership
+- Introduced: C3j; free C3t; reassign C4r; move bind C5b; assign C5e; params C6b; return C6d
 
 ### No registry / version resolve (path lock only)
 
@@ -63,7 +63,11 @@ When you resolve debt, update or remove the matching entry.
 
 ### Array params not owners (2026-07-20)
 
-- Resolved in C6b (partial): Array params own buffer; call site moves from owner idents. Corpus `generic/array_param_move.aura`. Fields/return bind still Open.
+- Resolved in C6b (partial): Array params own buffer; call site moves from owner idents. Corpus `generic/array_param_move.aura`. Fields still Open.
+
+### Array return binding not owner (2026-07-20)
+
+- Resolved in C6d: `val b = f()` / assign from call that yields Array marks binding owner; free old on reassignment. Corpus `generic/array_return_own.aura`.
 
 ### `for-in` has no Iterable protocol (duck only) (2026-07-20)
 

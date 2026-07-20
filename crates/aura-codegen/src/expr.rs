@@ -3,8 +3,8 @@
 use aura_ast::*;
 use aura_sema::{nominal_key, CheckedFile, Ty};
 
-use crate::ctx::EmitCtx;
 use crate::call_emit::emit_call;
+use crate::ctx::EmitCtx;
 use crate::names::*;
 
 pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
@@ -101,8 +101,7 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
                         .and_then(|c| c.methods.iter().find(|m| m.name.name == fe.field.name))
                     {
                         if let Some(rt) = &m.return_type {
-                            let (ps, as_) = if let Some((_, args)) =
-                                mono_split(&mono, ctx.checked)
+                            let (ps, as_) = if let Some((_, args)) = mono_split(&mono, ctx.checked)
                             {
                                 let params: Vec<String> = ctx
                                     .checked
@@ -111,10 +110,7 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
                                     .iter()
                                     .find(|c| c.name.name == base)
                                     .map(|c| {
-                                        c.type_params
-                                            .iter()
-                                            .map(|p| p.name.name.clone())
-                                            .collect()
+                                        c.type_params.iter().map(|p| p.name.name.clone()).collect()
                                     })
                                     .unwrap_or_default();
                                 (params, args.to_vec())
@@ -174,12 +170,7 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
                             .classes
                             .iter()
                             .find(|c| c.name.name == base)
-                            .map(|c| {
-                                c.type_params
-                                    .iter()
-                                    .map(|p| p.name.name.clone())
-                                    .collect()
-                            })
+                            .map(|c| c.type_params.iter().map(|p| p.name.name.clone()).collect())
                             .unwrap_or_default();
                         (params, args.to_vec())
                     } else {
@@ -190,17 +181,15 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
             }
             "String".into()
         }
-        Expr::Ident(i) => ctx
-            .lookup_local(&i.name)
-            .unwrap_or("Int")
-            .to_string(),
+        Expr::Ident(i) => ctx.lookup_local(&i.name).unwrap_or("Int").to_string(),
         Expr::This(_) => ctx.method_class.unwrap_or("Int").to_string(),
         Expr::Group(inner, _) => infer_type_name(inner, ctx),
         Expr::Assign(a) => infer_type_name(&a.value, ctx),
         Expr::Unary(UnaryExpr { op: UnOp::Not, .. }) => "Bool".into(),
         Expr::ForceUnwrap(f) => infer_type_name(&f.expr, ctx),
         Expr::Binary(BinaryExpr {
-            op: BinOp::Lt
+            op:
+                BinOp::Lt
                 | BinOp::Le
                 | BinOp::Gt
                 | BinOp::Ge
@@ -223,22 +212,13 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
     }
 }
 
-
-
-
 pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
     match expr {
         Expr::Ident(i) => {
             // Inside method: bare field names → this->field
             if let Some(class) = ctx.method_class {
                 let base = mono_base_name(class, ctx.checked).unwrap_or(class);
-                if let Some(cl) = ctx
-                    .checked
-                    .ast
-                    .classes
-                    .iter()
-                    .find(|c| c.name.name == base)
-                {
+                if let Some(cl) = ctx.checked.ast.classes.iter().find(|c| c.name.name == base) {
                     if cl.fields.iter().any(|f| f.name.name == i.name) {
                         return format!("this->{}", mangle_ident(&i.name));
                     }
@@ -282,7 +262,10 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
                 let rt = resolve_type_name(&b.right, ctx);
                 let is_string = matches!(lt.as_deref(), Some("String"))
                     || matches!(rt.as_deref(), Some("String"))
-                    || matches!((&*b.left, &*b.right), (Expr::String(_), _) | (_, Expr::String(_)));
+                    || matches!(
+                        (&*b.left, &*b.right),
+                        (Expr::String(_), _) | (_, Expr::String(_))
+                    );
                 if is_string {
                     // Both non-null and equal content, or both null.
                     let cmp = format!(
@@ -325,13 +308,7 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
             // field assign in method for bare field name
             let lhs = if let Some(class) = ctx.method_class {
                 let base = mono_base_name(class, ctx.checked).unwrap_or(class);
-                if let Some(cl) = ctx
-                    .checked
-                    .ast
-                    .classes
-                    .iter()
-                    .find(|c| c.name.name == base)
-                {
+                if let Some(cl) = ctx.checked.ast.classes.iter().find(|c| c.name.name == base) {
                     if cl.fields.iter().any(|f| f.name.name == a.name.name) {
                         format!("this->{}", mangle_ident(&a.name.name))
                     } else {
@@ -349,16 +326,20 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
             let dst_is_array = dst_ty
                 .map(|t| t == "Array" || t.starts_with("Array_"))
                 .unwrap_or(false);
-            // C4r: free previous Array buffer when reassigning an owning local from Array(...).
-            let is_ctor = matches!(
-                a.value.as_ref(),
-                Expr::Call(c) if matches!(c.callee.as_ref(), Expr::Ident(id) if id.name == "Array")
-            );
-            if ctx.is_array_owner(dst_name) && is_ctor {
+            // C4r/C6d: free previous Array buffer when reassigning an owning local from
+            // Array(...) or any call that transfers an Array result.
+            let is_array_call = matches!(a.value.as_ref(), Expr::Call(_));
+            if dst_is_array && is_array_call {
                 let n = mangle_ident(dst_name);
-                return format!(
-                    "({{ if (({n}).data != NULL) {{ free(({n}).data); ({n}).data = NULL; ({n}).len = 0; ({n}).cap = 0; }} ({lhs} = {rhs}); }})"
-                );
+                let free_dst = if ctx.is_array_owner(dst_name) {
+                    format!(
+                        "if (({n}).data != NULL) {{ free(({n}).data); ({n}).data = NULL; ({n}).len = 0; ({n}).cap = 0; }} "
+                    )
+                } else {
+                    String::new()
+                };
+                ctx.mark_array_owner(dst_name);
+                return format!("({{ {free_dst}({lhs} = {rhs}); }})");
             }
             // C5e: move ownership on `b = a` when `a` owns an Array buffer.
             if dst_is_array {
@@ -404,10 +385,12 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
             // `this` is already a pointer; emit This as (*this) so `.` still works.
             let use_arrow = match f.object.as_ref() {
                 Expr::This(_) => false,
-                _ => resolve_type_name(&f.object, ctx)
-                    .map(|t| is_heap_class_mono(&full_type_mono(&t, ctx.checked), ctx.checked))
-                    .unwrap_or(false)
-                    || f.safe, // C4s: nullable class receivers are pointers
+                _ => {
+                    resolve_type_name(&f.object, ctx)
+                        .map(|t| is_heap_class_mono(&full_type_mono(&t, ctx.checked), ctx.checked))
+                        .unwrap_or(false)
+                        || f.safe
+                } // C4s: nullable class receivers are pointers
             };
             let access = if use_arrow {
                 format!("({obj})->{}", mangle_ident(&f.field.name))
@@ -452,7 +435,10 @@ pub(crate) fn mono_base_name<'a>(mono: &'a str, checked: &'a CheckedFile) -> Opt
 
 /// Resolve monomorphized key → (`SimpleName`, type args).
 /// Understands C3v package-prefixed monos (`demo_counter_Counter`, `t_Box_String`).
-pub(crate) fn mono_split<'a>(mono: &'a str, checked: &'a CheckedFile) -> Option<(&'a str, &'a [Ty])> {
+pub(crate) fn mono_split<'a>(
+    mono: &'a str,
+    checked: &'a CheckedFile,
+) -> Option<(&'a str, &'a [Ty])> {
     if mono == "Array" || mono.starts_with("Array_") {
         if mono == "Array" {
             return Some(("Array", &[]));
@@ -601,13 +587,7 @@ pub(crate) fn type_ref_to_ty(t: &TypeRef, ctx: &EmitCtx<'_>) -> Option<Ty> {
         "String" => Some(Ty::String),
         "Unit" => Some(Ty::Unit),
         name => {
-            if let Some(c) = ctx
-                .checked
-                .ast
-                .classes
-                .iter()
-                .find(|c| c.name.name == name)
-            {
+            if let Some(c) = ctx.checked.ast.classes.iter().find(|c| c.name.name == name) {
                 let pkg = class_decl_package(c, ctx.checked);
                 return Some(Ty::Class(nominal_key(&pkg, name)));
             }
@@ -629,9 +609,12 @@ pub(crate) fn type_ref_to_ty(t: &TypeRef, ctx: &EmitCtx<'_>) -> Option<Ty> {
 fn expected_iface_mono(expected_ty: &str, checked: &CheckedFile) -> Option<String> {
     // expected may be simple name, mono, or local key.
     let im = iface_mono_from_key(expected_ty, checked);
-    if checked.ast.interfaces.iter().any(|i| {
-        iface_mono(i, checked) == im || i.name.name == expected_ty
-    }) {
+    if checked
+        .ast
+        .interfaces
+        .iter()
+        .any(|i| iface_mono(i, checked) == im || i.name.name == expected_ty)
+    {
         Some(im)
     } else {
         None
@@ -658,9 +641,12 @@ pub(crate) fn coerce_expr(expr: &Expr, expected_ty: &str, ctx: &mut EmitCtx<'_>)
         let class_mono = full_type_mono(&from, ctx.checked);
         let base = mono_base_name(&class_mono, ctx.checked).unwrap_or(from.as_str());
         if class_mono != imono
-            && ctx.checked.ast.classes.iter().any(|c| {
-                c.name.name == base && c.implements.iter().any(|i| i.name == iface_simple)
-            })
+            && ctx
+                .checked
+                .ast
+                .classes
+                .iter()
+                .any(|c| c.name.name == base && c.implements.iter().any(|i| i.name == iface_simple))
         {
             return format!("{}({code})", c_upcast_name(&class_mono, &imono));
         }
@@ -668,16 +654,9 @@ pub(crate) fn coerce_expr(expr: &Expr, expected_ty: &str, ctx: &mut EmitCtx<'_>)
     // Constructor expr Greeter(...) inferred as class, expected interface
     if let Expr::Call(c) = expr {
         if let Expr::Ident(id) = c.callee.as_ref() {
-            if let Some(cl) = ctx
-                .checked
-                .ast
-                .classes
-                .iter()
-                .find(|cl| {
-                    cl.name.name == id.name
-                        && cl.implements.iter().any(|i| i.name == iface_simple)
-                })
-            {
+            if let Some(cl) = ctx.checked.ast.classes.iter().find(|cl| {
+                cl.name.name == id.name && cl.implements.iter().any(|i| i.name == iface_simple)
+            }) {
                 let pkg = class_decl_package(cl, ctx.checked);
                 let cmono = type_mono(&pkg, &id.name, &[]);
                 return format!("{}({code})", c_upcast_name(&cmono, &imono));
@@ -717,14 +696,12 @@ pub(crate) fn resolve_type_name(expr: &Expr, ctx: &EmitCtx<'_>) -> Option<String
                     .find(|x| x.name.name == id.name)
                 {
                     let inst = ctx.checked.call_instantiations.get(&c.span.start);
-                    let targs: Vec<Ty> = inst
-                        .map(|i| i.type_args.clone())
-                        .unwrap_or_else(|| {
-                            c.type_args
-                                .iter()
-                                .filter_map(|t| type_ref_to_ty(t, ctx))
-                                .collect()
-                        });
+                    let targs: Vec<Ty> = inst.map(|i| i.type_args.clone()).unwrap_or_else(|| {
+                        c.type_args
+                            .iter()
+                            .filter_map(|t| type_ref_to_ty(t, ctx))
+                            .collect()
+                    });
                     let pkg = inst
                         .map(|i| i.package.as_str())
                         .filter(|p| !p.is_empty())
@@ -770,17 +747,10 @@ pub(crate) fn resolve_type_name(expr: &Expr, ctx: &EmitCtx<'_>) -> Option<String
                     .or_else(|| resolve_class_of_expr(&fe.object, ctx).map(|s| s.to_string()))
                 {
                     let base = mono_base_name(&recv, ctx.checked).unwrap_or(recv.as_str());
-                    if let Some(class) = ctx
-                        .checked
-                        .ast
-                        .classes
-                        .iter()
-                        .find(|c| c.name.name == base)
+                    if let Some(class) =
+                        ctx.checked.ast.classes.iter().find(|c| c.name.name == base)
                     {
-                        if let Some(m) = class
-                            .methods
-                            .iter()
-                            .find(|m| m.name.name == fe.field.name)
+                        if let Some(m) = class.methods.iter().find(|m| m.name.name == fe.field.name)
                         {
                             if let Some(rt) = &m.return_type {
                                 let (ps, as_) =
@@ -792,8 +762,7 @@ pub(crate) fn resolve_type_name(expr: &Expr, ctx: &EmitCtx<'_>) -> Option<String
                                             .collect();
                                         (params, args.to_vec())
                                     } else if !ctx.type_args.is_empty()
-                                        && class.name.name
-                                            == ctx.method_class.unwrap_or("")
+                                        && class.name.name == ctx.method_class.unwrap_or("")
                                     {
                                         (ctx.type_params.clone(), ctx.type_args.clone())
                                     } else {
@@ -839,10 +808,7 @@ pub(crate) fn resolve_type_name(expr: &Expr, ctx: &EmitCtx<'_>) -> Option<String
                 .classes
                 .iter()
                 .find(|c| c.name.name == base)?;
-            let field = class
-                .fields
-                .iter()
-                .find(|x| x.name.name == f.field.name)?;
+            let field = class.fields.iter().find(|x| x.name.name == f.field.name)?;
             let params: Vec<String> = class
                 .type_params
                 .iter()
@@ -850,8 +816,7 @@ pub(crate) fn resolve_type_name(expr: &Expr, ctx: &EmitCtx<'_>) -> Option<String
                 .collect();
             // When `this` is the open mono instance, args come from mono_split;
             // empty args on a generic class falls back to the current emit substitution.
-            let (ps, as_) = if args.is_empty() && !params.is_empty() && !ctx.type_args.is_empty()
-            {
+            let (ps, as_) = if args.is_empty() && !params.is_empty() && !ctx.type_args.is_empty() {
                 (ctx.type_params.clone(), ctx.type_args.clone())
             } else {
                 (params, args.to_vec())

@@ -15,7 +15,7 @@ Living plan for docs, language specs, and the Rust toolchain. RFCs remain the de
 | RFC static site (`site/`)   | Implemented; deploy via GitHub Pages Actions                                           |
 | RFC-000 … RFC-013           | **All Accepted** — open questions resolved or Deferred (2026-07-16)                    |
 | Language MVP                | RFC-001 §6.0 + post-C1 surface; Iterable protocol (C6c) partial; async/macros deferred |
-| Compiler                    | **C0–C6c done** — C6a deep GC mark, C6b Array params, C6c iface Iterable               |
+| Compiler                    | **C0–C6d done** — C6a–C6d GC deep mark, Array own (params/return), iface Iterable      |
 | Runtime / packages / stdlib | GC deep mark+sweep + roots; `std.io` / `std.assert`; tasks/collections deferred        |
 
 ## Phases
@@ -129,7 +129,8 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C6a**   | Deep GC mark (scan object fields for nested GC ptrs)               | Done                                       |
 | **C6b**   | Array move into function/method params                             | Done                                       |
 | **C6c**   | Iterable protocol: `for-in` on iface `len()`+`get(Int)`            | Done                                       |
-| **C6d–j** | Return Array own, Map, enum elems, multi-error, fields…            | Planned                                    |
+| **C6d**   | Array return/call binding owns buffer                              | Done                                       |
+| **C6e–j** | Map, enum elems, multi-error, field Array own…                     | Planned                                    |
 | **DX**    | line:col diagnostics with snippets                                 | Done                                       |
 
 **Out of scope C0/C1:** generics mono, async/tasks, macros, registry, incremental, LTO.

@@ -1,0 +1,39 @@
+// C6d — Array returned from a function transfers ownership to the binding
+package demo.generic
+
+fun make(): Array<Int> {
+  val a: Array<Int> = Array(2)
+  a.set(0, 10)
+  a.set(1, 20)
+  return a
+}
+
+fun id(a: Array<Int>): Array<Int> {
+  return a
+}
+
+fun main() {
+  val b = make()
+  if (b.len == 2) {
+    println("ret")
+  }
+  if (b.get(0) == 10) {
+    println("ok")
+  }
+
+  // move into id, ownership out to c
+  val c = id(b)
+  if (b.len == 0) {
+    println("moved")
+  }
+  if (c.len == 2) {
+    println("id")
+  }
+
+  // reassignment takes ownership of a new return value
+  var d = make()
+  d = make()
+  if (d.get(1) == 20) {
+    println("re")
+  }
+}
