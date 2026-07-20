@@ -3,18 +3,19 @@
   "version": "1.0.0",
   "description": "Aura language — RFCs, docs site, and Rust toolchain",
   "private": true,
+  "packageManager": "pnpm@9.15.9",
   "scripts": {
-    "site:dev": "pnpm --dir site dev",
-    "site:build": "pnpm --dir site build",
-    "site:test": "pnpm --dir site test",
-    "site:preview": "pnpm --dir site preview",
+    "site:dev": "pnpm --filter aura-site dev",
+    "site:build": "pnpm --filter aura-site build",
+    "site:test": "pnpm --filter aura-site test",
+    "site:preview": "pnpm --filter aura-site preview",
+    "site:lint": "pnpm --filter aura-site lint",
     "aura:test": "cargo test --workspace",
     "aura:check-corpus": "bash scripts/check-corpus.sh",
     "aura:hello": "cargo run -q -p aura-cli -- run corpus/hello/main.aura",
-    "test": "pnpm --dir site test && cargo test --workspace"
+    "test": "pnpm --filter aura-site test && cargo test --workspace"
   },
   "keywords": [],
   "author": "",
-  "license": "MIT",
-  "devDependencies": {}
+  "license": "MIT"
 }

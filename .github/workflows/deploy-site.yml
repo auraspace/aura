@@ -31,22 +31,19 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-          cache-dependency-path: site/pnpm-lock.yaml
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Install
-        working-directory: site
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
 
       - name: Test
-        working-directory: site
-        run: pnpm test
+        run: pnpm site:test
 
       - name: Build
-        working-directory: site
         env:
           # Custom domain serves at site root (not /repo/ GitHub Pages prefix).
           VITE_BASE: /
-        run: pnpm build
+        run: pnpm site:build
 
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3

@@ -4,17 +4,25 @@ Marketing homepage, user guide (`docs/guide/` → `/docs`), and RFC catalog (`do
 
 ## Commands
 
+`site/` is a **pnpm workspace package** (`aura-site`) in the monorepo. Install once from the **repo root**:
+
 ```bash
-# from repo root
+pnpm install
+```
+
+Then:
+
+```bash
+# from repo root (recommended)
 pnpm site:dev      # dev server
 pnpm site:test     # unit tests
 pnpm site:build    # production + prerender → site/dist
 pnpm site:preview  # preview dist
 
-# or from site/
-pnpm dev
-pnpm test
-pnpm build
+# or filter / run inside the package
+pnpm --filter aura-site dev
+pnpm --filter aura-site test
+pnpm --filter aura-site build
 ```
 
 ## Source layout

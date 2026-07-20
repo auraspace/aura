@@ -23,7 +23,10 @@ This repository currently holds:
 
 Homepage, user docs, and RFC catalog: **https://aura.fadosoft.com** (Cloudflare Pages).
 
+`site/` is a pnpm workspace package — install from the repo root, then use root scripts:
+
 ```bash
+pnpm install
 pnpm site:dev      # http://localhost:5173
 pnpm site:test
 pnpm site:build

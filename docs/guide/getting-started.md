@@ -63,19 +63,20 @@ Native builds emit C, compile with the system `cc`, and link `runtime/aura_rt.c`
 
 ## More corpus samples
 
-| Command | What it shows |
-| ------- | ------------- |
-| `run corpus/multi` | Multi-file package + `aura.toml` |
-| `test corpus/test/smoke.aura` | `@test` functions |
-| `run corpus/import/app` | Path dependencies |
-| `run corpus/std_io/app` | `std.io.println` |
+| Command                       | What it shows                    |
+| ----------------------------- | -------------------------------- |
+| `run corpus/multi`            | Multi-file package + `aura.toml` |
+| `test corpus/test/smoke.aura` | `@test` functions                |
+| `run corpus/import/app`       | Path dependencies                |
+| `run corpus/std_io/app`       | `std.io.println`                 |
 
 Full list of compiler milestones is in the root [README](https://github.com/auraspace/aura).
 
 ## Docs site (optional)
 
 ```bash
-pnpm site:dev      # http://localhost:5173
+pnpm install        # monorepo workspace (once)
+pnpm site:dev       # http://localhost:5173
 pnpm site:build
 ```
 

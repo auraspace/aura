@@ -35,6 +35,7 @@ Read [RFC-000](/rfc/000) for principles. Use the [RFC catalog](/rfc) and [depend
 ```bash
 cargo test --workspace
 cargo run -p aura-cli -- check corpus/hello/main.aura
+pnpm install          # once, from repo root (site workspace package)
 pnpm site:test
 pnpm site:build
 ```
