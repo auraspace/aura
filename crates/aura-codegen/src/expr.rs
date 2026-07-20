@@ -234,6 +234,21 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
             right,
             ..
         }) => infer_type_name(right, ctx),
+        // C9d: String + String
+        Expr::Binary(BinaryExpr {
+            op: BinOp::Add,
+            left,
+            right,
+            ..
+        }) => {
+            let lt = infer_type_name(left, ctx);
+            let rt = infer_type_name(right, ctx);
+            if lt == "String" && rt == "String" {
+                "String".into()
+            } else {
+                "Int".into()
+            }
+        }
         Expr::If(i) => match i.then_block.stmts.last() {
             Some(Stmt::Expr(e)) => infer_type_name(e, ctx),
             _ => "Int".into(),
@@ -296,6 +311,20 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
                 resolve_type_name(&b.left, ctx).unwrap_or_else(|| infer_type_name(&b.left, ctx));
             let rt =
                 resolve_type_name(&b.right, ctx).unwrap_or_else(|| infer_type_name(&b.right, ctx));
+            // C9d: String + String → heap concat (const char *).
+            if matches!(b.op, BinOp::Add)
+                && (lt == "String" || matches!(b.left.as_ref(), Expr::String(_)))
+                && (rt == "String" || matches!(b.right.as_ref(), Expr::String(_)))
+            {
+                return format!(
+                    "({{ const char *__a = ({left}); const char *__b = ({right}); \
+                     size_t __la = __a ? strlen(__a) : 0; size_t __lb = __b ? strlen(__b) : 0; \
+                     char *__r = (char *)malloc(__la + __lb + 1); \
+                     if (__r == NULL) {{ fputs(\"aura: string concat OOM\\n\", stderr); abort(); }} \
+                     if (__la) memcpy(__r, __a, __la); if (__lb) memcpy(__r + __la, __b, __lb); \
+                     __r[__la + __lb] = '\\0'; (const char *)__r; }})"
+                );
+            }
             // C4e: String content equality (null-safe strcmp); class stays pointer identity.
             if matches!(b.op, BinOp::Coalesce) {
                 // C7a: optional primitives use `.has` / `.value`.

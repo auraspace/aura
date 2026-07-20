@@ -1,0 +1,18 @@
+// C9d — String + String concatenation
+package demo.expr
+
+fun main() {
+  val a = "hello"
+  val b = " world"
+  val c = a + b
+  if (c == "hello world") {
+    println("ok")
+  }
+  if (("x" + "y") == "xy") {
+    println("lit")
+  }
+  val d = a + "!"
+  if (d == "hello!") {
+    println("mix")
+  }
+}

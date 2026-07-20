@@ -322,7 +322,24 @@ impl Checker {
                 let l = self.check_expr(&b.left)?;
                 let r = self.check_expr(&b.right)?;
                 match b.op {
-                    BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem => {
+                    BinOp::Add => {
+                        // C9d: String + String → String (heap concat in codegen).
+                        if l == Ty::String && r == Ty::String {
+                            return Ok(Ty::String);
+                        }
+                        if l != Ty::Int || r != Ty::Int {
+                            return Err(SemaError {
+                                message: format!(
+                                    "operator `+` requires Int or String operands, got {} and {}",
+                                    l.display(),
+                                    r.display()
+                                ),
+                                span: b.span,
+                            });
+                        }
+                        Ok(Ty::Int)
+                    }
+                    BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem => {
                         if l != Ty::Int || r != Ty::Int {
                             return Err(SemaError {
                                 message: format!(
