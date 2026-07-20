@@ -3,6 +3,7 @@
 // C7e — Set add/contains/remove
 // C7f — Map remove/clear
 // C8a — Map<K,V> generic (String→Int factory + Int→String mono)
+// C8g — Set<T> generic (String factory + Int mono)
 package demo.stdcollections
 
 import std.collections
@@ -91,5 +92,21 @@ fun main() {
   }
   if (s.len() == 1) {
     println("s1")
+  }
+
+  // C8g: Set<Int>
+  val si = Set<Int>(Array(0))
+  si.add(1)
+  si.add(2)
+  si.add(1)
+  if (si.len() == 2) {
+    println("si2")
+  }
+  if (si.contains(2)) {
+    println("sihas")
+  }
+  si.clear()
+  if (si.isEmpty()) {
+    println("siclr")
   }
 }
