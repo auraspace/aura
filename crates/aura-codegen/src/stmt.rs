@@ -128,15 +128,34 @@ pub(crate) fn emit_block(out: &mut String, block: &Block, indent: usize, ctx: &m
     // C5g: unregister GC roots for heap-class locals in this scope.
     emit_remove_gc_roots(out, indent, &ctx.gc_roots_current());
     // C3t: free Array buffers owned by this block before leaving the scope.
-    emit_free_array_owners(out, indent, &ctx.array_owners_current());
+    emit_free_array_owners(out, indent, ctx, &ctx.array_owners_current());
     ctx.pop_scope();
 }
 
+/// C8f: nested Array elem type key (`Array_Array_Int` → `Array_Int`).
+fn array_elem_key(key: &str) -> Option<&str> {
+    key.strip_prefix("Array_")
+}
+
 /// Free heap buffer of a local `Array` (null-safe; zeros fields).
-pub(crate) fn emit_free_array_local(out: &mut String, indent: usize, name: &str) {
+/// C8f: if elements are Array, free each element's buffer first.
+pub(crate) fn emit_free_array_local(out: &mut String, indent: usize, name: &str, ty_key: &str) {
     let p = pad(indent);
     let n = mangle_ident(name);
     let _ = writeln!(out, "{p}if ({n}.data != NULL) {{");
+    if let Some(elem) = array_elem_key(ty_key) {
+        if is_array_type_key(elem) {
+            let _ = writeln!(
+                out,
+                "{p}  for (int64_t __af = 0; __af < {n}.len; __af++) {{"
+            );
+            let _ = writeln!(
+                out,
+                "{p}    if ({n}.data[__af].data != NULL) {{ free({n}.data[__af].data); {n}.data[__af].data = NULL; }}"
+            );
+            let _ = writeln!(out, "{p}  }}");
+        }
+    }
     let _ = writeln!(out, "{p}  free({n}.data);");
     let _ = writeln!(out, "{p}  {n}.data = NULL;");
     let _ = writeln!(out, "{p}  {n}.len = 0;");
@@ -144,9 +163,15 @@ pub(crate) fn emit_free_array_local(out: &mut String, indent: usize, name: &str)
     let _ = writeln!(out, "{p}}}");
 }
 
-pub(crate) fn emit_free_array_owners(out: &mut String, indent: usize, owners: &[String]) {
+pub(crate) fn emit_free_array_owners(
+    out: &mut String,
+    indent: usize,
+    ctx: &EmitCtx<'_>,
+    owners: &[String],
+) {
     for name in owners {
-        emit_free_array_local(out, indent, name);
+        let ty = ctx.lookup_local(name).unwrap_or("Array");
+        emit_free_array_local(out, indent, name, ty);
     }
 }
 
@@ -543,7 +568,7 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                 None => {
                     emit_remove_array_gc_roots(out, indent, &ctx.array_gc_roots_all());
                     emit_remove_gc_roots(out, indent, &ctx.gc_roots_all());
-                    emit_free_array_owners(out, indent, &ctx.array_owners_all());
+                    emit_free_array_owners(out, indent, ctx, &ctx.array_owners_all());
                     let _ = writeln!(out, "{p}return;");
                 }
                 Some(e) => {
@@ -562,7 +587,7 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                         let _ = writeln!(out, "{p}{};", emit_expr(e, ctx));
                         emit_remove_array_gc_roots(out, indent, &ctx.array_gc_roots_all());
                         emit_remove_gc_roots(out, indent, &ctx.gc_roots_all());
-                        emit_free_array_owners(out, indent, &owners);
+                        emit_free_array_owners(out, indent, ctx, &owners);
                         let _ = writeln!(out, "{p}return;");
                     } else {
                         // Prefer declared return type for C7a opt coercion (`return 1` → Int?).
@@ -585,7 +610,7 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                         }
                         emit_remove_array_gc_roots(out, indent, &ctx.array_gc_roots_all());
                         emit_remove_gc_roots(out, indent, &ctx.gc_roots_all());
-                        emit_free_array_owners(out, indent, &owners);
+                        emit_free_array_owners(out, indent, ctx, &owners);
                         let _ = writeln!(out, "{p}return {tmp};");
                     }
                 }

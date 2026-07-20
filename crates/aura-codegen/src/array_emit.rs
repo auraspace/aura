@@ -79,6 +79,13 @@ pub(crate) fn emit_array_mono(out: &mut String, elem: &Ty, checked: &CheckedFile
     out.push_str("  if (this == NULL || this->data == NULL || i < 0 || i >= this->len) {\n");
     out.push_str("    aura_throw_string(\"Array index out of bounds\");\n");
     out.push_str("  }\n");
+    // C8f: free previous nested Array buffer when overwriting Array-valued elems.
+    if matches!(elem, Ty::ClassApp { name, .. } if aura_sema::split_nominal(name).0 == "Array") {
+        out.push_str("  if (this->data[i].data != NULL) {\n");
+        out.push_str("    free(this->data[i].data);\n");
+        out.push_str("    this->data[i].data = NULL;\n");
+        out.push_str("  }\n");
+    }
     out.push_str("  this->data[i] = v;\n}\n\n");
 
     // push(v) — grow by doubling (min cap 4) via realloc (C3m).
@@ -113,10 +120,23 @@ pub(crate) fn emit_array_mono(out: &mut String, elem: &Ty, checked: &CheckedFile
     out.push_str("}\n\n");
 
     // clear() — set len = 0; keep capacity and buffer (C4f).
+    // C8f: free nested Array element buffers before clearing len.
     let _ = writeln!(out, "void {clear}({c_ty} *this) {{");
     out.push_str("  if (this == NULL) {\n");
     out.push_str("    aura_throw_string(\"Array clear on null\");\n");
     out.push_str("  }\n");
+    if matches!(elem, Ty::ClassApp { name, .. } if aura_sema::split_nominal(name).0 == "Array") {
+        out.push_str("  if (this->data != NULL) {\n");
+        out.push_str("    for (int64_t __i = 0; __i < this->len; __i++) {\n");
+        out.push_str("      if (this->data[__i].data != NULL) {\n");
+        out.push_str("        free(this->data[__i].data);\n");
+        out.push_str("        this->data[__i].data = NULL;\n");
+        out.push_str("        this->data[__i].len = 0;\n");
+        out.push_str("        this->data[__i].cap = 0;\n");
+        out.push_str("      }\n");
+        out.push_str("    }\n");
+        out.push_str("  }\n");
+    }
     out.push_str("  this->len = 0;\n");
     out.push_str("}\n\n");
 

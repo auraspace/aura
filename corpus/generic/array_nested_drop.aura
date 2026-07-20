@@ -1,0 +1,24 @@
+// C8f — free nested Array element buffers on owner drop / clear
+package demo.generic
+
+fun main() {
+  val outer: Array<Array<Int>> = Array(0)
+  val a: Array<Int> = Array(0)
+  a.push(1)
+  a.push(2)
+  outer.push(a)
+  val b: Array<Int> = Array(0)
+  b.push(3)
+  outer.push(b)
+  // clear frees inner buffers then drops len
+  outer.clear()
+  if (outer.len == 0) {
+    println("cleared")
+  }
+  val c: Array<Int> = Array(0)
+  c.push(9)
+  outer.push(c)
+  if (outer.len == 1) {
+    println("repush")
+  }
+}
