@@ -1,6 +1,6 @@
 # Aura site
 
-Marketing homepage, user guide (`docs/guide/` → `/docs`), and RFC catalog (`docs/rfc/` → `/rfc`). Built with Vite + React + Tailwind CSS v4; prerenders HTML for GitHub Pages.
+Marketing homepage, user guide (`docs/guide/` → `/docs`), and RFC catalog (`docs/rfc/` → `/rfc`). Built with Vite + React + Tailwind CSS v4; prerenders HTML for **Cloudflare Pages**.
 
 ## Commands
 
@@ -46,30 +46,55 @@ src/
 
 Scaffold a new section the same way: `pages/<name>/`, optional `pages/<name>/components/`, `lib/<name>/`, then mount under `<Route path="…">` in `app.tsx`.
 
-## GitHub Pages
+## Deploy (Cloudflare Pages)
 
-1. Repo **Settings → Pages → Source: GitHub Actions**
-2. Workflow: `.github/workflows/deploy-site.yml`
-3. Base path is `/<repo-name>/` (set via `VITE_BASE` in CI)
+Production host: **https://aura.fadosoft.com**
 
-Public URLs (repo `aura`):
+Workflow: `.github/workflows/deploy-site.yml` builds with `VITE_BASE=/` and uploads `site/dist` via Wrangler Direct Upload.
 
-| Path | Page |
-| ---- | ---- |
-| https://auraspace.github.io/aura/ | Marketing homepage |
-| https://auraspace.github.io/aura/docs | User guide hub |
-| https://auraspace.github.io/aura/docs/getting-started | Guide article |
-| https://auraspace.github.io/aura/rfc | RFC catalog |
-| https://auraspace.github.io/aura/rfc/000 | RFC-000 detail |
-| https://auraspace.github.io/aura/rfc/graph | Dependency graph |
+### One-time Cloudflare + GitHub setup
+
+1. **Cloudflare API token**
+   - My Profile → API Tokens → Create Token
+   - Template **Edit Cloudflare Workers** (or custom: Account → Cloudflare Pages → Edit)
+   - Save as repo secret `CLOUDFLARE_API_TOKEN`
+
+2. **Account ID**
+   - Cloudflare dashboard → Workers & Pages (or any domain overview) → **Account ID**
+   - Repo secret `CLOUDFLARE_ACCOUNT_ID`
+
+3. **GitHub secrets** (repo **Settings → Secrets and variables → Actions**):
+   - `CLOUDFLARE_API_TOKEN`
+   - `CLOUDFLARE_ACCOUNT_ID`
+
+4. **Custom domain** `aura.fadosoft.com`
+   - After the first successful deploy: Workers & Pages → project **`aura`** → **Custom domains** → Add `aura.fadosoft.com`
+   - DNS: **CNAME** `aura` → `aura.pages.dev` (or the target Cloudflare shows), proxy **ON** if the zone is on Cloudflare
+
+5. Optional: turn off GitHub Pages (Settings → Pages → None) so `*.github.io` stops updating.
+
+Push to `main` (or **Actions → Deploy site → Run workflow**) to publish.
+
+### Public URLs
+
+| Path                                           | Page               |
+| ---------------------------------------------- | ------------------ |
+| https://aura.fadosoft.com/                     | Marketing homepage |
+| https://aura.fadosoft.com/docs                 | User guide hub     |
+| https://aura.fadosoft.com/docs/getting-started | Guide article      |
+| https://aura.fadosoft.com/rfc                  | RFC catalog        |
+| https://aura.fadosoft.com/rfc/000              | RFC-000 detail     |
+| https://aura.fadosoft.com/rfc/graph            | Dependency graph   |
+
+Also available: `https://aura.pages.dev` until the custom domain is live.
 
 Legacy `/graph` redirects to `/rfc/graph`.
 
 ## Content
 
-| Source | Site route |
-| ------ | ---------- |
-| `../docs/guide/*.md` | `/docs`, `/docs/:slug` |
-| `../docs/rfc/RFC-*.md` | `/rfc`, `/rfc/:id` |
+| Source                 | Site route             |
+| ---------------------- | ---------------------- |
+| `../docs/guide/*.md`   | `/docs`, `/docs/:slug` |
+| `../docs/rfc/RFC-*.md` | `/rfc`, `/rfc/:id`     |
 
 Rebuild the site after editing guide or RFC markdown.

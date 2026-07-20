@@ -4,16 +4,16 @@
 
 This repository currently holds:
 
-| Path | Purpose |
-| ---- | ------- |
-| [`docs/guide/`](docs/guide/) | User guide (site `/docs`) |
-| [`docs/rfc/`](docs/rfc/) | Language & toolchain RFCs |
-| [`docs/roadmap.md`](docs/roadmap.md) | Execution phases (P0–P3, compiler C0–C5n) |
-| [`site/`](site/) | Homepage + docs + RFC site (Vite + React) |
-| [`crates/`](crates/) | Rust toolchain (`aura` CLI) — check / build / run / test (C backend) |
-| [`corpus/`](corpus/) | Sample `.aura` programs for the compiler |
-| [`std/`](std/) | Minimal std packages (`io`, `assert`) |
-| [`runtime/`](runtime/) | Linked C runtime (`aura_rt.c`) |
+| Path                                 | Purpose                                                              |
+| ------------------------------------ | -------------------------------------------------------------------- |
+| [`docs/guide/`](docs/guide/)         | User guide (site `/docs`)                                            |
+| [`docs/rfc/`](docs/rfc/)             | Language & toolchain RFCs                                            |
+| [`docs/roadmap.md`](docs/roadmap.md) | Execution phases (P0–P3, compiler C0–C5n)                            |
+| [`site/`](site/)                     | Homepage + docs + RFC site (Vite + React)                            |
+| [`crates/`](crates/)                 | Rust toolchain (`aura` CLI) — check / build / run / test (C backend) |
+| [`corpus/`](corpus/)                 | Sample `.aura` programs for the compiler                             |
+| [`std/`](std/)                       | Minimal std packages (`io`, `assert`)                                |
+| [`runtime/`](runtime/)               | Linked C runtime (`aura_rt.c`)                                       |
 
 **License:** [MIT](LICENSE)
 
@@ -21,7 +21,7 @@ This repository currently holds:
 
 ### Docs site
 
-Homepage, user docs, and RFC catalog: **https://auraspace.github.io/aura/** (GitHub Pages).
+Homepage, user docs, and RFC catalog: **https://aura.fadosoft.com** (Cloudflare Pages).
 
 ```bash
 pnpm site:dev      # http://localhost:5173

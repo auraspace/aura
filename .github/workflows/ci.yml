@@ -76,5 +76,6 @@ jobs:
       - name: Build
         working-directory: site
         env:
-          VITE_BASE: /${{ github.event.repository.name }}/
+          # Match production (Cloudflare custom domain at site root).
+          VITE_BASE: /
         run: pnpm build

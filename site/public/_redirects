@@ -1,0 +1,3 @@
+# SPA fallback for client routes not covered by prerender (Cloudflare Pages).
+# Static files and prerendered HTML take precedence over this rule.
+/*    /index.html   200

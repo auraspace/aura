@@ -1,4 +1,4 @@
-name: Deploy RFC site
+name: Deploy site (Cloudflare Pages)
 
 on:
   push:
@@ -7,47 +7,49 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
+  deployments: write
 
 concurrency:
   group: pages
   cancel-in-progress: true
 
 jobs:
-  build:
+  deploy:
     runs-on: ubuntu-latest
+    name: Build and deploy
     steps:
       - uses: actions/checkout@v4
+
       - uses: pnpm/action-setup@v4
         with:
           version: 9
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
           cache-dependency-path: site/pnpm-lock.yaml
+
       - name: Install
         working-directory: site
         run: pnpm install
+
       - name: Test
         working-directory: site
         run: pnpm test
+
       - name: Build
         working-directory: site
         env:
-          VITE_BASE: /${{ github.event.repository.name }}/
+          # Custom domain serves at site root (not /repo/ GitHub Pages prefix).
+          VITE_BASE: /
         run: pnpm build
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: site/dist
 
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # First deploy creates the project if it does not exist.
+          command: pages deploy site/dist --project-name=aura --branch=main
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}

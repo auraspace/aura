@@ -12,7 +12,7 @@ Living plan for docs, language specs, and the Rust toolchain. RFCs remain the de
 
 | Track                       | Status                                                                                 |
 | --------------------------- | -------------------------------------------------------------------------------------- |
-| RFC static site (`site/`)   | Implemented; deploy via GitHub Pages Actions                                           |
+| RFC static site (`site/`)   | Implemented; Cloudflare Pages → **https://aura.fadosoft.com**                          |
 | RFC-000 … RFC-013           | **All Accepted** — open questions resolved or Deferred (2026-07-16)                    |
 | Language MVP                | RFC-001 §6.0 + post-C1 surface; Iterable protocol (C6c) partial; async/macros deferred |
 | Compiler                    | **C0–C6f done** — C6a–C6d ownership/GC; C6c Iterable; C6f Map                          |
@@ -28,7 +28,7 @@ Living plan for docs, language specs, and the Rust toolchain. RFCs remain the de
 
 - Parse and render RFCs from `docs/rfc/`
 - Prerender static HTML; selective hydration (search, filter, theme, graph)
-- Deploy to GitHub Pages (`VITE_BASE=/aura/`)
+- Deploy to Cloudflare Pages (`VITE_BASE=/`, custom domain `aura.fadosoft.com`)
 
 **Exit:** public URL + green deploy workflow.
 
