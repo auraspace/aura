@@ -28,7 +28,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
 
@@ -52,3 +52,8 @@ jobs:
           # First deploy creates the project if it does not exist.
           command: pages deploy site/dist --project-name=aura --branch=main
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+          # Action auto-detects pnpm from the lockfile, then runs `pnpm add wrangler`
+          # without `-w`, which fails on this workspace root (ERR_PNPM_ADDING_TO_ROOT).
+          # Install wrangler with npm only for this step; project deps stay on pnpm.
+          packageManager: npm
+          wranglerVersion: "4"
