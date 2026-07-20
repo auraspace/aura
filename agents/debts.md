@@ -44,8 +44,8 @@ When you resolve debt, update or remove the matching entry.
 - Area: stdlib / RFC-007
 - Symptom: C6f `Map` String→Int linear (C7a `get` → `Int?`); C7e `Set` String linear; no generic Map/Set, no hash
 - Why deferred: no generic class APIs + hash yet
-- Next step: Map `remove`/`clear` (C7f); generic Map or hash Map
-- Introduced: narrowed after C4h; stub C5a; Map C6f; get C7a; Set C7e
+- Next step: generic Map or hash Map; iteration
+- Introduced: narrowed after C4h; stub C5a; Map C6f; get C7a; Set C7e; remove/clear C7f
 
 ### Generic `Iterable<E>` interface
 

@@ -56,6 +56,30 @@ pub class Map(val keys: Array<String>, val vals: Array<Int>) {
     }
     return false
   }
+
+  /// Remove `k` if present. Returns true if removed.
+  /// Swaps with last entry then pop (order not preserved).
+  pub fun remove(k: String): Bool {
+    for (i in 0..this.keys.len) {
+      if (this.keys.get(i) == k) {
+        val last = this.keys.len - 1
+        if (i != last) {
+          this.keys.set(i, this.keys.get(last))
+          this.vals.set(i, this.vals.get(last))
+        }
+        val _dk = this.keys.pop()
+        val _dv = this.vals.pop()
+        return true
+      }
+    }
+    return false
+  }
+
+  /// Drop all entries.
+  pub fun clear() {
+    this.keys.clear()
+    this.vals.clear()
+  }
 }
 
 /// Empty String→Int map.

@@ -1,6 +1,7 @@
 // C6f — std.collections Map put/getOr/contains
 // C7a — Map.get returns Int?
 // C7e — Set add/contains/remove
+// C7f — Map remove/clear
 package demo.stdcollections
 
 import std.collections
@@ -37,6 +38,20 @@ fun main() {
   val gz = m.get("z")
   if (gz == null) {
     println("getmiss")
+  }
+  if (m.remove("b")) {
+    println("rmb")
+  }
+  if (!m.contains("b")) {
+    println("nob")
+  }
+  if (m.len() == 1) {
+    println("m1")
+  }
+  m.put("c", 3)
+  m.clear()
+  if (m.isEmpty()) {
+    println("mclr")
   }
 
   val s = set()
