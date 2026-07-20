@@ -824,6 +824,37 @@ fun main() {
 }
 
 #[test]
+fn generic_iface_implements_mono() {
+    // C8c: interface Boxable<T>; class implements Boxable<Int>.
+    let src = r#"
+package t
+interface Boxable<T> {
+  fun get(): T
+}
+class IntBox(val n: Int) : Boxable<Int> {
+  fun get(): Int { return this.n }
+}
+fun take(b: Boxable<Int>): Int {
+  return b.get()
+}
+fun main() {
+  val x = IntBox(7)
+  val n = take(x)
+}
+"#;
+    let file = parse_file(src).expect("parse");
+    let checked = check_file(&file).expect("generic iface implements");
+    assert!(
+        checked
+            .mono_interfaces
+            .iter()
+            .any(|(n, args)| n == "Boxable" && args == &[Ty::Int]),
+        "expected mono Boxable<Int>, got {:?}",
+        checked.mono_interfaces
+    );
+}
+
+#[test]
 fn array_accepts_class_elem() {
     let src = r#"
 package t

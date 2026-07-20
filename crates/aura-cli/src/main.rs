@@ -137,7 +137,14 @@ fn check_package(pkg: LoadedPackage) -> Result<String, String> {
             let impls = if c.implements.is_empty() {
                 String::new()
             } else {
-                format!(" : {}", c.implements.join(", "))
+                format!(
+                    " : {}",
+                    c.implements
+                        .iter()
+                        .map(|t| t.display())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
             };
             lines.push(format!(
                 "  {kind} {}{} ({} field(s), {} method(s))",

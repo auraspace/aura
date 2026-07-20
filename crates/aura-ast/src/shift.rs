@@ -116,7 +116,7 @@ fn shift_class(c: &mut ClassDecl, delta: BytePos) {
         shift_type_param(tp, delta);
     }
     for i in &mut c.implements {
-        shift_ident(i, delta);
+        shift_type_ref(i, delta);
     }
     for f in &mut c.fields {
         shift_field(f, delta);

@@ -1,5 +1,5 @@
-use aura_ast::*;
 use crate::parse_file;
+use aura_ast::*;
 
 #[test]
 fn parses_hello() {
@@ -128,7 +128,7 @@ fun show(x: Named) {
     assert_eq!(file.interfaces.len(), 1);
     assert_eq!(file.interfaces[0].methods.len(), 1);
     assert_eq!(file.classes[0].implements.len(), 1);
-    assert_eq!(file.classes[0].implements[0].name, "Named");
+    assert_eq!(file.classes[0].implements[0].name.name, "Named");
 }
 
 #[test]

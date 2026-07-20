@@ -104,11 +104,13 @@ impl Checker {
                 });
             }
 
-            if let Ty::Interface(iface_name) = &obj_ty {
-                let method = self
+            if let Ty::Interface(iface_name)
+            | Ty::InterfaceApp {
+                name: iface_name, ..
+            } = &obj_ty
+            {
+                let iface = self
                     .iface_by_nominal_key(iface_name)
-                    .and_then(|i| i.methods.get(&fe.field.name))
-                    .cloned()
                     .ok_or_else(|| SemaError {
                         message: format!(
                             "unknown method `{}` on interface `{iface_name}`",
@@ -116,13 +118,28 @@ impl Checker {
                         ),
                         span: fe.field.span,
                     })?;
+                let method =
+                    iface
+                        .methods
+                        .get(&fe.field.name)
+                        .cloned()
+                        .ok_or_else(|| SemaError {
+                            message: format!(
+                                "unknown method `{}` on interface `{iface_name}`",
+                                fe.field.name
+                            ),
+                            span: fe.field.span,
+                        })?;
+                let subst = type_subst_map(&iface.type_params, obj_ty.iface_args());
+                let params: Vec<Ty> = method.params.iter().map(|p| subst_ty(p, &subst)).collect();
+                let ret = subst_ty(&method.ret, &subst);
                 self.check_args(
-                    &method.params,
+                    &params,
                     &c.args,
                     &format!("{}.{}", iface_name, method.name),
                     c.span,
                 )?;
-                return Ok(method.ret);
+                return Ok(ret);
             }
 
             // Type param with interface bounds: call methods from any bound.

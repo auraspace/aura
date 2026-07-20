@@ -119,27 +119,26 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
         let obj_ty = resolve_type_name(&fe.object, ctx);
         let obj = emit_expr(&fe.object, ctx);
 
-        // Interface method (C4d: package-prefixed mono)
-        if let Some(iface_key) = obj_ty.as_ref().filter(|t| {
-            let im = iface_mono_from_key(t, ctx.checked);
-            ctx.checked
-                .ast
-                .interfaces
-                .iter()
-                .any(|i| iface_mono(i, ctx.checked) == im || i.name.name == **t)
-        }) {
-            let imono = iface_mono_from_key(iface_key, ctx.checked);
+        // Interface method (C4d package mono; C8c mono args e.g. Boxable_Int)
+        if let Some(iface_key) = obj_ty
+            .as_ref()
+            .filter(|t| is_iface_type_key(t, ctx.checked))
+        {
+            let imono = resolve_iface_mono_key(iface_key, ctx.checked);
             let mut args = vec![format!("&({obj})")];
-            if let Some(m) = ctx
-                .checked
-                .ast
-                .interfaces
-                .iter()
-                .find(|i| iface_mono(i, ctx.checked) == imono || i.name.name == *iface_key)
-                .and_then(|i| i.methods.iter().find(|m| m.name.name == fe.field.name))
-            {
-                for (a, p) in c.args.iter().zip(m.params.iter()) {
-                    args.push(coerce_expr(a, &p.ty.name.name, ctx));
+            let (iface_decl, iargs) = resolve_iface_decl_and_args(iface_key, ctx.checked);
+            if let Some(i) = iface_decl {
+                let tparams: Vec<String> =
+                    i.type_params.iter().map(|p| p.name.name.clone()).collect();
+                if let Some(m) = i.methods.iter().find(|m| m.name.name == fe.field.name) {
+                    for (a, p) in c.args.iter().zip(m.params.iter()) {
+                        let expected = type_ref_local_key(&p.ty, &tparams, &iargs);
+                        args.push(coerce_expr(a, &expected, ctx));
+                    }
+                } else {
+                    for a in &c.args {
+                        args.push(emit_expr(a, ctx));
+                    }
                 }
             } else {
                 for a in &c.args {

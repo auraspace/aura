@@ -47,7 +47,7 @@ pub struct EnumVariant {
 }
 
 /// `interface Name { fun m(...): T  … }` (signatures only).
-/// C7i: optional type params (`interface Iterable<E> { … }`); monomorphized implements deferred.
+/// C7i/C8c: optional type params (`interface Iterable<E> { … }`); implements may be mono.
 #[derive(Debug, Clone, PartialEq)]
 pub struct InterfaceDecl {
     pub is_pub: bool,
@@ -124,7 +124,8 @@ pub struct ClassDecl {
     pub name: Ident,
     pub type_params: Vec<TypeParam>,
     /// Interfaces listed after `:` (classes only; structs reject implements).
-    pub implements: Vec<Ident>,
+    /// C8c: may include type args (`: Iterable<Int>`).
+    pub implements: Vec<TypeRef>,
     pub fields: Vec<FieldDecl>,
     pub methods: Vec<FunDecl>,
     pub span: Span,

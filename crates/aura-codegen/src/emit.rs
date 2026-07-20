@@ -170,10 +170,10 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
         }
     }
 
-    // Interface tagged unions (C4d: package-prefixed iface mono)
-    for iface in &checked.ast.interfaces {
-        let imono = iface_mono(iface, checked);
-        let impls = implementors_for_iface(checked, iface);
+    // Interface tagged unions (C4d: package-prefixed iface mono; C8c: mono args)
+    let mut emit_iface_union = |iface: &InterfaceDecl, args: &[Ty]| {
+        let imono = iface_mono_args(iface, checked, args);
+        let impls = implementors_for_iface(checked, iface, args);
         let _ = writeln!(out, "typedef struct {} {{", c_iface_type(&imono));
         out.push_str("  int tag;\n  union {\n");
         for c in &impls {
@@ -191,6 +191,16 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
             out.push_str("    char _empty;\n");
         }
         let _ = writeln!(out, "  }} data;\n}} {};\n", c_iface_type(&imono));
+    };
+    for iface in &checked.ast.interfaces {
+        if iface.type_params.is_empty() {
+            emit_iface_union(iface, &[]);
+        }
+    }
+    for (name, args) in &checked.mono_interfaces {
+        if let Some(iface) = checked.ast.interfaces.iter().find(|i| i.name.name == *name) {
+            emit_iface_union(iface, args);
+        }
     }
 
     // Forward decls
@@ -218,9 +228,28 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
         }
     }
     for iface in &checked.ast.interfaces {
-        let imono = iface_mono(iface, checked);
-        for m in &iface.methods {
-            let _ = writeln!(out, "{};", c_iface_method_signature(&imono, m, checked));
+        if iface.type_params.is_empty() {
+            let imono = iface_mono(iface, checked);
+            for m in &iface.methods {
+                let _ = writeln!(out, "{};", c_iface_method_signature(&imono, m, checked));
+            }
+        }
+    }
+    for (name, args) in &checked.mono_interfaces {
+        if let Some(iface) = checked.ast.interfaces.iter().find(|i| i.name.name == *name) {
+            let imono = iface_mono_args(iface, checked, args);
+            let tparams: Vec<String> = iface
+                .type_params
+                .iter()
+                .map(|p| p.name.name.clone())
+                .collect();
+            for m in &iface.methods {
+                let _ = writeln!(
+                    out,
+                    "{};",
+                    c_iface_method_signature_args(&imono, m, checked, &tparams, args)
+                );
+            }
         }
     }
     for f in &checked.ast.functions {
@@ -265,9 +294,19 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     }
 
     for iface in &checked.ast.interfaces {
-        for m in &iface.methods {
-            emit_iface_dispatch(&mut out, checked, iface, m);
-            out.push('\n');
+        if iface.type_params.is_empty() {
+            for m in &iface.methods {
+                emit_iface_dispatch(&mut out, checked, iface, m, &[]);
+                out.push('\n');
+            }
+        }
+    }
+    for (name, args) in &checked.mono_interfaces {
+        if let Some(iface) = checked.ast.interfaces.iter().find(|i| i.name.name == *name) {
+            for m in &iface.methods {
+                emit_iface_dispatch(&mut out, checked, iface, m, args);
+                out.push('\n');
+            }
         }
     }
 

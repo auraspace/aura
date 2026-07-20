@@ -50,16 +50,20 @@ impl Checker {
         Ok(subst_ty(&get.ret, &subst))
     }
 
-    /// C6c: interface Iterable protocol — `len(): Int` + `get(i: Int): E`.
-    pub(crate) fn iface_iterable_elem(&self, iface_key: &str) -> Result<Ty, String> {
+    /// C6c/C8c: interface Iterable protocol — `len(): Int` + `get(i: Int): E` (E may be mono).
+    pub(crate) fn iface_iterable_elem(&self, iface_ty: &Ty) -> Result<Ty, String> {
+        let iface_key = iface_ty
+            .iface_key()
+            .ok_or_else(|| "for-in: expected interface type".to_string())?;
         let iface = self
             .iface_by_nominal_key(iface_key)
             .ok_or_else(|| format!("for-in over interface `{iface_key}`: unknown interface"))?;
         let (simple, _) = crate::ty::split_nominal(iface_key);
+        let subst = type_subst_map(&iface.type_params, iface_ty.iface_args());
         let len = iface.methods.get("len").ok_or_else(|| {
             format!("for-in over interface `{simple}` requires method `len(): Int` and `get(Int)`")
         })?;
-        if !len.params.is_empty() || !matches!(len.ret, Ty::Int) {
+        if !len.params.is_empty() || !matches!(subst_ty(&len.ret, &subst), Ty::Int) {
             return Err(format!(
                 "for-in over interface `{simple}`: `len` must be `len(): Int`"
             ));
@@ -69,12 +73,12 @@ impl Checker {
                 "for-in over interface `{simple}` requires method `get(Int)` (found `len` but no `get`)"
             )
         })?;
-        if get.params.len() != 1 || !matches!(get.params[0], Ty::Int) {
+        if get.params.len() != 1 || !matches!(subst_ty(&get.params[0], &subst), Ty::Int) {
             return Err(format!(
                 "for-in over interface `{simple}`: `get` must take a single `Int` index"
             ));
         }
-        Ok(get.ret.clone())
+        Ok(subst_ty(&get.ret, &subst))
     }
 
     /// Types that may be thrown/caught (C3c primitives + C3g class/struct values).
@@ -434,16 +438,18 @@ impl Checker {
                     {
                         args[0].clone()
                     }
-                    // C6c: formal Iterable protocol on interface types.
-                    Ty::Interface(n) => match self.iface_iterable_elem(n) {
-                        Ok(t) => t,
-                        Err(msg) => {
-                            return Err(SemaError {
-                                message: msg,
-                                span: f.iterable.span(),
-                            });
+                    // C6c/C8c: formal Iterable protocol on interface types (incl. mono).
+                    Ty::Interface(_) | Ty::InterfaceApp { .. } => {
+                        match self.iface_iterable_elem(&iter_ty) {
+                            Ok(t) => t,
+                            Err(msg) => {
+                                return Err(SemaError {
+                                    message: msg,
+                                    span: f.iterable.span(),
+                                });
+                            }
                         }
-                    },
+                    }
                     // C4y: duck Iterable — class/struct with `len` (field or ()) and `get(Int)`.
                     Ty::Class(n) | Ty::ClassApp { name: n, .. } => {
                         match self.duck_iterable_elem(&iter_ty, n, f.iterable.span()) {

@@ -50,6 +50,7 @@ pub(crate) struct Checker {
     mono_classes: HashSet<(String, Vec<Ty>)>,
     mono_enums: HashSet<(String, Vec<Ty>)>,
     mono_funs: HashSet<(String, Vec<Ty>)>,
+    mono_interfaces: HashSet<(String, Vec<Ty>)>,
     call_instantiations: HashMap<u32, CallInstantiation>,
     /// C6h: statement/body errors collected without aborting the whole file.
     pub(crate) errors: Vec<SemaError>,
@@ -216,6 +217,7 @@ impl Checker {
             mono_classes: HashSet::new(),
             mono_enums: HashSet::new(),
             mono_funs: HashSet::new(),
+            mono_interfaces: HashSet::new(),
             call_instantiations: HashMap::new(),
             errors: Vec::new(),
         }
@@ -621,6 +623,7 @@ impl Checker {
         self.locals.push(HashMap::new());
         for p in &f.params {
             let ty = self.type_from_ref(&p.ty)?;
+            self.note_mono_ty(&ty);
             if self.current_locals().contains_key(&p.name.name) {
                 return Err(SemaError {
                     message: format!("duplicate parameter `{}`", p.name.name),
@@ -630,6 +633,7 @@ impl Checker {
             self.current_locals_mut()
                 .insert(p.name.name.clone(), Local { ty, mutable: false });
         }
+        self.note_mono_ty(expected_ret);
         self.check_block(&f.body, expected_ret)?;
         self.locals.pop();
         Ok(())

@@ -6,6 +6,7 @@ use super::Checker;
 use crate::error::SemaError;
 use crate::sigs::*;
 use crate::ty::Ty;
+use crate::util::{subst_ty, type_subst_map};
 
 impl Checker {
     /// C7g: declaration-phase errors are collected into `self.errors` and later
@@ -350,36 +351,84 @@ impl Checker {
                 continue;
             }
 
-            let mut implements = Vec::new();
-            for iface in &c.implements {
-                let isig = match self.resolve_interface(&iface.name, iface.span) {
+            let mut implements: Vec<Ty> = Vec::new();
+            for iface_ref in &c.implements {
+                if iface_ref.nullable {
+                    self.errors.push(SemaError {
+                        message: "implements cannot be nullable".into(),
+                        span: iface_ref.span,
+                    });
+                    continue;
+                }
+                if iface_ref.qualifier.is_some() {
+                    // package-qualified implements still resolve via type_from_ref path below
+                }
+                let isig = match self.resolve_interface(&iface_ref.name.name, iface_ref.span) {
                     Ok(i) => i,
                     Err(err) => {
                         self.errors.push(err);
                         continue;
                     }
                 };
-                // C7i: generic interfaces parse/register but cannot be implemented yet
-                // (needs type-arg mono + substituted method checks).
-                if !isig.type_params.is_empty() {
+                let type_args: Vec<Ty> = match iface_ref
+                    .type_args
+                    .iter()
+                    .map(|a| self.type_from_ref(a))
+                    .collect::<Result<Vec<_>, _>>()
+                {
+                    Ok(a) => a,
+                    Err(err) => {
+                        self.errors.push(err);
+                        continue;
+                    }
+                };
+                if type_args.len() != isig.type_params.len() {
                     self.errors.push(SemaError {
                         message: format!(
-                            "implementing generic interface `{}` is not supported yet (C7i: monomorphized implements deferred)",
-                            iface.name
+                            "interface `{}` expects {} type argument(s), got {}",
+                            iface_ref.name.name,
+                            isig.type_params.len(),
+                            type_args.len()
                         ),
-                        span: iface.span,
+                        span: iface_ref.span,
                     });
                     continue;
                 }
-                let ikey = crate::ty::nominal_key(&isig.package, &iface.name);
-                if implements.contains(&ikey) {
+                let ikey = crate::ty::nominal_key(&isig.package, &iface_ref.name.name);
+                let imp_ty = if type_args.is_empty() {
+                    Ty::Interface(ikey)
+                } else {
+                    if type_args.iter().any(|a| a.is_open()) {
+                        self.errors.push(SemaError {
+                            message: format!(
+                                "implements `{}` type arguments must be concrete",
+                                iface_ref.name.name
+                            ),
+                            span: iface_ref.span,
+                        });
+                        continue;
+                    }
+                    self.note_mono_ty(&Ty::InterfaceApp {
+                        name: ikey.clone(),
+                        args: type_args.clone(),
+                    });
+                    Ty::InterfaceApp {
+                        name: ikey,
+                        args: type_args,
+                    }
+                };
+                if implements.iter().any(|x| {
+                    // same base interface (reject re-implement even with different args for MVP)
+                    x.iface_key().map(crate::ty::split_nominal)
+                        == imp_ty.iface_key().map(crate::ty::split_nominal)
+                }) {
                     self.errors.push(SemaError {
-                        message: format!("duplicate implements `{}`", iface.name),
-                        span: iface.span,
+                        message: format!("duplicate implements `{}`", iface_ref.name.name),
+                        span: iface_ref.span,
                     });
                     continue;
                 }
-                implements.push(ikey);
+                implements.push(imp_ty);
             }
 
             let mut fields = Vec::new();
@@ -457,27 +506,36 @@ impl Checker {
                 );
             }
 
-            for iface_key in &implements {
+            for imp in &implements {
+                let iface_key = imp.iface_key().expect("implements is Interface/App");
                 let iface = self
                     .iface_by_nominal_key(iface_key)
                     .cloned()
                     .expect("implements key must resolve");
+                let subst = type_subst_map(&iface.type_params, imp.iface_args());
                 for (mname, im) in &iface.methods {
                     let Some(cm) = methods.get(mname) else {
                         self.errors.push(SemaError {
                             message: format!(
                                 "class `{}` does not implement method `{}` required by `{}`",
-                                c.name.name, mname, iface.name
+                                c.name.name,
+                                mname,
+                                imp.display()
                             ),
                             span: c.name.span,
                         });
                         continue;
                     };
-                    if cm.params != im.params || cm.ret != im.ret {
+                    let exp_params: Vec<Ty> =
+                        im.params.iter().map(|p| subst_ty(p, &subst)).collect();
+                    let exp_ret = subst_ty(&im.ret, &subst);
+                    if cm.params != exp_params || cm.ret != exp_ret {
                         self.errors.push(SemaError {
                             message: format!(
                                 "method `{}` on `{}` does not match interface `{}`",
-                                mname, c.name.name, iface.name
+                                mname,
+                                c.name.name,
+                                imp.display()
                             ),
                             span: cm.span,
                         });
@@ -549,6 +607,9 @@ impl Checker {
                     continue;
                 }
             };
+            for p in &params {
+                self.note_mono_ty(p);
+            }
             let ret = match &f.return_type {
                 Some(t) => match self.type_from_ref(t) {
                     Ok(t) => t,
@@ -560,6 +621,7 @@ impl Checker {
                 },
                 None => Ty::Unit,
             };
+            self.note_mono_ty(&ret);
             self.functions
                 .entry(f.name.name.clone())
                 .or_default()
@@ -716,6 +778,26 @@ impl Checker {
             );
             sa.cmp(&sb)
         });
+        let mut mono_interfaces: Vec<_> = self.mono_interfaces.iter().cloned().collect();
+        mono_interfaces.sort_by(|a, b| {
+            let sa = format!(
+                "{}_{}",
+                a.0,
+                a.1.iter()
+                    .map(|t| t.display())
+                    .collect::<Vec<_>>()
+                    .join("_")
+            );
+            let sb = format!(
+                "{}_{}",
+                b.0,
+                b.1.iter()
+                    .map(|t| t.display())
+                    .collect::<Vec<_>>()
+                    .join("_")
+            );
+            sa.cmp(&sb)
+        });
 
         Ok(CheckedFile {
             package,
@@ -726,6 +808,7 @@ impl Checker {
             mono_classes,
             mono_enums,
             mono_funs,
+            mono_interfaces,
             call_instantiations: self.call_instantiations.clone(),
             ast: file.clone(),
         })

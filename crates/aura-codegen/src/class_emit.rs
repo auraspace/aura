@@ -58,14 +58,34 @@ pub(crate) fn emit_class_forwards(
         );
     }
     if args.is_empty() {
-        for iface_id in &c.implements {
+        for iface_ref in &c.implements {
             if let Some(iface) = checked
                 .ast
                 .interfaces
                 .iter()
-                .find(|i| i.name.name == iface_id.name)
+                .find(|i| i.name.name == iface_ref.name.name)
             {
-                let imono = iface_mono(iface, checked);
+                let iargs: Vec<Ty> = iface_ref
+                    .type_args
+                    .iter()
+                    .filter_map(|t| match t.name.name.as_str() {
+                        "Int" => Some(Ty::Int),
+                        "Bool" => Some(Ty::Bool),
+                        "String" => Some(Ty::String),
+                        other => {
+                            // class type arg
+                            let pkg = checked
+                                .ast
+                                .classes
+                                .iter()
+                                .find(|c| c.name.name == other)
+                                .map(|c| class_decl_package(c, checked))
+                                .unwrap_or_default();
+                            Some(Ty::Class(aura_sema::nominal_key(&pkg, other)))
+                        }
+                    })
+                    .collect();
+                let imono = iface_mono_args(iface, checked, &iargs);
                 let param_ty = if is_heap_class_decl(c) {
                     format!("{} *", c_class_type(&mono))
                 } else {
@@ -180,14 +200,33 @@ pub(crate) fn emit_class_defs(out: &mut String, checked: &CheckedFile, c: &Class
         out.push('\n');
     }
     if args.is_empty() {
-        for iface_id in &c.implements {
+        for iface_ref in &c.implements {
             if let Some(iface) = checked
                 .ast
                 .interfaces
                 .iter()
-                .find(|i| i.name.name == iface_id.name)
+                .find(|i| i.name.name == iface_ref.name.name)
             {
-                emit_upcast(out, checked, c, iface);
+                let iargs: Vec<Ty> = iface_ref
+                    .type_args
+                    .iter()
+                    .filter_map(|t| match t.name.name.as_str() {
+                        "Int" => Some(Ty::Int),
+                        "Bool" => Some(Ty::Bool),
+                        "String" => Some(Ty::String),
+                        other => {
+                            let pkg = checked
+                                .ast
+                                .classes
+                                .iter()
+                                .find(|c| c.name.name == other)
+                                .map(|c| class_decl_package(c, checked))
+                                .unwrap_or_default();
+                            Some(Ty::Class(aura_sema::nominal_key(&pkg, other)))
+                        }
+                    })
+                    .collect();
+                emit_upcast(out, checked, c, iface, &iargs);
                 out.push('\n');
             }
         }

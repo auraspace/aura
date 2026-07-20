@@ -25,29 +25,120 @@ pub(crate) fn iface_decl_package(i: &InterfaceDecl, checked: &CheckedFile) -> St
     }
 }
 
-/// C mono id for an interface (`demo_iface_Named`).
+/// C mono id for an interface (`demo_iface_Named` or with type args).
 pub(crate) fn iface_mono(i: &InterfaceDecl, checked: &CheckedFile) -> String {
-    type_mono(&iface_decl_package(i, checked), &i.name.name, &[])
+    iface_mono_args(i, checked, &[])
+}
+
+pub(crate) fn iface_mono_args(i: &InterfaceDecl, checked: &CheckedFile, args: &[Ty]) -> String {
+    type_mono(&iface_decl_package(i, checked), &i.name.name, args)
 }
 
 /// Resolve interface mono from a local/type key (simple name or already-mangled).
 pub(crate) fn iface_mono_from_key(key: &str, checked: &CheckedFile) -> String {
-    let (simple, pkg) = {
-        // Local keys may be package mono already (`demo_iface_Named`) or simple.
-        if let Some(i) = checked.ast.interfaces.iter().find(|i| {
-            let m = type_mono(&iface_decl_package(i, checked), &i.name.name, &[]);
-            m == key || i.name.name == key
-        }) {
-            return type_mono(&iface_decl_package(i, checked), &i.name.name, &[]);
+    resolve_iface_mono_key(key, checked)
+}
+
+/// True if `key` names a (possibly monomorphized) interface type.
+pub(crate) fn is_iface_type_key(key: &str, checked: &CheckedFile) -> bool {
+    if checked.ast.interfaces.iter().any(|i| {
+        let base = iface_mono(i, checked);
+        i.name.name == key || base == key || key.starts_with(&format!("{base}_"))
+    }) {
+        return true;
+    }
+    checked.mono_interfaces.iter().any(|(n, args)| {
+        checked
+            .ast
+            .interfaces
+            .iter()
+            .find(|i| i.name.name == *n)
+            .map(|i| {
+                let m = iface_mono_args(i, checked, args);
+                m == key || key == *n || key.starts_with(&format!("{n}_"))
+            })
+            .unwrap_or(false)
+    })
+}
+
+/// Full C mono id for an interface local/type key (incl. mono args).
+pub(crate) fn resolve_iface_mono_key(key: &str, checked: &CheckedFile) -> String {
+    for (name, args) in &checked.mono_interfaces {
+        if let Some(i) = checked.ast.interfaces.iter().find(|i| i.name.name == *name) {
+            let m = iface_mono_args(i, checked, args);
+            if m == key {
+                return m;
+            }
+            // Local key may be simple mono without package: Boxable_Int
+            let simple_mono = if args.is_empty() {
+                name.clone()
+            } else {
+                format!(
+                    "{}_{}",
+                    name,
+                    args.iter()
+                        .map(|t| t.mono_suffix())
+                        .collect::<Vec<_>>()
+                        .join("_")
+                )
+            };
+            if key == simple_mono || key == *name {
+                return m;
+            }
         }
-        if key.contains('@') {
-            let (n, p) = aura_sema::split_nominal(key);
-            return type_mono(p, n, &[]);
+    }
+    if let Some(i) = checked.ast.interfaces.iter().find(|i| {
+        let m = type_mono(&iface_decl_package(i, checked), &i.name.name, &[]);
+        m == key || i.name.name == key
+    }) {
+        return type_mono(&iface_decl_package(i, checked), &i.name.name, &[]);
+    }
+    if key.contains('@') {
+        let (n, p) = aura_sema::split_nominal(key);
+        return type_mono(p, n, &[]);
+    }
+    // Prefix match package mono base_
+    for i in &checked.ast.interfaces {
+        let base = iface_mono(i, checked);
+        if key.starts_with(&format!("{base}_")) {
+            return key.to_string();
         }
-        (key, "")
-    };
-    let _ = (simple, pkg);
+    }
     key.to_string()
+}
+
+/// Interface decl + type args for a local/type key (C8c).
+pub(crate) fn resolve_iface_decl_and_args<'a>(
+    key: &str,
+    checked: &'a CheckedFile,
+) -> (Option<&'a InterfaceDecl>, Vec<Ty>) {
+    for (name, args) in &checked.mono_interfaces {
+        if let Some(i) = checked.ast.interfaces.iter().find(|i| i.name.name == *name) {
+            let m = iface_mono_args(i, checked, args);
+            let simple_mono = if args.is_empty() {
+                name.clone()
+            } else {
+                format!(
+                    "{}_{}",
+                    name,
+                    args.iter()
+                        .map(|t| t.mono_suffix())
+                        .collect::<Vec<_>>()
+                        .join("_")
+                )
+            };
+            if m == key || key == simple_mono {
+                return (Some(i), args.clone());
+            }
+        }
+    }
+    if let Some(i) = checked.ast.interfaces.iter().find(|i| {
+        let m = iface_mono(i, checked);
+        i.name.name == key || m == key
+    }) {
+        return (Some(i), Vec::new());
+    }
+    (None, Vec::new())
 }
 pub(crate) fn mono_key(name: &str, args: &[Ty]) -> String {
     // `name` may already be a C mono base or a simple/nominal key.
@@ -278,6 +369,7 @@ pub(crate) fn ty_to_c(t: &Ty) -> String {
         Ty::Enum(n) => c_enum_type(&nominal_mono_base(n)),
         Ty::EnumApp { name, args } => c_enum_type(&mono_key(name, args)),
         Ty::Interface(n) => c_iface_type(&nominal_mono_base(n)),
+        Ty::InterfaceApp { name, args } => c_iface_type(&mono_key(name, args)),
         Ty::TypeParam(_) => "/* unbound T */ int64_t".into(),
     }
 }
@@ -320,6 +412,7 @@ pub(crate) fn ty_to_c_local(t: &Ty, checked: &CheckedFile) -> String {
             other => ty_to_c_local(other, checked),
         },
         Ty::Interface(n) => c_iface_type(&nominal_mono_base(n)),
+        Ty::InterfaceApp { name, args } => c_iface_type(&mono_key(name, args)),
         Ty::Enum(n) => c_enum_type(&nominal_mono_base(n)),
         Ty::EnumApp { name, args } => c_enum_type(&mono_key(name, args)),
         other => ty_to_c(other),
@@ -383,6 +476,34 @@ pub(crate) fn c_type_ref_subst(
         }
     } else {
         let pkg = resolve_type_ref_package(ty, checked);
+        // C8c: generic interface type refs → mono iface C type.
+        if checked
+            .ast
+            .interfaces
+            .iter()
+            .any(|i| i.name.name == ty.name.name)
+        {
+            let targs: Vec<Ty> = ty
+                .type_args
+                .iter()
+                .filter_map(|t| {
+                    if let Some(idx) = params.iter().position(|p| p == &t.name.name) {
+                        return args.get(idx).cloned();
+                    }
+                    match t.name.name.as_str() {
+                        "Int" => Some(Ty::Int),
+                        "Bool" => Some(Ty::Bool),
+                        "String" => Some(Ty::String),
+                        other => {
+                            let epkg = resolve_type_ref_package(t, checked);
+                            Some(Ty::Class(nominal_key(&epkg, other)))
+                        }
+                    }
+                })
+                .collect();
+            let mono = type_mono(&pkg, &ty.name.name, &targs);
+            return c_iface_type(&mono);
+        }
         let targs: Vec<Ty> = ty
             .type_args
             .iter()

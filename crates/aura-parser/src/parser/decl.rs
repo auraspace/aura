@@ -74,7 +74,7 @@ impl Parser {
         let start = self.peek().span.start;
         self.expect(TokenKind::Interface, "`interface`")?;
         let name = self.expect_ident()?;
-        // C7i: `interface Iterable<E> { … }` — mono implements still deferred.
+        // C7i/C8c: `interface Iterable<E> { … }` — mono implements supported.
         let type_params = self.parse_type_params_opt()?;
         self.expect(TokenKind::LBrace, "`{`")?;
         let mut methods = Vec::new();
@@ -182,7 +182,8 @@ impl Parser {
             }
             self.bump();
             loop {
-                implements.push(self.expect_ident()?);
+                // C8c: `Iface` or `Iface<T, …>` (TypeRef, not bare Ident).
+                implements.push(self.parse_type()?);
                 if matches!(self.peek().kind, TokenKind::Comma) {
                     self.bump();
                     continue;

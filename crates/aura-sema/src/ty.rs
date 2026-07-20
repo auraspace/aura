@@ -42,12 +42,23 @@ pub enum Ty {
     /// Non-generic class; name may be `Name@package` (C3v).
     Class(String),
     /// Instantiated generic class; `name` may be package-qualified key.
-    ClassApp { name: String, args: Vec<Ty> },
+    ClassApp {
+        name: String,
+        args: Vec<Ty>,
+    },
     /// Non-generic enum; name may be package-qualified key.
     Enum(String),
     /// Instantiated generic enum.
-    EnumApp { name: String, args: Vec<Ty> },
+    EnumApp {
+        name: String,
+        args: Vec<Ty>,
+    },
     Interface(String),
+    /// Instantiated generic interface (`Iterable<Int>`).
+    InterfaceApp {
+        name: String,
+        args: Vec<Ty>,
+    },
     /// Type parameter in a generic definition scope (`T`).
     TypeParam(String),
 }
@@ -90,6 +101,19 @@ impl Ty {
                     format!("{pkg}.{name}")
                 }
             }
+            Ty::InterfaceApp { name, args } => {
+                let (simple, pkg) = split_nominal(name);
+                let a = args
+                    .iter()
+                    .map(|t| t.display())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                if pkg.is_empty() {
+                    format!("{simple}<{a}>")
+                } else {
+                    format!("{pkg}.{simple}<{a}>")
+                }
+            }
             Ty::TypeParam(n) => n.clone(),
         }
     }
@@ -114,6 +138,15 @@ impl Ty {
                 format!("{base}_{a}")
             }
             Ty::Interface(n) => nominal_mono_base(n),
+            Ty::InterfaceApp { name, args } => {
+                let base = nominal_mono_base(name);
+                let a = args
+                    .iter()
+                    .map(|t| t.mono_suffix())
+                    .collect::<Vec<_>>()
+                    .join("_");
+                format!("{base}_{a}")
+            }
             Ty::TypeParam(n) => n.clone(),
         }
     }
@@ -130,9 +163,9 @@ impl Ty {
         match self {
             Ty::TypeParam(_) => true,
             Ty::Nullable(inner) => inner.is_open(),
-            Ty::ClassApp { args, .. } | Ty::EnumApp { args, .. } => {
-                args.iter().any(|a| a.is_open())
-            }
+            Ty::ClassApp { args, .. }
+            | Ty::EnumApp { args, .. }
+            | Ty::InterfaceApp { args, .. } => args.iter().any(|a| a.is_open()),
             _ => false,
         }
     }
@@ -141,8 +174,31 @@ impl Ty {
     pub fn nominal_package(&self) -> &str {
         match self {
             Ty::Class(n) | Ty::Enum(n) | Ty::Interface(n) => split_nominal(n).1,
-            Ty::ClassApp { name, .. } | Ty::EnumApp { name, .. } => split_nominal(name).1,
+            Ty::ClassApp { name, .. }
+            | Ty::EnumApp { name, .. }
+            | Ty::InterfaceApp { name, .. } => split_nominal(name).1,
             _ => "",
+        }
+    }
+
+    pub fn iface_name(&self) -> Option<&str> {
+        match self {
+            Ty::Interface(n) | Ty::InterfaceApp { name: n, .. } => Some(split_nominal(n).0),
+            _ => None,
+        }
+    }
+
+    pub fn iface_key(&self) -> Option<&str> {
+        match self {
+            Ty::Interface(n) | Ty::InterfaceApp { name: n, .. } => Some(n.as_str()),
+            _ => None,
+        }
+    }
+
+    pub fn iface_args(&self) -> &[Ty] {
+        match self {
+            Ty::InterfaceApp { args, .. } => args,
+            _ => &[],
         }
     }
 
@@ -167,4 +223,3 @@ impl Ty {
         }
     }
 }
-

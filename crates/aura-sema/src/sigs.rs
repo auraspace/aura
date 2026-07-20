@@ -55,7 +55,8 @@ pub struct ClassSig {
     pub type_params: Vec<String>,
     /// Bounds per type param name (interface names in C2e).
     pub bounds: HashMap<String, Vec<String>>,
-    pub implements: Vec<String>,
+    /// Implemented interfaces as `Ty::Interface` or `Ty::InterfaceApp` (C8c).
+    pub implements: Vec<Ty>,
     pub fields: Vec<FieldSig>,
     pub methods: HashMap<String, ClassMethodSig>,
     pub span: Span,
@@ -66,7 +67,7 @@ pub struct InterfaceSig {
     pub name: String,
     pub is_pub: bool,
     pub package: String,
-    /// C7i: declared type params; monomorphized implements not yet supported.
+    /// C7i/C8c: declared type params; implements may monomorphize.
     pub type_params: Vec<String>,
     pub methods: HashMap<String, IfaceMethodSig>,
     pub span: Span,
@@ -116,6 +117,8 @@ pub struct CheckedFile {
     pub mono_enums: Vec<(String, Vec<Ty>)>,
     /// Concrete generic function instantiations used.
     pub mono_funs: Vec<(String, Vec<Ty>)>,
+    /// Concrete generic interface instantiations used (C8c).
+    pub mono_interfaces: Vec<(String, Vec<Ty>)>,
     /// CallExpr.span.start → resolved type arguments (for codegen).
     pub call_instantiations: HashMap<u32, CallInstantiation>,
     pub ast: File,

@@ -95,9 +95,7 @@ impl Checker {
                     self.enum_in_package(other, pkg)
                         .cloned()
                         .ok_or_else(|| SemaError {
-                            message: format!(
-                                "type `{other}` is not a member of package `{pkg}`"
-                            ),
+                            message: format!("type `{other}` is not a member of package `{pkg}`"),
                             span: t.span,
                         })?
                 } else {
@@ -143,13 +141,26 @@ impl Checker {
                 } else {
                     self.resolve_interface(other, t.span)?
                 };
-                if !type_args.is_empty() {
+                if type_args.len() != iface.type_params.len() {
                     return Err(SemaError {
-                        message: format!("interface `{other}` cannot take type arguments in C2b"),
+                        message: format!(
+                            "interface `{}` expects {} type argument(s), got {}",
+                            other,
+                            iface.type_params.len(),
+                            type_args.len()
+                        ),
                         span: t.span,
                     });
                 }
-                Ty::Interface(crate::ty::nominal_key(&iface.package, other))
+                let key = crate::ty::nominal_key(&iface.package, other);
+                if type_args.is_empty() {
+                    Ty::Interface(key)
+                } else {
+                    Ty::InterfaceApp {
+                        name: key,
+                        args: type_args,
+                    }
+                }
             }
             other => {
                 return Err(SemaError {
@@ -175,6 +186,31 @@ impl Checker {
         }
     }
 
+    /// Does class implement the target interface (exact mono for InterfaceApp)?
+    pub(crate) fn class_implements(&self, class_key: &str, target: &Ty) -> bool {
+        let Some(cs) = self.class_by_nominal_key(class_key) else {
+            return false;
+        };
+        cs.implements
+            .iter()
+            .any(|imp| Self::iface_ty_matches(imp, target))
+    }
+
+    /// Match implemented iface vs expected: non-generic by key; generic exact args.
+    pub(crate) fn iface_ty_matches(implemented: &Ty, target: &Ty) -> bool {
+        match (implemented, target) {
+            (Ty::Interface(a), Ty::Interface(b)) => {
+                a == b || crate::ty::split_nominal(a).0 == crate::ty::split_nominal(b).0
+            }
+            (Ty::InterfaceApp { name: a, args: aa }, Ty::InterfaceApp { name: b, args: ba }) => {
+                (a == b || crate::ty::split_nominal(a).0 == crate::ty::split_nominal(b).0)
+                    && aa == ba
+            }
+            // Non-generic target does not match a mono implementor (and vice versa).
+            _ => false,
+        }
+    }
+
     pub(crate) fn is_assignable(&self, from: &Ty, to: &Ty) -> bool {
         if from == to {
             return true;
@@ -183,23 +219,13 @@ impl Checker {
             (Ty::Null, Ty::Nullable(_)) => true,
             (Ty::Nullable(a), Ty::Nullable(b)) => self.is_assignable(a, b),
             (inner, Ty::Nullable(outer)) if self.is_assignable(inner, outer) => true,
-            (Ty::Class(c), Ty::Interface(i)) => self
-                .class_by_nominal_key(c)
-                .map(|cs| {
-                    cs.implements.iter().any(|x| {
-                        x == i || crate::ty::split_nominal(x).0 == crate::ty::split_nominal(i).0
-                    })
-                })
-                .unwrap_or(false),
-            (Ty::ClassApp { name: c, .. }, Ty::Interface(i)) => self
-                .class_by_nominal_key(c)
-                .map(|cs| {
-                    cs.implements.iter().any(|x| {
-                        x == i || crate::ty::split_nominal(x).0 == crate::ty::split_nominal(i).0
-                    })
-                })
-                .unwrap_or(false),
-            // Bounded type param is assignable to its interface bounds
+            (Ty::Class(c), Ty::Interface(_) | Ty::InterfaceApp { .. }) => {
+                self.class_implements(c, to)
+            }
+            (Ty::ClassApp { name: c, .. }, Ty::Interface(_) | Ty::InterfaceApp { .. }) => {
+                self.class_implements(c, to)
+            }
+            // Bounded type param is assignable to its interface bounds (non-generic)
             (Ty::TypeParam(p), Ty::Interface(i)) => self
                 .type_params
                 .get(p)

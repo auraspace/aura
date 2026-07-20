@@ -26,8 +26,18 @@ impl Checker {
                     return;
                 }
                 let (simple, _) = crate::ty::split_nominal(name);
-                self.mono_enums
+                self.mono_enums.insert((simple.to_string(), args.clone()));
+            }
+            Ty::InterfaceApp { name, args } if !args.is_empty() => {
+                if args.iter().any(|a| a.is_open()) {
+                    return;
+                }
+                let (simple, _) = crate::ty::split_nominal(name);
+                self.mono_interfaces
                     .insert((simple.to_string(), args.clone()));
+                for a in args {
+                    self.note_mono_ty(a);
+                }
             }
             Ty::Nullable(inner) => self.note_mono_ty(inner),
             _ => {}
@@ -36,20 +46,17 @@ impl Checker {
 
     /// After recording a concrete class mono, note monomorphs of field types under substitution.
     fn expand_nested_mono(&mut self, simple: &str, args: &[Ty]) {
-        let sig = self
-            .classes
-            .get(simple)
-            .and_then(|v| {
-                if v.len() == 1 {
-                    Some(v[0].clone())
-                } else {
-                    // Prefer current package; else first match with same type_param arity.
-                    v.iter()
-                        .find(|s| s.package == self.current_package)
-                        .or_else(|| v.iter().find(|s| s.type_params.len() == args.len()))
-                        .cloned()
-                }
-            });
+        let sig = self.classes.get(simple).and_then(|v| {
+            if v.len() == 1 {
+                Some(v[0].clone())
+            } else {
+                // Prefer current package; else first match with same type_param arity.
+                v.iter()
+                    .find(|s| s.package == self.current_package)
+                    .or_else(|| v.iter().find(|s| s.type_params.len() == args.len()))
+                    .cloned()
+            }
+        });
         let Some(sig) = sig else {
             return;
         };
@@ -105,9 +112,13 @@ impl Checker {
                 let sig = self
                     .class_in_package(class, &self.current_package)
                     .or_else(|| {
-                        self.classes
-                            .get(class)
-                            .and_then(|v| if v.len() == 1 { Some(&v[0]) } else { None })
+                        self.classes.get(class).and_then(|v| {
+                            if v.len() == 1 {
+                                Some(&v[0])
+                            } else {
+                                None
+                            }
+                        })
                     })
                     .unwrap();
                 let key = crate::ty::nominal_key(&sig.package, class);
@@ -140,7 +151,8 @@ impl Checker {
                 }
                 let then_ty = self.block_result_ty(&i.then_block)?;
                 let else_ty = self.block_result_ty(&i.else_block)?;
-                if !self.is_assignable(&then_ty, &else_ty) && !self.is_assignable(&else_ty, &then_ty)
+                if !self.is_assignable(&then_ty, &else_ty)
+                    && !self.is_assignable(&else_ty, &then_ty)
                 {
                     return Err(SemaError {
                         message: format!(
@@ -208,12 +220,13 @@ impl Checker {
                         Ty::Class(k) | Ty::ClassApp { name: k, .. } => k.as_str(),
                         _ => cname,
                     };
-                    let class = self.class_by_nominal_key(key).cloned().ok_or_else(|| {
-                        SemaError {
-                            message: format!("unknown class `{cname}`"),
-                            span: f.span,
-                        }
-                    })?;
+                    let class =
+                        self.class_by_nominal_key(key)
+                            .cloned()
+                            .ok_or_else(|| SemaError {
+                                message: format!("unknown class `{cname}`"),
+                                span: f.span,
+                            })?;
                     let subst = type_subst_map(&class.type_params, obj_ty.class_args());
                     if let Some(field) = class.fields.iter().find(|x| x.name == f.field.name) {
                         let t = subst_ty(&field.ty, &subst);
@@ -238,10 +251,12 @@ impl Checker {
                     });
                 }
                 if let Ty::Interface(iface_name) = &obj_ty {
-                    let iface = self.iface_by_nominal_key(iface_name).ok_or_else(|| SemaError {
-                        message: format!("unknown interface `{iface_name}`"),
-                        span: f.span,
-                    })?;
+                    let iface = self
+                        .iface_by_nominal_key(iface_name)
+                        .ok_or_else(|| SemaError {
+                            message: format!("unknown interface `{iface_name}`"),
+                            span: f.span,
+                        })?;
                     if iface.methods.contains_key(&f.field.name) {
                         return Err(SemaError {
                             message: format!(

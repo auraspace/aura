@@ -57,15 +57,16 @@ impl Checker {
     }
 
     /// Does `ty` satisfy all interface bounds?
-    pub(crate) fn satisfies_bounds(&self, ty: &Ty, bounds: &[String], span: Span) -> Result<(), SemaError> {
+    pub(crate) fn satisfies_bounds(
+        &self,
+        ty: &Ty,
+        bounds: &[String],
+        span: Span,
+    ) -> Result<(), SemaError> {
         for b in bounds {
             if !self.ty_implements(ty, b) {
                 return Err(SemaError {
-                    message: format!(
-                        "type {} does not satisfy bound `{}`",
-                        ty.display(),
-                        b
-                    ),
+                    message: format!("type {} does not satisfy bound `{}`", ty.display(), b),
                     span,
                 });
             }
@@ -80,9 +81,14 @@ impl Checker {
         match ty {
             Ty::Class(c) | Ty::ClassApp { name: c, .. } => self
                 .class_by_nominal_key(c)
-                .map(|cs| cs.implements.iter().any(|x| same(x)))
+                .map(|cs| {
+                    cs.implements.iter().any(|imp| match imp {
+                        Ty::Interface(k) | Ty::InterfaceApp { name: k, .. } => same(k),
+                        _ => false,
+                    })
+                })
                 .unwrap_or(false),
-            Ty::Interface(i) => same(i),
+            Ty::Interface(i) | Ty::InterfaceApp { name: i, .. } => same(i),
             Ty::TypeParam(p) => self
                 .type_params
                 .get(p)

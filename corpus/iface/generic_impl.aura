@@ -1,0 +1,23 @@
+// C8c — generic interface implements mono (`: Boxable<Int>`)
+package demo.iface
+
+interface Boxable<T> {
+  fun get(): T
+}
+
+class IntBox(val n: Int) : Boxable<Int> {
+  fun get(): Int {
+    return this.n
+  }
+}
+
+fun take(b: Boxable<Int>): Int {
+  return b.get()
+}
+
+fun main() {
+  val x = IntBox(7)
+  if (take(x) == 7) {
+    println("ok")
+  }
+}
