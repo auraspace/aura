@@ -224,14 +224,16 @@ Rust toolchain maximizes delivery speed and memory safety of the compiler itself
 
 Long-term backend remains **LLVM**. The living milestone table is [docs/roadmap.md](../roadmap.md).
 
-| Phase | Scope                                                                  | Status (2026-07-16)                                                                                  |
+| Phase | Scope                                                                  | Status (2026-07-20)                                                                                  |
 | ----- | ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
 | C0    | Parse + typecheck subset → `aura check`                                | **Done**                                                                                             |
 | C1    | Native hello + runtime link                                            | **Done** via interim **C backend** (`emit-c` + system `cc` + `runtime/aura_rt.c`); LLVM still target |
 | C2    | Generics mono + classes/interfaces                                     | **Done** (C2a–C2e)                                                                                   |
 | C3    | Packages, Array, exceptions, GC MVP (not full async)                   | **Done** as C3a–C3z slices; async/incremental deferred                                               |
-| C4    | Equality, std prelude/assert, Array/String APIs, `?.` / `?:` / if-expr | **Done** through **C4t**                                                                             |
-| Later | LLVM IR backend, Iterable protocol, registry, channels/tasks           | Open (see `agents/debts.md`)                                                                         |
+| C4–C5 | Equality, std, Array/String APIs, GC refinements                       | **Done**                                                                                             |
+| C6–C9 | Deep GC, Iterable, collections, generic iface/class mono, String+/is   | **Done**                                                                                             |
+| C10   | First-class funs/lambdas, fun types, val captures MVP, Int HOF         | **Done** (C10a–j)                                                                                    |
+| Later | Richer captures, Array-of-iface, registry client, LLVM, channels/tasks | Open (see `agents/debts.md`)                                                                         |
 
 ## 12. References
 

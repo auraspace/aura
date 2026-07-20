@@ -21,28 +21,46 @@ fun main() {
 
 ## Declarations
 
-| Form          | Example                                         |
-| ------------- | ----------------------------------------------- |
-| Function      | `fun add(a: Int, b: Int): Int { return a + b }` |
-| Local         | `val x = 1` / `var y = 2`                       |
-| Class         | `class C(var n: Int) { fun f() {} }`            |
-| Struct        | `struct S(var x: Int) {}`                       |
-| Interface     | `interface I { fun f(): Int }`                  |
-| Implements    | `class C() implements I { ... }`                |
-| Enum          | `enum E { A, B }`                               |
-| Generic class | `class Box<T>(var v: T) {}`                     |
-| Generic fun   | `fun id<T>(x: T): T { return x }`               |
-| Test          | `@test fun t() { assert_eq(1, 1) }`             |
+| Form            | Example                                         |
+| --------------- | ----------------------------------------------- |
+| Function        | `fun add(a: Int, b: Int): Int { return a + b }` |
+| Expr-body fun   | `fun double(x: Int): Int = x * 2`               |
+| Local           | `val x = 1` / `var y = 2`                       |
+| Class           | `class C(var n: Int) { fun f() {} }`            |
+| Struct          | `struct S(var x: Int) {}`                       |
+| Interface       | `interface I { fun f(): Int }`                  |
+| Implements      | `class C() implements I { ... }`                |
+| Enum            | `enum E { A, B }`                               |
+| Generic class   | `class Box<T>(var v: T) {}`                     |
+| Generic fun     | `fun id<T>(x: T): T { return x }`               |
+| Type alias      | `type Id = Int`                                 |
+| Top-level const | `const N: Int = 42`                             |
+| Test            | `@test fun t() { assert_eq(1, 1) }`             |
 
 ## Types
 
-| Form                  | Meaning          |
-| --------------------- | ---------------- |
-| `Int` `Bool` `String` | Scalars          |
-| `T?`                  | Nullable         |
-| `Array<T>`            | Array            |
-| `Result<T, E>`        | Success / error  |
-| `T : Bound`           | Type param bound |
+| Form                  | Meaning                         |
+| --------------------- | ------------------------------- |
+| `Int` `Bool` `String` | Scalars                         |
+| `T?`                  | Nullable                        |
+| `Array<T>`            | Array                           |
+| `Result<T, E>`        | Success / error                 |
+| `(T) -> U`            | Function type (params → result) |
+| `T : Bound`           | Type param bound                |
+
+## Lambdas (C10)
+
+```aura
+val f = (x: Int) => x + 1
+val g: (Int) -> Int = (x: Int) => x * 2
+val h = (x: Int) => {
+  val y = x + 1
+  return y * 2
+}
+// Captures: outer immutable val of Int / Bool / String only (MVP).
+val base = 10
+val add = (x: Int) => base + x
+```
 
 ## Operators (common)
 

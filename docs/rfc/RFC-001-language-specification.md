@@ -68,29 +68,29 @@ Wave-1 foundation: every later RFC quotes keywords, declaration forms, and modul
 
 This subsection freezes the **subset** that the first compiler milestones must implement. Full v1 surface remains in later subsections; anything not listed here was **out of scope for C0/C1** unless an RFC amend expands this table.
 
-**Toolchain progress (2026-07-16):** the Rust compiler has shipped through **C4t** (see [roadmap](../roadmap.md)): classes, interfaces, generics+bounds, `struct`/`enum`/`match`, exceptions, packages/`import`/`aura.lock`, `Array`/`for`/`?.`/`?:`, `if` expressions, GC MVP, and minimal `std.io` / `std.assert`. §6.0 remains the historical C0/C1 freeze; later milestones are tracked in the roadmap, not by rewriting this freeze.
+**Toolchain progress (2026-07-20):** the Rust compiler has shipped through **C10j** (see [roadmap](../roadmap.md)): classes, interfaces, generics+bounds, `struct`/`enum`/`match`, exceptions, packages/`import`/`aura.lock`, `Array`/`for`/`?.`/`?:`, `if` expressions, GC mark/sweep, `std.io` / `assert` / collections, first-class funs/lambdas (val capture MVP). §6.0 remains the historical C0/C1 freeze; later milestones are tracked in the roadmap, not by rewriting this freeze.
 
 **Milestones** (aligned with RFC-004 §11 and this RFC §11):
 
-| Milestone             | Compiler goal                                                          | Language surface                                       |
-| --------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------ |
-| **C0**                | `aura check` — lex, parse, basic name checks                           | §6.0.1–6.0.3                                           |
-| **C1**                | `aura build` — native hello (interim **C backend** + `cc`; LLVM later) | C0 + print/runtime hooks                               |
-| **C1b**               | Simple classes + methods                                               | + §6.0.4 (**implemented**)                             |
-| **Post-C1 (C2–C4t+)** | Generics, interfaces, exceptions, packages, Array, …                   | Shipped slices in roadmap; async/macros still deferred |
+| Milestone              | Compiler goal                                                          | Language surface                                       |
+| ---------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------ |
+| **C0**                 | `aura check` — lex, parse, basic name checks                           | §6.0.1–6.0.3                                           |
+| **C1**                 | `aura build` — native hello (interim **C backend** + `cc`; LLVM later) | C0 + print/runtime hooks                               |
+| **C1b**                | Simple classes + methods                                               | + §6.0.4 (**implemented**)                             |
+| **Post-C1 (C2–C10j+)** | Generics, packages, Array, GC, lambdas, …                              | Shipped slices in roadmap; async/macros still deferred |
 
 #### 6.0.1 Lexical (C0)
 
-| Item                        | MVP rule                                                                                                                                                                                                              |
-| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Encoding                    | UTF-8                                                                                                                                                                                                                 |
-| Comments                    | `//` line; `/* */` non-nesting block                                                                                                                                                                                  |
-| Identifiers                 | ASCII `[A-Za-z_][A-Za-z0-9_]*` (Unicode XID later)                                                                                                                                                                    |
-| Keywords (hard)             | `package`, `import`, `as`, `class`, `fun`, `val`, `var`, `if`, `else`, `while`, `return`, `true`, `false`, `null`, `pub`                                                                                              |
-| Soft / deferred (C0 freeze) | Originally deferred: `match`, `async`, `await`, `spawn`, `interface`, `enum`, `struct`, `for`, `in`, … — many are now **implemented** post-C1 (see roadmap); still deferred: `async`/`await`/`spawn`, lambdas, macros |
-| Literals                    | decimal `Int`, `true`/`false`, `"..."` strings (no interpolation in C0), `null`                                                                                                                                       |
-| Operators                   | `+ - * / %`, `== != < <= > >=`, `&& \|\| !`, `=`, `.`, `( ) { } , : ?`                                                                                                                                                |
-| Semicolons                  | optional; newline/brace terminated                                                                                                                                                                                    |
+| Item                        | MVP rule                                                                                                                                                                                                     |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Encoding                    | UTF-8                                                                                                                                                                                                        |
+| Comments                    | `//` line; `/* */` non-nesting block                                                                                                                                                                         |
+| Identifiers                 | ASCII `[A-Za-z_][A-Za-z0-9_]*` (Unicode XID later)                                                                                                                                                           |
+| Keywords (hard)             | `package`, `import`, `as`, `class`, `fun`, `val`, `var`, `if`, `else`, `while`, `return`, `true`, `false`, `null`, `pub`                                                                                     |
+| Soft / deferred (C0 freeze) | Originally deferred: `match`, `async`, `await`, `spawn`, `interface`, `enum`, `struct`, `for`, `in`, … — many are now **implemented** post-C1 (see roadmap); still deferred: `async`/`await`/`spawn`, macros |
+| Literals                    | decimal `Int`, `true`/`false`, `"..."` strings (no interpolation in C0), `null`                                                                                                                              |
+| Operators                   | `+ - * / %`, `== != < <= > >=`, `&& \|\| !`, `=`, `.`, `( ) { } , : ?`                                                                                                                                       |
+| Semicolons                  | optional; newline/brace terminated                                                                                                                                                                           |
 
 #### 6.0.2 Grammar (C0)
 
@@ -142,20 +142,21 @@ class Greeter(val name: String) {
 
 #### 6.0.5 Explicitly deferred (post-C1)
 
-**Originally deferred at C0/C1 freeze** (many now shipped — see roadmap C2–C4t):
+**Originally deferred at C0/C1 freeze** (many now shipped — see roadmap C2–C10j):
 
-| Item                                                            | Toolchain status (2026-07-16)                       |
-| --------------------------------------------------------------- | --------------------------------------------------- |
-| Generics, interfaces, `struct`/`enum`/`match`                   | **Implemented** (C2–C3)                             |
-| Exceptions / `throw`/`try`/`catch`/`finally`                    | **Implemented** (C3c/C3g)                           |
-| Multi-file packages, `import`, path deps, `aura.lock`           | **Implemented** (C3e–C3p, C4j)                      |
-| `for` ranges / for-in (Array, String bytes), `break`/`continue` | **Implemented** (C3h–C3l, C3w)                      |
-| Builtin `Array<T>`, null `?:` / `?.`, `if` expr                 | **Implemented** (C3j+, C4m/C4s/C4t)                 |
-| String `+` / interpolation `${}` (idents), `type`/`const`, `is` | **Implemented** (C9d–C9i)                           |
-| Lambdas, `async`/`await`/`spawn`                                | **Still deferred**                                  |
-| Attributes/macros, full Unicode identifiers                     | **Still deferred**                                  |
-| Iterable protocol                                               | **Implemented** (C8d); generic class implements C9a |
-| Registry/semver fetch                                           | **Still deferred** (debts)                          |
+| Item                                                            | Toolchain status (2026-07-20)                                  |
+| --------------------------------------------------------------- | -------------------------------------------------------------- |
+| Generics, interfaces, `struct`/`enum`/`match`                   | **Implemented** (C2–C3)                                        |
+| Exceptions / `throw`/`try`/`catch`/`finally`                    | **Implemented** (C3c/C3g)                                      |
+| Multi-file packages, `import`, path deps, `aura.lock`           | **Implemented** (C3e–C3p, C4j); lock schema v0 (C8k)           |
+| `for` ranges / for-in (Array, String bytes), `break`/`continue` | **Implemented** (C3h–C3l, C3w)                                 |
+| Builtin `Array<T>`, null `?:` / `?.`, `if` expr                 | **Implemented** (C3j+, C4m/C4s/C4t)                            |
+| String `+` / interpolation `${}` (idents), `type`/`const`, `is` | **Implemented** (C9d–C9i)                                      |
+| Lambdas / fun types `(T) -> U`                                  | **Implemented** (C10c–j MVP); richer captures deferred (debts) |
+| `async`/`await`/`spawn`                                         | **Still deferred**                                             |
+| Attributes/macros, full Unicode identifiers                     | **Still deferred**                                             |
+| Iterable protocol                                               | **Implemented** (C8d); generic class implements C9a            |
+| Registry/semver fetch                                           | **Still deferred** (debts)                                     |
 
 **Corpus:** programs under `corpus/` exercise the implemented surface above; see [`corpus/README.md`](../../corpus/README.md).
 

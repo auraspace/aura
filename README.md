@@ -8,7 +8,7 @@ This repository currently holds:
 | ------------------------------------ | -------------------------------------------------------------------- |
 | [`docs/guide/`](docs/guide/)         | User guide (site `/docs`)                                            |
 | [`docs/rfc/`](docs/rfc/)             | Language & toolchain RFCs                                            |
-| [`docs/roadmap.md`](docs/roadmap.md) | Execution phases (P0–P3, compiler C0–C7d+)                           |
+| [`docs/roadmap.md`](docs/roadmap.md) | Execution phases (P0–P3, compiler C0–C10j+)                          |
 | [`site/`](site/)                     | Homepage + docs + RFC site (Vite + React)                            |
 | [`crates/`](crates/)                 | Rust toolchain (`aura` CLI) — check / build / run / test (C backend) |
 | [`corpus/`](corpus/)                 | Sample `.aura` programs for the compiler                             |
@@ -32,7 +32,7 @@ pnpm site:test
 pnpm site:build
 ```
 
-### Compiler (through C7d)
+### Compiler (through C10j)
 
 ```bash
 cargo test --workspace
@@ -47,6 +47,9 @@ cargo run -p aura-cli -- run corpus/import/app          # import + path dep
 cargo run -p aura-cli -- run corpus/std_io/app          # std.io.println (C3z)
 cargo run -p aura-cli -- run corpus/std_io/prelude      # auto-prelude std.io (C4g)
 cargo run -p aura-cli -- run corpus/std_assert/app      # std.assert (C4h)
+cargo run -p aura-cli -- run corpus/fun/lambda_basic.aura   # first-class fun / lambda (C10)
+cargo run -p aura-cli -- run corpus/fun/lambda_capture.aura # val Int/Bool/String capture (C10h)
+cargo run -p aura-cli -- run corpus/std_collections/hof     # map_ints / filter_ints / fold_ints
 ```
 
 Native builds use a **C backend** (`aura emit-c` + system `cc`) linked with `runtime/aura_rt.c`. LLVM IR is the longer-term path (RFC-004).
@@ -140,9 +143,36 @@ Native builds use a **C backend** (`aura emit-c` + system `cc`) linked with `run
 - **Runtime C7b** Array field GC: dtor free buffers + mark_extras for Array-of-class fields
 - **Codegen C7c** Move-out Array field on return/bind/assign
 - **Docs C7d** C7a–C7j plan + roadmap sync
-- **DX** Pretty diagnostics (`path:line:col` + source snippet)
+- **Stdlib C7e** `std.collections` Set (String, linear)
+- **Stdlib C7f** Map API expand (`remove` / `clear`)
+- **Sema C7g** Multi-error collect in declaration phase
+- **Compiler C7h** Array-of-interface: reject for MVP
+- **Compiler C7i** Generic interfaces foundation
+- **Docs C7j** Array element drop defer documented
+- **Stdlib C8a** Generic `Map<K,V>`
+- **Toolchain C8b** Path lock existence check + registry spike
+- **Compiler C8c** Generic interface implements mono (`: Iface<T>`)
+- **Stdlib C8d** `Iterable<E>` + for-in
+- **Compiler C8e–C8f** Nested `Array<Array<T>>` mono + free nested buffers
+- **Stdlib C8g–C8h** Generic `Set<T>`; for-in over Map.keys / Set
+- **Stdlib C8i** `HashMap` String→Int open addressing
+- **Compiler C8j** Non-destructive Array field bind
+- **Toolchain C8k** `aura.lock` registry schema v0
+- **Docs C8l** C8c–C8l batch closed
+- **Compiler C9a** Generic class implements mono (`class Box<T> : Iface<T>`)
+- **Stdlib C9b** HashMap auto-resize on load
+- **Compiler C9c** Builtin `Array.clone()`
+- **Compiler C9d–C9h** String `+`, expr-body funs, type alias, `const`, string interp
+- **Compiler C9i** `is` type test (class/interface)
+- **Docs C9j** C9a–C9j batch closed
+- **DX** Pretty diagnostics (`path:line:col` + source snippet + context/notes)
+- **Compiler C10b** Diagnostics polish (context line + notes)
+- **Compiler C10c–C10g** Lambdas (expr/block), `Ty::Fun`, fun type `(T) -> U`, non-capturing codegen
+- **Compiler C10h** Lambda captures MVP (`val` Int/Bool/String; fat-pointer Fun)
+- **Stdlib C10i** `map_ints` / `filter_ints` / `fold_ints`
+- **Docs C10j** C10a–C10j batch closed — first-class funs/lambdas shippable
 - **Debts** Tracked in [`agents/debts.md`](agents/debts.md)
-- **Next (after C9j):** true borrow / Array-of-iface; lambdas; registry client; tasks/async
+- **Next (after C10j):** richer captures (class/Array/env GC); true borrow / Array-of-iface; generic HashMap; registry client; tasks/async
 
 ## Links
 

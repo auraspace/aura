@@ -22,41 +22,46 @@ Aura is **spec-first**: RFCs lock design; the compiler and runtime land vertical
 
 ## RFC Accepted vs implemented
 
-| RFC             | Title                      | RFC status | In code (approx.)       | Notes                                                           |
-| --------------- | -------------------------- | ---------- | ----------------------- | --------------------------------------------------------------- |
-| [000](/rfc/000) | Vision & design principles | Accepted   | **Shipped (docs)**      | Product north star                                              |
-| [001](/rfc/001) | Language specification     | Accepted   | **Partial → broad MVP** | Classes, control, packages in C0–C5 path; async/macros not full |
-| [002](/rfc/002) | Type system                | Accepted   | **Partial**             | Null flow, generics, bounds, Result; deeper rules ongoing       |
-| [003](/rfc/003) | Memory & concurrency       | Accepted   | **Partial**             | GC MVP + class heap; tasks/channels limited                     |
-| [004](/rfc/004) | Compiler architecture      | Accepted   | **Partial**             | Rust toolchain + **C backend** default; LLVM later              |
-| [005](/rfc/005) | Package manager            | Accepted   | **Partial**             | Path deps + `aura.lock`; registry not the daily path            |
-| [006](/rfc/006) | Runtime                    | Accepted   | **Partial**             | `aura_rt.c`, GC alloc/free-all, exceptions                      |
-| [007](/rfc/007) | Standard library           | Accepted   | **Partial**             | `std.io`, `std.assert`; collections evolving                    |
-| [008](/rfc/008) | Build system               | Accepted   | **Partial**             | `aura.toml` package build/run/test                              |
-| [009](/rfc/009) | Reflection / metadata      | Accepted   | **Deferred / limited**  | Not a day-one teach path                                        |
-| [010](/rfc/010) | Plugins / macros           | Accepted   | **Deferred / limited**  | Not required for hello                                          |
-| [011](/rfc/011) | Testing framework          | Accepted   | **Partial**             | `aura test` + `@test` MVP                                       |
-| [012](/rfc/012) | CLI                        | Accepted   | **Partial**             | `check` / `build` / `run` / `test` (+ emit-c)                   |
-| [013](/rfc/013) | Binary distribution        | Accepted   | **Deferred / limited**  | GitHub Releases story evolving; monorepo Cargo is current       |
+| RFC             | Title                      | RFC status | In code (approx.)       | Notes                                                                    |
+| --------------- | -------------------------- | ---------- | ----------------------- | ------------------------------------------------------------------------ |
+| [000](/rfc/000) | Vision & design principles | Accepted   | **Shipped (docs)**      | Product north star                                                       |
+| [001](/rfc/001) | Language specification     | Accepted   | **Partial → broad MVP** | Through C10: classes, packages, lambdas/fun types; async/macros not full |
+| [002](/rfc/002) | Type system                | Accepted   | **Partial**             | Null flow, generics, bounds, Result, fun types; deeper rules ongoing     |
+| [003](/rfc/003) | Memory & concurrency       | Accepted   | **Partial**             | GC mark/sweep + class heap; tasks/channels limited                       |
+| [004](/rfc/004) | Compiler architecture      | Accepted   | **Partial**             | Rust toolchain + **C backend** default; LLVM later                       |
+| [005](/rfc/005) | Package manager            | Accepted   | **Partial**             | Path deps + lock schema v0; registry not the daily path                  |
+| [006](/rfc/006) | Runtime                    | Accepted   | **Partial**             | `aura_rt.c`, GC, exceptions, nested Array free                           |
+| [007](/rfc/007) | Standard library           | Accepted   | **Partial**             | `std.io` / `assert` / Map·Set·HashMap·Iterable + Int HOF                 |
+| [008](/rfc/008) | Build system               | Accepted   | **Partial**             | `aura.toml` package build/run/test                                       |
+| [009](/rfc/009) | Reflection / metadata      | Accepted   | **Deferred / limited**  | Not a day-one teach path                                                 |
+| [010](/rfc/010) | Plugins / macros           | Accepted   | **Deferred / limited**  | Not required for hello                                                   |
+| [011](/rfc/011) | Testing framework          | Accepted   | **Partial**             | `aura test` + `@test` MVP                                                |
+| [012](/rfc/012) | CLI                        | Accepted   | **Partial**             | `check` / `build` / `run` / `test` (+ emit-c)                            |
+| [013](/rfc/013) | Binary distribution        | Accepted   | **Deferred / limited**  | GitHub Releases story evolving; monorepo Cargo is current                |
 
 ## Compiler milestone band
 
-Public README tracks **C0 → C5n** (and beyond) as landed vertical slices: lexer/parser/sema through arrays, GC, std packages, diagnostics, etc.
+Public README and repo `docs/roadmap.md` track **C0 → C10j** as landed vertical slices.
 
-| Band   | User-visible outcome                                  |
-| ------ | ----------------------------------------------------- |
-| C0–C1  | Parse, typecheck, native hello via C backend          |
-| C1b–C2 | Classes, interfaces, generics, null flow              |
-| C3     | Structs, enums, tests, packages, arrays, imports      |
-| C4–C5  | GC refinements, std.io/assert, more Array/String APIs |
+| Band   | User-visible outcome                                                           |
+| ------ | ------------------------------------------------------------------------------ |
+| C0–C1  | Parse, typecheck, native hello via C backend                                   |
+| C1b–C2 | Classes, interfaces, generics, null flow                                       |
+| C3     | Structs, enums, tests, packages, arrays, imports, GC MVP                       |
+| C4–C5  | GC refinements, std.io/assert, more Array/String APIs, diagnostics polish      |
+| C6–C7  | Deep GC mark/sweep, Iterable, Map/Set, `Int?`/`Bool?`, Array field ownership   |
+| C8–C9  | Generic iface/class mono, nested Array, HashMap(+resize), String+/interp, `is` |
+| C10    | First-class funs/lambdas (expr/block), fun types, val captures MVP, Int HOF    |
 
-Exact bullet lists live in the root [README](https://github.com/auraspace/aura) and repo `docs/roadmap.md`.
+**Next (after C10j):** richer captures (class/Array, env GC); true borrow / Array-of-iface; generic HashMap; registry client; tasks/async.
+
+Exact bullet lists live in the root [README](https://github.com/auraspace/aura) and repo [`docs/roadmap.md`](https://github.com/auraspace/aura/blob/main/docs/roadmap.md).
 
 ## Near-term product shape
 
 1. Keep **check / build / run / test** solid on packages
-2. Grow **stdlib** and package ergonomics
-3. Deepen **GC / runtime** while C backend stays useful
+2. Grow **stdlib** and package ergonomics (generic collections, richer String)
+3. Deepen **closures / GC** while C backend stays useful
 4. Move toward **LLVM** without abandoning shippable binaries
 5. Keep **user docs** aligned when features become teachable
 

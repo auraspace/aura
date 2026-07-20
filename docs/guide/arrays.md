@@ -52,7 +52,7 @@ fun stack() {
 
 ## Higher-order helpers (C10i)
 
-`std.collections` provides Int-specialized free functions that take first-class funs:
+`std.collections` provides Int-specialized free functions that take first-class funs (see [syntax cheatsheet](./syntax-cheatsheet.md#lambdas-c10) for lambda forms):
 
 | Helper        | Signature                                     |
 | ------------- | --------------------------------------------- |
@@ -65,9 +65,14 @@ import std.collections
 
 fun demo(xs: Array<Int>): Int {
   val doubled = map_ints(xs, (x: Int) => x * 2)
-  return fold_ints(doubled, 0, (a: Int, b: Int) => a + b)
+  // Array params own the buffer — clone when reusing the same Array.
+  return fold_ints(doubled.clone(), 0, (a: Int, b: Int) => a + b)
 }
 ```
+
+Corpus: `fun/lambda_hof.aura`, `std_collections/hof`.
+
+**Capture limits (C10h MVP):** lambdas may close over outer immutable `val` of `Int` / `Bool` / `String` only. Class, Array, `var`, and nested Fun captures are deferred ([debts](https://github.com/auraspace/aura/blob/main/agents/debts.md)).
 
 Array parameters **own** the buffer (move at call site). Use `clone()` if you need the same array after a call that takes it.
 
