@@ -116,7 +116,8 @@ pub(crate) fn is_heap_class_mono(mono: &str, checked: &CheckedFile) -> bool {
             return true;
         }
         // Generic mono: demo_pkg_Box_String
-        if mono.starts_with(&format!("{base_mono}_")) || mono.starts_with(&format!("{}_", c.name.name))
+        if mono.starts_with(&format!("{base_mono}_"))
+            || mono.starts_with(&format!("{}_", c.name.name))
         {
             // Confirm a mono_classes entry exists for this simple name.
             if checked.mono_classes.iter().any(|(n, _)| n == &c.name.name) {
@@ -346,15 +347,13 @@ pub(crate) fn c_type_ref_subst(
                             let nested: Vec<Ty> = t
                                 .type_args
                                 .iter()
-                                .filter_map(|n| {
-                                    match n.name.name.as_str() {
-                                        "Int" => Some(Ty::Int),
-                                        "Bool" => Some(Ty::Bool),
-                                        "String" => Some(Ty::String),
-                                        o => {
-                                            let p = resolve_type_ref_package(n, checked);
-                                            Some(Ty::Class(nominal_key(&p, o)))
-                                        }
+                                .filter_map(|n| match n.name.name.as_str() {
+                                    "Int" => Some(Ty::Int),
+                                    "Bool" => Some(Ty::Bool),
+                                    "String" => Some(Ty::String),
+                                    o => {
+                                        let p = resolve_type_ref_package(n, checked);
+                                        Some(Ty::Class(nominal_key(&p, o)))
                                     }
                                 })
                                 .collect();
@@ -383,12 +382,12 @@ pub(crate) fn c_type_ref_subst(
 /// Resolve declaring package for a TypeRef (qualifier alias or unique class/enum).
 fn resolve_type_ref_package(ty: &TypeRef, checked: &CheckedFile) -> String {
     if let Some(q) = &ty.qualifier {
-        if let Some(imp) = checked.ast.imports.iter().find(|i| {
-            i.alias
-                .as_ref()
-                .map(|a| a.name == q.name)
-                .unwrap_or(false)
-        }) {
+        if let Some(imp) = checked
+            .ast
+            .imports
+            .iter()
+            .find(|i| i.alias.as_ref().map(|a| a.name == q.name).unwrap_or(false))
+        {
             return imp.path.display();
         }
     }
@@ -421,7 +420,12 @@ fn resolve_type_ref_package(ty: &TypeRef, checked: &CheckedFile) -> String {
     checked.package.clone()
 }
 
-pub(crate) fn c_type_from_opt(ret: &Option<TypeRef>, checked: &CheckedFile, params: &[String], args: &[Ty]) -> String {
+pub(crate) fn c_type_from_opt(
+    ret: &Option<TypeRef>,
+    checked: &CheckedFile,
+    params: &[String],
+    args: &[Ty],
+) -> String {
     match ret {
         None => "void".into(),
         Some(t) if t.name.name == "Unit" && t.type_args.is_empty() => "void".into(),
@@ -430,7 +434,12 @@ pub(crate) fn c_type_from_opt(ret: &Option<TypeRef>, checked: &CheckedFile, para
 }
 pub(crate) fn mangle_ident(name: &str) -> String {
     match name {
-        "int" | "bool" | "return" | "if" | "else" | "while" | "void" | "main" | "this" => {
+        // C keywords + common reserved names that break generated code.
+        "int" | "bool" | "return" | "if" | "else" | "while" | "void" | "main" | "this"
+        | "default" | "case" | "switch" | "break" | "continue" | "struct" | "enum" | "typedef"
+        | "const" | "static" | "extern" | "sizeof" | "typeof" | "do" | "for" | "goto"
+        | "register" | "signed" | "unsigned" | "union" | "volatile" | "auto" | "char"
+        | "double" | "float" | "long" | "short" | "true" | "false" | "NULL" | "null" => {
             format!("a_{name}")
         }
         _ => name.to_string(),
@@ -475,4 +484,3 @@ pub(crate) fn escape_c_string(s: &str) -> String {
     }
     out
 }
-

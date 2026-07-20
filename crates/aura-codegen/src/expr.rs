@@ -139,12 +139,22 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
             _ => "Int".into(),
         },
         Expr::Field(f) => {
+            // Prefer resolve_type_name so field chains (this.keys.len) and Array/String
+            // `.len` resolve correctly (C6f).
+            if let Some(t) = resolve_type_name(e, ctx) {
+                return t;
+            }
             if f.field.name == "len" {
                 let recv = resolve_type_name(&f.object, ctx);
                 if matches!(recv.as_deref(), Some("String"))
                     || matches!(f.object.as_ref(), Expr::String(_))
                 {
                     return "Int".into();
+                }
+                if let Some(r) = recv.as_deref() {
+                    if r == "Array" || r.starts_with("Array_") {
+                        return "Int".into();
+                    }
                 }
             }
             if let Some(mono) = resolve_class_of_expr(&f.object, ctx) {

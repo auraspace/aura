@@ -13,9 +13,7 @@ impl Checker {
         self.current_package = file_pkg.clone();
         self.package_imports.clear();
         self.import_aliases.clear();
-        self.package_imports
-            .entry(file_pkg.clone())
-            .or_default();
+        self.package_imports.entry(file_pkg.clone()).or_default();
         for imp in &file.imports {
             let from = decl_package(&imp.origin_package, &file_pkg).to_string();
             let target = imp.path.display();
@@ -32,8 +30,7 @@ impl Checker {
                 }
                 // Alias lives in the importing package's name space (used when
                 // current_package is `from`). Store globally for C3n lookup.
-                self.import_aliases
-                    .insert(alias.name.clone(), target);
+                self.import_aliases.insert(alias.name.clone(), target);
             }
         }
         // Every package that contributes decls can see itself.
@@ -232,7 +229,10 @@ impl Checker {
                     .unwrap_or(false)
             {
                 return Err(SemaError {
-                    message: format!("duplicate type/function name `{}` in package `{pkg}`", c.name.name),
+                    message: format!(
+                        "duplicate type/function name `{}` in package `{pkg}`",
+                        c.name.name
+                    ),
                     span: c.name.span,
                 });
             }
@@ -316,8 +316,7 @@ impl Checker {
             for m in &c.methods {
                 if !m.type_params.is_empty() {
                     return Err(SemaError {
-                        message: "C2b: methods cannot declare their own type parameters yet"
-                            .into(),
+                        message: "C2b: methods cannot declare their own type parameters yet".into(),
                         span: m.name.span,
                     });
                 }
@@ -388,14 +387,24 @@ impl Checker {
 
         for f in &file.functions {
             let pkg = decl_package(&f.origin_package, &file_pkg).to_string();
+            // Resolve param/return types in the function's package (cross-package merge).
+            self.current_package = pkg.clone();
             if self
                 .interfaces
                 .get(&f.name.name)
                 .map(|v| v.iter().any(|i| i.package == pkg))
                 .unwrap_or(false)
                 || self.variant_to_enum.contains_key(&f.name.name)
-                || self.classes.get(&f.name.name).map(|v| !v.is_empty()).unwrap_or(false)
-                || self.enums.get(&f.name.name).map(|v| !v.is_empty()).unwrap_or(false)
+                || self
+                    .classes
+                    .get(&f.name.name)
+                    .map(|v| !v.is_empty())
+                    .unwrap_or(false)
+                || self
+                    .enums
+                    .get(&f.name.name)
+                    .map(|v| !v.is_empty())
+                    .unwrap_or(false)
             {
                 return Err(SemaError {
                     message: format!("duplicate type/function name `{}`", f.name.name),
@@ -405,10 +414,7 @@ impl Checker {
             if let Some(existing) = self.functions.get(&f.name.name) {
                 if existing.iter().any(|s| s.package == pkg) {
                     return Err(SemaError {
-                        message: format!(
-                            "duplicate function `{}` in package `{pkg}`",
-                            f.name.name
-                        ),
+                        message: format!("duplicate function `{}` in package `{pkg}`", f.name.name),
                         span: f.name.span,
                     });
                 }
@@ -423,7 +429,6 @@ impl Checker {
                 Some(t) => self.type_from_ref(t)?,
                 None => Ty::Unit,
             };
-            self.current_package = pkg.clone();
             self.functions
                 .entry(f.name.name.clone())
                 .or_default()
@@ -465,11 +470,7 @@ impl Checker {
             let pkg = decl_package(&f.origin_package, &file_pkg).to_string();
             self.current_package = pkg.clone();
             self.bind_type_params(&f.type_params)?;
-            let ret = self
-                .fun_in_package(&f.name.name, &pkg)
-                .unwrap()
-                .ret
-                .clone();
+            let ret = self.fun_in_package(&f.name.name, &pkg).unwrap().ret.clone();
             self.check_fun(f, &ret)?;
             self.type_params.clear();
         }
@@ -514,12 +515,18 @@ impl Checker {
             let sa = format!(
                 "{}_{}",
                 a.0,
-                a.1.iter().map(|t| t.display()).collect::<Vec<_>>().join("_")
+                a.1.iter()
+                    .map(|t| t.display())
+                    .collect::<Vec<_>>()
+                    .join("_")
             );
             let sb = format!(
                 "{}_{}",
                 b.0,
-                b.1.iter().map(|t| t.display()).collect::<Vec<_>>().join("_")
+                b.1.iter()
+                    .map(|t| t.display())
+                    .collect::<Vec<_>>()
+                    .join("_")
             );
             sa.cmp(&sb)
         });
@@ -528,12 +535,18 @@ impl Checker {
             let sa = format!(
                 "{}_{}",
                 a.0,
-                a.1.iter().map(|t| t.display()).collect::<Vec<_>>().join("_")
+                a.1.iter()
+                    .map(|t| t.display())
+                    .collect::<Vec<_>>()
+                    .join("_")
             );
             let sb = format!(
                 "{}_{}",
                 b.0,
-                b.1.iter().map(|t| t.display()).collect::<Vec<_>>().join("_")
+                b.1.iter()
+                    .map(|t| t.display())
+                    .collect::<Vec<_>>()
+                    .join("_")
             );
             sa.cmp(&sb)
         });
@@ -542,12 +555,18 @@ impl Checker {
             let sa = format!(
                 "{}_{}",
                 a.0,
-                a.1.iter().map(|t| t.display()).collect::<Vec<_>>().join("_")
+                a.1.iter()
+                    .map(|t| t.display())
+                    .collect::<Vec<_>>()
+                    .join("_")
             );
             let sb = format!(
                 "{}_{}",
                 b.0,
-                b.1.iter().map(|t| t.display()).collect::<Vec<_>>().join("_")
+                b.1.iter()
+                    .map(|t| t.display())
+                    .collect::<Vec<_>>()
+                    .join("_")
             );
             sa.cmp(&sb)
         });

@@ -15,7 +15,7 @@ Living plan for docs, language specs, and the Rust toolchain. RFCs remain the de
 | RFC static site (`site/`)   | Implemented; deploy via GitHub Pages Actions                                           |
 | RFC-000 … RFC-013           | **All Accepted** — open questions resolved or Deferred (2026-07-16)                    |
 | Language MVP                | RFC-001 §6.0 + post-C1 surface; Iterable protocol (C6c) partial; async/macros deferred |
-| Compiler                    | **C0–C6d done** — C6a–C6d GC deep mark, Array own (params/return), iface Iterable      |
+| Compiler                    | **C0–C6f done** — C6a–C6d ownership/GC; C6c Iterable; C6f Map                          |
 | Runtime / packages / stdlib | GC deep mark+sweep + roots; `std.io` / `std.assert`; tasks/collections deferred        |
 
 ## Phases
@@ -130,17 +130,18 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C6b**   | Array move into function/method params                             | Done                                       |
 | **C6c**   | Iterable protocol: `for-in` on iface `len()`+`get(Int)`            | Done                                       |
 | **C6d**   | Array return/call binding owns buffer                              | Done                                       |
-| **C6e–j** | Map, enum elems, multi-error, field Array own…                     | Planned                                    |
+| **C6f**   | `std.collections` Map (String→Int) + Array-as-field emit           | Done                                       |
+| **C6e–j** | GC Array elems, enum elems, multi-error, field Array own…          | Planned                                    |
 | **DX**    | line:col diagnostics with snippets                                 | Done                                       |
 
 **Out of scope C0/C1:** generics mono, async/tasks, macros, registry, incremental, LTO.
 
 ### P3 — Expand (after hello)
 
-1. ~~Language surface C2–C6c~~ → next: Array return own · Map · registry (see `agents/debts.md`, plan C6d–C6j)
+1. ~~Language surface C2–C6f~~ → next: field Array own · enum Array · registry (see `agents/debts.md`, plan C6e–C6j)
 2. Runtime: ~~alloc/GC + deep mark/sweep + class heap refs~~ → channels/tasks
 3. Toolchain: ~~minimal `aura.toml` + path deps + path lock (incl. transitive)~~ → registry (RFC-005)
-4. Stdlib: ~~std.io + auto-prelude + std.assert~~ → collections (partial: builtin Array)
+4. Stdlib: ~~std.io + auto-prelude + std.assert + Map String→Int~~ → generic Map/Set
 5. Cross targets + signed releases
 
 Write Wave 2–4 RFCs **as implementation needs them**, not all up front.

@@ -34,10 +34,18 @@ When you resolve debt, update or remove the matching entry.
 ### Stdlib incomplete (collections)
 
 - Area: stdlib / RFC-007
-- Symptom: C5a adds `std/collections` stub package; still no Map/Set APIs
-- Why deferred: builtin Array + duck/iface for-in cover demos
-- Next step: Map implementation (C6f)
-- Introduced: narrowed after C4h; stub C5a
+- Symptom: C6f `Map` is String→Int linear only; no Set, no generic Map
+- Why deferred: no generic class APIs + hash yet
+- Next step: generic Map or hash Map; Set
+- Introduced: narrowed after C4h; stub C5a; Map C6f
+
+### Nullable primitive `Int?` / `Bool?` C emit
+
+- Area: codegen
+- Symptom: `T?` for Int/Bool still uses bare int64_t/bool; `null` becomes invalid C
+- Why deferred: need optional tag or sentinel convention
+- Next step: tagged optional or reject nullable primitives with clear diag
+- Introduced: noticed C6f Map.get
 
 ### GC mark does not walk Array buffers
 
@@ -68,6 +76,10 @@ When you resolve debt, update or remove the matching entry.
 ### Array return binding not owner (2026-07-20)
 
 - Resolved in C6d: `val b = f()` / assign from call that yields Array marks binding owner; free old on reassignment. Corpus `generic/array_return_own.aura`.
+
+### No std.collections Map (2026-07-20)
+
+- Resolved in C6f (partial): `Map` String→Int linear + `map()`; Array-as-class-field emit order; field-chain type resolve; C keyword mangle; fun sig package context. Corpus `std_collections/app`.
 
 ### `for-in` has no Iterable protocol (duck only) (2026-07-20)
 

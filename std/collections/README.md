@@ -1,10 +1,17 @@
 # std.collections
 
-Placeholder package for future Map/Set and related types (RFC-007).
+Collections package (RFC-007).
 
-**Status (C5a):** stub only — no APIs yet.
+**Status (C6f):**
 
-**Use instead:**
+| API     | Notes                                                                 |
+| ------- | --------------------------------------------------------------------- |
+| `Map`   | String → Int, linear `put` / `getOr` / `contains` / `len` / `isEmpty` |
+| `map()` | Empty map factory                                                     |
 
-- Builtin `Array<T>` (Int/Bool/String/class/struct elements)
-- Duck `for-in` when a type has `len` / `len(): Int` and `get(Int)` (C4y)
+**Not yet:** generic `Map<K,V>`, Set, hash table, nullable `get`, iteration on Map.
+
+**Also available language-wide:**
+
+- Builtin `Array<T>`
+- Duck / interface Iterable (`len` + `get(Int)`) for `for-in`

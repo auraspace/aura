@@ -1,0 +1,29 @@
+// C6f — std.collections Map put/getOr/contains
+package demo.stdcollections
+
+import std.collections
+
+fun main() {
+  val m = map()
+  if (m.isEmpty()) {
+    println("empty")
+  }
+  val ins = m.put("a", 1)
+  if (ins) {
+    println("ins")
+  }
+  m.put("b", 2)
+  m.put("a", 10)
+  if (m.len() == 2) {
+    println("len")
+  }
+  if (m.getOr("a", -1) == 10) {
+    println("geta")
+  }
+  if (m.contains("b")) {
+    println("hasb")
+  }
+  if (m.getOr("z", -1) == -1) {
+    println("miss")
+  }
+}

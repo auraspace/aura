@@ -1,3 +1,53 @@
-// C5a — std.collections stub (Map/Set not implemented yet).
-// Use builtin Array<T> and duck Iterable (len + get) until Map lands.
+// C6f — std.collections Map (String → Int) linear MVP.
+// Generic Map<K,V> and Int? get deferred (nullable primitives not in C emit yet).
 package std.collections
+
+/// Mutable map from String keys to Int values (linear scan).
+pub class Map(val keys: Array<String>, val vals: Array<Int>) {
+  /// Number of entries.
+  pub fun len(): Int {
+    return this.keys.len
+  }
+
+  pub fun isEmpty(): Bool {
+    return this.keys.len == 0
+  }
+
+  /// Insert or replace. Returns true if the key was newly inserted.
+  pub fun put(k: String, v: Int): Bool {
+    for (i in 0..this.keys.len) {
+      if (this.keys.get(i) == k) {
+        this.vals.set(i, v)
+        return false
+      }
+    }
+    this.keys.push(k)
+    this.vals.push(v)
+    return true
+  }
+
+  /// Value for `k`, or `default` if missing.
+  pub fun getOr(k: String, default: Int): Int {
+    for (i in 0..this.keys.len) {
+      if (this.keys.get(i) == k) {
+        return this.vals.get(i)
+      }
+    }
+    return default
+  }
+
+  /// true if `k` is present.
+  pub fun contains(k: String): Bool {
+    for (i in 0..this.keys.len) {
+      if (this.keys.get(i) == k) {
+        return true
+      }
+    }
+    return false
+  }
+}
+
+/// Empty String→Int map.
+pub fun map(): Map {
+  return Map(Array(0), Array(0))
+}

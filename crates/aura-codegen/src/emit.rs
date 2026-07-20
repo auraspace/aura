@@ -102,6 +102,14 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
             );
         }
     }
+    // C6f: Array monomorphs before class bodies so classes may embed Array fields by value.
+    for (name, args) in &checked.mono_classes {
+        if is_array_mono(name) {
+            if let Some(elem) = args.first() {
+                emit_array_mono(&mut out, elem, checked);
+            }
+        }
+    }
     for c in &checked.ast.classes {
         if c.type_params.is_empty() {
             emit_class_typedef(&mut out, checked, c, &[]);
@@ -109,22 +117,10 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     }
     for (name, args) in &checked.mono_classes {
         if is_array_mono(name) {
-            if let Some(elem) = args.first() {
-                // Typedef + methods emitted later with other Array defs (need one place).
-                let _ = elem;
-            }
             continue;
         }
         if let Some(c) = checked.ast.classes.iter().find(|c| c.name.name == *name) {
             emit_class_typedef(&mut out, checked, c, args);
-        }
-    }
-    // Builtin Array<T> mono (typedef + ctor/get/set)
-    for (name, args) in &checked.mono_classes {
-        if is_array_mono(name) {
-            if let Some(elem) = args.first() {
-                emit_array_mono(&mut out, elem, checked);
-            }
         }
     }
 

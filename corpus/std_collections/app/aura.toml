@@ -1,0 +1,6 @@
+[package]
+name = "demo.stdcollections"
+
+[[bin]]
+name = "app"
+path = "src"
