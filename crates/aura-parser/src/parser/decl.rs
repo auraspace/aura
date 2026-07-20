@@ -338,7 +338,22 @@ impl Parser {
             None
         };
         self.apply_where_clause(&mut type_params)?;
-        let body = self.parse_block()?;
+        // C9e: expression body `fun f(): T = expr` desugars to `{ return expr }`.
+        let body = if matches!(self.peek().kind, TokenKind::Eq) {
+            self.bump();
+            let expr = self.parse_expr(0)?;
+            let end = expr.span().end;
+            let ret_span = Span::new(expr.span().start, end);
+            Block {
+                stmts: vec![Stmt::Return(ReturnStmt {
+                    value: Some(expr),
+                    span: ret_span,
+                })],
+                span: Span::new(start, end),
+            }
+        } else {
+            self.parse_block()?
+        };
         let end = body.span.end;
         Ok(FunDecl {
             is_pub: false,

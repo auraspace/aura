@@ -1,0 +1,15 @@
+// C9e — expression-body functions
+package demo.exprbody
+
+fun double(x: Int): Int = x * 2
+
+fun greet(name: String): String = "hi " + name
+
+fun main() {
+  if (double(21) == 42) {
+    println("dbl")
+  }
+  if (greet("Aura") == "hi Aura") {
+    println("greet")
+  }
+}
