@@ -2,7 +2,7 @@
 title: CLI
 section: Toolchain
 order: 40
-summary: aura check, build, run, and test — the verbs you use every day.
+summary: aura new, check, build, run, and test — the verbs you use every day.
 ---
 
 # CLI
@@ -17,15 +17,20 @@ cargo run -p aura-cli -- <command> [args]
 
 | Command              | Purpose                                   |
 | -------------------- | ----------------------------------------- |
+| `new <path>`         | Scaffold a package directory              |
+| `init [name]`        | Scaffold in the current directory         |
 | `check <file\|dir>`  | Parse + typecheck                         |
 | `build <file\|dir>`  | Emit native binary (`-o` for output path) |
 | `run <file\|dir>`    | Build and execute                         |
 | `test <file\|dir>`   | Run `@test` functions                     |
 | `emit-c <file\|dir>` | Emit C (advanced / debugging)             |
+| `version`            | Print CLI version                         |
 
 Examples:
 
 ```bash
+cargo run -p aura-cli -- new hello
+cargo run -p aura-cli -- run hello
 cargo run -p aura-cli -- check corpus/hello/main.aura
 cargo run -p aura-cli -- run corpus/multi
 cargo run -p aura-cli -- test corpus/test/smoke.aura
@@ -47,9 +52,18 @@ Package mode unlocks multi-file compilation, imports, and path dependencies. See
 
 Type and name errors print human-readable messages. Prefer `check` in editors/CI when you only need validation.
 
+## Scaffolding
+
+```bash
+aura new my_app          # creates my_app/aura.toml + my_app/src/main.aura
+aura init                # same layout in `.` (name from directory)
+```
+
+Hyphens in the path become underscores in the package name (`my-app` → package `my_app`). Existing `aura.toml` / `src/` are never overwritten.
+
 ## Planned verbs
 
-RFC-012 also describes `fmt`, `new`, package registry flows, and `doc`. Those are **not** all implemented yet — treat this page as “what works in-tree today.”
+RFC-012 also describes `fmt`, package registry flows, and `doc`. Those are **not** all implemented yet — treat this page as “what works in-tree today.”
 
 ## Next
 

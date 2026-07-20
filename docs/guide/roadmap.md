@@ -43,18 +43,18 @@ Aura is **spec-first**: RFCs lock design; the compiler and runtime land vertical
 
 Public README and repo `docs/roadmap.md` track **C0 → C10j** as landed vertical slices.
 
-| Band   | User-visible outcome                                                            |
-| ------ | ------------------------------------------------------------------------------- |
-| C0–C1  | Parse, typecheck, native hello via C backend                                    |
-| C1b–C2 | Classes, interfaces, generics, null flow                                        |
-| C3     | Structs, enums, tests, packages, arrays, imports, GC MVP                        |
-| C4–C5  | GC refinements, std.io/assert, more Array/String APIs, diagnostics polish       |
-| C6–C7  | Deep GC mark/sweep, Iterable, Map/Set, `Int?`/`Bool?`, Array field ownership    |
-| C8–C9  | Generic iface/class mono, nested Array, HashMap(+resize), String+/interp, `is`  |
-| C10    | First-class funs/lambdas (expr/block), fun types, val captures MVP, Int HOF     |
-| C11a–b | `std.io` file/console expand; Fun capture-env free (ownership, incl. for-loops) |
+| Band   | User-visible outcome                                                           |
+| ------ | ------------------------------------------------------------------------------ |
+| C0–C1  | Parse, typecheck, native hello via C backend                                   |
+| C1b–C2 | Classes, interfaces, generics, null flow                                       |
+| C3     | Structs, enums, tests, packages, arrays, imports, GC MVP                       |
+| C4–C5  | GC refinements, std.io/assert, more Array/String APIs, diagnostics polish      |
+| C6–C7  | Deep GC mark/sweep, Iterable, Map/Set, `Int?`/`Bool?`, Array field ownership   |
+| C8–C9  | Generic iface/class mono, nested Array, HashMap(+resize), String+/interp, `is` |
+| C10    | First-class funs/lambdas (expr/block), fun types, val captures MVP, Int HOF    |
+| C11a–c | `std.io` file/console; Fun env free; `aura new` / `init` / `version`           |
 
-**Next (after C11b):** install/`aura new`/dogfood freeze; richer captures (class/Array); true borrow / Array-of-iface; generic HashMap; registry client; tasks/async.
+**Next (after C11c):** dogfood freeze + release notes; binary install path; richer captures; registry; tasks/async.
 
 Exact bullet lists live in the root [README](https://github.com/auraspace/aura) and repo [`docs/roadmap.md`](https://github.com/auraspace/aura/blob/main/docs/roadmap.md).
 

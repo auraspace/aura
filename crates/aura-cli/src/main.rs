@@ -1,6 +1,7 @@
-//! Aura CLI — check / build / run / test / emit-c with pretty diagnostics.
+//! Aura CLI — check / build / run / test / new / emit-c with pretty diagnostics.
 
 mod package;
+mod scaffold;
 
 use aura_codegen::{build_from_file, build_tests_from_file, emit_c_from_ast};
 use aura_diagnostics::{format_error_with, FormatOptions};
@@ -9,6 +10,8 @@ use package::{load_package, load_package_default, LoadedPackage};
 use std::env;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
+
+const AURA_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn main() -> ExitCode {
     let mut args = env::args().skip(1).collect::<Vec<_>>();
@@ -24,6 +27,12 @@ fn main() -> ExitCode {
         "run" => cmd_run(&args),
         "test" => cmd_test(&args),
         "emit-c" => cmd_emit_c(&args),
+        "new" => cmd_new(&args),
+        "init" => cmd_init(&args),
+        "version" | "--version" | "-V" => {
+            println!("aura {AURA_VERSION}");
+            ExitCode::SUCCESS
+        }
         "help" | "-h" | "--help" => {
             eprint_usage();
             ExitCode::SUCCESS
@@ -38,18 +47,93 @@ fn main() -> ExitCode {
 
 fn eprint_usage() {
     eprintln!(
-        "Aura toolchain (C0–C3f)\n\n\
+        "Aura toolchain {AURA_VERSION}\n\n\
          Usage:\n  \
+           aura new <path>                   Scaffold package directory\n  \
+           aura init [name]                  Scaffold package in current directory\n  \
            aura check [path]                 Parse + typecheck (.aura | dir | aura.toml)\n  \
            aura build [path] [-o <bin>]      Compile to native binary (C backend)\n  \
            aura run [path]                   Build to temp and execute\n  \
            aura test [path]                  Run @test functions (package-wide)\n  \
            aura emit-c [path]                Print generated C (debug)\n  \
+           aura version                      Print CLI version\n  \
            aura help\n\n\
          Path may be a `.aura` file, a package directory, or `aura.toml`.\n\
          With no path, commands look for `./aura.toml`.\n\n\
-         See docs/roadmap.md and RFC-001 §6.0 / RFC-005 / RFC-008."
+         See docs/roadmap.md and RFC-001 §6.0 / RFC-005 / RFC-008 / RFC-012."
     );
+}
+
+fn cmd_new(args: &[String]) -> ExitCode {
+    if args.len() != 1 {
+        eprintln!("error: usage: aura new <path>");
+        return ExitCode::from(2);
+    }
+    let arg = &args[0];
+    let (pkg, bin) = match scaffold::names_from_arg(arg) {
+        Ok(v) => v,
+        Err(msg) => {
+            eprintln!("{msg}");
+            return ExitCode::from(1);
+        }
+    };
+    let dir = PathBuf::from(arg);
+    match scaffold::scaffold_package(&dir, &pkg, &bin) {
+        Ok(()) => {
+            println!("created package `{pkg}` in {}", dir.display());
+            println!("  {}", dir.join("aura.toml").display());
+            println!("  {}", dir.join("src/main.aura").display());
+            println!("next:  aura run {}", dir.display());
+            ExitCode::SUCCESS
+        }
+        Err(msg) => {
+            eprintln!("{msg}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+fn cmd_init(args: &[String]) -> ExitCode {
+    if args.len() > 1 {
+        eprintln!("error: usage: aura init [name]");
+        return ExitCode::from(2);
+    }
+    let dir = PathBuf::from(".");
+    let (pkg, bin) = if let Some(name) = args.first() {
+        match scaffold::names_from_arg(name) {
+            Ok(v) => v,
+            Err(msg) => {
+                eprintln!("{msg}");
+                return ExitCode::from(1);
+            }
+        }
+    } else {
+        // Derive from current directory name when possible.
+        match env::current_dir()
+            .ok()
+            .and_then(|p| {
+                p.file_name()
+                    .and_then(|s| s.to_str().map(|s| s.to_string()))
+            })
+            .and_then(|stem| scaffold::names_from_arg(&stem).ok())
+        {
+            Some(v) => v,
+            None => ("app".into(), "app".into()),
+        }
+    };
+    match scaffold::scaffold_package(&dir, &pkg, &bin) {
+        Ok(()) => {
+            println!("initialized package `{pkg}` in .");
+            println!("  ./aura.toml");
+            println!("  ./src/main.aura");
+            println!("next:  aura run .");
+            ExitCode::SUCCESS
+        }
+        Err(msg) => {
+            eprintln!("{msg}");
+            ExitCode::from(1)
+        }
+    }
 }
 
 fn resolve_package(args: &[String]) -> Result<LoadedPackage, String> {
