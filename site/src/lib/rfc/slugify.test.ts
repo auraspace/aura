@@ -1,9 +1,12 @@
-import { describe, it, expect } from 'vitest'
+import { describe, expect, it } from 'vitest'
+
 import { slugify } from './slugify'
 
 describe('slugify', () => {
   it('lowercases and hyphenates', () => {
-    expect(slugify('Vision & Design Principles')).toBe('vision-design-principles')
+    expect(slugify('Vision & Design Principles')).toBe(
+      'vision-design-principles',
+    )
   })
 
   it('strips punctuation', () => {

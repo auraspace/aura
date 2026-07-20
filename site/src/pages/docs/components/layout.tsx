@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react'
+
 import type { GuideNavSection } from '@/lib/docs'
+
 import { DocsSearchBox } from './search-box'
 import { DocsSidebar } from './sidebar'
 

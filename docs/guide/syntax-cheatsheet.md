@@ -21,38 +21,38 @@ fun main() {
 
 ## Declarations
 
-| Form | Example |
-| ---- | ------- |
-| Function | `fun add(a: Int, b: Int): Int { return a + b }` |
-| Local | `val x = 1` / `var y = 2` |
-| Class | `class C(var n: Int) { fun f() {} }` |
-| Struct | `struct S(var x: Int) {}` |
-| Interface | `interface I { fun f(): Int }` |
-| Implements | `class C() implements I { ... }` |
-| Enum | `enum E { A, B }` |
-| Generic class | `class Box<T>(var v: T) {}` |
-| Generic fun | `fun id<T>(x: T): T { return x }` |
-| Test | `@test fun t() { assert_eq(1, 1) }` |
+| Form          | Example                                         |
+| ------------- | ----------------------------------------------- |
+| Function      | `fun add(a: Int, b: Int): Int { return a + b }` |
+| Local         | `val x = 1` / `var y = 2`                       |
+| Class         | `class C(var n: Int) { fun f() {} }`            |
+| Struct        | `struct S(var x: Int) {}`                       |
+| Interface     | `interface I { fun f(): Int }`                  |
+| Implements    | `class C() implements I { ... }`                |
+| Enum          | `enum E { A, B }`                               |
+| Generic class | `class Box<T>(var v: T) {}`                     |
+| Generic fun   | `fun id<T>(x: T): T { return x }`               |
+| Test          | `@test fun t() { assert_eq(1, 1) }`             |
 
 ## Types
 
-| Form | Meaning |
-| ---- | ------- |
-| `Int` `Bool` `String` | Scalars |
-| `T?` | Nullable |
-| `Array<T>` | Array |
-| `Result<T, E>` | Success / error |
-| `T : Bound` | Type param bound |
+| Form                  | Meaning          |
+| --------------------- | ---------------- |
+| `Int` `Bool` `String` | Scalars          |
+| `T?`                  | Nullable         |
+| `Array<T>`            | Array            |
+| `Result<T, E>`        | Success / error  |
+| `T : Bound`           | Type param bound |
 
 ## Operators (common)
 
-| Group | Forms |
-| ----- | ----- |
-| Arithmetic | `+ - * / %` |
-| Compare | `== != < <= > >=` |
-| Logic | `&& \|\| !` |
-| Null | `?:` `!!` |
-| Range | `a..b` `a..=b` |
+| Group      | Forms             |
+| ---------- | ----------------- |
+| Arithmetic | `+ - * / %`       |
+| Compare    | `== != < <= > >=` |
+| Logic      | `&& \|\| !`       |
+| Null       | `?:` `!!`         |
+| Range      | `a..b` `a..=b`    |
 
 Class `==` is **identity**. String content equality uses content compare in the current path; struct/enum equality is restricted in sema.
 

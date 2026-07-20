@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+
 import type { GraphEdge, GraphNode } from '@/lib/rfc/graph'
 
 const LAYER_ORDER = [
@@ -85,7 +86,9 @@ export function DepGraph({
               x2={x2}
               y2={y2}
               className={
-                e.kind === 'depends' ? 'graph-edge-depends' : 'graph-edge-blocks'
+                e.kind === 'depends'
+                  ? 'graph-edge-depends'
+                  : 'graph-edge-blocks'
               }
             />
           )
@@ -94,7 +97,11 @@ export function DepGraph({
           const p = pos.get(n.id)
           if (!p) return null
           return (
-            <g key={n.id} className="graph-node" transform={`translate(${p.x},${p.y})`}>
+            <g
+              key={n.id}
+              className="graph-node"
+              transform={`translate(${p.x},${p.y})`}
+            >
               <Link to={`/rfc/${n.id}`}>
                 <rect width="120" height="36" rx="6" />
                 <text x="60" y="22" textAnchor="middle">

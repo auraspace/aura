@@ -1,6 +1,7 @@
-import { Outlet } from "react-router-dom";
-import { DocumentMeta } from "./document-meta";
-import { Header } from "./header";
+import { Outlet } from 'react-router-dom'
+
+import { DocumentMeta } from './document-meta'
+import { Header } from './header'
 
 export function Layout() {
   return (
@@ -9,5 +10,5 @@ export function Layout() {
       <Header />
       <Outlet />
     </div>
-  );
+  )
 }

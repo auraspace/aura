@@ -22,7 +22,9 @@ export function DocsToc({ headings }: { headings: GuideHeading[] }) {
         {headings.map((h, index) => (
           <li
             key={`${h.id}-${index}`}
-            className={h.depth === 3 ? 'my-1 pl-3 text-xs text-muted' : 'my-1.5'}
+            className={
+              h.depth === 3 ? 'my-1 pl-3 text-xs text-muted' : 'my-1.5'
+            }
           >
             <a
               href={`#${h.id}`}

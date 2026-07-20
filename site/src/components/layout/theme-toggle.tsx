@@ -1,5 +1,5 @@
 import { IconMoon, IconSun } from '@tabler/icons-react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 type Theme = 'light' | 'dark'
 
@@ -20,11 +20,8 @@ function applyTheme(theme: Theme) {
 }
 
 export function ThemeToggle() {
-  const [theme, setTheme] = useState<Theme>('light')
-
-  useEffect(() => {
-    setTheme(readTheme())
-  }, [])
+  // Init from DOM (index.html sets data-theme before paint); avoid setState-in-effect.
+  const [theme, setTheme] = useState<Theme>(() => readTheme())
 
   function toggle() {
     const next: Theme = theme === 'dark' ? 'light' : 'dark'

@@ -25,16 +25,16 @@ docs/
 
 ## Where to start
 
-| If you want…                     | Read…                                              |
-| -------------------------------- | -------------------------------------------------- |
-| **User guide (site)**            | [guide/](guide/) → published at `/docs`            |
-| Execution roadmap (phases)       | [roadmap.md](roadmap.md)                           |
-| Vision & design principles       | [RFC-000](rfc/RFC-000-vision-design-principles.md) |
-| Syntax & core language semantics | [RFC-001](rfc/RFC-001-language-specification.md)   |
+| If you want…                     | Read…                                                                              |
+| -------------------------------- | ---------------------------------------------------------------------------------- |
+| **User guide (site)**            | [guide/](guide/) → published at `/docs`                                            |
+| Execution roadmap (phases)       | [roadmap.md](roadmap.md)                                                           |
+| Vision & design principles       | [RFC-000](rfc/RFC-000-vision-design-principles.md)                                 |
+| Syntax & core language semantics | [RFC-001](rfc/RFC-001-language-specification.md)                                   |
 | MVP surface for compiler C0–C1   | [RFC-001 §6.0](rfc/RFC-001-language-specification.md#60-mvp-surface-compiler-c0c1) |
-| Type system                      | [RFC-002](rfc/RFC-002-type-system.md)              |
-| Memory model & concurrency       | [RFC-003](rfc/RFC-003-memory-model-concurrency.md) |
-| Full RFC catalog                 | [rfc/README.md](rfc/README.md)                     |
+| Type system                      | [RFC-002](rfc/RFC-002-type-system.md)                                              |
+| Memory model & concurrency       | [RFC-003](rfc/RFC-003-memory-model-concurrency.md)                                 |
+| Full RFC catalog                 | [rfc/README.md](rfc/README.md)                                                     |
 
 ## User guide pages (`docs/guide/`)
 
@@ -42,12 +42,12 @@ Markdown with simple frontmatter (`title`, `section`, `order`, `summary`). Publi
 
 Typical sections:
 
-| Section | Examples |
-| ------- | -------- |
-| Start | introduction, getting-started |
-| Language | language-tour, types, classes, control-flow, arrays, cheatsheet |
-| Toolchain | cli, packages, standard-library, testing |
-| Project | roadmap (RFC vs implemented map), FAQ, contributing |
+| Section   | Examples                                                        |
+| --------- | --------------------------------------------------------------- |
+| Start     | introduction, getting-started                                   |
+| Language  | language-tour, types, classes, control-flow, arrays, cheatsheet |
+| Toolchain | cli, packages, standard-library, testing                        |
+| Project   | roadmap (RFC vs implemented map), FAQ, contributing             |
 
 ## Scope
 

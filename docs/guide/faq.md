@@ -52,8 +52,8 @@ Vision and RFCs are Accepted, but full task runtime surface is still limited in 
 
 ### Docs vs RFCs — which wins?
 
-- **User docs** teach  
-- **RFCs** define  
+- **User docs** teach
+- **RFCs** define
 
 If they disagree, file an issue; RFCs are the design source of truth until docs catch up.
 
@@ -69,8 +69,8 @@ MVP discovery runs `@test` functions via the CLI. `std.assert` helps with assert
 
 ### How do I add a guide page?
 
-1. Add `docs/guide/my-page.md` with frontmatter (`title`, `section`, `order`, `summary`)  
-2. Rebuild the site — it appears under `/docs`  
+1. Add `docs/guide/my-page.md` with frontmatter (`title`, `section`, `order`, `summary`)
+2. Rebuild the site — it appears under `/docs`
 
 ### How do I propose a language change?
 

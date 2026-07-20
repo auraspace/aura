@@ -11,10 +11,10 @@ Aura’s **core** stdlib is intentionally small ([RFC-007](/rfc/007), [RFC-000](
 
 ## Packages today
 
-| Package | Path | Role |
-| ------- | ---- | ---- |
-| `std.io` | `std/io` | Printing / basic I/O (`println`) |
-| `std.assert` | `std/assert` | Assert helpers for tests |
+| Package           | Path              | Role                                          |
+| ----------------- | ----------------- | --------------------------------------------- |
+| `std.io`          | `std/io`          | Printing / basic I/O (`println`)              |
+| `std.assert`      | `std/assert`      | Assert helpers for tests                      |
 | `std.collections` | `std/collections` | Placeholder / evolving — check package README |
 
 Builtins such as `Array<T>` and core scalars are part of the **language**, not a separate import.
@@ -58,7 +58,7 @@ Milestones in the root README (C4g / C4h):
 
 If imports fail, verify you are invoking the CLI on a **package directory** (with `aura.toml`) and that `std/` is reachable from the monorepo layout.
 
-## What is *not* in core (by design)
+## What is _not_ in core (by design)
 
 Application frameworks, DI containers, ORM/HTTP stacks stay **out of core** RFCs. Expect those as ecosystem packages later, not as stdlib defaults.
 

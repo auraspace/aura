@@ -1,7 +1,9 @@
 import { Link } from 'react-router-dom'
+
 import type { RfcMeta } from '@/lib/rfc/types'
-import { StatusBadge } from './status-badge'
+
 import { LayerChip } from './layer-chip'
+import { StatusBadge } from './status-badge'
 
 interface RfcCatalogProps {
   items: RfcMeta[]
@@ -39,12 +41,18 @@ export function RfcCatalog({ items, visibleIds }: RfcCatalogProps) {
               className="data-[hidden=true]:hidden"
             >
               <td className="border-b border-border px-3 py-2.5 align-top">
-                <Link to={`/rfc/${item.id}`} className="font-semibold no-underline">
+                <Link
+                  to={`/rfc/${item.id}`}
+                  className="font-semibold no-underline"
+                >
                   RFC-{item.id}
                 </Link>
               </td>
               <td className="border-b border-border px-3 py-2.5 align-top">
-                <Link to={`/rfc/${item.id}`} className="font-semibold no-underline">
+                <Link
+                  to={`/rfc/${item.id}`}
+                  className="font-semibold no-underline"
+                >
                   {item.title}
                 </Link>
               </td>

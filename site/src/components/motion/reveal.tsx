@@ -45,7 +45,10 @@ type RevealProps = {
   /** Animate on mount (hero). Default: whileInView. */
   onMount?: boolean
   once?: boolean
-} & Omit<HTMLMotionProps<'div'>, 'children' | 'initial' | 'animate' | 'whileInView'>
+} & Omit<
+  HTMLMotionProps<'div'>,
+  'children' | 'initial' | 'animate' | 'whileInView'
+>
 
 /**
  * Fade + rise reveal — same pattern as vochi.xyz (Motion + easeOutExpo).

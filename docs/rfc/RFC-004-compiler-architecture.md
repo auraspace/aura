@@ -4,11 +4,11 @@
 | ------------ | ------------------------------------------- |
 | **RFC**      | 004                                         |
 | **Title**    | Compiler Architecture                       |
-| **Status**   | Accepted                   |
+| **Status**   | Accepted                                    |
 | **Layer**    | Toolchain                                   |
 | **Authors**  |                                             |
 | **Created**  | 2026-07-15                                  |
-| **Updated**  | 2026-07-16                 |
+| **Updated**  | 2026-07-16                                  |
 | **Estimate** | 60–100 pages                                |
 | **Depends**  | RFC-001, RFC-002, RFC-003, RFC-009, RFC-010 |
 | **Blocks**   | RFC-008, RFC-012, RFC-013                   |
@@ -195,12 +195,12 @@ aura build --release -o hello
 
 ## 7. Open questions
 
-| #   | Question                                        | Options                            | Owner       | Status       |
-| --- | ----------------------------------------------- | ---------------------------------- | ----------- | ------------ |
+| #   | Question                                        | Options                            | Owner       | Status                                                                       |
+| --- | ----------------------------------------------- | ---------------------------------- | ----------- | ---------------------------------------------------------------------------- |
 | 1   | GC statepoint style vs shadow stack             |                                    | Compiler+RT | **Resolved** — shadow stack on C backend; LLVM statepoints with LLVM backend |
-| 2   | Full Salsa from day one vs multipass→query      | multipass first, evolve to queries | Compiler    | **Resolved** |
-| 3   | CGU partitioning heuristic                      |                                    | Compiler    | **Resolved** — package (or file group) as CGU default; refine later |
-| 4   | Exception model on LLVM (Itanium ABI vs custom) |                                    | Compiler    | **Resolved** — setjmp/custom on C backend; Itanium personality on LLVM |
+| 2   | Full Salsa from day one vs multipass→query      | multipass first, evolve to queries | Compiler    | **Resolved**                                                                 |
+| 3   | CGU partitioning heuristic                      |                                    | Compiler    | **Resolved** — package (or file group) as CGU default; refine later          |
+| 4   | Exception model on LLVM (Itanium ABI vs custom) |                                    | Compiler    | **Resolved** — setjmp/custom on C backend; Itanium personality on LLVM       |
 
 ## 8. Rationale & trade-offs
 
@@ -224,14 +224,14 @@ Rust toolchain maximizes delivery speed and memory safety of the compiler itself
 
 Long-term backend remains **LLVM**. The living milestone table is [docs/roadmap.md](../roadmap.md).
 
-| Phase | Scope | Status (2026-07-16) |
-| ----- | ----- | ------------------- |
-| C0 | Parse + typecheck subset → `aura check` | **Done** |
-| C1 | Native hello + runtime link | **Done** via interim **C backend** (`emit-c` + system `cc` + `runtime/aura_rt.c`); LLVM still target |
-| C2 | Generics mono + classes/interfaces | **Done** (C2a–C2e) |
-| C3 | Packages, Array, exceptions, GC MVP (not full async) | **Done** as C3a–C3z slices; async/incremental deferred |
-| C4 | Equality, std prelude/assert, Array/String APIs, `?.` / `?:` / if-expr | **Done** through **C4t** |
-| Later | LLVM IR backend, Iterable protocol, registry, channels/tasks | Open (see `agents/debts.md`) |
+| Phase | Scope                                                                  | Status (2026-07-16)                                                                                  |
+| ----- | ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| C0    | Parse + typecheck subset → `aura check`                                | **Done**                                                                                             |
+| C1    | Native hello + runtime link                                            | **Done** via interim **C backend** (`emit-c` + system `cc` + `runtime/aura_rt.c`); LLVM still target |
+| C2    | Generics mono + classes/interfaces                                     | **Done** (C2a–C2e)                                                                                   |
+| C3    | Packages, Array, exceptions, GC MVP (not full async)                   | **Done** as C3a–C3z slices; async/incremental deferred                                               |
+| C4    | Equality, std prelude/assert, Array/String APIs, `?.` / `?:` / if-expr | **Done** through **C4t**                                                                             |
+| Later | LLVM IR backend, Iterable protocol, registry, channels/tasks           | Open (see `agents/debts.md`)                                                                         |
 
 ## 12. References
 
@@ -243,11 +243,11 @@ Long-term backend remains **LLVM**. The living milestone table is [docs/roadmap.
 
 ## Changelog
 
-| Date       | Author | Change                                   |
-| ---------- | ------ | ---------------------------------------- |
-| 2026-07-16 |        | Lock shadow-stack→statepoints, CGU=package, exception ABI path |
+| Date       | Author | Change                                                                                       |
+| ---------- | ------ | -------------------------------------------------------------------------------------------- |
+| 2026-07-16 |        | Lock shadow-stack→statepoints, CGU=package, exception ABI path                               |
 | 2026-07-16 |        | Status → **Accepted** — Review: Rust multipass + C-backend interim matches shipped toolchain |
-| 2026-07-16 |        | §11: C backend interim + C0–C4t status   |
-| 2026-07-15 |        | Initial skeleton                         |
-| 2026-07-15 |        | Solid draft: Rust pipeline, LLVM primary |
-| 2026-07-15 |        | Lock multipass→query evolution           |
+| 2026-07-16 |        | §11: C backend interim + C0–C4t status                                                       |
+| 2026-07-15 |        | Initial skeleton                                                                             |
+| 2026-07-15 |        | Solid draft: Rust pipeline, LLVM primary                                                     |
+| 2026-07-15 |        | Lock multipass→query evolution                                                               |

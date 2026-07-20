@@ -4,11 +4,11 @@
 | ------------ | ------------------------- |
 | **RFC**      | 005                       |
 | **Title**    | Package Manager           |
-| **Status**   | Accepted                   |
+| **Status**   | Accepted                  |
 | **Layer**    | Toolchain                 |
 | **Authors**  |                           |
 | **Created**  | 2026-07-15                |
-| **Updated**  | 2026-07-16                 |
+| **Updated**  | 2026-07-16                |
 | **Estimate** | 20–40 pages               |
 | **Depends**  | RFC-000                   |
 | **Blocks**   | RFC-008, RFC-012, RFC-013 |
@@ -174,10 +174,10 @@ aura build
 
 ## 7. Open questions
 
-| #   | Question                              | Options       | Owner   | Status       |
-| --- | ------------------------------------- | ------------- | ------- | ------------ |
-| 1   | Default registry hosting              |               | Project | **Resolved** — self-hosted index + static CDN (GH Releases OK for toolchain) |
-| 2   | Lockfile for pure libraries required? | always commit | Pkg     | **Resolved** |
+| #   | Question                              | Options       | Owner   | Status                                                                         |
+| --- | ------------------------------------- | ------------- | ------- | ------------------------------------------------------------------------------ |
+| 1   | Default registry hosting              |               | Project | **Resolved** — self-hosted index + static CDN (GH Releases OK for toolchain)   |
+| 2   | Lockfile for pure libraries required? | always commit | Pkg     | **Resolved**                                                                   |
 | 3   | Namespace policy                      |               | Project | **Resolved** — flat names; reserve `std`/`aura`; reverse-DNS encouraged public |
 
 ## 8. Rationale & trade-offs
@@ -199,11 +199,11 @@ Cargo-like design is proven for compiled languages with features and workspaces.
 
 ## 11. Implementation plan (optional)
 
-| Phase | Scope            | Exit criteria       | Status |
-| ----- | ---------------- | ------------------- | ------ |
+| Phase | Scope            | Exit criteria       | Status                                |
+| ----- | ---------------- | ------------------- | ------------------------------------- |
 | K0    | Path deps + lock | Multi-package build | **Done** (incl. nested path lock C4j) |
-| K1    | Registry fetch   | Hello from registry | Deferred |
-| K2    | Publish          | Round-trip          | Deferred |
+| K1    | Registry fetch   | Hello from registry | Deferred                              |
+| K2    | Publish          | Round-trip          | Deferred                              |
 
 ## 12. References
 
@@ -214,11 +214,11 @@ Cargo-like design is proven for compiled languages with features and workspaces.
 
 ## Changelog
 
-| Date       | Author | Change                                 |
-| ---------- | ------ | -------------------------------------- |
-| 2026-07-16 |        | Lock registry hosting model + flat namespace with reserved prefixes |
+| Date       | Author | Change                                                                                      |
+| ---------- | ------ | ------------------------------------------------------------------------------------------- |
+| 2026-07-16 |        | Lock registry hosting model + flat namespace with reserved prefixes                         |
 | 2026-07-16 |        | Status → **Accepted** — Review: aura.toml + path lockfile locked; registry deferred cleanly |
-| 2026-07-16 |        | Note path deps + lock MVP vs registry  |
-| 2026-07-15 |        | Initial skeleton                       |
-| 2026-07-15 |        | Solid draft: aura.toml, lock, resolver |
-| 2026-07-15 |        | Lock always-commit lockfiles           |
+| 2026-07-16 |        | Note path deps + lock MVP vs registry                                                       |
+| 2026-07-15 |        | Initial skeleton                                                                            |
+| 2026-07-15 |        | Solid draft: aura.toml, lock, resolver                                                      |
+| 2026-07-15 |        | Lock always-commit lockfiles                                                                |

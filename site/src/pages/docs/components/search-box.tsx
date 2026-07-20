@@ -1,6 +1,7 @@
 import { IconSearch, IconX } from '@tabler/icons-react'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+
 import { getAllGuides } from '@/lib/docs'
 import { buildGuideSearchIndex, searchGuides } from '@/lib/docs/search'
 

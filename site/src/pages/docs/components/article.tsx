@@ -1,8 +1,8 @@
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import rehypeSlug from 'rehype-slug'
+import ReactMarkdown, { type Components } from 'react-markdown'
 import { Link } from 'react-router-dom'
-import type { Components } from 'react-markdown'
+import rehypeSlug from 'rehype-slug'
+import remarkGfm from 'remark-gfm'
+
 import { markdownCodeComponents } from '@/components/markdown/code-block'
 import type { GuideDoc } from '@/lib/docs'
 import { linkifyRfcRefs } from '@/lib/rfc/links'

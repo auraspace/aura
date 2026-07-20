@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+
 import { getAllMeta, getAllRfcs } from '@/lib/rfc/load-rfcs'
 import { buildSearchIndex } from '@/lib/rfc/search'
 import { RfcCatalog } from '@/pages/rfc/components/catalog'
@@ -24,12 +25,16 @@ export function CatalogPage() {
 
     if (status) {
       ids = new Set(
-        items.filter((i) => i.status === status && ids.has(i.id)).map((i) => i.id),
+        items
+          .filter((i) => i.status === status && ids.has(i.id))
+          .map((i) => i.id),
       )
     }
     if (layer) {
       ids = new Set(
-        items.filter((i) => i.layer === layer && ids.has(i.id)).map((i) => i.id),
+        items
+          .filter((i) => i.layer === layer && ids.has(i.id))
+          .map((i) => i.id),
       )
     }
     if (query.trim()) {
@@ -49,7 +54,8 @@ export function CatalogPage() {
         RFC catalog
       </h1>
       <p className="mt-2 max-w-[520px] text-muted">
-        Internal index of language and toolchain RFCs ({items.length} documents).
+        Internal index of language and toolchain RFCs ({items.length}{' '}
+        documents).
       </p>
       <div className="my-6 flex flex-wrap items-end gap-3">
         <SearchBox value={query} onChange={setQuery} />

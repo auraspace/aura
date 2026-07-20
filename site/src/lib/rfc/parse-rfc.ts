@@ -1,6 +1,8 @@
 import GithubSlugger from 'github-slugger'
+
 import { plainHeadingText } from '@/lib/markdown/heading-text'
 import type { RfcDoc, RfcStatus } from '@/lib/rfc/types'
+
 import { slugify } from './slugify'
 
 const VALID_STATUS = new Set<RfcStatus>([
@@ -60,7 +62,12 @@ function extractBody(source: string): string {
     if (lines[i].startsWith('|')) lastTable = i
   }
   if (lastTable === -1) return source
-  return lines.slice(lastTable + 1).join('\n').trim() + '\n'
+  return (
+    lines
+      .slice(lastTable + 1)
+      .join('\n')
+      .trim() + '\n'
+  )
 }
 
 /**
@@ -76,7 +83,7 @@ function extractHeadings(markdown: string) {
   const headings: { depth: number; text: string; id: string }[] = []
   let inFence = false
   for (const line of markdown.split('\n')) {
-    if (/^```/.test(line)) {
+    if (line.startsWith('```')) {
       inFence = !inFence
       continue
     }

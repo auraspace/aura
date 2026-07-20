@@ -15,13 +15,13 @@ cargo run -p aura-cli -- <command> [args]
 
 ## Commands (MVP)
 
-| Command | Purpose |
-| ------- | ------- |
-| `check <file\|dir>` | Parse + typecheck |
-| `build <file\|dir>` | Emit native binary (`-o` for output path) |
-| `run <file\|dir>` | Build and execute |
-| `test <file\|dir>` | Run `@test` functions |
-| `emit-c <file\|dir>` | Emit C (advanced / debugging) |
+| Command              | Purpose                                   |
+| -------------------- | ----------------------------------------- |
+| `check <file\|dir>`  | Parse + typecheck                         |
+| `build <file\|dir>`  | Emit native binary (`-o` for output path) |
+| `run <file\|dir>`    | Build and execute                         |
+| `test <file\|dir>`   | Run `@test` functions                     |
+| `emit-c <file\|dir>` | Emit C (advanced / debugging)             |
 
 Examples:
 

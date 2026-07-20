@@ -1,10 +1,10 @@
-import { describe, it, expect } from 'vitest'
-import { buildGraph } from './graph'
+import { describe, expect, it } from 'vitest'
+
 import type { RfcMeta } from '@/lib/rfc/types'
 
-const meta = (
-  partial: Partial<RfcMeta> & Pick<RfcMeta, 'id'>,
-): RfcMeta => ({
+import { buildGraph } from './graph'
+
+const meta = (partial: Partial<RfcMeta> & Pick<RfcMeta, 'id'>): RfcMeta => ({
   slug: `rfc-${partial.id}`,
   title: partial.title || partial.id,
   status: 'Draft',

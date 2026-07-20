@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest'
-import { parseRfcMarkdown, parseDependsList } from './parse-rfc'
+import { describe, expect, it } from 'vitest'
+
+import { parseDependsList, parseRfcMarkdown } from './parse-rfc'
 
 const SAMPLE = `# RFC-000: Vision & Design Principles
 
@@ -37,11 +38,7 @@ describe('parseDependsList', () => {
   })
 
   it('expands inclusive range with ellipsis', () => {
-    expect(parseDependsList('RFC-001 … RFC-003')).toEqual([
-      '001',
-      '002',
-      '003',
-    ])
+    expect(parseDependsList('RFC-001 … RFC-003')).toEqual(['001', '002', '003'])
   })
 
   it('parses comma-separated list', () => {
@@ -51,10 +48,7 @@ describe('parseDependsList', () => {
 
 describe('parseRfcMarkdown', () => {
   it('extracts meta and body', () => {
-    const doc = parseRfcMarkdown(
-      SAMPLE,
-      'RFC-000-vision-design-principles.md',
-    )
+    const doc = parseRfcMarkdown(SAMPLE, 'RFC-000-vision-design-principles.md')
     expect(doc.id).toBe('000')
     expect(doc.title).toBe('Vision & Design Principles')
     expect(doc.status).toBe('In Review')

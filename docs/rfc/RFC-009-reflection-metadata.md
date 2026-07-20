@@ -4,11 +4,11 @@
 | ------------ | ------------------------- |
 | **RFC**      | 009                       |
 | **Title**    | Reflection & Metadata     |
-| **Status**   | Accepted                   |
+| **Status**   | Accepted                  |
 | **Layer**    | Language                  |
 | **Authors**  |                           |
 | **Created**  | 2026-07-15                |
-| **Updated**  | 2026-07-16                 |
+| **Updated**  | 2026-07-16                |
 | **Estimate** | 30–50 pages               |
 | **Depends**  | RFC-001, RFC-002          |
 | **Blocks**   | RFC-004, RFC-010, RFC-007 |
@@ -174,11 +174,11 @@ class User(
 
 ## 7. Open questions
 
-| #   | Question                                 | Options                     | Owner | Status                   |
-| --- | ---------------------------------------- | --------------------------- | ----- | ------------------------ |
+| #   | Question                                 | Options                     | Owner | Status                                              |
+| --- | ---------------------------------------- | --------------------------- | ----- | --------------------------------------------------- |
 | 1   | Unknown attributes hard error?           | error / warn                | Lang  | **Resolved** — hard **error** on unknown attributes |
-| 2   | Reflect private members?                 | no by default               | Lang  | **Resolved**             |
-| 3   | Builtin `@reflect` vs retention on class | `@reflect` opt-in attribute | Lang  | **Resolved** (direction) |
+| 2   | Reflect private members?                 | no by default               | Lang  | **Resolved**                                        |
+| 3   | Builtin `@reflect` vs retention on class | `@reflect` opt-in attribute | Lang  | **Resolved** (direction)                            |
 
 ## 8. Rationale & trade-offs
 
@@ -213,10 +213,10 @@ Pay-as-you-go metadata protects single-binary size and optimization. Attributes 
 
 ## Changelog
 
-| Date       | Author | Change                                             |
-| ---------- | ------ | -------------------------------------------------- |
-| 2026-07-16 |        | Lock unknown attributes = error; Status → **Accepted** |
+| Date       | Author | Change                                                                                      |
+| ---------- | ------ | ------------------------------------------------------------------------------------------- |
+| 2026-07-16 |        | Lock unknown attributes = error; Status → **Accepted**                                      |
 | 2026-07-16 |        | Status → **In Review** — Review: retention + opt-in reflect locked; unknown-attr still open |
-| 2026-07-15 |        | Initial skeleton                                   |
-| 2026-07-15 |        | Solid draft: retention, opt-in reflect             |
-| 2026-07-15 |        | Lock Binary default retention; public-only reflect |
+| 2026-07-15 |        | Initial skeleton                                                                            |
+| 2026-07-15 |        | Solid draft: retention, opt-in reflect                                                      |
+| 2026-07-15 |        | Lock Binary default retention; public-only reflect                                          |

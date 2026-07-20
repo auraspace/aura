@@ -1,5 +1,7 @@
 import GithubSlugger from 'github-slugger'
+
 import { plainHeadingText } from '@/lib/markdown/heading-text'
+
 import type { GuideDoc, GuideHeading } from './types'
 
 function fileSlug(fileName: string): string {
@@ -45,7 +47,7 @@ function extractHeadings(markdown: string): GuideHeading[] {
   let inFence = false
 
   for (const line of markdown.split('\n')) {
-    if (/^```/.test(line)) {
+    if (line.startsWith('```')) {
       inFence = !inFence
       continue
     }

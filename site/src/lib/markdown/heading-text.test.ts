@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest'
 import GithubSlugger from 'github-slugger'
+import { describe, expect, it } from 'vitest'
+
 import { parseInlineMarkdown, plainHeadingText } from './heading-text'
 
 describe('plainHeadingText', () => {
@@ -35,9 +36,9 @@ describe('parseInlineMarkdown', () => {
   it('tokenizes code and text', () => {
     const p = parseInlineMarkdown('`class` — reference types')
     expect(p[0]).toEqual({ type: 'code', value: 'class' })
-    expect(p.some((x) => x.type === 'text' && x.value.includes('reference'))).toBe(
-      true,
-    )
+    expect(
+      p.some((x) => x.type === 'text' && x.value.includes('reference')),
+    ).toBe(true)
   })
 
   it('tokenizes Result generics in code', () => {

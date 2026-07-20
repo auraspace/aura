@@ -1,11 +1,11 @@
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import rehypeSlug from 'rehype-slug'
+import ReactMarkdown, { type Components } from 'react-markdown'
 import { Link } from 'react-router-dom'
-import type { Components } from 'react-markdown'
+import rehypeSlug from 'rehype-slug'
+import remarkGfm from 'remark-gfm'
+
 import { markdownCodeComponents } from '@/components/markdown/code-block'
-import type { RfcDoc } from '@/lib/rfc/types'
 import { linkifyRfcRefs } from '@/lib/rfc/links'
+import type { RfcDoc } from '@/lib/rfc/types'
 
 function normalizeHref(href: string | undefined): string | undefined {
   if (!href) return href

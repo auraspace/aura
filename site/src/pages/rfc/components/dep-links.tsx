@@ -1,13 +1,8 @@
 import { Link } from 'react-router-dom'
+
 import { getRfcById } from '@/lib/rfc/load-rfcs'
 
-export function DepLinks({
-  label,
-  ids,
-}: {
-  label: string
-  ids: string[]
-}) {
+export function DepLinks({ label, ids }: { label: string; ids: string[] }) {
   if (!ids.length) {
     return (
       <p className="my-1.5 text-[0.9rem] text-muted">

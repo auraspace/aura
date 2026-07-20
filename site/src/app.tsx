@@ -1,9 +1,10 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
+
 import { Layout } from '@/components/layout'
-import { HomePage } from '@/pages/home-page'
 import { DocsDetailPage, DocsHubPage } from '@/pages/docs'
-import { CatalogPage, DetailPage, GraphPage } from '@/pages/rfc'
+import { HomePage } from '@/pages/home-page'
 import { NotFoundPage } from '@/pages/not-found-page'
+import { CatalogPage, DetailPage, GraphPage } from '@/pages/rfc'
 
 /**
  * Route map:

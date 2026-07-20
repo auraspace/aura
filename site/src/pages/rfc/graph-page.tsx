@@ -1,7 +1,8 @@
-import { getAllMeta } from '@/lib/rfc/load-rfcs'
-import { buildGraph } from '@/lib/rfc/graph'
-import { DepGraph } from '@/pages/rfc/components/dep-graph'
 import { Link } from 'react-router-dom'
+
+import { buildGraph } from '@/lib/rfc/graph'
+import { getAllMeta } from '@/lib/rfc/load-rfcs'
+import { DepGraph } from '@/pages/rfc/components/dep-graph'
 
 export function GraphPage() {
   const { nodes, edges } = buildGraph(getAllMeta())

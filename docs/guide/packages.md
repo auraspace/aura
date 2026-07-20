@@ -70,10 +70,10 @@ import math as M
 
 In-tree std packages include at least:
 
-| Package | Role |
-| ------- | ---- |
-| `std.io` | `println` and I/O helpers |
-| `std.assert` | assert helpers for tests |
+| Package      | Role                      |
+| ------------ | ------------------------- |
+| `std.io`     | `println` and I/O helpers |
+| `std.assert` | assert helpers for tests  |
 
 The CLI can auto-prelude `std.io` for package builds and resolve `std.*` path deps (see root README milestones C4g / C4h).
 

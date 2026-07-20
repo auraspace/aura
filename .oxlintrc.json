@@ -1,0 +1,27 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "react", "import", "unicorn", "oxc"],
+  "categories": {
+    "correctness": "error"
+  },
+  "rules": {
+    "typescript/triple-slash-reference": "off",
+    "react/only-export-components": "off",
+    "react/react-in-jsx-scope": "off"
+  },
+  "ignorePatterns": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/target/**",
+    "**/.tmp/**",
+    "site/dist/**"
+  ],
+  "env": {
+    "builtin": true
+  },
+  "settings": {
+    "react": {
+      "version": "19.0"
+    }
+  }
+}

@@ -1,10 +1,5 @@
 export type RfcStatus =
-  | 'Draft'
-  | 'In Review'
-  | 'Accepted'
-  | 'Frozen'
-  | 'Rejected'
-  | 'Superseded'
+  'Draft' | 'In Review' | 'Accepted' | 'Frozen' | 'Rejected' | 'Superseded'
 
 export interface RfcMeta {
   id: string

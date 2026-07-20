@@ -26,8 +26,7 @@
   --status-ok: #1b5e20;
   --status-ok-border: #2e7d32;
   --header-bg: color-mix(in oklab, var(--bg) 88%, transparent);
-  --lift:
-    0 1px 2px rgb(15 19 17 / 4%), 0 12px 32px rgb(15 19 17 / 6%);
+  --lift: 0 1px 2px rgb(15 19 17 / 4%), 0 12px 32px rgb(15 19 17 / 6%);
 }
 
 [data-theme='dark'] {
@@ -48,8 +47,7 @@
   --status-ok: #81c784;
   --status-ok-border: #2e7d32;
   --header-bg: color-mix(in oklab, var(--bg) 88%, transparent);
-  --lift:
-    0 1px 2px rgb(0 0 0 / 30%), 0 16px 40px rgb(0 0 0 / 35%);
+  --lift: 0 1px 2px rgb(0 0 0 / 30%), 0 16px 40px rgb(0 0 0 / 35%);
 }
 
 @theme inline {

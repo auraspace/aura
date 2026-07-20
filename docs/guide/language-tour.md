@@ -23,14 +23,14 @@ Every file lives in a **package**. Programs enter at `fun main()`.
 
 ## Topic guides
 
-| Guide | What you learn |
-| ----- | -------------- |
-| [Types & nullability](./types-and-nullability.md) | Scalars, `T` vs `T?`, flow narrowing |
-| [Classes, structs & interfaces](./classes-and-structs.md) | Reference vs value types, generics |
-| [Control flow & errors](./control-flow-and-errors.md) | `if`/`for`/`match`, `Result`, throw/catch |
-| [Arrays](./arrays.md) | `Array<T>`, push/pop, iteration |
-| [Syntax cheatsheet](./syntax-cheatsheet.md) | Compact lookup for keywords and forms |
-| [Standard library](./standard-library.md) | `std.io`, `std.assert`, prelude |
+| Guide                                                     | What you learn                            |
+| --------------------------------------------------------- | ----------------------------------------- |
+| [Types & nullability](./types-and-nullability.md)         | Scalars, `T` vs `T?`, flow narrowing      |
+| [Classes, structs & interfaces](./classes-and-structs.md) | Reference vs value types, generics        |
+| [Control flow & errors](./control-flow-and-errors.md)     | `if`/`for`/`match`, `Result`, throw/catch |
+| [Arrays](./arrays.md)                                     | `Array<T>`, push/pop, iteration           |
+| [Syntax cheatsheet](./syntax-cheatsheet.md)               | Compact lookup for keywords and forms     |
+| [Standard library](./standard-library.md)                 | `std.io`, `std.assert`, prelude           |
 
 ## What works in the compiler today
 
@@ -56,6 +56,6 @@ See the [roadmap map](./roadmap.md#rfc-accepted-vs-implemented) for a per-RFC ta
 
 ## Next
 
-1. [Getting started](./getting-started.md) if you have not run hello yet  
-2. [Types & nullability](./types-and-nullability.md)  
-3. [Syntax cheatsheet](./syntax-cheatsheet.md) when you need a quick lookup  
+1. [Getting started](./getting-started.md) if you have not run hello yet
+2. [Types & nullability](./types-and-nullability.md)
+3. [Syntax cheatsheet](./syntax-cheatsheet.md) when you need a quick lookup

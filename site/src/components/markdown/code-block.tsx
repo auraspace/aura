@@ -1,6 +1,7 @@
 import { IconCheck, IconCopy } from '@tabler/icons-react'
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import type { Components } from 'react-markdown'
+
 import { highlightCode } from '@/lib/highlight'
 
 function extractText(node: unknown): string {
@@ -86,10 +87,7 @@ function CodeBlockFrame({
           )}
         </button>
       </div>
-      <div
-        className="shiki-wrap"
-        dangerouslySetInnerHTML={{ __html: html }}
-      />
+      <div className="shiki-wrap" dangerouslySetInnerHTML={{ __html: html }} />
     </div>
   )
 }

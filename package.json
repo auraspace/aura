@@ -5,11 +5,16 @@
   "private": true,
   "packageManager": "pnpm@9.15.9",
   "scripts": {
+    "prepare": "husky",
+    "lint": "oxlint site",
+    "lint:fix": "oxlint site --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "site:dev": "pnpm --filter aura-site dev",
     "site:build": "pnpm --filter aura-site build",
     "site:test": "pnpm --filter aura-site test",
     "site:preview": "pnpm --filter aura-site preview",
-    "site:lint": "pnpm --filter aura-site lint",
+    "site:lint": "pnpm lint",
     "aura:test": "cargo test --workspace",
     "aura:check-corpus": "bash scripts/check-corpus.sh",
     "aura:hello": "cargo run -q -p aura-cli -- run corpus/hello/main.aura",
@@ -19,6 +24,11 @@
   "author": "",
   "license": "MIT",
   "devDependencies": {
+    "@ianvs/prettier-plugin-sort-imports": "^4.7.1",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.1.0",
+    "oxlint": "^1.74.0",
+    "prettier": "^3.9.5",
     "wrangler": "4.112.0"
   }
 }

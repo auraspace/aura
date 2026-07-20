@@ -29,11 +29,11 @@ fun main() {
 
 ### Defaults that matter
 
-| Rule | Meaning |
-| ---- | ------- |
-| **Final by default** | Subclassing requires `open` |
-| **Identity `==`** | Class equality is reference identity (not structural) |
-| **Nullable `Class?`** | Supported with correct heap emit + flow |
+| Rule                  | Meaning                                               |
+| --------------------- | ----------------------------------------------------- |
+| **Final by default**  | Subclassing requires `open`                           |
+| **Identity `==`**     | Class equality is reference identity (not structural) |
+| **Nullable `Class?`** | Supported with correct heap emit + flow               |
 
 See corpus under `corpus/class/` for working samples.
 
@@ -79,11 +79,11 @@ Monomorphization produces specialized C symbols (e.g. `Box_String`).
 
 ## Classes vs structs (practical)
 
-| Prefer `class` when… | Prefer `struct` when… |
-| -------------------- | --------------------- |
-| Shared identity / heap object | Small value payload |
-| Interface polymorphism | No need for `implements` |
-| Graph of objects | Tight numeric or point-like data |
+| Prefer `class` when…          | Prefer `struct` when…            |
+| ----------------------------- | -------------------------------- |
+| Shared identity / heap object | Small value payload              |
+| Interface polymorphism        | No need for `implements`         |
+| Graph of objects              | Tight numeric or point-like data |
 
 ## Next
 

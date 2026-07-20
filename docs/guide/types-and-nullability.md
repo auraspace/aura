@@ -11,12 +11,12 @@ Normative rules: [RFC-002](/rfc/002). MVP keywords and surface: [RFC-001 §6.0](
 
 ## Scalars you will see first
 
-| Type | Notes |
-| ---- | ----- |
-| `Int` | Integer (overflow policy is documented in RFCs; prefer checked ops in dev) |
-| `Bool` | `true` / `false` |
-| `String` | Immutable string |
-| `Array<T>` | Growable array — see [Arrays](./arrays.md) |
+| Type       | Notes                                                                      |
+| ---------- | -------------------------------------------------------------------------- |
+| `Int`      | Integer (overflow policy is documented in RFCs; prefer checked ops in dev) |
+| `Bool`     | `true` / `false`                                                           |
+| `String`   | Immutable string                                                           |
+| `Array<T>` | Growable array — see [Arrays](./arrays.md)                                 |
 
 Function parameters and returns use explicit types in most examples:
 

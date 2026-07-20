@@ -1,4 +1,5 @@
 import MiniSearch from 'minisearch'
+
 import type { GuideDoc } from './types'
 
 export type GuideSearchHit = {

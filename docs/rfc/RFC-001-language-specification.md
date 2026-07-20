@@ -4,11 +4,11 @@
 | ------------ | ------------------------------------------------------------- |
 | **RFC**      | 001                                                           |
 | **Title**    | Language Specification                                        |
-| **Status**   | Accepted                   |
+| **Status**   | Accepted                                                      |
 | **Layer**    | Language                                                      |
 | **Authors**  |                                                               |
 | **Created**  | 2026-07-15                                                    |
-| **Updated**  | 2026-07-16                 |
+| **Updated**  | 2026-07-16                                                    |
 | **Estimate** | 80–120 pages                                                  |
 | **Depends**  | RFC-000                                                       |
 | **Blocks**   | RFC-002, RFC-003, RFC-004, RFC-006, RFC-007, RFC-009, RFC-010 |
@@ -72,25 +72,25 @@ This subsection freezes the **subset** that the first compiler milestones must i
 
 **Milestones** (aligned with RFC-004 §11 and this RFC §11):
 
-| Milestone | Compiler goal | Language surface |
-| --------- | ------------- | ---------------- |
-| **C0** | `aura check` — lex, parse, basic name checks | §6.0.1–6.0.3 |
-| **C1** | `aura build` — native hello (interim **C backend** + `cc`; LLVM later) | C0 + print/runtime hooks |
-| **C1b** | Simple classes + methods | + §6.0.4 (**implemented**) |
-| **Post-C1 (C2–C4t+)** | Generics, interfaces, exceptions, packages, Array, … | Shipped slices in roadmap; async/macros still deferred |
+| Milestone             | Compiler goal                                                          | Language surface                                       |
+| --------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------ |
+| **C0**                | `aura check` — lex, parse, basic name checks                           | §6.0.1–6.0.3                                           |
+| **C1**                | `aura build` — native hello (interim **C backend** + `cc`; LLVM later) | C0 + print/runtime hooks                               |
+| **C1b**               | Simple classes + methods                                               | + §6.0.4 (**implemented**)                             |
+| **Post-C1 (C2–C4t+)** | Generics, interfaces, exceptions, packages, Array, …                   | Shipped slices in roadmap; async/macros still deferred |
 
 #### 6.0.1 Lexical (C0)
 
-| Item | MVP rule |
-| ---- | -------- |
-| Encoding | UTF-8 |
-| Comments | `//` line; `/* */` non-nesting block |
-| Identifiers | ASCII `[A-Za-z_][A-Za-z0-9_]*` (Unicode XID later) |
-| Keywords (hard) | `package`, `import`, `as`, `class`, `fun`, `val`, `var`, `if`, `else`, `while`, `return`, `true`, `false`, `null`, `pub` |
+| Item                        | MVP rule                                                                                                                                                                                                              |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Encoding                    | UTF-8                                                                                                                                                                                                                 |
+| Comments                    | `//` line; `/* */` non-nesting block                                                                                                                                                                                  |
+| Identifiers                 | ASCII `[A-Za-z_][A-Za-z0-9_]*` (Unicode XID later)                                                                                                                                                                    |
+| Keywords (hard)             | `package`, `import`, `as`, `class`, `fun`, `val`, `var`, `if`, `else`, `while`, `return`, `true`, `false`, `null`, `pub`                                                                                              |
 | Soft / deferred (C0 freeze) | Originally deferred: `match`, `async`, `await`, `spawn`, `interface`, `enum`, `struct`, `for`, `in`, … — many are now **implemented** post-C1 (see roadmap); still deferred: `async`/`await`/`spawn`, lambdas, macros |
-| Literals | decimal `Int`, `true`/`false`, `"..."` strings (no interpolation in C0), `null` |
-| Operators | `+ - * / %`, `== != < <= > >=`, `&& \|\| !`, `=`, `.`, `( ) { } , : ?` |
-| Semicolons | optional; newline/brace terminated |
+| Literals                    | decimal `Int`, `true`/`false`, `"..."` strings (no interpolation in C0), `null`                                                                                                                                       |
+| Operators                   | `+ - * / %`, `== != < <= > >=`, `&& \|\| !`, `=`, `.`, `( ) { } , : ?`                                                                                                                                                |
+| Semicolons                  | optional; newline/brace terminated                                                                                                                                                                                    |
 
 #### 6.0.2 Grammar (C0)
 
@@ -119,12 +119,12 @@ Primary     = Ident | Literal | "(" Expr ")"
 
 #### 6.0.3 Semantics (C0 check / C1 run)
 
-| Topic | MVP |
-| ----- | --- |
-| Types | `Int`, `Bool`, `String`, `Unit`; user types deferred; `T?` parse + local flow later |
-| Name resolution | Single file: funs + locals; calls to unknown names → error |
-| Control flow | `if` / `while` / `return` |
-| Runtime (C1) | Linked stub: `println(String)` (or intrinsic) + process exit |
+| Topic            | MVP                                                                                 |
+| ---------------- | ----------------------------------------------------------------------------------- |
+| Types            | `Int`, `Bool`, `String`, `Unit`; user types deferred; `T?` parse + local flow later |
+| Name resolution  | Single file: funs + locals; calls to unknown names → error                          |
+| Control flow     | `if` / `while` / `return`                                                           |
+| Runtime (C1)     | Linked stub: `println(String)` (or intrinsic) + process exit                        |
 | Concurrency / GC | **Declared** by RFC-000/003; **not** implemented in C0/C1 (single-threaded stub OK) |
 
 #### 6.0.4 Classes (C1b only)
@@ -144,16 +144,16 @@ class Greeter(val name: String) {
 
 **Originally deferred at C0/C1 freeze** (many now shipped — see roadmap C2–C4t):
 
-| Item | Toolchain status (2026-07-16) |
-| ---- | ----------------------------- |
-| Generics, interfaces, `struct`/`enum`/`match` | **Implemented** (C2–C3) |
-| Exceptions / `throw`/`try`/`catch`/`finally` | **Implemented** (C3c/C3g) |
-| Multi-file packages, `import`, path deps, `aura.lock` | **Implemented** (C3e–C3p, C4j) |
-| `for` ranges / for-in (Array, String bytes), `break`/`continue` | **Implemented** (C3h–C3l, C3w) |
-| Builtin `Array<T>`, null `?:` / `?.`, `if` expr | **Implemented** (C3j+, C4m/C4s/C4t) |
-| Lambdas, `async`/`await`/`spawn`, string interpolation | **Still deferred** |
-| Attributes/macros, full Unicode identifiers | **Still deferred** |
-| Iterable protocol, registry/semver | **Still deferred** (debts) |
+| Item                                                            | Toolchain status (2026-07-16)       |
+| --------------------------------------------------------------- | ----------------------------------- |
+| Generics, interfaces, `struct`/`enum`/`match`                   | **Implemented** (C2–C3)             |
+| Exceptions / `throw`/`try`/`catch`/`finally`                    | **Implemented** (C3c/C3g)           |
+| Multi-file packages, `import`, path deps, `aura.lock`           | **Implemented** (C3e–C3p, C4j)      |
+| `for` ranges / for-in (Array, String bytes), `break`/`continue` | **Implemented** (C3h–C3l, C3w)      |
+| Builtin `Array<T>`, null `?:` / `?.`, `if` expr                 | **Implemented** (C3j+, C4m/C4s/C4t) |
+| Lambdas, `async`/`await`/`spawn`, string interpolation          | **Still deferred**                  |
+| Attributes/macros, full Unicode identifiers                     | **Still deferred**                  |
+| Iterable protocol, registry/semver                              | **Still deferred** (debts)          |
 
 **Corpus:** programs under `corpus/` exercise the implemented surface above; see [`corpus/README.md`](../../corpus/README.md).
 
@@ -497,15 +497,15 @@ class EchoHandler : Handler {
 
 ## 7. Open questions
 
-| #   | Question                              | Options                    | Owner | Status                                                    |
-| --- | ------------------------------------- | -------------------------- | ----- | --------------------------------------------------------- |
-| 1   | Classes final by default?             | yes                        | Lang  | **Resolved** — final by default                           |
-| 2   | Companion vs static keyword           | companion                  | Lang  | **Resolved** — companion                                  |
-| 3   | Array syntax `Array<T>` vs `T[]`      | `Array<T>`                 | Lang  | **Resolved**                                              |
-| 4   | Lambda syntax                         | `(…) =>`                   | Lang  | **Resolved**                                              |
-| 5   | Checked exceptions                    | no                         | Lang  | **Resolved** — unchecked only                             |
-| 6   | Integer overflow policy               | checked dev + wrapping ops | Lang  | **Resolved** (release elision details open with profiles) |
-| 7   | Exact keyword set / soft-keyword list | §6.0.1 hard keywords v0    | Lang  | **Resolved** for C0 — expand as surface grows             |
+| #   | Question                              | Options                    | Owner | Status                                                         |
+| --- | ------------------------------------- | -------------------------- | ----- | -------------------------------------------------------------- |
+| 1   | Classes final by default?             | yes                        | Lang  | **Resolved** — final by default                                |
+| 2   | Companion vs static keyword           | companion                  | Lang  | **Resolved** — companion                                       |
+| 3   | Array syntax `Array<T>` vs `T[]`      | `Array<T>`                 | Lang  | **Resolved**                                                   |
+| 4   | Lambda syntax                         | `(…) =>`                   | Lang  | **Resolved**                                                   |
+| 5   | Checked exceptions                    | no                         | Lang  | **Resolved** — unchecked only                                  |
+| 6   | Integer overflow policy               | checked dev + wrapping ops | Lang  | **Resolved** (release elision details open with profiles)      |
+| 7   | Exact keyword set / soft-keyword list | §6.0.1 hard keywords v0    | Lang  | **Resolved** for C0 — expand as surface grows                  |
 | 8   | Range syntax `0..n`                   | inclusive/exclusive        | Lang  | **Resolved** — exclusive `a..b` (C3h), inclusive `a..=b` (C3l) |
 
 ## 8. Rationale & trade-offs
@@ -545,11 +545,11 @@ Java-like classes maximize familiarity for service engineers. Kotlin-inspired nu
 
 ## Changelog
 
-| Date       | Author | Change                                                              |
-| ---------- | ------ | ------------------------------------------------------------------- |
+| Date       | Author | Change                                                                                            |
+| ---------- | ------ | ------------------------------------------------------------------------------------------------- |
 | 2026-07-16 |        | Status → **Accepted** — Review: MVP surface frozen, open Qs resolved, C0–C4t implement against it |
-| 2026-07-16 |        | Sync §6.0 notes with C4t toolchain; resolve range `..` / `..=` (Q8) |
-| 2026-07-15 |        | Add §6.0 MVP surface for compiler C0–C1; resolve keywords v0        |
-| 2026-07-15 |        | Initial skeleton                                                    |
-| 2026-07-15 |        | Solid draft: Java-like surface, nullability, Result, tasks keywords |
-| 2026-07-15 |        | Lock lean surface decisions (final, companion, Array, lambda, …)    |
+| 2026-07-16 |        | Sync §6.0 notes with C4t toolchain; resolve range `..` / `..=` (Q8)                               |
+| 2026-07-15 |        | Add §6.0 MVP surface for compiler C0–C1; resolve keywords v0                                      |
+| 2026-07-15 |        | Initial skeleton                                                                                  |
+| 2026-07-15 |        | Solid draft: Java-like surface, nullability, Result, tasks keywords                               |
+| 2026-07-15 |        | Lock lean surface decisions (final, companion, Array, lambda, …)                                  |

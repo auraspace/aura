@@ -58,6 +58,7 @@ Main file stays an index; domain files hold detail. Link as `See [compiler.md](c
 Always record technical debt, temporary workarounds, known incomplete behavior, and deferred follow-ups in [agents/debts.md](agents/debts.md).
 
 Rules:
+
 - Do not leave debt only in chat, commit messages, or scattered `TODO` comments.
 - When you introduce or discover debt, append or update an entry in `agents/debts.md` in the same change.
 - When you resolve debt, update or remove the matching entry there.

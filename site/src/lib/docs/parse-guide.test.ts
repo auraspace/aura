@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { parseFrontmatter, parseGuideMarkdown, stripLeadingH1 } from './parse-guide'
+
+import {
+  parseFrontmatter,
+  parseGuideMarkdown,
+  stripLeadingH1,
+} from './parse-guide'
 
 const SAMPLE = `---
 title: Getting started
@@ -40,16 +45,16 @@ describe('parseGuideMarkdown', () => {
     expect(doc.order).toBe(20)
     expect(doc.summary).toBe('Clone and run hello.')
     expect(doc.markdown.startsWith('Intro paragraph')).toBe(true)
-    expect(doc.headings.map((h) => h.id)).toEqual([
-      'prerequisites',
-      'optional',
-    ])
+    expect(doc.headings.map((h) => h.id)).toEqual(['prerequisites', 'optional'])
     expect(doc.headings[0].depth).toBe(2)
     expect(doc.headings[1].depth).toBe(3)
   })
 
   it('falls back to filename slug when frontmatter omitted', () => {
-    const doc = parseGuideMarkdown('# Only title\n\nBody.\n', 'language-tour.md')
+    const doc = parseGuideMarkdown(
+      '# Only title\n\nBody.\n',
+      'language-tour.md',
+    )
     expect(doc.slug).toBe('language-tour')
     expect(doc.title).toBe('language-tour')
   })

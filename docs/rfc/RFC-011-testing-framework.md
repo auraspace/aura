@@ -4,11 +4,11 @@
 | ------------ | ---------------------------------- |
 | **RFC**      | 011                                |
 | **Title**    | Testing Framework                  |
-| **Status**   | Accepted                   |
+| **Status**   | Accepted                           |
 | **Layer**    | Toolchain                          |
 | **Authors**  |                                    |
 | **Created**  | 2026-07-15                         |
-| **Updated**  | 2026-07-16                 |
+| **Updated**  | 2026-07-16                         |
 | **Estimate** | 20–40 pages                        |
 | **Depends**  | RFC-001, RFC-007, RFC-009, RFC-012 |
 | **Blocks**   | —                                  |
@@ -157,10 +157,10 @@ aura test packages/http
 
 ## 7. Open questions
 
-| #   | Question                     | Options              | Owner | Status       |
-| --- | ---------------------------- | -------------------- | ----- | ------------ |
-| 1   | Inline vs `*_test.aura` only | both allowed         | Test  | **Resolved** |
-| 2   | Process isolation default    | same-process default | Test  | **Resolved** |
+| #   | Question                     | Options              | Owner | Status                                              |
+| --- | ---------------------------- | -------------------- | ----- | --------------------------------------------------- |
+| 1   | Inline vs `*_test.aura` only | both allowed         | Test  | **Resolved**                                        |
+| 2   | Process isolation default    | same-process default | Test  | **Resolved**                                        |
 | 3   | Fixture system               | later                | Test  | **Deferred** — post-MVP; no core fixture system yet |
 
 ## 8. Rationale & trade-offs
@@ -196,11 +196,11 @@ Built-in tests lower friction and unify CI. Keeping mocks out of core avoids fra
 
 ## Changelog
 
-| Date       | Author | Change                                       |
-| ---------- | ------ | -------------------------------------------- |
-| 2026-07-16 |        | Defer fixture system post-MVP |
+| Date       | Author | Change                                                                                |
+| ---------- | ------ | ------------------------------------------------------------------------------------- |
+| 2026-07-16 |        | Defer fixture system post-MVP                                                         |
 | 2026-07-16 |        | Status → **Accepted** — Review: @test discovery + same-process MVP shipped and locked |
-| 2026-07-16 |        | Note `aura test` + assert MVP shipped        |
-| 2026-07-15 |        | Initial skeleton                             |
-| 2026-07-15 |        | Solid draft: @test, runner, async            |
-| 2026-07-15 |        | Lock discovery layout + same-process default |
+| 2026-07-16 |        | Note `aura test` + assert MVP shipped                                                 |
+| 2026-07-15 |        | Initial skeleton                                                                      |
+| 2026-07-15 |        | Solid draft: @test, runner, async                                                     |
+| 2026-07-15 |        | Lock discovery layout + same-process default                                          |

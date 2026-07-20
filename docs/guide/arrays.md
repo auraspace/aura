@@ -26,11 +26,11 @@ Out-of-bounds access is a runtime failure — prefer checking `len()` before `ge
 
 ## Grow and shrink
 
-| Method | Behavior |
-| ------ | -------- |
-| `push(x)` | Append; capacity grows as needed |
-| `pop()` | Remove last; empty array throws |
-| `clear()` | `len = 0`, keep capacity |
+| Method       | Behavior                                       |
+| ------------ | ---------------------------------------------- |
+| `push(x)`    | Append; capacity grows as needed               |
+| `pop()`      | Remove last; empty array throws                |
+| `clear()`    | `len = 0`, keep capacity                       |
 | `reserve(n)` | Ensure capacity (when available in your build) |
 
 ```aura

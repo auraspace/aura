@@ -1,6 +1,7 @@
 import { IconBrandGithub, IconExternalLink } from '@tabler/icons-react'
 import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
+
 import { ThemeToggle } from './theme-toggle'
 
 export function Header() {
@@ -65,7 +66,12 @@ export function Header() {
           >
             <IconBrandGithub size={16} stroke={1.75} aria-hidden />
             GitHub
-            <IconExternalLink size={14} stroke={1.75} aria-hidden className="opacity-60" />
+            <IconExternalLink
+              size={14}
+              stroke={1.75}
+              aria-hidden
+              className="opacity-60"
+            />
           </a>
         </nav>
 

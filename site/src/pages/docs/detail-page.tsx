@@ -1,12 +1,10 @@
-import { useEffect } from 'react'
 import { IconArrowLeft, IconArrowRight } from '@tabler/icons-react'
+import { useEffect } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
-import {
-  getAdjacentGuides,
-  getGuideBySlug,
-  getGuideNav,
-} from '@/lib/docs'
+
+import { getAdjacentGuides, getGuideBySlug, getGuideNav } from '@/lib/docs'
 import { NotFoundPage } from '@/pages/not-found-page'
+
 import { GuideArticle } from './components/article'
 import { DocsLayout } from './components/layout'
 import { DocsToc } from './components/toc'

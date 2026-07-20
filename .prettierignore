@@ -1,0 +1,12 @@
+node_modules
+dist
+target
+site/dist
+pnpm-lock.yaml
+Cargo.lock
+*.min.js
+*.min.css
+coverage
+.turbo
+.tmp
+**/.tmp/**

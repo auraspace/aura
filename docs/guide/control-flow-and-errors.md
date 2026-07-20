@@ -108,10 +108,10 @@ Payload types currently include scalars and object-ish values in the implementat
 
 ## Choosing Result vs throw
 
-| Situation | Prefer |
-| --------- | ------ |
-| Caller is expected to handle it | `Result` |
-| Invariant broken / truly exceptional | `throw` |
+| Situation                               | Prefer   |
+| --------------------------------------- | -------- |
+| Caller is expected to handle it         | `Result` |
+| Invariant broken / truly exceptional    | `throw`  |
 | Library boundary with clear error codes | `Result` |
 
 ## Next

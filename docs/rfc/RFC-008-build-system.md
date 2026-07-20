@@ -4,11 +4,11 @@
 | ------------ | ---------------- |
 | **RFC**      | 008              |
 | **Title**    | Build System     |
-| **Status**   | Accepted                   |
+| **Status**   | Accepted         |
 | **Layer**    | Toolchain        |
 | **Authors**  |                  |
 | **Created**  | 2026-07-15       |
-| **Updated**  | 2026-07-16                 |
+| **Updated**  | 2026-07-16       |
 | **Estimate** | 20–40 pages      |
 | **Depends**  | RFC-004, RFC-005 |
 | **Blocks**   | RFC-012, RFC-013 |
@@ -150,10 +150,10 @@ aura check
 
 ## 7. Open questions
 
-| #   | Question                     | Options      | Owner | Status                |
-| --- | ---------------------------- | ------------ | ----- | --------------------- |
-| 1   | Thin LTO default on release? | opt-in first | Build | **Resolved** — opt-in |
-| 2   | build scripts MVP?           | no           | Build | **Resolved**          |
+| #   | Question                     | Options      | Owner | Status                                                                    |
+| --- | ---------------------------- | ------------ | ----- | ------------------------------------------------------------------------- |
+| 1   | Thin LTO default on release? | opt-in first | Build | **Resolved** — opt-in                                                     |
+| 2   | build scripts MVP?           | no           | Build | **Resolved**                                                              |
 | 3   | Intermediate lib format      |              | Build | **Resolved** — no stable lib format MVP; source→obj→link; rlib-like later |
 
 ## 8. Rationale & trade-offs
@@ -189,10 +189,10 @@ Cargo-like graphs match the package model and developer expectations for compile
 
 ## Changelog
 
-| Date       | Author | Change                                    |
-| ---------- | ------ | ----------------------------------------- |
-| 2026-07-16 |        | Lock no stable intermediate lib MVP; Status → **Accepted** |
+| Date       | Author | Change                                                                                          |
+| ---------- | ------ | ----------------------------------------------------------------------------------------------- |
+| 2026-07-16 |        | Lock no stable intermediate lib MVP; Status → **Accepted**                                      |
 | 2026-07-16 |        | Status → **In Review** — Review: profiles/no-scripts direction solid; thin vs full build system |
-| 2026-07-15 |        | Initial skeleton                          |
-| 2026-07-15 |        | Solid draft: profiles, single binary link |
-| 2026-07-15 |        | Lock no build scripts MVP; LTO opt-in     |
+| 2026-07-15 |        | Initial skeleton                                                                                |
+| 2026-07-15 |        | Solid draft: profiles, single binary link                                                       |
+| 2026-07-15 |        | Lock no build scripts MVP; LTO opt-in                                                           |

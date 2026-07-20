@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+
 import { parseGuideMarkdown } from './parse-guide'
 import { buildGuideSearchIndex, searchGuides } from './search'
 

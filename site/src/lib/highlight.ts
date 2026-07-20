@@ -61,7 +61,10 @@ export function ensureHighlighter(): Promise<Highlighter> {
 export function resolveLang(lang: string | undefined): string {
   if (!lang) return 'text'
   const key = lang.toLowerCase().trim()
-  return LANG_MAP[key] ?? (LANGS.includes(key as (typeof LANGS)[number]) ? key : 'text')
+  return (
+    LANG_MAP[key] ??
+    (LANGS.includes(key as (typeof LANGS)[number]) ? key : 'text')
+  )
 }
 
 /** Sync highlight after ensureHighlighter() has resolved. */

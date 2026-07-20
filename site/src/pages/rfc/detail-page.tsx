@@ -1,12 +1,13 @@
 import { useEffect } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
+
 import { getRfcById } from '@/lib/rfc/load-rfcs'
-import { StatusBadge } from '@/pages/rfc/components/status-badge'
-import { LayerChip } from '@/pages/rfc/components/layer-chip'
-import { DepLinks } from '@/pages/rfc/components/dep-links'
-import { Toc } from '@/pages/rfc/components/toc'
-import { RfcArticle } from '@/pages/rfc/components/article'
 import { NotFoundPage } from '@/pages/not-found-page'
+import { RfcArticle } from '@/pages/rfc/components/article'
+import { DepLinks } from '@/pages/rfc/components/dep-links'
+import { LayerChip } from '@/pages/rfc/components/layer-chip'
+import { StatusBadge } from '@/pages/rfc/components/status-badge'
+import { Toc } from '@/pages/rfc/components/toc'
 
 export function DetailPage() {
   const { id } = useParams()
