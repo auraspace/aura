@@ -15,7 +15,7 @@ Living plan for docs, language specs, and the Rust toolchain. RFCs remain the de
 | RFC static site (`site/`)   | Implemented; Cloudflare Pages → **https://aura.fadosoft.com**                           |
 | RFC-000 … RFC-013           | **All Accepted** — open questions resolved or Deferred (2026-07-16)                     |
 | Language MVP                | RFC-001 §6.0 + post-C1; generic iface mono (C8c); Iterable (C8d); async/macros deferred |
-| Compiler                    | **C0–C9j Done** — C9: generic class implements, Array.clone, String+, type/const, is    |
+| Compiler                    | **C0–C9j Done**; **C10a–f Done** — DX polish + non-capturing lambdas + fun types        |
 | Runtime / packages / stdlib | GC + nested Array free; Map/Set/HashMap(+resize); path lock + registry schema v0        |
 
 ## Phases
@@ -169,12 +169,18 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C9i**   | `is` type test (class/interface)                                   | Done                                       |
 | **C9j**   | Close C9a–C9j batch (roadmap/debts/plan)                           | Done                                       |
 | **DX**    | line:col diagnostics with snippets                                 | Done                                       |
+| **C10a**  | Plan + roadmap C10a–C10j                                           | Done                                       |
+| **C10b**  | Diagnostics polish: context line + notes                           | Done                                       |
+| **C10c**  | Parse lambdas `(x: T) => expr`                                     | Done                                       |
+| **C10d**  | Sema `Ty::Fun` + call through fun value                            | Done                                       |
+| **C10e**  | Codegen non-capturing lambdas (static C fn + fn ptr)               | Done                                       |
+| **C10f**  | Fun type syntax `(T) -> U`                                         | Done                                       |
 
 **Out of scope C0/C1:** generics mono, async/tasks, macros, registry, incremental, LTO.
 
 ### P3 — Expand (after hello)
 
-1. ~~Language surface C2–C9j~~ → next: true borrow, Array-of-iface post-MVP, lambdas
+1. ~~Language surface C2–C9j~~ → ~~C10a–f lambdas (non-capturing)~~ → later: captures, block body, true borrow, Array-of-iface
 2. Runtime: ~~alloc/GC + deep mark/sweep + nested Array free~~ → channels/tasks
 3. Toolchain: ~~path deps + path lock + registry lock schema~~ → registry client / semver (RFC-005)
 4. Stdlib: ~~io + assert + Map/Set/HashMap(+resize) + Iterable~~ → generic HashMap; richer collections

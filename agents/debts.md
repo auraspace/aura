@@ -7,6 +7,15 @@ When you resolve debt, update or remove the matching entry.
 
 ## Open
 
+### Lambda captures / block bodies deferred
+
+- Area: language / lambdas (C10)
+- Symptom: only non-capturing `(params) => expr` works; no outer local capture; no `{ … }` body
+- Why deferred: env/layout + block-as-expr lowering is a larger slice than MVP first-class funs
+- Progress: C10c–f parse/sema/codegen + fun type `(T) -> U`; corpus `corpus/fun/lambda_*.aura`
+- Next step: C10g block body; C10h captures (`val` by shared immutability)
+- Introduced: 2026-07-20 after C10e/f
+
 ### Array field return still moves (no true borrow type)
 
 - Area: builtin Array (C7c/C8j)
