@@ -63,9 +63,11 @@ Workflow: `.github/workflows/deploy-site.yml` builds with `VITE_BASE=/` and uplo
    - Cloudflare dashboard → Workers & Pages (or any domain overview) → **Account ID**
    - Repo secret `CLOUDFLARE_ACCOUNT_ID`
 
-3. **GitHub secrets** (repo **Settings → Secrets and variables → Actions**):
+3. **GitHub secrets** on environment **`static-pages`**  
+   (repo **Settings → Environments → static-pages → Environment secrets**):
    - `CLOUDFLARE_API_TOKEN`
-   - `CLOUDFLARE_ACCOUNT_ID`
+   - `CLOUDFLARE_ACCOUNT_ID`  
+     Workflow job uses `environment: static-pages` so secrets must live there (not only as repo secrets, unless you also mirror them).
 
 4. **Custom domain** `aura.fadosoft.com`
    - After the first successful deploy: Workers & Pages → project **`aura`** → **Custom domains** → Add `aura.fadosoft.com`

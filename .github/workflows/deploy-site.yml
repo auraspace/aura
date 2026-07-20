@@ -17,6 +17,9 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     name: Build and deploy
+    environment:
+      name: static-pages
+      url: https://aura.fadosoft.com
     steps:
       - uses: actions/checkout@v4
 
