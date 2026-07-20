@@ -1,0 +1,19 @@
+// C10g: non-capturing lambda with block body
+package demo.lambda
+
+fun main(): Int {
+  val f = (x: Int) => {
+    val y = x + 1
+    return y * 2
+  }
+  val g: (Int) -> Int = (n: Int) => {
+    if (n < 0) {
+      return 0
+    }
+    return n
+  }
+  val h = () => {
+    return 7
+  }
+  return f(20) + g(1) + h()
+}

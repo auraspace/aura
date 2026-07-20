@@ -364,15 +364,24 @@ pub enum Expr {
     Group(Box<Expr>, Span),
     /// C4t: `if (cond) { … } else { … }` as expression (value = last expr in each branch).
     If(Box<IfExpr>),
-    /// C10c: `(x: Int) => x + 1` or `() => 0` (expression body; non-capturing MVP).
+    /// C10c/g: `(x: Int) => x + 1` or `(x: Int) => { … }` (non-capturing MVP).
     Lambda(LambdaExpr),
 }
 
-/// `(params) => body` lambda expression (C10c).
+/// Lambda body: expression (C10c) or block (C10g).
+#[derive(Debug, Clone, PartialEq)]
+pub enum LambdaBody {
+    /// `(params) => expr`
+    Expr(Box<Expr>),
+    /// `(params) => { stmts }`
+    Block(Block),
+}
+
+/// `(params) => body` lambda expression (C10c/g).
 #[derive(Debug, Clone, PartialEq)]
 pub struct LambdaExpr {
     pub params: Vec<Param>,
-    pub body: Box<Expr>,
+    pub body: LambdaBody,
     pub span: Span,
 }
 

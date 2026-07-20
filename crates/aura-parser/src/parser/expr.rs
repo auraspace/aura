@@ -248,6 +248,7 @@ impl Parser {
     }
 
     /// C10c: `(x: Int) => x + 1`, `(a: Int, b: Int) => a + b`, `() => 0`.
+    /// C10g: `(x: Int) => { … }` block body.
     /// Restores token position when the paren group is not a lambda.
     pub(crate) fn try_parse_lambda(&mut self) -> Result<Option<Expr>, ParseError> {
         if !matches!(self.peek().kind, TokenKind::LParen) {
@@ -299,11 +300,19 @@ impl Parser {
             return Ok(None);
         }
         self.bump(); // `=>`
-        let body = self.parse_expr(0)?;
-        let end = body.span().end;
+                     // C10g: block body after `=>`; otherwise expression body (C10c).
+        let body = if matches!(self.peek().kind, TokenKind::LBrace) {
+            LambdaBody::Block(self.parse_block()?)
+        } else {
+            LambdaBody::Expr(Box::new(self.parse_expr(0)?))
+        };
+        let end = match &body {
+            LambdaBody::Expr(e) => e.span().end,
+            LambdaBody::Block(b) => b.span.end,
+        };
         Ok(Some(Expr::Lambda(LambdaExpr {
             params,
-            body: Box::new(body),
+            body,
             span: Span::new(start, end),
         })))
     }

@@ -496,7 +496,10 @@ fn walk_expr_lambdas<'a>(e: &'a Expr, out: &mut Vec<&'a LambdaExpr>) {
     match e {
         Expr::Lambda(l) => {
             out.push(l);
-            walk_expr_lambdas(&l.body, out);
+            match &l.body {
+                LambdaBody::Expr(body) => walk_expr_lambdas(body, out),
+                LambdaBody::Block(block) => walk_block_lambdas(block, out),
+            }
         }
         Expr::Call(c) => {
             walk_expr_lambdas(&c.callee, out);
@@ -701,11 +704,32 @@ fn emit_lambda_fns(out: &mut String, checked: &CheckedFile) {
                 .unwrap_or_else(|| "Int".into());
             ctx.define_local(&p.name.name, key);
         }
-        let body = crate::expr::emit_expr(&lam.body, &mut ctx);
-        if matches!(ret.as_ref(), Ty::Unit) {
-            let _ = writeln!(out, "  {body};");
-        } else {
-            let _ = writeln!(out, "  return {body};");
+        match &lam.body {
+            LambdaBody::Expr(body) => {
+                let body_c = crate::expr::emit_expr(body, &mut ctx);
+                if matches!(ret.as_ref(), Ty::Unit) {
+                    let _ = writeln!(out, "  {body_c};");
+                } else {
+                    let _ = writeln!(out, "  return {body_c};");
+                }
+            }
+            LambdaBody::Block(block) => {
+                // C10g: emit statements; returns handled by Stmt::Return.
+                emit_block(out, block, 1, &mut ctx);
+                // Unreachable fallback if all paths return (mirrors fun bodies).
+                match ret.as_ref() {
+                    Ty::Unit => {}
+                    Ty::Int => out.push_str("  return INT64_C(0); /* fallback */\n"),
+                    Ty::Bool => out.push_str("  return false; /* fallback */\n"),
+                    Ty::String => out.push_str("  return \"\"; /* fallback */\n"),
+                    other => {
+                        let ct = c_type_from_ty(other, checked);
+                        if ct != "void" {
+                            let _ = writeln!(out, "  return ({ct}){{0}}; /* fallback */");
+                        }
+                    }
+                }
+            }
         }
         out.push_str("}\n\n");
     }

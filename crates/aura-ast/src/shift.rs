@@ -326,7 +326,10 @@ fn shift_expr(e: &mut Expr, delta: BytePos) {
                 shift_type_ref(&mut p.ty, delta);
                 p.span = p.span.shift(delta);
             }
-            shift_expr(&mut l.body, delta);
+            match &mut l.body {
+                crate::nodes::LambdaBody::Expr(e) => shift_expr(e, delta),
+                crate::nodes::LambdaBody::Block(b) => shift_block(b, delta),
+            }
             l.span = l.span.shift(delta);
         }
     }

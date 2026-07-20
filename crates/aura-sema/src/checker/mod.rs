@@ -58,6 +58,8 @@ pub(crate) struct Checker {
     call_instantiations: HashMap<u32, CallInstantiation>,
     /// C10d: LambdaExpr.span.start → Fun type.
     lambda_tys: HashMap<u32, Ty>,
+    /// C10g: when Some, infer lambda block return type (inner = found so far).
+    ret_infer: Option<Option<Ty>>,
     /// C6h: statement/body errors collected without aborting the whole file.
     pub(crate) errors: Vec<SemaError>,
 }
@@ -242,6 +244,7 @@ impl Checker {
             mono_interfaces: HashSet::new(),
             call_instantiations: HashMap::new(),
             lambda_tys: HashMap::new(),
+            ret_infer: None,
             errors: Vec::new(),
         }
     }

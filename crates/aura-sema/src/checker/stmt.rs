@@ -517,6 +517,29 @@ impl Checker {
                 Ok(())
             }
             Stmt::Return(r) => {
+                // C10g: lambda block return-type inference (no declared Fun ret yet).
+                if self.ret_infer.is_some() {
+                    let prior = self.ret_infer.as_ref().and_then(|s| s.clone());
+                    let got = match &r.value {
+                        Some(e) => self.check_expr_expected(e, prior.as_ref())?,
+                        None => Ty::Unit,
+                    };
+                    if let Some(Some(exp)) = self.ret_infer.clone() {
+                        if !self.is_assignable(&got, &exp) {
+                            return Err(SemaError {
+                                message: format!(
+                                    "return type mismatch: expected {}, got {}",
+                                    exp.display(),
+                                    got.display()
+                                ),
+                                span: r.span,
+                            });
+                        }
+                    } else if let Some(slot) = self.ret_infer.as_mut() {
+                        *slot = Some(got);
+                    }
+                    return Ok(());
+                }
                 let got = match &r.value {
                     Some(e) => self.check_expr_expected(e, Some(expected_ret))?,
                     None => Ty::Unit,

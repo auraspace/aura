@@ -508,7 +508,7 @@ impl Checker {
                 Ok(target)
             }
             Expr::Call(c) => self.check_call(c, expected),
-            // C10d: `(x: Int) => x + 1` — non-capturing lambda; type from params + body.
+            // C10d/g: non-capturing lambda; expr body or block body.
             Expr::Lambda(l) => {
                 let mut param_tys = Vec::with_capacity(l.params.len());
                 self.locals.push(std::collections::HashMap::new());
@@ -534,23 +534,54 @@ impl Checker {
                     Some(Ty::Fun { ret, .. }) => Some(ret.as_ref()),
                     _ => None,
                 };
-                let body_ty = match self.check_expr_expected(&l.body, expected_ret) {
-                    Ok(t) => t,
-                    Err(e) => {
-                        self.locals.pop();
-                        return Err(e);
+                let body_ty = match &l.body {
+                    aura_ast::LambdaBody::Expr(body) => {
+                        match self.check_expr_expected(body, expected_ret) {
+                            Ok(t) => t,
+                            Err(e) => {
+                                self.locals.pop();
+                                return Err(e);
+                            }
+                        }
+                    }
+                    aura_ast::LambdaBody::Block(block) => {
+                        // C10g: block body — check stmts; infer ret when no expected Fun.
+                        let ty = if let Some(exp_ret) = expected_ret {
+                            if let Err(e) = self.check_block(block, exp_ret) {
+                                self.locals.pop();
+                                return Err(e);
+                            }
+                            exp_ret.clone()
+                        } else {
+                            let prev = self.ret_infer.take();
+                            self.ret_infer = Some(None);
+                            if let Err(e) = self.check_block(block, &Ty::Unit) {
+                                self.ret_infer = prev;
+                                self.locals.pop();
+                                return Err(e);
+                            }
+                            let inferred =
+                                self.ret_infer.take().and_then(|s| s).unwrap_or(Ty::Unit);
+                            self.ret_infer = prev;
+                            inferred
+                        };
+                        ty
                     }
                 };
                 self.locals.pop();
                 if let Some(exp_ret) = expected_ret {
                     if !self.is_assignable(&body_ty, exp_ret) {
+                        let span = match &l.body {
+                            aura_ast::LambdaBody::Expr(e) => e.span(),
+                            aura_ast::LambdaBody::Block(b) => b.span,
+                        };
                         return Err(SemaError {
                             message: format!(
                                 "lambda body type mismatch: expected {}, found {}",
                                 exp_ret.display(),
                                 body_ty.display()
                             ),
-                            span: l.body.span(),
+                            span,
                         });
                     }
                 }
