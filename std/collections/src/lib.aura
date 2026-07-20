@@ -62,3 +62,57 @@ pub class Map(val keys: Array<String>, val vals: Array<Int>) {
 pub fun map(): Map {
   return Map(Array(0), Array(0))
 }
+
+// C7e — Set of String (linear scan MVP).
+/// Mutable set of String keys (linear membership).
+pub class Set(val keys: Array<String>) {
+  pub fun len(): Int {
+    return this.keys.len
+  }
+
+  pub fun isEmpty(): Bool {
+    return this.keys.len == 0
+  }
+
+  /// true if `k` is present.
+  pub fun contains(k: String): Bool {
+    for (i in 0..this.keys.len) {
+      if (this.keys.get(i) == k) {
+        return true
+      }
+    }
+    return false
+  }
+
+  /// Insert `k`. Returns true if newly inserted.
+  pub fun add(k: String): Bool {
+    for (i in 0..this.keys.len) {
+      if (this.keys.get(i) == k) {
+        return false
+      }
+    }
+    this.keys.push(k)
+    return true
+  }
+
+  /// Remove `k` if present. Returns true if removed.
+  /// Swaps with last element then pop (order not preserved).
+  pub fun remove(k: String): Bool {
+    for (i in 0..this.keys.len) {
+      if (this.keys.get(i) == k) {
+        val last = this.keys.len - 1
+        if (i != last) {
+          this.keys.set(i, this.keys.get(last))
+        }
+        val _dropped = this.keys.pop()
+        return true
+      }
+    }
+    return false
+  }
+}
+
+/// Empty String set.
+pub fun set(): Set {
+  return Set(Array(0))
+}
