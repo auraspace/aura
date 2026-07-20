@@ -1,0 +1,24 @@
+// Fun capture-env ownership: free at scope end, move, return, param transfer
+package demo.lambda_env
+
+fun makeAdder(n: Int): (Int) -> Int {
+  return (x: Int) => n + x
+}
+
+fun applyOnce(f: (Int) -> Int, x: Int): Int {
+  return f(x)
+}
+
+fun main(): Int {
+  val a = makeAdder(10)
+  val b = a
+  val r = applyOnce(b, 5)
+  // Create many short-lived capturing closures; envs must free each iteration.
+  var sum = 0
+  for (i in 0..200) {
+    val k = i
+    val f = (x: Int) => k + x
+    sum = sum + f(1)
+  }
+  return r + sum
+}

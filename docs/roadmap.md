@@ -15,8 +15,8 @@ Living plan for docs, language specs, and the Rust toolchain. RFCs remain the de
 | RFC static site (`site/`)   | Implemented; Cloudflare Pages → **https://aura.fadosoft.com**                           |
 | RFC-000 … RFC-013           | **All Accepted** — open questions resolved or Deferred (2026-07-16)                     |
 | Language MVP                | RFC-001 §6.0 + post-C1; generic iface mono (C8c); Iterable (C8d); async/macros deferred |
-| Compiler                    | **C0–C10j Done** — DX + first-class funs/lambdas (block, val capture, HOF)              |
-| Runtime / packages / stdlib | GC + nested Array free; Map/Set/HashMap(+resize); path lock + registry schema v0        |
+| Compiler                    | **C0–C10j Done** + Fun env ownership free; std.io file/console expand                   |
+| Runtime / packages / stdlib | GC + nested Array free; Map/Set/HashMap(+resize); path lock; **std.io file I/O**        |
 
 ## Phases
 
@@ -179,15 +179,17 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C10h**  | Lambda captures (`val` Int/Bool/String; fat-pointer Fun)           | Done                                       |
 | **C10i**  | Higher-order helpers `map_ints` / `filter_ints` / `fold_ints`      | Done                                       |
 | **C10j**  | Close C10a–C10j batch (roadmap/debts/plan)                         | Done                                       |
+| **C11a**  | `std.io` file + console (`readFile`/`writeFile`/`appendFile`/…)    | Done                                       |
+| **C11b**  | Fun capture-env ownership free (scope/move/return/param/for)       | Done                                       |
 
 **Out of scope C0/C1:** generics mono, async/tasks, macros, registry, incremental, LTO.
 
 ### P3 — Expand (after hello)
 
 1. ~~Language surface C2–C10j~~ (funs/lambdas + HOF) → later: richer captures, true borrow, Array-of-iface
-2. Runtime: ~~alloc/GC + deep mark/sweep + nested Array free~~ → channels/tasks
+2. Runtime: ~~alloc/GC + deep mark/sweep + nested Array free~~ + ~~Fun env free~~ → channels/tasks
 3. Toolchain: ~~path deps + path lock + registry lock schema~~ → registry client / semver (RFC-005)
-4. Stdlib: ~~io + assert + Map/Set/HashMap(+resize) + Iterable~~ → generic HashMap; richer collections
+4. Stdlib: ~~io (console+file) + assert + Map/Set/HashMap(+resize) + Iterable~~ → generic HashMap; richer collections
 5. Cross targets + signed releases
 
 Write Wave 2–4 RFCs **as implementation needs them**, not all up front.

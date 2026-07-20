@@ -30,7 +30,15 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("#include <stdio.h>\n");
     out.push_str("#include <string.h>\n");
     out.push_str("#include <setjmp.h>\n");
+    out.push_str("void aura_print(const char *s);\n");
     out.push_str("void aura_println(const char *s);\n");
+    out.push_str("void aura_eprint(const char *s);\n");
+    out.push_str("void aura_eprintln(const char *s);\n");
+    out.push_str("const char *aura_read_file(const char *path);\n");
+    out.push_str("void aura_write_file(const char *path, const char *content);\n");
+    out.push_str("void aura_append_file(const char *path, const char *content);\n");
+    out.push_str("_Bool aura_file_exists(const char *path);\n");
+    out.push_str("int64_t aura_file_size(const char *path);\n");
     out.push_str("void aura_assert(_Bool cond);\n");
     out.push_str("void aura_assert_eq_int(int64_t a, int64_t b);\n");
     out.push_str("void aura_assert_eq_string(const char *a, const char *b);\n");
@@ -728,6 +736,7 @@ fn emit_lambda_fns(out: &mut String, checked: &CheckedFile) {
             type_args: Vec::new(),
             locals: vec![HashMap::new()],
             array_owners: vec![std::collections::HashSet::new()],
+            fun_owners: vec![std::collections::HashSet::new()],
             gc_roots: vec![std::collections::HashSet::new()],
             array_gc_roots: vec![std::collections::HashSet::new()],
             return_key: ret_key,
@@ -778,12 +787,67 @@ pub(crate) fn emit_fun(out: &mut String, f: &FunDecl, checked: &CheckedFile, arg
     let params: Vec<String> = f.type_params.iter().map(|p| p.name.name.clone()).collect();
     let _ = writeln!(out, "{} {{", c_fun_signature(f, checked, args));
     let pkg = fun_decl_package(f, checked);
-    // C3z: std.io.println is an intrinsic wrapping aura_println.
-    if pkg == "std.io" && f.name.name == "println" && f.params.len() == 1 {
-        let arg = mangle_ident(&f.params[0].name.name);
-        let _ = writeln!(out, "  aura_println({arg});");
-        out.push_str("}\n");
-        return;
+    // std.io console + file intrinsics (runtime `aura_*`).
+    if pkg == "std.io" {
+        match (f.name.name.as_str(), f.params.len()) {
+            ("print", 1) => {
+                let a = mangle_ident(&f.params[0].name.name);
+                let _ = writeln!(out, "  aura_print({a});");
+                out.push_str("}\n");
+                return;
+            }
+            ("println", 1) => {
+                let a = mangle_ident(&f.params[0].name.name);
+                let _ = writeln!(out, "  aura_println({a});");
+                out.push_str("}\n");
+                return;
+            }
+            ("eprint", 1) => {
+                let a = mangle_ident(&f.params[0].name.name);
+                let _ = writeln!(out, "  aura_eprint({a});");
+                out.push_str("}\n");
+                return;
+            }
+            ("eprintln", 1) => {
+                let a = mangle_ident(&f.params[0].name.name);
+                let _ = writeln!(out, "  aura_eprintln({a});");
+                out.push_str("}\n");
+                return;
+            }
+            ("readFile", 1) => {
+                let a = mangle_ident(&f.params[0].name.name);
+                let _ = writeln!(out, "  return aura_read_file({a});");
+                out.push_str("}\n");
+                return;
+            }
+            ("writeFile", 2) => {
+                let p = mangle_ident(&f.params[0].name.name);
+                let c = mangle_ident(&f.params[1].name.name);
+                let _ = writeln!(out, "  aura_write_file({p}, {c});");
+                out.push_str("}\n");
+                return;
+            }
+            ("appendFile", 2) => {
+                let p = mangle_ident(&f.params[0].name.name);
+                let c = mangle_ident(&f.params[1].name.name);
+                let _ = writeln!(out, "  aura_append_file({p}, {c});");
+                out.push_str("}\n");
+                return;
+            }
+            ("fileExists", 1) => {
+                let a = mangle_ident(&f.params[0].name.name);
+                let _ = writeln!(out, "  return aura_file_exists({a});");
+                out.push_str("}\n");
+                return;
+            }
+            ("fileSize", 1) => {
+                let a = mangle_ident(&f.params[0].name.name);
+                let _ = writeln!(out, "  return aura_file_size({a});");
+                out.push_str("}\n");
+                return;
+            }
+            _ => {}
+        }
     }
     // C4h: std.assert.assert → aura_assert.
     if pkg == "std.assert" && f.name.name == "assert" && f.params.len() == 1 {
@@ -803,6 +867,7 @@ pub(crate) fn emit_fun(out: &mut String, f: &FunDecl, checked: &CheckedFile, arg
         type_args: args.to_vec(),
         locals: vec![HashMap::new()],
         array_owners: vec![std::collections::HashSet::new()],
+        fun_owners: vec![std::collections::HashSet::new()],
         gc_roots: vec![std::collections::HashSet::new()],
         array_gc_roots: vec![std::collections::HashSet::new()],
         return_key: ret_key,
@@ -815,6 +880,10 @@ pub(crate) fn emit_fun(out: &mut String, f: &FunDecl, checked: &CheckedFile, arg
         // C6b: Array params own the buffer (caller moves or passes a fresh Array).
         if crate::array_emit::is_array_type_key(&key) {
             ctx.mark_array_owner(&p.name.name);
+        }
+        // Fun params own capture env (caller moves).
+        if is_fun_type_key(&key) {
+            ctx.mark_fun_owner(&p.name.name);
         }
         // C5g: heap-class params are GC roots for the function body.
         if is_heap_class_mono(&mono_key, checked) {
@@ -846,6 +915,8 @@ pub(crate) fn emit_fun(out: &mut String, f: &FunDecl, checked: &CheckedFile, arg
         };
         let _ = writeln!(out, "  aura_gc_remove_root((void **)&{n});");
     }
+    // Free remaining Fun capture envs (params / locals not transferred by return).
+    crate::stmt::emit_free_fun_owners(out, 1, &ctx, &ctx.fun_owners_all());
     emit_return_fallback(out, &f.return_type, checked, &params, args);
     out.push_str("}\n");
 }

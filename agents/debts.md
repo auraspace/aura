@@ -10,11 +10,11 @@ When you resolve debt, update or remove the matching entry.
 ### Lambda capture limits (MVP)
 
 - Area: language / lambdas (C10h)
-- Symptom: only immutable `val` of `Int`/`Bool`/`String`; no `var`, class, Array, or nested Fun capture; env is `malloc`'d and not freed
-- Why deferred: full closure GC + richer capture types need layout/protocol work
-- Progress: fat-pointer Fun `{env,fn}`; copy-out of primitive captures; corpus `lambda_capture.aura`
-- Next step: free/GC env; capture more types; optional `var` by ref later
-- Introduced: narrowed after C10h
+- Symptom: only immutable `val` of `Int`/`Bool`/`String`; no `var`, class, Array, or nested Fun capture
+- Why deferred: richer capture types need layout/protocol work
+- Progress: fat-pointer Fun `{env,fn}`; copy-out of primitive captures; **env free via Fun ownership** (scope / move / return / param / for-loop); corpus `lambda_capture.aura`, `lambda_env_free.aura`
+- Next step: capture class/Array/Fun; optional `var` by ref; env GC if shared Fun copies appear
+- Introduced: narrowed after C10h; env free landed 2026-07-20
 
 ### Array field return still moves (no true borrow type)
 

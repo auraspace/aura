@@ -21,7 +21,7 @@ This RFC outlines the **Aura standard library** for servers and CLIs: prelude, c
 
 Implementation is primarily **Aura**, with thin runtime/FFI bridges where required.
 
-**Toolchain today (2026-07-16):** repo packages `std/io` (`println`) and `std/assert` (`assert`); package builds auto-prelude `std.io` and resolve `std.*` path deps (C3z, C4g, C4h). Builtin language `Array<T>` covers early collections; no `std.collections` Map/Set, net, json, or full I/O yet.
+**Toolchain today (2026-07-20):** repo packages `std/io` (console + file: `print`/`println`/`eprint`/`eprintln`, `readFile`/`writeFile`/`appendFile`/`fileExists`/`fileSize`), `std/assert` (`assert`), and `std/collections` (Map/Set/HashMap/Iterable + Int HOF). Package builds auto-prelude `std.io` and resolve `std.*` path deps. File I/O throws `String` on error (Result wrappers deferred). No net/json/async I/O yet.
 
 ## 2. Motivation
 

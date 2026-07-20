@@ -139,6 +139,8 @@ pub(crate) fn emit_block(out: &mut String, block: &Block, indent: usize, ctx: &m
     emit_remove_gc_roots(out, indent, &ctx.gc_roots_current());
     // C3t: free Array buffers owned by this block before leaving the scope.
     emit_free_array_owners(out, indent, ctx, &ctx.array_owners_current());
+    // Free Fun capture envs owned by this block.
+    emit_free_fun_owners(out, indent, ctx, &ctx.fun_owners_current());
     ctx.pop_scope();
 }
 
@@ -182,6 +184,27 @@ pub(crate) fn emit_free_array_owners(
     for name in owners {
         let ty = ctx.lookup_local(name).unwrap_or("Array");
         emit_free_array_local(out, indent, name, ty);
+    }
+}
+
+/// Free capture env of a Fun local (`env` may be NULL for non-capturing).
+pub(crate) fn emit_free_fun_local(out: &mut String, indent: usize, name: &str) {
+    let p = pad(indent);
+    let n = mangle_ident(name);
+    let _ = writeln!(
+        out,
+        "{p}if ({n}.env != NULL) {{ free({n}.env); {n}.env = NULL; }}"
+    );
+}
+
+pub(crate) fn emit_free_fun_owners(
+    out: &mut String,
+    indent: usize,
+    _ctx: &EmitCtx<'_>,
+    owners: &[String],
+) {
+    for name in owners {
+        emit_free_fun_local(out, indent, name);
     }
 }
 
@@ -272,6 +295,26 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
             {
                 ctx.mark_array_owner(&v.name.name);
             }
+            // Fun: capturing lambda, call result, or move from owner → own env.
+            if is_fun_type_key(&ty_name) {
+                match &v.init {
+                    Expr::Lambda(l) => {
+                        let has_caps = ctx
+                            .checked
+                            .lambda_captures
+                            .get(&l.span.start)
+                            .map(|c| !c.is_empty())
+                            .unwrap_or(false);
+                        if has_caps {
+                            ctx.mark_fun_owner(&v.name.name);
+                        }
+                    }
+                    Expr::Call(_) => {
+                        ctx.mark_fun_owner(&v.name.name);
+                    }
+                    _ => {}
+                }
+            }
             // C5b: move ownership on `val b = a` when `a` owns an Array buffer.
             let moved_from = if is_array_type_key(&ty_name) {
                 if let Expr::Ident(id) = &v.init {
@@ -286,9 +329,25 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
             } else {
                 None
             };
+            let fun_moved_from = if is_fun_type_key(&ty_name) {
+                if let Expr::Ident(id) = &v.init {
+                    if ctx.is_fun_owner(&id.name) {
+                        Some(id.name.clone())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
             // C8j: Array field bind is a non-owning view (no move-out). Return still moves (C7c).
             if moved_from.is_some() {
                 ctx.mark_array_owner(&v.name.name);
+            }
+            if fun_moved_from.is_some() {
+                ctx.mark_fun_owner(&v.name.name);
             }
             let init = coerce_expr(&v.init, &ty_name, ctx);
             let dst = mangle_ident(&v.name.name);
@@ -301,6 +360,11 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                     "{p}{src_m}.data = NULL; {src_m}.len = 0; {src_m}.cap = 0;"
                 );
                 ctx.unmark_array_owner(&src);
+            }
+            if let Some(src) = fun_moved_from {
+                let src_m = mangle_ident(&src);
+                let _ = writeln!(out, "{p}{src_m}.env = NULL;");
+                ctx.unmark_fun_owner(&src);
             }
             // C5g: heap-class locals are GC roots until scope exit.
             let mono = full_type_mono(&ty_name, ctx.checked);
@@ -346,6 +410,10 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
             for stmt in &f.body.stmts {
                 emit_stmt(out, stmt, indent + 2, ctx);
             }
+            emit_remove_array_gc_roots(out, indent + 2, &ctx.array_gc_roots_current());
+            emit_remove_gc_roots(out, indent + 2, &ctx.gc_roots_current());
+            emit_free_array_owners(out, indent + 2, ctx, &ctx.array_owners_current());
+            emit_free_fun_owners(out, indent + 2, ctx, &ctx.fun_owners_current());
             ctx.pop_scope();
             let _ = writeln!(out, "{p}  }}");
             let _ = writeln!(out, "{p}}}");
@@ -376,6 +444,10 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                 for stmt in &f.body.stmts {
                     emit_stmt(out, stmt, indent + 2, ctx);
                 }
+                emit_remove_array_gc_roots(out, indent + 2, &ctx.array_gc_roots_current());
+                emit_remove_gc_roots(out, indent + 2, &ctx.gc_roots_current());
+                emit_free_array_owners(out, indent + 2, ctx, &ctx.array_owners_current());
+                emit_free_fun_owners(out, indent + 2, ctx, &ctx.fun_owners_current());
                 ctx.pop_scope();
                 let _ = writeln!(out, "{p}  }}");
             } else if iter_key == "Array"
@@ -408,6 +480,10 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                 for stmt in &f.body.stmts {
                     emit_stmt(out, stmt, indent + 2, ctx);
                 }
+                emit_remove_array_gc_roots(out, indent + 2, &ctx.array_gc_roots_current());
+                emit_remove_gc_roots(out, indent + 2, &ctx.gc_roots_current());
+                emit_free_array_owners(out, indent + 2, ctx, &ctx.array_owners_current());
+                emit_free_fun_owners(out, indent + 2, ctx, &ctx.fun_owners_current());
                 ctx.pop_scope();
                 let _ = writeln!(out, "{p}  }}");
             } else if is_iface_type_key(&iter_key, ctx.checked) {
@@ -443,6 +519,10 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                 for stmt in &f.body.stmts {
                     emit_stmt(out, stmt, indent + 2, ctx);
                 }
+                emit_remove_array_gc_roots(out, indent + 2, &ctx.array_gc_roots_current());
+                emit_remove_gc_roots(out, indent + 2, &ctx.gc_roots_current());
+                emit_free_array_owners(out, indent + 2, ctx, &ctx.array_owners_current());
+                emit_free_fun_owners(out, indent + 2, ctx, &ctx.fun_owners_current());
                 ctx.pop_scope();
                 let _ = writeln!(out, "{p}  }}");
             } else {
@@ -507,6 +587,10 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                 for stmt in &f.body.stmts {
                     emit_stmt(out, stmt, indent + 2, ctx);
                 }
+                emit_remove_array_gc_roots(out, indent + 2, &ctx.array_gc_roots_current());
+                emit_remove_gc_roots(out, indent + 2, &ctx.gc_roots_current());
+                emit_free_array_owners(out, indent + 2, ctx, &ctx.array_owners_current());
+                emit_free_fun_owners(out, indent + 2, ctx, &ctx.fun_owners_current());
                 ctx.pop_scope();
                 let _ = writeln!(out, "{p}  }}");
             }
@@ -571,6 +655,7 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                     emit_remove_array_gc_roots(out, indent, &ctx.array_gc_roots_all());
                     emit_remove_gc_roots(out, indent, &ctx.gc_roots_all());
                     emit_free_array_owners(out, indent, ctx, &ctx.array_owners_all());
+                    emit_free_fun_owners(out, indent, ctx, &ctx.fun_owners_all());
                     let _ = writeln!(out, "{p}return;");
                 }
                 Some(e) => {
@@ -580,16 +665,26 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                         Expr::Ident(id) if is_array_type_key(&ret_key) => Some(id.name.as_str()),
                         _ => None,
                     };
+                    let skip_fun = match e {
+                        Expr::Ident(id) if is_fun_type_key(&ret_key) => Some(id.name.as_str()),
+                        _ => None,
+                    };
                     let owners: Vec<String> = ctx
                         .array_owners_all()
                         .into_iter()
                         .filter(|n| skip != Some(n.as_str()))
+                        .collect();
+                    let fun_owners: Vec<String> = ctx
+                        .fun_owners_all()
+                        .into_iter()
+                        .filter(|n| skip_fun != Some(n.as_str()))
                         .collect();
                     if ret_key == "Unit" {
                         let _ = writeln!(out, "{p}{};", emit_expr(e, ctx));
                         emit_remove_array_gc_roots(out, indent, &ctx.array_gc_roots_all());
                         emit_remove_gc_roots(out, indent, &ctx.gc_roots_all());
                         emit_free_array_owners(out, indent, ctx, &owners);
+                        emit_free_fun_owners(out, indent, ctx, &fun_owners);
                         let _ = writeln!(out, "{p}return;");
                     } else {
                         // Prefer declared return type for C7a opt coercion (`return 1` → Int?).
@@ -610,9 +705,15 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                             let _ =
                                 writeln!(out, "{p}{lv}.data = NULL; {lv}.len = 0; {lv}.cap = 0;");
                         }
+                        // Returning a named Fun owner: zero source after copy into tmp.
+                        if let Some(src) = skip_fun {
+                            let src_m = mangle_ident(src);
+                            let _ = writeln!(out, "{p}{src_m}.env = NULL;");
+                        }
                         emit_remove_array_gc_roots(out, indent, &ctx.array_gc_roots_all());
                         emit_remove_gc_roots(out, indent, &ctx.gc_roots_all());
                         emit_free_array_owners(out, indent, ctx, &owners);
+                        emit_free_fun_owners(out, indent, ctx, &fun_owners);
                         let _ = writeln!(out, "{p}return {tmp};");
                     }
                 }

@@ -1,0 +1,24 @@
+// std.io file + console surface
+package demo.stdio.files
+
+import std.io as Io
+
+fun main() {
+  val path = "target/aura/std_io_files_test.txt"
+  Io.writeFile(path, "hello")
+  assert(Io.fileExists(path))
+  assert(Io.fileSize(path) == 5)
+  val s = Io.readFile(path)
+  assert_eq(s, "hello")
+  Io.appendFile(path, " world")
+  assert(Io.fileSize(path) == 11)
+  val s2 = Io.readFile(path)
+  assert_eq(s2, "hello world")
+  // empty file
+  Io.writeFile(path, "")
+  assert(Io.fileSize(path) == 0)
+  val empty = Io.readFile(path)
+  assert_eq(empty, "")
+  assert(!Io.fileExists("target/aura/std_io_files_missing_xyz.txt"))
+  Io.println("ok")
+}

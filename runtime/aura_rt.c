@@ -5,6 +5,28 @@
 #include <setjmp.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <errno.h>
+#include <sys/stat.h>
+
+/* Forward decls for throw (defined below) */
+void aura_throw_string(const char *s);
+void aura_throw_int(int64_t v);
+void aura_throw_bool(bool v);
+
+/* ---- Console I/O ---- */
+
+void aura_print(const char *s)
+{
+  if (s == NULL)
+  {
+    fputs("null", stdout);
+  }
+  else
+  {
+    fputs(s, stdout);
+  }
+  fflush(stdout);
+}
 
 void aura_println(const char *s)
 {
@@ -18,10 +40,203 @@ void aura_println(const char *s)
   }
 }
 
-/* Forward decls for throw (defined below) */
-void aura_throw_string(const char *s);
-void aura_throw_int(int64_t v);
-void aura_throw_bool(bool v);
+void aura_eprint(const char *s)
+{
+  if (s == NULL)
+  {
+    fputs("null", stderr);
+  }
+  else
+  {
+    fputs(s, stderr);
+  }
+  fflush(stderr);
+}
+
+void aura_eprintln(const char *s)
+{
+  if (s == NULL)
+  {
+    fputs("null\n", stderr);
+  }
+  else
+  {
+    fputs(s, stderr);
+    fputc('\n', stderr);
+  }
+  fflush(stderr);
+}
+
+/* ---- File I/O (std.io) ----
+ * Text errors throw String messages (single-threaded; static errbuf).
+ * Strings are UTF-8 byte sequences; binary with embedded NUL is not supported
+ * for the String path (matches the rest of the String surface).
+ */
+
+#define AURA_IO_MAX_FILE ((int64_t)256 * 1024 * 1024)
+
+static char aura_io_errbuf[1024];
+
+static void aura_io_throw(const char *op, const char *path)
+{
+  const char *p = path ? path : "(null)";
+  const char *err = strerror(errno);
+  if (err == NULL)
+  {
+    err = "unknown error";
+  }
+  snprintf(aura_io_errbuf, sizeof(aura_io_errbuf), "io %s failed: %s: %s", op, p, err);
+  aura_throw_string(aura_io_errbuf);
+}
+
+static void aura_io_throw_msg(const char *msg)
+{
+  snprintf(aura_io_errbuf, sizeof(aura_io_errbuf), "%s", msg ? msg : "io error");
+  aura_throw_string(aura_io_errbuf);
+}
+
+bool aura_file_exists(const char *path)
+{
+  if (path == NULL || path[0] == '\0')
+  {
+    return false;
+  }
+  struct stat st;
+  return stat(path, &st) == 0 && S_ISREG(st.st_mode);
+}
+
+int64_t aura_file_size(const char *path)
+{
+  if (path == NULL || path[0] == '\0')
+  {
+    errno = EINVAL;
+    aura_io_throw("file_size", path);
+  }
+  struct stat st;
+  if (stat(path, &st) != 0)
+  {
+    aura_io_throw("file_size", path);
+  }
+  if (!S_ISREG(st.st_mode))
+  {
+    errno = EISDIR;
+    aura_io_throw("file_size", path);
+  }
+  return (int64_t)st.st_size;
+}
+
+const char *aura_read_file(const char *path)
+{
+  if (path == NULL || path[0] == '\0')
+  {
+    errno = EINVAL;
+    aura_io_throw("read_file", path);
+  }
+  FILE *f = fopen(path, "rb");
+  if (f == NULL)
+  {
+    aura_io_throw("read_file", path);
+  }
+  if (fseek(f, 0, SEEK_END) != 0)
+  {
+    int e = errno;
+    fclose(f);
+    errno = e;
+    aura_io_throw("read_file", path);
+  }
+  long end = ftell(f);
+  if (end < 0)
+  {
+    int e = errno;
+    fclose(f);
+    errno = e;
+    aura_io_throw("read_file", path);
+  }
+  if ((int64_t)end > AURA_IO_MAX_FILE)
+  {
+    fclose(f);
+    aura_io_throw_msg("io read_file failed: file exceeds 256 MiB limit");
+  }
+  if (fseek(f, 0, SEEK_SET) != 0)
+  {
+    int e = errno;
+    fclose(f);
+    errno = e;
+    aura_io_throw("read_file", path);
+  }
+  size_t n = (size_t)end;
+  char *buf = (char *)malloc(n + 1);
+  if (buf == NULL)
+  {
+    fclose(f);
+    aura_io_throw_msg("io read_file failed: out of memory");
+  }
+  size_t got = fread(buf, 1, n, f);
+  if (got != n)
+  {
+    int e = ferror(f) ? errno : EIO;
+    free(buf);
+    fclose(f);
+    errno = e;
+    aura_io_throw("read_file", path);
+  }
+  fclose(f);
+  buf[n] = '\0';
+  if (memchr(buf, '\0', n) != NULL)
+  {
+    free(buf);
+    aura_io_throw_msg("io read_file failed: file contains embedded NUL (not a String)");
+  }
+  return buf;
+}
+
+static void aura_write_file_mode(const char *path, const char *content, const char *mode, const char *op)
+{
+  if (path == NULL || path[0] == '\0')
+  {
+    errno = EINVAL;
+    aura_io_throw(op, path);
+  }
+  FILE *f = fopen(path, mode);
+  if (f == NULL)
+  {
+    aura_io_throw(op, path);
+  }
+  const char *s = content ? content : "";
+  size_t n = strlen(s);
+  if (n > 0)
+  {
+    size_t wrote = fwrite(s, 1, n, f);
+    if (wrote != n)
+    {
+      int e = errno;
+      fclose(f);
+      errno = e;
+      aura_io_throw(op, path);
+    }
+  }
+  if (fflush(f) != 0)
+  {
+    int e = errno;
+    fclose(f);
+    errno = e;
+    aura_io_throw(op, path);
+  }
+  if (fclose(f) != 0)
+  {
+    aura_io_throw(op, path);
+  }
+}
+
+void aura_write_file(const char *path, const char *content)
+{
+  aura_write_file_mode(path, content, "wb", "write_file");
+}
+
+void aura_append_file(const char *path, const char *content)
+{
+  aura_write_file_mode(path, content, "ab", "append_file");
+}
 
 void aura_assert(bool cond)
 {

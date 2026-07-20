@@ -26,6 +26,7 @@ Sample `.aura` programs for the compiler: parse/typecheck (`aura check`), native
 | `fun/lambda_param.aura`    | Fun-typed parameter                                                    |
 | `fun/lambda_block.aura`    | Lambda block body `(x) => { … }` (C10g)                                |
 | `fun/lambda_capture.aura`  | Capture outer `val` Int (C10h MVP; Bool/String also OK)                |
+| `fun/lambda_env_free.aura` | Fun env free: move / return / param / loop (C11b)                      |
 | `fun/lambda_hof.aura`      | Local map/filter/fold with fun values + capture (C10i)                 |
 | `pkg/dotted.aura`          | Dotted package path                                                    |
 | `edge/empty_main.aura`     | Empty function body                                                    |
@@ -91,6 +92,7 @@ Sample `.aura` programs for the compiler: parse/typecheck (`aura check`), native
 | `import/nested_app` + nested_mid/leaf | Nested path deps in `aura.lock` (C4j)                                                               |
 | `std_io/app`                          | Explicit `import std.io` + `println` (C3z)                                                          |
 | `std_io/prelude`                      | Auto-prelude `std.io` without import (C4g)                                                          |
+| `std_io/files`                        | `readFile` / `writeFile` / `appendFile` / `fileExists` / `fileSize` (C11a)                          |
 | `std_assert/app`                      | `std.assert` package (C4h)                                                                          |
 | `std_collections/app`                 | Map/Set/HashMap smoke                                                                               |
 | `std_collections/hof`                 | Package-level `map_ints` / `filter_ints` / `fold_ints` (C10i)                                       |

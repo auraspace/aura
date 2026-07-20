@@ -1,4 +1,5 @@
-# aura.lock — path dependencies (C3p/C4j)
+# aura.lock — path dependencies (C3p/C4j); registry form C8k
 # Direct deps match aura.toml; extra entries are transitive path deps.
+# Registry pins: name = { version = "…", checksum = "…", source = "registry" }
 demo.lib_a = "../lib_a"
 demo.lib_b = "../lib_b"

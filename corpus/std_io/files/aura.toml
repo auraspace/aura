@@ -1,0 +1,6 @@
+[package]
+name = "demo.stdio.files"
+
+[[bin]]
+name = "files"
+path = "src"

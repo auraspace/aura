@@ -11,24 +11,40 @@ Aura’s **core** stdlib is intentionally small ([RFC-007](/rfc/007), [RFC-000](
 
 ## Packages today
 
-| Package           | Path              | Role                                              |
-| ----------------- | ----------------- | ------------------------------------------------- |
-| `std.io`          | `std/io`          | Printing / basic I/O (`println`)                  |
-| `std.assert`      | `std/assert`      | Assert helpers for tests                          |
-| `std.collections` | `std/collections` | Map/Set/HashMap, Iterable, Int HOF helpers (C10i) |
+| Package           | Path              | Role                                                  |
+| ----------------- | ----------------- | ----------------------------------------------------- |
+| `std.io`          | `std/io`          | Console + file I/O (`print`/`println`, `readFile`, …) |
+| `std.assert`      | `std/assert`      | Assert helpers for tests                              |
+| `std.collections` | `std/collections` | Map/Set/HashMap, Iterable, Int HOF helpers (C10i)     |
 
 Builtins such as `Array<T>` and core scalars are part of the **language**, not a separate import.
 
 ## `std.io`
+
+Console and file helpers (runtime `aura_*` intrinsics). File APIs throw a `String` message on failure (missing path, I/O error, oversized file, embedded NUL). Text is treated as a regular-file UTF-8 byte sequence (no embedded NUL); max size **256 MiB**.
+
+| API                         | Role                               |
+| --------------------------- | ---------------------------------- |
+| `print` / `println`         | stdout (no newline / with newline) |
+| `eprint` / `eprintln`       | stderr                             |
+| `readFile(path): String`    | read entire regular file           |
+| `writeFile(path, content)`  | create/truncate and write          |
+| `appendFile(path, content)` | append (create if needed)          |
+| `fileExists(path): Bool`    | regular file present               |
+| `fileSize(path): Int`       | byte size (throws if missing)      |
 
 Typical use (explicit import or auto-prelude on package builds):
 
 ```aura
 package main
 
-// Often available via auto-prelude on package builds
+import std.io as Io
+
 fun main() {
-  println("Hello, Aura")
+  Io.println("Hello, Aura")
+  Io.writeFile("out.txt", "hi")
+  val s = Io.readFile("out.txt")
+  Io.println(s)
 }
 ```
 
@@ -37,6 +53,7 @@ Corpus:
 ```bash
 cargo run -p aura-cli -- run corpus/std_io/app
 cargo run -p aura-cli -- run corpus/std_io/prelude
+cargo run -p aura-cli -- run corpus/std_io/files
 ```
 
 ## `std.assert`

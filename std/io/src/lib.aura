@@ -1,7 +1,55 @@
-// Minimal std.io (C3z) — println re-export of runtime builtin.
+// std.io — console + file I/O (runtime intrinsics).
+// Errors throw String messages (see RFC-007 I/O notes; Result wrappers later).
 package std.io
 
-/// Print a string followed by a newline (runtime `aura_println`).
+/// Write to stdout without a trailing newline.
+pub fun print(s: String) {
+  // Body replaced by codegen with aura_print(s).
+}
+
+/// Write to stdout followed by a newline.
 pub fun println(s: String) {
-  // Body replaced by codegen with aura_println(s) (intrinsic).
+  // Body replaced by codegen with aura_println(s).
+}
+
+/// Write to stderr without a trailing newline.
+pub fun eprint(s: String) {
+  // Body replaced by codegen with aura_eprint(s).
+}
+
+/// Write to stderr followed by a newline.
+pub fun eprintln(s: String) {
+  // Body replaced by codegen with aura_eprintln(s).
+}
+
+/// Read an entire regular file as a String (UTF-8 bytes, no embedded NUL).
+/// Throws on missing path, I/O error, oversized file (>256 MiB), or embedded NUL.
+pub fun readFile(path: String): String {
+  // Body replaced by codegen with aura_read_file(path).
+  return ""
+}
+
+/// Write `content` to `path`, creating or truncating the file.
+/// Throws on I/O error.
+pub fun writeFile(path: String, content: String) {
+  // Body replaced by codegen with aura_write_file(path, content).
+}
+
+/// Append `content` to `path`, creating the file if needed.
+/// Throws on I/O error.
+pub fun appendFile(path: String, content: String) {
+  // Body replaced by codegen with aura_append_file(path, content).
+}
+
+/// true if `path` exists and is a regular file.
+pub fun fileExists(path: String): Bool {
+  // Body replaced by codegen with aura_file_exists(path).
+  return false
+}
+
+/// Byte size of a regular file at `path`.
+/// Throws if missing or not a regular file.
+pub fun fileSize(path: String): Int {
+  // Body replaced by codegen with aura_file_size(path).
+  return 0
 }

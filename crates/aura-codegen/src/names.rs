@@ -259,8 +259,17 @@ pub(crate) fn c_fun_name(pkg: &str, name: &str, args: &[Ty]) -> String {
     }
     // Builtins only when package is empty (not std.io re-exports, C3z).
     if pkg.is_empty() {
+        if name == "print" {
+            return "aura_print".into();
+        }
         if name == "println" {
             return "aura_println".into();
+        }
+        if name == "eprint" {
+            return "aura_eprint".into();
+        }
+        if name == "eprintln" {
+            return "aura_eprintln".into();
         }
         if name == "assert" {
             return "aura_assert".into();

@@ -30,8 +30,8 @@ Aura is **spec-first**: RFCs lock design; the compiler and runtime land vertical
 | [003](/rfc/003) | Memory & concurrency       | Accepted   | **Partial**             | GC mark/sweep + class heap; tasks/channels limited                       |
 | [004](/rfc/004) | Compiler architecture      | Accepted   | **Partial**             | Rust toolchain + **C backend** default; LLVM later                       |
 | [005](/rfc/005) | Package manager            | Accepted   | **Partial**             | Path deps + lock schema v0; registry not the daily path                  |
-| [006](/rfc/006) | Runtime                    | Accepted   | **Partial**             | `aura_rt.c`, GC, exceptions, nested Array free                           |
-| [007](/rfc/007) | Standard library           | Accepted   | **Partial**             | `std.io` / `assert` / Map·Set·HashMap·Iterable + Int HOF                 |
+| [006](/rfc/006) | Runtime                    | Accepted   | **Partial**             | `aura_rt.c`, GC, exceptions, nested Array free, file I/O, Fun env free   |
+| [007](/rfc/007) | Standard library           | Accepted   | **Partial**             | `std.io` (console+file) / `assert` / Map·Set·HashMap·Iterable + Int HOF  |
 | [008](/rfc/008) | Build system               | Accepted   | **Partial**             | `aura.toml` package build/run/test                                       |
 | [009](/rfc/009) | Reflection / metadata      | Accepted   | **Deferred / limited**  | Not a day-one teach path                                                 |
 | [010](/rfc/010) | Plugins / macros           | Accepted   | **Deferred / limited**  | Not required for hello                                                   |
@@ -43,17 +43,18 @@ Aura is **spec-first**: RFCs lock design; the compiler and runtime land vertical
 
 Public README and repo `docs/roadmap.md` track **C0 → C10j** as landed vertical slices.
 
-| Band   | User-visible outcome                                                           |
-| ------ | ------------------------------------------------------------------------------ |
-| C0–C1  | Parse, typecheck, native hello via C backend                                   |
-| C1b–C2 | Classes, interfaces, generics, null flow                                       |
-| C3     | Structs, enums, tests, packages, arrays, imports, GC MVP                       |
-| C4–C5  | GC refinements, std.io/assert, more Array/String APIs, diagnostics polish      |
-| C6–C7  | Deep GC mark/sweep, Iterable, Map/Set, `Int?`/`Bool?`, Array field ownership   |
-| C8–C9  | Generic iface/class mono, nested Array, HashMap(+resize), String+/interp, `is` |
-| C10    | First-class funs/lambdas (expr/block), fun types, val captures MVP, Int HOF    |
+| Band   | User-visible outcome                                                            |
+| ------ | ------------------------------------------------------------------------------- |
+| C0–C1  | Parse, typecheck, native hello via C backend                                    |
+| C1b–C2 | Classes, interfaces, generics, null flow                                        |
+| C3     | Structs, enums, tests, packages, arrays, imports, GC MVP                        |
+| C4–C5  | GC refinements, std.io/assert, more Array/String APIs, diagnostics polish       |
+| C6–C7  | Deep GC mark/sweep, Iterable, Map/Set, `Int?`/`Bool?`, Array field ownership    |
+| C8–C9  | Generic iface/class mono, nested Array, HashMap(+resize), String+/interp, `is`  |
+| C10    | First-class funs/lambdas (expr/block), fun types, val captures MVP, Int HOF     |
+| C11a–b | `std.io` file/console expand; Fun capture-env free (ownership, incl. for-loops) |
 
-**Next (after C10j):** richer captures (class/Array, env GC); true borrow / Array-of-iface; generic HashMap; registry client; tasks/async.
+**Next (after C11b):** install/`aura new`/dogfood freeze; richer captures (class/Array); true borrow / Array-of-iface; generic HashMap; registry client; tasks/async.
 
 Exact bullet lists live in the root [README](https://github.com/auraspace/aura) and repo [`docs/roadmap.md`](https://github.com/auraspace/aura/blob/main/docs/roadmap.md).
 

@@ -74,20 +74,22 @@ pub(crate) struct Checker {
 impl Checker {
     pub(crate) fn new() -> Self {
         let mut functions: HashMap<String, Vec<FunSig>> = HashMap::new();
-        functions.insert(
-            "println".into(),
-            vec![FunSig {
-                name: "println".into(),
-                is_pub: true,
-                package: String::new(),
-                is_test: false,
-                type_params: Vec::new(),
-                bounds: HashMap::new(),
-                params: vec![Ty::String],
-                ret: Ty::Unit,
-                span: Span::new(0, 0),
-            }],
-        );
+        for name in ["print", "println", "eprint", "eprintln"] {
+            functions.insert(
+                name.into(),
+                vec![FunSig {
+                    name: name.into(),
+                    is_pub: true,
+                    package: String::new(),
+                    is_test: false,
+                    type_params: Vec::new(),
+                    bounds: HashMap::new(),
+                    params: vec![Ty::String],
+                    ret: Ty::Unit,
+                    span: Span::new(0, 0),
+                }],
+            );
+        }
         // Testing builtins (RFC-011 MVP)
         functions.insert(
             "assert".into(),

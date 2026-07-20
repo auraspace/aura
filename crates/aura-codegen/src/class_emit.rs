@@ -363,6 +363,7 @@ pub(crate) fn emit_method_mono(
         type_args: args.to_vec(),
         locals: vec![HashMap::new()],
         array_owners: vec![std::collections::HashSet::new()],
+        fun_owners: vec![std::collections::HashSet::new()],
         gc_roots: vec![std::collections::HashSet::new()],
         array_gc_roots: vec![std::collections::HashSet::new()],
         return_key: ret_key,
@@ -380,6 +381,10 @@ pub(crate) fn emit_method_mono(
         // C6b: Array params own the buffer.
         if crate::array_emit::is_array_type_key(&key) {
             ctx.mark_array_owner(&p.name.name);
+        }
+        // Fun params own capture env (caller moves).
+        if is_fun_type_key(&key) {
+            ctx.mark_fun_owner(&p.name.name);
         }
         if is_heap_class_mono(&mono_key, checked) {
             ctx.mark_gc_root(&p.name.name);
@@ -414,6 +419,7 @@ pub(crate) fn emit_method_mono(
         };
         let _ = writeln!(out, "  aura_gc_remove_root((void **)&{n});");
     }
+    crate::stmt::emit_free_fun_owners(out, 1, &ctx, &ctx.fun_owners_all());
     emit_return_fallback(out, &m.return_type, checked, params, args);
     out.push_str("}\n");
 }

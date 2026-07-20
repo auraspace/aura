@@ -15,6 +15,45 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
         Expr::Bool(_) => "Bool".into(),
         Expr::String(_) => "String".into(),
         Expr::Call(c) => match c.callee.as_ref() {
+            // Free-function / Alias.fun via call_instantiations (return type from FunSig).
+            Expr::Field(_) | Expr::Ident(_)
+                if ctx
+                    .checked
+                    .call_instantiations
+                    .get(&c.span.start)
+                    .is_some_and(|i| !i.is_constructor && i.variant.is_none()) =>
+            {
+                let inst = ctx.checked.call_instantiations.get(&c.span.start).unwrap();
+                if let Some(f) = ctx.checked.ast.functions.iter().find(|f| {
+                    f.name.name == inst.name
+                        && (inst.package.is_empty()
+                            || fun_decl_package(f, ctx.checked) == inst.package)
+                }) {
+                    let params: Vec<String> =
+                        f.type_params.iter().map(|p| p.name.name.clone()).collect();
+                    if let Some(rt) = &f.return_type {
+                        return type_ref_local_key(rt, &params, &inst.type_args);
+                    }
+                    return "Unit".into();
+                }
+                // Fall through to other match arms when decl not found.
+                if let Expr::Ident(id) = c.callee.as_ref() {
+                    if let Some(f) = ctx
+                        .checked
+                        .ast
+                        .functions
+                        .iter()
+                        .find(|f| f.name.name == id.name)
+                    {
+                        let params: Vec<String> =
+                            f.type_params.iter().map(|p| p.name.name.clone()).collect();
+                        if let Some(rt) = &f.return_type {
+                            return type_ref_local_key(rt, &params, &inst.type_args);
+                        }
+                    }
+                }
+                "Unit".into()
+            }
             Expr::Ident(id)
                 if ctx
                     .checked
@@ -535,6 +574,55 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
                 }
                 // C8j: Array field assign is a non-owning shallow copy (no move-out).
                 // Deep ownership transfer remains on return (C7c) and local-to-local moves.
+            }
+            let dst_is_fun = dst_ty
+                .as_deref()
+                .map(|t| is_fun_type_key(t))
+                .unwrap_or(false);
+            let free_fun_lvalue = |lv: &str| -> String {
+                format!("if (({lv}).env != NULL) {{ free(({lv}).env); ({lv}).env = NULL; }} ")
+            };
+            // Reassign Fun from capturing lambda or call: free old env first.
+            let is_fun_new = matches!(a.value.as_ref(), Expr::Lambda(_) | Expr::Call(_));
+            if dst_is_fun && is_fun_new && !dst_is_field {
+                let free_dst = if ctx.is_fun_owner(dst_name) {
+                    free_fun_lvalue(&lhs)
+                } else {
+                    String::new()
+                };
+                // Capturing lambda / call result owns env.
+                let owns = match a.value.as_ref() {
+                    Expr::Lambda(l) => ctx
+                        .checked
+                        .lambda_captures
+                        .get(&l.span.start)
+                        .map(|c| !c.is_empty())
+                        .unwrap_or(false),
+                    Expr::Call(_) => true,
+                    _ => false,
+                };
+                if owns {
+                    ctx.mark_fun_owner(dst_name);
+                } else {
+                    ctx.unmark_fun_owner(dst_name);
+                }
+                return format!("({{ {free_dst}({lhs} = {rhs}); }})");
+            }
+            // Move Fun owner local-to-local.
+            if dst_is_fun && !dst_is_field {
+                if let Expr::Ident(src) = a.value.as_ref() {
+                    if ctx.is_fun_owner(&src.name) && src.name != *dst_name {
+                        let s = mangle_ident(&src.name);
+                        let free_dst = if ctx.is_fun_owner(dst_name) {
+                            free_fun_lvalue(&lhs)
+                        } else {
+                            String::new()
+                        };
+                        ctx.mark_fun_owner(dst_name);
+                        ctx.unmark_fun_owner(&src.name);
+                        return format!("({{ {free_dst}({lhs} = {rhs}); {s}.env = NULL; }})");
+                    }
+                }
             }
             format!("({lhs} = {rhs})")
         }

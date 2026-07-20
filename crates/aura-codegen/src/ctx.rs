@@ -14,6 +14,8 @@ pub(crate) struct EmitCtx<'a> {
     pub(crate) locals: Vec<HashMap<String, String>>,
     /// Per-scope locals that own an `Array` heap buffer (C3t).
     pub(crate) array_owners: Vec<HashSet<String>>,
+    /// Per-scope locals that own a Fun capture env (`malloc`'d, C11).
+    pub(crate) fun_owners: Vec<HashSet<String>>,
     /// Per-scope heap-class locals registered as GC roots (C5g).
     pub(crate) gc_roots: Vec<HashSet<String>>,
     /// Per-scope Array-of-class locals registered for element GC mark (C6e).
@@ -28,6 +30,7 @@ impl<'a> EmitCtx<'a> {
     pub(crate) fn push_scope(&mut self) {
         self.locals.push(HashMap::new());
         self.array_owners.push(HashSet::new());
+        self.fun_owners.push(HashSet::new());
         self.gc_roots.push(HashSet::new());
         self.array_gc_roots.push(HashSet::new());
     }
@@ -35,6 +38,7 @@ impl<'a> EmitCtx<'a> {
     pub(crate) fn pop_scope(&mut self) {
         self.locals.pop();
         self.array_owners.pop();
+        self.fun_owners.pop();
         self.gc_roots.pop();
         self.array_gc_roots.pop();
     }
@@ -78,6 +82,45 @@ impl<'a> EmitCtx<'a> {
 
     pub(crate) fn array_owners_current(&self) -> Vec<String> {
         self.array_owners
+            .last()
+            .map(|s| {
+                let mut names: Vec<_> = s.iter().cloned().collect();
+                names.sort();
+                names
+            })
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn mark_fun_owner(&mut self, name: &str) {
+        if let Some(scope) = self.fun_owners.last_mut() {
+            scope.insert(name.to_string());
+        }
+    }
+
+    pub(crate) fn unmark_fun_owner(&mut self, name: &str) {
+        for scope in self.fun_owners.iter_mut().rev() {
+            if scope.remove(name) {
+                return;
+            }
+        }
+    }
+
+    pub(crate) fn is_fun_owner(&self, name: &str) -> bool {
+        self.fun_owners.iter().any(|s| s.contains(name))
+    }
+
+    pub(crate) fn fun_owners_all(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        for scope in self.fun_owners.iter().rev() {
+            let mut names: Vec<_> = scope.iter().cloned().collect();
+            names.sort();
+            out.extend(names);
+        }
+        out
+    }
+
+    pub(crate) fn fun_owners_current(&self) -> Vec<String> {
+        self.fun_owners
             .last()
             .map(|s| {
                 let mut names: Vec<_> = s.iter().cloned().collect();

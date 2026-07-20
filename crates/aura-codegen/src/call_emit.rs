@@ -34,6 +34,29 @@ fn wrap_array_arg_moves(
     }
 }
 
+/// After a call that moved Fun owner args into params, zero source envs.
+fn wrap_fun_arg_moves(
+    call: String,
+    move_srcs: &[String],
+    ret_c: &str,
+    ctx: &mut EmitCtx<'_>,
+) -> String {
+    if move_srcs.is_empty() {
+        return call;
+    }
+    let mut zeros = String::new();
+    for src in move_srcs {
+        let s = mangle_ident(src);
+        zeros.push_str(&format!("{s}.env = NULL; "));
+        ctx.unmark_fun_owner(src);
+    }
+    if ret_c == "void" {
+        format!("({{ {call}; {zeros}}})")
+    } else {
+        format!("({{ {ret_c} __fm = ({call}); {zeros}__fm; }})")
+    }
+}
+
 /// Collect Array owner idents that should move into matching Array params.
 fn array_move_srcs_from_args(
     args: &[Expr],
@@ -52,6 +75,35 @@ fn array_move_srcs_from_args(
         }
     }
     move_srcs
+}
+
+fn fun_move_srcs_from_args(args: &[Expr], param_keys: &[String], ctx: &EmitCtx<'_>) -> Vec<String> {
+    let mut move_srcs = Vec::new();
+    for (a, expected) in args.iter().zip(param_keys.iter()) {
+        if !is_fun_type_key(expected) {
+            continue;
+        }
+        if let Expr::Ident(id) = a {
+            if ctx.is_fun_owner(&id.name) && !move_srcs.contains(&id.name) {
+                move_srcs.push(id.name.clone());
+            }
+        }
+    }
+    move_srcs
+}
+
+/// Move Array + Fun owner args into params (zero sources after call).
+fn wrap_owner_arg_moves(
+    call: String,
+    args: &[Expr],
+    param_keys: &[String],
+    ret_c: &str,
+    ctx: &mut EmitCtx<'_>,
+) -> String {
+    let array_srcs = array_move_srcs_from_args(args, param_keys, ctx);
+    let fun_srcs = fun_move_srcs_from_args(args, param_keys, ctx);
+    let call = wrap_array_arg_moves(call, &array_srcs, ret_c, ctx);
+    wrap_fun_arg_moves(call, &fun_srcs, ret_c, ctx)
 }
 
 pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
@@ -311,14 +363,13 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                     param_keys.push(expected.clone());
                     args.push(coerce_expr(a, &expected, ctx));
                 }
-                let move_srcs = array_move_srcs_from_args(&c.args, &param_keys, ctx);
                 let ret_c = c_type_from_opt(&m.return_type, ctx.checked, &params, &targs);
                 let call = format!(
                     "{}({})",
                     c_method_name(&mono, &fe.field.name),
                     args.join(", ")
                 );
-                let call = wrap_array_arg_moves(call, &move_srcs, &ret_c, ctx);
+                let call = wrap_owner_arg_moves(call, &c.args, &param_keys, &ret_c, ctx);
                 // C4s: `?.` short-circuit to NULL when receiver is null (pointer-like results).
                 if fe.safe {
                     return format!("(({obj}) == NULL ? NULL : {call})");
@@ -499,8 +550,17 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                     _ => format!("aura_assert_eq_int({a_v}, {b_v})"),
                 };
             }
+            if id.name == "print" && c.args.len() == 1 {
+                return format!("aura_print({})", coerce_expr(&c.args[0], "String", ctx));
+            }
             if id.name == "println" && c.args.len() == 1 {
                 return format!("aura_println({})", coerce_expr(&c.args[0], "String", ctx));
+            }
+            if id.name == "eprint" && c.args.len() == 1 {
+                return format!("aura_eprint({})", coerce_expr(&c.args[0], "String", ctx));
+            }
+            if id.name == "eprintln" && c.args.len() == 1 {
+                return format!("aura_eprintln({})", coerce_expr(&c.args[0], "String", ctx));
             }
             // C5m: builtin STW GC collect.
             if id.name == "gc_collect" && c.args.is_empty() {
@@ -534,11 +594,10 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                     })
                     .collect::<Vec<_>>()
                     .join(", ");
-                let move_srcs = array_move_srcs_from_args(&c.args, &param_keys, ctx);
                 let ret_c = c_type_from_opt(&f.return_type, ctx.checked, &params, &targs);
                 let fpkg = fun_decl_package(f, ctx.checked);
                 let call = format!("{}({args})", c_fun_name(&fpkg, &id.name, &targs));
-                return wrap_array_arg_moves(call, &move_srcs, &ret_c, ctx);
+                return wrap_owner_arg_moves(call, &c.args, &param_keys, &ret_c, ctx);
             }
             let args = c
                 .args
