@@ -26,10 +26,11 @@ When you resolve debt, update or remove the matching entry.
 ### Array of interface elements
 
 - Area: builtin Array
-- Symptom: C6g allows enum by-value; interface elements still rejected (C4x message)
-- Why deferred: interface layout is tagged union of implementors; no stable Array elem size
-- Next step: decide reject forever for MVP or erase to fat pointer
-- Introduced: narrowed after C6g (enum Done; interface remains)
+- Symptom: interface elements rejected (C4x/C7h message); enum/class/struct/prim OK
+- Decision (C7h): **reject for MVP** — no `Array<I>` until a stable elem layout exists
+- Why: interface values are closed-world fat/tag unions; Array mono needs fixed elem size today
+- Next step (post-MVP): erase to fat pointer `(tag, data*)` or box each element as a class
+- Introduced: narrowed after C6g; decision locked C7h
 
 ### Array shallow free (buffer only)
 

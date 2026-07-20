@@ -1,4 +1,4 @@
-// C4x — Array of interface is rejected with a clear diagnostic (not supported yet)
+// C4x/C7h — Array of interface rejected for MVP (fixed elem size; no fat-ptr erase yet)
 package demo.diag
 
 interface Named {

@@ -143,7 +143,7 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C7e**   | `std.collections` Set (String, linear)                             | Pending                                    |
 | **C7f**   | Map API expand (`remove` / `clear`)                                | Pending                                    |
 | **C7g**   | Multi-error collect in declaration phase                           | Pending                                    |
-| **C7h**   | Array-of-interface decision (reject MVP vs fat ptr)                | Pending                                    |
+| **C7h**   | Array-of-interface decision (reject MVP vs fat ptr)                | Done                                       |
 | **C7i**   | Generic interfaces / `Iterable<E>` slice                           | Pending                                    |
 | **C7j**   | Array element drop on free/pop/clear (or defer)                    | Pending                                    |
 | **DX**    | line:col diagnostics with snippets                                 | Done                                       |
