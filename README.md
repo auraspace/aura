@@ -8,7 +8,7 @@ This repository currently holds:
 | ------------------------------------ | -------------------------------------------------------------------- |
 | [`docs/guide/`](docs/guide/)         | User guide (site `/docs`)                                            |
 | [`docs/rfc/`](docs/rfc/)             | Language & toolchain RFCs                                            |
-| [`docs/roadmap.md`](docs/roadmap.md) | Execution phases (P0–P3, compiler C0–C6g)                            |
+| [`docs/roadmap.md`](docs/roadmap.md) | Execution phases (P0–P3, compiler C0–C6j)                            |
 | [`site/`](site/)                     | Homepage + docs + RFC site (Vite + React)                            |
 | [`crates/`](crates/)                 | Rust toolchain (`aura` CLI) — check / build / run / test (C backend) |
 | [`corpus/`](corpus/)                 | Sample `.aura` programs for the compiler                             |
@@ -32,7 +32,7 @@ pnpm site:test
 pnpm site:build
 ```
 
-### Compiler (through C6g)
+### Compiler (through C6j)
 
 ```bash
 cargo test --workspace
@@ -135,9 +135,10 @@ Native builds use a **C backend** (`aura emit-c` + system `cc`) linked with `run
 - **Compiler C6g** `Array` of enum by-value (unit + generic `Result`)
 - **Sema C6h** Multi-error collect in function bodies
 - **Compiler C6i** Field Array ownership (ctor + var reassign move)
+- **Docs C6j** C6a–C6j batch closed (plan/roadmap/debts)
 - **DX** Pretty diagnostics (`path:line:col` + source snippet)
 - **Debts** Tracked in [`agents/debts.md`](agents/debts.md)
-- **Next:** close batch (C6j)
+- **Next:** nullable `Int?`/`Bool?` emit; Array field GC free/mark; generic Map/Set
 
 ## Links
 
