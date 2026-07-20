@@ -1,0 +1,35 @@
+// C8h — for-in over Map.keys and Set (duck get)
+package demo.stdforin
+
+import std.collections
+
+fun main() {
+  val m = map()
+  m.put("a", 1)
+  m.put("b", 2)
+  var s: Int = 0
+  for (k in m.keys) {
+    s = s + m.getOr(k, 0)
+  }
+  if (s == 3) {
+    println("mapkeys")
+  }
+  val st = set()
+  st.add("x")
+  st.add("y")
+  var n: Int = 0
+  for (k in st.keys) {
+    n = n + 1
+  }
+  if (n == 2) {
+    println("setkeys")
+  }
+  // Duck for-in on Set via len() + get(i)
+  var n2: Int = 0
+  for (k in st) {
+    n2 = n2 + 1
+  }
+  if (n2 == 2) {
+    println("setduck")
+  }
+}

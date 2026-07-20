@@ -1,0 +1,5 @@
+[package]
+name = "demo.stdforin"
+[[bin]]
+name = "app"
+path = "src"

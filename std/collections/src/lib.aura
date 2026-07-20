@@ -4,6 +4,7 @@
 // C7f: Map remove/clear.
 // C8a: Map<K,V> generic (Array of type params allowed at mono).
 // C8d: Iterable<E> protocol (len + get).
+// C8h: for-in over Map.keys / Set (Set.get for duck).
 package std.collections
 
 /// Indexed sequence protocol for `for-in` (C6c/C8d).
@@ -99,10 +100,16 @@ pub fun map(): Map<String, Int> {
 
 // C7e — Set of String (linear scan MVP).
 // C8g — generic Set<T> (linear membership; T must support `==`).
+// C8h — duck Iterable via get(i) for `for (x in set)`.
 /// Mutable set (linear membership). Elements must support `==`.
 pub class Set<T>(val keys: Array<T>) {
   pub fun len(): Int {
     return this.keys.len
+  }
+
+  /// Element at index (for `for-in` / duck Iterable).
+  pub fun get(i: Int): T {
+    return this.keys.get(i)
   }
 
   pub fun isEmpty(): Bool {
