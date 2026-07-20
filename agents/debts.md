@@ -16,14 +16,6 @@ When you resolve debt, update or remove the matching entry.
 - Next step: free/GC env; capture more types; optional `var` by ref later
 - Introduced: narrowed after C10h
 
-### Higher-order std helpers deferred
-
-- Area: language / stdlib (C10i)
-- Symptom: no map/filter-style helpers over Array/fun yet
-- Why deferred: C10h first-class funs enough for demos; helpers are sugar
-- Next step: small Array.forEach / map helpers or corpus samples
-- Introduced: 2026-07-20 after C10h
-
 ### Array field return still moves (no true borrow type)
 
 - Area: builtin Array (C7c/C8j)
@@ -69,6 +61,14 @@ When you resolve debt, update or remove the matching entry.
 - Introduced: narrowed after C8i; resize C9b
 
 ## Resolved
+
+### Higher-order Int array helpers (2026-07-20)
+
+- Resolved in C10i: `std.collections` `map_ints` / `filter_ints` / `fold_ints`; corpus `fun/lambda_hof.aura`, `std_collections/hof`.
+
+### C10 first-class funs batch (2026-07-20)
+
+- Resolved C10a–j: diagnostics polish, lambdas (expr/block), fun types, val captures (MVP), HOF helpers. Remaining: richer captures / env GC (see open debt).
 
 ### Generic class implements interface (2026-07-20)
 
