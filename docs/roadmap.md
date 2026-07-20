@@ -15,8 +15,8 @@ Living plan for docs, language specs, and the Rust toolchain. RFCs remain the de
 | RFC static site (`site/`)   | Implemented; Cloudflare Pages → **https://aura.fadosoft.com**                           |
 | RFC-000 … RFC-013           | **All Accepted** — open questions resolved or Deferred (2026-07-16)                     |
 | Language MVP                | RFC-001 §6.0 + post-C1; generic iface mono (C8c); Iterable (C8d); async/macros deferred |
-| Compiler                    | **C0–C8l Done** — C8c–l generic iface, nested Array, collections, lock schema           |
-| Runtime / packages / stdlib | GC + nested Array free; Map/Set/HashMap; path lock + registry schema v0                 |
+| Compiler                    | **C0–C9j Done** — C9: generic class implements, Array.clone, String+, type/const, is    |
+| Runtime / packages / stdlib | GC + nested Array free; Map/Set/HashMap(+resize); path lock + registry schema v0        |
 
 ## Phases
 
@@ -158,16 +158,26 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C8j**   | Non-destructive Array field bind                                   | Done                                       |
 | **C8k**   | `aura.lock` registry schema v0                                     | Done                                       |
 | **C8l**   | Close C8c–C8l batch (roadmap/debts/plan)                           | Done                                       |
+| **C9a**   | Generic class implements mono (`class Box<T> : Iface<T>`)          | Done                                       |
+| **C9b**   | HashMap auto-resize on load                                        | Done                                       |
+| **C9c**   | Builtin `Array.clone()`                                            | Done                                       |
+| **C9d**   | String `+` concatenation                                           | Done                                       |
+| **C9e**   | Expression-body functions `fun f(): T = expr`                      | Done                                       |
+| **C9f**   | Type alias `type Name = T`                                         | Done                                       |
+| **C9g**   | Top-level `const Name: T = literal`                                | Done                                       |
+| **C9h**   | String interpolation `"hi ${name}"`                                | Done                                       |
+| **C9i**   | `is` type test (class/interface)                                   | Done                                       |
+| **C9j**   | Close C9a–C9j batch (roadmap/debts/plan)                           | Done                                       |
 | **DX**    | line:col diagnostics with snippets                                 | Done                                       |
 
 **Out of scope C0/C1:** generics mono, async/tasks, macros, registry, incremental, LTO.
 
 ### P3 — Expand (after hello)
 
-1. ~~Language surface C2–C8l~~ → next: generic class implements, true borrow, Array-of-iface post-MVP
+1. ~~Language surface C2–C9j~~ → next: true borrow, Array-of-iface post-MVP, lambdas
 2. Runtime: ~~alloc/GC + deep mark/sweep + nested Array free~~ → channels/tasks
 3. Toolchain: ~~path deps + path lock + registry lock schema~~ → registry client / semver (RFC-005)
-4. Stdlib: ~~io + assert + Map/Set/HashMap + Iterable~~ → HashMap resize; richer collections
+4. Stdlib: ~~io + assert + Map/Set/HashMap(+resize) + Iterable~~ → generic HashMap; richer collections
 5. Cross targets + signed releases
 
 Write Wave 2–4 RFCs **as implementation needs them**, not all up front.

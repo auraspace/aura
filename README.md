@@ -142,7 +142,7 @@ Native builds use a **C backend** (`aura emit-c` + system `cc`) linked with `run
 - **Docs C7d** C7a–C7j plan + roadmap sync
 - **DX** Pretty diagnostics (`path:line:col` + source snippet)
 - **Debts** Tracked in [`agents/debts.md`](agents/debts.md)
-- **Next:** C7e Set; C7f Map API; C7g decl multi-error; C7h–j (iface Array, generic Iterable, elem drop)
+- **Next (after C9j):** true borrow / Array-of-iface; lambdas; registry client; tasks/async
 
 ## Links
 

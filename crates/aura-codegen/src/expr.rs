@@ -341,7 +341,7 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
             if is_iface_type_key(&recv, ctx.checked) {
                 let imono = resolve_iface_mono_key(&recv, ctx.checked);
                 // tag lives on the iface struct value.
-                return format!("(({val}).tag == AURA_TAG_{target_mono})");
+                return format!("({val}).tag == AURA_TAG_{target_mono}");
             }
             // Class receiver: compile-time mono match (or false if different).
             let recv_mono = full_type_mono(&recv, ctx.checked);

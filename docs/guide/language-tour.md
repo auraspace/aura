@@ -38,10 +38,13 @@ These topics match **in-tree** behavior (corpus + CLI), not only Accepted RFCs:
 
 - Packages, functions, locals, expressions
 - Nullability flow and force-unwrap
-- Classes (GC), structs (value), interfaces, monomorphized generics
+- Classes (GC), structs (value), interfaces, monomorphized generics (incl. generic class implements)
 - Enums + `match`, `Result`
 - `throw` / `try` / `catch` / `finally`
-- `Array<T>`, ranges, `for-in`
+- `Array<T>` (+ `clone`), ranges, `for-in`
+- String `+` and `"hi ${name}"` interpolation (idents)
+- `type` aliases, top-level `const`, `is` type test
+- Expression-body functions `fun f(): T = expr`
 - Multi-file packages, imports, path deps
 - `aura test` + `@test`
 
