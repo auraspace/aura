@@ -223,6 +223,7 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
         Expr::Group(inner, _) => infer_type_name(inner, ctx),
         Expr::Assign(a) => infer_type_name(&a.value, ctx),
         Expr::Unary(UnaryExpr { op: UnOp::Not, .. }) => "Bool".into(),
+        Expr::Is(_) => "Bool".into(),
         Expr::ForceUnwrap(f) => {
             let inner = infer_type_name(&f.expr, ctx);
             // C7a: !! on Opt_Int/Opt_Bool yields the bare primitive key.
@@ -328,6 +329,27 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
             }
             // Pointer-like T?: null is a runtime fault (MVP).
             inner
+        }
+        // C9i: `expr is Type` — interface tag check or class mono equality.
+        Expr::Is(i) => {
+            let val = emit_expr(&i.expr, ctx);
+            let recv =
+                resolve_type_name(&i.expr, ctx).unwrap_or_else(|| infer_type_name(&i.expr, ctx));
+            let target_key = type_ref_local_key_expand(&i.ty, &[], &[], ctx.checked);
+            let target_mono = full_type_mono(&target_key, ctx.checked);
+            // Interface-typed receiver: compare runtime tag.
+            if is_iface_type_key(&recv, ctx.checked) {
+                let imono = resolve_iface_mono_key(&recv, ctx.checked);
+                // tag lives on the iface struct value.
+                return format!("(({val}).tag == AURA_TAG_{target_mono})");
+            }
+            // Class receiver: compile-time mono match (or false if different).
+            let recv_mono = full_type_mono(&recv, ctx.checked);
+            if recv_mono == target_mono {
+                "true".into()
+            } else {
+                "false".into()
+            }
         }
         Expr::Binary(b) => {
             let left = emit_expr(&b.left, ctx);

@@ -57,6 +57,18 @@ impl Parser {
                 });
                 continue;
             }
+            // C9i: `expr is Type`
+            if matches!(self.peek().kind, TokenKind::Is) {
+                self.bump();
+                let ty = self.parse_type()?;
+                let span = Span::new(lhs.span().start, ty.span.end);
+                lhs = Expr::Is(IsExpr {
+                    expr: Box::new(lhs),
+                    ty,
+                    span,
+                });
+                continue;
+            }
             break;
         }
 

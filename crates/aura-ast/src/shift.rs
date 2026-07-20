@@ -299,6 +299,11 @@ fn shift_expr(e: &mut Expr, delta: BytePos) {
             shift_expr(&mut f.expr, delta);
             f.span = f.span.shift(delta);
         }
+        Expr::Is(i) => {
+            shift_expr(&mut i.expr, delta);
+            shift_type_ref(&mut i.ty, delta);
+            i.span = i.span.shift(delta);
+        }
         Expr::Group(inner, s) => {
             shift_expr(inner, delta);
             *s = s.shift(delta);

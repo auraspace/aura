@@ -349,9 +349,19 @@ pub enum Expr {
     Unary(UnaryExpr),
     /// Postfix `expr!!` — force unwrap nullable (lintable).
     ForceUnwrap(ForceUnwrapExpr),
+    /// C9i: `expr is Type` type test (Bool).
+    Is(IsExpr),
     Group(Box<Expr>, Span),
     /// C4t: `if (cond) { … } else { … }` as expression (value = last expr in each branch).
     If(Box<IfExpr>),
+}
+
+/// `expr is TypeName` (C9i).
+#[derive(Debug, Clone, PartialEq)]
+pub struct IsExpr {
+    pub expr: Box<Expr>,
+    pub ty: TypeRef,
+    pub span: Span,
 }
 
 /// Expression-form `if` (C4t).
@@ -378,6 +388,7 @@ impl Expr {
             Expr::Binary(b) => b.span,
             Expr::Unary(u) => u.span,
             Expr::ForceUnwrap(f) => f.span,
+            Expr::Is(i) => i.span,
             Expr::Group(_, s) => *s,
             Expr::If(i) => i.span,
         }

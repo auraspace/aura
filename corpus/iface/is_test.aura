@@ -1,0 +1,29 @@
+// C9i — `is` type test
+package demo.iface
+
+interface Named {
+  fun name(): String
+}
+
+class Greeter(val who: String) : Named {
+  fun name(): String {
+    return this.who
+  }
+}
+
+class Other(val n: Int) {
+}
+
+fun main() {
+  val g = Greeter("Aura")
+  val n: Named = g
+  if (n is Greeter) {
+    println("iface")
+  }
+  if (g is Greeter) {
+    println("class")
+  }
+  if (!(g is Other)) {
+    println("notother")
+  }
+}

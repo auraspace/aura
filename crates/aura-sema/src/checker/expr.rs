@@ -207,6 +207,33 @@ impl Checker {
                     other => Ok(other), // already non-null; !! is a no-op
                 }
             }
+            // C9i: `expr is Type` → Bool
+            Expr::Is(i) => {
+                let _ = self.check_expr(&i.expr)?;
+                let target = self.type_from_ref(&i.ty)?;
+                match &target {
+                    Ty::Class(_)
+                    | Ty::ClassApp { .. }
+                    | Ty::Interface(_)
+                    | Ty::InterfaceApp { .. } => {}
+                    other => {
+                        return Err(SemaError {
+                            message: format!(
+                                "`is` target must be a class or interface type, got {}",
+                                other.display()
+                            ),
+                            span: i.ty.span,
+                        });
+                    }
+                }
+                if i.ty.nullable {
+                    return Err(SemaError {
+                        message: "`is` target cannot be nullable".into(),
+                        span: i.ty.span,
+                    });
+                }
+                Ok(Ty::Bool)
+            }
             Expr::Field(f) => {
                 let obj_ty = self.check_expr(&f.object)?;
                 // C4s: `?.` requires nullable receiver; result is nullable unless already.
