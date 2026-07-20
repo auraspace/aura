@@ -8,6 +8,8 @@ use crate::sigs::*;
 use crate::ty::Ty;
 
 impl Checker {
+    /// C7g: declaration-phase errors are collected into `self.errors` and later
+    /// decls/bodies still run when safe (mirror C6h body multi-error).
     pub(crate) fn check_file(&mut self, file: &File) -> Result<CheckedFile, SemaError> {
         let file_pkg = file.package.display();
         self.current_package = file_pkg.clone();
@@ -23,10 +25,11 @@ impl Checker {
                 .insert(target.clone());
             if let Some(alias) = &imp.alias {
                 if self.import_aliases.contains_key(&alias.name) {
-                    return Err(SemaError {
+                    self.errors.push(SemaError {
                         message: format!("duplicate import alias `{}`", alias.name),
                         span: alias.span,
                     });
+                    continue;
                 }
                 // Alias lives in the importing package's name space (used when
                 // current_package is `from`). Store globally for C3n lookup.
@@ -64,38 +67,58 @@ impl Checker {
                 .map(|v| v.iter().any(|c| c.package == pkg))
                 .unwrap_or(false)
             {
-                return Err(SemaError {
+                self.errors.push(SemaError {
                     message: format!("duplicate type name `{}` in package `{pkg}`", i.name.name),
                     span: i.name.span,
                 });
+                continue;
             }
             if let Some(existing) = self.interfaces.get(&i.name.name) {
                 if existing.iter().any(|s| s.package == pkg) {
-                    return Err(SemaError {
+                    self.errors.push(SemaError {
                         message: format!(
                             "duplicate type name `{}` in package `{pkg}`",
                             i.name.name
                         ),
                         span: i.name.span,
                     });
+                    continue;
                 }
             }
             self.current_package = pkg.clone();
             let mut methods = HashMap::new();
+            let mut method_ok = true;
             for m in &i.methods {
                 if methods.contains_key(&m.name.name) {
-                    return Err(SemaError {
+                    self.errors.push(SemaError {
                         message: format!("duplicate interface method `{}`", m.name.name),
                         span: m.name.span,
                     });
+                    method_ok = false;
+                    continue;
                 }
-                let params = m
+                let params = match m
                     .params
                     .iter()
                     .map(|p| self.type_from_ref(&p.ty))
-                    .collect::<Result<Vec<_>, _>>()?;
+                    .collect::<Result<Vec<_>, _>>()
+                {
+                    Ok(p) => p,
+                    Err(e) => {
+                        self.errors.push(e);
+                        method_ok = false;
+                        continue;
+                    }
+                };
                 let ret = match &m.return_type {
-                    Some(t) => self.type_from_ref(t)?,
+                    Some(t) => match self.type_from_ref(t) {
+                        Ok(t) => t,
+                        Err(e) => {
+                            self.errors.push(e);
+                            method_ok = false;
+                            continue;
+                        }
+                    },
                     None => Ty::Unit,
                 };
                 methods.insert(
@@ -107,6 +130,9 @@ impl Checker {
                         span: m.span,
                     },
                 );
+            }
+            if !method_ok && methods.is_empty() {
+                continue;
             }
             self.interfaces
                 .entry(i.name.name.clone())
@@ -130,18 +156,20 @@ impl Checker {
                 .unwrap_or(false)
                 || self.functions.contains_key(&e.name.name)
             {
-                return Err(SemaError {
+                self.errors.push(SemaError {
                     message: format!("duplicate type/function name `{}`", e.name.name),
                     span: e.name.span,
                 });
+                continue;
             }
             // C3v: same simple name allowed across packages.
             if let Some(existing) = self.enums.get(&e.name.name) {
                 if existing.iter().any(|s| s.package == pkg) {
-                    return Err(SemaError {
+                    self.errors.push(SemaError {
                         message: format!("duplicate enum `{}` in package `{pkg}`", e.name.name),
                         span: e.name.span,
                     });
+                    continue;
                 }
             }
             self.enums
@@ -159,46 +187,69 @@ impl Checker {
         }
 
         for e in &file.enums {
-            self.current_package = decl_package(&e.origin_package, &file_pkg).to_string();
-            self.bind_type_params(&e.type_params)?;
+            let pkg = decl_package(&e.origin_package, &file_pkg).to_string();
+            if self.enum_in_package(&e.name.name, &pkg).is_none() {
+                continue;
+            }
+            self.current_package = pkg.clone();
+            if let Err(err) = self.bind_type_params(&e.type_params) {
+                self.errors.push(err);
+                self.type_params.clear();
+                continue;
+            }
             let mut variants = Vec::new();
             let mut seen_v = HashSet::new();
-            for (tag, v) in e.variants.iter().enumerate() {
+            for v in e.variants.iter() {
                 if !seen_v.insert(v.name.name.clone()) {
-                    return Err(SemaError {
+                    self.errors.push(SemaError {
                         message: format!("duplicate variant `{}`", v.name.name),
                         span: v.name.span,
                     });
+                    continue;
                 }
                 if self.variant_to_enum.contains_key(&v.name.name)
                     || self.functions.contains_key(&v.name.name)
                     || self.classes.contains_key(&v.name.name)
                     || self.enums.contains_key(&v.name.name)
                 {
-                    return Err(SemaError {
+                    self.errors.push(SemaError {
                         message: format!(
                             "variant `{}` conflicts with an existing name",
                             v.name.name
                         ),
                         span: v.name.span,
                     });
+                    continue;
                 }
                 let mut fields = Vec::new();
                 let mut seen_f = HashSet::new();
+                let mut fields_ok = true;
                 for f in &v.fields {
                     if !seen_f.insert(f.name.name.clone()) {
-                        return Err(SemaError {
+                        self.errors.push(SemaError {
                             message: format!(
                                 "duplicate field `{}` on variant `{}`",
                                 f.name.name, v.name.name
                             ),
                             span: f.name.span,
                         });
+                        fields_ok = false;
+                        continue;
                     }
-                    fields.push((f.name.name.clone(), self.type_from_ref(&f.ty)?));
+                    match self.type_from_ref(&f.ty) {
+                        Ok(ty) => fields.push((f.name.name.clone(), ty)),
+                        Err(err) => {
+                            self.errors.push(err);
+                            fields_ok = false;
+                        }
+                    }
+                }
+                if !fields_ok {
+                    continue;
                 }
                 self.variant_to_enum
                     .insert(v.name.name.clone(), e.name.name.clone());
+                let tag = variants.len();
                 variants.push(EnumVariantSig {
                     name: v.name.name.clone(),
                     tag,
@@ -206,7 +257,6 @@ impl Checker {
                     span: v.span,
                 });
             }
-            let pkg = decl_package(&e.origin_package, &file_pkg).to_string();
             if let Some(list) = self.enums.get_mut(&e.name.name) {
                 if let Some(entry) = list.iter_mut().find(|s| s.package == pkg) {
                     entry.variants = variants;
@@ -228,36 +278,40 @@ impl Checker {
                     .map(|v| v.iter().any(|f| f.package == pkg))
                     .unwrap_or(false)
             {
-                return Err(SemaError {
+                self.errors.push(SemaError {
                     message: format!(
                         "duplicate type/function name `{}` in package `{pkg}`",
                         c.name.name
                     ),
                     span: c.name.span,
                 });
+                continue;
             }
             if let Some(existing) = self.classes.get(&c.name.name) {
                 if existing.iter().any(|s| s.package == pkg) {
-                    return Err(SemaError {
+                    self.errors.push(SemaError {
                         message: format!(
                             "duplicate type/function name `{}` in package `{pkg}`",
                             c.name.name
                         ),
                         span: c.name.span,
                     });
+                    continue;
                 }
             }
             if c.kind == NominalKind::Struct && !c.implements.is_empty() {
-                return Err(SemaError {
+                self.errors.push(SemaError {
                     message: "structs cannot implement interfaces".into(),
                     span: c.name.span,
                 });
+                continue;
             }
             if !c.type_params.is_empty() && !c.implements.is_empty() {
-                return Err(SemaError {
+                self.errors.push(SemaError {
                     message: "C2b: generic classes cannot implement interfaces yet".into(),
                     span: c.name.span,
                 });
+                continue;
             }
             self.classes
                 .entry(c.name.name.clone())
@@ -277,19 +331,34 @@ impl Checker {
         }
 
         for c in &file.classes {
-            self.current_package = decl_package(&c.origin_package, &file_pkg).to_string();
+            let pkg = decl_package(&c.origin_package, &file_pkg).to_string();
+            if self.class_in_package(&c.name.name, &pkg).is_none() {
+                continue;
+            }
+            self.current_package = pkg.clone();
             // Bind type params while resolving field/method types
-            self.bind_type_params(&c.type_params)?;
+            if let Err(err) = self.bind_type_params(&c.type_params) {
+                self.errors.push(err);
+                self.type_params.clear();
+                continue;
+            }
 
             let mut implements = Vec::new();
             for iface in &c.implements {
-                let isig = self.resolve_interface(&iface.name, iface.span)?;
+                let isig = match self.resolve_interface(&iface.name, iface.span) {
+                    Ok(i) => i,
+                    Err(err) => {
+                        self.errors.push(err);
+                        continue;
+                    }
+                };
                 let ikey = crate::ty::nominal_key(&isig.package, &iface.name);
                 if implements.contains(&ikey) {
-                    return Err(SemaError {
+                    self.errors.push(SemaError {
                         message: format!("duplicate implements `{}`", iface.name),
                         span: iface.span,
                     });
+                    continue;
                 }
                 implements.push(ikey);
             }
@@ -298,12 +367,19 @@ impl Checker {
             let mut seen = HashMap::new();
             for f in &c.fields {
                 if seen.contains_key(&f.name.name) {
-                    return Err(SemaError {
+                    self.errors.push(SemaError {
                         message: format!("duplicate field `{}`", f.name.name),
                         span: f.name.span,
                     });
+                    continue;
                 }
-                let ty = self.type_from_ref(&f.ty)?;
+                let ty = match self.type_from_ref(&f.ty) {
+                    Ok(t) => t,
+                    Err(err) => {
+                        self.errors.push(err);
+                        continue;
+                    }
+                };
                 seen.insert(f.name.name.clone(), ());
                 fields.push(FieldSig {
                     name: f.name.name.clone(),
@@ -315,24 +391,39 @@ impl Checker {
             let mut methods = HashMap::new();
             for m in &c.methods {
                 if !m.type_params.is_empty() {
-                    return Err(SemaError {
+                    self.errors.push(SemaError {
                         message: "C2b: methods cannot declare their own type parameters yet".into(),
                         span: m.name.span,
                     });
+                    continue;
                 }
                 if methods.contains_key(&m.name.name) {
-                    return Err(SemaError {
+                    self.errors.push(SemaError {
                         message: format!("duplicate method `{}`", m.name.name),
                         span: m.name.span,
                     });
+                    continue;
                 }
-                let params = m
+                let params = match m
                     .params
                     .iter()
                     .map(|p| self.type_from_ref(&p.ty))
-                    .collect::<Result<Vec<_>, _>>()?;
+                    .collect::<Result<Vec<_>, _>>()
+                {
+                    Ok(p) => p,
+                    Err(err) => {
+                        self.errors.push(err);
+                        continue;
+                    }
+                };
                 let ret = match &m.return_type {
-                    Some(t) => self.type_from_ref(t)?,
+                    Some(t) => match self.type_from_ref(t) {
+                        Ok(t) => t,
+                        Err(err) => {
+                            self.errors.push(err);
+                            continue;
+                        }
+                    },
                     None => Ty::Unit,
                 };
                 methods.insert(
@@ -354,16 +445,17 @@ impl Checker {
                     .expect("implements key must resolve");
                 for (mname, im) in &iface.methods {
                     let Some(cm) = methods.get(mname) else {
-                        return Err(SemaError {
+                        self.errors.push(SemaError {
                             message: format!(
                                 "class `{}` does not implement method `{}` required by `{}`",
                                 c.name.name, mname, iface.name
                             ),
                             span: c.name.span,
                         });
+                        continue;
                     };
                     if cm.params != im.params || cm.ret != im.ret {
-                        return Err(SemaError {
+                        self.errors.push(SemaError {
                             message: format!(
                                 "method `{}` on `{}` does not match interface `{}`",
                                 mname, c.name.name, iface.name
@@ -374,7 +466,6 @@ impl Checker {
                 }
             }
 
-            let pkg = decl_package(&c.origin_package, &file_pkg).to_string();
             if let Some(list) = self.classes.get_mut(&c.name.name) {
                 if let Some(entry) = list.iter_mut().find(|s| s.package == pkg) {
                     entry.implements = implements;
@@ -406,27 +497,48 @@ impl Checker {
                     .map(|v| !v.is_empty())
                     .unwrap_or(false)
             {
-                return Err(SemaError {
+                self.errors.push(SemaError {
                     message: format!("duplicate type/function name `{}`", f.name.name),
                     span: f.name.span,
                 });
+                continue;
             }
             if let Some(existing) = self.functions.get(&f.name.name) {
                 if existing.iter().any(|s| s.package == pkg) {
-                    return Err(SemaError {
+                    self.errors.push(SemaError {
                         message: format!("duplicate function `{}` in package `{pkg}`", f.name.name),
                         span: f.name.span,
                     });
+                    continue;
                 }
             }
-            self.bind_type_params(&f.type_params)?;
-            let params = f
+            if let Err(err) = self.bind_type_params(&f.type_params) {
+                self.errors.push(err);
+                self.type_params.clear();
+                continue;
+            }
+            let params = match f
                 .params
                 .iter()
                 .map(|p| self.type_from_ref(&p.ty))
-                .collect::<Result<Vec<_>, _>>()?;
+                .collect::<Result<Vec<_>, _>>()
+            {
+                Ok(p) => p,
+                Err(err) => {
+                    self.errors.push(err);
+                    self.type_params.clear();
+                    continue;
+                }
+            };
             let ret = match &f.return_type {
-                Some(t) => self.type_from_ref(t)?,
+                Some(t) => match self.type_from_ref(t) {
+                    Ok(t) => t,
+                    Err(err) => {
+                        self.errors.push(err);
+                        self.type_params.clear();
+                        continue;
+                    }
+                },
                 None => Ty::Unit,
             };
             self.functions
@@ -448,19 +560,25 @@ impl Checker {
 
         for c in &file.classes {
             let pkg = decl_package(&c.origin_package, &file_pkg).to_string();
+            let Some(csig) = self.class_in_package(&c.name.name, &pkg).cloned() else {
+                continue;
+            };
             self.current_package = pkg.clone();
             self.current_class = Some(c.name.name.clone());
-            self.bind_type_params(&c.type_params)?;
+            if let Err(err) = self.bind_type_params(&c.type_params) {
+                self.errors.push(err);
+                self.current_class = None;
+                self.type_params.clear();
+                continue;
+            }
             for m in &c.methods {
-                let ret = self
-                    .class_in_package(&c.name.name, &pkg)
-                    .unwrap()
-                    .methods
-                    .get(&m.name.name)
-                    .unwrap()
-                    .ret
-                    .clone();
-                self.check_method(c, m, &ret)?;
+                let Some(msig) = csig.methods.get(&m.name.name) else {
+                    continue;
+                };
+                let ret = msig.ret.clone();
+                if let Err(err) = self.check_method(c, m, &ret) {
+                    self.errors.push(err);
+                }
             }
             self.current_class = None;
             self.type_params.clear();
@@ -468,10 +586,19 @@ impl Checker {
 
         for f in &file.functions {
             let pkg = decl_package(&f.origin_package, &file_pkg).to_string();
+            let Some(fsig) = self.fun_in_package(&f.name.name, &pkg).cloned() else {
+                continue;
+            };
             self.current_package = pkg.clone();
-            self.bind_type_params(&f.type_params)?;
-            let ret = self.fun_in_package(&f.name.name, &pkg).unwrap().ret.clone();
-            self.check_fun(f, &ret)?;
+            if let Err(err) = self.bind_type_params(&f.type_params) {
+                self.errors.push(err);
+                self.type_params.clear();
+                continue;
+            }
+            let ret = fsig.ret;
+            if let Err(err) = self.check_fun(f, &ret) {
+                self.errors.push(err);
+            }
             self.type_params.clear();
         }
 
@@ -480,33 +607,33 @@ impl Checker {
         let functions = file
             .functions
             .iter()
-            .map(|f| {
+            .filter_map(|f| {
                 let pkg = decl_package(&f.origin_package, &package).to_string();
-                self.fun_in_package(&f.name.name, &pkg).unwrap().clone()
+                self.fun_in_package(&f.name.name, &pkg).cloned()
             })
             .collect();
         let classes = file
             .classes
             .iter()
-            .map(|c| {
+            .filter_map(|c| {
                 let pkg = decl_package(&c.origin_package, &package).to_string();
-                self.class_in_package(&c.name.name, &pkg).unwrap().clone()
+                self.class_in_package(&c.name.name, &pkg).cloned()
             })
             .collect();
         let interfaces = file
             .interfaces
             .iter()
-            .map(|i| {
+            .filter_map(|i| {
                 let pkg = decl_package(&i.origin_package, &package).to_string();
-                self.iface_in_package(&i.name.name, &pkg).unwrap().clone()
+                self.iface_in_package(&i.name.name, &pkg).cloned()
             })
             .collect();
         let enums = file
             .enums
             .iter()
-            .map(|e| {
+            .filter_map(|e| {
                 let pkg = decl_package(&e.origin_package, &package).to_string();
-                self.enum_in_package(&e.name.name, &pkg).unwrap().clone()
+                self.enum_in_package(&e.name.name, &pkg).cloned()
             })
             .collect();
 

@@ -71,7 +71,8 @@ When you resolve debt, update or remove the matching entry.
 
 ### Multi-error collect deferred (2026-07-20)
 
-- Resolved in C6h: body statements keep typechecking after an error; `SemaErrors` + CLI prints all. Corpus `diag/multi_error.aura`. Declaration-phase still early-exits.
+- Resolved in C6h: body statements keep typechecking after an error; `SemaErrors` + CLI prints all. Corpus `diag/multi_error.aura`.
+- C7g: declaration phase also collects (continue next decl); corpus `diag/multi_decl.aura`.
 
 ### Array fields shallow-copy on ctor/assign (2026-07-20)
 

@@ -1,0 +1,11 @@
+// C7g — multiple declaration errors reported in one check
+package demo.diag
+
+fun one(x: MissingA): Unit {
+}
+
+fun two(y: MissingB): Unit {
+}
+
+class Holder(val a: Int, val a: Int) {
+}
