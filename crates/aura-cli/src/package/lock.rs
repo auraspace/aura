@@ -19,9 +19,11 @@ pub(crate) fn read_lock(root: &Path) -> Result<Option<AuraLock>, String> {
     if !path.is_file() {
         return Ok(None);
     }
-    let text = fs::read_to_string(&path)
-        .map_err(|e| format!("error: read {}: {e}", path.display()))?;
-    parse_lock(&text).map(Some).map_err(|e| format!("error: {}: {e}", path.display()))
+    let text =
+        fs::read_to_string(&path).map_err(|e| format!("error: read {}: {e}", path.display()))?;
+    parse_lock(&text)
+        .map(Some)
+        .map_err(|e| format!("error: {}: {e}", path.display()))
 }
 
 pub(crate) fn parse_lock(text: &str) -> Result<AuraLock, String> {
@@ -35,8 +37,7 @@ pub(crate) fn parse_lock(text: &str) -> Result<AuraLock, String> {
             return Err(format!("line {}: expected name = \"path\"", lineno + 1));
         };
         let name = k.trim().to_string();
-        let path = parse_quoted(v.trim())
-            .map_err(|e| format!("line {}: {e}", lineno + 1))?;
+        let path = parse_quoted(v.trim()).map_err(|e| format!("line {}: {e}", lineno + 1))?;
         if packages.insert(name.clone(), path).is_some() {
             return Err(format!("line {}: duplicate package `{name}`", lineno + 1));
         }
@@ -54,6 +55,7 @@ fn parse_quoted(v: &str) -> Result<String, String> {
 
 /// Ensure direct `aura.toml` path deps match an existing lockfile (if any).
 /// C4j: lock may list extra transitive packages; those are not required in toml.
+/// C8b: every locked path (direct + transitive) must resolve under the package root.
 pub(crate) fn verify_lock_against_toml(
     root: &Path,
     toml_deps: &std::collections::HashMap<String, String>,
@@ -78,6 +80,22 @@ pub(crate) fn verify_lock_against_toml(
             Some(_) => {}
         }
     }
+    // C8b: path entries must exist (registry/semver still deferred).
+    for (name, rel) in &lock.packages {
+        let dep_path = root.join(rel);
+        if !dep_path.is_dir() {
+            return Err(format!(
+                "error: aura.lock package `{name}` path `{rel}` is missing or not a directory\n  \
+                 hint: fix the path, restore the dependency, or delete aura.lock and re-run"
+            ));
+        }
+        if !dep_path.join("aura.toml").is_file() {
+            return Err(format!(
+                "error: aura.lock package `{name}` path `{rel}` has no aura.toml\n  \
+                 hint: point at a package root that contains aura.toml"
+            ));
+        }
+    }
     Ok(())
 }
 
@@ -85,6 +103,8 @@ pub(crate) fn verify_lock_against_toml(
 /// No-op when there are no path dependencies (avoids empty lockfiles).
 ///
 /// `direct` is used for comments; `all` is written (must include direct).
+/// Kept for tests and simple callers; production uses [`write_lock_with_direct`].
+#[allow(dead_code)]
 pub(crate) fn write_lock(
     root: &Path,
     all_deps: &std::collections::HashMap<String, String>,
@@ -106,7 +126,10 @@ pub(crate) fn write_lock_with_direct(
         "# aura.lock — path dependencies (C3p/C4j)\n\
          # Direct deps match aura.toml; extra entries are transitive path deps.\n",
     );
-    let sorted: BTreeMap<_, _> = all_deps.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+    let sorted: BTreeMap<_, _> = all_deps
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
     for (name, p) in sorted {
         if direct.contains_key(&name) {
             body.push_str(&format!("{name} = \"{p}\"\n"));

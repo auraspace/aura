@@ -20,8 +20,9 @@ When you resolve debt, update or remove the matching entry.
 - Area: toolchain / RFC-005
 - Symptom: C3p/C4j write `aura.lock` for path deps including transitive; no semver, git deps, or registry
 - Why deferred: path-only graph is enough for monorepo demos
-- Next step: registry + version resolve
-- Introduced: narrowed after C3p; nested paths C4j
+- Progress (C8b): lock verify requires each path exists and has `aura.toml`; spike plan `docs/plans/2026-07-20-c8b-registry-spike.md`
+- Next step: registry index + semver pin in lock schema
+- Introduced: narrowed after C3p; nested paths C4j; path check C8b
 
 ### Array of interface elements
 

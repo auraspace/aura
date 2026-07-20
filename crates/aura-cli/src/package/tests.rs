@@ -1,8 +1,8 @@
 use crate::package::load_package;
 use crate::package::toml::parse_aura_toml;
 use std::fs;
-use std::path::Path;
 use std::io::Write;
+use std::path::Path;
 
 fn write_tree(root: &Path, files: &[(&str, &str)]) {
     for (rel, content) in files {
@@ -187,15 +187,31 @@ demo.other = "vendor/other"
     let root = std::env::temp_dir().join(format!("aura-lock-{}", std::process::id()));
     let _ = fs::remove_dir_all(&root);
     fs::create_dir_all(&root).unwrap();
+    // C8b: lock paths must exist with aura.toml.
+    let math = root.join("math");
+    fs::create_dir_all(&math).unwrap();
+    fs::write(
+        math.join("aura.toml"),
+        r#"[package]
+name = "demo.math"
+"#,
+    )
+    .unwrap();
     let mut deps = HashMap::new();
-    deps.insert("demo.math".into(), "../math".into());
+    deps.insert("demo.math".into(), "math".into());
     write_lock(&root, &deps).unwrap();
     verify_lock_against_toml(&root, &deps).unwrap();
 
     let mut bad = deps.clone();
-    bad.insert("demo.math".into(), "../elsewhere".into());
+    bad.insert("demo.math".into(), "elsewhere".into());
     let err = verify_lock_against_toml(&root, &bad).unwrap_err();
     assert!(err.contains("aura.lock"), "{err}");
+
+    // Missing path entry fails existence check.
+    deps.insert("demo.ghost".into(), "ghost".into());
+    write_lock(&root, &deps).unwrap();
+    let err = verify_lock_against_toml(&root, &deps).unwrap_err();
+    assert!(err.contains("missing") || err.contains("ghost"), "{err}");
     let _ = fs::remove_dir_all(&root);
 }
 
