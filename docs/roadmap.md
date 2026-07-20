@@ -49,98 +49,99 @@ Living plan for docs, language specs, and the Rust toolchain. RFCs remain the de
 
 Rust workspace (toolchain only; user language remains Aura):
 
-| Milestone   | Scope                                                              | Exit                                       |
-| ----------- | ------------------------------------------------------------------ | ------------------------------------------ |
-| **C0**      | Lexer + recursive-descent parser + `aura check`                    | Done                                       |
-| **C0+**     | Name resolution + light typecheck                                  | Done (`aura check` typechecks corpus)      |
-| **C1**      | Codegen + runtime stub → native binary                             | Done via **C backend** + `cc` (LLVM later) |
-| **C1b**     | Simple `class` + methods + `this` + field access                   | Done                                       |
-| **C2a**     | `interface` + implements + closed-world dispatch                   | Done                                       |
-| **C2b**     | Generics (class/fun type params + mono)                            | Done                                       |
-| **C2c**     | Type-arg inference from args + expected type                       | Done                                       |
-| **C2d**     | Nullability flow (`if (x != null)`) + `!!`                         | Done                                       |
-| **C2e**     | Multi-param bounds / `where` clauses                               | Done                                       |
-| **C3a**     | `struct` value types (fields + methods; no implements)             | Done                                       |
-| **C3b**     | `enum` + `match` + generic `Result<T,E>` (exhaustive)              | Done                                       |
-| **C3c**     | `throw` / `try` / `catch` / `finally` (String/Int/Bool)            | Done                                       |
-| **C3d**     | `aura test` + `@test` + `assert` / `assert_eq`                     | Done                                       |
-| **C3e**     | Multi-file same package + minimal `aura.toml`                      | Done                                       |
-| **C3f**     | `import` + `pub` + path deps in `aura.toml`                        | Done                                       |
-| **C3g**     | `throw` / `catch` class & struct values                            | Done                                       |
-| **C3h**     | `for (i in start..end)` exclusive Int range                        | Done                                       |
-| **C3i**     | `break` / `continue` in loops                                      | Done                                       |
-| **C3j**     | Builtin `Array<T>` (`T` = Int/Bool/String; len/get/set)            | Done                                       |
-| **C3k**     | `for (x in array)` over `Array<T>`                                 | Done                                       |
-| **C3l**     | Inclusive range `for (i in a..=b)`                                 | Done                                       |
-| **C3m**     | `Array.push` + capacity grow                                       | Done                                       |
-| **C3n**     | `import path as Alias` + `Alias.fun(...)`                          | Done                                       |
-| **C3o**     | Package-prefixed free-function C symbols                           | Done                                       |
-| **C3p**     | `aura.lock` for path deps (verify + write)                         | Done                                       |
-| **C3q**     | Bare comparison emit (no double parens / `-Wparentheses-equality`) | Done                                       |
-| **C3r**     | `Array.pop` (empty throws)                                         | Done                                       |
-| **C3s**     | Free `throw_obj` payloads on `aura_ex_clear`                       | Done                                       |
-| **C3t**     | Free owned `Array` heap buffers at scope end / return              | Done                                       |
-| **C3u**     | `import … as Alias` type qualify (`Alias.Type` / ctor)             | Done                                       |
-| **C3v**     | Package-prefixed class/enum C symbols + multi-key tables           | Done                                       |
-| **C3w**     | `for-in` over String (UTF-8 bytes as Int)                          | Done                                       |
-| **C3x**     | GC MVP: `aura_gc_alloc` + shutdown free-all                        | Done                                       |
-| **C3y**     | Class instances as GC heap references (`struct` by-value)          | Done                                       |
-| **C3z**     | Minimal `std.io` package (`println` via path dep)                  | Done                                       |
-| **C4a**     | Class identity `==` / `!=` (pointer; corpus)                       | Done                                       |
-| **C4b**     | Nullable class `Class?` C emit + null flow                         | Done                                       |
-| **C4c**     | `Array` of class heap references                                   | Done                                       |
-| **C4d**     | Package-prefixed interface C symbols + multi-key                   | Done                                       |
-| **C4e**     | String content equality (`strcmp`)                                 | Done                                       |
-| **C4f**     | `Array.clear` (len=0, keep cap)                                    | Done                                       |
-| **C4g**     | Auto-prelude `std.io` for packages                                 | Done                                       |
-| **C4h**     | `std.assert` package + auto path for `std.*`                       | Done                                       |
-| **C4i**     | Reject struct/enum/interface `==` in sema                          | Done                                       |
-| **C4j**     | Nested path deps recorded in `aura.lock`                           | Done                                       |
-| **C4k**     | Type-param heap class pointers + field method recv                 | Done                                       |
-| **C4l**     | `else if` chaining (desugar to nested if)                          | Done                                       |
-| **C4m**     | Null coalesce `?:`                                                 | Done                                       |
-| **C4n**     | `Array.isEmpty`                                                    | Done                                       |
-| **C4o**     | `Array.reserve(n)` (grow cap, keep len)                            | Done                                       |
-| **C4p**     | `String.len` (UTF-8 byte length)                                   | Done                                       |
-| **C4q**     | `Array` of struct by-value elements                                | Done                                       |
-| **C4r**     | Free Array buffer on owner reassignment                            | Done                                       |
-| **C4s**     | Safe call `?.` on nullable receivers                               | Done                                       |
-| **C4t**     | `if` as expression (last branch expr; requires else)               | Done                                       |
-| **C4u**     | Nested mono audit (open skip, return resolve, C forwards)          | Done                                       |
-| **C4v**     | `String.isEmpty()` (byte length == 0)                              | Done                                       |
-| **C4w**     | `String.charAt(i)` (UTF-8 byte as Int; OOB throws)                 | Done                                       |
-| **C4x**     | Clear `Array` of enum/interface reject diagnostic                  | Done                                       |
-| **C4y**     | Duck Iterable `for-in` (`len` + `get(Int)`)                        | Done                                       |
-| **C4z**     | GC STW mark skeleton (roots + collect; free-all still)             | Done                                       |
-| **C5a**     | `std/collections` stub package (Map/Set deferred)                  | Done                                       |
-| **C5b**     | Array move on `val b = a` (zero source owner)                      | Done                                       |
-| **C5c**     | Undefined-name `did you mean` suggestions                          | Done                                       |
-| **C5d**     | Close C4u–C5d batch (debts/roadmap/plan Done)                      | Done                                       |
-| **C5e**     | Array move on assign `b = a` (owner)                               | Done                                       |
-| **C5f**     | GC collect mark+sweep when roots registered                        | Done                                       |
-| **C5g**     | Codegen GC roots for heap-class locals/params/`this`               | Done                                       |
-| **C5h**     | `String.startsWith`                                                | Done                                       |
-| **C5i**     | `String.contains`                                                  | Done                                       |
-| **C5j**     | `String.endsWith`                                                  | Done                                       |
-| **C5k**     | Assign type mismatch expected/found                                | Done                                       |
-| **C5l**     | Document Array non-owner shallow copy                              | Done                                       |
-| **C5m**     | Builtin `gc_collect` + roots corpus                                | Done                                       |
-| **C5n**     | Close C5e–C5n batch                                                | Done                                       |
-| **C6a**     | Deep GC mark (scan object fields for nested GC ptrs)               | Done                                       |
-| **C6b**     | Array move into function/method params                             | Done                                       |
-| **C6c**     | Iterable protocol: `for-in` on iface `len()`+`get(Int)`            | Done                                       |
-| **C6d**     | Array return/call binding owns buffer                              | Done                                       |
-| **C6f**     | `std.collections` Map (String→Int) + Array-as-field emit           | Done                                       |
-| **C6e**     | GC mark Array-of-class local/param buffers                         | Done                                       |
-| **C6i**     | Field Array ownership (ctor + var reassign move)                   | Done                                       |
-| **C6g/h/j** | Enum Array elems, multi-error, close batch                         | Planned                                    |
-| **DX**      | line:col diagnostics with snippets                                 | Done                                       |
+| Milestone | Scope                                                              | Exit                                       |
+| --------- | ------------------------------------------------------------------ | ------------------------------------------ |
+| **C0**    | Lexer + recursive-descent parser + `aura check`                    | Done                                       |
+| **C0+**   | Name resolution + light typecheck                                  | Done (`aura check` typechecks corpus)      |
+| **C1**    | Codegen + runtime stub → native binary                             | Done via **C backend** + `cc` (LLVM later) |
+| **C1b**   | Simple `class` + methods + `this` + field access                   | Done                                       |
+| **C2a**   | `interface` + implements + closed-world dispatch                   | Done                                       |
+| **C2b**   | Generics (class/fun type params + mono)                            | Done                                       |
+| **C2c**   | Type-arg inference from args + expected type                       | Done                                       |
+| **C2d**   | Nullability flow (`if (x != null)`) + `!!`                         | Done                                       |
+| **C2e**   | Multi-param bounds / `where` clauses                               | Done                                       |
+| **C3a**   | `struct` value types (fields + methods; no implements)             | Done                                       |
+| **C3b**   | `enum` + `match` + generic `Result<T,E>` (exhaustive)              | Done                                       |
+| **C3c**   | `throw` / `try` / `catch` / `finally` (String/Int/Bool)            | Done                                       |
+| **C3d**   | `aura test` + `@test` + `assert` / `assert_eq`                     | Done                                       |
+| **C3e**   | Multi-file same package + minimal `aura.toml`                      | Done                                       |
+| **C3f**   | `import` + `pub` + path deps in `aura.toml`                        | Done                                       |
+| **C3g**   | `throw` / `catch` class & struct values                            | Done                                       |
+| **C3h**   | `for (i in start..end)` exclusive Int range                        | Done                                       |
+| **C3i**   | `break` / `continue` in loops                                      | Done                                       |
+| **C3j**   | Builtin `Array<T>` (`T` = Int/Bool/String; len/get/set)            | Done                                       |
+| **C3k**   | `for (x in array)` over `Array<T>`                                 | Done                                       |
+| **C3l**   | Inclusive range `for (i in a..=b)`                                 | Done                                       |
+| **C3m**   | `Array.push` + capacity grow                                       | Done                                       |
+| **C3n**   | `import path as Alias` + `Alias.fun(...)`                          | Done                                       |
+| **C3o**   | Package-prefixed free-function C symbols                           | Done                                       |
+| **C3p**   | `aura.lock` for path deps (verify + write)                         | Done                                       |
+| **C3q**   | Bare comparison emit (no double parens / `-Wparentheses-equality`) | Done                                       |
+| **C3r**   | `Array.pop` (empty throws)                                         | Done                                       |
+| **C3s**   | Free `throw_obj` payloads on `aura_ex_clear`                       | Done                                       |
+| **C3t**   | Free owned `Array` heap buffers at scope end / return              | Done                                       |
+| **C3u**   | `import … as Alias` type qualify (`Alias.Type` / ctor)             | Done                                       |
+| **C3v**   | Package-prefixed class/enum C symbols + multi-key tables           | Done                                       |
+| **C3w**   | `for-in` over String (UTF-8 bytes as Int)                          | Done                                       |
+| **C3x**   | GC MVP: `aura_gc_alloc` + shutdown free-all                        | Done                                       |
+| **C3y**   | Class instances as GC heap references (`struct` by-value)          | Done                                       |
+| **C3z**   | Minimal `std.io` package (`println` via path dep)                  | Done                                       |
+| **C4a**   | Class identity `==` / `!=` (pointer; corpus)                       | Done                                       |
+| **C4b**   | Nullable class `Class?` C emit + null flow                         | Done                                       |
+| **C4c**   | `Array` of class heap references                                   | Done                                       |
+| **C4d**   | Package-prefixed interface C symbols + multi-key                   | Done                                       |
+| **C4e**   | String content equality (`strcmp`)                                 | Done                                       |
+| **C4f**   | `Array.clear` (len=0, keep cap)                                    | Done                                       |
+| **C4g**   | Auto-prelude `std.io` for packages                                 | Done                                       |
+| **C4h**   | `std.assert` package + auto path for `std.*`                       | Done                                       |
+| **C4i**   | Reject struct/enum/interface `==` in sema                          | Done                                       |
+| **C4j**   | Nested path deps recorded in `aura.lock`                           | Done                                       |
+| **C4k**   | Type-param heap class pointers + field method recv                 | Done                                       |
+| **C4l**   | `else if` chaining (desugar to nested if)                          | Done                                       |
+| **C4m**   | Null coalesce `?:`                                                 | Done                                       |
+| **C4n**   | `Array.isEmpty`                                                    | Done                                       |
+| **C4o**   | `Array.reserve(n)` (grow cap, keep len)                            | Done                                       |
+| **C4p**   | `String.len` (UTF-8 byte length)                                   | Done                                       |
+| **C4q**   | `Array` of struct by-value elements                                | Done                                       |
+| **C4r**   | Free Array buffer on owner reassignment                            | Done                                       |
+| **C4s**   | Safe call `?.` on nullable receivers                               | Done                                       |
+| **C4t**   | `if` as expression (last branch expr; requires else)               | Done                                       |
+| **C4u**   | Nested mono audit (open skip, return resolve, C forwards)          | Done                                       |
+| **C4v**   | `String.isEmpty()` (byte length == 0)                              | Done                                       |
+| **C4w**   | `String.charAt(i)` (UTF-8 byte as Int; OOB throws)                 | Done                                       |
+| **C4x**   | Clear `Array` of enum/interface reject diagnostic                  | Done                                       |
+| **C4y**   | Duck Iterable `for-in` (`len` + `get(Int)`)                        | Done                                       |
+| **C4z**   | GC STW mark skeleton (roots + collect; free-all still)             | Done                                       |
+| **C5a**   | `std/collections` stub package (Map/Set deferred)                  | Done                                       |
+| **C5b**   | Array move on `val b = a` (zero source owner)                      | Done                                       |
+| **C5c**   | Undefined-name `did you mean` suggestions                          | Done                                       |
+| **C5d**   | Close C4u–C5d batch (debts/roadmap/plan Done)                      | Done                                       |
+| **C5e**   | Array move on assign `b = a` (owner)                               | Done                                       |
+| **C5f**   | GC collect mark+sweep when roots registered                        | Done                                       |
+| **C5g**   | Codegen GC roots for heap-class locals/params/`this`               | Done                                       |
+| **C5h**   | `String.startsWith`                                                | Done                                       |
+| **C5i**   | `String.contains`                                                  | Done                                       |
+| **C5j**   | `String.endsWith`                                                  | Done                                       |
+| **C5k**   | Assign type mismatch expected/found                                | Done                                       |
+| **C5l**   | Document Array non-owner shallow copy                              | Done                                       |
+| **C5m**   | Builtin `gc_collect` + roots corpus                                | Done                                       |
+| **C5n**   | Close C5e–C5n batch                                                | Done                                       |
+| **C6a**   | Deep GC mark (scan object fields for nested GC ptrs)               | Done                                       |
+| **C6b**   | Array move into function/method params                             | Done                                       |
+| **C6c**   | Iterable protocol: `for-in` on iface `len()`+`get(Int)`            | Done                                       |
+| **C6d**   | Array return/call binding owns buffer                              | Done                                       |
+| **C6f**   | `std.collections` Map (String→Int) + Array-as-field emit           | Done                                       |
+| **C6e**   | GC mark Array-of-class local/param buffers                         | Done                                       |
+| **C6h**   | Multi-error collect in sema (body diagnostics batch)               | Done                                       |
+| **C6i**   | Field Array ownership (ctor + var reassign move)                   | Done                                       |
+| **C6g/j** | Enum Array elems, close batch                                      | Planned                                    |
+| **DX**    | line:col diagnostics with snippets                                 | Done                                       |
 
 **Out of scope C0/C1:** generics mono, async/tasks, macros, registry, incremental, LTO.
 
 ### P3 — Expand (after hello)
 
-1. ~~Language surface C2–C6i~~ → next: enum Array · multi-error · close batch (see `agents/debts.md`, plan C6e–C6j)
+1. ~~Language surface C2–C6h/i~~ → next: enum Array · close batch (see `agents/debts.md`, plan C6e–C6j)
 2. Runtime: ~~alloc/GC + deep mark/sweep + class heap refs~~ → channels/tasks
 3. Toolchain: ~~minimal `aura.toml` + path deps + path lock (incl. transitive)~~ → registry (RFC-005)
 4. Stdlib: ~~std.io + auto-prelude + std.assert + Map String→Int~~ → generic Map/Set

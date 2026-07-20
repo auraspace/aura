@@ -92,8 +92,11 @@ impl Checker {
         expected_ret: &Ty,
     ) -> Result<(), SemaError> {
         self.locals.push(HashMap::new());
+        // C6h: keep typechecking later statements so multiple body errors surface.
         for stmt in &block.stmts {
-            self.check_stmt(stmt, expected_ret)?;
+            if let Err(e) = self.check_stmt(stmt, expected_ret) {
+                self.errors.push(e);
+            }
         }
         self.locals.pop();
         Ok(())

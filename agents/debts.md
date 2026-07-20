@@ -65,6 +65,10 @@ When you resolve debt, update or remove the matching entry.
 
 ## Resolved
 
+### Multi-error collect deferred (2026-07-20)
+
+- Resolved in C6h: body statements keep typechecking after an error; `SemaErrors` + CLI prints all. Corpus `diag/multi_error.aura`. Declaration-phase still early-exits.
+
 ### Array fields shallow-copy on ctor/assign (2026-07-20)
 
 - Resolved in C6i (partial): constructor and `var` field assign move from owner locals/params (zero source); reassign frees prior field buffer. Corpus `generic/array_field_move.aura`. GC free of field buffers still Open.
@@ -147,7 +151,7 @@ When you resolve debt, update or remove the matching entry.
 
 ### Undefined name with no typo hint (2026-07-16)
 
-- Resolved in C5c: Levenshtein suggestion against locals/funs/types/aliases. Corpus `diag/undefined_typo.aura`. Multi-error collect still deferred.
+- Resolved in C5c: Levenshtein suggestion against locals/funs/types/aliases. Corpus `diag/undefined_typo.aura`. Multi-error: C6h.
 
 ### No if-expression (2026-07-16)
 

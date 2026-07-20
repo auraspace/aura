@@ -4,7 +4,7 @@ mod package;
 
 use aura_codegen::{build_from_file, build_tests_from_file, emit_c_from_ast};
 use aura_diagnostics::format_error;
-use aura_sema::{check_file, SemaError};
+use aura_sema::{check_file, SemaError, SemaErrors};
 use package::{load_package, load_package_default, LoadedPackage};
 use std::env;
 use std::path::{Path, PathBuf};
@@ -60,9 +60,17 @@ fn resolve_package(args: &[String]) -> Result<LoadedPackage, String> {
     }
 }
 
-fn diag_sema(pkg: &LoadedPackage, e: SemaError) -> String {
+fn diag_sema(pkg: &LoadedPackage, e: &SemaError) -> String {
     let (path, src, span) = pkg.locate(e.span);
     format_error(&path, src, &e.message, span)
+}
+
+fn diag_sema_errors(pkg: &LoadedPackage, es: SemaErrors) -> String {
+    es.errors
+        .iter()
+        .map(|e| diag_sema(pkg, e))
+        .collect::<Vec<_>>()
+        .join("\n\n")
 }
 
 fn cmd_check(args: &[String]) -> ExitCode {
@@ -79,7 +87,7 @@ fn cmd_check(args: &[String]) -> ExitCode {
 }
 
 fn check_package(pkg: LoadedPackage) -> Result<String, String> {
-    let checked = check_file(&pkg.ast).map_err(|e| diag_sema(&pkg, e))?;
+    let checked = check_file(&pkg.ast).map_err(|e| diag_sema_errors(&pkg, e))?;
 
     let mut lines = Vec::new();
     if pkg.sources.len() == 1 {
@@ -168,7 +176,7 @@ fn check_package(pkg: LoadedPackage) -> Result<String, String> {
 fn cmd_emit_c(args: &[String]) -> ExitCode {
     match resolve_package(args).and_then(|pkg| {
         emit_c_from_ast(&pkg.ast).map_err(|e| match e {
-            aura_codegen::CodegenError::Sema(se) => diag_sema(&pkg, se),
+            aura_codegen::CodegenError::Sema(se) => diag_sema_errors(&pkg, se),
             other => format!("error: {other}"),
         })
     }) {
@@ -257,7 +265,7 @@ fn runtime_c_path() -> Result<PathBuf, String> {
 fn build_package(pkg: &LoadedPackage, out: &Path) -> Result<PathBuf, String> {
     let rt = runtime_c_path()?;
     build_from_file(&pkg.ast, out, &rt).map_err(|e| match e {
-        aura_codegen::CodegenError::Sema(se) => diag_sema(pkg, se),
+        aura_codegen::CodegenError::Sema(se) => diag_sema_errors(pkg, se),
         other => format!("error: {other}"),
     })
 }
@@ -333,7 +341,7 @@ fn cmd_test(args: &[String]) -> ExitCode {
 fn build_test_package(pkg: &LoadedPackage, out: &Path) -> Result<PathBuf, String> {
     let rt = runtime_c_path()?;
     build_tests_from_file(&pkg.ast, out, &rt).map_err(|e| match e {
-        aura_codegen::CodegenError::Sema(se) => diag_sema(pkg, se),
+        aura_codegen::CodegenError::Sema(se) => diag_sema_errors(pkg, se),
         other => format!("error: {other}"),
     })
 }

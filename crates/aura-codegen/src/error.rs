@@ -1,10 +1,10 @@
 //! Codegen errors.
 
-use aura_sema::SemaError;
+use aura_sema::{SemaError, SemaErrors};
 
 #[derive(Debug)]
 pub enum CodegenError {
-    Sema(SemaError),
+    Sema(SemaErrors),
     Io(String),
     Compile(String),
 }
@@ -20,8 +20,14 @@ impl std::fmt::Display for CodegenError {
 
 impl std::error::Error for CodegenError {}
 
+impl From<SemaErrors> for CodegenError {
+    fn from(e: SemaErrors) -> Self {
+        CodegenError::Sema(e)
+    }
+}
+
 impl From<SemaError> for CodegenError {
     fn from(e: SemaError) -> Self {
-        CodegenError::Sema(e)
+        CodegenError::Sema(SemaErrors::single(e))
     }
 }

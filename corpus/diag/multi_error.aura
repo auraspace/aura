@@ -1,0 +1,7 @@
+// C6h — multiple body errors reported in one check
+package demo.diag
+
+fun main() {
+  println(missing_one)
+  println(missing_two)
+}

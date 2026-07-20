@@ -9,10 +9,10 @@ mod types;
 
 use std::collections::{HashMap, HashSet};
 
-use aura_ast::{ClassDecl, FunDecl, Span};
 use crate::error::SemaError;
 use crate::sigs::*;
 use crate::ty::Ty;
+use aura_ast::{ClassDecl, FunDecl, Span};
 
 /// Builtin `Array<T>` primitives (C3j). Heap class elements allowed in C4c via Checker.
 pub(crate) fn is_array_primitive_elem(ty: &Ty) -> bool {
@@ -51,8 +51,9 @@ pub(crate) struct Checker {
     mono_enums: HashSet<(String, Vec<Ty>)>,
     mono_funs: HashSet<(String, Vec<Ty>)>,
     call_instantiations: HashMap<u32, CallInstantiation>,
+    /// C6h: statement/body errors collected without aborting the whole file.
+    pub(crate) errors: Vec<SemaError>,
 }
-
 
 impl Checker {
     pub(crate) fn new() -> Self {
@@ -216,6 +217,7 @@ impl Checker {
             mono_enums: HashSet::new(),
             mono_funs: HashSet::new(),
             call_instantiations: HashMap::new(),
+            errors: Vec::new(),
         }
     }
 
@@ -247,9 +249,7 @@ impl Checker {
             .unwrap_or(false);
         if !allowed {
             return Err(SemaError {
-                message: format!(
-                    "`{name}` is in package `{item_package}` which is not imported"
-                ),
+                message: format!("`{name}` is in package `{item_package}` which is not imported"),
                 span,
             });
         }
@@ -341,17 +341,11 @@ impl Checker {
     }
 
     pub(crate) fn fun_in_package(&self, name: &str, pkg: &str) -> Option<&FunSig> {
-        self.functions
-            .get(name)?
-            .iter()
-            .find(|s| s.package == pkg)
+        self.functions.get(name)?.iter().find(|s| s.package == pkg)
     }
 
     pub(crate) fn class_in_package(&self, name: &str, pkg: &str) -> Option<&ClassSig> {
-        self.classes
-            .get(name)?
-            .iter()
-            .find(|s| s.package == pkg)
+        self.classes.get(name)?.iter().find(|s| s.package == pkg)
     }
 
     /// Resolve class by simple name (C3v: same-package first, else unique visible).
@@ -412,10 +406,7 @@ impl Checker {
     }
 
     pub(crate) fn enum_in_package(&self, name: &str, pkg: &str) -> Option<&EnumSig> {
-        self.enums
-            .get(name)?
-            .iter()
-            .find(|s| s.package == pkg)
+        self.enums.get(name)?.iter().find(|s| s.package == pkg)
     }
 
     pub(crate) fn resolve_enum(&self, name: &str, span: Span) -> Result<EnumSig, SemaError> {
@@ -487,10 +478,7 @@ impl Checker {
     }
 
     pub(crate) fn iface_in_package(&self, name: &str, pkg: &str) -> Option<&InterfaceSig> {
-        self.interfaces
-            .get(name)?
-            .iter()
-            .find(|s| s.package == pkg)
+        self.interfaces.get(name)?.iter().find(|s| s.package == pkg)
     }
 
     /// C4d: resolve interface by simple name (same-package first, else unique visible).
@@ -617,20 +605,12 @@ impl Checker {
             let ty = self.type_from_ref(&p.ty)?;
             if self.current_locals().contains_key(&p.name.name) {
                 return Err(SemaError {
-                    message: format!(
-                        "parameter `{}` shadows field or is duplicate",
-                        p.name.name
-                    ),
+                    message: format!("parameter `{}` shadows field or is duplicate", p.name.name),
                     span: p.name.span,
                 });
             }
-            self.current_locals_mut().insert(
-                p.name.name.clone(),
-                Local {
-                    ty,
-                    mutable: false,
-                },
-            );
+            self.current_locals_mut()
+                .insert(p.name.name.clone(), Local { ty, mutable: false });
         }
         self.check_block(&m.body, expected_ret)?;
         self.locals.pop();
@@ -647,13 +627,8 @@ impl Checker {
                     span: p.name.span,
                 });
             }
-            self.current_locals_mut().insert(
-                p.name.name.clone(),
-                Local {
-                    ty,
-                    mutable: false,
-                },
-            );
+            self.current_locals_mut()
+                .insert(p.name.name.clone(), Local { ty, mutable: false });
         }
         self.check_block(&f.body, expected_ret)?;
         self.locals.pop();
@@ -725,10 +700,8 @@ impl Checker {
         };
         let ty = *inner.clone();
         let mutable = local.mutable;
-        self.current_locals_mut().insert(
-            name.to_string(),
-            Local { ty, mutable },
-        );
+        self.current_locals_mut()
+            .insert(name.to_string(), Local { ty, mutable });
     }
 }
 
@@ -748,9 +721,7 @@ fn edit_distance(a: &str, b: &str) -> usize {
         cur[0] = i;
         for j in 1..=m {
             let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
-            cur[j] = (prev[j] + 1)
-                .min(cur[j - 1] + 1)
-                .min(prev[j - 1] + cost);
+            cur[j] = (prev[j] + 1).min(cur[j - 1] + 1).min(prev[j - 1] + cost);
         }
         std::mem::swap(&mut prev, &mut cur);
     }

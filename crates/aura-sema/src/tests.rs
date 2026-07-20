@@ -39,9 +39,9 @@ fun main() {
     let file = parse_file(src).expect("parse");
     let err = check_file(&file).expect_err("throw null");
     assert!(
-        err.message.contains("throw") || err.message.contains("Null"),
+        err.primary().message.contains("throw") || err.primary().message.contains("Null"),
         "{}",
-        err.message
+        err.primary().message
     );
 }
 
@@ -88,9 +88,9 @@ fun main() {}
     let file = parse_file(src).expect("parse");
     let err = check_file(&file).expect_err("non-exhaustive");
     assert!(
-        err.message.contains("non-exhaustive") || err.message.contains("Green"),
+        err.primary().message.contains("non-exhaustive") || err.primary().message.contains("Green"),
         "{}",
-        err.message
+        err.primary().message
     );
 }
 
@@ -169,9 +169,9 @@ fun main() { f(OnlyNamed("a")) }
     let file = parse_file(src_bad).expect("parse");
     let err = check_file(&file).expect_err("should reject missing Id bound");
     assert!(
-        err.message.contains("Id") || err.message.contains("bound"),
+        err.primary().message.contains("Id") || err.primary().message.contains("bound"),
         "unexpected: {}",
-        err.message
+        err.primary().message
     );
 }
 
@@ -188,9 +188,9 @@ fun main() {}
     let file = parse_file(src).expect("parse");
     let err = check_file(&file).expect_err("unbounded T");
     assert!(
-        err.message.contains("unbounded") || err.message.contains("method"),
+        err.primary().message.contains("unbounded") || err.primary().message.contains("method"),
         "unexpected: {}",
-        err.message
+        err.primary().message
     );
 }
 
@@ -222,7 +222,10 @@ fun main() {}
 "#;
     let file = parse_file(src).expect("parse");
     let err = check_file(&file).expect_err("should reject String? as String");
-    assert!(err.message.contains("return type mismatch") || err.message.contains("String"));
+    assert!(
+        err.primary().message.contains("return type mismatch")
+            || err.primary().message.contains("String")
+    );
 }
 
 #[test]
@@ -478,9 +481,9 @@ fun main() {
     app.functions.extend(lib.functions);
     let err = check_file(&app).expect_err("private");
     assert!(
-        err.message.contains("private") || err.message.contains("mul"),
+        err.primary().message.contains("private") || err.primary().message.contains("mul"),
         "{}",
-        err.message
+        err.primary().message
     );
 }
 
@@ -514,9 +517,9 @@ fun main() {
     let file = parse_file(src).expect("parse");
     let err = check_file(&file).expect_err("throw null");
     assert!(
-        err.message.contains("throw") || err.message.contains("Null"),
+        err.primary().message.contains("throw") || err.primary().message.contains("Null"),
         "{}",
-        err.message
+        err.primary().message
     );
 }
 
@@ -548,7 +551,11 @@ fun main() {
 "#;
     let file = parse_file(src).expect("parse");
     let err = check_file(&file).expect_err("non-int range");
-    assert!(err.message.contains("Int"), "{}", err.message);
+    assert!(
+        err.primary().message.contains("Int"),
+        "{}",
+        err.primary().message
+    );
 }
 
 #[test]
@@ -579,7 +586,11 @@ fun main() {
 "#;
     let file = parse_file(src).expect("parse");
     let err = check_file(&file).expect_err("break outside");
-    assert!(err.message.contains("break"), "{}", err.message);
+    assert!(
+        err.primary().message.contains("break"),
+        "{}",
+        err.primary().message
+    );
 }
 
 #[test]
@@ -595,9 +606,9 @@ fun main() {
     let file = parse_file(src).expect("parse");
     let err = check_file(&file).expect_err("array of enum");
     assert!(
-        err.message.contains("enum") && err.message.contains("Color"),
+        err.primary().message.contains("enum") && err.primary().message.contains("Color"),
         "{}",
-        err.message
+        err.primary().message
     );
 }
 
@@ -680,9 +691,9 @@ fun main() {
     let file = parse_file(src).expect("parse");
     let err = check_file(&file).expect_err("non-array for-in");
     assert!(
-        err.message.contains("Array") || err.message.contains("String"),
+        err.primary().message.contains("Array") || err.primary().message.contains("String"),
         "{}",
-        err.message
+        err.primary().message
     );
 }
 
@@ -714,9 +725,39 @@ fun main() {
     let file = parse_file(src).expect("parse");
     let err = check_file(&file).expect_err("undefined");
     assert!(
-        err.message.contains("undefined name") && err.message.contains("count"),
+        err.primary().message.contains("undefined name") && err.primary().message.contains("count"),
         "{}",
-        err.message
+        err.primary().message
+    );
+}
+
+#[test]
+fn multi_error_collects_body_errors() {
+    // C6h: two undefined names in one body → two diagnostics.
+    let src = r#"
+package t
+fun main() {
+  println(missing_one)
+  println(missing_two)
+}
+"#;
+    let file = parse_file(src).expect("parse");
+    let err = check_file(&file).expect_err("multi");
+    assert!(
+        err.errors.len() >= 2,
+        "expected ≥2 errors, got {}: {:?}",
+        err.errors.len(),
+        err.errors
+    );
+    let joined = err
+        .errors
+        .iter()
+        .map(|e| e.message.as_str())
+        .collect::<Vec<_>>()
+        .join(" | ");
+    assert!(
+        joined.contains("missing_one") && joined.contains("missing_two"),
+        "{joined}"
     );
 }
 
@@ -808,9 +849,9 @@ fun main() {
     let file = parse_file(src).expect("parse");
     let err = check_file(&file).expect_err("struct ==");
     assert!(
-        err.message.contains("struct") || err.message.contains("compare"),
+        err.primary().message.contains("struct") || err.primary().message.contains("compare"),
         "{}",
-        err.message
+        err.primary().message
     );
 }
 
@@ -828,8 +869,8 @@ fun main() {
     let file = parse_file(src).expect("parse");
     let err = check_file(&file).expect_err("enum ==");
     assert!(
-        err.message.contains("enum") || err.message.contains("compare"),
+        err.primary().message.contains("enum") || err.primary().message.contains("compare"),
         "{}",
-        err.message
+        err.primary().message
     );
 }
