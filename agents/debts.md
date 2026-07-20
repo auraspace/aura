@@ -44,10 +44,10 @@ When you resolve debt, update or remove the matching entry.
 ### Stdlib incomplete (collections)
 
 - Area: stdlib / RFC-007
-- Symptom: C6f `Map` String→Int linear (C7a `get` → `Int?`); C7e `Set` String linear; no generic Map/Set, no hash
-- Why deferred: no generic class APIs + hash yet
-- Next step: generic Map or hash Map; iteration
-- Introduced: narrowed after C4h; stub C5a; Map C6f; get C7a; Set C7e; remove/clear C7f
+- Symptom: C8a `Map<K,V>` linear + `map()` → `Map<String,Int>`; C7e `Set` String only; no hash, no generic Set, no iteration
+- Why deferred: hash needs runtime; Set mono same as Map once desired
+- Next step: hash Map; `Set<T>`; for-in over entries
+- Introduced: narrowed after C4h; stub C5a; Map C6f; get C7a; Set C7e; remove/clear C7f; generic Map C8a
 
 ### Generic `Iterable<E>` interface
 

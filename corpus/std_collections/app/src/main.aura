@@ -2,6 +2,7 @@
 // C7a — Map.get returns Int?
 // C7e — Set add/contains/remove
 // C7f — Map remove/clear
+// C8a — Map<K,V> generic (String→Int factory + Int→String mono)
 package demo.stdcollections
 
 import std.collections
@@ -52,6 +53,17 @@ fun main() {
   m.clear()
   if (m.isEmpty()) {
     println("mclr")
+  }
+
+  // C8a: other mono of Map
+  val mi = Map<Int, String>(Array(0), Array(0))
+  mi.put(1, "one")
+  if (mi.getOr(1, "?") == "one") {
+    println("i2s")
+  }
+  val g1 = mi.get(1)
+  if (g1 != null) {
+    println("g1")
   }
 
   val s = set()

@@ -601,11 +601,14 @@ impl Checker {
     }
 
     /// C4c/C4q/C6g: primitives + heap classes + structs + enums (not interface).
+    /// C8a: type params allowed in generic class/fun fields (mono becomes concrete).
     pub(crate) fn is_array_element_ty(&self, ty: &Ty) -> bool {
         if is_array_primitive_elem(ty) {
             return true;
         }
         match ty {
+            // Open mono skipped at record time (C4u); concrete mono uses substituted elem.
+            Ty::TypeParam(_) => true,
             Ty::Class(n) | Ty::ClassApp { name: n, .. } => {
                 let (simple, pkg) = crate::ty::split_nominal(n);
                 let list = match self.classes.get(simple) {

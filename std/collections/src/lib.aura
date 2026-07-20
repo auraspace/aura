@@ -1,10 +1,12 @@
-// C6f — std.collections Map (String → Int) linear MVP.
-// C7a: get returns Int? now that optional primitives emit as tagged structs.
-// Generic Map<K,V> still deferred.
+// C6f — std.collections Map (linear scan).
+// C7a: get returns optional value.
+// C7e: Set of String.
+// C7f: Map remove/clear.
+// C8a: Map<K,V> generic (Array of type params allowed at mono).
 package std.collections
 
-/// Mutable map from String keys to Int values (linear scan).
-pub class Map(val keys: Array<String>, val vals: Array<Int>) {
+/// Mutable map (linear scan). Keys must support `==` (e.g. String, Int).
+pub class Map<K, V>(val keys: Array<K>, val vals: Array<V>) {
   /// Number of entries.
   pub fun len(): Int {
     return this.keys.len
@@ -15,7 +17,7 @@ pub class Map(val keys: Array<String>, val vals: Array<Int>) {
   }
 
   /// Insert or replace. Returns true if the key was newly inserted.
-  pub fun put(k: String, v: Int): Bool {
+  pub fun put(k: K, v: V): Bool {
     for (i in 0..this.keys.len) {
       if (this.keys.get(i) == k) {
         this.vals.set(i, v)
@@ -28,7 +30,7 @@ pub class Map(val keys: Array<String>, val vals: Array<Int>) {
   }
 
   /// Value for `k`, or `null` if missing.
-  pub fun get(k: String): Int? {
+  pub fun get(k: K): V? {
     for (i in 0..this.keys.len) {
       if (this.keys.get(i) == k) {
         return this.vals.get(i)
@@ -38,7 +40,7 @@ pub class Map(val keys: Array<String>, val vals: Array<Int>) {
   }
 
   /// Value for `k`, or `default` if missing.
-  pub fun getOr(k: String, default: Int): Int {
+  pub fun getOr(k: K, default: V): V {
     for (i in 0..this.keys.len) {
       if (this.keys.get(i) == k) {
         return this.vals.get(i)
@@ -48,7 +50,7 @@ pub class Map(val keys: Array<String>, val vals: Array<Int>) {
   }
 
   /// true if `k` is present.
-  pub fun contains(k: String): Bool {
+  pub fun contains(k: K): Bool {
     for (i in 0..this.keys.len) {
       if (this.keys.get(i) == k) {
         return true
@@ -59,7 +61,7 @@ pub class Map(val keys: Array<String>, val vals: Array<Int>) {
 
   /// Remove `k` if present. Returns true if removed.
   /// Swaps with last entry then pop (order not preserved).
-  pub fun remove(k: String): Bool {
+  pub fun remove(k: K): Bool {
     for (i in 0..this.keys.len) {
       if (this.keys.get(i) == k) {
         val last = this.keys.len - 1
@@ -82,9 +84,9 @@ pub class Map(val keys: Array<String>, val vals: Array<Int>) {
   }
 }
 
-/// Empty String→Int map.
-pub fun map(): Map {
-  return Map(Array(0), Array(0))
+/// Empty String→Int map (common factory).
+pub fun map(): Map<String, Int> {
+  return Map<String, Int>(Array(0), Array(0))
 }
 
 // C7e — Set of String (linear scan MVP).
