@@ -164,7 +164,12 @@ impl Parser {
                 let span = self.peek().span;
                 let value = s.clone();
                 self.bump();
-                Ok(Expr::String(StringLit { value, span }))
+                // C9h: desugar `"hi ${name}"` → `"hi " + name` (+ further parts).
+                if value.contains("${") {
+                    self.desugar_string_interp(&value, span)
+                } else {
+                    Ok(Expr::String(StringLit { value, span }))
+                }
             }
             TokenKind::True => {
                 let span = self.bump().span;
@@ -172,10 +177,7 @@ impl Parser {
             }
             TokenKind::False => {
                 let span = self.bump().span;
-                Ok(Expr::Bool(BoolLit {
-                    value: false,
-                    span,
-                }))
+                Ok(Expr::Bool(BoolLit { value: false, span }))
             }
             TokenKind::Null => {
                 let span = self.bump().span;
@@ -229,7 +231,11 @@ impl Parser {
         }
     }
 
-    pub(crate) fn parse_call(&mut self, callee: Expr, type_args: Vec<TypeRef>) -> Result<Expr, ParseError> {
+    pub(crate) fn parse_call(
+        &mut self,
+        callee: Expr,
+        type_args: Vec<TypeRef>,
+    ) -> Result<Expr, ParseError> {
         let start = callee.span().start;
         self.expect(TokenKind::LParen, "`(`")?;
         let mut args = Vec::new();
@@ -293,6 +299,80 @@ impl Parser {
         }
         Ok(Some(self.parse_call(lhs, type_args)?))
     }
+
+    /// C9h: `"a ${x} b"` → (`"a " + x) + " b"`. Only bare identifiers inside `${}`.
+    pub(crate) fn desugar_string_interp(
+        &self,
+        value: &str,
+        span: Span,
+    ) -> Result<Expr, ParseError> {
+        let mut parts: Vec<Expr> = Vec::new();
+        let bytes = value.as_bytes();
+        let mut i = 0;
+        while i < bytes.len() {
+            if i + 1 < bytes.len() && bytes[i] == b'$' && bytes[i + 1] == b'{' {
+                let start = i + 2;
+                let mut j = start;
+                while j < bytes.len() && bytes[j] != b'}' {
+                    j += 1;
+                }
+                if j >= bytes.len() {
+                    return Err(ParseError {
+                        message: "unterminated `${` in string interpolation".into(),
+                        span,
+                    });
+                }
+                let name = &value[start..j];
+                if name.is_empty()
+                    || !name.chars().next().unwrap().is_ascii_alphabetic()
+                        && name.chars().next() != Some('_')
+                    || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+                {
+                    return Err(ParseError {
+                        message: format!(
+                            "C9h: interpolation `${{{name}}}` must be a simple identifier"
+                        ),
+                        span,
+                    });
+                }
+                parts.push(Expr::Ident(Ident {
+                    name: name.to_string(),
+                    span,
+                }));
+                i = j + 1;
+            } else {
+                let start = i;
+                while i < bytes.len() {
+                    if i + 1 < bytes.len() && bytes[i] == b'$' && bytes[i + 1] == b'{' {
+                        break;
+                    }
+                    i += 1;
+                }
+                let lit = value[start..i].to_string();
+                if !lit.is_empty() {
+                    parts.push(Expr::String(StringLit { value: lit, span }));
+                }
+            }
+        }
+        if parts.is_empty() {
+            return Ok(Expr::String(StringLit {
+                value: String::new(),
+                span,
+            }));
+        }
+        let mut acc = parts.remove(0);
+        for p in parts {
+            let left = acc;
+            let right = p;
+            acc = Expr::Binary(BinaryExpr {
+                left: Box::new(left),
+                op: BinOp::Add,
+                right: Box::new(right),
+                span,
+            });
+        }
+        Ok(acc)
+    }
 }
 
 fn prefix_binding_power() -> u8 {
@@ -310,4 +390,3 @@ fn infix_binding_power(op: BinOp) -> (u8, u8) {
         BinOp::Mul | BinOp::Div | BinOp::Rem => (10, 11),
     }
 }
-

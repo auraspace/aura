@@ -1,0 +1,16 @@
+// C9h — string interpolation `"hi ${name}"` (desugars to +)
+package demo.expr
+
+fun main() {
+  val name = "Aura"
+  val msg = "Hello, ${name}!"
+  if (msg == "Hello, Aura!") {
+    println("ok")
+  }
+  val a = 1
+  // only string parts + idents; numbers not auto-stringified in C9h
+  val s = "x=${name}"
+  if (s == "x=Aura") {
+    println("mid")
+  }
+}
