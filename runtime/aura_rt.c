@@ -256,18 +256,21 @@ void aura_ex_rethrow(void)
   longjmp(*outer->buf, 1);
 }
 
-/* ---- GC (C3x free-all + C4z roots + C5f mark/sweep + C6a deep mark + C6e) ----
+/* ---- GC (C3x free-all + C4z roots + C5f mark/sweep + C6a deep mark + C6e/C7b) ----
  * aura_gc_collect: if roots registered → mark from roots and Array-of-class
  * buffers (C6e), then deep-scan object bodies for nested GC pointers
- * (conservative pointer slots) + sweep unmarked. If no roots → mark-all
- * (safe until compiler emits roots). Shutdown still free-all remaining.
+ * (conservative pointer slots) + per-object mark_extras (C7b Array fields)
+ * + sweep unmarked (C7b: dtor frees owned Array buffers). If no roots →
+ * mark-all (safe until compiler emits roots). Shutdown still free-all remaining.
  */
 
 typedef struct AuraGcNode
 {
   void *ptr;
-  size_t size; /* C6a: payload size for deep field scan */
-  int marked;  /* C4z: mark bit for STW collect */
+  size_t size;                    /* C6a: payload size for deep field scan */
+  int marked;                     /* C4z: mark bit for STW collect */
+  void (*dtor)(void *ptr);        /* C7b: free non-GC field buffers before free */
+  void (*mark_extras)(void *ptr); /* C7b: mark Array-of-class field elems */
   struct AuraGcNode *next;
 } AuraGcNode;
 
@@ -427,7 +430,7 @@ static void aura_gc_mark_scan(AuraGcNode *n)
   }
 }
 
-void *aura_gc_alloc(size_t size)
+void *aura_gc_alloc_full(size_t size, void (*dtor)(void *), void (*mark_extras)(void *))
 {
   void *p = malloc(size);
   if (p == NULL && size > 0)
@@ -448,9 +451,30 @@ void *aura_gc_alloc(size_t size)
   n->ptr = p;
   n->size = size;
   n->marked = 0;
+  n->dtor = dtor;
+  n->mark_extras = mark_extras;
   n->next = aura_gc_list;
   aura_gc_list = n;
   return p;
+}
+
+void *aura_gc_alloc(size_t size)
+{
+  return aura_gc_alloc_full(size, NULL, NULL);
+}
+
+/* C7b: mark a GC object pointer (for generated mark_extras on Array fields). */
+void aura_gc_mark_ptr(void *obj)
+{
+  if (obj == NULL)
+  {
+    return;
+  }
+  AuraGcNode *n = aura_gc_find(obj);
+  if (n != NULL)
+  {
+    aura_gc_mark_push(n);
+  }
 }
 
 /* C4z/C5f/C6a/C6e: stop-the-world deep mark + sweep when roots are registered. */
@@ -517,13 +541,17 @@ void aura_gc_collect(void)
       }
     }
   }
-  /* C6a: deep mark — scan fields of marked objects for nested GC refs. */
+  /* C6a/C7b: deep mark + per-type mark_extras (Array-of-class fields). */
   while (aura_gc_mark_sp > 0)
   {
     AuraGcNode *n = aura_gc_mark_stack[--aura_gc_mark_sp];
+    if (n->mark_extras != NULL && n->ptr != NULL)
+    {
+      n->mark_extras(n->ptr);
+    }
     aura_gc_mark_scan(n);
   }
-  /* C5f: sweep unmarked objects. */
+  /* C5f/C7b: sweep unmarked objects; run dtor to free owned Array buffers. */
   AuraGcNode **link = &aura_gc_list;
   while (*link != NULL)
   {
@@ -531,6 +559,10 @@ void aura_gc_collect(void)
     if (!n->marked)
     {
       *link = n->next;
+      if (n->dtor != NULL && n->ptr != NULL)
+      {
+        n->dtor(n->ptr);
+      }
       free(n->ptr);
       free(n);
     }
@@ -547,6 +579,10 @@ void aura_gc_shutdown(void)
   while (n != NULL)
   {
     AuraGcNode *next = n->next;
+    if (n->dtor != NULL && n->ptr != NULL)
+    {
+      n->dtor(n->ptr);
+    }
     free(n->ptr);
     free(n);
     n = next;

@@ -49,6 +49,10 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("void aura_ex_clear(void);\n");
     out.push_str("void aura_ex_rethrow(void);\n");
     out.push_str("void *aura_gc_alloc(size_t size);\n");
+    out.push_str(
+        "void *aura_gc_alloc_full(size_t size, void (*dtor)(void *), void (*mark_extras)(void *));\n",
+    );
+    out.push_str("void aura_gc_mark_ptr(void *obj);\n");
     out.push_str("void aura_gc_add_root(void **slot);\n");
     out.push_str("void aura_gc_remove_root(void **slot);\n");
     out.push_str("void aura_gc_add_array_root(void **data_slot, int64_t *len_slot);\n");

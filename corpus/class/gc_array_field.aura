@@ -1,0 +1,38 @@
+// C7b — GC marks Array-of-class fields and frees Array buffers on sweep
+package demo.cls
+
+class Leaf(val n: Int) {
+  fun value(): Int {
+    return this.n
+  }
+}
+
+class Bag(val items: Array<Leaf>) {
+  fun get0(): Leaf {
+    return this.items.get(0)
+  }
+  fun len(): Int {
+    return this.items.len
+  }
+}
+
+fun main() {
+  // keep is a live GC root so collect does not mark-all.
+  val keep = Leaf(1)
+  val a: Array<Leaf> = Array(0)
+  a.push(Leaf(42))
+  a.push(Leaf(7))
+  val bag = Bag(a)
+  // a moved into bag.items; elements live only in the field buffer.
+  gc_collect()
+  val x: Leaf = bag.get0()
+  if (x.value() == 42) {
+    println("b0")
+  }
+  if (bag.len() == 2) {
+    println("blen")
+  }
+  if (keep.value() == 1) {
+    println("keep")
+  }
+}

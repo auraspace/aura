@@ -137,9 +137,10 @@ Native builds use a **C backend** (`aura emit-c` + system `cc`) linked with `run
 - **Compiler C6i** Field Array ownership (ctor + var reassign move)
 - **Docs C6j** C6a–C6j batch closed (plan/roadmap/debts)
 - **Codegen C7a** `Int?`/`Bool?` tagged optional C emit; `Map.get` → `Int?`
+- **Runtime C7b** Array field GC: dtor free buffers + mark_extras for Array-of-class fields
 - **DX** Pretty diagnostics (`path:line:col` + source snippet)
 - **Debts** Tracked in [`agents/debts.md`](agents/debts.md)
-- **Next:** Array field GC free/mark; generic Map/Set
+- **Next:** return Array from field (move-out); generic Map/Set
 
 ## Links
 

@@ -82,10 +82,97 @@ pub(crate) fn emit_class_forwards(
     }
 }
 
+/// C7b: field names that are builtin `Array` (any element type).
+fn array_field_names(c: &ClassDecl, params: &[String], args: &[Ty]) -> Vec<String> {
+    c.fields
+        .iter()
+        .filter(|f| {
+            let key = type_ref_local_key(&f.ty, params, args);
+            crate::array_emit::is_array_type_key(&key)
+        })
+        .map(|f| f.name.name.clone())
+        .collect()
+}
+
+/// C7b: field names that are Array-of-heap-class (need mark_extras).
+fn array_of_class_field_names(
+    c: &ClassDecl,
+    checked: &CheckedFile,
+    params: &[String],
+    args: &[Ty],
+) -> Vec<String> {
+    c.fields
+        .iter()
+        .filter(|f| {
+            let key = type_ref_local_key(&f.ty, params, args);
+            let mono = crate::expr::full_type_mono(&key, checked);
+            crate::array_emit::is_array_of_heap_class(&mono, checked)
+        })
+        .map(|f| f.name.name.clone())
+        .collect()
+}
+
+fn c_dtor_name(mono: &str) -> String {
+    format!("aura_dtor_{mono}")
+}
+
+fn c_markex_name(mono: &str) -> String {
+    format!("aura_markex_{mono}")
+}
+
+/// Emit optional dtor / mark_extras for heap classes with Array fields (C7b).
+fn emit_class_gc_hooks(
+    out: &mut String,
+    c: &ClassDecl,
+    checked: &CheckedFile,
+    params: &[String],
+    args: &[Ty],
+    mono: &str,
+) {
+    if !is_heap_class_decl(c) {
+        return;
+    }
+    let cty = c_class_type(mono);
+    let arr_fields = array_field_names(c, params, args);
+    let arr_cls_fields = array_of_class_field_names(c, checked, params, args);
+    if !arr_fields.is_empty() {
+        let _ = writeln!(out, "static void {}(void *p) {{", c_dtor_name(mono));
+        let _ = writeln!(out, "  {cty} *self = ({cty} *)p;");
+        out.push_str("  if (self == NULL) { return; }\n");
+        for name in &arr_fields {
+            let f = mangle_ident(name);
+            let _ = writeln!(
+                out,
+                "  if (self->{f}.data != NULL) {{ free(self->{f}.data); self->{f}.data = NULL; self->{f}.len = 0; self->{f}.cap = 0; }}"
+            );
+        }
+        out.push_str("}\n\n");
+    }
+    if !arr_cls_fields.is_empty() {
+        let _ = writeln!(out, "static void {}(void *p) {{", c_markex_name(mono));
+        let _ = writeln!(out, "  {cty} *self = ({cty} *)p;");
+        out.push_str("  if (self == NULL) { return; }\n");
+        for name in &arr_cls_fields {
+            let f = mangle_ident(name);
+            let _ = writeln!(out, "  {{");
+            let _ = writeln!(out, "    void **__data = (void **)self->{f}.data;");
+            let _ = writeln!(out, "    int64_t __len = self->{f}.len;");
+            out.push_str("    if (__data != NULL && __len > 0) {\n");
+            out.push_str("      for (int64_t __i = 0; __i < __len; __i++) {\n");
+            out.push_str("        aura_gc_mark_ptr(__data[__i]);\n");
+            out.push_str("      }\n");
+            out.push_str("    }\n");
+            out.push_str("  }\n");
+        }
+        out.push_str("}\n\n");
+    }
+}
+
 pub(crate) fn emit_class_defs(out: &mut String, checked: &CheckedFile, c: &ClassDecl, args: &[Ty]) {
     let params: Vec<String> = c.type_params.iter().map(|p| p.name.name.clone()).collect();
     let pkg = class_decl_package(c, checked);
     let mono = type_mono(&pkg, &c.name.name, args);
+    emit_class_gc_hooks(out, c, checked, &params, args, &mono);
     emit_ctor_mono(out, c, checked, &params, args, &mono);
     out.push('\n');
     for m in &c.methods {
@@ -200,10 +287,30 @@ pub(crate) fn emit_ctor_mono(
     let cty = c_class_type(mono);
     if is_heap_class_decl(c) {
         // C3y: allocate class instance on GC heap.
-        let _ = writeln!(
-            out,
-            "  {cty} *self = ({cty} *)aura_gc_alloc(sizeof({cty}));"
-        );
+        // C7b: pass dtor / mark_extras when the class owns Array fields.
+        let arr_fields = array_field_names(c, params, args);
+        let arr_cls = array_of_class_field_names(c, checked, params, args);
+        let dtor = if arr_fields.is_empty() {
+            "NULL".to_string()
+        } else {
+            c_dtor_name(mono)
+        };
+        let markex = if arr_cls.is_empty() {
+            "NULL".to_string()
+        } else {
+            c_markex_name(mono)
+        };
+        if dtor == "NULL" && markex == "NULL" {
+            let _ = writeln!(
+                out,
+                "  {cty} *self = ({cty} *)aura_gc_alloc(sizeof({cty}));"
+            );
+        } else {
+            let _ = writeln!(
+                out,
+                "  {cty} *self = ({cty} *)aura_gc_alloc_full(sizeof({cty}), {dtor}, {markex});"
+            );
+        }
         for f in &c.fields {
             let n = mangle_ident(&f.name.name);
             let _ = writeln!(out, "  self->{n} = {n};");

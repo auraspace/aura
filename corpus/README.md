@@ -33,6 +33,7 @@ Sample `.aura` programs for the compiler: parse/typecheck (`aura check`), native
 | `class/identity.aura`                  | Class identity `==` / `!=` (C4a)         |
 | `class/nullable.aura`                  | Nullable class `Class?` (C4b)            |
 | `class/safe_call.aura`                 | Safe call `?.` (C4s)                     |
+| `class/gc_array_field.aura`            | GC mark/free Array fields on class (C7b) |
 | `class/alias_ref.aura`                 | Import alias type qualify / ctor (C3u)   |
 | `iface/named.aura`                     | Interface + implements + upcast call     |
 | `struct/point.aura`                    | Value `struct` fields + methods          |

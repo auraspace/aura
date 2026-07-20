@@ -7,13 +7,13 @@ When you resolve debt, update or remove the matching entry.
 
 ## Open
 
-### `Array` field free on GC / return-from-field
+### Return Array field is shallow-copy
 
-- Area: builtin Array free (C3t…C6i)
-- Symptom: C6i moves into class fields (ctor + var reassign); GC sweep still does not free Array buffers inside objects; returning a field Array shallow-copies (caller may free while object still holds pointer)
-- Why deferred: no finalizers / field-borrow
-- Next step: C6e or Array-in-GC story; move-out from fields if needed
-- Introduced: narrowed after C6i (ctor/field assign move Done)
+- Area: builtin Array free (C3t…C6i/C7b)
+- Symptom: C7b frees field Array buffers on GC dtor; returning a field Array still shallow-copies (caller may free while object still holds pointer)
+- Why deferred: no field-borrow / move-out from fields
+- Next step: move-out from fields or borrow type for field Array return
+- Introduced: narrowed after C7b (GC free Done; return-from-field remains)
 
 ### No registry / version resolve (path lock only)
 
@@ -47,14 +47,6 @@ When you resolve debt, update or remove the matching entry.
 - Next step: generic Map or hash Map; Set
 - Introduced: narrowed after C4h; stub C5a; Map C6f; get C7a
 
-### GC mark: Array-of-class fields / nested only via object scan
-
-- Area: runtime GC (C6e partial)
-- Symptom: locals/params `Array` of heap class register `aura_gc_add_array_root`; **fields** that are Array-of-class still not scanned (deep mark sees malloc `data` pointer, not buffer elems)
-- Why deferred: no type maps for fields
-- Next step: register field Arrays or GC-typed buffers
-- Introduced: narrowed after C6e
-
 ### Generic `Iterable<E>` interface
 
 - Area: language / C6c
@@ -68,6 +60,14 @@ When you resolve debt, update or remove the matching entry.
 ### Nullable primitive `Int?` / `Bool?` C emit (2026-07-20)
 
 - Resolved in C7a: `aura_opt_i64` / `aura_opt_bool` tagged structs; null/wrap/coerce; `== null` via `.has`; `!!` / `?:`; Map.get returns `Int?`. Corpus `types/opt_prim.aura`.
+
+### GC mark / free Array fields (2026-07-20)
+
+- Resolved in C7b: `aura_gc_alloc_full` + per-class `dtor` (free Array buffers on sweep/shutdown) and `mark_extras` (mark Array-of-class field elems via `aura_gc_mark_ptr`). Corpus `class/gc_array_field.aura`. Return-from-field still Open.
+
+### Array field free on GC (partial) (2026-07-20)
+
+- Superseded by C7b dtor; see Resolved “GC mark / free Array fields”.
 
 ### Multi-error collect deferred (2026-07-20)
 
