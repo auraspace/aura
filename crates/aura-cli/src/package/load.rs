@@ -60,8 +60,8 @@ pub fn load_package_default() -> Result<LoadedPackage, String> {
 
 /// CLI entry for a lone `.aura` file: if it has `import`s, prefer nearby `aura.toml`.
 fn load_single_file_entry(path: &Path) -> Result<LoadedPackage, String> {
-    let src = fs::read_to_string(path)
-        .map_err(|e| format!("error: read {}: {e}", path.display()))?;
+    let src =
+        fs::read_to_string(path).map_err(|e| format!("error: read {}: {e}", path.display()))?;
     let ast = parse_file(&src).map_err(|e| format_parse(path, &src, e))?;
     if !ast.imports.is_empty() {
         if let Some(parent) = path.parent() {
@@ -85,8 +85,8 @@ fn load_single_file_entry(path: &Path) -> Result<LoadedPackage, String> {
 }
 
 pub(crate) fn load_single_file(path: &Path) -> Result<LoadedPackage, String> {
-    let src = fs::read_to_string(path)
-        .map_err(|e| format!("error: read {}: {e}", path.display()))?;
+    let src =
+        fs::read_to_string(path).map_err(|e| format!("error: read {}: {e}", path.display()))?;
     let mut ast = parse_file(&src).map_err(|e| format_parse(path, &src, e))?;
     let package = ast.package.display();
     stamp_origin(&mut ast, &package);
@@ -117,8 +117,7 @@ pub(crate) fn load_single_file(path: &Path) -> Result<LoadedPackage, String> {
 pub(crate) fn load_from_manifest(manifest: &Path) -> Result<LoadedPackage, String> {
     let text = fs::read_to_string(manifest)
         .map_err(|e| format!("error: read {}: {e}", manifest.display()))?;
-    let toml =
-        parse_aura_toml(&text).map_err(|e| format!("error: {}: {e}", manifest.display()))?;
+    let toml = parse_aura_toml(&text).map_err(|e| format!("error: {}: {e}", manifest.display()))?;
     let root = manifest
         .parent()
         .map(Path::to_path_buf)
@@ -241,11 +240,7 @@ fn apply_std_io_prelude(
         toml.dependencies
             .insert("std.io".into(), std_io.display().to_string());
     }
-    let already = pkg
-        .ast
-        .imports
-        .iter()
-        .any(|i| i.path.display() == "std.io");
+    let already = pkg.ast.imports.iter().any(|i| i.path.display() == "std.io");
     if !already {
         pkg.ast.imports.push(ImportDecl {
             path: AstPath {
@@ -294,8 +289,6 @@ fn find_std_io_dir(from: &Path) -> Option<PathBuf> {
     find_std_package_dir(from, "io")
 }
 
-
-
 /// Load path dependencies for `import` and merge their ASTs into the unit.
 /// Returns the resolved package name → absolute path map (C4j).
 fn resolve_imports(
@@ -303,12 +296,7 @@ fn resolve_imports(
     toml: &AuraToml,
     root: &Path,
 ) -> Result<HashMap<String, PathBuf>, String> {
-    let mut pending: Vec<String> = pkg
-        .ast
-        .imports
-        .iter()
-        .map(|i| i.path.display())
-        .collect();
+    let mut pending: Vec<String> = pkg.ast.imports.iter().map(|i| i.path.display()).collect();
     let mut loaded: HashSet<String> = HashSet::new();
     loaded.insert(pkg.package.clone());
 
@@ -488,9 +476,10 @@ fn merge_package(into: &mut LoadedPackage, mut dep: LoadedPackage) -> Result<(),
 
     for i in &dep.ast.interfaces {
         // C4d: same simple name allowed across packages (C symbols package-prefixed).
-        if seen_types.iter().any(|(k, n, p)| {
-            k == "interface" && n == &i.name.name && p == &i.origin_package
-        }) {
+        if seen_types
+            .iter()
+            .any(|(k, n, p)| k == "interface" && n == &i.name.name && p == &i.origin_package)
+        {
             return Err(format!(
                 "error: duplicate interface `{}` when linking package `{}`",
                 i.name.name, dep.package
@@ -573,6 +562,16 @@ fn stamp_origin(ast: &mut File, package: &str) {
             }
         }
     }
+    for t in &mut ast.type_aliases {
+        if t.origin_package.is_empty() {
+            t.origin_package = package.to_string();
+        }
+    }
+    for c in &mut ast.consts {
+        if c.origin_package.is_empty() {
+            c.origin_package = package.to_string();
+        }
+    }
     for f in &mut ast.functions {
         if f.origin_package.is_empty() {
             f.origin_package = package.to_string();
@@ -599,6 +598,8 @@ pub(crate) fn load_directory(
     let mut package: Option<String> = None;
     let mut package_path: Option<AstPath> = None;
     let mut imports = Vec::new();
+    let mut type_aliases = Vec::new();
+    let mut consts = Vec::new();
     let mut interfaces = Vec::new();
     let mut enums = Vec::new();
     let mut classes = Vec::new();
@@ -607,8 +608,8 @@ pub(crate) fn load_directory(
     let mut seen_funs: Vec<(String, String)> = Vec::new(); // name, path
 
     for path in &paths {
-        let src = fs::read_to_string(path)
-            .map_err(|e| format!("error: read {}: {e}", path.display()))?;
+        let src =
+            fs::read_to_string(path).map_err(|e| format!("error: read {}: {e}", path.display()))?;
         let mut ast = parse_file(&src).map_err(|e| format_parse(path, &src, e))?;
         let pkg_name = ast.package.display();
         if let Some(ref p) = package {
@@ -652,6 +653,12 @@ pub(crate) fn load_directory(
             };
             check_dup_type(&mut seen_types, kind, &c.name.name, path)?;
         }
+        for t in &ast.type_aliases {
+            check_dup_type(&mut seen_types, "type", &t.name.name, path)?;
+        }
+        for c in &ast.consts {
+            check_dup_fun(&mut seen_funs, &c.name.name, path)?;
+        }
         for f in &ast.functions {
             check_dup_fun(&mut seen_funs, &f.name.name, path)?;
         }
@@ -660,6 +667,8 @@ pub(crate) fn load_directory(
         interfaces.extend(ast.interfaces);
         enums.extend(ast.enums);
         classes.extend(ast.classes);
+        type_aliases.extend(ast.type_aliases);
+        consts.extend(ast.consts);
         functions.extend(ast.functions);
 
         sources.push(SourceEntry {
@@ -696,6 +705,8 @@ pub(crate) fn load_directory(
         interfaces,
         enums,
         classes,
+        type_aliases,
+        consts,
         functions,
         span: pkg_span,
     };

@@ -540,6 +540,104 @@ impl Checker {
             self.type_params.clear();
         }
 
+        // C9f: type aliases (after nominal types exist; before fun signatures).
+        for t in &file.type_aliases {
+            let pkg = decl_package(&t.origin_package, &file_pkg).to_string();
+            self.current_package = pkg.clone();
+            if self.classes.contains_key(&t.name.name)
+                || self.enums.contains_key(&t.name.name)
+                || self.interfaces.contains_key(&t.name.name)
+                || self.type_aliases.contains_key(&t.name.name)
+            {
+                self.errors.push(SemaError {
+                    message: format!("duplicate type name `{}`", t.name.name),
+                    span: t.name.span,
+                });
+                continue;
+            }
+            let ty = match self.type_from_ref(&t.ty) {
+                Ok(ty) => ty,
+                Err(err) => {
+                    self.errors.push(err);
+                    continue;
+                }
+            };
+            self.type_aliases
+                .entry(t.name.name.clone())
+                .or_default()
+                .push((pkg, ty));
+        }
+
+        // C9g: top-level constants (literal values only in MVP).
+        for c in &file.consts {
+            let pkg = decl_package(&c.origin_package, &file_pkg).to_string();
+            self.current_package = pkg.clone();
+            if self.functions.contains_key(&c.name.name)
+                || self.consts.contains_key(&c.name.name)
+                || self.classes.contains_key(&c.name.name)
+            {
+                self.errors.push(SemaError {
+                    message: format!("duplicate name `{}`", c.name.name),
+                    span: c.name.span,
+                });
+                continue;
+            }
+            let ty = match self.type_from_ref(&c.ty) {
+                Ok(ty) => ty,
+                Err(err) => {
+                    self.errors.push(err);
+                    continue;
+                }
+            };
+            let vty = match self.check_expr(&c.value) {
+                Ok(t) => t,
+                Err(err) => {
+                    self.errors.push(err);
+                    continue;
+                }
+            };
+            if !self.is_assignable(&vty, &ty) {
+                self.errors.push(SemaError {
+                    message: format!(
+                        "const `{}`: expected {}, found {}",
+                        c.name.name,
+                        ty.display(),
+                        vty.display()
+                    ),
+                    span: c.value.span(),
+                });
+                continue;
+            }
+            // MVP: only Int/Bool/String/null literals (and simple unary -int).
+            let ok_lit = match &c.value {
+                aura_ast::Expr::Int(_)
+                | aura_ast::Expr::Bool(_)
+                | aura_ast::Expr::String(_)
+                | aura_ast::Expr::Null(_) => true,
+                aura_ast::Expr::Unary(u)
+                    if matches!(u.op, aura_ast::UnOp::Neg)
+                        && matches!(u.expr.as_ref(), aura_ast::Expr::Int(_)) =>
+                {
+                    true
+                }
+                _ => false,
+            };
+            if !ok_lit {
+                self.errors.push(SemaError {
+                    message: format!(
+                        "const `{}` value must be a literal (Int/Bool/String/null) in C9g",
+                        c.name.name
+                    ),
+                    span: c.value.span(),
+                });
+                continue;
+            }
+            self.consts
+                .entry(c.name.name.clone())
+                .or_default()
+                .push((pkg, ty));
+        }
+
         for f in &file.functions {
             let pkg = decl_package(&f.origin_package, &file_pkg).to_string();
             // Resolve param/return types in the function's package (cross-package merge).
@@ -560,6 +658,7 @@ impl Checker {
                     .get(&f.name.name)
                     .map(|v| !v.is_empty())
                     .unwrap_or(false)
+                || self.consts.contains_key(&f.name.name)
             {
                 self.errors.push(SemaError {
                     message: format!("duplicate type/function name `{}`", f.name.name),

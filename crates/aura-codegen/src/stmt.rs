@@ -30,6 +30,16 @@ fn resolve_iface_for_iter<'a>(
 
 /// Local type key with C3v package mono when the TypeRef is qualified or unique.
 fn type_ref_local_key_checked(t: &TypeRef, ctx: &EmitCtx<'_>) -> String {
+    // C9f: expand type aliases first.
+    if ctx
+        .checked
+        .ast
+        .type_aliases
+        .iter()
+        .any(|a| a.name.name == t.name.name)
+    {
+        return type_ref_local_key_expand(t, &ctx.type_params, &ctx.type_args, ctx.checked);
+    }
     if is_primitive_name(&t.name.name) {
         return type_ref_local_key(t, &ctx.type_params, &ctx.type_args);
     }

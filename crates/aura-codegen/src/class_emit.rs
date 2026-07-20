@@ -355,7 +355,7 @@ pub(crate) fn emit_method_mono(
     let ret_key = m
         .return_type
         .as_ref()
-        .map(|t| type_ref_local_key(t, params, args));
+        .map(|t| type_ref_local_key_expand(t, params, args, checked));
     let mut ctx = EmitCtx {
         checked,
         method_class: Some(mono),
@@ -368,12 +368,12 @@ pub(crate) fn emit_method_mono(
         return_key: ret_key,
     };
     for f in &c.fields {
-        let key = type_ref_local_key(&f.ty, params, args);
+        let key = type_ref_local_key_expand(&f.ty, params, args, checked);
         let mono_key = crate::expr::full_type_mono(&key, checked);
         ctx.define_local(&f.name.name, mono_key);
     }
     for p in &m.params {
-        let key = type_ref_local_key(&p.ty, params, args);
+        let key = type_ref_local_key_expand(&p.ty, params, args, checked);
         let mono_key = crate::expr::full_type_mono(&key, checked);
         ctx.define_local(&p.name.name, mono_key.clone());
         // C6b: Array params own the buffer.

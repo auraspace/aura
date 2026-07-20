@@ -203,7 +203,22 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
             }
             "String".into()
         }
-        Expr::Ident(i) => ctx.lookup_local(&i.name).unwrap_or("Int").to_string(),
+        Expr::Ident(i) => {
+            if let Some(t) = ctx.lookup_local(&i.name) {
+                return t.to_string();
+            }
+            // C9g: const type from annotation (via full_type / TypeRef).
+            if let Some(c) = ctx
+                .checked
+                .ast
+                .consts
+                .iter()
+                .find(|c| c.name.name == i.name)
+            {
+                return type_ref_local_key(&c.ty, &[], &[]);
+            }
+            "Int".into()
+        }
         Expr::This(_) => ctx.method_class.unwrap_or("Int").to_string(),
         Expr::Group(inner, _) => infer_type_name(inner, ctx),
         Expr::Assign(a) => infer_type_name(&a.value, ctx),
@@ -268,6 +283,16 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
                         return format!("this->{}", mangle_ident(&i.name));
                     }
                 }
+            }
+            // C9g: top-level const → emit initializer expression.
+            if let Some(c) = ctx
+                .checked
+                .ast
+                .consts
+                .iter()
+                .find(|c| c.name.name == i.name)
+            {
+                return emit_expr(&c.value, ctx);
             }
             mangle_ident(&i.name)
         }

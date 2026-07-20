@@ -12,7 +12,32 @@ pub struct File {
     pub interfaces: Vec<InterfaceDecl>,
     pub enums: Vec<EnumDecl>,
     pub classes: Vec<ClassDecl>,
+    /// C9f: `type Name = T` (non-generic; expands in type positions).
+    pub type_aliases: Vec<TypeAliasDecl>,
+    /// C9g: `const Name: T = literal` top-level constants.
+    pub consts: Vec<ConstDecl>,
     pub functions: Vec<FunDecl>,
+    pub span: Span,
+}
+
+/// `type Name = TypeRef` (C9f).
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypeAliasDecl {
+    pub is_pub: bool,
+    pub origin_package: String,
+    pub name: Ident,
+    pub ty: TypeRef,
+    pub span: Span,
+}
+
+/// `const Name: Type = literal` (C9g).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ConstDecl {
+    pub is_pub: bool,
+    pub origin_package: String,
+    pub name: Ident,
+    pub ty: TypeRef,
+    pub value: Expr,
     pub span: Span,
 }
 

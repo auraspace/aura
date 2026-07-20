@@ -22,9 +22,28 @@ pub fn shift_file_spans(file: &mut File, delta: BytePos) {
     for c in &mut file.classes {
         shift_class(c, delta);
     }
+    for t in &mut file.type_aliases {
+        shift_type_alias(t, delta);
+    }
+    for c in &mut file.consts {
+        shift_const(c, delta);
+    }
     for f in &mut file.functions {
         shift_fun(f, delta);
     }
+}
+
+fn shift_type_alias(t: &mut TypeAliasDecl, delta: BytePos) {
+    shift_ident(&mut t.name, delta);
+    shift_type_ref(&mut t.ty, delta);
+    t.span = t.span.shift(delta);
+}
+
+fn shift_const(c: &mut ConstDecl, delta: BytePos) {
+    shift_ident(&mut c.name, delta);
+    shift_type_ref(&mut c.ty, delta);
+    shift_expr(&mut c.value, delta);
+    c.span = c.span.shift(delta);
 }
 
 fn shift_import(imp: &mut ImportDecl, delta: BytePos) {

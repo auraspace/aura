@@ -20,6 +20,10 @@ pub enum TokenKind {
     Enum,
     Interface,
     Fun,
+    /// C9f: `type Name = T`
+    Type,
+    /// C9g: `const Name: T = literal`
+    Const,
     Val,
     Var,
     If,
@@ -102,6 +106,8 @@ impl TokenKind {
                 | TokenKind::Enum
                 | TokenKind::Interface
                 | TokenKind::Fun
+                | TokenKind::Type
+                | TokenKind::Const
                 | TokenKind::Val
                 | TokenKind::Var
                 | TokenKind::If
@@ -192,13 +198,11 @@ impl<'a> Lexer<'a> {
             b'}' => self.simple(TokenKind::RBrace, 1),
             b',' => self.simple(TokenKind::Comma, 1),
             b':' => self.simple(TokenKind::Colon, 1),
-            b'?' => {
-                match self.bytes.get(self.pos + 1) {
-                    Some(&b':') => self.simple(TokenKind::QuestionColon, 2),
-                    Some(&b'.') => self.simple(TokenKind::QuestionDot, 2),
-                    _ => self.simple(TokenKind::Question, 1),
-                }
-            }
+            b'?' => match self.bytes.get(self.pos + 1) {
+                Some(&b':') => self.simple(TokenKind::QuestionColon, 2),
+                Some(&b'.') => self.simple(TokenKind::QuestionDot, 2),
+                _ => self.simple(TokenKind::Question, 1),
+            },
             b'@' => self.simple(TokenKind::At, 1),
             b'.' => {
                 if self.peek_at(1) == Some(b'.') {
@@ -272,7 +276,10 @@ impl<'a> Lexer<'a> {
             b'0'..=b'9' => self.number(start),
             b'a'..=b'z' | b'A'..=b'Z' | b'_' => self.ident_or_kw(start),
             _ => Err(LexError {
-                message: format!("unexpected character {:?}", self.src[self.pos..].chars().next()),
+                message: format!(
+                    "unexpected character {:?}",
+                    self.src[self.pos..].chars().next()
+                ),
                 span: Span::new(start, start + 1),
             }),
         }
@@ -413,6 +420,8 @@ impl<'a> Lexer<'a> {
             "enum" => TokenKind::Enum,
             "interface" => TokenKind::Interface,
             "fun" => TokenKind::Fun,
+            "type" => TokenKind::Type,
+            "const" => TokenKind::Const,
             "val" => TokenKind::Val,
             "var" => TokenKind::Var,
             "if" => TokenKind::If,
@@ -472,7 +481,9 @@ fun main() {
         assert!(matches!(kinds[1], TokenKind::Ident(s) if s == "main"));
         assert!(matches!(kinds[2], TokenKind::Fun));
         assert!(matches!(kinds.iter().last().unwrap(), TokenKind::Eof));
-        assert!(kinds.iter().any(|k| matches!(k, TokenKind::String(s) if s == "Hello, Aura")));
+        assert!(kinds
+            .iter()
+            .any(|k| matches!(k, TokenKind::String(s) if s == "Hello, Aura")));
     }
 
     #[test]

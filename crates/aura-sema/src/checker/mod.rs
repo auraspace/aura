@@ -35,6 +35,10 @@ pub(crate) struct Checker {
     variant_to_enum: HashMap<String, String>,
     /// Interfaces by simple name; multiple packages may share a name (C4d).
     interfaces: HashMap<String, Vec<InterfaceSig>>,
+    /// C9f: `type Name = T` expansions (simple name → package, target ty).
+    type_aliases: HashMap<String, Vec<(String, Ty)>>,
+    /// C9g: top-level constants (simple name → package, ty).
+    consts: HashMap<String, Vec<(String, Ty)>>,
     locals: Vec<HashMap<String, Local>>,
     /// Type params in current generic scope (name → bound interface names).
     type_params: HashMap<String, Vec<String>>,
@@ -221,6 +225,8 @@ impl Checker {
             enums: HashMap::new(),
             variant_to_enum: HashMap::new(),
             interfaces: HashMap::new(), // Vec per simple name (C4d)
+            type_aliases: HashMap::new(),
+            consts: HashMap::new(),
             locals: Vec::new(),
             type_params: HashMap::new(),
             current_class: None,

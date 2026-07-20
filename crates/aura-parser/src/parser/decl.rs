@@ -313,6 +313,43 @@ impl Parser {
         })
     }
 
+    /// C9f: `type Name = Type`
+    pub(crate) fn parse_type_alias(&mut self) -> Result<TypeAliasDecl, ParseError> {
+        let start = self.peek().span.start;
+        self.expect(TokenKind::Type, "`type`")?;
+        let name = self.expect_ident()?;
+        self.expect(TokenKind::Eq, "`=`")?;
+        let ty = self.parse_type()?;
+        let end = ty.span.end;
+        Ok(TypeAliasDecl {
+            is_pub: false,
+            origin_package: String::new(),
+            name,
+            ty,
+            span: Span::new(start, end),
+        })
+    }
+
+    /// C9g: `const Name: Type = expr` (literal-ish expr checked in sema).
+    pub(crate) fn parse_const(&mut self) -> Result<ConstDecl, ParseError> {
+        let start = self.peek().span.start;
+        self.expect(TokenKind::Const, "`const`")?;
+        let name = self.expect_ident()?;
+        self.expect(TokenKind::Colon, "`:`")?;
+        let ty = self.parse_type()?;
+        self.expect(TokenKind::Eq, "`=`")?;
+        let value = self.parse_expr(0)?;
+        let end = value.span().end;
+        Ok(ConstDecl {
+            is_pub: false,
+            origin_package: String::new(),
+            name,
+            ty,
+            value,
+            span: Span::new(start, end),
+        })
+    }
+
     pub(crate) fn parse_fun(&mut self) -> Result<FunDecl, ParseError> {
         let start = self.peek().span.start;
         self.expect(TokenKind::Fun, "`fun`")?;

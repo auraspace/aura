@@ -446,6 +446,17 @@ pub(crate) fn c_type_ref_subst(
             _ => inner,
         };
     }
+    // C9f: type alias → underlying type.
+    if ty.type_args.is_empty() {
+        if let Some(alias) = checked
+            .ast
+            .type_aliases
+            .iter()
+            .find(|a| a.name.name == ty.name.name)
+        {
+            return c_type_ref_subst(&alias.ty, checked, params, args);
+        }
+    }
     // interface?
     // handled via name
     if ty.type_args.is_empty() {
@@ -664,6 +675,33 @@ pub(crate) fn type_ref_local_key(ty: &TypeRef, params: &[String], args: &[Ty]) -
         }
     }
     base
+}
+
+/// C9f: expand type aliases in a TypeRef to the underlying local key when possible.
+pub(crate) fn type_ref_local_key_expand(
+    ty: &TypeRef,
+    params: &[String],
+    args: &[Ty],
+    checked: &CheckedFile,
+) -> String {
+    // Resolve alias name → underlying TypeRef (one hop).
+    if let Some(alias) = checked
+        .ast
+        .type_aliases
+        .iter()
+        .find(|a| a.name.name == ty.name.name)
+    {
+        if ty.type_args.is_empty() {
+            let mut key = type_ref_local_key_expand(&alias.ty, params, args, checked);
+            if ty.nullable {
+                if let Some(ok) = opt_key_for_prim(&key) {
+                    key = ok.to_string();
+                }
+            }
+            return key;
+        }
+    }
+    type_ref_local_key(ty, params, args)
 }
 pub(crate) fn escape_c_string(s: &str) -> String {
     let mut out = String::new();

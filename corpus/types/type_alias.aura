@@ -1,0 +1,18 @@
+// C9f — type alias
+package demo.types
+
+type UserId = Int
+type Label = String
+
+fun id_of(x: UserId): UserId = x
+
+fun main() {
+  val u: UserId = 42
+  if (id_of(u) == 42) {
+    println("id")
+  }
+  val s: Label = "hi"
+  if (s == "hi") {
+    println("lab")
+  }
+}

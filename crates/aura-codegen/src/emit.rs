@@ -424,7 +424,7 @@ pub(crate) fn emit_fun(out: &mut String, f: &FunDecl, checked: &CheckedFile, arg
     let ret_key = f
         .return_type
         .as_ref()
-        .map(|t| type_ref_local_key(t, &params, args));
+        .map(|t| type_ref_local_key_expand(t, &params, args, checked));
     let mut ctx = EmitCtx {
         checked,
         method_class: None,
@@ -437,7 +437,7 @@ pub(crate) fn emit_fun(out: &mut String, f: &FunDecl, checked: &CheckedFile, arg
         return_key: ret_key,
     };
     for p in &f.params {
-        let key = type_ref_local_key(&p.ty, &params, args);
+        let key = type_ref_local_key_expand(&p.ty, &params, args, checked);
         let mono_key = full_type_mono(&key, checked);
         ctx.define_local(&p.name.name, mono_key.clone());
         // C6b: Array params own the buffer (caller moves or passes a fresh Array).

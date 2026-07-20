@@ -36,6 +36,34 @@ impl Checker {
             "Int" => Ty::Int,
             "Bool" => Ty::Bool,
             "String" => Ty::String,
+            // C9f: type alias expansion (non-generic).
+            other if self.type_aliases.contains_key(other) && qualified_pkg.is_none() => {
+                if !type_args.is_empty() {
+                    return Err(SemaError {
+                        message: format!("type alias `{other}` cannot take type arguments"),
+                        span: t.span,
+                    });
+                }
+                let entries = self.type_aliases.get(other).unwrap();
+                let ty = if entries.len() == 1 {
+                    entries[0].1.clone()
+                } else {
+                    entries
+                        .iter()
+                        .find(|(p, _)| p == &self.current_package)
+                        .map(|(_, t)| t.clone())
+                        .or_else(|| entries.first().map(|(_, t)| t.clone()))
+                        .ok_or_else(|| SemaError {
+                            message: format!("unknown type `{other}`"),
+                            span: t.span,
+                        })?
+                };
+                // Skip further base construction — apply nullability below.
+                if t.nullable {
+                    return Ok(Ty::Nullable(Box::new(ty)));
+                }
+                return Ok(ty);
+            }
             other if self.type_params.contains_key(other) => {
                 if qualified_pkg.is_some() {
                     return Err(SemaError {

@@ -68,6 +68,8 @@ impl Parser {
         let mut classes = Vec::new();
         let mut interfaces = Vec::new();
         let mut enums = Vec::new();
+        let mut type_aliases = Vec::new();
+        let mut consts = Vec::new();
         while !matches!(self.peek().kind, TokenKind::Eof) {
             let is_test = self.parse_test_attr()?;
             let is_pub = if matches!(self.peek().kind, TokenKind::Pub) {
@@ -77,6 +79,28 @@ impl Parser {
                 false
             };
             match self.peek().kind {
+                TokenKind::Type => {
+                    if is_test {
+                        return Err(ParseError {
+                            message: "`@test` only applies to functions".into(),
+                            span: self.peek().span,
+                        });
+                    }
+                    let mut t = self.parse_type_alias()?;
+                    t.is_pub = is_pub;
+                    type_aliases.push(t);
+                }
+                TokenKind::Const => {
+                    if is_test {
+                        return Err(ParseError {
+                            message: "`@test` only applies to functions".into(),
+                            span: self.peek().span,
+                        });
+                    }
+                    let mut c = self.parse_const()?;
+                    c.is_pub = is_pub;
+                    consts.push(c);
+                }
                 TokenKind::Interface => {
                     if is_test {
                         return Err(ParseError {
@@ -144,7 +168,7 @@ impl Parser {
                 _ => {
                     return Err(ParseError {
                         message: format!(
-                            "expected `interface`, `enum`, `class`, `struct`, or `fun`, found {:?}",
+                            "expected `type`, `const`, `interface`, `enum`, `class`, `struct`, or `fun`, found {:?}",
                             self.peek().kind
                         ),
                         span: self.peek().span,
@@ -159,6 +183,8 @@ impl Parser {
             interfaces,
             enums,
             classes,
+            type_aliases,
+            consts,
             functions,
             span: Span::new(start, end),
         })
@@ -175,10 +201,7 @@ impl Parser {
         } else {
             None
         };
-        let end = alias
-            .as_ref()
-            .map(|a| a.span.end)
-            .unwrap_or(path.span.end);
+        let end = alias.as_ref().map(|a| a.span.end).unwrap_or(path.span.end);
         Ok(ImportDecl {
             path,
             alias,
@@ -202,5 +225,4 @@ impl Parser {
         }
         Ok(true)
     }
-
 }

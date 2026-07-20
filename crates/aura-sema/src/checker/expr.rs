@@ -97,6 +97,19 @@ impl Checker {
                 if let Some(local) = self.lookup_local(&id.name) {
                     return Ok(local.ty.clone());
                 }
+                // C9g: top-level const.
+                if let Some(entries) = self.consts.get(&id.name) {
+                    let ty = if entries.len() == 1 {
+                        entries[0].1.clone()
+                    } else {
+                        entries
+                            .iter()
+                            .find(|(p, _)| p == &self.current_package)
+                            .map(|(_, t)| t.clone())
+                            .unwrap_or_else(|| entries[0].1.clone())
+                    };
+                    return Ok(ty);
+                }
                 if self.import_aliases.contains_key(&id.name) {
                     return Err(SemaError {
                         message: format!(
