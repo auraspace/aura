@@ -18,6 +18,8 @@ pub(crate) struct EmitCtx<'a> {
     pub(crate) gc_roots: Vec<HashSet<String>>,
     /// Per-scope Array-of-class locals registered for element GC mark (C6e).
     pub(crate) array_gc_roots: Vec<HashSet<String>>,
+    /// Enclosing function/method return type key (for `return` coercion, C7a).
+    pub(crate) return_key: Option<String>,
 }
 
 impl<'a> EmitCtx<'a> {

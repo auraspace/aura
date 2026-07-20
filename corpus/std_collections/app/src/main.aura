@@ -1,4 +1,5 @@
 // C6f — std.collections Map put/getOr/contains
+// C7a — Map.get returns Int?
 package demo.stdcollections
 
 import std.collections
@@ -25,5 +26,15 @@ fun main() {
   }
   if (m.getOr("z", -1) == -1) {
     println("miss")
+  }
+  val ga = m.get("a")
+  if (ga != null) {
+    if (ga == 10) {
+      println("get")
+    }
+  }
+  val gz = m.get("z")
+  if (gz == null) {
+    println("getmiss")
   }
 }

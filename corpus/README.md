@@ -10,6 +10,7 @@ Sample `.aura` programs for the compiler: parse/typecheck (`aura check`), native
 | `control/if_while.aura` | Params, types, `if`/`while`, locals                                    |
 | `control/else_if.aura`  | `else if` chaining (C4l)                                               |
 | `types/nullable.aura`   | `T?`, flow `!= null` / `== null`, `!!`                                 |
+| `types/opt_prim.aura`   | `Int?` / `Bool?` tagged optional C emit (C7a)                          |
 | `types/coalesce.aura`   | Null coalesce `?:` (C4m)                                               |
 | `expr/arith.aura`       | Arithmetic, comparisons, `&&`                                          |
 | `expr/unary.aura`       | `!` and negation                                                       |

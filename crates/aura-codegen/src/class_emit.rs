@@ -233,6 +233,10 @@ pub(crate) fn emit_method_mono(
         "{} {{",
         c_method_signature_mono(c, m, checked, params, args, mono)
     );
+    let ret_key = m
+        .return_type
+        .as_ref()
+        .map(|t| type_ref_local_key(t, params, args));
     let mut ctx = EmitCtx {
         checked,
         method_class: Some(mono),
@@ -242,6 +246,7 @@ pub(crate) fn emit_method_mono(
         array_owners: vec![std::collections::HashSet::new()],
         gc_roots: vec![std::collections::HashSet::new()],
         array_gc_roots: vec![std::collections::HashSet::new()],
+        return_key: ret_key,
     };
     for f in &c.fields {
         let key = type_ref_local_key(&f.ty, params, args);

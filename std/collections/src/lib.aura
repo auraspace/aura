@@ -1,5 +1,6 @@
 // C6f — std.collections Map (String → Int) linear MVP.
-// Generic Map<K,V> and Int? get deferred (nullable primitives not in C emit yet).
+// C7a: get returns Int? now that optional primitives emit as tagged structs.
+// Generic Map<K,V> still deferred.
 package std.collections
 
 /// Mutable map from String keys to Int values (linear scan).
@@ -24,6 +25,16 @@ pub class Map(val keys: Array<String>, val vals: Array<Int>) {
     this.keys.push(k)
     this.vals.push(v)
     return true
+  }
+
+  /// Value for `k`, or `null` if missing.
+  pub fun get(k: String): Int? {
+    for (i in 0..this.keys.len) {
+      if (this.keys.get(i) == k) {
+        return this.vals.get(i)
+      }
+    }
+    return null
   }
 
   /// Value for `k`, or `default` if missing.

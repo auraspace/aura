@@ -90,6 +90,8 @@ pub(crate) fn emit_return_fallback(
                 out.push_str("  return false; /* fallback */\n");
             } else if ct == "const char *" {
                 out.push_str("  return \"\"; /* fallback */\n");
+            } else if ct == "aura_opt_i64" || ct == "aura_opt_bool" {
+                let _ = writeln!(out, "  return ({ct}){{0}}; /* fallback */");
             } else if ct.starts_with("aura_cls_") {
                 let _ = writeln!(out, "  return ({ct}){{0}}; /* fallback */");
             } else if ct.starts_with("aura_iface_") {
@@ -530,9 +532,11 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                         emit_free_array_owners(out, indent, &owners);
                         let _ = writeln!(out, "{p}return;");
                     } else {
-                        let c_ty = local_key_to_c(&ret_key, ctx.checked);
+                        // Prefer declared return type for C7a opt coercion (`return 1` → Int?).
+                        let expected = ctx.return_key.clone().unwrap_or_else(|| ret_key.clone());
+                        let c_ty = local_key_to_c(&expected, ctx.checked);
                         let tmp = format!("__ret_{}", r.span.start);
-                        let val = emit_expr(e, ctx);
+                        let val = coerce_expr(e, &expected, ctx);
                         let _ = writeln!(out, "{p}{c_ty} {tmp} = {val};");
                         emit_remove_array_gc_roots(out, indent, &ctx.array_gc_roots_all());
                         emit_remove_gc_roots(out, indent, &ctx.gc_roots_all());
@@ -554,6 +558,8 @@ pub(crate) fn local_key_to_c(key: &str, checked: &CheckedFile) -> String {
         "Bool" => "bool".into(),
         "String" => "const char *".into(),
         "Unit" => "void".into(),
+        "Opt_Int" => "aura_opt_i64".into(),
+        "Opt_Bool" => "aura_opt_bool".into(),
         n if checked
             .ast
             .interfaces

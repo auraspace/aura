@@ -56,6 +56,9 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("void aura_gc_collect(void);\n");
     out.push_str("void aura_gc_shutdown(void);\n");
     out.push_str("int aura_main(void);\n\n");
+    // C7a: tagged optional primitives (Int? / Bool?).
+    out.push_str("typedef struct { _Bool has; int64_t value; } aura_opt_i64;\n");
+    out.push_str("typedef struct { _Bool has; _Bool value; } aura_opt_bool;\n\n");
 
     // Stable class tags for interface dispatch (non-generic only)
     let tagged: Vec<_> = checked
@@ -345,6 +348,10 @@ pub(crate) fn emit_fun(out: &mut String, f: &FunDecl, checked: &CheckedFile, arg
         out.push_str("}\n");
         return;
     }
+    let ret_key = f
+        .return_type
+        .as_ref()
+        .map(|t| type_ref_local_key(t, &params, args));
     let mut ctx = EmitCtx {
         checked,
         method_class: None,
@@ -354,6 +361,7 @@ pub(crate) fn emit_fun(out: &mut String, f: &FunDecl, checked: &CheckedFile, arg
         array_owners: vec![std::collections::HashSet::new()],
         gc_roots: vec![std::collections::HashSet::new()],
         array_gc_roots: vec![std::collections::HashSet::new()],
+        return_key: ret_key,
     };
     for p in &f.params {
         let key = type_ref_local_key(&p.ty, &params, args);

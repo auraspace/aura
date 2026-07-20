@@ -204,7 +204,15 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
         Expr::Group(inner, _) => infer_type_name(inner, ctx),
         Expr::Assign(a) => infer_type_name(&a.value, ctx),
         Expr::Unary(UnaryExpr { op: UnOp::Not, .. }) => "Bool".into(),
-        Expr::ForceUnwrap(f) => infer_type_name(&f.expr, ctx),
+        Expr::ForceUnwrap(f) => {
+            let inner = infer_type_name(&f.expr, ctx);
+            // C7a: !! on Opt_Int/Opt_Bool yields the bare primitive key.
+            if let Some(rest) = inner.strip_prefix("Opt_") {
+                rest.to_string()
+            } else {
+                inner
+            }
+        }
         Expr::Binary(BinaryExpr {
             op:
                 BinOp::Lt
@@ -264,22 +272,58 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
             format!("({op}{})", emit_expr(&u.expr, ctx))
         }
         Expr::ForceUnwrap(f) => {
-            // C: just the pointer/value; null is a runtime fault (MVP).
-            emit_expr(&f.expr, ctx)
+            let inner = emit_expr(&f.expr, ctx);
+            let ty =
+                resolve_type_name(&f.expr, ctx).unwrap_or_else(|| infer_type_name(&f.expr, ctx));
+            if is_opt_prim_key(&ty) {
+                // C7a: check `.has`, yield `.value`.
+                let cty = opt_prim_c_type(&ty).unwrap_or("aura_opt_i64");
+                return format!(
+                    "({{ {cty} __u = ({inner}); if (!__u.has) aura_throw_string(\"force unwrap null\"); __u.value; }})"
+                );
+            }
+            // Pointer-like T?: null is a runtime fault (MVP).
+            inner
         }
         Expr::Binary(b) => {
             let left = emit_expr(&b.left, ctx);
             let right = emit_expr(&b.right, ctx);
+            let lt =
+                resolve_type_name(&b.left, ctx).unwrap_or_else(|| infer_type_name(&b.left, ctx));
+            let rt =
+                resolve_type_name(&b.right, ctx).unwrap_or_else(|| infer_type_name(&b.right, ctx));
             // C4e: String content equality (null-safe strcmp); class stays pointer identity.
             if matches!(b.op, BinOp::Coalesce) {
+                // C7a: optional primitives use `.has` / `.value`.
+                if is_opt_prim_key(&lt) {
+                    let cty = opt_prim_c_type(&lt).unwrap_or("aura_opt_i64");
+                    return format!(
+                        "({{ {cty} __c = ({left}); __c.has ? __c.value : ({right}); }})"
+                    );
+                }
                 // C4m: pointer/string null-coalesce ternary.
                 return format!("(({left}) != NULL ? ({left}) : ({right}))");
             }
             if matches!(b.op, BinOp::Eq | BinOp::Ne) {
-                let lt = resolve_type_name(&b.left, ctx);
-                let rt = resolve_type_name(&b.right, ctx);
-                let is_string = matches!(lt.as_deref(), Some("String"))
-                    || matches!(rt.as_deref(), Some("String"))
+                // C7a: `x == null` / `x != null` on Int?/Bool? → `.has`.
+                let left_null = matches!(b.right.as_ref(), Expr::Null(_)) && is_opt_prim_key(&lt);
+                let right_null = matches!(b.left.as_ref(), Expr::Null(_)) && is_opt_prim_key(&rt);
+                if left_null {
+                    return if matches!(b.op, BinOp::Eq) {
+                        format!("(!({left}).has)")
+                    } else {
+                        format!("(({left}).has)")
+                    };
+                }
+                if right_null {
+                    return if matches!(b.op, BinOp::Eq) {
+                        format!("(!({right}).has)")
+                    } else {
+                        format!("(({right}).has)")
+                    };
+                }
+                let is_string = lt == "String"
+                    || rt == "String"
                     || matches!(
                         (&*b.left, &*b.right),
                         (Expr::String(_), _) | (_, Expr::String(_))
@@ -296,6 +340,17 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
                     };
                 }
             }
+            // C7a: after flow narrowing, Opt_* locals still hold tagged structs — use `.value`.
+            let left_v = if is_opt_prim_key(&lt) {
+                format!("({left}).value")
+            } else {
+                left.clone()
+            };
+            let right_v = if is_opt_prim_key(&rt) {
+                format!("({right}).value")
+            } else {
+                right.clone()
+            };
             let op = match b.op {
                 BinOp::Add => "+",
                 BinOp::Sub => "-",
@@ -317,9 +372,9 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
             // keep grouping parens for precedence.
             match b.op {
                 BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
-                    format!("{left} {op} {right}")
+                    format!("{left_v} {op} {right_v}")
                 }
-                _ => format!("({left} {op} {right})"),
+                _ => format!("({left_v} {op} {right_v})"),
             }
         }
         Expr::Assign(a) => {
@@ -338,10 +393,15 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
             } else {
                 mangle_ident(&a.name.name)
             };
-            let rhs = emit_expr(&a.value, ctx);
             let dst_name = &a.name.name;
-            let dst_ty = ctx.lookup_local(dst_name);
+            let dst_ty = ctx.lookup_local(dst_name).map(|s| s.to_string());
+            let rhs = if let Some(ref dt) = dst_ty {
+                coerce_expr(&a.value, dt, ctx)
+            } else {
+                emit_expr(&a.value, ctx)
+            };
             let dst_is_array = dst_ty
+                .as_deref()
                 .map(|t| t == "Array" || t.starts_with("Array_"))
                 .unwrap_or(false);
             // Free C lvalue: locals use mangled name; fields use this->field (C6i).
@@ -720,11 +780,36 @@ fn expected_iface_mono(expected_ty: &str, checked: &CheckedFile) -> Option<Strin
 
 /// If `expr` has class type `from` and expected is interface, emit upcast.
 pub(crate) fn coerce_expr(expr: &Expr, expected_ty: &str, ctx: &mut EmitCtx<'_>) -> String {
-    let actual = resolve_type_name(expr, ctx);
+    let actual = resolve_type_name(expr, ctx).unwrap_or_else(|| infer_type_name(expr, ctx));
     let code = emit_expr(expr, ctx);
+
+    // C7a: null → empty optional primitive; Int/Bool → wrap into Opt_*.
+    if is_opt_prim_key(expected_ty) {
+        if matches!(expr, Expr::Null(_)) {
+            return null_opt_prim(expected_ty);
+        }
+        if is_opt_prim_key(&actual) {
+            return code;
+        }
+        // Wrap non-null primitive (literal, narrowed value, or expression).
+        if matches!(actual.as_str(), "Int" | "Bool") || matches!(expr, Expr::Int(_) | Expr::Bool(_))
+        {
+            return wrap_opt_prim(expected_ty, &code);
+        }
+        // Fallback: treat as value to wrap (e.g. arithmetic result inferred Int).
+        if expected_ty == "Opt_Int" || expected_ty == "Opt_Bool" {
+            return wrap_opt_prim(expected_ty, &code);
+        }
+    }
+    // Opt_* → bare primitive (e.g. println expects nothing; rare).
+    if matches!(expected_ty, "Int" | "Bool") && is_opt_prim_key(&actual) {
+        return format!("({code}).value");
+    }
+
     let Some(imono) = expected_iface_mono(expected_ty, ctx.checked) else {
         return code;
     };
+    let actual = Some(actual);
     let iface_simple = ctx
         .checked
         .ast
@@ -767,6 +852,15 @@ pub(crate) fn resolve_type_name(expr: &Expr, ctx: &EmitCtx<'_>) -> Option<String
     match expr {
         Expr::Ident(id) => ctx.lookup_local(&id.name).map(|s| s.to_string()),
         Expr::This(_) => ctx.method_class.map(|s| s.to_string()),
+        Expr::ForceUnwrap(f) => {
+            let inner =
+                resolve_type_name(&f.expr, ctx).unwrap_or_else(|| infer_type_name(&f.expr, ctx));
+            Some(if let Some(rest) = inner.strip_prefix("Opt_") {
+                rest.to_string()
+            } else {
+                inner
+            })
+        }
         Expr::Call(c) => {
             if let Expr::Ident(id) = c.callee.as_ref() {
                 if let Some(inst) = ctx.checked.call_instantiations.get(&c.span.start) {

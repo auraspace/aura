@@ -42,18 +42,10 @@ When you resolve debt, update or remove the matching entry.
 ### Stdlib incomplete (collections)
 
 - Area: stdlib / RFC-007
-- Symptom: C6f `Map` is String→Int linear only; no Set, no generic Map
+- Symptom: C6f `Map` is String→Int linear only (C7a: `get` → `Int?`); no Set, no generic Map
 - Why deferred: no generic class APIs + hash yet
 - Next step: generic Map or hash Map; Set
-- Introduced: narrowed after C4h; stub C5a; Map C6f
-
-### Nullable primitive `Int?` / `Bool?` C emit
-
-- Area: codegen
-- Symptom: `T?` for Int/Bool still uses bare int64_t/bool; `null` becomes invalid C
-- Why deferred: need optional tag or sentinel convention
-- Next step: tagged optional or reject nullable primitives with clear diag
-- Introduced: noticed C6f Map.get
+- Introduced: narrowed after C4h; stub C5a; Map C6f; get C7a
 
 ### GC mark: Array-of-class fields / nested only via object scan
 
@@ -72,6 +64,10 @@ When you resolve debt, update or remove the matching entry.
 - Introduced: C6c
 
 ## Resolved
+
+### Nullable primitive `Int?` / `Bool?` C emit (2026-07-20)
+
+- Resolved in C7a: `aura_opt_i64` / `aura_opt_bool` tagged structs; null/wrap/coerce; `== null` via `.has`; `!!` / `?:`; Map.get returns `Int?`. Corpus `types/opt_prim.aura`.
 
 ### Multi-error collect deferred (2026-07-20)
 

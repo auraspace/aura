@@ -443,10 +443,27 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                 let ta = infer_type_name(&c.args[0], ctx);
                 let a = emit_expr(&c.args[0], ctx);
                 let b = emit_expr(&c.args[1], ctx);
-                return match ta.as_str() {
-                    "String" => format!("aura_assert_eq_string({a}, {b})"),
-                    "Bool" => format!("aura_assert_eq_bool({a}, {b})"),
-                    _ => format!("aura_assert_eq_int({a}, {b})"),
+                // C7a: after null-narrow, Opt_* still stores a tagged struct — compare values.
+                let a_v = if is_opt_prim_key(&ta) {
+                    format!("({a}).value")
+                } else {
+                    a
+                };
+                let tb = infer_type_name(&c.args[1], ctx);
+                let b_v = if is_opt_prim_key(&tb) {
+                    format!("({b}).value")
+                } else {
+                    b
+                };
+                let kind = if is_opt_prim_key(&ta) {
+                    ta.strip_prefix("Opt_").unwrap_or(ta.as_str())
+                } else {
+                    ta.as_str()
+                };
+                return match kind {
+                    "String" => format!("aura_assert_eq_string({a_v}, {b_v})"),
+                    "Bool" => format!("aura_assert_eq_bool({a_v}, {b_v})"),
+                    _ => format!("aura_assert_eq_int({a_v}, {b_v})"),
                 };
             }
             if id.name == "println" && c.args.len() == 1 {

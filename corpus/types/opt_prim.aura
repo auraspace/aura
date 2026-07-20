@@ -1,0 +1,47 @@
+// C7a — Int? / Bool? tagged optional C emit
+package demo.types
+
+fun label(n: Int?): String {
+  if (n == null) {
+    return "none"
+  } else {
+    if (n > 0) {
+      return "pos"
+    }
+    return "nonpos"
+  }
+}
+
+fun force(n: Int?): Int {
+  return n!!
+}
+
+fun coal(n: Int?): Int {
+  return n ?: 0
+}
+
+fun main() {
+  println(label(null))
+  println(label(1))
+  println(label(0))
+  var b: Bool? = null
+  if (b == null) {
+    println("bnone")
+  }
+  b = true
+  if (b != null) {
+    println("bsome")
+  }
+  assert_eq(force(9), 9)
+  assert_eq(coal(null), 0)
+  assert_eq(coal(3), 3)
+  var x: Int? = 5
+  x = null
+  if (x == null) {
+    println("xnone")
+  }
+  x = 42
+  if (x != null) {
+    assert_eq(x, 42)
+  }
+}

@@ -136,9 +136,10 @@ Native builds use a **C backend** (`aura emit-c` + system `cc`) linked with `run
 - **Sema C6h** Multi-error collect in function bodies
 - **Compiler C6i** Field Array ownership (ctor + var reassign move)
 - **Docs C6j** C6a–C6j batch closed (plan/roadmap/debts)
+- **Codegen C7a** `Int?`/`Bool?` tagged optional C emit; `Map.get` → `Int?`
 - **DX** Pretty diagnostics (`path:line:col` + source snippet)
 - **Debts** Tracked in [`agents/debts.md`](agents/debts.md)
-- **Next:** nullable `Int?`/`Bool?` emit; Array field GC free/mark; generic Map/Set
+- **Next:** Array field GC free/mark; generic Map/Set
 
 ## Links
 

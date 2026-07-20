@@ -202,6 +202,44 @@ pub(crate) fn is_primitive_name(n: &str) -> bool {
     matches!(n, "Int" | "Bool" | "String" | "Unit")
 }
 
+/// Local/type key for tagged optional primitives (`Int?` / `Bool?`).
+pub(crate) fn is_opt_prim_key(key: &str) -> bool {
+    matches!(key, "Opt_Int" | "Opt_Bool")
+}
+
+pub(crate) fn opt_prim_c_type(key: &str) -> Option<&'static str> {
+    match key {
+        "Opt_Int" => Some("aura_opt_i64"),
+        "Opt_Bool" => Some("aura_opt_bool"),
+        _ => None,
+    }
+}
+
+pub(crate) fn null_opt_prim(key: &str) -> String {
+    match key {
+        "Opt_Int" => "((aura_opt_i64){ .has = false, .value = INT64_C(0) })".into(),
+        "Opt_Bool" => "((aura_opt_bool){ .has = false, .value = false })".into(),
+        _ => "NULL".into(),
+    }
+}
+
+pub(crate) fn wrap_opt_prim(key: &str, value_code: &str) -> String {
+    match key {
+        "Opt_Int" => format!("((aura_opt_i64){{ .has = true, .value = ({value_code}) }})"),
+        "Opt_Bool" => format!("((aura_opt_bool){{ .has = true, .value = ({value_code}) }})"),
+        _ => value_code.to_string(),
+    }
+}
+
+/// Map non-null primitive key → optional key.
+pub(crate) fn opt_key_for_prim(prim: &str) -> Option<&'static str> {
+    match prim {
+        "Int" => Some("Opt_Int"),
+        "Bool" => Some("Opt_Bool"),
+        _ => None,
+    }
+}
+
 pub(crate) fn type_ref_mono(ty: &TypeRef, params: &[String], args: &[Ty]) -> String {
     if let Some(idx) = params.iter().position(|p| p == &ty.name.name) {
         if let Some(t) = args.get(idx) {
@@ -228,7 +266,12 @@ pub(crate) fn ty_to_c(t: &Ty) -> String {
         Ty::String => "const char *".into(),
         Ty::Unit => "void".into(),
         Ty::Null => "const char *".into(),
-        Ty::Nullable(inner) => ty_to_c(inner),
+        // C7a: Int?/Bool? are tagged structs; other T? share T's rep (pointer-like).
+        Ty::Nullable(inner) => match inner.as_ref() {
+            Ty::Int => "aura_opt_i64".into(),
+            Ty::Bool => "aura_opt_bool".into(),
+            other => ty_to_c(other),
+        },
         // Without CheckedFile, emit value type; callers with class context use c_class_local_type.
         Ty::Class(n) => c_class_type(&nominal_mono_base(n)),
         Ty::ClassApp { name, args } => c_class_type(&mono_key(name, args)),
@@ -251,7 +294,11 @@ pub(crate) fn ty_to_c_array_elem(t: &Ty, checked: &CheckedFile) -> String {
             let mono = mono_key(name, args);
             c_class_local_type(&mono, checked)
         }
-        Ty::Nullable(inner) => ty_to_c_array_elem(inner, checked),
+        Ty::Nullable(inner) => match inner.as_ref() {
+            Ty::Int => "aura_opt_i64".into(),
+            Ty::Bool => "aura_opt_bool".into(),
+            other => ty_to_c_array_elem(other, checked),
+        },
         other => ty_to_c(other),
     }
 }
@@ -267,7 +314,11 @@ pub(crate) fn ty_to_c_local(t: &Ty, checked: &CheckedFile) -> String {
             let mono = mono_key(name, args);
             c_class_local_type(&mono, checked)
         }
-        Ty::Nullable(inner) => ty_to_c_local(inner, checked),
+        Ty::Nullable(inner) => match inner.as_ref() {
+            Ty::Int => "aura_opt_i64".into(),
+            Ty::Bool => "aura_opt_bool".into(),
+            other => ty_to_c_local(other, checked),
+        },
         Ty::Interface(n) => c_iface_type(&nominal_mono_base(n)),
         Ty::Enum(n) => c_enum_type(&nominal_mono_base(n)),
         Ty::EnumApp { name, args } => c_enum_type(&mono_key(name, args)),
@@ -286,9 +337,8 @@ pub(crate) fn c_type_ref_subst(
     args: &[Ty],
 ) -> String {
     if ty.nullable {
-        // C4b: `T?` shares the C representation of `T` for pointer-like types
-        // (heap class*, String, interfaces). Do not re-mangle via subst_type_ref
-        // (drops package mono) or add an extra `*`.
+        // C7a: Int?/Bool? → tagged optional structs.
+        // C4b: other `T?` share the C representation of `T` (heap class*, String, ifaces).
         let non_null = TypeRef {
             qualifier: ty.qualifier.clone(),
             name: ty.name.clone(),
@@ -296,7 +346,12 @@ pub(crate) fn c_type_ref_subst(
             nullable: false,
             span: ty.span,
         };
-        return c_type_ref_subst(&non_null, checked, params, args);
+        let inner = c_type_ref_subst(&non_null, checked, params, args);
+        return match inner.as_str() {
+            "int64_t" => "aura_opt_i64".into(),
+            "bool" => "aura_opt_bool".into(),
+            _ => inner,
+        };
     }
     // interface?
     // handled via name
@@ -447,18 +502,19 @@ pub(crate) fn mangle_ident(name: &str) -> String {
     }
 }
 pub(crate) fn type_ref_local_key(ty: &TypeRef, params: &[String], args: &[Ty]) -> String {
-    if let Some(idx) = params.iter().position(|p| p == &ty.name.name) {
+    let base = if let Some(idx) = params.iter().position(|p| p == &ty.name.name) {
         if let Some(t) = args.get(idx) {
-            return match t {
+            match t {
                 Ty::ClassApp { .. } | Ty::Class(_) | Ty::EnumApp { .. } | Ty::Enum(_) => {
                     t.mono_suffix()
                 }
-                other => other.display(),
-            };
+                // Preserve Opt_* from substituted nullable primitives.
+                other => other.mono_suffix(),
+            }
+        } else {
+            ty.name.name.clone()
         }
-    }
-    // Prefer mono suffix form (package-prefixed) when args are empty and name is a nominal.
-    if ty.type_args.is_empty() {
+    } else if ty.type_args.is_empty() {
         if is_primitive_name(&ty.name.name) {
             ty.name.name.clone()
         } else {
@@ -468,7 +524,14 @@ pub(crate) fn type_ref_local_key(ty: &TypeRef, params: &[String], args: &[Ty]) -
         }
     } else {
         type_ref_mono(ty, params, args)
+    };
+    // C7a: only Int?/Bool? get distinct keys; Class?/String? keep non-null key (pointer rep).
+    if ty.nullable {
+        if let Some(ok) = opt_key_for_prim(&base) {
+            return ok.to_string();
+        }
     }
+    base
 }
 pub(crate) fn escape_c_string(s: &str) -> String {
     let mut out = String::new();

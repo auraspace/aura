@@ -2,14 +2,14 @@
 
 Collections package (RFC-007).
 
-**Status (C6f):**
+**Status (C6f + C7a `get`):**
 
-| API     | Notes                                                                 |
-| ------- | --------------------------------------------------------------------- |
-| `Map`   | String → Int, linear `put` / `getOr` / `contains` / `len` / `isEmpty` |
-| `map()` | Empty map factory                                                     |
+| API     | Notes                                                                                  |
+| ------- | -------------------------------------------------------------------------------------- |
+| `Map`   | String → Int, linear `put` / `get` (`Int?`) / `getOr` / `contains` / `len` / `isEmpty` |
+| `map()` | Empty map factory                                                                      |
 
-**Not yet:** generic `Map<K,V>`, Set, hash table, nullable `get`, iteration on Map.
+**Not yet:** generic `Map<K,V>`, Set, hash table, iteration on Map.
 
 **Also available language-wide:**
 
