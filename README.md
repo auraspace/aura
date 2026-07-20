@@ -8,7 +8,7 @@ This repository currently holds:
 | ------------------------------------ | -------------------------------------------------------------------- |
 | [`docs/guide/`](docs/guide/)         | User guide (site `/docs`)                                            |
 | [`docs/rfc/`](docs/rfc/)             | Language & toolchain RFCs                                            |
-| [`docs/roadmap.md`](docs/roadmap.md) | Execution phases (P0–P3, compiler C0–C6j)                            |
+| [`docs/roadmap.md`](docs/roadmap.md) | Execution phases (P0–P3, compiler C0–C7d+)                           |
 | [`site/`](site/)                     | Homepage + docs + RFC site (Vite + React)                            |
 | [`crates/`](crates/)                 | Rust toolchain (`aura` CLI) — check / build / run / test (C backend) |
 | [`corpus/`](corpus/)                 | Sample `.aura` programs for the compiler                             |
@@ -32,7 +32,7 @@ pnpm site:test
 pnpm site:build
 ```
 
-### Compiler (through C6j)
+### Compiler (through C7d)
 
 ```bash
 cargo test --workspace
@@ -138,9 +138,11 @@ Native builds use a **C backend** (`aura emit-c` + system `cc`) linked with `run
 - **Docs C6j** C6a–C6j batch closed (plan/roadmap/debts)
 - **Codegen C7a** `Int?`/`Bool?` tagged optional C emit; `Map.get` → `Int?`
 - **Runtime C7b** Array field GC: dtor free buffers + mark_extras for Array-of-class fields
+- **Codegen C7c** Move-out Array field on return/bind/assign
+- **Docs C7d** C7a–C7j plan + roadmap sync
 - **DX** Pretty diagnostics (`path:line:col` + source snippet)
 - **Debts** Tracked in [`agents/debts.md`](agents/debts.md)
-- **Next:** return Array from field (move-out); generic Map/Set
+- **Next:** C7e Set; C7f Map API; C7g decl multi-error; C7h–j (iface Array, generic Iterable, elem drop)
 
 ## Links
 

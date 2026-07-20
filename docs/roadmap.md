@@ -15,8 +15,8 @@ Living plan for docs, language specs, and the Rust toolchain. RFCs remain the de
 | RFC static site (`site/`)   | Implemented; Cloudflare Pages → **https://aura.fadosoft.com**                          |
 | RFC-000 … RFC-013           | **All Accepted** — open questions resolved or Deferred (2026-07-16)                    |
 | Language MVP                | RFC-001 §6.0 + post-C1 surface; Iterable protocol (C6c) partial; async/macros deferred |
-| Compiler                    | **C0–C6j done** — C6a–i ownership/GC/Iterable/Map/enum Array; batch closed             |
-| Runtime / packages / stdlib | GC deep mark+sweep + roots; `std.io` / `std.assert`; tasks/collections deferred        |
+| Compiler                    | **C0–C7d in progress** — C7a–c opt/GC field/move-out Done; C7e–j open                  |
+| Runtime / packages / stdlib | GC dtor/mark Array fields; `std.io` / `assert` / Map; Set + generic Map deferred       |
 
 ## Phases
 
@@ -136,16 +136,26 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C6i**   | Field Array ownership (ctor + var reassign move)                   | Done                                       |
 | **C6g**   | Array of enum elements (by value; interface still rejected)        | Done                                       |
 | **C6j**   | Close C6a–C6j batch (roadmap/debts)                                | Done                                       |
+| **C7a**   | `Int?`/`Bool?` tagged optional C emit; `Map.get` → `Int?`          | Done                                       |
+| **C7b**   | Array field GC: dtor free + mark_extras Array-of-class fields      | Done                                       |
+| **C7c**   | Move-out Array field on return/bind/assign                         | Done                                       |
+| **C7d**   | Plan + roadmap C7a–C7j                                             | Done                                       |
+| **C7e**   | `std.collections` Set (String, linear)                             | Pending                                    |
+| **C7f**   | Map API expand (`remove` / `clear`)                                | Pending                                    |
+| **C7g**   | Multi-error collect in declaration phase                           | Pending                                    |
+| **C7h**   | Array-of-interface decision (reject MVP vs fat ptr)                | Pending                                    |
+| **C7i**   | Generic interfaces / `Iterable<E>` slice                           | Pending                                    |
+| **C7j**   | Array element drop on free/pop/clear (or defer)                    | Pending                                    |
 | **DX**    | line:col diagnostics with snippets                                 | Done                                       |
 
 **Out of scope C0/C1:** generics mono, async/tasks, macros, registry, incremental, LTO.
 
 ### P3 — Expand (after hello)
 
-1. ~~Language surface C2–C6j~~ → next: open debts in `agents/debts.md` (nullable primitives, Array field GC, generic Map/Set)
-2. Runtime: ~~alloc/GC + deep mark/sweep + class heap refs~~ → Array-in-object free/mark; channels/tasks
+1. ~~Language surface C2–C6j~~ → C7a–d Done; next C7e–j (Set, Map API, decl multi-error, iface Array, generic Iterable, elem drop)
+2. Runtime: ~~alloc/GC + deep mark/sweep + class heap refs + Array field dtor/mark~~ → channels/tasks
 3. Toolchain: ~~minimal `aura.toml` + path deps + path lock (incl. transitive)~~ → registry (RFC-005)
-4. Stdlib: ~~std.io + auto-prelude + std.assert + Map String→Int~~ → generic Map/Set
+4. Stdlib: ~~std.io + auto-prelude + std.assert + Map String→Int~~ → Set; generic Map later
 5. Cross targets + signed releases
 
 Write Wave 2–4 RFCs **as implementation needs them**, not all up front.
