@@ -14,101 +14,101 @@ import {
   IconShieldCheck,
   IconTerminal2,
   type Icon,
-} from '@tabler/icons-react'
-import { MotionConfig, motion } from 'motion/react'
-import { Link } from 'react-router-dom'
+} from "@tabler/icons-react";
+import { MotionConfig, motion } from "motion/react";
+import { Link } from "react-router-dom";
 import {
   Reveal,
   Stagger,
   StaggerItem,
   easeOutExpo,
-} from '@/components/motion/reveal'
-import { getAllMeta } from '@/lib/rfc/load-rfcs'
+} from "@/components/motion/reveal";
+import { getAllMeta } from "@/lib/rfc/load-rfcs";
 
 const FEATURES: {
-  n: string
-  title: string
-  body: string
-  Icon: Icon
+  n: string;
+  title: string;
+  body: string;
+  Icon: Icon;
 }[] = [
   {
-    n: '01',
-    title: 'One artifact from source',
-    body: 'aura build produces a single native executable. The GC and scheduler link into the binary — no runtime install on the host.',
+    n: "01",
+    title: "One artifact from source",
+    body: "aura build produces a single native executable. The GC and scheduler link into the binary — no runtime install on the host.",
     Icon: IconPackage,
   },
   {
-    n: '02',
-    title: 'Null-safe by default',
-    body: 'T is non-null. T? is opt-in. Flow-sensitive narrowing keeps the safe path short and the escape hatch explicit.',
+    n: "02",
+    title: "Null-safe by default",
+    body: "T is non-null. T? is opt-in. Flow-sensitive narrowing keeps the safe path short and the escape hatch explicit.",
     Icon: IconShieldCheck,
   },
   {
-    n: '03',
-    title: 'Tasks, not thread soup',
-    body: 'Go-like M:N lightweight tasks and channels for concurrent I/O. Familiar class model without ownership ceremony.',
+    n: "03",
+    title: "Tasks, not thread soup",
+    body: "M:N lightweight tasks and channels for concurrent I/O. A class model without ownership ceremony.",
     Icon: IconBinaryTree2,
   },
   {
-    n: '04',
-    title: 'Classes and value types',
-    body: 'Java-like classes and interfaces for the domain. Distinct structs when you want values, not references.',
+    n: "04",
+    title: "Classes and value types",
+    body: "Classes and interfaces for the domain. Distinct structs when you want values, not references.",
     Icon: IconComponents,
   },
   {
-    n: '05',
-    title: 'Toolchain is the language',
-    body: 'check, build, run, test, and packages are first-class CLI verbs — not a pile of third-party scripts.',
+    n: "05",
+    title: "Toolchain is the language",
+    body: "check, build, run, test, and packages are first-class CLI verbs — not a pile of third-party scripts.",
     Icon: IconTerminal2,
   },
   {
-    n: '06',
-    title: 'Designed in public RFCs',
-    body: 'Vision, types, memory, runtime, and packages are written down before they ossify. Read the decisions, not just the code.',
+    n: "06",
+    title: "Designed in public RFCs",
+    body: "Vision, types, memory, runtime, and packages are written down before they ossify. Read the decisions, not just the code.",
     Icon: IconFileText,
   },
-]
+];
 
 const METHOD: {
-  n: string
-  title: string
-  body: string
-  Icon: Icon
+  n: string;
+  title: string;
+  body: string;
+  Icon: Icon;
 }[] = [
   {
-    n: '01',
-    title: 'Write what you already know.',
-    body: 'Classes, methods, interfaces, and a statement-oriented surface. Hello world needs no framework and no ceremony.',
+    n: "01",
+    title: "Write what you already know.",
+    body: "Classes, methods, interfaces, and a statement-oriented surface. Hello world needs no framework and no ceremony.",
     Icon: IconCode,
   },
   {
-    n: '02',
-    title: 'Let the compiler hold the line.',
-    body: 'Nullability, exhaustiveness, and package boundaries surface early. Diagnostics are part of the product, not an afterthought.',
+    n: "02",
+    title: "Let the compiler hold the line.",
+    body: "Nullability, exhaustiveness, and package boundaries surface early. Diagnostics are part of the product, not an afterthought.",
     Icon: IconShieldCheck,
   },
   {
-    n: '03',
-    title: 'Ship one file.',
-    body: 'The default deploy story is a single executable you can copy onto a server, drop in a container, or hand out as a CLI.',
+    n: "03",
+    title: "Ship one file.",
+    body: "The default deploy story is a single executable you can copy onto a server, drop in a container, or hand out as a CLI.",
     Icon: IconRocket,
   },
-]
+];
 
 const PROOF = [
   {
-    n: '01',
-    t: 'Nullability and Result live in the type system, not style guides.',
+    n: "01",
+    t: "Nullability and Result live in the type system, not style guides.",
   },
   {
-    n: '02',
-    t: 'Single-binary deploy is a design principle, not a packaging tip.',
+    n: "02",
+    t: "Single-binary deploy is a design principle, not a packaging tip.",
   },
   {
-    n: '03',
-    t: 'Corpus programs compile and run through the aura CLI today.',
+    n: "03",
+    t: "Corpus programs compile and run through the aura CLI today.",
   },
-] as const
+] as const;
 
 function HeroCodeCard() {
   return (
@@ -126,17 +126,17 @@ function HeroCodeCard() {
         </div>
 
         <div className="overflow-hidden rounded-2xl border border-border bg-tint p-4 font-mono text-[12.5px] leading-[1.65]">
-          <div className="text-muted">{'// C0 corpus'}</div>
+          <div className="text-muted">{"// C0 corpus"}</div>
           <div>
             <span className="text-accent">package</span> main
           </div>
           <div className="mt-2">
-            <span className="text-accent">fun</span> main() {'{'}
+            <span className="text-accent">fun</span> main() {"{"}
           </div>
           <div className="pl-4">
             println(<span className="text-fg">"Hello, Aura"</span>)
           </div>
-          <div>{'}'}</div>
+          <div>{"}"}</div>
         </div>
 
         <div className="mt-4 rounded-xl border border-border bg-bg px-4 py-3">
@@ -173,11 +173,11 @@ function HeroCodeCard() {
         </div>
       </div>
     </div>
-  )
+  );
 }
 
 export function HomePage() {
-  const rfcCount = getAllMeta().length
+  const rfcCount = getAllMeta().length;
 
   return (
     <MotionConfig reducedMotion="user">
@@ -209,8 +209,8 @@ export function HomePage() {
 
               <Reveal onMount y={12} delay={0.2}>
                 <p className="mt-7 max-w-[520px] text-pretty text-[17px] leading-[1.55] text-muted md:text-[18px]">
-                  Aura is a statically typed language with Java-like classes,
-                  null-safe types, and Go-like tasks. The runtime ships inside a
+                  Aura is a statically typed language with classes, null-safe
+                  types, and lightweight tasks. The runtime ships inside a
                   single native executable.
                 </p>
               </Reveal>
@@ -242,14 +242,17 @@ export function HomePage() {
         </section>
 
         {/* Features */}
-        <section id="features" className="border-t border-border py-20 md:py-24">
+        <section
+          id="features"
+          className="border-t border-border py-20 md:py-24"
+        >
           <div className="home-section">
             <Reveal y={12}>
               <p className="eyebrow">What you get</p>
               <h2 className="mt-4 max-w-[720px] font-display text-[34px] leading-[1.1] font-medium tracking-tight text-balance md:text-[48px]">
                 Small promises.
                 <span className="italic text-muted">
-                  {' '}
+                  {" "}
                   Kept all the way to the binary.
                 </span>
               </h2>
@@ -341,15 +344,15 @@ export function HomePage() {
                 </StaggerItem>
                 <StaggerItem y={10}>
                   <p className="text-fg">
-                    Aura aims at the middle path: Java-like productivity,
-                    Go-like concurrency and GC, and a single native artifact you
+                    Aura aims at the middle path: class-based productivity,
+                    concurrent tasks with GC, and a single native artifact you
                     can copy onto a machine.
                   </p>
                 </StaggerItem>
                 <StaggerItem y={10}>
                   <p>
-                    The language is Aura. The toolchain is Rust. The long path is
-                    LLVM; today a C backend already checks, builds, runs, and
+                    The language is Aura. The toolchain is Rust. The long path
+                    is LLVM; today a C backend already checks, builds, runs, and
                     tests real packages from this repository.
                   </p>
                 </StaggerItem>
@@ -373,7 +376,7 @@ export function HomePage() {
               <h2 className="mt-4 max-w-[640px] font-display text-[34px] leading-[1.1] font-medium tracking-tight text-balance md:text-[44px]">
                 From familiar source
                 <span className="italic text-muted">
-                  {' '}
+                  {" "}
                   to one deployable file.
                 </span>
               </h2>
@@ -410,7 +413,9 @@ export function HomePage() {
               <p className="eyebrow">Quiet proof</p>
               <h2 className="mt-4 font-display text-[32px] leading-[1.12] font-medium tracking-tight md:text-[40px]">
                 Spec first.
-                <span className="block italic text-muted">Then the compiler.</span>
+                <span className="block italic text-muted">
+                  Then the compiler.
+                </span>
               </h2>
               <p className="mt-5 max-w-[420px] text-[16px] leading-[1.6] text-muted">
                 The site you are on indexes the RFCs that lock the language,
@@ -449,7 +454,9 @@ export function HomePage() {
                     className="mt-0.5 shrink-0 text-accent"
                     aria-hidden
                   />
-                  <span className="text-[16px] leading-snug text-fg">{row.t}</span>
+                  <span className="text-[16px] leading-snug text-fg">
+                    {row.t}
+                  </span>
                 </motion.li>
               ))}
             </motion.ul>
@@ -465,7 +472,7 @@ export function HomePage() {
                 <h2 className="mx-auto mt-4 max-w-[640px] font-display text-[32px] leading-[1.12] font-medium tracking-tight text-balance md:text-[44px]">
                   Learn with the guides,
                   <span className="italic text-muted">
-                    {' '}
+                    {" "}
                     design with the RFCs.
                   </span>
                 </h2>
@@ -526,5 +533,5 @@ export function HomePage() {
         </footer>
       </div>
     </MotionConfig>
-  )
+  );
 }

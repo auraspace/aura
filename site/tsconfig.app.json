@@ -4,7 +4,9 @@
     "target": "es2023",
     "lib": ["ES2023", "DOM"],
     "module": "esnext",
-    "types": ["vite/client"],
+    // Do not list "vite/client" here — TS looks for a type package entry and
+    // fails under pnpm ("Cannot find type definition file for 'vite/client'").
+    // Vite env types live in src/vite-env.d.ts (included via "include": ["src"]).
     "allowArbitraryExtensions": true,
     "skipLibCheck": true,
 

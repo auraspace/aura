@@ -1,6 +1,6 @@
 # Aura
 
-**Aura** is a statically typed, compiled language (Java-like classes, null-safe types, Go-like tasks/GC) that ships as a **single native executable**. The **toolchain is Rust + LLVM**; application code is Aura.
+**Aura** is a statically typed, compiled language (classes, null-safe types, lightweight tasks, and GC) that ships as a **single native executable**. The **toolchain is Rust + LLVM**; application code is Aura.
 
 This repository currently holds:
 

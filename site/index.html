@@ -6,9 +6,32 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="Aura is a statically typed language with Java-like classes, null-safe types, and Go-like tasks that ships as a single native binary."
+      content="Aura is a statically typed language with classes, null-safe types, and lightweight tasks that ships as a single native binary."
     />
     <title>Aura · Write services that leave as one binary</title>
+    <!--seo:start-->
+    <link rel="canonical" href="https://aura.fadosoft.com/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Aura" />
+    <meta
+      property="og:title"
+      content="Aura · Write services that leave as one binary"
+    />
+    <meta
+      property="og:description"
+      content="Aura is a statically typed language with classes, null-safe types, and lightweight tasks that ships as a single native binary."
+    />
+    <meta property="og:url" content="https://aura.fadosoft.com/" />
+    <meta name="twitter:card" content="summary" />
+    <meta
+      name="twitter:title"
+      content="Aura · Write services that leave as one binary"
+    />
+    <meta
+      name="twitter:description"
+      content="Aura is a statically typed language with classes, null-safe types, and lightweight tasks that ships as a single native binary."
+    />
+    <!--seo:end-->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -18,17 +41,17 @@
     <script>
       (function () {
         try {
-          var t = localStorage.getItem('theme')
+          var t = localStorage.getItem("theme");
           if (!t) {
-            t = window.matchMedia('(prefers-color-scheme: dark)').matches
-              ? 'dark'
-              : 'light'
+            t = window.matchMedia("(prefers-color-scheme: dark)").matches
+              ? "dark"
+              : "light";
           }
-          document.documentElement.setAttribute('data-theme', t)
+          document.documentElement.setAttribute("data-theme", t);
         } catch (e) {
-          document.documentElement.setAttribute('data-theme', 'light')
+          document.documentElement.setAttribute("data-theme", "light");
         }
-      })()
+      })();
     </script>
   </head>
   <body>
