@@ -1,4 +1,4 @@
-// C8i — HashMap String→Int (bucketed)
+// C8i/C9b — HashMap String→Int (bucketed + resize)
 package demo.stdhashmap
 
 import std.collections
@@ -37,5 +37,48 @@ fun main() {
   h.clear()
   if (h.isEmpty()) {
     println("clr")
+  }
+  // C9b: insert enough keys to trip load ≥ 1/2 (cap 16 → grow) and retain values.
+  val r = hash_map()
+  r.put("a", 1)
+  r.put("b", 2)
+  r.put("c", 3)
+  r.put("d", 4)
+  r.put("e", 5)
+  r.put("f", 6)
+  r.put("g", 7)
+  r.put("h", 8)
+  r.put("i", 9)
+  // 9 live / 16 → next insert triggers grow (live*2 >= n)
+  r.put("j", 10)
+  if (r.capacity() >= 32) {
+    println("grew")
+  }
+  r.put("k", 11)
+  r.put("l", 12)
+  r.put("m", 13)
+  r.put("n", 14)
+  r.put("o", 15)
+  r.put("p", 16)
+  r.put("q", 17)
+  r.put("r", 18)
+  r.put("s", 19)
+  r.put("t", 20)
+  if (r.len() == 20) {
+    println("n20")
+  }
+  if (r.getOr("t", -1) == 20) {
+    println("gett")
+  }
+  if (r.getOr("a", -1) == 1) {
+    println("geta2")
+  }
+  // Explicit grow() still works from outside.
+  r.grow()
+  if (r.capacity() >= 64) {
+    println("grew2")
+  }
+  if (r.getOr("j", -1) == 10) {
+    println("getj")
   }
 }

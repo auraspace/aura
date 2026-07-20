@@ -44,10 +44,11 @@ When you resolve debt, update or remove the matching entry.
 ### Stdlib collections polish
 
 - Area: stdlib / RFC-007
-- Symptom: linear `Map`/`Set`; `HashMap` String→Int fixed capacity 16; no resize, no generic HashMap
-- Why deferred: open-addressing MVP is enough for demos
-- Next step: resize; `HashMap<K,V>` when hashable protocol exists
-- Introduced: narrowed after C8i
+- Symptom: linear `Map`/`Set`; `HashMap` String→Int open addressing; no generic HashMap
+- Why deferred: String→Int + resize (C9b) enough for demos
+- Progress: C9b auto-resize when load ≥ 1/2; explicit `grow()`
+- Next step: `HashMap<K,V>` when hashable protocol exists
+- Introduced: narrowed after C8i; resize C9b
 
 ## Resolved
 
