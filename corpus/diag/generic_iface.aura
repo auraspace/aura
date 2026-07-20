@@ -1,0 +1,19 @@
+// C7i — generic interfaces parse; implements monomorphization deferred
+package demo.diag
+
+interface Iterable<E> {
+  fun len(): Int
+  fun get(i: Int): E
+}
+
+class Range3(val n: Int) : Iterable {
+  fun len(): Int {
+    return this.n
+  }
+  fun get(i: Int): Int {
+    return i
+  }
+}
+
+fun main() {
+}

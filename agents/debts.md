@@ -50,11 +50,11 @@ When you resolve debt, update or remove the matching entry.
 
 ### Generic `Iterable<E>` interface
 
-- Area: language / C6c
-- Symptom: C6c is non-generic iface shape (`len`+`get`); element type fixed per interface
-- Why deferred: interfaces have no type params yet
-- Next step: generic interfaces then `Iterable<E>`
-- Introduced: C6c
+- Area: language / C6c / C7i
+- Symptom: C6c non-generic `len`+`get`; C7i parses `interface I<T>` and resolves method types with params, but **implements** of generic ifaces is rejected
+- Why deferred: needs type-arg mono on implements (`: Iterable<Int>`), method subst check, codegen iface mono variants
+- Next step: implements TypeRef with type args + mono InterfaceSig; then `Iterable<E>` std
+- Introduced: C6c; parse foundation C7i
 
 ## Resolved
 

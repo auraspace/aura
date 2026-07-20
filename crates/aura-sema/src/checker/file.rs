@@ -86,6 +86,11 @@ impl Checker {
                 }
             }
             self.current_package = pkg.clone();
+            if let Err(err) = self.bind_type_params(&i.type_params) {
+                self.errors.push(err);
+                self.type_params.clear();
+                continue;
+            }
             let mut methods = HashMap::new();
             let mut method_ok = true;
             for m in &i.methods {
@@ -131,6 +136,7 @@ impl Checker {
                     },
                 );
             }
+            self.type_params.clear();
             if !method_ok && methods.is_empty() {
                 continue;
             }
@@ -141,6 +147,7 @@ impl Checker {
                     name: i.name.name.clone(),
                     is_pub: i.is_pub,
                     package: pkg,
+                    type_params: i.type_params.iter().map(|p| p.name.name.clone()).collect(),
                     methods,
                     span: i.span,
                 });
@@ -352,6 +359,18 @@ impl Checker {
                         continue;
                     }
                 };
+                // C7i: generic interfaces parse/register but cannot be implemented yet
+                // (needs type-arg mono + substituted method checks).
+                if !isig.type_params.is_empty() {
+                    self.errors.push(SemaError {
+                        message: format!(
+                            "implementing generic interface `{}` is not supported yet (C7i: monomorphized implements deferred)",
+                            iface.name
+                        ),
+                        span: iface.span,
+                    });
+                    continue;
+                }
                 let ikey = crate::ty::nominal_key(&isig.package, &iface.name);
                 if implements.contains(&ikey) {
                     self.errors.push(SemaError {

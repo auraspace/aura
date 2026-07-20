@@ -47,12 +47,14 @@ pub struct EnumVariant {
 }
 
 /// `interface Name { fun m(...): T  … }` (signatures only).
+/// C7i: optional type params (`interface Iterable<E> { … }`); monomorphized implements deferred.
 #[derive(Debug, Clone, PartialEq)]
 pub struct InterfaceDecl {
     pub is_pub: bool,
     /// Declaring package; empty means use `File.package`.
     pub origin_package: String,
     pub name: Ident,
+    pub type_params: Vec<TypeParam>,
     pub methods: Vec<MethodSig>,
     pub span: Span,
 }

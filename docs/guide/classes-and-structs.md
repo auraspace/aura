@@ -56,6 +56,8 @@ Use structs when you want data without shared mutable identity.
 
 Interfaces define method contracts. Classes implement them; calls on interface-typed receivers use closed-world dispatch in the C backend.
 
+**Generic interfaces (C7i):** the parser accepts `interface Iterable<E> { … }` and type-checks method signatures with those type parameters. **Implementing** a generic interface is not monomorphized yet — use a non-generic interface (fixed element type) for `for-in` protocols until implements type-args land.
+
 ```aura
 interface Named {
   fun name(): String

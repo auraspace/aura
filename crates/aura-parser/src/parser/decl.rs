@@ -74,6 +74,8 @@ impl Parser {
         let start = self.peek().span.start;
         self.expect(TokenKind::Interface, "`interface`")?;
         let name = self.expect_ident()?;
+        // C7i: `interface Iterable<E> { … }` — mono implements still deferred.
+        let type_params = self.parse_type_params_opt()?;
         self.expect(TokenKind::LBrace, "`{`")?;
         let mut methods = Vec::new();
         while !matches!(self.peek().kind, TokenKind::RBrace | TokenKind::Eof) {
@@ -87,6 +89,7 @@ impl Parser {
             is_pub: false,
             origin_package: String::new(),
             name,
+            type_params,
             methods,
             span: Span::new(start, end),
         })
@@ -237,7 +240,10 @@ impl Parser {
     }
 
     /// Optional `where T : Bound (, U : Bound)*` — merges into type param bounds.
-    pub(crate) fn apply_where_clause(&mut self, type_params: &mut [TypeParam]) -> Result<(), ParseError> {
+    pub(crate) fn apply_where_clause(
+        &mut self,
+        type_params: &mut [TypeParam],
+    ) -> Result<(), ParseError> {
         if !matches!(self.peek().kind, TokenKind::Where) {
             return Ok(());
         }

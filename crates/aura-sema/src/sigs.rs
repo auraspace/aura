@@ -66,6 +66,8 @@ pub struct InterfaceSig {
     pub name: String,
     pub is_pub: bool,
     pub package: String,
+    /// C7i: declared type params; monomorphized implements not yet supported.
+    pub type_params: Vec<String>,
     pub methods: HashMap<String, IfaceMethodSig>,
     pub span: Span,
 }

@@ -76,6 +76,9 @@ fn shift_method_sig(m: &mut MethodSig, delta: BytePos) {
 
 fn shift_interface(i: &mut InterfaceDecl, delta: BytePos) {
     shift_ident(&mut i.name, delta);
+    for tp in &mut i.type_params {
+        shift_type_param(tp, delta);
+    }
     for m in &mut i.methods {
         shift_method_sig(m, delta);
     }
