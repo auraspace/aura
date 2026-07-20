@@ -140,12 +140,12 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C7b**   | Array field GC: dtor free + mark_extras Array-of-class fields      | Done                                       |
 | **C7c**   | Move-out Array field on return/bind/assign                         | Done                                       |
 | **C7d**   | Plan + roadmap C7a–C7j                                             | Done                                       |
-| **C7e**   | `std.collections` Set (String, linear)                             | Pending                                    |
-| **C7f**   | Map API expand (`remove` / `clear`)                                | Pending                                    |
-| **C7g**   | Multi-error collect in declaration phase                           | Pending                                    |
+| **C7e**   | `std.collections` Set (String, linear)                             | Done                                       |
+| **C7f**   | Map API expand (`remove` / `clear`)                                | Done                                       |
+| **C7g**   | Multi-error collect in declaration phase                           | Done                                       |
 | **C7h**   | Array-of-interface decision (reject MVP vs fat ptr)                | Done                                       |
-| **C7i**   | Generic interfaces / `Iterable<E>` slice                           | Pending                                    |
-| **C7j**   | Array element drop on free/pop/clear (or defer)                    | Pending                                    |
+| **C7i**   | Generic interfaces foundation (parse; implements mono deferred)    | Done                                       |
+| **C7j**   | Array element drop: document defer (buffer-only free)              | Done                                       |
 | **DX**    | line:col diagnostics with snippets                                 | Done                                       |
 
 **Out of scope C0/C1:** generics mono, async/tasks, macros, registry, incremental, LTO.

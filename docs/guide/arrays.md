@@ -77,6 +77,8 @@ String iteration over UTF-8 bytes as `Int` is also supported in the compiler pat
 
 The C backend frees owned array buffers at scope end / before return in the current runtime model. Prefer clear lifetime patterns in local scopes; deeper GC interaction is evolving ([RFC-003](/rfc/003), [RFC-006](/rfc/006)).
 
+**Element drop (C7j):** free is **buffer-only** — elements are not finalized. That is correct for primitives, class references (GC), and by-value enums/structs without owned buffers. Nested `Array<Array<T>>` deep free is deferred until nested mono emit order is fixed.
+
 ## Corpus
 
 See `corpus/generic/array*.aura` and related control samples for executable truth.

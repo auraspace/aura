@@ -36,9 +36,10 @@ When you resolve debt, update or remove the matching entry.
 
 - Area: builtin Array
 - Symptom: free is buffer-only; element destructors / nested free not run on pop/clear/drop
-- Why deferred: no finalizers; enum/struct fields may hold owning Arrays later
-- Next step: element drop hooks if needed
-- Introduced: narrowed after C4q; C6g enum elements by-value (no deep free)
+- Decision (C7j): **defer** element drop for MVP — prim/class/enum/struct elems need no free; nested `Array<Array<T>>` emit order + deep free not ready
+- Why deferred: no nested Array mono order yet; class elems are GC roots not owned buffers
+- Next step: emit Array mono for nested Array elem first; free loop on owner drop/clear for Array-valued elems; pop already transfers elem out
+- Introduced: narrowed after C4q; C6g enum; C7j document defer
 
 ### Stdlib incomplete (collections)
 
