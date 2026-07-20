@@ -18,28 +18,29 @@ impl Checker {
     ) -> Result<Ty, String> {
         let class = self.class_by_nominal_key(nominal_key).ok_or_else(|| {
             format!(
-                "for-in iterable must be Array<T>, String, or a type with `len` and `get(Int)`, got {}",
+                "for-in iterable must be Array<T>, String, Iterable interface, or a type with `len` and `get(Int)`, got {}",
                 iter_ty.display()
             )
         })?;
         let subst = type_subst_map(&class.type_params, iter_ty.class_args());
         let (simple, _) = crate::ty::split_nominal(nominal_key);
 
-        let has_len_field = class.fields.iter().any(|f| {
-            f.name == "len" && matches!(subst_ty(&f.ty, &subst), Ty::Int)
-        });
-        let has_len_method = class.methods.get("len").map(|m| {
-            m.params.is_empty() && matches!(subst_ty(&m.ret, &subst), Ty::Int)
-        }) == Some(true);
+        let has_len_field = class
+            .fields
+            .iter()
+            .any(|f| f.name == "len" && matches!(subst_ty(&f.ty, &subst), Ty::Int));
+        let has_len_method = class
+            .methods
+            .get("len")
+            .map(|m| m.params.is_empty() && matches!(subst_ty(&m.ret, &subst), Ty::Int))
+            == Some(true);
         if !has_len_field && !has_len_method {
             return Err(format!(
                 "for-in over `{simple}` requires field or method `len: Int` (or `len(): Int`) and method `get(Int)`"
             ));
         }
         let get = class.methods.get("get").ok_or_else(|| {
-            format!(
-                "for-in over `{simple}` requires method `get(Int)` (found `len` but no `get`)"
-            )
+            format!("for-in over `{simple}` requires method `get(Int)` (found `len` but no `get`)")
         })?;
         if get.params.len() != 1 || !matches!(subst_ty(&get.params[0], &subst), Ty::Int) {
             return Err(format!(
@@ -47,6 +48,33 @@ impl Checker {
             ));
         }
         Ok(subst_ty(&get.ret, &subst))
+    }
+
+    /// C6c: interface Iterable protocol — `len(): Int` + `get(i: Int): E`.
+    pub(crate) fn iface_iterable_elem(&self, iface_key: &str) -> Result<Ty, String> {
+        let iface = self
+            .iface_by_nominal_key(iface_key)
+            .ok_or_else(|| format!("for-in over interface `{iface_key}`: unknown interface"))?;
+        let (simple, _) = crate::ty::split_nominal(iface_key);
+        let len = iface.methods.get("len").ok_or_else(|| {
+            format!("for-in over interface `{simple}` requires method `len(): Int` and `get(Int)`")
+        })?;
+        if !len.params.is_empty() || !matches!(len.ret, Ty::Int) {
+            return Err(format!(
+                "for-in over interface `{simple}`: `len` must be `len(): Int`"
+            ));
+        }
+        let get = iface.methods.get("get").ok_or_else(|| {
+            format!(
+                "for-in over interface `{simple}` requires method `get(Int)` (found `len` but no `get`)"
+            )
+        })?;
+        if get.params.len() != 1 || !matches!(get.params[0], Ty::Int) {
+            return Err(format!(
+                "for-in over interface `{simple}`: `get` must take a single `Int` index"
+            ));
+        }
+        Ok(get.ret.clone())
     }
 
     /// Types that may be thrown/caught (C3c primitives + C3g class/struct values).
@@ -58,7 +86,11 @@ impl Checker {
         }
     }
 
-    pub(crate) fn check_block(&mut self, block: &Block, expected_ret: &Ty) -> Result<(), SemaError> {
+    pub(crate) fn check_block(
+        &mut self,
+        block: &Block,
+        expected_ret: &Ty,
+    ) -> Result<(), SemaError> {
         self.locals.push(HashMap::new());
         for stmt in &block.stmts {
             self.check_stmt(stmt, expected_ret)?;
@@ -101,14 +133,15 @@ impl Checker {
         })
     }
 
-    pub(crate) fn check_match(&mut self, m: &MatchStmt, expected_ret: &Ty) -> Result<(), SemaError> {
+    pub(crate) fn check_match(
+        &mut self,
+        m: &MatchStmt,
+        expected_ret: &Ty,
+    ) -> Result<(), SemaError> {
         let scrut_ty = self.check_expr(&m.scrutinee)?;
         let Some(ename) = scrut_ty.enum_name() else {
             return Err(SemaError {
-                message: format!(
-                    "`match` requires an enum type, got {}",
-                    scrut_ty.display()
-                ),
+                message: format!("`match` requires an enum type, got {}", scrut_ty.display()),
                 span: m.scrutinee.span(),
             });
         };
@@ -169,13 +202,8 @@ impl Checker {
                 }
                 let _ = fname;
                 let ty = subst_ty(fty, &subst);
-                self.current_locals_mut().insert(
-                    bind.name.clone(),
-                    Local {
-                        ty,
-                        mutable: false,
-                    },
-                );
+                self.current_locals_mut()
+                    .insert(bind.name.clone(), Local { ty, mutable: false });
             }
             for stmt in &arm.body.stmts {
                 self.check_stmt(stmt, expected_ret)?;
@@ -356,10 +384,7 @@ impl Checker {
                 let start_ty = self.check_expr(&f.start)?;
                 if start_ty != Ty::Int {
                     return Err(SemaError {
-                        message: format!(
-                            "for-range start must be Int, got {}",
-                            start_ty.display()
-                        ),
+                        message: format!("for-range start must be Int, got {}", start_ty.display()),
                         span: f.start.span(),
                     });
                 }
@@ -406,6 +431,16 @@ impl Checker {
                     {
                         args[0].clone()
                     }
+                    // C6c: formal Iterable protocol on interface types.
+                    Ty::Interface(n) => match self.iface_iterable_elem(n) {
+                        Ok(t) => t,
+                        Err(msg) => {
+                            return Err(SemaError {
+                                message: msg,
+                                span: f.iterable.span(),
+                            });
+                        }
+                    },
                     // C4y: duck Iterable — class/struct with `len` (field or ()) and `get(Int)`.
                     Ty::Class(n) | Ty::ClassApp { name: n, .. } => {
                         match self.duck_iterable_elem(&iter_ty, n, f.iterable.span()) {
@@ -421,7 +456,7 @@ impl Checker {
                     other => {
                         return Err(SemaError {
                             message: format!(
-                                "for-in iterable must be Array<T>, String, or a type with `len` and `get(Int)`, got {}",
+                                "for-in iterable must be Array<T>, String, Iterable interface, or a type with `len` and `get(Int)`, got {}",
                                 other.display()
                             ),
                             span: f.iterable.span(),

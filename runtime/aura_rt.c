@@ -212,15 +212,17 @@ void aura_ex_rethrow(void) {
   longjmp(*outer->buf, 1);
 }
 
-/* ---- GC (C3x free-all + C4z roots + C5f mark/sweep) ----
- * aura_gc_collect: if roots registered → shallow mark from roots + sweep
- * unmarked. If no roots → mark-all (safe: reclaim nothing until compiler
- * emits roots). Shutdown still free-all remaining.
+/* ---- GC (C3x free-all + C4z roots + C5f mark/sweep + C6a deep mark) ----
+ * aura_gc_collect: if roots registered → mark from roots, then deep-scan
+ * object bodies for nested GC pointers (conservative pointer slots) + sweep
+ * unmarked. If no roots → mark-all (safe until compiler emits roots).
+ * Shutdown still free-all remaining.
  */
 
 typedef struct AuraGcNode {
   void *ptr;
-  int marked; /* C4z: mark bit for STW collect */
+  size_t size;  /* C6a: payload size for deep field scan */
+  int marked;   /* C4z: mark bit for STW collect */
   struct AuraGcNode *next;
 } AuraGcNode;
 
@@ -230,6 +232,11 @@ static AuraGcNode *aura_gc_list = NULL;
 #define AURA_GC_MAX_ROOTS 256
 static void **aura_gc_roots[AURA_GC_MAX_ROOTS];
 static int aura_gc_root_n = 0;
+
+/* Worklist for deep mark (C6a). */
+#define AURA_GC_MARK_STACK 1024
+static AuraGcNode *aura_gc_mark_stack[AURA_GC_MARK_STACK];
+static int aura_gc_mark_sp = 0;
 
 void aura_gc_add_root(void **slot) {
   if (slot == NULL) {
@@ -269,11 +276,46 @@ static AuraGcNode *aura_gc_find(void *ptr) {
   return NULL;
 }
 
+static void aura_gc_mark_push(AuraGcNode *n) {
+  if (n == NULL || n->marked) {
+    return;
+  }
+  n->marked = 1;
+  if (aura_gc_mark_sp >= AURA_GC_MARK_STACK) {
+    fputs("aura: GC mark stack overflow\n", stderr);
+    abort();
+  }
+  aura_gc_mark_stack[aura_gc_mark_sp++] = n;
+}
+
+/* C6a: mark object and enqueue; scan body for nested GC pointers. */
+static void aura_gc_mark_scan(AuraGcNode *n) {
+  if (n == NULL || n->ptr == NULL || n->size < sizeof(void *)) {
+    return;
+  }
+  /* Align scan to pointer-sized slots within the allocation. */
+  uintptr_t base = (uintptr_t)n->ptr;
+  size_t nslots = n->size / sizeof(void *);
+  for (size_t i = 0; i < nslots; i++) {
+    void *candidate = *(void **)(base + i * sizeof(void *));
+    if (candidate == NULL) {
+      continue;
+    }
+    AuraGcNode *child = aura_gc_find(candidate);
+    if (child != NULL) {
+      aura_gc_mark_push(child);
+    }
+  }
+}
+
 void *aura_gc_alloc(size_t size) {
   void *p = malloc(size);
   if (p == NULL && size > 0) {
     fputs("aura: GC allocation failed\n", stderr);
     abort();
+  }
+  if (p != NULL && size > 0) {
+    memset(p, 0, size);
   }
   AuraGcNode *n = (AuraGcNode *)malloc(sizeof(AuraGcNode));
   if (n == NULL) {
@@ -281,13 +323,14 @@ void *aura_gc_alloc(size_t size) {
     abort();
   }
   n->ptr = p;
+  n->size = size;
   n->marked = 0;
   n->next = aura_gc_list;
   aura_gc_list = n;
   return p;
 }
 
-/* C4z/C5f: stop-the-world mark (+ sweep when roots are registered). */
+/* C4z/C5f/C6a: stop-the-world deep mark + sweep when roots are registered. */
 void aura_gc_collect(void) {
   for (AuraGcNode *n = aura_gc_list; n != NULL; n = n->next) {
     n->marked = 0;
@@ -299,6 +342,7 @@ void aura_gc_collect(void) {
     }
     return;
   }
+  aura_gc_mark_sp = 0;
   for (int i = 0; i < aura_gc_root_n; i++) {
     void **slot = aura_gc_roots[i];
     if (slot == NULL) {
@@ -310,8 +354,13 @@ void aura_gc_collect(void) {
     }
     AuraGcNode *n = aura_gc_find(obj);
     if (n != NULL) {
-      n->marked = 1;
+      aura_gc_mark_push(n);
     }
+  }
+  /* C6a: deep mark — scan fields of marked objects for nested GC refs. */
+  while (aura_gc_mark_sp > 0) {
+    AuraGcNode *n = aura_gc_mark_stack[--aura_gc_mark_sp];
+    aura_gc_mark_scan(n);
   }
   /* C5f: sweep unmarked objects. */
   AuraGcNode **link = &aura_gc_list;

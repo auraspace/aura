@@ -3,12 +3,56 @@
 use aura_ast::*;
 use aura_sema::Ty;
 
+use crate::array_emit::is_array_type_key;
 use crate::ctx::EmitCtx;
 use crate::expr::{
     coerce_expr, emit_expr, infer_type_name, mono_base_name, mono_split, resolve_class_of_expr,
     resolve_type_name, type_ref_to_ty,
 };
 use crate::names::*;
+
+/// C6b: after a call that moved Array owner args into params, zero sources.
+fn wrap_array_arg_moves(
+    call: String,
+    move_srcs: &[String],
+    ret_c: &str,
+    ctx: &mut EmitCtx<'_>,
+) -> String {
+    if move_srcs.is_empty() {
+        return call;
+    }
+    let mut zeros = String::new();
+    for src in move_srcs {
+        let s = mangle_ident(src);
+        zeros.push_str(&format!("{s}.data = NULL; {s}.len = 0; {s}.cap = 0; "));
+        ctx.unmark_array_owner(src);
+    }
+    if ret_c == "void" {
+        format!("({{ {call}; {zeros}}})")
+    } else {
+        format!("({{ {ret_c} __am = ({call}); {zeros}__am; }})")
+    }
+}
+
+/// Collect Array owner idents that should move into matching Array params.
+fn array_move_srcs_from_args(
+    args: &[Expr],
+    param_keys: &[String],
+    ctx: &EmitCtx<'_>,
+) -> Vec<String> {
+    let mut move_srcs = Vec::new();
+    for (a, expected) in args.iter().zip(param_keys.iter()) {
+        if !is_array_type_key(expected) {
+            continue;
+        }
+        if let Expr::Ident(id) = a {
+            if ctx.is_array_owner(&id.name) && !move_srcs.contains(&id.name) {
+                move_srcs.push(id.name.clone());
+            }
+        }
+    }
+    move_srcs
+}
 
 pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
     // Method call: obj.method(args)
@@ -47,9 +91,11 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
         // Interface method (C4d: package-prefixed mono)
         if let Some(iface_key) = obj_ty.as_ref().filter(|t| {
             let im = iface_mono_from_key(t, ctx.checked);
-            ctx.checked.ast.interfaces.iter().any(|i| {
-                iface_mono(i, ctx.checked) == im || i.name.name == **t
-            })
+            ctx.checked
+                .ast
+                .interfaces
+                .iter()
+                .any(|i| iface_mono(i, ctx.checked) == im || i.name.name == **t)
         }) {
             let imono = iface_mono_from_key(iface_key, ctx.checked);
             let mut args = vec![format!("&({obj})")];
@@ -196,18 +242,8 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
             format!("&({obj})")
         };
         let mut args = vec![this_arg];
-        if let Some(class) = ctx
-            .checked
-            .ast
-            .classes
-            .iter()
-            .find(|c| c.name.name == base)
-        {
-            if let Some(m) = class
-                .methods
-                .iter()
-                .find(|m| m.name.name == fe.field.name)
-            {
+        if let Some(class) = ctx.checked.ast.classes.iter().find(|c| c.name.name == base) {
+            if let Some(m) = class.methods.iter().find(|m| m.name.name == fe.field.name) {
                 // C4u: substitute class type params for method parameter expected types.
                 let params: Vec<String> = class
                     .type_params
@@ -217,10 +253,25 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                 let targs: Vec<Ty> = mono_split(mono_raw, ctx.checked)
                     .map(|(_, a)| a.to_vec())
                     .unwrap_or_default();
+                let mut param_keys = Vec::new();
                 for (a, p) in c.args.iter().zip(m.params.iter()) {
                     let expected = type_ref_local_key(&p.ty, &params, &targs);
+                    param_keys.push(expected.clone());
                     args.push(coerce_expr(a, &expected, ctx));
                 }
+                let move_srcs = array_move_srcs_from_args(&c.args, &param_keys, ctx);
+                let ret_c = c_type_from_opt(&m.return_type, ctx.checked, &params, &targs);
+                let call = format!(
+                    "{}({})",
+                    c_method_name(&mono, &fe.field.name),
+                    args.join(", ")
+                );
+                let call = wrap_array_arg_moves(call, &move_srcs, &ret_c, ctx);
+                // C4s: `?.` short-circuit to NULL when receiver is null (pointer-like results).
+                if fe.safe {
+                    return format!("(({obj}) == NULL ? NULL : {call})");
+                }
+                return call;
             } else {
                 for a in &c.args {
                     args.push(emit_expr(a, ctx));
@@ -295,8 +346,11 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                         }
                     });
                 let mono = type_mono(pkg, &id.name, &targs);
-                let params: Vec<String> =
-                    class.type_params.iter().map(|p| p.name.name.clone()).collect();
+                let params: Vec<String> = class
+                    .type_params
+                    .iter()
+                    .map(|p| p.name.name.clone())
+                    .collect();
                 let args = c
                     .args
                     .iter()
@@ -321,11 +375,8 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                         .find(|e| e.name.name == inst.name)
                     {
                         if let Some(v) = e.variants.iter().find(|v| v.name.name == *vname) {
-                            let params: Vec<String> = e
-                                .type_params
-                                .iter()
-                                .map(|p| p.name.name.clone())
-                                .collect();
+                            let params: Vec<String> =
+                                e.type_params.iter().map(|p| p.name.name.clone()).collect();
                             let args = c
                                 .args
                                 .iter()
@@ -378,19 +429,25 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                 f.name.name == id.name
                     && (pkg.is_empty() || fun_decl_package(f, ctx.checked) == pkg)
             }) {
-                let params: Vec<String> = f.type_params.iter().map(|p| p.name.name.clone()).collect();
+                let params: Vec<String> =
+                    f.type_params.iter().map(|p| p.name.name.clone()).collect();
+                let mut param_keys = Vec::new();
                 let args = c
                     .args
                     .iter()
                     .zip(f.params.iter())
                     .map(|(a, p)| {
                         let expected = type_ref_local_key(&p.ty, &params, &targs);
+                        param_keys.push(expected.clone());
                         coerce_expr(a, &expected, ctx)
                     })
                     .collect::<Vec<_>>()
                     .join(", ");
+                let move_srcs = array_move_srcs_from_args(&c.args, &param_keys, ctx);
+                let ret_c = c_type_from_opt(&f.return_type, ctx.checked, &params, &targs);
                 let fpkg = fun_decl_package(f, ctx.checked);
-                return format!("{}({args})", c_fun_name(&fpkg, &id.name, &targs));
+                let call = format!("{}({args})", c_fun_name(&fpkg, &id.name, &targs));
+                return wrap_array_arg_moves(call, &move_srcs, &ret_c, ctx);
             }
             let args = c
                 .args
@@ -403,4 +460,3 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
         _ => "/* bad call */(0)".into(),
     }
 }
-

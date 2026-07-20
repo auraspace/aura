@@ -190,11 +190,7 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     for iface in &checked.ast.interfaces {
         let imono = iface_mono(iface, checked);
         for m in &iface.methods {
-            let _ = writeln!(
-                out,
-                "{};",
-                c_iface_method_signature(&imono, m, checked)
-            );
+            let _ = writeln!(out, "{};", c_iface_method_signature(&imono, m, checked));
         }
     }
     for f in &checked.ast.functions {
@@ -271,12 +267,7 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
 }
 
 pub(crate) fn emit_test_main(out: &mut String, checked: &CheckedFile) {
-    let tests: Vec<_> = checked
-        .ast
-        .functions
-        .iter()
-        .filter(|f| f.is_test)
-        .collect();
+    let tests: Vec<_> = checked.ast.functions.iter().filter(|f| f.is_test).collect();
     out.push_str("int aura_main(void) {\n");
     out.push_str("  int failed = 0;\n");
     out.push_str("  int ran = 0;\n");
@@ -343,6 +334,10 @@ pub(crate) fn emit_fun(out: &mut String, f: &FunDecl, checked: &CheckedFile, arg
     for p in &f.params {
         let key = type_ref_local_key(&p.ty, &params, args);
         ctx.define_local(&p.name.name, key.clone());
+        // C6b: Array params own the buffer (caller moves or passes a fresh Array).
+        if crate::array_emit::is_array_type_key(&key) {
+            ctx.mark_array_owner(&p.name.name);
+        }
         // C5g: heap-class params are GC roots for the function body.
         let mono = full_type_mono(&key, checked);
         if is_heap_class_mono(&mono, checked) {

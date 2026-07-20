@@ -6,6 +6,11 @@ use aura_sema::{CheckedFile, Ty};
 
 use crate::names::{c_class_type, c_ctor_name, c_method_name, mono_key, ty_to_c_array_elem};
 
+/// Local/type key is an Array monomorph (`Array`, `Array_Int`, …).
+pub(crate) fn is_array_type_key(key: &str) -> bool {
+    key == "Array" || key.starts_with("Array_") || is_array_mono(key)
+}
+
 pub(crate) fn is_array_mono(name: &str) -> bool {
     name == "Array"
 }

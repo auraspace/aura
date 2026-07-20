@@ -230,6 +230,10 @@ pub(crate) fn emit_method_mono(
     for p in &m.params {
         let key = type_ref_local_key(&p.ty, params, args);
         ctx.define_local(&p.name.name, key.clone());
+        // C6b: Array params own the buffer.
+        if crate::array_emit::is_array_type_key(&key) {
+            ctx.mark_array_owner(&p.name.name);
+        }
         let mono = crate::expr::full_type_mono(&key, checked);
         if is_heap_class_mono(&mono, checked) {
             ctx.mark_gc_root(&p.name.name);

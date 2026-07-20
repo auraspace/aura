@@ -35,12 +35,13 @@ fn type_ref_local_key_checked(t: &TypeRef, ctx: &EmitCtx<'_>) -> String {
         .filter_map(|a| crate::expr::type_ref_to_ty(a, ctx))
         .collect();
     if let Some(q) = &t.qualifier {
-        if let Some(imp) = ctx.checked.ast.imports.iter().find(|i| {
-            i.alias
-                .as_ref()
-                .map(|a| a.name == q.name)
-                .unwrap_or(false)
-        }) {
+        if let Some(imp) = ctx
+            .checked
+            .ast
+            .imports
+            .iter()
+            .find(|i| i.alias.as_ref().map(|a| a.name == q.name).unwrap_or(false))
+        {
             return type_mono(&imp.path.display(), &t.name.name, &targs);
         }
     }
@@ -147,7 +148,7 @@ fn emit_remove_gc_roots(out: &mut String, indent: usize, names: &[String]) {
 }
 
 fn is_array_type_key(key: &str) -> bool {
-    key == "Array" || key.starts_with("Array_")
+    crate::array_emit::is_array_type_key(key)
 }
 
 fn is_array_ctor_expr(e: &Expr) -> bool {
@@ -165,18 +166,14 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
     let p = pad(indent);
     match stmt {
         Stmt::Var(v) => {
-            let ty_name = v
-                .ty
-                .as_ref()
-                .map(|t| type_ref_local_key_checked(t, ctx))
-                .unwrap_or_else(|| infer_type_name(&v.init, ctx));
-            let ty = v
-                .ty
-                .as_ref()
-                .map(|t| {
-                    c_type_ref_subst(t, ctx.checked, &ctx.type_params, &ctx.type_args)
-                })
-                .unwrap_or_else(|| local_key_to_c(&ty_name, ctx.checked));
+            let ty_name =
+                v.ty.as_ref()
+                    .map(|t| type_ref_local_key_checked(t, ctx))
+                    .unwrap_or_else(|| infer_type_name(&v.init, ctx));
+            let ty =
+                v.ty.as_ref()
+                    .map(|t| c_type_ref_subst(t, ctx.checked, &ctx.type_params, &ctx.type_args))
+                    .unwrap_or_else(|| local_key_to_c(&ty_name, ctx.checked));
             // Store package mono key so method dispatch picks the right C symbol (C3v).
             ctx.define_local(&v.name.name, full_type_mono(&ty_name, ctx.checked));
             // C3t: locals initialized from `Array(...)` own the heap buffer.
@@ -265,15 +262,9 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
             if iter_key == "String" {
                 // C3w: for (b in s) over UTF-8 bytes as Int.
                 let _ = writeln!(out, "{p}  const char *{it_tmp} = {iter_e};");
-                let _ = writeln!(
-                    out,
-                    "{p}  if ({it_tmp} == NULL) {{ {it_tmp} = \"\"; }}"
-                );
+                let _ = writeln!(out, "{p}  if ({it_tmp} == NULL) {{ {it_tmp} = \"\"; }}");
                 let len_tmp = format!("__for_len_{}", f.span.start);
-                let _ = writeln!(
-                    out,
-                    "{p}  size_t {len_tmp} = strlen({it_tmp});"
-                );
+                let _ = writeln!(out, "{p}  size_t {len_tmp} = strlen({it_tmp});");
                 let _ = writeln!(
                     out,
                     "{p}  for (size_t {idx_tmp} = 0; {idx_tmp} < {len_tmp}; {idx_tmp}++) {{"
@@ -301,10 +292,7 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                 } else {
                     full_type_mono(&iter_key, ctx.checked)
                 };
-                let elem_key = mono
-                    .strip_prefix("Array_")
-                    .unwrap_or("Int")
-                    .to_string();
+                let elem_key = mono.strip_prefix("Array_").unwrap_or("Int").to_string();
                 let arr_c = local_key_to_c(&mono, ctx.checked);
                 let elem_c = local_key_to_c(&elem_key, ctx.checked);
                 let get_fn = c_method_name(&mono, "get");
@@ -324,16 +312,55 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                 }
                 ctx.pop_scope();
                 let _ = writeln!(out, "{p}  }}");
+            } else if ctx
+                .checked
+                .ast
+                .interfaces
+                .iter()
+                .any(|i| i.name.name == iter_key || iface_mono(i, ctx.checked) == iter_key)
+            {
+                // C6c: for-in over interface with len() + get(i) via iface dispatch.
+                let imono = iface_mono_from_key(&iter_key, ctx.checked);
+                let iface = ctx
+                    .checked
+                    .ast
+                    .interfaces
+                    .iter()
+                    .find(|i| i.name.name == iter_key || iface_mono(i, ctx.checked) == imono);
+                let elem_key = iface
+                    .and_then(|i| {
+                        i.methods
+                            .iter()
+                            .find(|m| m.name.name == "get")
+                            .and_then(|m| m.return_type.as_ref())
+                            .map(|rt| type_ref_local_key(rt, &[], &[]))
+                    })
+                    .unwrap_or_else(|| "Int".into());
+                let recv_c = c_iface_type(&imono);
+                let elem_c = local_key_to_c(&elem_key, ctx.checked);
+                let len_fn = c_iface_method_name(&imono, "len");
+                let get_fn = c_iface_method_name(&imono, "get");
+                let _ = writeln!(out, "{p}  {recv_c} {it_tmp} = {iter_e};");
+                let _ = writeln!(
+                    out,
+                    "{p}  for (int64_t {idx_tmp} = 0; {idx_tmp} < {len_fn}(&{it_tmp}); {idx_tmp}++) {{"
+                );
+                let _ = writeln!(
+                    out,
+                    "{p}    {elem_c} {bind} = {get_fn}(&{it_tmp}, {idx_tmp});"
+                );
+                ctx.push_scope();
+                ctx.define_local(&f.name.name, elem_key);
+                for stmt in &f.body.stmts {
+                    emit_stmt(out, stmt, indent + 2, ctx);
+                }
+                ctx.pop_scope();
+                let _ = writeln!(out, "{p}  }}");
             } else {
                 // C4y: duck Iterable — class/struct with len field/method + get(i).
                 let mono = full_type_mono(&iter_key, ctx.checked);
                 let base = mono_base_name(&mono, ctx.checked).unwrap_or(mono.as_str());
-                let class = ctx
-                    .checked
-                    .ast
-                    .classes
-                    .iter()
-                    .find(|c| c.name.name == base);
+                let class = ctx.checked.ast.classes.iter().find(|c| c.name.name == base);
                 let has_len_field = class
                     .map(|c| c.fields.iter().any(|f| f.name.name == "len"))
                     .unwrap_or(false);
@@ -347,11 +374,8 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                             .find(|m| m.name.name == "get")
                             .and_then(|m| m.return_type.as_ref())
                             .map(|rt| {
-                                let params: Vec<String> = c
-                                    .type_params
-                                    .iter()
-                                    .map(|p| p.name.name.clone())
-                                    .collect();
+                                let params: Vec<String> =
+                                    c.type_params.iter().map(|p| p.name.name.clone()).collect();
                                 let targs = mono_split(&mono, ctx.checked)
                                     .map(|(_, a)| a.to_vec())
                                     .unwrap_or_default();
@@ -500,9 +524,11 @@ pub(crate) fn local_key_to_c(key: &str, checked: &CheckedFile) -> String {
         "Bool" => "bool".into(),
         "String" => "const char *".into(),
         "Unit" => "void".into(),
-        n if checked.ast.interfaces.iter().any(|i| {
-            i.name.name == n || iface_mono(i, checked) == n
-        }) =>
+        n if checked
+            .ast
+            .interfaces
+            .iter()
+            .any(|i| i.name.name == n || iface_mono(i, checked) == n) =>
         {
             c_iface_type(&iface_mono_from_key(n, checked))
         }
@@ -511,10 +537,7 @@ pub(crate) fn local_key_to_c(key: &str, checked: &CheckedFile) -> String {
             let base = mono_base_name(&mono, checked).unwrap_or(n);
             if is_enum_name(checked, base)
                 || checked.ast.enums.iter().any(|e| e.name.name == base)
-                || checked
-                    .mono_enums
-                    .iter()
-                    .any(|(name, _)| name == base)
+                || checked.mono_enums.iter().any(|(name, _)| name == base)
             {
                 c_enum_type(&mono)
             } else {
@@ -541,11 +564,7 @@ pub(crate) fn emit_try(out: &mut String, t: &TryStmt, indent: usize, ctx: &mut E
     let _ = writeln!(out, "{p}  }} else {{");
     if let Some(c) = &t.catch {
         // Local key for catch type (handles generics as mono key).
-        let catch_key = type_ref_local_key(
-            &c.ty,
-            &ctx.type_params,
-            &ctx.type_args,
-        );
+        let catch_key = type_ref_local_key(&c.ty, &ctx.type_params, &ctx.type_args);
         let _ = writeln!(out, "{p}    if (aura_ex_matches(\"{catch_key}\")) {{");
         let bind = mangle_ident(&c.name.name);
         match catch_key.as_str() {
@@ -567,10 +586,7 @@ pub(crate) fn emit_try(out: &mut String, t: &TryStmt, indent: usize, ctx: &mut E
                         out,
                         "{p}      {base_c} *{bind} = ({base_c} *)aura_gc_alloc(sizeof({base_c}));"
                     );
-                    let _ = writeln!(
-                        out,
-                        "{p}      *{bind} = *({base_c} *)aura_ex_as_obj();"
-                    );
+                    let _ = writeln!(out, "{p}      *{bind} = *({base_c} *)aura_ex_as_obj();");
                 } else {
                     let _ = writeln!(
                         out,
@@ -631,19 +647,10 @@ pub(crate) fn emit_match(out: &mut String, m: &MatchStmt, indent: usize, ctx: &m
         })
         .unwrap_or(&scrut_key);
 
-    let enum_decl = ctx
-        .checked
-        .ast
-        .enums
-        .iter()
-        .find(|e| e.name.name == ename);
+    let enum_decl = ctx.checked.ast.enums.iter().find(|e| e.name.name == ename);
 
     for arm in &m.arms {
-        let Pattern::Variant {
-            name,
-            bindings,
-            ..
-        } = &arm.pattern;
+        let Pattern::Variant { name, bindings, .. } = &arm.pattern;
         let tag = enum_decl
             .and_then(|e| e.variants.iter().position(|v| v.name.name == name.name))
             .unwrap_or(0);

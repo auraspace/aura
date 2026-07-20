@@ -38,7 +38,11 @@ fun main() {
 "#;
     let file = parse_file(src).expect("parse");
     let err = check_file(&file).expect_err("throw null");
-    assert!(err.message.contains("throw") || err.message.contains("Null"), "{}", err.message);
+    assert!(
+        err.message.contains("throw") || err.message.contains("Null"),
+        "{}",
+        err.message
+    );
 }
 
 #[test]
@@ -83,7 +87,11 @@ fun main() {}
 "#;
     let file = parse_file(src).expect("parse");
     let err = check_file(&file).expect_err("non-exhaustive");
-    assert!(err.message.contains("non-exhaustive") || err.message.contains("Green"), "{}", err.message);
+    assert!(
+        err.message.contains("non-exhaustive") || err.message.contains("Green"),
+        "{}",
+        err.message
+    );
 }
 
 #[test]
@@ -101,7 +109,10 @@ fun main() {}
 "#;
     let file = parse_file(src).expect("parse");
     let checked = check_file(&file).expect("check");
-    assert!(checked.classes.iter().any(|c| c.is_struct && c.name == "Point"));
+    assert!(checked
+        .classes
+        .iter()
+        .any(|c| c.is_struct && c.name == "Point"));
 }
 
 #[test]
@@ -230,18 +241,14 @@ fun main() {
 "#;
     let file = parse_file(src).expect("parse");
     let checked = check_file(&file).expect("check");
-    assert!(
-        checked
-            .mono_classes
-            .iter()
-            .any(|(n, a)| n == "Box" && a == &[Ty::String])
-    );
-    assert!(
-        checked
-            .mono_funs
-            .iter()
-            .any(|(n, a)| n == "id" && a == &[Ty::String])
-    );
+    assert!(checked
+        .mono_classes
+        .iter()
+        .any(|(n, a)| n == "Box" && a == &[Ty::String]));
+    assert!(checked
+        .mono_funs
+        .iter()
+        .any(|(n, a)| n == "id" && a == &[Ty::String]));
     assert!(!checked.call_instantiations.is_empty());
 }
 
@@ -278,7 +285,10 @@ fun main() {
         "expected Box_String from nested expand"
     );
     assert!(
-        !checked.mono_classes.iter().any(|(_, a)| a.iter().any(|t| t.is_open())),
+        !checked
+            .mono_classes
+            .iter()
+            .any(|(_, a)| a.iter().any(|t| t.is_open())),
         "open monomorphs must not be recorded: {:?}",
         checked.mono_classes
     );
@@ -503,7 +513,11 @@ fun main() {
 "#;
     let file = parse_file(src).expect("parse");
     let err = check_file(&file).expect_err("throw null");
-    assert!(err.message.contains("throw") || err.message.contains("Null"), "{}", err.message);
+    assert!(
+        err.message.contains("throw") || err.message.contains("Null"),
+        "{}",
+        err.message
+    );
 }
 
 #[test]
@@ -600,12 +614,10 @@ fun main() {
 "#;
     let file = parse_file(src).expect("parse");
     let checked = check_file(&file).expect("check");
-    assert!(
-        checked
-            .mono_classes
-            .iter()
-            .any(|(n, a)| n == "Array" && a == &[Ty::Int])
-    );
+    assert!(checked
+        .mono_classes
+        .iter()
+        .any(|(n, a)| n == "Array" && a == &[Ty::Int]));
 }
 
 #[test]
@@ -723,6 +735,33 @@ fun main() {
 "#;
     let file = parse_file(src).expect("parse");
     check_file(&file).expect("duck for-in");
+}
+
+#[test]
+fn for_in_iface_iterable() {
+    // C6c: interface with len() + get(i).
+    let src = r#"
+package t
+interface Iterable {
+  fun len(): Int
+  fun get(i: Int): Int
+}
+class R(val n: Int) : Iterable {
+  fun len(): Int { return this.n }
+  fun get(i: Int): Int { return i }
+}
+fun sum(it: Iterable): Int {
+  var s: Int = 0
+  for (x in it) { s = s + x }
+  return s
+}
+fun main() {
+  val r = R(2)
+  val n = sum(r)
+}
+"#;
+    let file = parse_file(src).expect("parse");
+    check_file(&file).expect("iface for-in");
 }
 
 #[test]

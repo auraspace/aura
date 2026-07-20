@@ -1,0 +1,29 @@
+// C6a — deep GC mark keeps objects only reachable via fields
+package demo.cls
+
+class Leaf(val n: Int) {
+  fun value(): Int {
+    return this.n
+  }
+}
+
+class Node(val child: Leaf, val tag: Int) {
+  fun childValue(): Int {
+    return this.child.value()
+  }
+}
+
+fun make(): Node {
+  // leaf is not a live root after return; only reachable via node.child
+  val leaf = Leaf(7)
+  val node = Node(leaf, 1)
+  return node
+}
+
+fun main() {
+  val root = make()
+  gc_collect()
+  if (root.childValue() == 7) {
+    println("deep")
+  }
+}
