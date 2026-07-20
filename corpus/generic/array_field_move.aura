@@ -1,0 +1,56 @@
+// C6i — Array ownership moves into class fields (ctor + var reassign)
+package demo.generic
+
+class Holder(val items: Array<Int>) {
+  fun len(): Int {
+    return this.items.len
+  }
+  fun get0(): Int {
+    return this.items.get(0)
+  }
+}
+
+class Box(var items: Array<Int>) {
+  fun len(): Int {
+    return this.items.len
+  }
+  fun get0(): Int {
+    return this.items.get(0)
+  }
+  fun replace(a: Array<Int>) {
+    // field owns after assign; param buffer moves in
+    items = a
+  }
+}
+
+fun main() {
+  val a: Array<Int> = Array(2)
+  a.set(0, 10)
+  a.set(1, 20)
+  val h = Holder(a)
+  // a moved into Holder.items
+  if (a.len == 0) {
+    println("moved")
+  }
+  if (h.len() == 2) {
+    println("h2")
+  }
+  if (h.get0() == 10) {
+    println("ok")
+  }
+
+  // var field reassignment moves from owner param
+  val b = Box(Array(0))
+  val x: Array<Int> = Array(1)
+  x.set(0, 7)
+  b.replace(x)
+  if (x.len == 0) {
+    println("x0")
+  }
+  if (b.len() == 1) {
+    println("b1")
+  }
+  if (b.get0() == 7) {
+    println("rep")
+  }
+}

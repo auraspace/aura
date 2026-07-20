@@ -8,7 +8,7 @@ This repository currently holds:
 | ------------------------------------ | -------------------------------------------------------------------- |
 | [`docs/guide/`](docs/guide/)         | User guide (site `/docs`)                                            |
 | [`docs/rfc/`](docs/rfc/)             | Language & toolchain RFCs                                            |
-| [`docs/roadmap.md`](docs/roadmap.md) | Execution phases (P0–P3, compiler C0–C5n)                            |
+| [`docs/roadmap.md`](docs/roadmap.md) | Execution phases (P0–P3, compiler C0–C6i)                            |
 | [`site/`](site/)                     | Homepage + docs + RFC site (Vite + React)                            |
 | [`crates/`](crates/)                 | Rust toolchain (`aura` CLI) — check / build / run / test (C backend) |
 | [`corpus/`](corpus/)                 | Sample `.aura` programs for the compiler                             |
@@ -29,7 +29,7 @@ pnpm site:test
 pnpm site:build
 ```
 
-### Compiler (through C5n)
+### Compiler (through C6i)
 
 ```bash
 cargo test --workspace
@@ -123,9 +123,15 @@ Native builds use a **C backend** (`aura emit-c` + system `cc`) linked with `run
 - **Compiler C5k** Assign type mismatch expected/found
 - **Runtime C5m** Builtin `gc_collect()` + roots corpus
 - **Docs C5n** C5e–C5n batch closed
+- **Runtime C6a** Deep GC mark (worklist scan of object bytes)
+- **Compiler C6b** Array move into function/method params
+- **Compiler C6c** Iterable protocol: `for-in` on iface `len`+`get`
+- **Compiler C6d** Array return/call binding owns buffer
+- **Stdlib C6f** `std.collections` Map (String→Int)
+- **Compiler C6i** Field Array ownership (ctor + var reassign move)
 - **DX** Pretty diagnostics (`path:line:col` + source snippet)
 - **Debts** Tracked in [`agents/debts.md`](agents/debts.md)
-- **Next:** Iterable protocol, LLVM, registry
+- **Next:** GC Array elems (C6e), enum Array (C6g), multi-error (C6h)
 
 ## Links
 

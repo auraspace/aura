@@ -316,17 +316,17 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
         }
         Expr::Assign(a) => {
             // field assign in method for bare field name
-            let lhs = if let Some(class) = ctx.method_class {
+            let dst_is_field = ctx.method_class.is_some_and(|class| {
                 let base = mono_base_name(class, ctx.checked).unwrap_or(class);
-                if let Some(cl) = ctx.checked.ast.classes.iter().find(|c| c.name.name == base) {
-                    if cl.fields.iter().any(|f| f.name.name == a.name.name) {
-                        format!("this->{}", mangle_ident(&a.name.name))
-                    } else {
-                        mangle_ident(&a.name.name)
-                    }
-                } else {
-                    mangle_ident(&a.name.name)
-                }
+                ctx.checked
+                    .ast
+                    .classes
+                    .iter()
+                    .find(|c| c.name.name == base)
+                    .is_some_and(|cl| cl.fields.iter().any(|f| f.name.name == a.name.name))
+            });
+            let lhs = if dst_is_field {
+                format!("this->{}", mangle_ident(&a.name.name))
             } else {
                 mangle_ident(&a.name.name)
             };
@@ -336,36 +336,41 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
             let dst_is_array = dst_ty
                 .map(|t| t == "Array" || t.starts_with("Array_"))
                 .unwrap_or(false);
+            // Free C lvalue: locals use mangled name; fields use this->field (C6i).
+            let free_array_lvalue = |lv: &str| -> String {
+                format!(
+                    "if (({lv}).data != NULL) {{ free(({lv}).data); ({lv}).data = NULL; ({lv}).len = 0; ({lv}).cap = 0; }} "
+                )
+            };
             // C4r/C6d: free previous Array buffer when reassigning an owning local from
             // Array(...) or any call that transfers an Array result.
+            // C6i: Array fields always own — free old field buffer on reassignment.
             let is_array_call = matches!(a.value.as_ref(), Expr::Call(_));
             if dst_is_array && is_array_call {
-                let n = mangle_ident(dst_name);
-                let free_dst = if ctx.is_array_owner(dst_name) {
-                    format!(
-                        "if (({n}).data != NULL) {{ free(({n}).data); ({n}).data = NULL; ({n}).len = 0; ({n}).cap = 0; }} "
-                    )
+                let free_dst = if dst_is_field || ctx.is_array_owner(dst_name) {
+                    free_array_lvalue(&lhs)
                 } else {
                     String::new()
                 };
-                ctx.mark_array_owner(dst_name);
+                if !dst_is_field {
+                    ctx.mark_array_owner(dst_name);
+                }
                 return format!("({{ {free_dst}({lhs} = {rhs}); }})");
             }
-            // C5e: move ownership on `b = a` when `a` owns an Array buffer.
+            // C5e/C6i: move ownership on `b = a` / `field = a` when `a` owns an Array buffer.
             if dst_is_array {
                 if let Expr::Ident(src) = a.value.as_ref() {
                     if ctx.is_array_owner(&src.name) && src.name != *dst_name {
-                        let n = mangle_ident(dst_name);
                         let s = mangle_ident(&src.name);
-                        // Free old dst if it owned a buffer; then move; zero source.
-                        let free_dst = if ctx.is_array_owner(dst_name) {
-                            format!(
-                                "if (({n}).data != NULL) {{ free(({n}).data); ({n}).data = NULL; ({n}).len = 0; ({n}).cap = 0; }} "
-                            )
+                        // Free old dst if local owner or field (field always owns).
+                        let free_dst = if dst_is_field || ctx.is_array_owner(dst_name) {
+                            free_array_lvalue(&lhs)
                         } else {
                             String::new()
                         };
-                        ctx.mark_array_owner(dst_name);
+                        if !dst_is_field {
+                            ctx.mark_array_owner(dst_name);
+                        }
                         ctx.unmark_array_owner(&src.name);
                         return format!(
                             "({{ {free_dst}({lhs} = {rhs}); {s}.data = NULL; {s}.len = 0; {s}.cap = 0; }})"

@@ -79,6 +79,37 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                 // C3u: `Alias.Type(...)` constructor vs `Alias.fun(...)`.
                 if inst.map(|i| i.is_constructor).unwrap_or(false) {
                     let mono = type_mono(pkg, name, &targs);
+                    // C6i: move Array owner args into ctor fields when class is known.
+                    if let Some(class) = ctx.checked.ast.classes.iter().find(|x| {
+                        x.name.name == *name
+                            && (pkg.is_empty() || class_decl_package(x, ctx.checked) == pkg)
+                    }) {
+                        let tparams: Vec<String> = class
+                            .type_params
+                            .iter()
+                            .map(|p| p.name.name.clone())
+                            .collect();
+                        let mut field_keys = Vec::new();
+                        let args = c
+                            .args
+                            .iter()
+                            .zip(class.fields.iter())
+                            .map(|(a, f)| {
+                                let expected = type_ref_local_key(&f.ty, &tparams, &targs);
+                                field_keys.push(expected.clone());
+                                coerce_expr(a, &expected, ctx)
+                            })
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        let move_srcs = array_move_srcs_from_args(&c.args, &field_keys, ctx);
+                        let ret_c = if is_heap_class_decl(class) {
+                            format!("{} *", c_class_type(&mono))
+                        } else {
+                            c_class_type(&mono)
+                        };
+                        let call = format!("{}({args})", c_ctor_name(&mono));
+                        return wrap_array_arg_moves(call, &move_srcs, &ret_c, ctx);
+                    }
                     return format!("{}({args})", c_ctor_name(&mono));
                 }
                 return format!("{}({args})", c_fun_name(pkg, name, &targs));
@@ -351,17 +382,27 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                     .iter()
                     .map(|p| p.name.name.clone())
                     .collect();
+                // C6i: Array primary-ctor fields own the buffer — move from owner idents.
+                let mut field_keys = Vec::new();
                 let args = c
                     .args
                     .iter()
                     .zip(class.fields.iter())
                     .map(|(a, f)| {
                         let expected = type_ref_local_key(&f.ty, &params, &targs);
+                        field_keys.push(expected.clone());
                         coerce_expr(a, &expected, ctx)
                     })
                     .collect::<Vec<_>>()
                     .join(", ");
-                return format!("{}({args})", c_ctor_name(&mono));
+                let move_srcs = array_move_srcs_from_args(&c.args, &field_keys, ctx);
+                let ret_c = if is_heap_class_decl(class) {
+                    format!("{} *", c_class_type(&mono))
+                } else {
+                    c_class_type(&mono)
+                };
+                let call = format!("{}({args})", c_ctor_name(&mono));
+                return wrap_array_arg_moves(call, &move_srcs, &ret_c, ctx);
             }
             // Enum variant constructor: Ok(...), Err(...), Red()
             if let Some(inst) = inst {

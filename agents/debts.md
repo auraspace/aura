@@ -7,13 +7,13 @@ When you resolve debt, update or remove the matching entry.
 
 ## Open
 
-### `Array` shallow-copy free unsound (fields)
+### `Array` field free on GC / return-from-field
 
-- Area: builtin Array free (C3t/C4r/C5b/C5e/C6b/C6d)
-- Symptom: bind/assign/params/return-call own; **fields** still shallow-copy
-- Why deferred: full move/borrow system
-- Next step: C6i field ownership
-- Introduced: C3j; free C3t; reassign C4r; move bind C5b; assign C5e; params C6b; return C6d
+- Area: builtin Array free (C3t…C6i)
+- Symptom: C6i moves into class fields (ctor + var reassign); GC sweep still does not free Array buffers inside objects; returning a field Array shallow-copies (caller may free while object still holds pointer)
+- Why deferred: no finalizers / field-borrow
+- Next step: C6e or Array-in-GC story; move-out from fields if needed
+- Introduced: narrowed after C6i (ctor/field assign move Done)
 
 ### No registry / version resolve (path lock only)
 
@@ -64,6 +64,10 @@ When you resolve debt, update or remove the matching entry.
 - Introduced: C6c
 
 ## Resolved
+
+### Array fields shallow-copy on ctor/assign (2026-07-20)
+
+- Resolved in C6i (partial): constructor and `var` field assign move from owner locals/params (zero source); reassign frees prior field buffer. Corpus `generic/array_field_move.aura`. GC free of field buffers still Open.
 
 ### Shallow GC mark only (2026-07-20)
 
