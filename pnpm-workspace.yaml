@@ -4,3 +4,5 @@ packages:
 # Lifecycle scripts: only these packages may run postinstall/build.
 allowBuilds:
   esbuild: true
+  # wrangler (root) needs workerd’s platform binary via postinstall.
+  workerd: true

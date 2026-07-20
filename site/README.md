@@ -77,11 +77,15 @@ Workflow: `.github/workflows/deploy-site.yml` builds with `VITE_BASE=/` and uplo
    - `CLOUDFLARE_ACCOUNT_ID`  
      Workflow job uses `environment: static-pages` so secrets must live there (not only as repo secrets, unless you also mirror them).
 
-4. **Custom domain** `aura.fadosoft.com`
+4. **Pages project `aura`**
+   - The deploy workflow runs `wrangler pages project create aura` on first deploy (no-op if it already exists).
+   - Token needs **Account → Cloudflare Pages → Edit** (or the Workers template above).
+
+5. **Custom domain** `aura.fadosoft.com`
    - After the first successful deploy: Workers & Pages → project **`aura`** → **Custom domains** → Add `aura.fadosoft.com`
    - DNS: **CNAME** `aura` → `aura.pages.dev` (or the target Cloudflare shows), proxy **ON** if the zone is on Cloudflare
 
-5. Optional: turn off GitHub Pages (Settings → Pages → None) so `*.github.io` stops updating.
+6. Optional: turn off GitHub Pages (Settings → Pages → None) so `*.github.io` stops updating.
 
 Push to `main` (or **Actions → Deploy site → Run workflow**) to publish.
 

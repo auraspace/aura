@@ -49,11 +49,9 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          # First deploy creates the project if it does not exist.
-          command: pages deploy site/dist --project-name=aura --branch=main
+          # wrangler is a root devDependency (from pnpm install). Omit wranglerVersion
+          # so the action uses that install via `pnpm exec` (lockfile → pnpm).
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
-          # Action auto-detects pnpm from the lockfile, then runs `pnpm add wrangler`
-          # without `-w`, which fails on this workspace root (ERR_PNPM_ADDING_TO_ROOT).
-          # Install wrangler with npm only for this step; project deps stay on pnpm.
-          packageManager: npm
-          wranglerVersion: "4"
+          # Newer wrangler no longer auto-creates Pages projects on first deploy.
+          preCommands: wrangler pages project create aura --production-branch=main || true
+          command: pages deploy site/dist --project-name=aura --branch=main
