@@ -598,14 +598,14 @@ impl Checker {
             // C4x: dedicated message for interface (no layout in Array yet).
             // C6g: enum elements are allowed; keep interface reject clear.
             let detail = match &type_args[0] {
-                Ty::Interface(n) => {
+                Ty::Interface(n) | Ty::InterfaceApp { name: n, .. } => {
                     let (simple, _) = crate::ty::split_nominal(n);
                     format!(
-                        "`Array` of interface `{simple}` is not supported yet (elements must be Int, Bool, String, class, struct, or enum)"
+                        "`Array` of interface `{simple}` is not supported yet (elements must be Int, Bool, String, class, struct, enum, or Array)"
                     )
                 }
                 other => format!(
-                    "`Array` element type must be Int, Bool, String, class, struct, or enum (got {})",
+                    "`Array` element type must be Int, Bool, String, class, struct, enum, or Array (got {})",
                     other.display()
                 ),
             };
@@ -617,7 +617,7 @@ impl Checker {
         Ok(())
     }
 
-    /// C4c/C4q/C6g: primitives + heap classes + structs + enums (not interface).
+    /// C4c/C4q/C6g/C8e: primitives + heap classes + structs + enums + nested Array (not interface).
     /// C8a: type params allowed in generic class/fun fields (mono becomes concrete).
     pub(crate) fn is_array_element_ty(&self, ty: &Ty) -> bool {
         if is_array_primitive_elem(ty) {
@@ -626,6 +626,12 @@ impl Checker {
         match ty {
             // Open mono skipped at record time (C4u); concrete mono uses substituted elem.
             Ty::TypeParam(_) => true,
+            // Nested Array: Array<Array<T>> (elem must itself be a valid Array mono).
+            Ty::ClassApp { name, args }
+                if crate::ty::split_nominal(name).0 == "Array" && args.len() == 1 =>
+            {
+                self.is_array_element_ty(&args[0])
+            }
             Ty::Class(n) | Ty::ClassApp { name: n, .. } => {
                 let (simple, pkg) = crate::ty::split_nominal(n);
                 let list = match self.classes.get(simple) {

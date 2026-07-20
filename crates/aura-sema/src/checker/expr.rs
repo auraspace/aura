@@ -18,8 +18,15 @@ impl Checker {
                 if !self.mono_classes.insert(key) {
                     return;
                 }
-                // Nested field types (Wrapper_String → Box_String) for codegen.
-                self.expand_nested_mono(simple, args);
+                // C8e: Array elem monomorphs first (Array_Array_Int needs Array_Int).
+                if simple == "Array" {
+                    for a in args {
+                        self.note_mono_ty(a);
+                    }
+                } else {
+                    // Nested field types (Wrapper_String → Box_String) for codegen.
+                    self.expand_nested_mono(simple, args);
+                }
             }
             Ty::EnumApp { name, args } if !args.is_empty() => {
                 if args.iter().any(|a| a.is_open()) {

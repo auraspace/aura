@@ -1,0 +1,31 @@
+// C8e — nested Array<Array<T>> mono (emit leaf before outer)
+package demo.generic
+
+fun main() {
+  val outer: Array<Array<Int>> = Array(0)
+  val row0: Array<Int> = Array(0)
+  row0.push(1)
+  row0.push(2)
+  outer.push(row0)
+  val row1: Array<Int> = Array(0)
+  row1.push(3)
+  outer.push(row1)
+  if (outer.len == 2) {
+    println("outer")
+  }
+  val g = outer.get(0)
+  if (g.len == 2) {
+    if (g.get(0) + g.get(1) == 3) {
+      println("row")
+    }
+  }
+  var s: Int = 0
+  for (r in outer) {
+    for (x in r) {
+      s = s + x
+    }
+  }
+  if (s == 6) {
+    println("sum")
+  }
+}

@@ -255,14 +255,36 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
         // Builtin Array methods
         if base == "Array" || mono.starts_with("Array_") {
             let mut args = vec![format!("&({obj})")];
+            // C8e: push/set of Array-valued elems move from owner args (nested Array).
+            let elem_key = mono.strip_prefix("Array_").unwrap_or("");
+            let mut param_keys = Vec::new();
             for a in &c.args {
+                if fe.field.name == "push" || fe.field.name == "set" {
+                    // set(i, v): first arg Int, second elem; push(v): one elem arg
+                    if fe.field.name == "set" && param_keys.is_empty() {
+                        param_keys.push("Int".into());
+                        args.push(emit_expr(a, ctx));
+                        continue;
+                    }
+                    if is_array_type_key(elem_key) {
+                        param_keys.push(elem_key.to_string());
+                        args.push(emit_expr(a, ctx));
+                        continue;
+                    }
+                }
                 args.push(emit_expr(a, ctx));
+                param_keys.push(String::new());
             }
-            return format!(
+            let call = format!(
                 "{}({})",
                 c_method_name(&mono, &fe.field.name),
                 args.join(", ")
             );
+            if (fe.field.name == "push" || fe.field.name == "set") && is_array_type_key(elem_key) {
+                let move_srcs = array_move_srcs_from_args(&c.args, &param_keys, ctx);
+                return wrap_array_arg_moves(call, &move_srcs, "void", ctx);
+            }
+            return call;
         }
 
         // C3y: heap classes are already pointers; structs/Array need &.

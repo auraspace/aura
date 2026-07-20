@@ -9,7 +9,7 @@ use aura_sema::{CheckedFile, Ty};
 use crate::ctx::EmitCtx;
 use crate::expr::{
     array_field_move_out_lvalue, coerce_expr, emit_expr, full_type_mono, infer_type_name,
-    mono_base_name, mono_split,
+    mono_base_name, mono_split, resolve_type_name,
 };
 use crate::names::*;
 
@@ -215,8 +215,25 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
             ctx.define_local(&v.name.name, full_type_mono(&ty_name, ctx.checked));
             // C3t: locals from `Array(...)` own the heap buffer.
             // C6d: call/return results that are Array also transfer ownership to the binding.
+            // C8e: `arr.get(i)` of nested Array is a shallow view — do not own (avoids double-free).
+            let from_array_get = if let Expr::Call(c) = &v.init {
+                if let Expr::Field(fe) = c.callee.as_ref() {
+                    if fe.field.name == "get" {
+                        let obj_key = resolve_type_name(&fe.object, ctx)
+                            .unwrap_or_else(|| infer_type_name(&fe.object, ctx));
+                        is_array_type_key(&obj_key)
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
             if is_array_type_key(&ty_name)
-                && (is_array_ctor_expr(&v.init) || matches!(&v.init, Expr::Call(_)))
+                && (is_array_ctor_expr(&v.init)
+                    || (matches!(&v.init, Expr::Call(_)) && !from_array_get))
             {
                 ctx.mark_array_owner(&v.name.name);
             }

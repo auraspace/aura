@@ -143,12 +143,23 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
         }
     }
 
-    // C6f: Array monomorphs before heap class bodies so classes may embed Array by value.
-    for (name, args) in &checked.mono_classes {
-        if is_array_mono(name) {
-            if let Some(elem) = args.first() {
-                emit_array_mono(&mut out, elem, checked);
-            }
+    // C6f/C8e: Array monomorphs before heap class bodies so classes may embed Array by value.
+    // Nesting order: emit leaf Array_Int before Array_Array_Int (by mono_suffix depth).
+    let mut array_monos: Vec<&[Ty]> = checked
+        .mono_classes
+        .iter()
+        .filter(|(name, _)| is_array_mono(name))
+        .map(|(_, args)| args.as_slice())
+        .collect();
+    array_monos.sort_by_key(|args| {
+        // Fewer nested Array_ prefixes first (rough: shorter mono key first among Array_*).
+        args.first()
+            .map(|e| e.mono_suffix().matches("Array_").count())
+            .unwrap_or(0)
+    });
+    for args in array_monos {
+        if let Some(elem) = args.first() {
+            emit_array_mono(&mut out, elem, checked);
         }
     }
     for c in &checked.ast.classes {
