@@ -182,7 +182,10 @@ demo.other = "vendor/other"
 "#,
     )
     .expect("parse lock");
-    assert_eq!(lock.packages.get("demo.math").unwrap(), "../math");
+    assert_eq!(
+        lock.packages.get("demo.math").unwrap().path.as_deref(),
+        Some("../math")
+    );
 
     let root = std::env::temp_dir().join(format!("aura-lock-{}", std::process::id()));
     let _ = fs::remove_dir_all(&root);
@@ -213,6 +216,32 @@ name = "demo.math"
     let err = verify_lock_against_toml(&root, &deps).unwrap_err();
     assert!(err.contains("missing") || err.contains("ghost"), "{err}");
     let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn lock_parse_registry_schema_c8k() {
+    use super::lock::parse_lock;
+
+    let lock = parse_lock(
+        r#"
+demo.math = "../math"
+demo.reg = { version = "1.2.3", checksum = "abc", source = "registry" }
+demo.pathv = { path = "../p", version = "0.1.0", source = "path" }
+"#,
+    )
+    .expect("parse mixed lock");
+    assert_eq!(
+        lock.packages.get("demo.math").unwrap().path.as_deref(),
+        Some("../math")
+    );
+    let reg = lock.packages.get("demo.reg").unwrap();
+    assert_eq!(reg.version.as_deref(), Some("1.2.3"));
+    assert_eq!(reg.checksum.as_deref(), Some("abc"));
+    assert_eq!(reg.source.as_deref(), Some("registry"));
+    assert!(reg.path.is_none());
+    let pv = lock.packages.get("demo.pathv").unwrap();
+    assert_eq!(pv.path.as_deref(), Some("../p"));
+    assert_eq!(pv.version.as_deref(), Some("0.1.0"));
 }
 
 #[test]

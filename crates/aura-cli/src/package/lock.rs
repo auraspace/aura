@@ -1,13 +1,42 @@
-//! Minimal `aura.lock` for path dependencies (C3p).
+//! Minimal `aura.lock` for path dependencies (C3p) + registry schema v0 (C8k).
 
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
-/// Parsed lock entries: package name → path string (as written relative to package root).
+/// One lock entry: path dep and/or registry pin fields (C8k).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct LockEntry {
+    /// Relative path for path deps (required for source path / legacy form).
+    pub(crate) path: Option<String>,
+    /// Semver pin (path docs or registry).
+    pub(crate) version: Option<String>,
+    /// `path` | `registry` (default path when only path string).
+    pub(crate) source: Option<String>,
+    /// sha256 for registry crates (future fetch).
+    pub(crate) checksum: Option<String>,
+}
+
+impl LockEntry {
+    pub(crate) fn path_str(&self) -> Option<&str> {
+        self.path.as_deref()
+    }
+}
+
+/// Parsed lock entries: package name → entry.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct AuraLock {
-    pub(crate) packages: BTreeMap<String, String>,
+    pub(crate) packages: BTreeMap<String, LockEntry>,
+}
+
+impl AuraLock {
+    /// Path map for callers that only need path deps (C3p/C4j).
+    pub(crate) fn path_map(&self) -> BTreeMap<String, String> {
+        self.packages
+            .iter()
+            .filter_map(|(k, e)| e.path.clone().map(|p| (k.clone(), p)))
+            .collect()
+    }
 }
 
 pub(crate) fn lock_path(root: &Path) -> std::path::PathBuf {
@@ -34,15 +63,88 @@ pub(crate) fn parse_lock(text: &str) -> Result<AuraLock, String> {
             continue;
         }
         let Some((k, v)) = line.split_once('=') else {
-            return Err(format!("line {}: expected name = \"path\"", lineno + 1));
+            return Err(format!(
+                "line {}: expected name = \"path\" or name = {{ … }}",
+                lineno + 1
+            ));
         };
         let name = k.trim().to_string();
-        let path = parse_quoted(v.trim()).map_err(|e| format!("line {}: {e}", lineno + 1))?;
-        if packages.insert(name.clone(), path).is_some() {
+        let entry = parse_lock_value(v.trim()).map_err(|e| format!("line {}: {e}", lineno + 1))?;
+        if packages.insert(name.clone(), entry).is_some() {
             return Err(format!("line {}: duplicate package `{name}`", lineno + 1));
         }
     }
     Ok(AuraLock { packages })
+}
+
+fn parse_lock_value(v: &str) -> Result<LockEntry, String> {
+    let v = v.trim();
+    if v.starts_with('{') {
+        return parse_inline_table(v);
+    }
+    let path = parse_quoted(v)?;
+    Ok(LockEntry {
+        path: Some(path),
+        version: None,
+        source: Some("path".into()),
+        checksum: None,
+    })
+}
+
+/// Minimal TOML-like inline table: `{ key = "val", … }`.
+fn parse_inline_table(v: &str) -> Result<LockEntry, String> {
+    let v = v.trim();
+    if !v.starts_with('{') || !v.ends_with('}') {
+        return Err(format!("expected inline table, got {v}"));
+    }
+    let inner = v[1..v.len() - 1].trim();
+    let mut entry = LockEntry {
+        source: Some("path".into()),
+        ..Default::default()
+    };
+    if inner.is_empty() {
+        return Err("empty lock entry table".into());
+    }
+    for part in split_top_level_commas(inner) {
+        let part = part.trim();
+        if part.is_empty() {
+            continue;
+        }
+        let Some((k, val)) = part.split_once('=') else {
+            return Err(format!("expected key = value in table, got `{part}`"));
+        };
+        let key = k.trim();
+        let val = parse_quoted(val.trim())?;
+        match key {
+            "path" => entry.path = Some(val),
+            "version" => entry.version = Some(val),
+            "source" => entry.source = Some(val),
+            "checksum" => entry.checksum = Some(val),
+            other => {
+                return Err(format!(
+                    "unknown lock field `{other}` (expected path, version, source, checksum)"
+                ));
+            }
+        }
+    }
+    // Registry entries need version+checksum; path entries need path.
+    let source = entry.source.as_deref().unwrap_or("path");
+    if source == "registry" {
+        if entry.version.is_none() {
+            return Err("registry lock entry requires version".into());
+        }
+        if entry.checksum.is_none() {
+            return Err("registry lock entry requires checksum".into());
+        }
+    } else if entry.path.is_none() {
+        return Err("path lock entry requires path".into());
+    }
+    Ok(entry)
+}
+
+fn split_top_level_commas(s: &str) -> Vec<&str> {
+    // No nested tables; just split on commas (values are quoted, no commas inside).
+    s.split(',').collect()
 }
 
 fn parse_quoted(v: &str) -> Result<String, String> {
@@ -50,12 +152,13 @@ fn parse_quoted(v: &str) -> Result<String, String> {
     if v.len() >= 2 && v.starts_with('"') && v.ends_with('"') {
         return Ok(v[1..v.len() - 1].to_string());
     }
-    Err(format!("expected quoted path string, got {v}"))
+    Err(format!("expected quoted string, got {v}"))
 }
 
 /// Ensure direct `aura.toml` path deps match an existing lockfile (if any).
 /// C4j: lock may list extra transitive packages; those are not required in toml.
 /// C8b: every locked path (direct + transitive) must resolve under the package root.
+/// C8k: registry entries skip path existence (not fetched yet).
 pub(crate) fn verify_lock_against_toml(
     root: &Path,
     toml_deps: &std::collections::HashMap<String, String>,
@@ -71,17 +174,28 @@ pub(crate) fn verify_lock_against_toml(
                      hint: delete aura.lock and re-run, or add `{name} = \"{path}\"` to aura.lock"
                 ));
             }
-            Some(locked) if locked != path => {
-                return Err(format!(
-                    "error: aura.lock path for `{name}` is `{locked}`, but aura.toml has `{path}`\n  \
-                     hint: update aura.toml or aura.lock so they agree"
-                ));
+            Some(entry) => {
+                let locked = entry.path_str().unwrap_or("");
+                if locked != path {
+                    return Err(format!(
+                        "error: aura.lock path for `{name}` is `{locked}`, but aura.toml has `{path}`\n  \
+                         hint: update aura.toml or aura.lock so they agree"
+                    ));
+                }
             }
-            Some(_) => {}
         }
     }
-    // C8b: path entries must exist (registry/semver still deferred).
-    for (name, rel) in &lock.packages {
+    // C8b/C8k: path entries must exist; registry pins are schema-only for now.
+    for (name, entry) in &lock.packages {
+        let source = entry.source.as_deref().unwrap_or("path");
+        if source == "registry" {
+            continue;
+        }
+        let Some(rel) = entry.path_str() else {
+            return Err(format!(
+                "error: aura.lock package `{name}` has no path (source={source})"
+            ));
+        };
         let dep_path = root.join(rel);
         if !dep_path.is_dir() {
             return Err(format!(
@@ -123,8 +237,9 @@ pub(crate) fn write_lock_with_direct(
     }
     let path = lock_path(root);
     let mut body = String::from(
-        "# aura.lock — path dependencies (C3p/C4j)\n\
-         # Direct deps match aura.toml; extra entries are transitive path deps.\n",
+        "# aura.lock — path dependencies (C3p/C4j); registry form C8k\n\
+         # Direct deps match aura.toml; extra entries are transitive path deps.\n\
+         # Registry pins: name = { version = \"…\", checksum = \"…\", source = \"registry\" }\n",
     );
     let sorted: BTreeMap<_, _> = all_deps
         .iter()
