@@ -56,6 +56,8 @@ pub(crate) struct Checker {
     mono_funs: HashSet<(String, Vec<Ty>)>,
     mono_interfaces: HashSet<(String, Vec<Ty>)>,
     call_instantiations: HashMap<u32, CallInstantiation>,
+    /// C10d: LambdaExpr.span.start → Fun type.
+    lambda_tys: HashMap<u32, Ty>,
     /// C6h: statement/body errors collected without aborting the whole file.
     pub(crate) errors: Vec<SemaError>,
 }
@@ -239,6 +241,7 @@ impl Checker {
             mono_funs: HashSet::new(),
             mono_interfaces: HashSet::new(),
             call_instantiations: HashMap::new(),
+            lambda_tys: HashMap::new(),
             errors: Vec::new(),
         }
     }

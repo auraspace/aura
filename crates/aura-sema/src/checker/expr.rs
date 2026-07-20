@@ -508,6 +508,74 @@ impl Checker {
                 Ok(target)
             }
             Expr::Call(c) => self.check_call(c, expected),
+            // C10d: `(x: Int) => x + 1` — non-capturing lambda; type from params + body.
+            Expr::Lambda(l) => {
+                let mut param_tys = Vec::with_capacity(l.params.len());
+                self.locals.push(std::collections::HashMap::new());
+                for p in &l.params {
+                    let ty = self.type_from_ref(&p.ty)?;
+                    if self.current_locals().contains_key(&p.name.name) {
+                        self.locals.pop();
+                        return Err(SemaError {
+                            message: format!("duplicate lambda parameter `{}`", p.name.name),
+                            span: p.name.span,
+                        });
+                    }
+                    self.current_locals_mut().insert(
+                        p.name.name.clone(),
+                        super::Local {
+                            ty: ty.clone(),
+                            mutable: false,
+                        },
+                    );
+                    param_tys.push(ty);
+                }
+                let expected_ret = match expected {
+                    Some(Ty::Fun { ret, .. }) => Some(ret.as_ref()),
+                    _ => None,
+                };
+                let body_ty = match self.check_expr_expected(&l.body, expected_ret) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        self.locals.pop();
+                        return Err(e);
+                    }
+                };
+                self.locals.pop();
+                if let Some(exp_ret) = expected_ret {
+                    if !self.is_assignable(&body_ty, exp_ret) {
+                        return Err(SemaError {
+                            message: format!(
+                                "lambda body type mismatch: expected {}, found {}",
+                                exp_ret.display(),
+                                body_ty.display()
+                            ),
+                            span: l.body.span(),
+                        });
+                    }
+                }
+                let fun_ty = Ty::Fun {
+                    params: param_tys,
+                    ret: Box::new(body_ty),
+                };
+                let result = if let Some(exp) = expected {
+                    if !self.is_assignable(&fun_ty, exp) {
+                        return Err(SemaError {
+                            message: format!(
+                                "type mismatch: expected {}, found {}",
+                                exp.display(),
+                                fun_ty.display()
+                            ),
+                            span: l.span,
+                        });
+                    }
+                    exp.clone()
+                } else {
+                    fun_ty
+                };
+                self.lambda_tys.insert(l.span.start, result.clone());
+                Ok(result)
+            }
         }
     }
 }

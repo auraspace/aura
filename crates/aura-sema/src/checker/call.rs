@@ -273,13 +273,20 @@ impl Checker {
 
         let name = match c.callee.as_ref() {
             Expr::Ident(id) => id.name.clone(),
-            _ => {
-                return Err(SemaError {
-                    message: "only direct calls and method calls supported".into(),
-                    span: c.span,
-                });
+            other => {
+                // C10d: call through a function value expression.
+                let callee_ty = self.check_expr(other)?;
+                return self.check_fun_value_call(&callee_ty, c);
             }
         };
+
+        // C10d: local (or param) of function type `f(x)`.
+        if let Some(local) = self.lookup_local(&name) {
+            if matches!(local.ty, Ty::Fun { .. }) {
+                let ty = local.ty.clone();
+                return self.check_fun_value_call(&ty, c);
+            }
+        }
 
         // Constructor (possibly generic)
         if self.classes.contains_key(&name) {
@@ -848,5 +855,27 @@ impl Checker {
             }
         }
         Ok(())
+    }
+
+    /// C10d: call a first-class function value `(params) -> ret`.
+    pub(crate) fn check_fun_value_call(
+        &mut self,
+        callee_ty: &Ty,
+        c: &CallExpr,
+    ) -> Result<Ty, SemaError> {
+        let Ty::Fun { params, ret } = callee_ty else {
+            return Err(SemaError {
+                message: format!("value of type {} is not callable", callee_ty.display()),
+                span: c.callee.span(),
+            });
+        };
+        if !c.type_args.is_empty() {
+            return Err(SemaError {
+                message: "type arguments not allowed on function-value calls".into(),
+                span: c.span,
+            });
+        }
+        self.check_args(params, &c.args, "function value", c.span)?;
+        Ok(ret.as_ref().clone())
     }
 }

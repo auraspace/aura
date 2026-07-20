@@ -86,6 +86,10 @@ pub fn subst_ty(ty: &Ty, map: &HashMap<String, Ty>) -> Ty {
             name: name.clone(),
             args: args.iter().map(|a| subst_ty(a, map)).collect(),
         },
+        Ty::Fun { params, ret } => Ty::Fun {
+            params: params.iter().map(|p| subst_ty(p, map)).collect(),
+            ret: Box::new(subst_ty(ret, map)),
+        },
         other => other.clone(),
     }
 }

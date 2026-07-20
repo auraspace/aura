@@ -265,6 +265,12 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
                 "Int".into()
             }
         }
+        Expr::Lambda(l) => {
+            if let Some(ty) = ctx.checked.lambda_tys.get(&l.span.start) {
+                return ty.mono_suffix();
+            }
+            "Int".into()
+        }
         Expr::If(i) => match i.then_block.stmts.last() {
             Some(Stmt::Expr(e)) => infer_type_name(e, ctx),
             _ => "Int".into(),
@@ -554,6 +560,11 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
             }
         }
         Expr::Call(c) => emit_call(c, ctx),
+        // C10e: non-capturing lambda → static function pointer.
+        Expr::Lambda(l) => {
+            let id = ctx.lambda_ids.get(&l.span.start).copied().unwrap_or(0);
+            format!("aura_lambda_{id}")
+        }
         Expr::If(i) => {
             // C4t: GNU statement-expression; last expr of each branch is the value.
             // MVP: single-expression branches (no prefix statements).

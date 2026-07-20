@@ -419,6 +419,10 @@ impl Parser {
     }
 
     pub(crate) fn parse_type(&mut self) -> Result<TypeRef, ParseError> {
+        // C10f: function type `(T, U) -> R` / `() -> R`.
+        if matches!(self.peek().kind, TokenKind::LParen) {
+            return self.parse_fun_type();
+        }
         let first = self.expect_ident()?;
         let start = first.span.start;
         // C3u: `Alias.Type` package-qualified type name.
@@ -449,6 +453,48 @@ impl Parser {
             type_args,
             nullable,
             span: Span::new(start, end),
+            fun: None,
+        })
+    }
+
+    /// C10f: `(Int, Bool) -> String` or `() -> Int`.
+    pub(crate) fn parse_fun_type(&mut self) -> Result<TypeRef, ParseError> {
+        let start = self.expect(TokenKind::LParen, "`(`")?.span.start;
+        let mut params = Vec::new();
+        if !matches!(self.peek().kind, TokenKind::RParen) {
+            loop {
+                params.push(self.parse_type()?);
+                if matches!(self.peek().kind, TokenKind::Comma) {
+                    self.bump();
+                    continue;
+                }
+                break;
+            }
+        }
+        self.expect(TokenKind::RParen, "`)`")?;
+        self.expect(TokenKind::ThinArrow, "`->`")?;
+        let ret = self.parse_type()?;
+        let nullable = if matches!(self.peek().kind, TokenKind::Question) {
+            self.bump();
+            true
+        } else {
+            false
+        };
+        let end = if nullable {
+            self.tokens[self.idx.saturating_sub(1)].span.end
+        } else {
+            ret.span.end
+        };
+        Ok(TypeRef {
+            qualifier: None,
+            name: Ident {
+                name: "fn".into(),
+                span: Span::new(start, end),
+            },
+            type_args: Vec::new(),
+            nullable,
+            span: Span::new(start, end),
+            fun: Some(Box::new(FunTypeRef { params, ret })),
         })
     }
 

@@ -20,6 +20,8 @@ pub(crate) struct EmitCtx<'a> {
     pub(crate) array_gc_roots: Vec<HashSet<String>>,
     /// Enclosing function/method return type key (for `return` coercion, C7a).
     pub(crate) return_key: Option<String>,
+    /// C10e: LambdaExpr.span.start → sequential id for `aura_lambda_N`.
+    pub(crate) lambda_ids: HashMap<u32, usize>,
 }
 
 impl<'a> EmitCtx<'a> {

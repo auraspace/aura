@@ -896,6 +896,7 @@ impl Checker {
             mono_funs,
             mono_interfaces,
             call_instantiations: self.call_instantiations.clone(),
+            lambda_tys: self.lambda_tys.clone(),
             ast: file.clone(),
         })
     }

@@ -74,6 +74,8 @@ pub enum TokenKind {
     Eq,
     /// `=>` match / lambda arrow.
     FatArrow,
+    /// `->` function type arrow (C10f).
+    ThinArrow,
     Dot,
     /// `..` exclusive range (C3h `for` loops).
     DotDot,
@@ -219,7 +221,13 @@ impl<'a> Lexer<'a> {
                 }
             }
             b'+' => self.simple(TokenKind::Plus, 1),
-            b'-' => self.simple(TokenKind::Minus, 1),
+            b'-' => {
+                if self.peek_at(1) == Some(b'>') {
+                    self.simple(TokenKind::ThinArrow, 2)
+                } else {
+                    self.simple(TokenKind::Minus, 1)
+                }
+            }
             b'*' => self.simple(TokenKind::Star, 1),
             b'%' => self.simple(TokenKind::Percent, 1),
             b'/' => self.simple(TokenKind::Slash, 1),

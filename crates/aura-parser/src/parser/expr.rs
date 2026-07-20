@@ -196,6 +196,10 @@ impl Parser {
                 Ok(Expr::Null(span))
             }
             TokenKind::LParen => {
+                // C10c: try `(params) => body` before grouped expression.
+                if let Some(lam) = self.try_parse_lambda()? {
+                    return Ok(lam);
+                }
                 let start = self.bump().span.start;
                 let inner = self.parse_expr(0)?;
                 let end = self.expect(TokenKind::RParen, "`)`")?.span.end;
@@ -241,6 +245,67 @@ impl Parser {
                 span: self.peek().span,
             }),
         }
+    }
+
+    /// C10c: `(x: Int) => x + 1`, `(a: Int, b: Int) => a + b`, `() => 0`.
+    /// Restores token position when the paren group is not a lambda.
+    pub(crate) fn try_parse_lambda(&mut self) -> Result<Option<Expr>, ParseError> {
+        if !matches!(self.peek().kind, TokenKind::LParen) {
+            return Ok(None);
+        }
+        let saved = self.idx;
+        let start = self.peek().span.start;
+        self.bump(); // `(`
+
+        let mut params = Vec::new();
+        if matches!(self.peek().kind, TokenKind::RParen) {
+            self.bump();
+        } else {
+            // Lambda params require `name: Type` (typed). Bare `(x)` is a group.
+            if !matches!(self.peek().kind, TokenKind::Ident(_)) {
+                self.idx = saved;
+                return Ok(None);
+            }
+            // Peek: Ident then Colon → lambda param list; else group/expr.
+            if self.idx + 1 >= self.tokens.len()
+                || !matches!(self.tokens[self.idx + 1].kind, TokenKind::Colon)
+            {
+                self.idx = saved;
+                return Ok(None);
+            }
+            loop {
+                match self.parse_param() {
+                    Ok(p) => params.push(p),
+                    Err(_) => {
+                        self.idx = saved;
+                        return Ok(None);
+                    }
+                }
+                if matches!(self.peek().kind, TokenKind::Comma) {
+                    self.bump();
+                    continue;
+                }
+                break;
+            }
+            if !matches!(self.peek().kind, TokenKind::RParen) {
+                self.idx = saved;
+                return Ok(None);
+            }
+            self.bump();
+        }
+
+        if !matches!(self.peek().kind, TokenKind::FatArrow) {
+            self.idx = saved;
+            return Ok(None);
+        }
+        self.bump(); // `=>`
+        let body = self.parse_expr(0)?;
+        let end = body.span().end;
+        Ok(Some(Expr::Lambda(LambdaExpr {
+            params,
+            body: Box::new(body),
+            span: Span::new(start, end),
+        })))
     }
 
     pub(crate) fn parse_call(

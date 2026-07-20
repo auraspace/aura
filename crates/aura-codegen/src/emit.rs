@@ -282,6 +282,9 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
             }
         }
     }
+    // C10e/f: fun-type typedefs must precede any signature using them.
+    emit_fun_typedefs(&mut out, checked);
+
     for f in &checked.ast.functions {
         if f.name.name == "main" {
             continue;
@@ -339,6 +342,9 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
             }
         }
     }
+
+    // C10e: non-capturing lambdas as static C functions (typedefs already emitted).
+    emit_lambda_fns(&mut out, checked);
 
     for f in &checked.ast.functions {
         if f.type_params.is_empty() {
@@ -403,6 +409,308 @@ pub(crate) fn emit_test_main(out: &mut String, checked: &CheckedFile) {
     out.push_str("  return failed ? 1 : 0;\n}\n");
 }
 
+/// C10e: map LambdaExpr.span.start → stable sequential id (sorted by span).
+pub(crate) fn build_lambda_ids(checked: &CheckedFile) -> HashMap<u32, usize> {
+    let mut starts: Vec<u32> = checked.lambda_tys.keys().copied().collect();
+    starts.sort_unstable();
+    starts
+        .into_iter()
+        .enumerate()
+        .map(|(i, s)| (s, i))
+        .collect()
+}
+
+/// Collect LambdaExpr nodes from the AST (for body emission).
+fn collect_lambdas<'a>(file: &'a File) -> Vec<&'a LambdaExpr> {
+    let mut out = Vec::new();
+    for f in &file.functions {
+        walk_block_lambdas(&f.body, &mut out);
+    }
+    for c in &file.classes {
+        for m in &c.methods {
+            walk_block_lambdas(&m.body, &mut out);
+        }
+    }
+    for k in &file.consts {
+        walk_expr_lambdas(&k.value, &mut out);
+    }
+    out
+}
+
+fn walk_block_lambdas<'a>(b: &'a Block, out: &mut Vec<&'a LambdaExpr>) {
+    for s in &b.stmts {
+        walk_stmt_lambdas(s, out);
+    }
+}
+
+fn walk_stmt_lambdas<'a>(s: &'a Stmt, out: &mut Vec<&'a LambdaExpr>) {
+    match s {
+        Stmt::Var(v) => walk_expr_lambdas(&v.init, out),
+        Stmt::If(i) => {
+            walk_expr_lambdas(&i.cond, out);
+            walk_block_lambdas(&i.then_block, out);
+            if let Some(e) = &i.else_block {
+                walk_block_lambdas(e, out);
+            }
+        }
+        Stmt::While(w) => {
+            walk_expr_lambdas(&w.cond, out);
+            walk_block_lambdas(&w.body, out);
+        }
+        Stmt::ForRange(f) => {
+            walk_expr_lambdas(&f.start, out);
+            walk_expr_lambdas(&f.end, out);
+            walk_block_lambdas(&f.body, out);
+        }
+        Stmt::ForIn(f) => {
+            walk_expr_lambdas(&f.iterable, out);
+            walk_block_lambdas(&f.body, out);
+        }
+        Stmt::Match(m) => {
+            walk_expr_lambdas(&m.scrutinee, out);
+            for a in &m.arms {
+                walk_block_lambdas(&a.body, out);
+            }
+        }
+        Stmt::Try(t) => {
+            walk_block_lambdas(&t.try_block, out);
+            if let Some(c) = &t.catch {
+                walk_block_lambdas(&c.body, out);
+            }
+            if let Some(f) = &t.finally {
+                walk_block_lambdas(f, out);
+            }
+        }
+        Stmt::Throw(t) => walk_expr_lambdas(&t.value, out),
+        Stmt::Return(r) => {
+            if let Some(e) = &r.value {
+                walk_expr_lambdas(e, out);
+            }
+        }
+        Stmt::Expr(e) => walk_expr_lambdas(e, out),
+        Stmt::Break(_) | Stmt::Continue(_) => {}
+    }
+}
+
+fn walk_expr_lambdas<'a>(e: &'a Expr, out: &mut Vec<&'a LambdaExpr>) {
+    match e {
+        Expr::Lambda(l) => {
+            out.push(l);
+            walk_expr_lambdas(&l.body, out);
+        }
+        Expr::Call(c) => {
+            walk_expr_lambdas(&c.callee, out);
+            for a in &c.args {
+                walk_expr_lambdas(a, out);
+            }
+        }
+        Expr::Field(f) => walk_expr_lambdas(&f.object, out),
+        Expr::Assign(a) => walk_expr_lambdas(&a.value, out),
+        Expr::Binary(b) => {
+            walk_expr_lambdas(&b.left, out);
+            walk_expr_lambdas(&b.right, out);
+        }
+        Expr::Unary(u) => walk_expr_lambdas(&u.expr, out),
+        Expr::ForceUnwrap(f) => walk_expr_lambdas(&f.expr, out),
+        Expr::Is(i) => walk_expr_lambdas(&i.expr, out),
+        Expr::Group(inner, _) => walk_expr_lambdas(inner, out),
+        Expr::If(i) => {
+            walk_expr_lambdas(&i.cond, out);
+            walk_block_lambdas(&i.then_block, out);
+            walk_block_lambdas(&i.else_block, out);
+        }
+        Expr::Ident(_)
+        | Expr::This(_)
+        | Expr::Int(_)
+        | Expr::Bool(_)
+        | Expr::String(_)
+        | Expr::Null(_) => {}
+    }
+}
+
+/// Collect Fun types that need C typedefs (lambdas + AST annotations).
+fn collect_fun_tys(checked: &CheckedFile) -> Vec<Ty> {
+    let mut out: Vec<Ty> = checked.lambda_tys.values().cloned().collect();
+    fn from_type_ref(t: &TypeRef, acc: &mut Vec<Ty>) {
+        if let Some(fun) = &t.fun {
+            let params: Vec<Ty> = fun
+                .params
+                .iter()
+                .map(|p| {
+                    // shallow: only nested fun handled by recursion
+                    let mut nested = Vec::new();
+                    from_type_ref(p, &mut nested);
+                    if let Some(fun) = &p.fun {
+                        let ps = fun.params.iter().map(|x| type_ref_to_ty_loose(x)).collect();
+                        let ret = type_ref_to_ty_loose(&fun.ret);
+                        Ty::Fun {
+                            params: ps,
+                            ret: Box::new(ret),
+                        }
+                    } else {
+                        type_ref_to_ty_loose(p)
+                    }
+                })
+                .collect();
+            let ret = type_ref_to_ty_loose(&fun.ret);
+            acc.push(Ty::Fun {
+                params,
+                ret: Box::new(ret),
+            });
+            for p in &fun.params {
+                from_type_ref(p, acc);
+            }
+            from_type_ref(&fun.ret, acc);
+        }
+        for a in &t.type_args {
+            from_type_ref(a, acc);
+        }
+    }
+    fn type_ref_to_ty_loose(t: &TypeRef) -> Ty {
+        if let Some(fun) = &t.fun {
+            let params = fun.params.iter().map(type_ref_to_ty_loose).collect();
+            let ret = type_ref_to_ty_loose(&fun.ret);
+            let base = Ty::Fun {
+                params,
+                ret: Box::new(ret),
+            };
+            return if t.nullable {
+                Ty::Nullable(Box::new(base))
+            } else {
+                base
+            };
+        }
+        let base = match t.name.name.as_str() {
+            "Int" => Ty::Int,
+            "Bool" => Ty::Bool,
+            "String" => Ty::String,
+            "Unit" => Ty::Unit,
+            other => {
+                if t.type_args.is_empty() {
+                    Ty::Class(other.to_string())
+                } else {
+                    Ty::ClassApp {
+                        name: other.to_string(),
+                        args: t.type_args.iter().map(type_ref_to_ty_loose).collect(),
+                    }
+                }
+            }
+        };
+        if t.nullable {
+            Ty::Nullable(Box::new(base))
+        } else {
+            base
+        }
+    }
+    for f in &checked.ast.functions {
+        for p in &f.params {
+            from_type_ref(&p.ty, &mut out);
+        }
+        if let Some(rt) = &f.return_type {
+            from_type_ref(rt, &mut out);
+        }
+    }
+    for c in &checked.ast.classes {
+        for field in &c.fields {
+            from_type_ref(&field.ty, &mut out);
+        }
+        for m in &c.methods {
+            for p in &m.params {
+                from_type_ref(&p.ty, &mut out);
+            }
+            if let Some(rt) = &m.return_type {
+                from_type_ref(rt, &mut out);
+            }
+        }
+    }
+    out
+}
+
+fn emit_fun_typedefs(out: &mut String, checked: &CheckedFile) {
+    let mut seen = std::collections::HashSet::new();
+    let mut tys = collect_fun_tys(checked);
+    tys.sort_by_key(|t| t.mono_suffix());
+    for ty in &tys {
+        if !matches!(ty, Ty::Fun { .. }) {
+            continue;
+        }
+        let key = ty.mono_suffix();
+        if seen.insert(key) {
+            emit_fun_typedef(out, ty, checked);
+        }
+    }
+    if !seen.is_empty() {
+        out.push('\n');
+    }
+}
+
+fn emit_lambda_fns(out: &mut String, checked: &CheckedFile) {
+    if checked.lambda_tys.is_empty() {
+        return;
+    }
+    let ids = build_lambda_ids(checked);
+    let mut lambdas = collect_lambdas(&checked.ast);
+    lambdas.sort_by_key(|l| l.span.start);
+
+    for lam in lambdas {
+        let Some(&id) = ids.get(&lam.span.start) else {
+            continue;
+        };
+        let Some(fun_ty) = checked.lambda_tys.get(&lam.span.start) else {
+            continue;
+        };
+        let Ty::Fun { params, ret } = fun_ty else {
+            continue;
+        };
+        let ret_c = match ret.as_ref() {
+            Ty::Unit => "void".to_string(),
+            r => c_type_from_ty(r, checked),
+        };
+        let mut param_parts = Vec::new();
+        for (i, pty) in params.iter().enumerate() {
+            let pname = if let Some(p) = lam.params.get(i) {
+                mangle_ident(&p.name.name)
+            } else {
+                format!("p{i}")
+            };
+            param_parts.push(format!("{} {pname}", c_type_from_ty(pty, checked)));
+        }
+        let ps = if param_parts.is_empty() {
+            "void".to_string()
+        } else {
+            param_parts.join(", ")
+        };
+        let _ = writeln!(out, "static {ret_c} aura_lambda_{id}({ps}) {{");
+        let ret_key = Some(ret.mono_suffix());
+        let mut ctx = EmitCtx {
+            checked,
+            method_class: None,
+            type_params: Vec::new(),
+            type_args: Vec::new(),
+            locals: vec![HashMap::new()],
+            array_owners: vec![std::collections::HashSet::new()],
+            gc_roots: vec![std::collections::HashSet::new()],
+            array_gc_roots: vec![std::collections::HashSet::new()],
+            return_key: ret_key,
+            lambda_ids: ids.clone(),
+        };
+        for (i, p) in lam.params.iter().enumerate() {
+            let key = params
+                .get(i)
+                .map(|t| t.mono_suffix())
+                .unwrap_or_else(|| "Int".into());
+            ctx.define_local(&p.name.name, key);
+        }
+        let body = crate::expr::emit_expr(&lam.body, &mut ctx);
+        if matches!(ret.as_ref(), Ty::Unit) {
+            let _ = writeln!(out, "  {body};");
+        } else {
+            let _ = writeln!(out, "  return {body};");
+        }
+        out.push_str("}\n\n");
+    }
+}
+
 pub(crate) fn emit_fun(out: &mut String, f: &FunDecl, checked: &CheckedFile, args: &[Ty]) {
     let params: Vec<String> = f.type_params.iter().map(|p| p.name.name.clone()).collect();
     let _ = writeln!(out, "{} {{", c_fun_signature(f, checked, args));
@@ -435,6 +743,7 @@ pub(crate) fn emit_fun(out: &mut String, f: &FunDecl, checked: &CheckedFile, arg
         gc_roots: vec![std::collections::HashSet::new()],
         array_gc_roots: vec![std::collections::HashSet::new()],
         return_key: ret_key,
+        lambda_ids: build_lambda_ids(checked),
     };
     for p in &f.params {
         let key = type_ref_local_key_expand(&p.ty, &params, args, checked);

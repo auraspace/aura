@@ -61,6 +61,11 @@ pub enum Ty {
     },
     /// Type parameter in a generic definition scope (`T`).
     TypeParam(String),
+    /// C10d: function type `(params) -> ret` (first-class / lambdas).
+    Fun {
+        params: Vec<Ty>,
+        ret: Box<Ty>,
+    },
 }
 
 impl Ty {
@@ -115,6 +120,14 @@ impl Ty {
                 }
             }
             Ty::TypeParam(n) => n.clone(),
+            Ty::Fun { params, ret } => {
+                let ps = params
+                    .iter()
+                    .map(|p| p.display())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("({ps}) -> {}", ret.display())
+            }
         }
     }
 
@@ -148,6 +161,19 @@ impl Ty {
                 format!("{base}_{a}")
             }
             Ty::TypeParam(n) => n.clone(),
+            // C10d: `Fun_Int_Bool__String` for `(Int, Bool) -> String`
+            Ty::Fun { params, ret } => {
+                let ps = params
+                    .iter()
+                    .map(|p| p.mono_suffix())
+                    .collect::<Vec<_>>()
+                    .join("_");
+                if ps.is_empty() {
+                    format!("Fun__{}", ret.mono_suffix())
+                } else {
+                    format!("Fun_{ps}__{}", ret.mono_suffix())
+                }
+            }
         }
     }
 
@@ -166,6 +192,7 @@ impl Ty {
             Ty::ClassApp { args, .. }
             | Ty::EnumApp { args, .. }
             | Ty::InterfaceApp { args, .. } => args.iter().any(|a| a.is_open()),
+            Ty::Fun { params, ret } => params.iter().any(|p| p.is_open()) || ret.is_open(),
             _ => false,
         }
     }

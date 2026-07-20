@@ -632,6 +632,8 @@ pub(crate) fn local_key_to_c(key: &str, checked: &CheckedFile) -> String {
         "Unit" => "void".into(),
         "Opt_Int" => "aura_opt_i64".into(),
         "Opt_Bool" => "aura_opt_bool".into(),
+        // C10e: function-type mono keys → typedef name.
+        n if is_fun_type_key(n) => c_fun_typedef(n),
         n if checked
             .ast
             .interfaces

@@ -197,6 +197,7 @@ pub struct Param {
 }
 
 /// `Box<String>?` / `Math.Point` — optional package alias qualifier (C3u), name, type args, `?`.
+/// C10f: function types use `fun: Some(...)` with placeholder `name` (`fn`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeRef {
     /// `import path as Alias` qualifier when type is written `Alias.Name` (C3u).
@@ -205,6 +206,15 @@ pub struct TypeRef {
     pub type_args: Vec<TypeRef>,
     pub nullable: bool,
     pub span: Span,
+    /// C10f: `(Int, Bool) -> String` function type payload.
+    pub fun: Option<Box<FunTypeRef>>,
+}
+
+/// Parameter and return types for a function type (C10f).
+#[derive(Debug, Clone, PartialEq)]
+pub struct FunTypeRef {
+    pub params: Vec<TypeRef>,
+    pub ret: TypeRef,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -354,6 +364,16 @@ pub enum Expr {
     Group(Box<Expr>, Span),
     /// C4t: `if (cond) { … } else { … }` as expression (value = last expr in each branch).
     If(Box<IfExpr>),
+    /// C10c: `(x: Int) => x + 1` or `() => 0` (expression body; non-capturing MVP).
+    Lambda(LambdaExpr),
+}
+
+/// `(params) => body` lambda expression (C10c).
+#[derive(Debug, Clone, PartialEq)]
+pub struct LambdaExpr {
+    pub params: Vec<Param>,
+    pub body: Box<Expr>,
+    pub span: Span,
 }
 
 /// `expr is TypeName` (C9i).
@@ -391,6 +411,7 @@ impl Expr {
             Expr::Is(i) => i.span,
             Expr::Group(_, s) => *s,
             Expr::If(i) => i.span,
+            Expr::Lambda(l) => l.span,
         }
     }
 }

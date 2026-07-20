@@ -348,6 +348,20 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
 
     match c.callee.as_ref() {
         Expr::Ident(id) => {
+            // C10e: call through a local function-value.
+            if let Some(key) = ctx.lookup_local(&id.name) {
+                if is_fun_type_key(key) {
+                    let args = c
+                        .args
+                        .iter()
+                        .map(|a| emit_expr(a, ctx))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    let f = mangle_ident(&id.name);
+                    return format!("{f}({args})");
+                }
+            }
+
             // Prefer type args resolved by sema (explicit or inferred)
             let inst = ctx.checked.call_instantiations.get(&c.span.start);
 
@@ -536,6 +550,16 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                 .join(", ");
             format!("{}({args})", c_fun_name(pkg, &id.name, &[]))
         }
-        _ => "/* bad call */(0)".into(),
+        // C10e: call a lambda / other function-value expression.
+        other => {
+            let callee = emit_expr(other, ctx);
+            let args = c
+                .args
+                .iter()
+                .map(|a| emit_expr(a, ctx))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("({callee})({args})")
+        }
     }
 }

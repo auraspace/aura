@@ -1,0 +1,7 @@
+// C10c: zero-param lambda
+package demo.lambda
+
+fun main(): Int {
+  val f = () => 7
+  return f()
+}

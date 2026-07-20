@@ -5,6 +5,25 @@ use crate::error::SemaError;
 use crate::ty::{nominal_key, Ty};
 impl Checker {
     pub(crate) fn type_from_ref(&self, t: &TypeRef) -> Result<Ty, SemaError> {
+        // C10f: function type `(T) -> U`.
+        if let Some(fun) = &t.fun {
+            let params = fun
+                .params
+                .iter()
+                .map(|p| self.type_from_ref(p))
+                .collect::<Result<Vec<_>, _>>()?;
+            let ret = self.type_from_ref(&fun.ret)?;
+            let ty = Ty::Fun {
+                params,
+                ret: Box::new(ret),
+            };
+            return Ok(if t.nullable {
+                Ty::Nullable(Box::new(ty))
+            } else {
+                ty
+            });
+        }
+
         let type_args: Vec<Ty> = t
             .type_args
             .iter()
@@ -283,6 +302,19 @@ impl Checker {
                     })
                 })
                 .unwrap_or(false),
+            // C10d: function types — params contravariant, ret covariant (MVP: invariant).
+            (
+                Ty::Fun {
+                    params: fp,
+                    ret: fr,
+                },
+                Ty::Fun {
+                    params: tp,
+                    ret: tr,
+                },
+            ) if fp.len() == tp.len() => {
+                fp.iter().zip(tp.iter()).all(|(a, b)| a == b) && fr.as_ref() == tr.as_ref()
+            }
             // Type params only match themselves (handled by ==)
             _ => false,
         }

@@ -1,5 +1,7 @@
 //! C naming, monomorph keys, and type conversion.
 
+use std::fmt::Write as _;
+
 use aura_ast::*;
 use aura_sema::{nominal_key, nominal_mono_base, CheckedFile, Ty};
 
@@ -371,6 +373,7 @@ pub(crate) fn ty_to_c(t: &Ty) -> String {
         Ty::Interface(n) => c_iface_type(&nominal_mono_base(n)),
         Ty::InterfaceApp { name, args } => c_iface_type(&mono_key(name, args)),
         Ty::TypeParam(_) => "/* unbound T */ int64_t".into(),
+        Ty::Fun { .. } => c_fun_typedef(&t.mono_suffix()),
     }
 }
 
@@ -429,6 +432,25 @@ pub(crate) fn c_type_ref_subst(
     params: &[String],
     args: &[Ty],
 ) -> String {
+    // C10f: function type → typedef name.
+    if let Some(fun) = &ty.fun {
+        let params_ty: Vec<Ty> = fun
+            .params
+            .iter()
+            .map(|p| type_ref_to_ty_simple(p, params, args))
+            .collect();
+        let ret_ty = type_ref_to_ty_simple(&fun.ret, params, args);
+        let fun_ty = Ty::Fun {
+            params: params_ty,
+            ret: Box::new(ret_ty),
+        };
+        let key = fun_ty.mono_suffix();
+        let base = c_fun_typedef(&key);
+        if ty.nullable {
+            return base; // pointer-like; no opt wrapper for fun
+        }
+        return base;
+    }
     if ty.nullable {
         // C7a: Int?/Bool? → tagged optional structs.
         // C4b: other `T?` share the C representation of `T` (heap class*, String, ifaces).
@@ -438,6 +460,7 @@ pub(crate) fn c_type_ref_subst(
             type_args: ty.type_args.clone(),
             nullable: false,
             span: ty.span,
+            fun: ty.fun.clone(),
         };
         let inner = c_type_ref_subst(&non_null, checked, params, args);
         return match inner.as_str() {
@@ -644,7 +667,152 @@ pub(crate) fn mangle_ident(name: &str) -> String {
         _ => name.to_string(),
     }
 }
+/// C10e: local/type key for function types (`Fun_Int__Int`).
+pub(crate) fn is_fun_type_key(key: &str) -> bool {
+    key.starts_with("Fun_") || key == "Fun"
+}
+
+/// C typedef name for a function-type mono key.
+pub(crate) fn c_fun_typedef(key: &str) -> String {
+    format!("aura_fp_{key}")
+}
+
+/// C type for a semantic `Ty` (primitives, fun pointers; classes as mono struct pointers).
+pub(crate) fn c_type_from_ty(ty: &Ty, checked: &CheckedFile) -> String {
+    match ty {
+        Ty::Unit => "void".into(),
+        Ty::Int => "int64_t".into(),
+        Ty::Bool => "bool".into(),
+        Ty::String => "const char *".into(),
+        Ty::Null => "void *".into(),
+        Ty::Nullable(inner) => match inner.as_ref() {
+            Ty::Int => "aura_opt_i64".into(),
+            Ty::Bool => "aura_opt_bool".into(),
+            other => c_type_from_ty(other, checked),
+        },
+        Ty::Fun { .. } => {
+            let key = ty.mono_suffix();
+            c_fun_typedef(&key)
+        }
+        Ty::Class(n) | Ty::ClassApp { name: n, .. } => {
+            let mono = ty.mono_suffix();
+            // Structs are by-value in some paths; heap classes are pointers.
+            // MVP lambdas only pass primitives — class args use pointer form.
+            let base = nominal_mono_base(n);
+            if checked
+                .ast
+                .classes
+                .iter()
+                .any(|c| c.name.name == base && c.kind == NominalKind::Struct)
+            {
+                c_class_type(&mono)
+            } else {
+                format!("{} *", c_class_type(&mono))
+            }
+        }
+        Ty::Enum(_) | Ty::EnumApp { .. } => c_enum_type(&ty.mono_suffix()),
+        Ty::Interface(_) | Ty::InterfaceApp { .. } => c_iface_type(&ty.mono_suffix()),
+        Ty::TypeParam(n) => n.clone(),
+    }
+}
+
+/// Best-effort TypeRef → Ty for fun-type keys (no full package resolution).
+fn type_ref_to_ty_simple(ty: &TypeRef, params: &[String], args: &[Ty]) -> Ty {
+    if let Some(fun) = &ty.fun {
+        let ps = fun
+            .params
+            .iter()
+            .map(|p| type_ref_to_ty_simple(p, params, args))
+            .collect();
+        let ret = type_ref_to_ty_simple(&fun.ret, params, args);
+        let t = Ty::Fun {
+            params: ps,
+            ret: Box::new(ret),
+        };
+        return if ty.nullable {
+            Ty::Nullable(Box::new(t))
+        } else {
+            t
+        };
+    }
+    if let Some(idx) = params.iter().position(|p| p == &ty.name.name) {
+        if let Some(a) = args.get(idx) {
+            return if ty.nullable {
+                Ty::Nullable(Box::new(a.clone()))
+            } else {
+                a.clone()
+            };
+        }
+    }
+    let base = match ty.name.name.as_str() {
+        "Int" => Ty::Int,
+        "Bool" => Ty::Bool,
+        "String" => Ty::String,
+        "Unit" => Ty::Unit,
+        other => {
+            if ty.type_args.is_empty() {
+                Ty::Class(other.to_string())
+            } else {
+                Ty::ClassApp {
+                    name: other.to_string(),
+                    args: ty
+                        .type_args
+                        .iter()
+                        .map(|a| type_ref_to_ty_simple(a, params, args))
+                        .collect(),
+                }
+            }
+        }
+    };
+    if ty.nullable {
+        Ty::Nullable(Box::new(base))
+    } else {
+        base
+    }
+}
+
+/// Emit `typedef ret (*aura_fp_KEY)(params…);` for a Fun type.
+pub(crate) fn emit_fun_typedef(out: &mut String, ty: &Ty, checked: &CheckedFile) {
+    let Ty::Fun { params, ret } = ty else {
+        return;
+    };
+    let key = ty.mono_suffix();
+    let name = c_fun_typedef(&key);
+    let ret_c = match ret.as_ref() {
+        Ty::Unit => "void".to_string(),
+        r => c_type_from_ty(r, checked),
+    };
+    let ps = if params.is_empty() {
+        "void".to_string()
+    } else {
+        params
+            .iter()
+            .map(|p| c_type_from_ty(p, checked))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let _ = writeln!(out, "typedef {ret_c} (*{name})({ps});");
+}
+
 pub(crate) fn type_ref_local_key(ty: &TypeRef, params: &[String], args: &[Ty]) -> String {
+    // C10f: function type annotation.
+    if let Some(fun) = &ty.fun {
+        let params_ty: Vec<Ty> = fun
+            .params
+            .iter()
+            .map(|p| type_ref_to_ty_simple(p, params, args))
+            .collect();
+        let ret_ty = type_ref_to_ty_simple(&fun.ret, params, args);
+        let fun_ty = Ty::Fun {
+            params: params_ty,
+            ret: Box::new(ret_ty),
+        };
+        let key = fun_ty.mono_suffix();
+        if ty.nullable {
+            // Nullable fun not supported specially; keep key.
+        }
+        return key;
+    }
     let base = if let Some(idx) = params.iter().position(|p| p == &ty.name.name) {
         if let Some(t) = args.get(idx) {
             match t {

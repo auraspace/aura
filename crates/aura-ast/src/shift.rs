@@ -66,6 +66,12 @@ fn shift_type_param(tp: &mut TypeParam, delta: BytePos) {
 }
 
 fn shift_type_ref(t: &mut TypeRef, delta: BytePos) {
+    if let Some(fun) = t.fun.as_mut() {
+        for p in &mut fun.params {
+            shift_type_ref(p, delta);
+        }
+        shift_type_ref(&mut fun.ret, delta);
+    }
     if let Some(q) = &mut t.qualifier {
         shift_ident(q, delta);
     }
@@ -313,6 +319,15 @@ fn shift_expr(e: &mut Expr, delta: BytePos) {
             shift_block(&mut i.then_block, delta);
             shift_block(&mut i.else_block, delta);
             i.span = i.span.shift(delta);
+        }
+        Expr::Lambda(l) => {
+            for p in &mut l.params {
+                shift_ident(&mut p.name, delta);
+                shift_type_ref(&mut p.ty, delta);
+                p.span = p.span.shift(delta);
+            }
+            shift_expr(&mut l.body, delta);
+            l.span = l.span.shift(delta);
         }
     }
 }

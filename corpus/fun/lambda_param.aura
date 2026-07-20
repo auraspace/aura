@@ -1,0 +1,10 @@
+// C10d/f: pass fun value as parameter
+package demo.lambda
+
+fun apply(f: (Int) -> Int, x: Int): Int {
+  return f(x)
+}
+
+fun main(): Int {
+  return apply((n: Int) => n + 10, 32)
+}

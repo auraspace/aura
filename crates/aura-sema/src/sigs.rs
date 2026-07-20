@@ -121,5 +121,7 @@ pub struct CheckedFile {
     pub mono_interfaces: Vec<(String, Vec<Ty>)>,
     /// CallExpr.span.start → resolved type arguments (for codegen).
     pub call_instantiations: HashMap<u32, CallInstantiation>,
+    /// C10d/e: LambdaExpr.span.start → function type (for codegen).
+    pub lambda_tys: HashMap<u32, Ty>,
     pub ast: File,
 }

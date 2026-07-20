@@ -366,6 +366,7 @@ pub(crate) fn emit_method_mono(
         gc_roots: vec![std::collections::HashSet::new()],
         array_gc_roots: vec![std::collections::HashSet::new()],
         return_key: ret_key,
+        lambda_ids: crate::emit::build_lambda_ids(checked),
     };
     for f in &c.fields {
         let key = type_ref_local_key_expand(&f.ty, params, args, checked);
