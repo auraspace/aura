@@ -11,7 +11,7 @@
 #       meta/version, os, arch, installed_at
 #     current -> versions/<version>     # active toolchain
 #     bin/aura -> ../current/bin/aura   # PATH entrypoint
-#     bin/aura-switch                   # switch active version later
+#     bin/avm                           # Aura Version Manager (switch active version)
 #
 # Env:
 #   AURA_VERSION       Release without leading v (default: latest GitHub release)
@@ -74,13 +74,14 @@ version_dir() {
   printf '%s\n' "${AURA_HOME}/versions/$1"
 }
 
-write_switch_helper() {
-  local switch="${AURA_HOME}/bin/aura-switch"
+write_avm() {
+  # avm = Aura Version Manager (switch active toolchain under $AURA_HOME)
+  local avm="${AURA_HOME}/bin/avm"
   mkdir -p "${AURA_HOME}/bin"
-  cat >"$switch" <<'SWITCH'
+  cat >"$avm" <<'AVM'
 #!/usr/bin/env bash
-# Switch the active Aura toolchain under $AURA_HOME.
-# Usage: aura-switch <version> | aura-switch --list | aura-switch --show
+# avm — Aura Version Manager
+# Usage: avm <version> | avm --list | avm --show
 set -euo pipefail
 AURA_HOME="${AURA_HOME:-${HOME}/.aura}"
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
@@ -109,10 +110,12 @@ cmd="${1:-}"
 case "$cmd" in
   ""|-h|--help)
     cat <<EOF
+avm — Aura Version Manager
+
 Usage:
-  aura-switch <version>   Activate an installed version
-  aura-switch --list      List installed versions
-  aura-switch --show      Print active version
+  avm <version>   Activate an installed version
+  avm --list      List installed versions
+  avm --show      Print active version
 EOF
     exit 0
     ;;
@@ -145,8 +148,10 @@ printf 'active: %s\n' "$ver"
 if [[ -x "${AURA_HOME}/bin/aura" ]]; then
   "${AURA_HOME}/bin/aura" version || true
 fi
-SWITCH
-  chmod 755 "$switch"
+AVM
+  chmod 755 "$avm"
+  # Drop legacy helper name if present from older installers.
+  rm -f "${AURA_HOME}/bin/aura-switch"
 }
 
 link_current() {
@@ -154,7 +159,7 @@ link_current() {
   mkdir -p "${AURA_HOME}/bin"
   ln -sfn "versions/${version}" "${AURA_HOME}/current"
   ln -sfn "../current/bin/aura" "${AURA_HOME}/bin/aura"
-  write_switch_helper
+  write_avm
   info "active version → ${version} (${AURA_HOME}/current)"
 }
 
@@ -163,11 +168,13 @@ link_user_bin() {
   local user_bin="${HOME}/.local/bin"
   mkdir -p "$user_bin"
   ln -sfn "${AURA_HOME}/bin/aura" "${user_bin}/aura"
-  # Optional convenience for switch helper
-  if [[ -x "${AURA_HOME}/bin/aura-switch" ]]; then
-    ln -sfn "${AURA_HOME}/bin/aura-switch" "${user_bin}/aura-switch"
+  if [[ -x "${AURA_HOME}/bin/avm" ]]; then
+    ln -sfn "${AURA_HOME}/bin/avm" "${user_bin}/avm"
   fi
+  # Clean up pre-rename helper symlink.
+  rm -f "${user_bin}/aura-switch"
   info "linked ${user_bin}/aura → ${AURA_HOME}/bin/aura"
+  info "linked ${user_bin}/avm → ${AURA_HOME}/bin/avm"
 }
 
 download_and_install() {
@@ -223,8 +230,8 @@ download_and_install() {
   if [[ "$SET_DEFAULT" == "1" ]]; then
     link_current "$version"
   else
-    write_switch_helper
-    info "left current unchanged (AURA_SET_DEFAULT=0); run: aura-switch ${version}"
+    write_avm
+    info "left current unchanged (AURA_SET_DEFAULT=0); run: avm ${version}"
   fi
 
   link_user_bin
@@ -260,8 +267,8 @@ Add Aura to your PATH (shell profile):
 Then:
 
   aura version
-  aura-switch --list          # installed versions
-  aura-switch 0.1.0-alpha     # switch active (after multi-version install)
+  avm --list                  # installed versions
+  avm 0.1.0-alpha             # switch active (after multi-version install)
   aura new hello && aura run hello
 
 Docs: https://aura.fadosoft.com/docs/install

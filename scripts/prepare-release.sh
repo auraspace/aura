@@ -281,7 +281,7 @@ scaffold_notes() {
 \`\`\`bash
 curl -fsSL https://aura.fadosoft.com/install.sh | AURA_VERSION=${VERSION} bash
 aura version
-aura-switch --list
+avm --list
 \`\`\`
 
 ## Highlights

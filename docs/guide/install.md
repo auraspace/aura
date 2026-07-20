@@ -32,10 +32,10 @@ $AURA_HOME/
   current -> versions/0.1.0-alpha     # active toolchain
   bin/
     aura -> ../current/bin/aura       # put this on PATH
-    aura-switch                       # change `current`
+    avm                               # Aura Version Manager
 ```
 
-The installer also symlinks `~/.local/bin/aura` → `$AURA_HOME/bin/aura` (disable with `AURA_LINK_USER_BIN=0`).
+The installer also symlinks `~/.local/bin/aura` and `~/.local/bin/avm` (disable with `AURA_LINK_USER_BIN=0`).
 
 ### Options
 
@@ -48,19 +48,19 @@ curl -fsSL https://aura.fadosoft.com/install.sh | AURA_HOME=/opt/aura bash
 
 # Install side-by-side without changing the active version
 curl -fsSL https://aura.fadosoft.com/install.sh | AURA_VERSION=0.2.0 AURA_SET_DEFAULT=0 bash
-aura-switch 0.2.0
+avm 0.2.0
 ```
 
 ### Switch versions
 
 ```bash
-aura-switch --list
-aura-switch --show
-aura-switch 0.1.0-alpha
+avm --list
+avm --show
+avm 0.1.0-alpha
 aura version
 ```
 
-`aura-switch` only flips the `current` symlink; previously installed trees under `versions/` stay on disk.
+`avm` only flips the `current` symlink; previously installed trees under `versions/` stay on disk.
 
 Source of truth: [`scripts/install.sh`](https://github.com/auraspace/aura/blob/main/scripts/install.sh) (copied to the site root on deploy).
 
@@ -145,7 +145,7 @@ TAG_VERSION=0.1.0-alpha bash scripts/package-release.sh
 ```bash
 export PATH="$HOME/.aura/bin:$HOME/.local/bin:$PATH"
 aura version
-aura-switch --show
+avm --show
 aura new /tmp/aura-smoke && aura run /tmp/aura-smoke
 ```
 
@@ -158,7 +158,7 @@ Expect `Hello, Aura` on stdout.
 | `cc` / `clang` not found | Install Xcode CLT (macOS) or `build-essential` (Debian/Ubuntu)          |
 | `cannot find runtime`    | Upgrade CLI (embed) or set `AURA_RUNTIME` to a valid `aura_rt.c`        |
 | `std.io` / std not found | Use package mode (`aura.toml`); for monorepo samples run from repo root |
-| Wrong CLI                | `which aura` / `aura-switch --show` — prefer `$AURA_HOME/bin`           |
+| Wrong CLI                | `which aura` / `avm --show` — prefer `$AURA_HOME/bin`                   |
 | Old binary on PATH       | Ensure `$AURA_HOME/bin` or `~/.local/bin` precedes `~/.cargo/bin`       |
 
 ## Next

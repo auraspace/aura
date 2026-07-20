@@ -42,7 +42,7 @@ How Aura cuts a public toolchain release (alpha → stable uses the same path).
 ┌─────────────────────┐
 │ users install       │
 │  curl …/install.sh  │  → $AURA_HOME/versions/<ver>/
-│  aura-switch <ver>  │
+│  avm <ver>          │
 └─────────────────────┘
 ```
 
