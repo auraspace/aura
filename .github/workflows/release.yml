@@ -53,10 +53,28 @@ jobs:
       - name: Smoke the packaged binary
         run: |
           set -euo pipefail
-          tar=dist/aura-*.tar.gz
-          # shellcheck disable=SC2086
-          stage="$(tar -tzf $tar | head -1 | cut -d/ -f1)"
-          tar -xzf dist/aura-*.tar.gz -C dist
+          shopt -s nullglob
+          tarballs=(dist/aura-*.tar.gz)
+          if [[ ${#tarballs[@]} -ne 1 ]]; then
+            echo "error: expected exactly one dist/aura-*.tar.gz, found ${#tarballs[@]}" >&2
+            ls -la dist || true
+            exit 1
+          fi
+          tar="${tarballs[0]}"
+          # Drain the full listing so GNU tar does not hit SIGPIPE under pipefail
+          # (tar | head -1 fails on Linux with "tar: stdout: write error").
+          stage="$(
+            tar -tzf "$tar" | {
+              IFS= read -r first
+              printf '%s\n' "${first%%/*}"
+              cat >/dev/null
+            }
+          )"
+          if [[ -z "$stage" ]]; then
+            echo "error: could not determine stage directory from $tar" >&2
+            exit 1
+          fi
+          tar -xzf "$tar" -C dist
           export PATH="$PWD/dist/$stage/bin:$PATH"
           aura version
           TMP="$(mktemp -d)"
