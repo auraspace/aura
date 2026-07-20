@@ -145,6 +145,22 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
                     if (base == "Array" || mono.starts_with("Array_")) && fe.field.name == "clone" {
                         return mono;
                     }
+                    // Builtin String methods (return type for locals / assert_eq).
+                    if mono == "String" || base == "String" {
+                        match fe.field.name.as_str() {
+                            "isEmpty" | "startsWith" | "contains" | "endsWith" => {
+                                return "Bool".into();
+                            }
+                            "charAt" => return "Int".into(),
+                            "substring" | "len" => {
+                                if fe.field.name == "len" {
+                                    return "Int".into();
+                                }
+                                return "String".into();
+                            }
+                            _ => {}
+                        }
+                    }
                     if let Some(m) = ctx
                         .checked
                         .ast

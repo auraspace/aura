@@ -12,6 +12,7 @@ This repository currently holds:
 | [`site/`](site/)                     | Homepage + docs + RFC site (Vite + React)                            |
 | [`crates/`](crates/)                 | Rust toolchain (`aura` CLI) — check / build / run / test (C backend) |
 | [`corpus/`](corpus/)                 | Sample `.aura` programs for the compiler                             |
+| [`examples/`](examples/)             | Dogfood apps (e.g. notes CLI package)                                |
 | [`std/`](std/)                       | Minimal std packages (`io`, `assert`)                                |
 | [`runtime/`](runtime/)               | Linked C runtime (`aura_rt.c`)                                       |
 
@@ -179,8 +180,9 @@ Native builds use a **C backend** (`aura emit-c` + system `cc`) linked with `run
 - **Stdlib C11a** `std.io` file + console (`readFile` / `writeFile` / …)
 - **Compiler C11b** Fun capture-env ownership free (scope/move/return/param/for)
 - **CLI C11c** `aura new` / `init` / `version`
+- **Lang C11d** `String.substring` + `examples/notes` dogfood; fix heap `this.method()` recv
 - **Debts** Tracked in [`agents/debts.md`](agents/debts.md)
-- **Next (after C11c):** dogfood freeze + release notes; binary install; richer captures; registry; tasks/async
+- **Next (after C11d):** release notes / freeze; binary install; richer captures; registry; tasks/async
 
 ## Links
 

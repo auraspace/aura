@@ -1,0 +1,12 @@
+// C11d — String.substring(start, end) exclusive end
+package demo.expr
+
+fun main() {
+  val s = "Hello, Aura"
+  assert_eq(s.substring(0, 5), "Hello")
+  assert_eq(s.substring(7, 11), "Aura")
+  assert_eq(s.substring(0, 0), "")
+  assert_eq(s.substring(11, 11), "")
+  assert(s.substring(0, s.len) == s)
+  println("ok")
+}

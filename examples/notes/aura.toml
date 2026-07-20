@@ -1,0 +1,6 @@
+[package]
+name = "examples.notes"
+
+[[bin]]
+name = "notes"
+path = "src"

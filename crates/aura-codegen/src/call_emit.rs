@@ -302,6 +302,35 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                 }
                 return call;
             }
+            // C11d: substring(start, end) exclusive end; malloc copy; OOB throws.
+            if fe.field.name == "substring" {
+                let start = if c.args.len() >= 1 {
+                    emit_expr(&c.args[0], ctx)
+                } else {
+                    "0".into()
+                };
+                let end = if c.args.len() >= 2 {
+                    emit_expr(&c.args[1], ctx)
+                } else {
+                    "0".into()
+                };
+                let call = format!(
+                    "({{ const char *__s = ({obj}); int64_t __a = ({start}); int64_t __b = ({end}); \
+                     if (__s == NULL) aura_throw_string(\"String substring on null\"); \
+                     size_t __n = strlen(__s); \
+                     if (__a < 0 || __b < __a || (size_t)__b > __n) aura_throw_string(\"String substring out of bounds\"); \
+                     size_t __len = (size_t)(__b - __a); \
+                     char *__r = (char *)malloc(__len + 1); \
+                     if (__r == NULL) aura_throw_string(\"String substring out of memory\"); \
+                     if (__len > 0) memcpy(__r, __s + (size_t)__a, __len); \
+                     __r[__len] = '\\0'; \
+                     (const char *)__r; }})"
+                );
+                if fe.safe {
+                    return format!("(({obj}) == NULL ? NULL : {call})");
+                }
+                return call;
+            }
         }
 
         // Builtin Array methods
@@ -340,8 +369,13 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
         }
 
         // C3y: heap classes are already pointers; structs/Array need &.
+        // `this` emits as `(*this)` for field `.` access — method recv must stay the pointer.
         let this_arg = if is_heap_class_mono(&mono, ctx.checked) {
-            format!("({obj})")
+            if matches!(fe.object.as_ref(), Expr::This(_)) {
+                "this".into()
+            } else {
+                format!("({obj})")
+            }
         } else {
             format!("&({obj})")
         };

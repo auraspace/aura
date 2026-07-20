@@ -1,0 +1,70 @@
+// Dogfood CLI demo: in-memory notes + persist under target/aura/.
+// (No argv yet — scenario is fixed; extend when CLI args land.)
+// `import std.io as Io` lives in notebook.aura (package-wide after merge).
+package examples.notes
+
+@test
+fun load_text_roundtrip() {
+  val nb = notebook()
+  nb.loadText("alpha\nbeta\ngamma")
+  assert(nb.len() == 3)
+  assert_eq(nb.get(0), "alpha")
+  assert_eq(nb.get(1), "beta")
+  assert_eq(nb.get(2), "gamma")
+  assert_eq(nb.toText(), "alpha\nbeta\ngamma")
+}
+
+@test
+fun add_remove_contains() {
+  val nb = notebook()
+  nb.add("buy milk")
+  nb.add("ship aura")
+  assert(nb.contains("buy milk"))
+  assert(nb.remove("buy milk"))
+  assert(!nb.contains("buy milk"))
+  assert(nb.len() == 1)
+  assert_eq(nb.get(0), "ship aura")
+}
+
+@test
+fun empty_and_clear() {
+  val nb = notebook()
+  assert(nb.isEmpty())
+  nb.add("x")
+  nb.clear()
+  assert(nb.isEmpty())
+  assert_eq(nb.toText(), "")
+}
+
+fun main() {
+  val path = "target/aura/examples_notes.txt"
+  val nb = notebook()
+
+  // Fresh file
+  if (Io.fileExists(path)) {
+    Io.writeFile(path, "")
+  }
+
+  nb.add("write the RFC")
+  nb.add("land file I/O")
+  nb.add("dogfood notes app")
+  nb.save(path)
+
+  val loaded = notebook()
+  loaded.load(path)
+  assert(loaded.len() == 3)
+  assert(loaded.contains("land file I/O"))
+
+  loaded.remove("write the RFC")
+  loaded.add("tag v0.1-alpha")
+  loaded.save(path)
+
+  val again = notebook()
+  again.load(path)
+  Io.println("notes at ${path}:")
+  for (i in 0..again.len()) {
+    val line = again.get(i)
+    Io.println("  - ${line}")
+  }
+  Io.println("done")
+}

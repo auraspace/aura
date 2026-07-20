@@ -253,6 +253,36 @@ impl Checker {
                             Ty::Bool
                         });
                     }
+                    // C11d: exclusive-end substring (UTF-8 byte indices).
+                    "substring" => {
+                        if c.args.len() != 2 {
+                            return Err(SemaError {
+                                message: format!(
+                                    "`String.substring` expects 2 arguments (start, end), got {}",
+                                    c.args.len()
+                                ),
+                                span: c.span,
+                            });
+                        }
+                        for (i, arg) in c.args.iter().enumerate() {
+                            let t = self.check_expr(arg)?;
+                            if t != Ty::Int {
+                                return Err(SemaError {
+                                    message: format!(
+                                        "`String.substring` argument {} must be Int, got {}",
+                                        i + 1,
+                                        t.display()
+                                    ),
+                                    span: arg.span(),
+                                });
+                            }
+                        }
+                        return Ok(if safe_wrap {
+                            Ty::Nullable(Box::new(Ty::String))
+                        } else {
+                            Ty::String
+                        });
+                    }
                     other => {
                         return Err(SemaError {
                             message: format!("unknown method `{other}` on `String`"),

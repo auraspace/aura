@@ -1,0 +1,105 @@
+// Dogfood library: line-oriented notes file (one note per line).
+package examples.notes
+
+import std.io as Io
+
+/// In-memory notebook with load/save via `std.io` file APIs.
+class Notebook(val items: Array<String>) {
+  pub fun len(): Int {
+    return this.items.len
+  }
+
+  pub fun isEmpty(): Bool {
+    return this.items.isEmpty()
+  }
+
+  pub fun add(line: String) {
+    this.items.push(line)
+  }
+
+  pub fun get(i: Int): String {
+    return this.items.get(i)
+  }
+
+  /// true if any note equals `line` (exact match).
+  pub fun contains(line: String): Bool {
+    for (i in 0..this.items.len) {
+      if (this.items.get(i) == line) {
+        return true
+      }
+    }
+    return false
+  }
+
+  /// Remove first exact match. Returns true if removed.
+  pub fun remove(line: String): Bool {
+    for (i in 0..this.items.len) {
+      if (this.items.get(i) == line) {
+        val last = this.items.len - 1
+        if (i != last) {
+          this.items.set(i, this.items.get(last))
+        }
+        val _drop = this.items.pop()
+        return true
+      }
+    }
+    return false
+  }
+
+  pub fun clear() {
+    this.items.clear()
+  }
+
+  /// Serialize as newline-separated text (no trailing newline if empty).
+  pub fun toText(): String {
+    if (this.items.isEmpty()) {
+      return ""
+    }
+    var out = this.items.get(0)
+    for (i in 1..this.items.len) {
+      out = out + "\n" + this.items.get(i)
+    }
+    return out
+  }
+
+  /// Replace contents by splitting `text` on `\n` (UTF-8 byte 10).
+  /// Empty input → empty notebook; trailing newline yields a trailing empty note.
+  pub fun loadText(text: String) {
+    this.items.clear()
+    val n = text.len
+    if (n == 0) {
+      return
+    }
+    var start = 0
+    for (i in 0..n) {
+      val b = text.charAt(i)
+      if (b == 10) {
+        this.items.push(text.substring(start, i))
+        start = i + 1
+      }
+    }
+    if (start < n) {
+      this.items.push(text.substring(start, n))
+    } else if (start == n) {
+      // File ended with newline → trailing empty line omitted for friendlier notes files.
+    }
+  }
+
+  pub fun save(path: String) {
+    Io.writeFile(path, this.toText())
+  }
+
+  pub fun load(path: String) {
+    if (!Io.fileExists(path)) {
+      this.items.clear()
+      return
+    }
+    val text = Io.readFile(path)
+    this.loadText(text)
+  }
+}
+
+/// Empty notebook factory.
+pub fun notebook(): Notebook {
+  return Notebook(Array(0))
+}

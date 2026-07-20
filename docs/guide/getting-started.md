@@ -66,6 +66,8 @@ A single-file sample also lives at `corpus/hello/main.aura` if you prefer not to
 | `run corpus/import/app`       | Path dependencies                |
 | `run corpus/std_io/app`       | `std.io.println`                 |
 | `run corpus/std_io/files`     | `readFile` / `writeFile`         |
+| `run examples/notes`          | Dogfood multi-file notes app     |
+| `test examples/notes`         | Package `@test` suite            |
 
 Full list of compiler milestones is in the root [README](https://github.com/auraspace/aura).
 
