@@ -15,7 +15,7 @@ Living plan for docs, language specs, and the Rust toolchain. RFCs remain the de
 | RFC static site (`site/`)   | Implemented; Cloudflare Pages → **https://aura.fadosoft.com**                           |
 | RFC-000 … RFC-013           | **All Accepted** — open questions resolved or Deferred (2026-07-16)                     |
 | Language MVP                | RFC-001 §6.0 + post-C1; generic iface mono (C8c); Iterable (C8d); async/macros deferred |
-| Compiler                    | **C0–C11d** — Fun env free; file I/O; `aura new`; substring; notes dogfood              |
+| Compiler                    | **C0–C11e** — install-ready CLI (embedded runtime); 0.1.0-alpha freeze                  |
 | Runtime / packages / stdlib | GC + nested Array free; Map/Set/HashMap(+resize); path lock; **std.io file I/O**        |
 
 ## Phases
@@ -183,6 +183,7 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C11b**  | Fun capture-env ownership free (scope/move/return/param/for)       | Done                                       |
 | **C11c**  | `aura new` / `aura init` + `version` scaffold                      | Done                                       |
 | **C11d**  | `String.substring` + dogfood `examples/notes` + `this.method` fix  | Done                                       |
+| **C11e**  | Embedded runtime + install docs + 0.1.0-alpha freeze               | Done                                       |
 
 **Out of scope C0/C1:** generics mono, async/tasks, macros, registry, incremental, LTO.
 

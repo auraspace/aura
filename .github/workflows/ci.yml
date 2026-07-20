@@ -41,13 +41,43 @@ jobs:
         run: |
           set -euo pipefail
           bin=target/debug/aura
+          "$bin" version
           "$bin" run corpus/hello/main.aura
           "$bin" test corpus/test/smoke.aura
           "$bin" run corpus/multi
           "$bin" test corpus/multi
           "$bin" run corpus/import/app
           "$bin" run corpus/std_io/app
+          "$bin" run corpus/std_io/files
           "$bin" run corpus/std_assert/app
+          "$bin" run corpus/expr/string_substring.aura
+          "$bin" test examples/notes
+          "$bin" run examples/notes
+
+      - name: Embedded runtime (no monorepo path)
+        run: |
+          set -euo pipefail
+          # Force cache materialize: hide in-tree runtime via bogus AURA_RUNTIME unset
+          # and run from a temp dir so relative runtime/ is missing.
+          TMP="$(mktemp -d)"
+          cp target/debug/aura "$TMP/aura"
+          mkdir -p "$TMP/hello/src"
+          cat >"$TMP/hello/aura.toml" <<'EOF'
+          [package]
+          name = "hello"
+          [[bin]]
+          name = "hello"
+          path = "src"
+          EOF
+          cat >"$TMP/hello/src/main.aura" <<'EOF'
+          package hello
+          fun main() { println("embedded-rt-ok") }
+          EOF
+          # Clear HOME cache namespace for this job and run without repo cwd
+          export HOME="$TMP/home"
+          mkdir -p "$HOME"
+          unset AURA_RUNTIME || true
+          (cd "$TMP" && ./aura run hello)
 
   site:
     name: Site

@@ -2,12 +2,12 @@
 title: Getting started
 section: Start
 order: 20
-summary: Clone the repo, build the CLI, and run Hello, Aura.
+summary: Install aura, scaffold Hello, and run examples.
 ---
 
 # Getting started
 
-This guide assumes you are working from the **Aura repository**. A standalone installer is not shipped yet; the toolchain builds with Cargo.
+Alpha install paths: **`cargo install`** from a clone, or **`cargo run -p aura-cli`** inside the monorepo. See [Install](./install.md) and [0.1.0-alpha notes](../releases/0.1.0-alpha.md).
 
 ## Prerequisites
 
@@ -15,17 +15,21 @@ This guide assumes you are working from the **Aura repository**. A standalone in
 - A C compiler on `PATH` (`cc`, `clang`, or `gcc`) for the native link step
 - **pnpm** only if you want the docs site locally
 
-## Build the CLI
-
-From the repository root:
+## Install the CLI
 
 ```bash
-cargo build -p aura-cli
-# or, without installing:
+# From a clone of this repository:
+cargo install --path crates/aura-cli
+aura version
+```
+
+Or without installing, from the repository root:
+
+```bash
 cargo run -p aura-cli -- --help
 ```
 
-The binary is the `aura` CLI (package `aura-cli`).
+The binary is the `aura` CLI (package `aura-cli`). The C runtime is embedded; you do not need the repo tree after install.
 
 ## Hello, Aura (scaffold)
 

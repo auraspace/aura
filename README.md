@@ -33,11 +33,13 @@ pnpm site:test
 pnpm site:build
 ```
 
-### Compiler (through C11c)
+### Compiler (through C11e)
 
 ```bash
 cargo test --workspace
-cargo run -p aura-cli -- new hello                      # scaffold package
+cargo install --path crates/aura-cli                    # install aura (embedded runtime)
+aura version
+cargo run -p aura-cli -- new hello                      # or in-tree without install
 cargo run -p aura-cli -- run hello
 cargo run -p aura-cli -- version
 cargo run -p aura-cli -- check corpus/hello/main.aura   # parse + typecheck
@@ -181,8 +183,9 @@ Native builds use a **C backend** (`aura emit-c` + system `cc`) linked with `run
 - **Compiler C11b** Fun capture-env ownership free (scope/move/return/param/for)
 - **CLI C11c** `aura new` / `init` / `version`
 - **Lang C11d** `String.substring` + `examples/notes` dogfood; fix heap `this.method()` recv
+- **Dist C11e** Embedded `aura_rt.c`, [install guide](docs/guide/install.md), [0.1.0-alpha freeze](docs/releases/0.1.0-alpha.md)
 - **Debts** Tracked in [`agents/debts.md`](agents/debts.md)
-- **Next (after C11d):** release notes / freeze; binary install; richer captures; registry; tasks/async
+- **Next (after C11e):** tag `v0.1.0-alpha` + tarball; richer captures; registry; tasks/async
 
 ## Links
 

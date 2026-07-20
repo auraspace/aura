@@ -1,6 +1,7 @@
 //! Aura CLI — check / build / run / test / new / emit-c with pretty diagnostics.
 
 mod package;
+mod runtime_path;
 mod scaffold;
 
 use aura_codegen::{build_from_file, build_tests_from_file, emit_c_from_ast};
@@ -347,20 +348,8 @@ fn cmd_build(args: &[String]) -> ExitCode {
 }
 
 fn runtime_c_path() -> Result<PathBuf, String> {
-    let candidates = [
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../runtime/aura_rt.c"),
-        PathBuf::from("runtime/aura_rt.c"),
-        PathBuf::from("../runtime/aura_rt.c"),
-    ];
-    for c in candidates {
-        if c.is_file() {
-            return Ok(c.canonicalize().unwrap_or(c));
-        }
-    }
-    Err(
-        "error: cannot find runtime/aura_rt.c (run from repo root or via cargo run -p aura-cli)"
-            .into(),
-    )
+    // Dev monorepo path, AURA_RUNTIME, binary-adjacent, or embedded cache (install).
+    runtime_path::resolve_runtime_c()
 }
 
 fn build_package(pkg: &LoadedPackage, out: &Path) -> Result<PathBuf, String> {

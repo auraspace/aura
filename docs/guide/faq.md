@@ -11,13 +11,15 @@ summary: Common questions about install, null, errors, GC, and docs vs RFCs.
 
 ### Do I need to install Aura globally?
 
-Not yet. Build the CLI from this monorepo with Cargo:
+For alpha, install from a clone:
 
 ```bash
-cargo run -p aura-cli -- run corpus/hello/main.aura
+cargo install --path crates/aura-cli
+aura new hello && aura run hello
 ```
 
-A standalone installer / release channel is design-tracked in [RFC-013](/rfc/013) and not the primary path today.
+Or run in-tree without installing: `cargo run -p aura-cli -- …`.  
+Details: [Install](./install.md), freeze notes [0.1.0-alpha](/docs/releases/0.1.0-alpha) (repo path `docs/releases/0.1.0-alpha.md`).
 
 ### Why is a C compiler required?
 

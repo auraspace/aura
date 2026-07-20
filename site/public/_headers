@@ -6,3 +6,8 @@
 
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
+
+# curl | bash installer (short cache so tag bumps propagate)
+/install.sh
+  Content-Type: text/plain; charset=utf-8
+  Cache-Control: public, max-age=300, must-revalidate

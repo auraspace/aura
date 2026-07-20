@@ -4,8 +4,8 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build && tsx scripts/prerender.ts",
+    "dev": "node scripts/sync-install.mjs && vite",
+    "build": "node scripts/sync-install.mjs && tsc -b && vite build && tsx scripts/prerender.ts",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",

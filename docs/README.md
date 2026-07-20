@@ -8,8 +8,10 @@ Design documents and specifications for the **Aura** language core and toolchain
 docs/
 ├── README.md          ← you are here
 ├── roadmap.md         ← execution phases (P0–P3, compiler C-series)
+├── releases/          ← freeze / release notes (e.g. 0.1.0-alpha)
 ├── guide/             ← user-facing docs (site /docs)
 │   ├── introduction.md
+│   ├── install.md
 │   ├── getting-started.md
 │   └── …
 ├── rfc/
@@ -18,15 +20,16 @@ docs/
 │   ├── RFC-000-….md
 │   ├── …
 │   └── RFC-013-….md
-└── superpowers/       ← session plans/specs (not product RFCs)
-    ├── plans/
-    └── specs/
+└── plans/             ← engineering batch plans
 ```
 
 ## Where to start
 
 | If you want…                     | Read…                                                                              |
 | -------------------------------- | ---------------------------------------------------------------------------------- |
+| **Install the CLI**              | [guide/install.md](guide/install.md)                                               |
+| **0.1.0-alpha freeze**           | [releases/0.1.0-alpha.md](releases/0.1.0-alpha.md)                                 |
+| **How to cut a release**         | [releases/README.md](releases/README.md)                                           |
 | **User guide (site)**            | [guide/](guide/) → published at `/docs`                                            |
 | Execution roadmap (phases)       | [roadmap.md](roadmap.md)                                                           |
 | Vision & design principles       | [RFC-000](rfc/RFC-000-vision-design-principles.md)                                 |

@@ -1,0 +1,164 @@
+# Build toolchain tarballs and publish a GitHub Release when a version tag is pushed.
+# Tag format: v0.1.0-alpha, v0.1.0, v1.2.3-rc.1, …
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: linux-amd64
+          - os: macos-14
+            name: darwin-arm64
+          - os: macos-13
+            name: darwin-amd64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install C toolchain (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y build-essential
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-${{ matrix.name }}
+
+      - name: Package release tarball
+        env:
+          # scripts/package-release.sh: strip leading v from the tag
+          TAG_VERSION: ${{ github.ref_name }}
+        run: bash scripts/package-release.sh
+
+      - name: Smoke the packaged binary
+        run: |
+          set -euo pipefail
+          tar=dist/aura-*.tar.gz
+          # shellcheck disable=SC2086
+          stage="$(tar -tzf $tar | head -1 | cut -d/ -f1)"
+          tar -xzf dist/aura-*.tar.gz -C dist
+          export PATH="$PWD/dist/$stage/bin:$PATH"
+          aura version
+          TMP="$(mktemp -d)"
+          aura new "$TMP/hello"
+          aura run "$TMP/hello"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: aura-${{ matrix.name }}
+          path: |
+            dist/*.tar.gz
+            dist/*.sha256
+          if-no-files-found: error
+
+  release:
+    name: GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all tarballs
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Collect assets
+        id: assets
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          # Artifacts may be nested per-job or flat depending on merge-multiple
+          find artifacts -type f \( -name '*.tar.gz' -o -name '*.sha256' \) -exec cp -v {} release-assets/ \;
+          ls -la release-assets
+          count="$(find release-assets -type f | wc -l | tr -d ' ')"
+          if [[ "$count" -lt 1 ]]; then
+            echo "error: no release assets found" >&2
+            exit 1
+          fi
+
+      - name: Release notes body
+        id: notes
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          VER="${TAG#v}"
+          BODY_FILE=release-body.md
+          {
+            echo "## Aura ${TAG}"
+            echo
+            if [[ -f "docs/releases/${VER}.md" ]]; then
+              echo "Release notes: see \`docs/releases/${VER}.md\` in the tag."
+              echo
+            fi
+            if [[ -f CHANGELOG.md ]]; then
+              echo "### Changelog"
+              echo
+              # First section after the title (best-effort)
+              awk 'BEGIN{p=0} /^## /{if(p){exit} p=1; next} p{print}' CHANGELOG.md | head -80
+              echo
+            fi
+            echo "### Install (tarball)"
+            echo
+            echo '```bash'
+            echo "tar xzf aura-*-<os>-<arch>.tar.gz"
+            echo 'export PATH="$PWD/aura-*/bin:$PATH"'
+            echo "aura version"
+            echo "aura new hello && aura run hello"
+            echo '```'
+            echo
+            echo "### Install (from source at this tag)"
+            echo
+            echo '```bash'
+            echo "git clone --branch ${TAG} https://github.com/${GITHUB_REPOSITORY}.git aura"
+            echo "cd aura && cargo install --path crates/aura-cli"
+            echo '```'
+            echo
+            echo "Requires a system C compiler (\`cc\`) to build Aura programs."
+            echo "Docs: https://aura.fadosoft.com"
+          } >"$BODY_FILE"
+          echo "path=$BODY_FILE" >>"$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          PRE=()
+          if [[ "$TAG" == *alpha* || "$TAG" == *beta* || "$TAG" == *rc* ]]; then
+            PRE+=(--prerelease)
+          fi
+          # Idempotent-ish: if release exists, upload assets; else create
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" release-assets/* --clobber
+            gh release edit "$TAG" --notes-file "${{ steps.notes.outputs.path }}" "${PRE[@]+"${PRE[@]}"}"
+          else
+            gh release create "$TAG" \
+              --title "Aura ${TAG}" \
+              --notes-file "${{ steps.notes.outputs.path }}" \
+              "${PRE[@]+"${PRE[@]}"}" \
+              release-assets/*
+          fi
