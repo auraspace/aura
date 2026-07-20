@@ -49,15 +49,11 @@ When you resolve debt, update or remove the matching entry.
 - Next step: resize; `HashMap<K,V>` when hashable protocol exists
 - Introduced: narrowed after C8i
 
-### Generic class implements interface
-
-- Area: language / C8c
-- Symptom: non-generic classes may implement mono ifaces (`: Iterable<Int>`); generic classes still reject implements (C2b)
-- Why deferred: class mono × iface mono matrix
-- Next step: allow `class Box<T> : Iterable<T>` with mono variants
-- Introduced: C2b; remains after C8c
-
 ## Resolved
+
+### Generic class implements interface (2026-07-20)
+
+- Resolved in C9a: `class Box<T> : Boxable<T>`; open implements type args; class mono subst for assignability; codegen tags/upcast/dispatch for mono implementors. Corpus `iface/generic_class_impl.aura`.
 
 ### Generic `Iterable<E>` implements (2026-07-20)
 

@@ -57,47 +57,33 @@ pub(crate) fn emit_class_forwards(
             c_method_signature_mono(c, m, checked, &params, args, &mono)
         );
     }
-    if args.is_empty() {
-        for iface_ref in &c.implements {
-            if let Some(iface) = checked
-                .ast
-                .interfaces
-                .iter()
-                .find(|i| i.name.name == iface_ref.name.name)
-            {
-                let iargs: Vec<Ty> = iface_ref
-                    .type_args
-                    .iter()
-                    .filter_map(|t| match t.name.name.as_str() {
-                        "Int" => Some(Ty::Int),
-                        "Bool" => Some(Ty::Bool),
-                        "String" => Some(Ty::String),
-                        other => {
-                            // class type arg
-                            let pkg = checked
-                                .ast
-                                .classes
-                                .iter()
-                                .find(|c| c.name.name == other)
-                                .map(|c| class_decl_package(c, checked))
-                                .unwrap_or_default();
-                            Some(Ty::Class(aura_sema::nominal_key(&pkg, other)))
-                        }
-                    })
-                    .collect();
-                let imono = iface_mono_args(iface, checked, &iargs);
-                let param_ty = if is_heap_class_decl(c) {
-                    format!("{} *", c_class_type(&mono))
-                } else {
-                    c_class_type(&mono)
-                };
-                let _ = writeln!(
-                    out,
-                    "{} {}({param_ty} v);",
-                    c_iface_type(&imono),
-                    c_upcast_name(&mono, &imono),
-                );
+    // C9a: upcast forwards for non-generic and mono generic class implements.
+    for iface_ref in &c.implements {
+        if let Some(iface) = checked
+            .ast
+            .interfaces
+            .iter()
+            .find(|i| i.name.name == iface_ref.name.name)
+        {
+            let iargs = crate::iface::iface_args_for_class_implements(c, iface_ref, checked, args);
+            if iface_ref.type_args.len() != iargs.len() {
+                continue;
             }
+            if iargs.iter().any(|a| a.is_open()) {
+                continue;
+            }
+            let imono = iface_mono_args(iface, checked, &iargs);
+            let param_ty = if is_heap_class_decl(c) {
+                format!("{} *", c_class_type(&mono))
+            } else {
+                c_class_type(&mono)
+            };
+            let _ = writeln!(
+                out,
+                "{} {}({param_ty} v);",
+                c_iface_type(&imono),
+                c_upcast_name(&mono, &imono),
+            );
         }
     }
 }
@@ -199,36 +185,23 @@ pub(crate) fn emit_class_defs(out: &mut String, checked: &CheckedFile, c: &Class
         emit_method_mono(out, c, m, checked, &params, args, &mono);
         out.push('\n');
     }
-    if args.is_empty() {
-        for iface_ref in &c.implements {
-            if let Some(iface) = checked
-                .ast
-                .interfaces
-                .iter()
-                .find(|i| i.name.name == iface_ref.name.name)
-            {
-                let iargs: Vec<Ty> = iface_ref
-                    .type_args
-                    .iter()
-                    .filter_map(|t| match t.name.name.as_str() {
-                        "Int" => Some(Ty::Int),
-                        "Bool" => Some(Ty::Bool),
-                        "String" => Some(Ty::String),
-                        other => {
-                            let pkg = checked
-                                .ast
-                                .classes
-                                .iter()
-                                .find(|c| c.name.name == other)
-                                .map(|c| class_decl_package(c, checked))
-                                .unwrap_or_default();
-                            Some(Ty::Class(aura_sema::nominal_key(&pkg, other)))
-                        }
-                    })
-                    .collect();
-                emit_upcast(out, checked, c, iface, &iargs);
-                out.push('\n');
+    // C9a: emit upcasts for this class monomorph's implements.
+    for iface_ref in &c.implements {
+        if let Some(iface) = checked
+            .ast
+            .interfaces
+            .iter()
+            .find(|i| i.name.name == iface_ref.name.name)
+        {
+            let iargs = crate::iface::iface_args_for_class_implements(c, iface_ref, checked, args);
+            if iface_ref.type_args.len() != iargs.len() {
+                continue;
             }
+            if iargs.iter().any(|a| a.is_open()) {
+                continue;
+            }
+            emit_upcast(out, checked, c, iface, &iargs, args);
+            out.push('\n');
         }
     }
 }

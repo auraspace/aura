@@ -855,6 +855,45 @@ fun main() {
 }
 
 #[test]
+fn generic_class_implements_mono() {
+    // C9a: class Box<T> : Boxable<T>
+    let src = r#"
+package t
+interface Boxable<T> {
+  fun get(): T
+}
+class Box<T>(val v: T) : Boxable<T> {
+  fun get(): T { return this.v }
+}
+fun take(b: Boxable<Int>): Int {
+  return b.get()
+}
+fun main() {
+  val x = Box(7)
+  val n = take(x)
+}
+"#;
+    let file = parse_file(src).expect("parse");
+    let checked = check_file(&file).expect("generic class implements");
+    assert!(
+        checked
+            .mono_classes
+            .iter()
+            .any(|(n, args)| n == "Box" && args == &[Ty::Int]),
+        "expected mono Box<Int>, got {:?}",
+        checked.mono_classes
+    );
+    assert!(
+        checked
+            .mono_interfaces
+            .iter()
+            .any(|(n, args)| n == "Boxable" && args == &[Ty::Int]),
+        "expected mono Boxable<Int> from class implements subst, got {:?}",
+        checked.mono_interfaces
+    );
+}
+
+#[test]
 fn array_accepts_class_elem() {
     let src = r#"
 package t

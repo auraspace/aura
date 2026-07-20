@@ -188,12 +188,32 @@ impl Checker {
 
     /// Does class implement the target interface (exact mono for InterfaceApp)?
     pub(crate) fn class_implements(&self, class_key: &str, target: &Ty) -> bool {
+        self.class_implements_with_args(class_key, &[], target)
+    }
+
+    /// C9a: generic class mono — substitute class type params into implements.
+    pub(crate) fn class_implements_with_args(
+        &self,
+        class_key: &str,
+        class_args: &[Ty],
+        target: &Ty,
+    ) -> bool {
         let Some(cs) = self.class_by_nominal_key(class_key) else {
             return false;
         };
-        cs.implements
-            .iter()
-            .any(|imp| Self::iface_ty_matches(imp, target))
+        let map = if !class_args.is_empty() && cs.type_params.len() == class_args.len() {
+            Some(crate::util::type_subst_map(&cs.type_params, class_args))
+        } else {
+            None
+        };
+        cs.implements.iter().any(|imp| {
+            let concrete = if let Some(ref m) = map {
+                crate::util::subst_ty(imp, m)
+            } else {
+                imp.clone()
+            };
+            Self::iface_ty_matches(&concrete, target)
+        })
     }
 
     /// Match implemented iface vs expected: non-generic by key; generic exact args.
@@ -222,8 +242,8 @@ impl Checker {
             (Ty::Class(c), Ty::Interface(_) | Ty::InterfaceApp { .. }) => {
                 self.class_implements(c, to)
             }
-            (Ty::ClassApp { name: c, .. }, Ty::Interface(_) | Ty::InterfaceApp { .. }) => {
-                self.class_implements(c, to)
+            (Ty::ClassApp { name: c, args }, Ty::Interface(_) | Ty::InterfaceApp { .. }) => {
+                self.class_implements_with_args(c, args, to)
             }
             // Bounded type param is assignable to its interface bounds (non-generic)
             (Ty::TypeParam(p), Ty::Interface(i)) => self

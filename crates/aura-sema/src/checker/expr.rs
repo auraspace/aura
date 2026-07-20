@@ -75,6 +75,12 @@ impl Checker {
             let ft = subst_ty(&f.ty, &map);
             self.note_mono_ty(&ft);
         }
+        // C9a: note mono interfaces from `implements` after class type-arg subst
+        // (`Box<Int>` → `Boxable<Int>`).
+        for imp in &sig.implements {
+            let it = subst_ty(imp, &map);
+            self.note_mono_ty(&it);
+        }
     }
 
     pub(crate) fn check_expr(&mut self, expr: &Expr) -> Result<Ty, SemaError> {

@@ -1,0 +1,23 @@
+// C9a — generic class implements mono interface (`class Box<T> : Boxable<T>`)
+package demo.iface
+
+interface Boxable<T> {
+  fun get(): T
+}
+
+class Box<T>(val v: T) : Boxable<T> {
+  fun get(): T {
+    return this.v
+  }
+}
+
+fun take(b: Boxable<Int>): Int {
+  return b.get()
+}
+
+fun main() {
+  val x = Box(7)
+  if (take(x) == 7) {
+    println("ok")
+  }
+}

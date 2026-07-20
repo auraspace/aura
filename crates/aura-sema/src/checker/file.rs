@@ -314,13 +314,7 @@ impl Checker {
                 });
                 continue;
             }
-            if !c.type_params.is_empty() && !c.implements.is_empty() {
-                self.errors.push(SemaError {
-                    message: "C2b: generic classes cannot implement interfaces yet".into(),
-                    span: c.name.span,
-                });
-                continue;
-            }
+            // C9a: generic classes may implement interfaces (`class Box<T> : Iface<T>`).
             self.classes
                 .entry(c.name.name.clone())
                 .or_default()
@@ -398,24 +392,17 @@ impl Checker {
                 let imp_ty = if type_args.is_empty() {
                     Ty::Interface(ikey)
                 } else {
-                    if type_args.iter().any(|a| a.is_open()) {
-                        self.errors.push(SemaError {
-                            message: format!(
-                                "implements `{}` type arguments must be concrete",
-                                iface_ref.name.name
-                            ),
-                            span: iface_ref.span,
-                        });
-                        continue;
-                    }
-                    self.note_mono_ty(&Ty::InterfaceApp {
-                        name: ikey.clone(),
-                        args: type_args.clone(),
-                    });
-                    Ty::InterfaceApp {
+                    // C9a: open type params allowed on generic class implements
+                    // (`: Iterable<T>`). Concrete mono is noted when the class is
+                    // monomorphized (expand_nested_mono).
+                    let app = Ty::InterfaceApp {
                         name: ikey,
                         args: type_args,
+                    };
+                    if !app.is_open() {
+                        self.note_mono_ty(&app);
                     }
+                    app
                 };
                 if implements.iter().any(|x| {
                     // same base interface (reject re-implement even with different args for MVP)

@@ -66,11 +66,11 @@ pub(crate) fn unify_ty(
     }
 }
 
-pub(crate) fn type_subst_map(params: &[String], args: &[Ty]) -> HashMap<String, Ty> {
+pub fn type_subst_map(params: &[String], args: &[Ty]) -> HashMap<String, Ty> {
     params.iter().cloned().zip(args.iter().cloned()).collect()
 }
 
-pub(crate) fn subst_ty(ty: &Ty, map: &HashMap<String, Ty>) -> Ty {
+pub fn subst_ty(ty: &Ty, map: &HashMap<String, Ty>) -> Ty {
     match ty {
         Ty::TypeParam(name) => map.get(name).cloned().unwrap_or_else(|| ty.clone()),
         Ty::Nullable(inner) => Ty::Nullable(Box::new(subst_ty(inner, map))),

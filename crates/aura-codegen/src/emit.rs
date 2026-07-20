@@ -64,18 +64,37 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("typedef struct { _Bool has; int64_t value; } aura_opt_i64;\n");
     out.push_str("typedef struct { _Bool has; _Bool value; } aura_opt_bool;\n\n");
 
-    // Stable class tags for interface dispatch (non-generic only)
-    let tagged: Vec<_> = checked
-        .ast
-        .classes
-        .iter()
-        .filter(|c| c.type_params.is_empty())
-        .collect();
-    if !tagged.is_empty() {
-        out.push_str("enum {\n");
-        for (i, c) in tagged.iter().enumerate() {
+    // Stable class tags for interface dispatch (C9a: include generic monomorphs).
+    let mut tag_monos: Vec<String> = Vec::new();
+    for c in &checked.ast.classes {
+        if c.kind != NominalKind::Class {
+            continue;
+        }
+        if c.type_params.is_empty() {
             let pkg = class_decl_package(c, checked);
-            let mono = type_mono(&pkg, &c.name.name, &[]);
+            tag_monos.push(type_mono(&pkg, &c.name.name, &[]));
+        }
+    }
+    for (name, args) in &checked.mono_classes {
+        if is_array_mono(name) {
+            continue;
+        }
+        if let Some(c) = checked
+            .ast
+            .classes
+            .iter()
+            .find(|c| c.name.name == *name && c.kind == NominalKind::Class)
+        {
+            let pkg = class_decl_package(c, checked);
+            let mono = type_mono(&pkg, &c.name.name, args);
+            if !tag_monos.contains(&mono) {
+                tag_monos.push(mono);
+            }
+        }
+    }
+    if !tag_monos.is_empty() {
+        out.push_str("enum {\n");
+        for (i, mono) in tag_monos.iter().enumerate() {
             let _ = writeln!(out, "  AURA_TAG_{mono} = {i},");
         }
         out.push_str("  AURA_TAG__COUNT\n};\n\n");
@@ -181,17 +200,17 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
         }
     }
 
-    // Interface tagged unions (C4d: package-prefixed iface mono; C8c: mono args)
+    // Interface tagged unions (C4d/C8c/C9a: mono class implementors)
     let mut emit_iface_union = |iface: &InterfaceDecl, args: &[Ty]| {
         let imono = iface_mono_args(iface, checked, args);
-        let impls = implementors_for_iface(checked, iface, args);
+        let impls = crate::iface::mono_implementors_for_iface(checked, iface, args);
         let _ = writeln!(out, "typedef struct {} {{", c_iface_type(&imono));
         out.push_str("  int tag;\n  union {\n");
-        for c in &impls {
-            let pkg = class_decl_package(c, checked);
-            let mono = type_mono(&pkg, &c.name.name, &[]);
+        for imp in &impls {
+            let pkg = class_decl_package(imp.class, checked);
+            let mono = type_mono(&pkg, &imp.class.name.name, &imp.class_args);
             // C3y: heap classes stored as pointers inside the interface union.
-            let field_ty = if is_heap_class_decl(c) {
+            let field_ty = if is_heap_class_decl(imp.class) {
                 format!("{} *", c_class_type(&mono))
             } else {
                 c_class_type(&mono)

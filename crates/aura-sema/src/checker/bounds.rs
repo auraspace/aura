@@ -79,12 +79,34 @@ impl Checker {
             x == iface || crate::ty::split_nominal(x).0 == crate::ty::split_nominal(iface).0
         };
         match ty {
-            Ty::Class(c) | Ty::ClassApp { name: c, .. } => self
+            Ty::Class(c) => self
                 .class_by_nominal_key(c)
                 .map(|cs| {
                     cs.implements.iter().any(|imp| match imp {
                         Ty::Interface(k) | Ty::InterfaceApp { name: k, .. } => same(k),
                         _ => false,
+                    })
+                })
+                .unwrap_or(false),
+            // C9a: substitute class mono args into open implements (`: Iface<T>`).
+            Ty::ClassApp { name: c, args } => self
+                .class_by_nominal_key(c)
+                .map(|cs| {
+                    let map = if cs.type_params.len() == args.len() {
+                        Some(crate::util::type_subst_map(&cs.type_params, args))
+                    } else {
+                        None
+                    };
+                    cs.implements.iter().any(|imp| {
+                        let concrete = if let Some(ref m) = map {
+                            crate::util::subst_ty(imp, m)
+                        } else {
+                            imp.clone()
+                        };
+                        match concrete {
+                            Ty::Interface(k) | Ty::InterfaceApp { name: k, .. } => same(&k),
+                            _ => false,
+                        }
                     })
                 })
                 .unwrap_or(false),
