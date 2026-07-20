@@ -445,6 +445,20 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
                         );
                     }
                 }
+                // C7c: move out of Array field into local/field assign.
+                if let Some(lv) = array_field_move_out_lvalue(&a.value, ctx) {
+                    let free_dst = if dst_is_field || ctx.is_array_owner(dst_name) {
+                        free_array_lvalue(&lhs)
+                    } else {
+                        String::new()
+                    };
+                    if !dst_is_field {
+                        ctx.mark_array_owner(dst_name);
+                    }
+                    return format!(
+                        "({{ {free_dst}({lhs} = {rhs}); {lv}.data = NULL; {lv}.len = 0; {lv}.cap = 0; }})"
+                    );
+                }
             }
             format!("({lhs} = {rhs})")
         }
@@ -464,22 +478,7 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
                     return len_e;
                 }
             }
-            // C3y: heap class receivers use -> ; structs/Array/This use .
-            // `this` is already a pointer; emit This as (*this) so `.` still works.
-            let use_arrow = match f.object.as_ref() {
-                Expr::This(_) => false,
-                _ => {
-                    resolve_type_name(&f.object, ctx)
-                        .map(|t| is_heap_class_mono(&full_type_mono(&t, ctx.checked), ctx.checked))
-                        .unwrap_or(false)
-                        || f.safe
-                } // C4s: nullable class receivers are pointers
-            };
-            let access = if use_arrow {
-                format!("({obj})->{}", mangle_ident(&f.field.name))
-            } else {
-                format!("({obj}).{}", mangle_ident(&f.field.name))
-            };
+            let access = field_access_c(&obj, f, ctx);
             if f.safe {
                 format!("(({obj}) == NULL ? NULL : {access})")
             } else {
@@ -1019,6 +1018,65 @@ pub(crate) fn resolve_type_name(expr: &Expr, ctx: &EmitCtx<'_>) -> Option<String
         Expr::Int(_) => Some("Int".into()),
         Expr::Bool(_) => Some("Bool".into()),
         _ => None,
+    }
+}
+
+/// C7c: C lvalue of an Array **field** being moved out (return / binding / assign).
+/// Returns `None` for non-Array fields, safe-call (`?.`), or owning locals/params.
+pub(crate) fn array_field_move_out_lvalue(e: &Expr, ctx: &mut EmitCtx<'_>) -> Option<String> {
+    use crate::array_emit::is_array_type_key;
+    match e {
+        Expr::Field(f) if !f.safe => {
+            let key = resolve_type_name(e, ctx).unwrap_or_else(|| infer_type_name(e, ctx));
+            if !is_array_type_key(&key) {
+                return None;
+            }
+            let obj = emit_expr(&f.object, ctx);
+            Some(field_access_c(&obj, f, ctx))
+        }
+        Expr::Ident(i) => {
+            // Owning local/param: normal Array move path (C5b/C6d), not field.
+            if ctx.is_array_owner(&i.name) {
+                return None;
+            }
+            let class = ctx.method_class?;
+            let base = mono_base_name(class, ctx.checked).unwrap_or(class);
+            let cl = ctx
+                .checked
+                .ast
+                .classes
+                .iter()
+                .find(|c| c.name.name == base)?;
+            if !cl.fields.iter().any(|f| f.name.name == i.name) {
+                return None;
+            }
+            let key = ctx.lookup_local(&i.name)?;
+            if !is_array_type_key(key) {
+                return None;
+            }
+            Some(format!("this->{}", mangle_ident(&i.name)))
+        }
+        Expr::Group(inner, _) => array_field_move_out_lvalue(inner, ctx),
+        _ => None,
+    }
+}
+
+fn field_access_c(obj: &str, f: &FieldExpr, ctx: &EmitCtx<'_>) -> String {
+    // C3y: heap class receivers use -> ; structs/Array/This use .
+    // `this` is already a pointer; emit This as (*this) so `.` still works.
+    let use_arrow = match f.object.as_ref() {
+        Expr::This(_) => false,
+        _ => {
+            resolve_type_name(&f.object, ctx)
+                .map(|t| is_heap_class_mono(&full_type_mono(&t, ctx.checked), ctx.checked))
+                .unwrap_or(false)
+                || f.safe
+        }
+    };
+    if use_arrow {
+        format!("({obj})->{}", mangle_ident(&f.field.name))
+    } else {
+        format!("({obj}).{}", mangle_ident(&f.field.name))
     }
 }
 

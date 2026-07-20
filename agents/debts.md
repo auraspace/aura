@@ -10,10 +10,10 @@ When you resolve debt, update or remove the matching entry.
 ### Return Array field is shallow-copy
 
 - Area: builtin Array free (C3t…C6i/C7b)
-- Symptom: C7b frees field Array buffers on GC dtor; returning a field Array still shallow-copies (caller may free while object still holds pointer)
-- Why deferred: no field-borrow / move-out from fields
-- Next step: move-out from fields or borrow type for field Array return
-- Introduced: narrowed after C7b (GC free Done; return-from-field remains)
+- Symptom: ~~returning a field Array shallow-copies~~ → C7c moves out on return/bind/assign from Array field (zero field after copy)
+- Why deferred: residual: no true borrow type (reads that should not move still move if bound/returned)
+- Next step: borrow/`ref` field Array if needed for non-destructive reads
+- Introduced: narrowed after C7b; move-out C7c
 
 ### No registry / version resolve (path lock only)
 

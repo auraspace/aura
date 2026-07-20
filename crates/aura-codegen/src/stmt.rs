@@ -8,7 +8,8 @@ use aura_sema::{CheckedFile, Ty};
 
 use crate::ctx::EmitCtx;
 use crate::expr::{
-    coerce_expr, emit_expr, full_type_mono, infer_type_name, mono_base_name, mono_split,
+    array_field_move_out_lvalue, coerce_expr, emit_expr, full_type_mono, infer_type_name,
+    mono_base_name, mono_split,
 };
 use crate::names::*;
 
@@ -218,7 +219,13 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
             } else {
                 None
             };
-            if moved_from.is_some() {
+            // C7c: move out of Array field (`val b = this.items` / `h.items`).
+            let moved_field = if moved_from.is_none() && is_array_type_key(&ty_name) {
+                array_field_move_out_lvalue(&v.init, ctx)
+            } else {
+                None
+            };
+            if moved_from.is_some() || moved_field.is_some() {
                 ctx.mark_array_owner(&v.name.name);
             }
             let init = coerce_expr(&v.init, &ty_name, ctx);
@@ -232,6 +239,9 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                     "{p}{src_m}.data = NULL; {src_m}.len = 0; {src_m}.cap = 0;"
                 );
                 ctx.unmark_array_owner(&src);
+            }
+            if let Some(lv) = moved_field {
+                let _ = writeln!(out, "{p}{lv}.data = NULL; {lv}.len = 0; {lv}.cap = 0;");
             }
             // C5g: heap-class locals are GC roots until scope exit.
             let mono = full_type_mono(&ty_name, ctx.checked);
@@ -536,8 +546,20 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                         let expected = ctx.return_key.clone().unwrap_or_else(|| ret_key.clone());
                         let c_ty = local_key_to_c(&expected, ctx.checked);
                         let tmp = format!("__ret_{}", r.span.start);
+                        // C7c: capture field lvalue before coerce re-emits the access.
+                        let move_field =
+                            if is_array_type_key(&expected) || is_array_type_key(&ret_key) {
+                                array_field_move_out_lvalue(e, ctx)
+                            } else {
+                                None
+                            };
                         let val = coerce_expr(e, &expected, ctx);
                         let _ = writeln!(out, "{p}{c_ty} {tmp} = {val};");
+                        // C7c: zero source field so object no longer shares the buffer.
+                        if let Some(lv) = move_field {
+                            let _ =
+                                writeln!(out, "{p}{lv}.data = NULL; {lv}.len = 0; {lv}.cap = 0;");
+                        }
                         emit_remove_array_gc_roots(out, indent, &ctx.array_gc_roots_all());
                         emit_remove_gc_roots(out, indent, &ctx.gc_roots_all());
                         emit_free_array_owners(out, indent, &owners);
