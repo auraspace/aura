@@ -655,6 +655,31 @@ fn emit_lambda_fns(out: &mut String, checked: &CheckedFile) {
     let mut lambdas = collect_lambdas(&checked.ast);
     lambdas.sort_by_key(|l| l.span.start);
 
+    // C10h: env structs for capturing lambdas (stable field order from sema).
+    for lam in &lambdas {
+        let Some(&id) = ids.get(&lam.span.start) else {
+            continue;
+        };
+        let captures = checked
+            .lambda_captures
+            .get(&lam.span.start)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[]);
+        if captures.is_empty() {
+            continue;
+        }
+        let _ = writeln!(out, "typedef struct {{");
+        for (name, ty) in captures {
+            let _ = writeln!(
+                out,
+                "  {} {};",
+                c_type_from_ty(ty, checked),
+                mangle_ident(name)
+            );
+        }
+        let _ = writeln!(out, "}} aura_lenv_{id};\n");
+    }
+
     for lam in lambdas {
         let Some(&id) = ids.get(&lam.span.start) else {
             continue;
@@ -665,11 +690,17 @@ fn emit_lambda_fns(out: &mut String, checked: &CheckedFile) {
         let Ty::Fun { params, ret } = fun_ty else {
             continue;
         };
+        let captures = checked
+            .lambda_captures
+            .get(&lam.span.start)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[]);
         let ret_c = match ret.as_ref() {
             Ty::Unit => "void".to_string(),
             r => c_type_from_ty(r, checked),
         };
-        let mut param_parts = Vec::new();
+        // C10h: first param is always env (fat-pointer convention).
+        let mut param_parts = vec!["void *env".to_string()];
         for (i, pty) in params.iter().enumerate() {
             let pname = if let Some(p) = lam.params.get(i) {
                 mangle_ident(&p.name.name)
@@ -678,12 +709,17 @@ fn emit_lambda_fns(out: &mut String, checked: &CheckedFile) {
             };
             param_parts.push(format!("{} {pname}", c_type_from_ty(pty, checked)));
         }
-        let ps = if param_parts.is_empty() {
-            "void".to_string()
-        } else {
-            param_parts.join(", ")
-        };
+        let ps = param_parts.join(", ");
         let _ = writeln!(out, "static {ret_c} aura_lambda_{id}({ps}) {{");
+        if captures.is_empty() {
+            out.push_str("  (void)env;\n");
+        } else {
+            let _ = writeln!(out, "  aura_lenv_{id} *__e = (aura_lenv_{id} *)env;");
+            for (name, ty) in captures {
+                let m = mangle_ident(name);
+                let _ = writeln!(out, "  {} {m} = __e->{m};", c_type_from_ty(ty, checked));
+            }
+        }
         let ret_key = Some(ret.mono_suffix());
         let mut ctx = EmitCtx {
             checked,
@@ -697,6 +733,9 @@ fn emit_lambda_fns(out: &mut String, checked: &CheckedFile) {
             return_key: ret_key,
             lambda_ids: ids.clone(),
         };
+        for (name, ty) in captures {
+            ctx.define_local(name, ty.mono_suffix());
+        }
         for (i, p) in lam.params.iter().enumerate() {
             let key = params
                 .get(i)

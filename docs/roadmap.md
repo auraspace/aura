@@ -15,7 +15,7 @@ Living plan for docs, language specs, and the Rust toolchain. RFCs remain the de
 | RFC static site (`site/`)   | Implemented; Cloudflare Pages → **https://aura.fadosoft.com**                           |
 | RFC-000 … RFC-013           | **All Accepted** — open questions resolved or Deferred (2026-07-16)                     |
 | Language MVP                | RFC-001 §6.0 + post-C1; generic iface mono (C8c); Iterable (C8d); async/macros deferred |
-| Compiler                    | **C0–C9j Done**; **C10a–g Done** — DX + non-capturing lambdas (expr/block) + fun types  |
+| Compiler                    | **C0–C9j Done**; **C10a–h Done** — DX + lambdas (block + val captures) + fun types      |
 | Runtime / packages / stdlib | GC + nested Array free; Map/Set/HashMap(+resize); path lock + registry schema v0        |
 
 ## Phases
@@ -176,12 +176,13 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C10e**  | Codegen non-capturing lambdas (static C fn + fn ptr)               | Done                                       |
 | **C10f**  | Fun type syntax `(T) -> U`                                         | Done                                       |
 | **C10g**  | Lambda block body `(x) => { … }`                                   | Done                                       |
+| **C10h**  | Lambda captures (`val` Int/Bool/String; fat-pointer Fun)           | Done                                       |
 
 **Out of scope C0/C1:** generics mono, async/tasks, macros, registry, incremental, LTO.
 
 ### P3 — Expand (after hello)
 
-1. ~~Language surface C2–C9j~~ → ~~C10a–g lambdas (non-capturing, expr+block)~~ → later: captures, true borrow, Array-of-iface
+1. ~~Language surface C2–C9j~~ → ~~C10a–h lambdas (block + val captures)~~ → later: richer captures, true borrow, Array-of-iface
 2. Runtime: ~~alloc/GC + deep mark/sweep + nested Array free~~ → channels/tasks
 3. Toolchain: ~~path deps + path lock + registry lock schema~~ → registry client / semver (RFC-005)
 4. Stdlib: ~~io + assert + Map/Set/HashMap(+resize) + Iterable~~ → generic HashMap; richer collections

@@ -771,7 +771,7 @@ fn type_ref_to_ty_simple(ty: &TypeRef, params: &[String], args: &[Ty]) -> Ty {
     }
 }
 
-/// Emit `typedef ret (*aura_fp_KEY)(params…);` for a Fun type.
+/// Emit fat-pointer Fun typedef (C10h): `{ void *env; ret (*fn)(void *env, …); }`.
 pub(crate) fn emit_fun_typedef(out: &mut String, ty: &Ty, checked: &CheckedFile) {
     let Ty::Fun { params, ret } = ty else {
         return;
@@ -782,16 +782,15 @@ pub(crate) fn emit_fun_typedef(out: &mut String, ty: &Ty, checked: &CheckedFile)
         Ty::Unit => "void".to_string(),
         r => c_type_from_ty(r, checked),
     };
-    let ps = if params.is_empty() {
-        "void".to_string()
-    } else {
-        params
-            .iter()
-            .map(|p| c_type_from_ty(p, checked))
-            .collect::<Vec<_>>()
-            .join(", ")
-    };
-    let _ = writeln!(out, "typedef {ret_c} (*{name})({ps});");
+    let mut fn_params = vec!["void *env".to_string()];
+    for p in params {
+        fn_params.push(c_type_from_ty(p, checked));
+    }
+    let ps = fn_params.join(", ");
+    let _ = writeln!(out, "typedef struct {{");
+    let _ = writeln!(out, "  void *env;");
+    let _ = writeln!(out, "  {ret_c} (*fn)({ps});");
+    let _ = writeln!(out, "}} {name};");
 }
 
 pub(crate) fn type_ref_local_key(ty: &TypeRef, params: &[String], args: &[Ty]) -> String {

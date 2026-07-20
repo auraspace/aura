@@ -1,0 +1,12 @@
+// C10h: capture outer immutable val (Int) by value into env
+package demo.lambda
+
+fun main(): Int {
+  val base = 40
+  val add = (x: Int) => base + x
+  val mul = (x: Int) => {
+    val y = base + 1
+    return y * x
+  }
+  return add(2) + mul(1)
+}

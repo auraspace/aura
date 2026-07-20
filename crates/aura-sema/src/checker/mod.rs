@@ -58,6 +58,13 @@ pub(crate) struct Checker {
     call_instantiations: HashMap<u32, CallInstantiation>,
     /// C10d: LambdaExpr.span.start → Fun type.
     lambda_tys: HashMap<u32, Ty>,
+    /// C10h: LambdaExpr.span.start → captured outer locals.
+    lambda_captures: HashMap<u32, Vec<(String, Ty)>>,
+    /// C10h: while checking a lambda body — index of the lambda params frame.
+    /// Locals in frames strictly below this are free-variable captures.
+    lambda_capture_base: Option<usize>,
+    /// C10h: accumulating captures for the active lambda (name → ty).
+    lambda_captures_acc: Option<HashMap<String, Ty>>,
     /// C10g: when Some, infer lambda block return type (inner = found so far).
     ret_infer: Option<Option<Ty>>,
     /// C6h: statement/body errors collected without aborting the whole file.
@@ -244,6 +251,9 @@ impl Checker {
             mono_interfaces: HashSet::new(),
             call_instantiations: HashMap::new(),
             lambda_tys: HashMap::new(),
+            lambda_captures: HashMap::new(),
+            lambda_capture_base: None,
+            lambda_captures_acc: None,
             ret_infer: None,
             errors: Vec::new(),
         }
@@ -674,12 +684,55 @@ impl Checker {
     }
 
     pub(crate) fn lookup_local(&self, name: &str) -> Option<&Local> {
-        for scope in self.locals.iter().rev() {
+        self.lookup_local_frame(name).map(|(_, l)| l)
+    }
+
+    /// Local binding plus the frame index it was found in (0 = outermost).
+    pub(crate) fn lookup_local_frame(&self, name: &str) -> Option<(usize, &Local)> {
+        for (i, scope) in self.locals.iter().enumerate().rev() {
             if let Some(l) = scope.get(name) {
-                return Some(l);
+                return Some((i, l));
             }
         }
         None
+    }
+
+    /// C10h: if `name` resolves to an outer local of the active lambda, record a capture.
+    pub(crate) fn note_lambda_capture(
+        &mut self,
+        name: &str,
+        frame: usize,
+        ty: &Ty,
+        mutable: bool,
+        span: Span,
+    ) -> Result<(), SemaError> {
+        let Some(base) = self.lambda_capture_base else {
+            return Ok(());
+        };
+        if frame >= base {
+            return Ok(());
+        }
+        if mutable {
+            return Err(SemaError {
+                message: format!(
+                    "cannot capture mutable `var` `{name}` in lambda (only immutable `val`)"
+                ),
+                span,
+            });
+        }
+        if !matches!(ty, Ty::Int | Ty::Bool | Ty::String) {
+            return Err(SemaError {
+                message: format!(
+                    "cannot capture `{name}` of type {} in lambda (MVP: Int, Bool, String only)",
+                    ty.display()
+                ),
+                span,
+            });
+        }
+        if let Some(acc) = self.lambda_captures_acc.as_mut() {
+            acc.entry(name.to_string()).or_insert_with(|| ty.clone());
+        }
+        Ok(())
     }
 
     /// C5c: best-effort similar name among locals, functions, and types.

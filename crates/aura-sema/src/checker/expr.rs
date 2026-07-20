@@ -94,8 +94,11 @@ impl Checker {
     ) -> Result<Ty, SemaError> {
         match expr {
             Expr::Ident(id) => {
-                if let Some(local) = self.lookup_local(&id.name) {
-                    return Ok(local.ty.clone());
+                if let Some((frame, local)) = self.lookup_local_frame(&id.name) {
+                    let ty = local.ty.clone();
+                    let mutable = local.mutable;
+                    self.note_lambda_capture(&id.name, frame, &ty, mutable, id.span)?;
+                    return Ok(ty);
                 }
                 // C9g: top-level const.
                 if let Some(entries) = self.consts.get(&id.name) {
@@ -508,7 +511,7 @@ impl Checker {
                 Ok(target)
             }
             Expr::Call(c) => self.check_call(c, expected),
-            // C10d/g: non-capturing lambda; expr body or block body.
+            // C10d/g/h: lambda (expr/block body); C10h outer `val` captures.
             Expr::Lambda(l) => {
                 let mut param_tys = Vec::with_capacity(l.params.len());
                 self.locals.push(std::collections::HashMap::new());
@@ -530,45 +533,49 @@ impl Checker {
                     );
                     param_tys.push(ty);
                 }
+                // C10h: params frame is the capture base; outer frames are free vars.
+                let prev_base = self.lambda_capture_base.replace(self.locals.len() - 1);
+                let prev_acc = self
+                    .lambda_captures_acc
+                    .replace(std::collections::HashMap::new());
                 let expected_ret = match expected {
                     Some(Ty::Fun { ret, .. }) => Some(ret.as_ref()),
                     _ => None,
                 };
-                let body_ty = match &l.body {
+                let body_result = match &l.body {
                     aura_ast::LambdaBody::Expr(body) => {
-                        match self.check_expr_expected(body, expected_ret) {
-                            Ok(t) => t,
-                            Err(e) => {
-                                self.locals.pop();
-                                return Err(e);
-                            }
-                        }
+                        self.check_expr_expected(body, expected_ret)
                     }
                     aura_ast::LambdaBody::Block(block) => {
-                        // C10g: block body — check stmts; infer ret when no expected Fun.
-                        let ty = if let Some(exp_ret) = expected_ret {
-                            if let Err(e) = self.check_block(block, exp_ret) {
-                                self.locals.pop();
-                                return Err(e);
-                            }
-                            exp_ret.clone()
+                        if let Some(exp_ret) = expected_ret {
+                            self.check_block(block, exp_ret).map(|_| exp_ret.clone())
                         } else {
                             let prev = self.ret_infer.take();
                             self.ret_infer = Some(None);
-                            if let Err(e) = self.check_block(block, &Ty::Unit) {
-                                self.ret_infer = prev;
-                                self.locals.pop();
-                                return Err(e);
-                            }
-                            let inferred =
-                                self.ret_infer.take().and_then(|s| s).unwrap_or(Ty::Unit);
+                            let r = self
+                                .check_block(block, &Ty::Unit)
+                                .map(|_| self.ret_infer.take().and_then(|s| s).unwrap_or(Ty::Unit));
                             self.ret_infer = prev;
-                            inferred
-                        };
-                        ty
+                            r
+                        }
                     }
                 };
+                let body_ty = match body_result {
+                    Ok(t) => t,
+                    Err(e) => {
+                        self.lambda_capture_base = prev_base;
+                        self.lambda_captures_acc = prev_acc;
+                        self.locals.pop();
+                        return Err(e);
+                    }
+                };
+                let captures_map = self.lambda_captures_acc.take().unwrap_or_default();
+                self.lambda_capture_base = prev_base;
+                self.lambda_captures_acc = prev_acc;
                 self.locals.pop();
+                let mut captures: Vec<(String, Ty)> = captures_map.into_iter().collect();
+                captures.sort_by(|a, b| a.0.cmp(&b.0));
+                self.lambda_captures.insert(l.span.start, captures);
                 if let Some(exp_ret) = expected_ret {
                     if !self.is_assignable(&body_ty, exp_ret) {
                         let span = match &l.body {

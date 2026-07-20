@@ -1,5 +1,7 @@
 //! Expression emission.
 
+use std::fmt::Write as _;
+
 use aura_ast::*;
 use aura_sema::{nominal_key, CheckedFile, Ty};
 
@@ -560,10 +562,39 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
             }
         }
         Expr::Call(c) => emit_call(c, ctx),
-        // C10e: non-capturing lambda → static function pointer.
+        // C10e/h: lambda → fat pointer `{ .env, .fn }`; env heap-alloc when capturing.
         Expr::Lambda(l) => {
             let id = ctx.lambda_ids.get(&l.span.start).copied().unwrap_or(0);
-            format!("aura_lambda_{id}")
+            let fun_ty = ctx
+                .checked
+                .lambda_tys
+                .get(&l.span.start)
+                .cloned()
+                .unwrap_or(Ty::Fun {
+                    params: Vec::new(),
+                    ret: Box::new(Ty::Int),
+                });
+            let fp = c_fun_typedef(&fun_ty.mono_suffix());
+            let captures = ctx
+                .checked
+                .lambda_captures
+                .get(&l.span.start)
+                .map(|v| v.as_slice())
+                .unwrap_or(&[]);
+            if captures.is_empty() {
+                format!("(({fp}){{ .env = NULL, .fn = aura_lambda_{id} }})")
+            } else {
+                // GNU statement-expr: allocate env, fill captures, return fat ptr.
+                let mut fill = String::new();
+                for (name, _ty) in captures {
+                    let m = mangle_ident(name);
+                    // Capture value from enclosing scope local of the same name.
+                    let _ = writeln!(fill, "  __e->{m} = {m};");
+                }
+                format!(
+                    "({{ aura_lenv_{id} *__e = (aura_lenv_{id} *)malloc(sizeof(aura_lenv_{id}));{fill} ({fp}){{ .env = __e, .fn = aura_lambda_{id} }}; }})"
+                )
+            }
         }
         Expr::If(i) => {
             // C4t: GNU statement-expression; last expr of each branch is the value.

@@ -7,14 +7,22 @@ When you resolve debt, update or remove the matching entry.
 
 ## Open
 
-### Lambda captures deferred
+### Lambda capture limits (MVP)
 
-- Area: language / lambdas (C10)
-- Symptom: only non-capturing lambdas; no outer local capture
-- Why deferred: env/layout for closures is a larger slice than MVP first-class funs
-- Progress: C10c–g parse/sema/codegen; expr + block body; fun type `(T) -> U`; corpus `corpus/fun/lambda_*.aura` (+ `lambda_block.aura`)
-- Next step: C10h captures (`val` by shared immutability); C10i higher-order helpers
-- Introduced: 2026-07-20 after C10e/f; block body shipped C10g
+- Area: language / lambdas (C10h)
+- Symptom: only immutable `val` of `Int`/`Bool`/`String`; no `var`, class, Array, or nested Fun capture; env is `malloc`'d and not freed
+- Why deferred: full closure GC + richer capture types need layout/protocol work
+- Progress: fat-pointer Fun `{env,fn}`; copy-out of primitive captures; corpus `lambda_capture.aura`
+- Next step: free/GC env; capture more types; optional `var` by ref later
+- Introduced: narrowed after C10h
+
+### Higher-order std helpers deferred
+
+- Area: language / stdlib (C10i)
+- Symptom: no map/filter-style helpers over Array/fun yet
+- Why deferred: C10h first-class funs enough for demos; helpers are sugar
+- Next step: small Array.forEach / map helpers or corpus samples
+- Introduced: 2026-07-20 after C10h
 
 ### Array field return still moves (no true borrow type)
 
