@@ -2,7 +2,7 @@
 
 Collections package (RFC-007).
 
-**Status (C6f–C8h):**
+**Status (C6f–C8i):**
 
 | API           | Notes                                                                                       |
 | ------------- | ------------------------------------------------------------------------------------------- |
@@ -10,6 +10,7 @@ Collections package (RFC-007).
 | `map()`       | Empty `Map<String, Int>` factory                                                            |
 | `Set<T>`      | Linear `add` / `remove` / `contains` / `clear` / `len` / `isEmpty` / `get(i)` (C8g/C8h)     |
 | `set()`       | Empty `Set<String>` factory                                                                 |
+| `HashMap`     | String→Int open addressing; `hash_map()` capacity 16 (C8i)                                  |
 | `Iterable<E>` | Protocol: `len(): Int` + `get(i: Int): E` for `for-in` (C8d)                                |
 
 **Iteration:**
@@ -18,7 +19,7 @@ Collections package (RFC-007).
 - `for (x in set)` — duck Iterable via `len` + `get`
 - `for (k in set.keys)` — same buffer via `Array` field
 
-**Not yet:** hash table. Keys/elements must support `==`.
+**Not yet:** generic HashMap, resize. Keys/elements must support `==`.
 
 **Also available language-wide:**
 

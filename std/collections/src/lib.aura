@@ -4,6 +4,7 @@
 // C7f: Map remove/clear.
 // C8a: Map<K,V> generic (Array of type params allowed at mono).
 // C8d: Iterable<E> protocol (len + get).
+// C8i: HashMap String→Int.
 // C8h: for-in over Map.keys / Set (Set.get for duck).
 package std.collections
 
@@ -163,3 +164,178 @@ pub class Set<T>(val keys: Array<T>) {
 pub fun set(): Set<String> {
   return Set<String>(Array(0))
 }
+
+// C8i — HashMap String→Int (open addressing; pure Aura hash).
+// Note: avoid `this.otherMethod()` chains (codegen this-recv bug); inline helpers.
+fun hash_string(s: String): Int {
+  var h: Int = 0
+  for (b in s) {
+    h = h * 31 + b
+  }
+  if (h < 0) {
+    h = 0 - h
+  }
+  return h
+}
+
+/// Open-addressing hash map String→Int.
+/// `state`: 0 empty, 1 full, 2 tombstone. Capacity fixed at construction.
+pub class HashMap(val keys: Array<String>, val vals: Array<Int>, val state: Array<Int>) {
+  pub fun capacity(): Int {
+    return this.keys.len
+  }
+
+  pub fun len(): Int {
+    var n: Int = 0
+    for (i in 0..this.state.len) {
+      if (this.state.get(i) == 1) {
+        n = n + 1
+      }
+    }
+    return n
+  }
+
+  pub fun isEmpty(): Bool {
+    for (i in 0..this.state.len) {
+      if (this.state.get(i) == 1) {
+        return false
+      }
+    }
+    return true
+  }
+
+  /// Insert or replace. Returns true if newly inserted.
+  pub fun put(k: String, v: Int): Bool {
+    val n = this.keys.len
+    if (n == 0) {
+      return false
+    }
+    var i: Int = hash_string(k) % n
+    var first_tomb: Int = -1
+    for (step in 0..n) {
+      val st = this.state.get(i)
+      if (st == 0) {
+        val slot = if (first_tomb >= 0) { first_tomb } else { i }
+        this.keys.set(slot, k)
+        this.vals.set(slot, v)
+        this.state.set(slot, 1)
+        return true
+      }
+      if (st == 2) {
+        if (first_tomb < 0) {
+          first_tomb = i
+        }
+      } else {
+        if (this.keys.get(i) == k) {
+          this.vals.set(i, v)
+          return false
+        }
+      }
+      i = (i + 1) % n
+    }
+    if (first_tomb >= 0) {
+      this.keys.set(first_tomb, k)
+      this.vals.set(first_tomb, v)
+      this.state.set(first_tomb, 1)
+      return true
+    }
+    return false
+  }
+
+  pub fun get(k: String): Int? {
+    val n = this.keys.len
+    if (n == 0) {
+      return null
+    }
+    var i: Int = hash_string(k) % n
+    for (step in 0..n) {
+      val st = this.state.get(i)
+      if (st == 0) {
+        return null
+      }
+      if (st == 1) {
+        if (this.keys.get(i) == k) {
+          return this.vals.get(i)
+        }
+      }
+      i = (i + 1) % n
+    }
+    return null
+  }
+
+  pub fun getOr(k: String, default: Int): Int {
+    val n = this.keys.len
+    if (n == 0) {
+      return default
+    }
+    var i: Int = hash_string(k) % n
+    for (step in 0..n) {
+      val st = this.state.get(i)
+      if (st == 0) {
+        return default
+      }
+      if (st == 1) {
+        if (this.keys.get(i) == k) {
+          return this.vals.get(i)
+        }
+      }
+      i = (i + 1) % n
+    }
+    return default
+  }
+
+  pub fun contains(k: String): Bool {
+    val n = this.keys.len
+    if (n == 0) {
+      return false
+    }
+    var i: Int = hash_string(k) % n
+    for (step in 0..n) {
+      val st = this.state.get(i)
+      if (st == 0) {
+        return false
+      }
+      if (st == 1) {
+        if (this.keys.get(i) == k) {
+          return true
+        }
+      }
+      i = (i + 1) % n
+    }
+    return false
+  }
+
+  pub fun remove(k: String): Bool {
+    val n = this.keys.len
+    if (n == 0) {
+      return false
+    }
+    var i: Int = hash_string(k) % n
+    for (step in 0..n) {
+      val st = this.state.get(i)
+      if (st == 0) {
+        return false
+      }
+      if (st == 1) {
+        if (this.keys.get(i) == k) {
+          this.state.set(i, 2)
+          return true
+        }
+      }
+      i = (i + 1) % n
+    }
+    return false
+  }
+
+  pub fun clear() {
+    for (i in 0..this.state.len) {
+      this.state.set(i, 0)
+    }
+  }
+}
+
+/// Empty HashMap with capacity 16.
+pub fun hash_map(): HashMap {
+  return HashMap(Array(16), Array(16), Array(16))
+}
+

@@ -1,0 +1,41 @@
+// C8i — HashMap String→Int (bucketed)
+package demo.stdhashmap
+
+import std.collections
+
+fun main() {
+  val h = hash_map()
+  if (h.isEmpty()) {
+    println("empty")
+  }
+  if (h.put("a", 1)) {
+    println("ins")
+  }
+  h.put("b", 2)
+  h.put("a", 10)
+  if (h.len() == 2) {
+    println("len")
+  }
+  if (h.getOr("a", -1) == 10) {
+    println("geta")
+  }
+  if (h.contains("b")) {
+    println("hasb")
+  }
+  val g = h.get("b")
+  if (g != null) {
+    if (g == 2) {
+      println("getb")
+    }
+  }
+  if (h.remove("b")) {
+    println("rmb")
+  }
+  if (!h.contains("b")) {
+    println("nob")
+  }
+  h.clear()
+  if (h.isEmpty()) {
+    println("clr")
+  }
+}
