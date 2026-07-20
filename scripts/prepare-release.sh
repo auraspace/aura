@@ -319,29 +319,28 @@ $dirty"
 }
 
 print_flow_next() {
-  cat <<EOF
-
-Release commit ready for ${VERSION}.
-
-Next (manual — this script does not push or tag):
-
-  1. Review:
-       git show --stat
-       \$EDITOR docs/releases/${VERSION}.md CHANGELOG.md
-
-  2. Push the release commit:
-       git push origin HEAD
-
-  3. Cut the tag (triggers GitHub Actions → tarballs + GH Release):
-       git tag ${TAG}
-       git push origin ${TAG}
-
-  4. Install smoke:
-       curl -fsSL https://aura.fadosoft.com/install.sh | AURA_VERSION=${VERSION} bash
-       aura version
-
-Flow:  prepare-release → push commit → push tag v* → CI Release → install.sh
-EOF
+  # Prefer printf over a long heredoc (some terminals/pagers mishandle cat).
+  printf '\n'
+  printf 'Release commit ready for %s.\n' "${VERSION}"
+  printf '\n'
+  printf 'Next (manual — this script does not push or tag):\n'
+  printf '\n'
+  printf '  1. Review:\n'
+  printf '       git show --stat\n'
+  printf '       $EDITOR docs/releases/%s.md CHANGELOG.md\n' "${VERSION}"
+  printf '\n'
+  printf '  2. Push the release commit:\n'
+  printf '       git push origin HEAD\n'
+  printf '\n'
+  printf '  3. Cut the tag (triggers GitHub Actions → tarballs + GH Release):\n'
+  printf '       git tag %s\n' "${TAG}"
+  printf '       git push origin %s\n' "${TAG}"
+  printf '\n'
+  printf '  4. Install smoke:\n'
+  printf '       curl -fsSL https://aura.fadosoft.com/install.sh | AURA_VERSION=%s bash\n' "${VERSION}"
+  printf '       aura version\n'
+  printf '\n'
+  printf 'Flow:  prepare-release → push commit → push tag v* → CI Release → install.sh\n'
 }
 
 # --- main ---
@@ -396,12 +395,16 @@ if [[ "$DO_COMMIT" -eq 1 ]]; then
   if git diff --cached --quiet; then
     die "nothing staged to commit (version already set and changelog unchanged?)"
   fi
-  git commit -m "release: ${VERSION}"
+  # Avoid git opening a pager on hook/commit output in some environments.
+  GIT_PAGER=cat git -c core.pager=cat commit -m "release: ${VERSION}"
   info "created commit: release: ${VERSION}"
   print_flow_next
-else
-  info "files updated (no commit). Review with: git diff"
-  if [[ "$DO_STAGE" -eq 1 ]]; then
-    info "staged: Cargo.toml CHANGELOG.md docs/releases/${VERSION}.md"
-  fi
+  info "done — exiting"
+  exit 0
 fi
+
+info "files updated (no commit). Review with: git diff"
+if [[ "$DO_STAGE" -eq 1 ]]; then
+  info "staged: Cargo.toml Cargo.lock CHANGELOG.md docs/releases/${VERSION}.md"
+fi
+exit 0
