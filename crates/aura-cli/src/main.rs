@@ -3,7 +3,7 @@
 mod package;
 
 use aura_codegen::{build_from_file, build_tests_from_file, emit_c_from_ast};
-use aura_diagnostics::format_error;
+use aura_diagnostics::{format_error_with, FormatOptions};
 use aura_sema::{check_file, SemaError, SemaErrors};
 use package::{load_package, load_package_default, LoadedPackage};
 use std::env;
@@ -62,7 +62,17 @@ fn resolve_package(args: &[String]) -> Result<LoadedPackage, String> {
 
 fn diag_sema(pkg: &LoadedPackage, e: &SemaError) -> String {
     let (path, src, span) = pkg.locate(e.span);
-    format_error(&path, src, &e.message, span)
+    // C10b: one line of context above the error; auto expected/found notes.
+    format_error_with(
+        &path,
+        src,
+        &e.message,
+        span,
+        &FormatOptions {
+            notes: &[],
+            context_before: true,
+        },
+    )
 }
 
 fn diag_sema_errors(pkg: &LoadedPackage, es: SemaErrors) -> String {

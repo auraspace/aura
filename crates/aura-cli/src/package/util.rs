@@ -20,11 +20,7 @@ pub(crate) fn synthetic_package_path(name: &str) -> AstPath {
 }
 
 pub(crate) fn last_segment(package: &str) -> String {
-    package
-        .rsplit('.')
-        .next()
-        .unwrap_or("a.out")
-        .to_string()
+    package.rsplit('.').next().unwrap_or("a.out").to_string()
 }
 
 pub(crate) fn check_dup_type(
@@ -33,10 +29,7 @@ pub(crate) fn check_dup_type(
     name: &str,
     path: &Path,
 ) -> Result<(), String> {
-    if let Some((_, _, prev)) = seen
-        .iter()
-        .find(|(k, n, _)| k == kind && n == name)
-    {
+    if let Some((_, _, prev)) = seen.iter().find(|(k, n, _)| k == kind && n == name) {
         return Err(format!(
             "error: duplicate {kind} `{name}` in {} (first defined in {prev})",
             path.display()
@@ -50,7 +43,11 @@ pub(crate) fn check_dup_type(
     Ok(())
 }
 
-pub(crate) fn check_dup_fun(seen: &mut Vec<(String, String)>, name: &str, path: &Path) -> Result<(), String> {
+pub(crate) fn check_dup_fun(
+    seen: &mut Vec<(String, String)>,
+    name: &str,
+    path: &Path,
+) -> Result<(), String> {
     if let Some((_, prev_path)) = seen.iter().find(|(n, _)| n == name) {
         return Err(format!(
             "error: duplicate function `{name}` in {} (first defined in {prev_path})",
@@ -88,5 +85,15 @@ pub(crate) fn collect_aura_files_rec(dir: &Path, out: &mut Vec<PathBuf>) -> Resu
 }
 
 pub(crate) fn format_parse(path: &Path, src: &str, e: ParseError) -> String {
-    aura_diagnostics::format_error(&path.display().to_string(), src, &e.message, e.span)
+    use aura_diagnostics::{format_error_with, FormatOptions};
+    format_error_with(
+        &path.display().to_string(),
+        src,
+        &e.message,
+        e.span,
+        &FormatOptions {
+            notes: &[],
+            context_before: true,
+        },
+    )
 }
