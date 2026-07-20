@@ -11,7 +11,12 @@ use crate::iface::emit_upcast;
 use crate::names::*;
 use crate::stmt::{emit_block, emit_return_fallback};
 
-pub(crate) fn emit_class_typedef(out: &mut String, checked: &CheckedFile, c: &ClassDecl, args: &[Ty]) {
+pub(crate) fn emit_class_typedef(
+    out: &mut String,
+    checked: &CheckedFile,
+    c: &ClassDecl,
+    args: &[Ty],
+) {
     let params: Vec<String> = c.type_params.iter().map(|p| p.name.name.clone()).collect();
     let pkg = class_decl_package(c, checked);
     let mono = type_mono(&pkg, &c.name.name, args);
@@ -31,11 +36,20 @@ pub(crate) fn emit_class_typedef(out: &mut String, checked: &CheckedFile, c: &Cl
     out.push_str("};\n\n");
 }
 
-pub(crate) fn emit_class_forwards(out: &mut String, checked: &CheckedFile, c: &ClassDecl, args: &[Ty]) {
+pub(crate) fn emit_class_forwards(
+    out: &mut String,
+    checked: &CheckedFile,
+    c: &ClassDecl,
+    args: &[Ty],
+) {
     let params: Vec<String> = c.type_params.iter().map(|p| p.name.name.clone()).collect();
     let pkg = class_decl_package(c, checked);
     let mono = type_mono(&pkg, &c.name.name, args);
-    let _ = writeln!(out, "{};", c_ctor_signature_mono(c, checked, &params, args, &mono));
+    let _ = writeln!(
+        out,
+        "{};",
+        c_ctor_signature_mono(c, checked, &params, args, &mono)
+    );
     for m in &c.methods {
         let _ = writeln!(
             out,
@@ -141,7 +155,11 @@ pub(crate) fn c_method_signature_mono(
             mangle_ident(&p.name.name)
         ));
     }
-    format!("{ret} {}({})", c_method_name(mono, &m.name.name), ps.join(", "))
+    format!(
+        "{ret} {}({})",
+        c_method_name(mono, &m.name.name),
+        ps.join(", ")
+    )
 }
 
 pub(crate) fn c_fun_signature(f: &FunDecl, checked: &CheckedFile, args: &[Ty]) -> String {
@@ -223,22 +241,34 @@ pub(crate) fn emit_method_mono(
         locals: vec![HashMap::new()],
         array_owners: vec![std::collections::HashSet::new()],
         gc_roots: vec![std::collections::HashSet::new()],
+        array_gc_roots: vec![std::collections::HashSet::new()],
     };
     for f in &c.fields {
-        ctx.define_local(&f.name.name, type_ref_local_key(&f.ty, params, args));
+        let key = type_ref_local_key(&f.ty, params, args);
+        let mono_key = crate::expr::full_type_mono(&key, checked);
+        ctx.define_local(&f.name.name, mono_key);
     }
     for p in &m.params {
         let key = type_ref_local_key(&p.ty, params, args);
-        ctx.define_local(&p.name.name, key.clone());
+        let mono_key = crate::expr::full_type_mono(&key, checked);
+        ctx.define_local(&p.name.name, mono_key.clone());
         // C6b: Array params own the buffer.
         if crate::array_emit::is_array_type_key(&key) {
             ctx.mark_array_owner(&p.name.name);
         }
-        let mono = crate::expr::full_type_mono(&key, checked);
-        if is_heap_class_mono(&mono, checked) {
+        if is_heap_class_mono(&mono_key, checked) {
             ctx.mark_gc_root(&p.name.name);
             let n = mangle_ident(&p.name.name);
             let _ = writeln!(out, "  aura_gc_add_root((void **)&{n});");
+        }
+        // C6e: Array-of-class params keep element GC pointers alive.
+        if crate::array_emit::is_array_of_heap_class(&mono_key, checked) {
+            ctx.mark_array_gc_root(&p.name.name);
+            let n = mangle_ident(&p.name.name);
+            let _ = writeln!(
+                out,
+                "  aura_gc_add_array_root((void **)&{n}.data, &{n}.len);"
+            );
         }
     }
     // `this` is a heap pointer for classes — root it for the method body.
@@ -247,6 +277,10 @@ pub(crate) fn emit_method_mono(
         out.push_str("  aura_gc_add_root((void **)&this);\n");
     }
     emit_block(out, &m.body, 1, &mut ctx);
+    for name in ctx.array_gc_roots_all() {
+        let n = mangle_ident(&name);
+        let _ = writeln!(out, "  aura_gc_remove_array_root((void **)&{n}.data);");
+    }
     for name in ctx.gc_roots_all() {
         let n = if name == "this" {
             "this".to_string()

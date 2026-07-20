@@ -47,13 +47,13 @@ When you resolve debt, update or remove the matching entry.
 - Next step: tagged optional or reject nullable primitives with clear diag
 - Introduced: noticed C6f Map.get
 
-### GC mark does not walk Array buffers
+### GC mark: Array-of-class fields / nested only via object scan
 
-- Area: runtime GC (C6a)
-- Symptom: deep mark scans class object bytes; Array `data` is malloc (not GC), so Array-of-class roots only the Array struct if it were GC-allocated (it is not)
-- Why deferred: Array still manual free ownership
-- Next step: C6e if Array-of-class needs GC roots for elements
-- Introduced: C6a
+- Area: runtime GC (C6e partial)
+- Symptom: locals/params `Array` of heap class register `aura_gc_add_array_root`; **fields** that are Array-of-class still not scanned (deep mark sees malloc `data` pointer, not buffer elems)
+- Why deferred: no type maps for fields
+- Next step: register field Arrays or GC-typed buffers
+- Introduced: narrowed after C6e
 
 ### Generic `Iterable<E>` interface
 
@@ -68,6 +68,10 @@ When you resolve debt, update or remove the matching entry.
 ### Array fields shallow-copy on ctor/assign (2026-07-20)
 
 - Resolved in C6i (partial): constructor and `var` field assign move from owner locals/params (zero source); reassign frees prior field buffer. Corpus `generic/array_field_move.aura`. GC free of field buffers still Open.
+
+### GC mark does not walk Array-of-class locals (2026-07-20)
+
+- Resolved in C6e (partial): `aura_gc_add_array_root` on Array-of-class locals/params; collect marks `data[0..len)`. Corpus `class/gc_array.aura`. Field Arrays still Open.
 
 ### Shallow GC mark only (2026-07-20)
 

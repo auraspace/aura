@@ -127,11 +127,12 @@ Native builds use a **C backend** (`aura emit-c` + system `cc`) linked with `run
 - **Compiler C6b** Array move into function/method params
 - **Compiler C6c** Iterable protocol: `for-in` on iface `len`+`get`
 - **Compiler C6d** Array return/call binding owns buffer
+- **Runtime C6e** GC mark Array-of-class local/param buffers
 - **Stdlib C6f** `std.collections` Map (String→Int)
 - **Compiler C6i** Field Array ownership (ctor + var reassign move)
 - **DX** Pretty diagnostics (`path:line:col` + source snippet)
 - **Debts** Tracked in [`agents/debts.md`](agents/debts.md)
-- **Next:** GC Array elems (C6e), enum Array (C6g), multi-error (C6h)
+- **Next:** enum Array (C6g), multi-error (C6h), close batch (C6j)
 
 ## Links
 

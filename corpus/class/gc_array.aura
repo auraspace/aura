@@ -1,0 +1,30 @@
+// C6e — GC marks class elements reachable only via Array buffers
+package demo.cls
+
+class Leaf(val n: Int) {
+  fun value(): Int {
+    return this.n
+  }
+}
+
+fun main() {
+  // keep is a live GC root so collect does not mark-all.
+  val keep = Leaf(1)
+  val a: Array<Leaf> = Array(0)
+  a.push(Leaf(42))
+  a.push(Leaf(7))
+  // Elements live only inside a.data (malloc), not as local roots.
+  gc_collect()
+  // Bind after collect: proves elements were marked via the Array root.
+  val x: Leaf = a.get(0)
+  val y: Leaf = a.get(1)
+  if (x.value() == 42) {
+    println("a0")
+  }
+  if (y.value() == 7) {
+    println("a1")
+  }
+  if (keep.value() == 1) {
+    println("keep")
+  }
+}

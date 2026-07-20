@@ -105,6 +105,8 @@ pub(crate) fn emit_block(out: &mut String, block: &Block, indent: usize, ctx: &m
     for stmt in &block.stmts {
         emit_stmt(out, stmt, indent, ctx);
     }
+    // C6e: unregister Array-of-class element roots before free/pop.
+    emit_remove_array_gc_roots(out, indent, &ctx.array_gc_roots_current());
     // C5g: unregister GC roots for heap-class locals in this scope.
     emit_remove_gc_roots(out, indent, &ctx.gc_roots_current());
     // C3t: free Array buffers owned by this block before leaving the scope.
@@ -145,6 +147,23 @@ fn emit_remove_gc_roots(out: &mut String, indent: usize, names: &[String]) {
         let n = gc_root_c_name(name);
         let _ = writeln!(out, "{p}aura_gc_remove_root((void **)&{n});");
     }
+}
+
+fn emit_remove_array_gc_roots(out: &mut String, indent: usize, names: &[String]) {
+    let p = pad(indent);
+    for name in names {
+        let n = mangle_ident(name);
+        let _ = writeln!(out, "{p}aura_gc_remove_array_root((void **)&{n}.data);");
+    }
+}
+
+fn emit_add_array_gc_root(out: &mut String, indent: usize, name: &str) {
+    let p = pad(indent);
+    let n = mangle_ident(name);
+    let _ = writeln!(
+        out,
+        "{p}aura_gc_add_array_root((void **)&{n}.data, &{n}.len);"
+    );
 }
 
 fn is_array_type_key(key: &str) -> bool {
@@ -217,6 +236,11 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
             if is_heap_class_mono(&mono, ctx.checked) {
                 ctx.mark_gc_root(&v.name.name);
                 let _ = writeln!(out, "{p}aura_gc_add_root((void **)&{dst});");
+            }
+            // C6e: Array-of-class locals keep element GC pointers alive across collect.
+            if crate::array_emit::is_array_of_heap_class(&mono, ctx.checked) {
+                ctx.mark_array_gc_root(&v.name.name);
+                emit_add_array_gc_root(out, indent, &v.name.name);
             }
         }
         Stmt::If(i) => {
@@ -482,6 +506,7 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
             // C5g: drop GC roots before leaving so they do not dangle.
             match &r.value {
                 None => {
+                    emit_remove_array_gc_roots(out, indent, &ctx.array_gc_roots_all());
                     emit_remove_gc_roots(out, indent, &ctx.gc_roots_all());
                     emit_free_array_owners(out, indent, &ctx.array_owners_all());
                     let _ = writeln!(out, "{p}return;");
@@ -500,6 +525,7 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                         .collect();
                     if ret_key == "Unit" {
                         let _ = writeln!(out, "{p}{};", emit_expr(e, ctx));
+                        emit_remove_array_gc_roots(out, indent, &ctx.array_gc_roots_all());
                         emit_remove_gc_roots(out, indent, &ctx.gc_roots_all());
                         emit_free_array_owners(out, indent, &owners);
                         let _ = writeln!(out, "{p}return;");
@@ -508,6 +534,7 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                         let tmp = format!("__ret_{}", r.span.start);
                         let val = emit_expr(e, ctx);
                         let _ = writeln!(out, "{p}{c_ty} {tmp} = {val};");
+                        emit_remove_array_gc_roots(out, indent, &ctx.array_gc_roots_all());
                         emit_remove_gc_roots(out, indent, &ctx.gc_roots_all());
                         emit_free_array_owners(out, indent, &owners);
                         let _ = writeln!(out, "{p}return {tmp};");

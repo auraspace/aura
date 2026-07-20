@@ -4,7 +4,10 @@ use std::fmt::Write as _;
 
 use aura_sema::{CheckedFile, Ty};
 
-use crate::names::{c_class_type, c_ctor_name, c_method_name, mono_key, ty_to_c_array_elem};
+use crate::names::{
+    c_class_type, c_ctor_name, c_method_name, is_heap_class_mono, is_primitive_name, mono_key,
+    ty_to_c_array_elem,
+};
 
 /// Local/type key is an Array monomorph (`Array`, `Array_Int`, …).
 pub(crate) fn is_array_type_key(key: &str) -> bool {
@@ -13,6 +16,19 @@ pub(crate) fn is_array_type_key(key: &str) -> bool {
 
 pub(crate) fn is_array_mono(name: &str) -> bool {
     name == "Array"
+}
+
+/// C6e: element type is a GC heap class (Array stores pointers that must be marked).
+pub(crate) fn is_array_of_heap_class(key: &str, checked: &CheckedFile) -> bool {
+    if !key.starts_with("Array_") {
+        return false;
+    }
+    let elem = &key["Array_".len()..];
+    if elem.is_empty() || is_primitive_name(elem) {
+        return false;
+    }
+    // `Array_Int` etc. already filtered; structs/enums are not heap classes.
+    is_heap_class_mono(elem, checked)
 }
 
 pub(crate) fn emit_array_mono(out: &mut String, elem: &Ty, checked: &CheckedFile) {

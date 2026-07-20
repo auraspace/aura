@@ -51,6 +51,8 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("void *aura_gc_alloc(size_t size);\n");
     out.push_str("void aura_gc_add_root(void **slot);\n");
     out.push_str("void aura_gc_remove_root(void **slot);\n");
+    out.push_str("void aura_gc_add_array_root(void **data_slot, int64_t *len_slot);\n");
+    out.push_str("void aura_gc_remove_array_root(void **data_slot);\n");
     out.push_str("void aura_gc_collect(void);\n");
     out.push_str("void aura_gc_shutdown(void);\n");
     out.push_str("int aura_main(void);\n\n");
@@ -326,24 +328,38 @@ pub(crate) fn emit_fun(out: &mut String, f: &FunDecl, checked: &CheckedFile, arg
         locals: vec![HashMap::new()],
         array_owners: vec![std::collections::HashSet::new()],
         gc_roots: vec![std::collections::HashSet::new()],
+        array_gc_roots: vec![std::collections::HashSet::new()],
     };
     for p in &f.params {
         let key = type_ref_local_key(&p.ty, &params, args);
-        ctx.define_local(&p.name.name, key.clone());
+        let mono_key = full_type_mono(&key, checked);
+        ctx.define_local(&p.name.name, mono_key.clone());
         // C6b: Array params own the buffer (caller moves or passes a fresh Array).
         if crate::array_emit::is_array_type_key(&key) {
             ctx.mark_array_owner(&p.name.name);
         }
         // C5g: heap-class params are GC roots for the function body.
-        let mono = full_type_mono(&key, checked);
-        if is_heap_class_mono(&mono, checked) {
+        if is_heap_class_mono(&mono_key, checked) {
             ctx.mark_gc_root(&p.name.name);
             let n = mangle_ident(&p.name.name);
             let _ = writeln!(out, "  aura_gc_add_root((void **)&{n});");
         }
+        // C6e: Array-of-class params keep element GC pointers alive.
+        if crate::array_emit::is_array_of_heap_class(&mono_key, checked) {
+            ctx.mark_array_gc_root(&p.name.name);
+            let n = mangle_ident(&p.name.name);
+            let _ = writeln!(
+                out,
+                "  aura_gc_add_array_root((void **)&{n}.data, &{n}.len);"
+            );
+        }
     }
     emit_block(out, &f.body, 1, &mut ctx);
     // Drop param roots when leaving the function.
+    for name in ctx.array_gc_roots_all() {
+        let n = mangle_ident(&name);
+        let _ = writeln!(out, "  aura_gc_remove_array_root((void **)&{n}.data);");
+    }
     for name in ctx.gc_roots_all() {
         let n = if name == "this" {
             "this".to_string()
