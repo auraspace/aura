@@ -1,0 +1,6 @@
+[package]
+name = "demo.stditerable"
+
+[[bin]]
+name = "app"
+path = "src"

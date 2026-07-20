@@ -3,7 +3,15 @@
 // C7e: Set of String.
 // C7f: Map remove/clear.
 // C8a: Map<K,V> generic (Array of type params allowed at mono).
+// C8d: Iterable<E> protocol (len + get).
 package std.collections
+
+/// Indexed sequence protocol for `for-in` (C6c/C8d).
+/// Implementors provide `len()` and `get(i)`; codegen dispatches via mono iface.
+pub interface Iterable<E> {
+  fun len(): Int
+  fun get(i: Int): E
+}
 
 /// Mutable map (linear scan). Keys must support `==` (e.g. String, Int).
 pub class Map<K, V>(val keys: Array<K>, val vals: Array<V>) {

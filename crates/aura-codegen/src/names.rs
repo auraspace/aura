@@ -593,6 +593,17 @@ fn resolve_type_ref_package(ty: &TypeRef, checked: &CheckedFile) -> String {
     if ematches.len() == 1 {
         return ematches[0].clone();
     }
+    // C8d: unique interface by simple name (e.g. Iterable from std.collections).
+    let imatches: Vec<_> = checked
+        .ast
+        .interfaces
+        .iter()
+        .filter(|i| i.name.name == *name)
+        .map(|i| iface_decl_package(i, checked))
+        .collect();
+    if imatches.len() == 1 {
+        return imatches[0].clone();
+    }
     // Fallback: file package (single-package programs).
     checked.package.clone()
 }

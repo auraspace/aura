@@ -1,0 +1,35 @@
+// C8d — std.collections Iterable<E> + for-in
+package demo.stditerable
+
+import std.collections
+
+class Range3(val n: Int) : Iterable<Int> {
+  fun len(): Int {
+    return this.n
+  }
+  fun get(i: Int): Int {
+    return i
+  }
+}
+
+fun sum(it: Iterable<Int>): Int {
+  var s: Int = 0
+  for (x in it) {
+    s = s + x
+  }
+  return s
+}
+
+fun main() {
+  val r = Range3(3)
+  if (sum(r) == 3) {
+    println("sum")
+  }
+  var t: Int = 0
+  for (x in r) {
+    t = t + x
+  }
+  if (t == 3) {
+    println("loop")
+  }
+}

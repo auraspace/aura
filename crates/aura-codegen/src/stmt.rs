@@ -18,27 +18,14 @@ fn resolve_iface_for_iter<'a>(
     iter_key: &str,
     checked: &'a CheckedFile,
 ) -> (String, Option<&'a InterfaceDecl>, Vec<Ty>) {
-    for (name, args) in &checked.mono_interfaces {
-        if let Some(i) = checked.ast.interfaces.iter().find(|i| i.name.name == *name) {
-            let m = iface_mono_args(i, checked, args);
-            if m == iter_key {
-                return (m, Some(i), args.clone());
-            }
-        }
+    let imono = resolve_iface_mono_key(iter_key, checked);
+    let (iface, args) = resolve_iface_decl_and_args(iter_key, checked);
+    if iface.is_some() {
+        return (imono, iface, args);
     }
-    for i in &checked.ast.interfaces {
-        let base = iface_mono(i, checked);
-        if i.name.name == iter_key || base == iter_key {
-            return (base, Some(i), Vec::new());
-        }
-    }
-    let imono = iface_mono_from_key(iter_key, checked);
-    let iface = checked
-        .ast
-        .interfaces
-        .iter()
-        .find(|i| i.name.name == iter_key || iface_mono(i, checked) == imono);
-    (imono, iface, Vec::new())
+    // Retry with full mono key if local key was simple (`Iterable_Int`).
+    let (iface2, args2) = resolve_iface_decl_and_args(&imono, checked);
+    (imono, iface2, args2)
 }
 
 /// Local type key with C3v package mono when the TypeRef is qualified or unique.
@@ -379,20 +366,7 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                 }
                 ctx.pop_scope();
                 let _ = writeln!(out, "{p}  }}");
-            } else if ctx.checked.ast.interfaces.iter().any(|i| {
-                let base = iface_mono(i, ctx.checked);
-                i.name.name == iter_key
-                    || base == iter_key
-                    || iter_key.starts_with(&format!("{base}_"))
-            }) || ctx.checked.mono_interfaces.iter().any(|(n, args)| {
-                ctx.checked
-                    .ast
-                    .interfaces
-                    .iter()
-                    .find(|i| i.name.name == *n)
-                    .map(|i| iface_mono_args(i, ctx.checked, args) == iter_key)
-                    .unwrap_or(false)
-            }) {
+            } else if is_iface_type_key(&iter_key, ctx.checked) {
                 // C6c/C8c: for-in over interface with len() + get(i) via iface dispatch.
                 let (imono, iface, iargs) = resolve_iface_for_iter(&iter_key, ctx.checked);
                 let tparams: Vec<String> = iface
