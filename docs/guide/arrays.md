@@ -50,6 +50,27 @@ fun stack() {
 }
 ```
 
+## Higher-order helpers (C10i)
+
+`std.collections` provides Int-specialized free functions that take first-class funs:
+
+| Helper        | Signature                                     |
+| ------------- | --------------------------------------------- |
+| `map_ints`    | `(Array<Int>, (Int) -> Int) -> Array<Int>`    |
+| `filter_ints` | `(Array<Int>, (Int) -> Bool) -> Array<Int>`   |
+| `fold_ints`   | `(Array<Int>, Int, (Int, Int) -> Int) -> Int` |
+
+```aura
+import std.collections
+
+fun demo(xs: Array<Int>): Int {
+  val doubled = map_ints(xs, (x: Int) => x * 2)
+  return fold_ints(doubled, 0, (a: Int, b: Int) => a + b)
+}
+```
+
+Array parameters **own** the buffer (move at call site). Use `clone()` if you need the same array after a call that takes it.
+
 ## Iteration
 
 ```aura

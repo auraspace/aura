@@ -442,3 +442,35 @@ pub fun hash_map(): HashMap {
   return HashMap(Array(16), Array(16), Array(16))
 }
 
+// C10i — higher-order helpers over Array<Int> (first-class funs).
+// Generic map/filter deferred until more capture types + Fun mono polish.
+
+/// Apply `f` to each element; returns a new array.
+pub fun map_ints(xs: Array<Int>, f: (Int) -> Int): Array<Int> {
+  val out: Array<Int> = Array(0)
+  for (x in xs) {
+    out.push(f(x))
+  }
+  return out
+}
+
+/// Keep elements where `pred` is true.
+pub fun filter_ints(xs: Array<Int>, pred: (Int) -> Bool): Array<Int> {
+  val out: Array<Int> = Array(0)
+  for (x in xs) {
+    if (pred(x)) {
+      out.push(x)
+    }
+  }
+  return out
+}
+
+/// Left fold: `f(…f(f(init, xs[0]), xs[1]), …)`.
+pub fun fold_ints(xs: Array<Int>, init: Int, f: (Int, Int) -> Int): Int {
+  var acc = init
+  for (x in xs) {
+    acc = f(acc, x)
+  }
+  return acc
+}
+

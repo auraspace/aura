@@ -1,0 +1,42 @@
+// C10i: higher-order map / filter / fold with fun values (+ capture)
+package demo.lambda
+
+fun map_ints(xs: Array<Int>, f: (Int) -> Int): Array<Int> {
+  val out: Array<Int> = Array(0)
+  for (x in xs) {
+    out.push(f(x))
+  }
+  return out
+}
+
+fun filter_ints(xs: Array<Int>, pred: (Int) -> Bool): Array<Int> {
+  val out: Array<Int> = Array(0)
+  for (x in xs) {
+    if (pred(x)) {
+      out.push(x)
+    }
+  }
+  return out
+}
+
+fun fold_ints(xs: Array<Int>, init: Int, f: (Int, Int) -> Int): Int {
+  var acc = init
+  for (x in xs) {
+    acc = f(acc, x)
+  }
+  return acc
+}
+
+fun main(): Int {
+  val xs: Array<Int> = Array(0)
+  xs.push(1)
+  xs.push(2)
+  xs.push(3)
+  val doubled = map_ints(xs, (x: Int) => x * 2)
+  // Array params own the buffer — clone when the same Array is reused.
+  val sum = fold_ints(doubled.clone(), 0, (a: Int, b: Int) => a + b)
+  val thr = 3
+  val big = filter_ints(doubled, (x: Int) => x > thr)
+  // sum(2+4+6)=12; big has 4,6 → len 2; total 14
+  return sum + big.len
+}

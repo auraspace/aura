@@ -11,11 +11,11 @@ Aura’s **core** stdlib is intentionally small ([RFC-007](/rfc/007), [RFC-000](
 
 ## Packages today
 
-| Package           | Path              | Role                                          |
-| ----------------- | ----------------- | --------------------------------------------- |
-| `std.io`          | `std/io`          | Printing / basic I/O (`println`)              |
-| `std.assert`      | `std/assert`      | Assert helpers for tests                      |
-| `std.collections` | `std/collections` | Placeholder / evolving — check package README |
+| Package           | Path              | Role                                              |
+| ----------------- | ----------------- | ------------------------------------------------- |
+| `std.io`          | `std/io`          | Printing / basic I/O (`println`)                  |
+| `std.assert`      | `std/assert`      | Assert helpers for tests                          |
+| `std.collections` | `std/collections` | Map/Set/HashMap, Iterable, Int HOF helpers (C10i) |
 
 Builtins such as `Array<T>` and core scalars are part of the **language**, not a separate import.
 
