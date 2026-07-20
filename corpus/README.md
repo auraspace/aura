@@ -51,21 +51,23 @@ Sample `.aura` programs for the compiler: parse/typecheck (`aura check`), native
 
 ## Generics & Array
 
-| Path                          | Intent                                        |
-| ----------------------------- | --------------------------------------------- |
-| `generic/box.aura`            | `class Box<T>` monomorph ctor/method          |
-| `generic/id.aura`             | `fun id<T>` monomorph                         |
-| `generic/infer.aura`          | Infer `Box("…")` / `id("…")` without `<T>`    |
-| `generic/bounds.aura`         | Type-param bounds + method recv (C2e/C4k)     |
-| `generic/array.aura`          | Builtin `Array<T>` len/get/set (C3j)          |
-| `generic/array_push.aura`     | `Array.push` + grow (C3m)                     |
-| `generic/array_pop.aura`      | `Array.pop` (C3r)                             |
-| `generic/array_clear.aura`    | `Array.clear` (C4f)                           |
-| `generic/array_isempty.aura`  | `Array.isEmpty` (C4n)                         |
-| `generic/array_reserve.aura`  | `Array.reserve` (C4o)                         |
-| `generic/array_class.aura`    | `Array` of class refs (C4c)                   |
-| `generic/array_struct.aura`   | `Array` of struct by-value (C4q)              |
-| `generic/array_reassign.aura` | Free Array buffer on owner reassignment (C4r) |
+| Path                             | Intent                                        |
+| -------------------------------- | --------------------------------------------- |
+| `generic/box.aura`               | `class Box<T>` monomorph ctor/method          |
+| `generic/id.aura`                | `fun id<T>` monomorph                         |
+| `generic/infer.aura`             | Infer `Box("…")` / `id("…")` without `<T>`    |
+| `generic/bounds.aura`            | Type-param bounds + method recv (C2e/C4k)     |
+| `generic/array.aura`             | Builtin `Array<T>` len/get/set (C3j)          |
+| `generic/array_push.aura`        | `Array.push` + grow (C3m)                     |
+| `generic/array_pop.aura`         | `Array.pop` (C3r)                             |
+| `generic/array_clear.aura`       | `Array.clear` (C4f)                           |
+| `generic/array_isempty.aura`     | `Array.isEmpty` (C4n)                         |
+| `generic/array_reserve.aura`     | `Array.reserve` (C4o)                         |
+| `generic/array_class.aura`       | `Array` of class refs (C4c)                   |
+| `generic/array_struct.aura`      | `Array` of struct by-value (C4q)              |
+| `generic/array_enum.aura`        | `Array` of enum by-value (C6g)                |
+| `generic/array_enum_result.aura` | `Array` of generic enum `Result` (C6g)        |
+| `generic/array_reassign.aura`    | Free Array buffer on owner reassignment (C4r) |
 
 ## Packages, import, stdlib
 

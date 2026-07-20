@@ -23,13 +23,21 @@ When you resolve debt, update or remove the matching entry.
 - Next step: registry + version resolve
 - Introduced: narrowed after C3p; nested paths C4j
 
-### Array shallow free / enum elements
+### Array of interface elements
 
 - Area: builtin Array
-- Symptom: C4q allows struct by-value; C4x clear reject for enum/interface elements; free buffer-only
-- Why deferred: enum layout + ownership
-- Next step: enum elements or move-only Array (C6g)
-- Introduced: narrowed after C4q; message C4x
+- Symptom: C6g allows enum by-value; interface elements still rejected (C4x message)
+- Why deferred: interface layout is tagged union of implementors; no stable Array elem size
+- Next step: decide reject forever for MVP or erase to fat pointer
+- Introduced: narrowed after C6g (enum Done; interface remains)
+
+### Array shallow free (buffer only)
+
+- Area: builtin Array
+- Symptom: free is buffer-only; element destructors / nested free not run on pop/clear/drop
+- Why deferred: no finalizers; enum/struct fields may hold owning Arrays later
+- Next step: element drop hooks if needed
+- Introduced: narrowed after C4q; C6g enum elements by-value (no deep free)
 
 ### Stdlib incomplete (collections)
 
@@ -111,7 +119,11 @@ When you resolve debt, update or remove the matching entry.
 
 ### Vague Array-of-enum diagnostic (2026-07-16)
 
-- Resolved in C4x: dedicated message for `Array` of enum/interface; corpus `diag/array_enum.aura`. Enum elements still unsupported (see Open).
+- Resolved in C4x: dedicated message for unsupported element types. C6g: enum elements supported (`generic/array_enum.aura`); interface still rejected (`diag/array_interface.aura`).
+
+### No Array of enum (2026-07-20)
+
+- Resolved in C6g: enum by-value Array mono; emit order enums+structs before Array before heap classes; `type_ref_to_ty` package-qualifies generic enums; Array.get/pop infer element type; match arm targs via `mono_split`. Corpus `generic/array_enum.aura`, `generic/array_enum_result.aura`.
 
 ### for-in only Array + String (2026-07-16)
 

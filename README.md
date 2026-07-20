@@ -8,7 +8,7 @@ This repository currently holds:
 | ------------------------------------ | -------------------------------------------------------------------- |
 | [`docs/guide/`](docs/guide/)         | User guide (site `/docs`)                                            |
 | [`docs/rfc/`](docs/rfc/)             | Language & toolchain RFCs                                            |
-| [`docs/roadmap.md`](docs/roadmap.md) | Execution phases (P0–P3, compiler C0–C6i)                            |
+| [`docs/roadmap.md`](docs/roadmap.md) | Execution phases (P0–P3, compiler C0–C6g)                            |
 | [`site/`](site/)                     | Homepage + docs + RFC site (Vite + React)                            |
 | [`crates/`](crates/)                 | Rust toolchain (`aura` CLI) — check / build / run / test (C backend) |
 | [`corpus/`](corpus/)                 | Sample `.aura` programs for the compiler                             |
@@ -32,7 +32,7 @@ pnpm site:test
 pnpm site:build
 ```
 
-### Compiler (through C6i)
+### Compiler (through C6g)
 
 ```bash
 cargo test --workspace
@@ -112,7 +112,7 @@ Native builds use a **C backend** (`aura emit-c` + system `cc`) linked with `run
 - **Compiler C4u** Nested mono audit (skip open monomorphs, return-type resolve, C struct forwards)
 - **Compiler C4v** `String.isEmpty()` (UTF-8 byte length == 0)
 - **Compiler C4w** `String.charAt(i)` (UTF-8 byte as Int; OOB throws)
-- **Compiler C4x** Clear diagnostic for unsupported `Array` of enum/interface
+- **Compiler C4x** Clear diagnostic for unsupported Array element types (interface still)
 - **Compiler C4y** Duck Iterable `for-in` (`len` field/method + `get(Int)`)
 - **Runtime C4z** GC STW skeleton: root registry + `aura_gc_collect` mark (free-all still at shutdown)
 - **Stdlib C5a** `std/collections` stub (Map/Set not yet; use Array)
@@ -132,11 +132,12 @@ Native builds use a **C backend** (`aura emit-c` + system `cc`) linked with `run
 - **Compiler C6d** Array return/call binding owns buffer
 - **Runtime C6e** GC mark Array-of-class local/param buffers
 - **Stdlib C6f** `std.collections` Map (String→Int)
+- **Compiler C6g** `Array` of enum by-value (unit + generic `Result`)
 - **Sema C6h** Multi-error collect in function bodies
 - **Compiler C6i** Field Array ownership (ctor + var reassign move)
 - **DX** Pretty diagnostics (`path:line:col` + source snippet)
 - **Debts** Tracked in [`agents/debts.md`](agents/debts.md)
-- **Next:** enum Array (C6g), close batch (C6j)
+- **Next:** close batch (C6j)
 
 ## Links
 

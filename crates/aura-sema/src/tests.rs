@@ -594,19 +594,37 @@ fun main() {
 }
 
 #[test]
-fn array_rejects_enum_elem_clearly() {
-    // C4x: dedicated diagnostic for Array of enum.
+fn array_accepts_enum_elem() {
+    // C6g: Array of enum elements by value.
     let src = r#"
 package t
 enum Color { Red, Green }
 fun main() {
   val a: Array<Color> = Array(1)
+  a.set(0, Red())
+  val c: Color = a.get(0)
 }
 "#;
     let file = parse_file(src).expect("parse");
-    let err = check_file(&file).expect_err("array of enum");
+    check_file(&file).expect("enum Array elem");
+}
+
+#[test]
+fn array_rejects_interface_elem_clearly() {
+    // C4x: dedicated diagnostic for Array of interface.
+    let src = r#"
+package t
+interface Named {
+  fun name(): String
+}
+fun main() {
+  val a: Array<Named> = Array(1)
+}
+"#;
+    let file = parse_file(src).expect("parse");
+    let err = check_file(&file).expect_err("array of interface");
     assert!(
-        err.primary().message.contains("enum") && err.primary().message.contains("Color"),
+        err.primary().message.contains("interface") && err.primary().message.contains("Named"),
         "{}",
         err.primary().message
     );

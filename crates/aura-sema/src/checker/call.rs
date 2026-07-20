@@ -9,7 +9,11 @@ use crate::ty::{nominal_key, Ty};
 use crate::util::{subst_ty, type_subst_map, unify_ty};
 
 impl Checker {
-    pub(crate) fn check_call(&mut self, c: &CallExpr, expected: Option<&Ty>) -> Result<Ty, SemaError> {
+    pub(crate) fn check_call(
+        &mut self,
+        c: &CallExpr,
+        expected: Option<&Ty>,
+    ) -> Result<Ty, SemaError> {
         if let Expr::Field(fe) = c.callee.as_ref() {
             // C3n/C3u: `Alias.fun(...)` or `Alias.Type(...)` where Alias is `import path as Alias`.
             if let Expr::Ident(id) = fe.object.as_ref() {
@@ -74,14 +78,15 @@ impl Checker {
                         message: format!("unknown class `{cname}`"),
                         span: c.span,
                     })?;
-                let method = class
-                    .methods
-                    .get(&fe.field.name)
-                    .cloned()
-                    .ok_or_else(|| SemaError {
-                        message: format!("unknown method `{}` on `{cname}`", fe.field.name),
-                        span: fe.field.span,
-                    })?;
+                let method =
+                    class
+                        .methods
+                        .get(&fe.field.name)
+                        .cloned()
+                        .ok_or_else(|| SemaError {
+                            message: format!("unknown method `{}` on `{cname}`", fe.field.name),
+                            span: fe.field.span,
+                        })?;
                 let subst = type_subst_map(&class.type_params, obj_ty.class_args());
                 let params: Vec<Ty> = method.params.iter().map(|p| subst_ty(p, &subst)).collect();
                 let ret = subst_ty(&method.ret, &subst);
@@ -568,30 +573,22 @@ impl Checker {
     ) -> Result<(), SemaError> {
         if type_args.len() != 1 {
             return Err(SemaError {
-                message: format!(
-                    "`Array` expects 1 type argument, got {}",
-                    type_args.len()
-                ),
+                message: format!("`Array` expects 1 type argument, got {}", type_args.len()),
                 span,
             });
         }
         if !self.is_array_element_ty(&type_args[0]) {
-            // C4x: dedicated messages for enum / interface (layout not supported yet).
+            // C4x: dedicated message for interface (no layout in Array yet).
+            // C6g: enum elements are allowed; keep interface reject clear.
             let detail = match &type_args[0] {
-                Ty::Enum(n) | Ty::EnumApp { name: n, .. } => {
-                    let (simple, _) = crate::ty::split_nominal(n);
-                    format!(
-                        "`Array` of enum `{simple}` is not supported yet (elements must be Int, Bool, String, class, or struct)"
-                    )
-                }
                 Ty::Interface(n) => {
                     let (simple, _) = crate::ty::split_nominal(n);
                     format!(
-                        "`Array` of interface `{simple}` is not supported yet (elements must be Int, Bool, String, class, or struct)"
+                        "`Array` of interface `{simple}` is not supported yet (elements must be Int, Bool, String, class, struct, or enum)"
                     )
                 }
                 other => format!(
-                    "`Array` element type must be Int, Bool, String, class, or struct (got {})",
+                    "`Array` element type must be Int, Bool, String, class, struct, or enum (got {})",
                     other.display()
                 ),
             };
@@ -603,23 +600,34 @@ impl Checker {
         Ok(())
     }
 
-    /// C4c/C4q: primitives + heap classes + structs (not enum / interface).
+    /// C4c/C4q/C6g: primitives + heap classes + structs + enums (not interface).
     pub(crate) fn is_array_element_ty(&self, ty: &Ty) -> bool {
         if is_array_primitive_elem(ty) {
             return true;
         }
-        let (simple, pkg) = match ty {
-            Ty::Class(n) => crate::ty::split_nominal(n),
-            Ty::ClassApp { name, .. } => crate::ty::split_nominal(name),
-            _ => return false,
-        };
-        let list = match self.classes.get(simple) {
-            Some(l) => l,
-            None => return false,
-        };
-        list.iter().any(|c| {
-            pkg.is_empty() || c.package == pkg || (c.package.is_empty() && pkg.is_empty())
-        })
+        match ty {
+            Ty::Class(n) | Ty::ClassApp { name: n, .. } => {
+                let (simple, pkg) = crate::ty::split_nominal(n);
+                let list = match self.classes.get(simple) {
+                    Some(l) => l,
+                    None => return false,
+                };
+                list.iter().any(|c| {
+                    pkg.is_empty() || c.package == pkg || (c.package.is_empty() && pkg.is_empty())
+                })
+            }
+            Ty::Enum(n) | Ty::EnumApp { name: n, .. } => {
+                let (simple, pkg) = crate::ty::split_nominal(n);
+                let list = match self.enums.get(simple) {
+                    Some(l) => l,
+                    None => return false,
+                };
+                list.iter().any(|e| {
+                    pkg.is_empty() || e.package == pkg || (e.package.is_empty() && pkg.is_empty())
+                })
+            }
+            _ => false,
+        }
     }
 
     pub(crate) fn resolve_ctor_type_args(
@@ -746,13 +754,7 @@ impl Checker {
             });
         }
         let patterns: Vec<&Ty> = sig.params.iter().collect();
-        self.infer_type_args_from_patterns(
-            &sig.type_params,
-            &patterns,
-            &arg_tys,
-            c.span,
-            &what,
-        )
+        self.infer_type_args_from_patterns(&sig.type_params, &patterns, &arg_tys, c.span, &what)
     }
 
     pub(crate) fn infer_type_args_from_patterns(

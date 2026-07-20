@@ -92,6 +92,14 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
                     .or_else(|| resolve_class_of_expr(&fe.object, ctx).map(|s| s.to_string()));
                 if let Some(mono) = mono {
                     let base = mono_base_name(&mono, ctx.checked).unwrap_or(mono.as_str());
+                    // Builtin Array.get / Array.pop return element type T (C3j/C6g).
+                    if (base == "Array" || mono.starts_with("Array_"))
+                        && (fe.field.name == "get" || fe.field.name == "pop")
+                    {
+                        if let Some(elem) = array_elem_local_key(&mono, ctx.checked) {
+                            return elem;
+                        }
+                    }
                     if let Some(m) = ctx
                         .checked
                         .ast
@@ -508,22 +516,70 @@ pub(crate) fn mono_split<'a>(
     None
 }
 
+/// Local key for `Array_<elem>` element type (primitives, class/struct/enum mono).
+pub(crate) fn array_elem_local_key(array_mono: &str, checked: &CheckedFile) -> Option<String> {
+    let mono = full_type_mono(array_mono, checked);
+    if let Some(("Array", args)) = mono_split(&mono, checked) {
+        if let Some(elem) = args.first() {
+            return Some(match elem {
+                Ty::Int => "Int".into(),
+                Ty::Bool => "Bool".into(),
+                Ty::String => "String".into(),
+                Ty::Unit => "Unit".into(),
+                other => other.mono_suffix(),
+            });
+        }
+    }
+    mono.strip_prefix("Array_").map(|s| s.to_string())
+}
+
 /// Full C mono id for a local/type key (simple name or already-mangled mono).
 pub(crate) fn full_type_mono(key: &str, checked: &CheckedFile) -> String {
     if key == "Array" {
         return key.to_string();
     }
-    // C4c: upgrade `Array_Box` → `Array_demo_pkg_Box` when element is a known class.
+    // C4c/C6g: upgrade `Array_Box` / `Array_Color` / short generic keys → package mono.
     if let Some(elem) = key.strip_prefix("Array_") {
         if elem == "Int" || elem == "Bool" || elem == "String" {
             return key.to_string();
         }
-        // Already package-mangled (contains `_` from pkg_Name) or simple class name.
+        // Prefer recorded mono (covers `Array_Result_Int_String` → package-qualified).
+        for (name, args) in &checked.mono_classes {
+            if name == "Array" {
+                let full = mono_key(name, args);
+                if full == key {
+                    return full;
+                }
+            }
+        }
+        // Simple class/enum name: `Array_Box` → `Array_demo_pkg_Box`.
         if let Some(c) = checked.ast.classes.iter().find(|c| c.name.name == elem) {
             let pkg = class_decl_package(c, checked);
             return mono_key("Array", &[Ty::Class(nominal_key(&pkg, elem))]);
         }
-        // Leave fully-mangled keys (Array_demo_gen_Box) as-is.
+        if let Some(e) = checked.ast.enums.iter().find(|e| e.name.name == elem) {
+            let pkg = enum_decl_package(e, checked);
+            return mono_key("Array", &[Ty::Enum(nominal_key(&pkg, elem))]);
+        }
+        // Short generic enum/class mono: match unique Array mono whose suffix ends with elem.
+        let mut match_full: Option<String> = None;
+        for (name, args) in &checked.mono_classes {
+            if name != "Array" || args.is_empty() {
+                continue;
+            }
+            let full = mono_key(name, args);
+            if full.ends_with(elem) || full == format!("Array_{elem}") {
+                if match_full.is_some() {
+                    match_full = None; // ambiguous
+                    break;
+                }
+                match_full = Some(full);
+            }
+        }
+        if let Some(full) = match_full {
+            return full;
+        }
+        // Leave fully-mangled keys as-is.
         return key.to_string();
     }
     if let Some((base, args)) = mono_split(key, checked) {
@@ -588,9 +644,31 @@ pub(crate) fn type_ref_to_ty(t: &TypeRef, ctx: &EmitCtx<'_>) -> Option<Ty> {
             .find(|c| c.name.name == t.name.name)
         {
             class_decl_package(c, ctx.checked)
+        } else if let Some(e) = ctx
+            .checked
+            .ast
+            .enums
+            .iter()
+            .find(|e| e.name.name == t.name.name)
+        {
+            // C6g: generic enums (e.g. Result<T,E>) as Array elements.
+            enum_decl_package(e, ctx.checked)
         } else {
             String::new()
         };
+        // Prefer enum over class when only one matches (names are unique in unit).
+        if ctx
+            .checked
+            .ast
+            .enums
+            .iter()
+            .any(|e| e.name.name == t.name.name)
+        {
+            return Some(Ty::EnumApp {
+                name: nominal_key(&pkg, &t.name.name),
+                args,
+            });
+        }
         return Some(Ty::ClassApp {
             name: nominal_key(&pkg, &t.name.name),
             args,
@@ -605,6 +683,10 @@ pub(crate) fn type_ref_to_ty(t: &TypeRef, ctx: &EmitCtx<'_>) -> Option<Ty> {
             if let Some(c) = ctx.checked.ast.classes.iter().find(|c| c.name.name == name) {
                 let pkg = class_decl_package(c, ctx.checked);
                 return Some(Ty::Class(nominal_key(&pkg, name)));
+            }
+            if let Some(e) = ctx.checked.ast.enums.iter().find(|e| e.name.name == name) {
+                let pkg = enum_decl_package(e, ctx.checked);
+                return Some(Ty::Enum(nominal_key(&pkg, name)));
             }
             if let Some(i) = ctx
                 .checked

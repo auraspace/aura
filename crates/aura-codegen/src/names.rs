@@ -239,7 +239,8 @@ pub(crate) fn ty_to_c(t: &Ty) -> String {
     }
 }
 
-/// C type for `Array` elements (C4c/C4q): heap class refs are pointers; structs by value.
+/// C type for `Array` elements (C4c/C4q/C6g): heap class refs are pointers;
+/// structs and enums by value.
 pub(crate) fn ty_to_c_array_elem(t: &Ty, checked: &CheckedFile) -> String {
     match t {
         Ty::Class(n) => {

@@ -1,0 +1,52 @@
+// C6g — Array of enum by-value elements
+package demo.gen
+
+enum Color {
+  case Red
+  case Green
+  case Blue
+}
+
+fun isRed(c: Color): Bool {
+  match (c) {
+    case Red => {
+      return true
+    }
+    case Green => {
+      return false
+    }
+    case Blue => {
+      return false
+    }
+  }
+}
+
+fun main() {
+  val a: Array<Color> = Array(0)
+  a.push(Red())
+  a.push(Green())
+  a.push(Blue())
+  if (a.len == 3) {
+    println("len3")
+  }
+  val c: Color = a.get(0)
+  if (isRed(c)) {
+    println("red")
+  }
+  a.set(1, Red())
+  if (isRed(a.get(1))) {
+    println("set")
+  }
+  val last: Color = a.pop()
+  match (last) {
+    case Blue => {
+      println("pop")
+    }
+    case Red => {
+      println("bad")
+    }
+    case Green => {
+      println("bad")
+    }
+  }
+}

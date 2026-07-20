@@ -103,7 +103,7 @@ impl Checker {
             }],
         );
 
-        // Builtin Array<T> (C3j/C4c) — monomorphized; T ∈ primitives or heap class.
+        // Builtin Array<T> (C3j/C4c/C6g) — monomorphized; T ∈ primitives, class, struct, or enum.
         let mut array_methods = HashMap::new();
         array_methods.insert(
             "get".into(),

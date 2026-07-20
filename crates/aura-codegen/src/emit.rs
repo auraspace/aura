@@ -104,29 +104,9 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
             );
         }
     }
-    // C6f: Array monomorphs before class bodies so classes may embed Array fields by value.
-    for (name, args) in &checked.mono_classes {
-        if is_array_mono(name) {
-            if let Some(elem) = args.first() {
-                emit_array_mono(&mut out, elem, checked);
-            }
-        }
-    }
-    for c in &checked.ast.classes {
-        if c.type_params.is_empty() {
-            emit_class_typedef(&mut out, checked, c, &[]);
-        }
-    }
-    for (name, args) in &checked.mono_classes {
-        if is_array_mono(name) {
-            continue;
-        }
-        if let Some(c) = checked.ast.classes.iter().find(|c| c.name.name == *name) {
-            emit_class_typedef(&mut out, checked, c, args);
-        }
-    }
-
-    // Enum tagged unions
+    // C6g: enums + value structs must be complete before Array monomorphs
+    // (Array stores them by value / sizeof). Heap classes stay incomplete here
+    // so Array-of-class can use pointers only.
     for e in &checked.ast.enums {
         if e.type_params.is_empty() {
             emit_enum_typedef(&mut out, checked, e, &[]);
@@ -135,6 +115,51 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     for (name, args) in &checked.mono_enums {
         if let Some(e) = checked.ast.enums.iter().find(|e| e.name.name == *name) {
             emit_enum_typedef(&mut out, checked, e, args);
+        }
+    }
+    for c in &checked.ast.classes {
+        if c.type_params.is_empty() && c.kind == NominalKind::Struct {
+            emit_class_typedef(&mut out, checked, c, &[]);
+        }
+    }
+    for (name, args) in &checked.mono_classes {
+        if is_array_mono(name) {
+            continue;
+        }
+        if let Some(c) = checked
+            .ast
+            .classes
+            .iter()
+            .find(|c| c.name.name == *name && c.kind == NominalKind::Struct)
+        {
+            emit_class_typedef(&mut out, checked, c, args);
+        }
+    }
+
+    // C6f: Array monomorphs before heap class bodies so classes may embed Array by value.
+    for (name, args) in &checked.mono_classes {
+        if is_array_mono(name) {
+            if let Some(elem) = args.first() {
+                emit_array_mono(&mut out, elem, checked);
+            }
+        }
+    }
+    for c in &checked.ast.classes {
+        if c.type_params.is_empty() && c.kind == NominalKind::Class {
+            emit_class_typedef(&mut out, checked, c, &[]);
+        }
+    }
+    for (name, args) in &checked.mono_classes {
+        if is_array_mono(name) {
+            continue;
+        }
+        if let Some(c) = checked
+            .ast
+            .classes
+            .iter()
+            .find(|c| c.name.name == *name && c.kind == NominalKind::Class)
+        {
+            emit_class_typedef(&mut out, checked, c, args);
         }
     }
 

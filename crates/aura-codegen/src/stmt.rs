@@ -690,12 +690,17 @@ pub(crate) fn emit_match(out: &mut String, m: &MatchStmt, indent: usize, ctx: &m
             if let Some(v) = e.variants.iter().find(|v| v.name.name == name.name) {
                 let params: Vec<String> =
                     e.type_params.iter().map(|p| p.name.name.clone()).collect();
-                let targs: Vec<Ty> = ctx
-                    .checked
-                    .mono_enums
-                    .iter()
-                    .find(|(n, a)| mono_key(n, a) == scrut_key)
-                    .map(|(_, a)| a.clone())
+                // Resolve package-prefixed mono (`demo_result_Result_Int_String`) via mono_split
+                // so type params (T/E) substitute correctly in arm bindings.
+                let targs: Vec<Ty> = mono_split(&scrut_key, ctx.checked)
+                    .map(|(_, a)| a.to_vec())
+                    .or_else(|| {
+                        ctx.checked
+                            .mono_enums
+                            .iter()
+                            .find(|(n, a)| mono_key(n, a) == scrut_key)
+                            .map(|(_, a)| a.clone())
+                    })
                     .unwrap_or_default();
                 for (bind, field) in bindings.iter().zip(v.fields.iter()) {
                     let fty = type_ref_local_key(&field.ty, &params, &targs);

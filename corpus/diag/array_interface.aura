@@ -1,0 +1,10 @@
+// C4x — Array of interface is rejected with a clear diagnostic (not supported yet)
+package demo.diag
+
+interface Named {
+  fun name(): String
+}
+
+fun main() {
+  val a: Array<Named> = Array(1)
+}

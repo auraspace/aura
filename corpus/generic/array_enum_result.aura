@@ -1,0 +1,38 @@
+// C6g — Array of generic enum (Result) by-value elements
+package demo.gen
+
+enum Result<T, E> {
+  case Ok(value: T)
+  case Err(error: E)
+}
+
+fun main() {
+  val a: Array<Result<Int, String>> = Array(0)
+  a.push(Ok(1))
+  a.push(Err("nope"))
+  if (a.len == 2) {
+    println("r2")
+  }
+  match (a.get(0)) {
+    case Ok(v) => {
+      if (v == 1) {
+        println("ok1")
+      }
+    }
+    case Err(e) => {
+      println(e)
+    }
+  }
+  match (a.get(1)) {
+    case Ok(v) => {
+      if (v == 0) {
+        println("bad")
+      }
+    }
+    case Err(e) => {
+      if (e == "nope") {
+        println("err")
+      }
+    }
+  }
+}

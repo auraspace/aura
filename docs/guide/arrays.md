@@ -7,7 +7,7 @@ summary: Array<T> construction, len/get/set, push/pop, and for-in iteration.
 
 # Arrays
 
-Builtin `Array<T>` is the primary growable sequence type in the MVP ([RFC-001](/rfc/001)). Element types in early slices include `Int`, `Bool`, `String`, and class references.
+Builtin `Array<T>` is the primary growable sequence type in the MVP ([RFC-001](/rfc/001)). Element types include `Int`, `Bool`, `String`, class references, structs, and enums (by value). Interface elements are not supported yet.
 
 ## Create and index
 

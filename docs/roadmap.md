@@ -10,13 +10,13 @@ Living plan for docs, language specs, and the Rust toolchain. RFCs remain the de
 
 ## Status snapshot
 
-| Track                       | Status                                                                                 |
-| --------------------------- | -------------------------------------------------------------------------------------- |
-| RFC static site (`site/`)   | Implemented; Cloudflare Pages → **https://aura.fadosoft.com**                          |
-| RFC-000 … RFC-013           | **All Accepted** — open questions resolved or Deferred (2026-07-16)                    |
-| Language MVP                | RFC-001 §6.0 + post-C1 surface; Iterable protocol (C6c) partial; async/macros deferred |
-| Compiler                    | **C0–C6i done** — C6a–e/i ownership/GC; C6c Iterable; C6f Map; C6i field Array own     |
-| Runtime / packages / stdlib | GC deep mark+sweep + roots; `std.io` / `std.assert`; tasks/collections deferred        |
+| Track                       | Status                                                                                    |
+| --------------------------- | ----------------------------------------------------------------------------------------- |
+| RFC static site (`site/`)   | Implemented; Cloudflare Pages → **https://aura.fadosoft.com**                             |
+| RFC-000 … RFC-013           | **All Accepted** — open questions resolved or Deferred (2026-07-16)                       |
+| Language MVP                | RFC-001 §6.0 + post-C1 surface; Iterable protocol (C6c) partial; async/macros deferred    |
+| Compiler                    | **C0–C6g done** — C6a–e/i ownership/GC; C6c Iterable; C6f Map; C6g enum Array; C6i fields |
+| Runtime / packages / stdlib | GC deep mark+sweep + roots; `std.io` / `std.assert`; tasks/collections deferred           |
 
 ## Phases
 
@@ -134,14 +134,15 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C6e**   | GC mark Array-of-class local/param buffers                         | Done                                       |
 | **C6h**   | Multi-error collect in sema (body diagnostics batch)               | Done                                       |
 | **C6i**   | Field Array ownership (ctor + var reassign move)                   | Done                                       |
-| **C6g/j** | Enum Array elems, close batch                                      | Planned                                    |
+| **C6g**   | Array of enum elements (by value; interface still rejected)        | Done                                       |
+| **C6j**   | Close C6a–C6j batch (roadmap/debts)                                | Planned                                    |
 | **DX**    | line:col diagnostics with snippets                                 | Done                                       |
 
 **Out of scope C0/C1:** generics mono, async/tasks, macros, registry, incremental, LTO.
 
 ### P3 — Expand (after hello)
 
-1. ~~Language surface C2–C6h/i~~ → next: enum Array · close batch (see `agents/debts.md`, plan C6e–C6j)
+1. ~~Language surface C2–C6g/i~~ → next: close batch C6j (see `agents/debts.md`, plan C6e–C6j)
 2. Runtime: ~~alloc/GC + deep mark/sweep + class heap refs~~ → channels/tasks
 3. Toolchain: ~~minimal `aura.toml` + path deps + path lock (incl. transitive)~~ → registry (RFC-005)
 4. Stdlib: ~~std.io + auto-prelude + std.assert + Map String→Int~~ → generic Map/Set
