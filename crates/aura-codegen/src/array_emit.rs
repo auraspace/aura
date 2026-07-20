@@ -44,6 +44,7 @@ pub(crate) fn emit_array_mono(out: &mut String, elem: &Ty, checked: &CheckedFile
     let clear = c_method_name(&mono, "clear");
     let is_empty = c_method_name(&mono, "isEmpty");
     let reserve = c_method_name(&mono, "reserve");
+    let clone = c_method_name(&mono, "clone");
 
     let _ = writeln!(out, "typedef struct {c_ty} {{");
     out.push_str("  int64_t len;\n");
@@ -164,5 +165,54 @@ pub(crate) fn emit_array_mono(out: &mut String, elem: &Ty, checked: &CheckedFile
     out.push_str("  }\n");
     out.push_str("  this->data = nd;\n");
     out.push_str("  this->cap = n;\n");
+    out.push_str("}\n\n");
+
+    // clone() — owning copy of buffer (C9c). Nested Array elems get deep buffer copies.
+    let _ = writeln!(out, "{c_ty} {clone}({c_ty} *this) {{");
+    let _ = writeln!(out, "  {c_ty} out;");
+    out.push_str("  if (this == NULL) {\n");
+    out.push_str("    aura_throw_string(\"Array clone on null\");\n");
+    out.push_str("  }\n");
+    out.push_str("  out.len = this->len;\n");
+    out.push_str("  out.cap = this->len;\n");
+    out.push_str("  if (this->len <= 0 || this->data == NULL) {\n");
+    out.push_str("    out.data = NULL;\n");
+    out.push_str("    out.len = 0;\n");
+    out.push_str("    out.cap = 0;\n");
+    out.push_str("    return out;\n");
+    out.push_str("  }\n");
+    let _ = writeln!(
+        out,
+        "  out.data = ({elem_c} *)malloc((size_t)this->len * sizeof({elem_c}));"
+    );
+    out.push_str("  if (out.data == NULL) {\n");
+    out.push_str("    fputs(\"aura: Array clone allocation failed\\n\", stderr);\n");
+    out.push_str("    abort();\n");
+    out.push_str("  }\n");
+    if matches!(elem, Ty::ClassApp { name, .. } if aura_sema::split_nominal(name).0 == "Array") {
+        // Deep-copy nested Array element buffers.
+        out.push_str("  for (int64_t __i = 0; __i < this->len; __i++) {\n");
+        out.push_str("    out.data[__i].len = this->data[__i].len;\n");
+        out.push_str("    out.data[__i].cap = this->data[__i].len;\n");
+        out.push_str("    if (this->data[__i].len > 0 && this->data[__i].data != NULL) {\n");
+        out.push_str("      size_t __esz = sizeof(*this->data[__i].data);\n");
+        out.push_str("      out.data[__i].data = malloc((size_t)this->data[__i].len * __esz);\n");
+        out.push_str("      if (out.data[__i].data == NULL) {\n");
+        out.push_str("        fputs(\"aura: Array nested clone failed\\n\", stderr);\n");
+        out.push_str("        abort();\n");
+        out.push_str("      }\n");
+        out.push_str(
+            "      memcpy(out.data[__i].data, this->data[__i].data, (size_t)this->data[__i].len * __esz);\n",
+        );
+        out.push_str("    } else {\n");
+        out.push_str("      out.data[__i].data = NULL;\n");
+        out.push_str("      out.data[__i].len = 0;\n");
+        out.push_str("      out.data[__i].cap = 0;\n");
+        out.push_str("    }\n");
+        out.push_str("  }\n");
+    } else {
+        out.push_str("  memcpy(out.data, this->data, (size_t)this->len * sizeof(*out.data));\n");
+    }
+    out.push_str("  return out;\n");
     out.push_str("}\n\n");
 }

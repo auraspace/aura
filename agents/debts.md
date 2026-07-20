@@ -12,8 +12,9 @@ When you resolve debt, update or remove the matching entry.
 - Area: builtin Array (C7c/C8j)
 - Symptom: `return this.items` still moves buffer out of the object; bind/assign from field is non-owning view (C8j)
 - Why deferred: no `ref`/`borrow` type in the language; shallow view is enough for field reads
-- Next step: optional deep clone API or true borrow type if needed
-- Introduced: narrowed after C8j
+- Progress: C9c `Array.clone()` owning copy as escape hatch for field returns
+- Next step: true borrow type if needed
+- Introduced: narrowed after C8j; clone C9c
 
 ### No registry fetch / semver resolve
 

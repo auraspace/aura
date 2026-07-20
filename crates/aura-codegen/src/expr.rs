@@ -100,6 +100,10 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
                             return elem;
                         }
                     }
+                    // C9c: Array.clone() returns same Array mono (owning copy).
+                    if (base == "Array" || mono.starts_with("Array_")) && fe.field.name == "clone" {
+                        return mono;
+                    }
                     if let Some(m) = ctx
                         .checked
                         .ast
@@ -1002,6 +1006,10 @@ pub(crate) fn resolve_type_name(expr: &Expr, ctx: &EmitCtx<'_>) -> Option<String
                     .or_else(|| resolve_class_of_expr(&fe.object, ctx).map(|s| s.to_string()))
                 {
                     let base = mono_base_name(&recv, ctx.checked).unwrap_or(recv.as_str());
+                    // C9c: builtin Array.clone returns same mono key.
+                    if (base == "Array" || recv.starts_with("Array_")) && fe.field.name == "clone" {
+                        return Some(recv);
+                    }
                     if let Some(class) =
                         ctx.checked.ast.classes.iter().find(|c| c.name.name == base)
                     {

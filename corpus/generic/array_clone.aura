@@ -1,0 +1,38 @@
+// C9c — Array.clone() owning buffer copy
+package demo.generic
+
+fun main() {
+  val a: Array<Int> = Array(2)
+  a.set(0, 10)
+  a.set(1, 20)
+  val b = a.clone()
+  // independent buffers
+  a.set(0, 99)
+  if (b.get(0) == 10) {
+    println("indep")
+  }
+  if (b.len == 2) {
+    println("len")
+  }
+  b.set(1, 30)
+  if (a.get(1) == 20) {
+    println("aok")
+  }
+  // empty clone
+  val e: Array<Int> = Array(0)
+  val c = e.clone()
+  if (c.isEmpty()) {
+    println("empty")
+  }
+  // clone after push
+  val d: Array<Int> = Array(0)
+  d.push(1)
+  d.push(2)
+  d.push(3)
+  val f = d.clone()
+  if (f.len == 3) {
+    if (f.get(2) == 3) {
+      println("push")
+    }
+  }
+}

@@ -180,6 +180,20 @@ impl Checker {
                 span: Span::new(0, 0),
             },
         );
+        // C9c: clone() — owning buffer copy (nested Array elems deep-copied).
+        array_methods.insert(
+            "clone".into(),
+            ClassMethodSig {
+                class: "Array".into(),
+                name: "clone".into(),
+                params: vec![],
+                ret: Ty::ClassApp {
+                    name: "Array".into(),
+                    args: vec![Ty::TypeParam("T".into())],
+                },
+                span: Span::new(0, 0),
+            },
+        );
         let mut classes: HashMap<String, Vec<ClassSig>> = HashMap::new();
         classes.insert(
             "Array".into(),
