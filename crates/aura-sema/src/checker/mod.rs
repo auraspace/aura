@@ -699,15 +699,17 @@ impl Checker {
         None
     }
 
-    /// C10h/C12k: capturable outer `val` — Int/Bool/String or heap class (GC ptr).
-    /// Rejects `var`, Array, Fun, struct, enum, interface (C12l/m or later).
+    /// C10h/C12k/C12l: capturable outer `val` — Int/Bool/String, heap class (GC ptr),
+    /// or Array (non-owning header view in env; outer scope owns the buffer).
+    /// Rejects `var`, Fun, struct, enum, interface (C12m / later).
     pub(crate) fn is_lambda_capturable_ty(&self, ty: &Ty) -> bool {
         match ty {
             Ty::Int | Ty::Bool | Ty::String => true,
             Ty::Class(n) | Ty::ClassApp { name: n, .. } => {
                 let simple = crate::ty::split_nominal(n).0;
                 if simple == "Array" {
-                    return false;
+                    // C12l: Array is capturable as a view (codegen copies header only).
+                    return true;
                 }
                 !self.is_struct_ty(ty)
             }
@@ -741,7 +743,7 @@ impl Checker {
         if !self.is_lambda_capturable_ty(ty) {
             return Err(SemaError {
                 message: format!(
-                    "cannot capture `{name}` of type {} in lambda (MVP: Int, Bool, String, or class)",
+                    "cannot capture `{name}` of type {} in lambda (MVP: Int, Bool, String, class, or Array)",
                     ty.display()
                 ),
                 span,

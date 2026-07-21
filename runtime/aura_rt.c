@@ -847,8 +847,9 @@ void aura_gc_mark_ptr(void *obj)
   }
 }
 
-/* C12k: free a Fun capture env. Every capturing env starts with a drop fn ptr
- * that unregisters GC roots for class capture slots, then free(env). */
+/* C12k/C12l: free a Fun capture env. Every capturing env starts with a drop
+ * fn ptr that unregisters GC roots for class capture slots, then free(env).
+ * Array capture slots are non-owning header views — drop must not free buffers. */
 void aura_fun_env_free(void *env)
 {
   if (env == NULL)

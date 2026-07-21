@@ -78,7 +78,7 @@ fun demo(xs: Array<Int>): Int {
 
 Corpus: `fun/lambda_hof.aura`, `std_collections/hof`, `std_collections/join`.
 
-**Capture limits:** lambdas may close over outer immutable `val` of `Int` / `Bool` / `String` / class (C10h/C12k). Array, `var`, and nested Fun captures are deferred ([debts](https://github.com/auraspace/aura/blob/main/agents/debts.md)).
+**Capture limits:** lambdas may close over outer immutable `val` of `Int` / `Bool` / `String` / class / Array (C10h/C12k/C12l). Array captures store a non-owning header view (same idea as field bind): the outer binding still owns the buffer — freeing or moving that owner while the Fun is live is undefined. `var` and nested Fun captures are deferred ([debts](https://github.com/auraspace/aura/blob/main/agents/debts.md)).
 
 Array parameters **own** the buffer (move at call site). Use `clone()` if you need the same array after a call that takes it.
 

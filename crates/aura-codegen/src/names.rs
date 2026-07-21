@@ -714,21 +714,10 @@ pub(crate) fn c_type_from_ty(ty: &Ty, checked: &CheckedFile) -> String {
             let key = ty.mono_suffix();
             c_fun_typedef(&key)
         }
-        Ty::Class(n) | Ty::ClassApp { name: n, .. } => {
+        Ty::Class(_) | Ty::ClassApp { .. } => {
+            // Heap class → pointer; Array/struct → by-value (C12l Array view uses value header).
             let mono = ty.mono_suffix();
-            // Structs are by-value in some paths; heap classes are pointers.
-            // MVP lambdas only pass primitives — class args use pointer form.
-            let base = nominal_mono_base(n);
-            if checked
-                .ast
-                .classes
-                .iter()
-                .any(|c| c.name.name == base && c.kind == NominalKind::Struct)
-            {
-                c_class_type(&mono)
-            } else {
-                format!("{} *", c_class_type(&mono))
-            }
+            c_class_local_type(&mono, checked)
         }
         Ty::Enum(_) | Ty::EnumApp { .. } => c_enum_type(&ty.mono_suffix()),
         Ty::Interface(_) | Ty::InterfaceApp { .. } => c_iface_type(&ty.mono_suffix()),

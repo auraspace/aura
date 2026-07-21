@@ -692,6 +692,7 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
                 format!("(({fp}){{ .env = NULL, .fn = aura_lambda_{id} }})")
             } else {
                 // GNU statement-expr: allocate env, set drop, fill captures, root GC slots.
+                // C12l: Array fields are header copies (view); outer scope still owns the buffer.
                 let mut fill = String::new();
                 let _ = writeln!(fill, "  __e->__drop = aura_lenv_{id}_drop;");
                 for (name, ty) in captures {

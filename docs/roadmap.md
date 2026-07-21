@@ -195,7 +195,7 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C12i**  | `String.toInt(): Int?`                                             | **Done**                                   |
 | **C12j**  | Join helper for `Array<String>`                                    | **Done**                                   |
 | **C12k**  | Lambda capture class (GC ptr + env mark)                           | **Done**                                   |
-| **C12l**  | Lambda capture Array (non-owning view MVP)                         | Planned                                    |
+| **C12l**  | Lambda capture Array (non-owning view MVP)                         | **Done**                                   |
 | **C12m**  | Lambda `var` Int/Bool capture by ref                               | Planned                                    |
 | **C12n**  | `HashMap` String→String concrete                                   | Planned                                    |
 | **C12o**  | String HOF helpers (`map_strings` / `filter_strings`)              | Planned                                    |

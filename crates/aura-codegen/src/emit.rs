@@ -670,8 +670,9 @@ fn emit_lambda_fns(out: &mut String, checked: &CheckedFile) {
     let mut lambdas = collect_lambdas(&checked.ast);
     lambdas.sort_by_key(|l| l.span.start);
 
-    // C10h/C12k: env structs for capturing lambdas (stable field order from sema).
+    // C10h/C12k/C12l: env structs for capturing lambdas (stable field order from sema).
     // First field is always `__drop` so Fun free can unregister GC class slots.
+    // Array captures store a non-owning header view — drop must not free their buffers.
     for lam in &lambdas {
         let Some(&id) = ids.get(&lam.span.start) else {
             continue;
@@ -695,7 +696,8 @@ fn emit_lambda_fns(out: &mut String, checked: &CheckedFile) {
             );
         }
         let _ = writeln!(out, "}} aura_lenv_{id};");
-        // Per-env drop: remove GC roots for heap-class captures, then free.
+        // Per-env drop: remove GC roots for heap-class captures, then free env only.
+        // C12l: Array header views are non-owning — never free captured Array buffers here.
         let _ = writeln!(out, "static void aura_lenv_{id}_drop(void *env) {{");
         let _ = writeln!(out, "  aura_lenv_{id} *__e = (aura_lenv_{id} *)env;");
         for (name, ty) in captures {
@@ -762,6 +764,8 @@ fn emit_lambda_fns(out: &mut String, checked: &CheckedFile) {
             return_key: ret_key,
             lambda_ids: ids.clone(),
         };
+        // C12l: Array captures are non-owning views — do not mark array_owner
+        // (env/header copy only; outer scope frees the buffer).
         for (name, ty) in captures {
             ctx.define_local(name, ty.mono_suffix());
         }
