@@ -3,6 +3,7 @@
 mod load;
 mod lock;
 mod registry;
+mod semver;
 mod toml;
 mod types;
 mod util;
@@ -15,5 +16,9 @@ pub use load::{load_package, load_package_default};
 pub use registry::{
     default_index_path, index_root_from_env, RegistryConfig, RegistryIndex, VersionMeta,
     ENV_REGISTRY_INDEX,
+};
+pub use semver::{
+    lock_pin_from_meta, parse_req, parse_version, resolve, resolve_lock_pin, RegistryLockPin,
+    Version, VersionReq,
 };
 pub use types::LoadedPackage;

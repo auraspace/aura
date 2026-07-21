@@ -417,3 +417,113 @@ fn registry_open_missing_dir() {
     let err = crate::package::RegistryIndex::open("/no/such/aura/registry/index/xyz").unwrap_err();
     assert!(err.contains("not found"), "{err}");
 }
+
+// --- C13j semver caret resolve ---
+
+#[test]
+fn semver_resolve_hello_caret_picks_highest_unyanked() {
+    let idx = fixture_registry_index();
+    // hello: 1.0.0, 1.1.0 unyanked; 1.2.0 yanked
+    let meta = super::resolve("hello", "^1.0.0", &idx).unwrap();
+    assert_eq!(meta.vers, "1.1.0");
+    assert!(!meta.yanked);
+
+    // Bare version == caret
+    let bare = super::resolve("hello", "1.0", &idx).unwrap();
+    assert_eq!(bare.vers, "1.1.0");
+
+    // Partial "1.1" still caret → >=1.1.0 <2.0.0 → 1.1.0
+    let m = super::resolve("hello", "1.1", &idx).unwrap();
+    assert_eq!(m.vers, "1.1.0");
+
+    // Exact floor at 1.1.0
+    let m = super::resolve("hello", "^1.1.0", &idx).unwrap();
+    assert_eq!(m.vers, "1.1.0");
+}
+
+#[test]
+fn semver_resolve_skips_yanked() {
+    let idx = fixture_registry_index();
+    // ^1.2.0 would only match 1.2.0 which is yanked
+    let err = super::resolve("hello", "^1.2.0", &idx).unwrap_err();
+    assert!(err.contains("no matching version"), "{err}");
+    assert!(err.contains("hello"), "{err}");
+}
+
+#[test]
+fn semver_resolve_0x_caret_locks_minor() {
+    let idx = fixture_registry_index();
+    // demo.http: 0.1.0, 0.2.0
+    let m = super::resolve("demo.http", "^0.1.0", &idx).unwrap();
+    assert_eq!(m.vers, "0.1.0");
+
+    let m = super::resolve("demo.http", "0.1", &idx).unwrap();
+    assert_eq!(m.vers, "0.1.0");
+
+    let m = super::resolve("demo.http", "^0.2.0", &idx).unwrap();
+    assert_eq!(m.vers, "0.2.0");
+
+    // `0` / `^0` → >=0.0.0 <1.0.0 → highest 0.2.0
+    let m = super::resolve("demo.http", "0", &idx).unwrap();
+    assert_eq!(m.vers, "0.2.0");
+}
+
+#[test]
+fn semver_resolve_sparse_package() {
+    let idx = fixture_registry_index();
+    let m = super::resolve("serde", "^1", &idx).unwrap();
+    assert_eq!(m.vers, "1.0.0");
+    assert_eq!(m.repository.as_deref(), Some("auraspace/serde"));
+}
+
+#[test]
+fn semver_resolve_lock_pin_pure() {
+    let idx = fixture_registry_index();
+    let (meta, pin) = super::resolve_lock_pin("hello", "^1", &idx).unwrap();
+    assert_eq!(meta.vers, "1.1.0");
+    assert_eq!(pin.version, "1.1.0");
+    assert_eq!(pin.checksum, meta.cksum);
+    assert_eq!(pin.source, "registry");
+
+    let line = pin.format_lock_line("hello");
+    let lock = super::lock::parse_lock(&line).expect("lock line parses");
+    let entry = lock.packages.get("hello").unwrap();
+    assert_eq!(entry.version.as_deref(), Some("1.1.0"));
+    assert_eq!(entry.checksum.as_deref(), Some(meta.cksum.as_str()));
+    assert_eq!(entry.source.as_deref(), Some("registry"));
+}
+
+#[test]
+fn semver_resolve_via_fixture_index_path() {
+    // Uses the same fixture root that AURA_REGISTRY_INDEX would point at in CI.
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/registry");
+    let idx = super::RegistryIndex::open(&fixture).expect("open via fixture path");
+    assert!(
+        idx.root().ends_with("testdata/registry") || idx.root().ends_with("testdata\\registry")
+    );
+    let meta = super::resolve("hello", "1.0.0", &idx).unwrap();
+    assert_eq!(meta.vers, "1.1.0");
+    // index_root_from_env documents the AURA_REGISTRY_INDEX override contract
+    let _ = super::ENV_REGISTRY_INDEX;
+}
+
+#[test]
+fn semver_parse_rejects_bad_req() {
+    assert!(super::parse_req("").is_err());
+    assert!(super::parse_req(">=1.0").is_err());
+    assert!(super::parse_version("01.0.0").is_err());
+    assert!(super::parse_version("1.2.3.4").is_err());
+}
+
+#[test]
+fn semver_public_reexports() {
+    let idx = fixture_registry_index();
+    let meta = super::resolve("hello", "^1.0", &idx).unwrap();
+    assert_eq!(meta.vers, "1.1.0");
+    let pin: super::RegistryLockPin = super::lock_pin_from_meta(&meta);
+    assert_eq!(pin.source, "registry");
+    let v: super::Version = super::parse_version("1.2.3").unwrap();
+    assert_eq!((v.major, v.minor, v.patch), (1, 2, 3));
+    let req: super::VersionReq = super::parse_req("^1.2.3").unwrap();
+    assert!(req.matches(&v));
+}
