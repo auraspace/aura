@@ -179,20 +179,21 @@ pub(crate) fn load_from_manifest(manifest: &Path) -> Result<LoadedPackage, Strin
     apply_std_io_prelude(&mut pkg, &mut effective, &root)?;
 
     // C13l: resolve registry version deps → cache src paths (offline warm cache OK).
-    let registry_pins = materialize_registry_deps(&mut effective, &root, &toml)?;
+    let mut registry = RegistryResolver::new(&root)?;
+    materialize_registry_deps_with(&mut effective, &toml, &mut registry)?;
 
     // Merge path deps from this manifest and from each loaded dep's own aura.toml.
     // C4j: also collect the full resolved path map for aura.lock.
-    let resolved = resolve_imports(&mut pkg, &effective, &root)?;
+    let resolved = resolve_imports(&mut pkg, &effective, &root, &mut registry)?;
 
     // Refresh lockfile: path deps + registry pins (C4j/C13l).
     // Exclude auto-prelude-only entries not declared in the user's aura.toml.
     let mut lock_entries: BTreeMap<String, LockWriteEntry> = BTreeMap::new();
-    for (name, pin) in &registry_pins {
+    for (name, pin) in &registry.pins {
         lock_entries.insert(name.clone(), LockWriteEntry::Registry(pin.clone()));
     }
     for (name, abs) in &resolved {
-        if registry_pins.contains_key(name) {
+        if registry.pins.contains_key(name) {
             continue;
         }
         if let Some(DepSpec::Path(rel)) = toml.dependencies.get(name) {
@@ -223,38 +224,101 @@ pub(crate) fn load_from_manifest(manifest: &Path) -> Result<LoadedPackage, Strin
 }
 
 /// Resolve registry deps from the index/lock, ensure cache install, and rewrite
-/// them as absolute path deps on `effective` so [`resolve_imports`] is unchanged.
+/// them as absolute path deps on `effective`.
 ///
 /// Prefer env `AURA_REGISTRY_INDEX` + `AURA_REGISTRY_CACHE` (tests/CI).
-fn materialize_registry_deps(
+fn materialize_registry_deps_with(
     effective: &mut AuraToml,
-    root: &Path,
     original: &AuraToml,
-) -> Result<HashMap<String, RegistryLockPin>, String> {
-    let mut pins = HashMap::new();
-    let registry_names: Vec<(String, String)> = original
+    registry: &mut RegistryResolver,
+) -> Result<(), String> {
+    let mut registry_names: Vec<(String, String)> = original
         .dependencies
         .iter()
         .filter_map(|(n, d)| d.as_version_req().map(|v| (n.clone(), v.to_string())))
         .collect();
+    registry_names.sort_by(|a, b| a.0.cmp(&b.0));
     if registry_names.is_empty() {
-        return Ok(pins);
+        return Ok(());
     }
 
-    let lock = read_lock(root)?;
-    let cache = cache_root_from_env();
-    // Open index lazily — warm cache + lock can proceed without it.
-    let mut index: Option<RegistryIndex> = None;
-
     for (name, req) in registry_names {
-        let (meta, pin) = resolve_registry_pin(&name, &req, lock.as_ref(), &mut index, &cache)?;
-        let installed = ensure_registry_src(&meta, index.as_ref(), &cache)?;
+        let (meta, pin) = registry.resolve(&name, &req)?;
+        let installed = ensure_registry_src(&meta, registry.index.as_ref(), &registry.cache)?;
         effective
             .dependencies
             .insert(name.clone(), DepSpec::Path(installed.display().to_string()));
-        pins.insert(name, pin);
+        registry.pins.insert(name, pin);
     }
-    Ok(pins)
+    Ok(())
+}
+
+struct RegistryResolver {
+    lock: Option<AuraLock>,
+    cache: PathBuf,
+    index: Option<RegistryIndex>,
+    pins: BTreeMap<String, RegistryLockPin>,
+}
+
+impl RegistryResolver {
+    fn new(root: &Path) -> Result<Self, String> {
+        Ok(Self {
+            lock: read_lock(root)?,
+            cache: cache_root_from_env(),
+            index: None,
+            pins: BTreeMap::new(),
+        })
+    }
+
+    fn resolve(&mut self, name: &str, req: &str) -> Result<(VersionMeta, RegistryLockPin), String> {
+        if let Some(pin) = self.pins.get(name) {
+            let requirement = parse_req(req).map_err(|e| {
+                format!("error: package `{name}`: invalid version requirement `{req}`: {e}")
+            })?;
+            let version = parse_version(&pin.version).map_err(|e| {
+                format!(
+                    "error: resolved package `{name}` has invalid version `{}`: {e}",
+                    pin.version
+                )
+            })?;
+            if !requirement.matches(&version) {
+                return Err(format!(
+                    "error: conflicting registry requirements for `{name}`: `{}` does not satisfy `{req}`",
+                    pin.version
+                ));
+            }
+            return Ok((
+                VersionMeta {
+                    name: name.into(),
+                    vers: pin.version.clone(),
+                    cksum: pin.checksum.clone(),
+                    yanked: false,
+                    repository: None,
+                },
+                pin.clone(),
+            ));
+        }
+        let lock_pin = self.lock.as_ref().and_then(|lock| lock.packages.get(name));
+        if self.lock.is_some() && lock_pin.is_none() {
+            return Err(format!(
+                "error: aura.lock missing package `{name}` required by a registry dependency"
+            ));
+        }
+        if let Some(entry) = lock_pin {
+            if !entry.is_registry() {
+                return Err(format!(
+                    "error: aura.lock has a path entry for registry dependency `{name}`"
+                ));
+            }
+            if let Some(resolved) = try_use_lock_pin(name, req, entry)? {
+                return Ok(resolved);
+            }
+        }
+        let idx = open_index_if_needed(&mut self.index)?;
+        let meta = resolve(name, req, idx)?;
+        let pin = lock_pin_from_meta(&meta);
+        Ok((meta, pin))
+    }
 }
 
 fn open_index_if_needed(index: &mut Option<RegistryIndex>) -> Result<&RegistryIndex, String> {
@@ -269,32 +333,6 @@ fn open_index_if_needed(index: &mut Option<RegistryIndex>) -> Result<&RegistryIn
     index
         .as_ref()
         .ok_or_else(|| "error: registry index was not initialized".to_string())
-}
-
-/// Pick a lock pin when it still satisfies `req`; otherwise resolve via the index.
-fn resolve_registry_pin(
-    name: &str,
-    req: &str,
-    lock: Option<&AuraLock>,
-    index: &mut Option<RegistryIndex>,
-    cache: &Path,
-) -> Result<(VersionMeta, RegistryLockPin), String> {
-    if let Some(lock) = lock {
-        if let Some(entry) = lock.packages.get(name) {
-            if entry.is_registry() {
-                if let Some(meta_pin) = try_use_lock_pin(name, req, entry)? {
-                    return Ok(meta_pin);
-                }
-                // Pin no longer satisfies req — fall through to re-resolve.
-            }
-        }
-    }
-
-    let idx = open_index_if_needed(index)?;
-    let meta = resolve(name, req, idx)?;
-    let pin = lock_pin_from_meta(&meta);
-    let _ = cache; // reserved for future source selection hints
-    Ok((meta, pin))
 }
 
 fn try_use_lock_pin(
@@ -456,34 +494,56 @@ fn resolve_imports(
     pkg: &mut LoadedPackage,
     toml: &AuraToml,
     root: &Path,
+    registry: &mut RegistryResolver,
 ) -> Result<HashMap<String, PathBuf>, String> {
-    let mut pending: Vec<String> = pkg.ast.imports.iter().map(|i| i.path.display()).collect();
-    let mut loaded: HashSet<String> = HashSet::new();
+    let mut loaded = HashSet::new();
     loaded.insert(pkg.package.clone());
-
-    // deps map: package name → absolute path (grows as nested manifests are read)
-    // Registry deps must already be rewritten to Path by materialize_registry_deps.
     let mut deps: HashMap<String, PathBuf> = toml
         .dependencies
         .iter()
         .filter_map(|(k, d)| d.as_path().map(|p| (k.clone(), root.join(p))))
         .collect();
 
-    // C4h: auto-resolve std.* path when imported but not declared (assert, etc.).
-    for imp in pending.iter() {
-        if deps.contains_key(imp) {
-            continue;
-        }
-        if let Some(leaf) = imp.strip_prefix("std.") {
-            if let Some(p) = find_std_package_dir(root, leaf) {
-                deps.insert(imp.clone(), p);
-            }
-        }
-    }
+    let root_package = pkg.package.clone();
+    visit_imports(
+        pkg,
+        root,
+        &mut deps,
+        &mut loaded,
+        &mut vec![root_package],
+        registry,
+    )?;
+    Ok(deps)
+}
 
-    while let Some(imp) = pending.pop() {
-        if !loaded.insert(imp.clone()) {
+fn visit_imports(
+    pkg: &mut LoadedPackage,
+    root: &Path,
+    deps: &mut HashMap<String, PathBuf>,
+    loaded: &mut HashSet<String>,
+    active: &mut Vec<String>,
+    registry: &mut RegistryResolver,
+) -> Result<(), String> {
+    let mut imports: Vec<String> = pkg.ast.imports.iter().map(|i| i.path.display()).collect();
+    imports.sort();
+    for imp in imports {
+        if active.iter().any(|name| name == &imp) {
+            let mut cycle = active.clone();
+            cycle.push(imp.clone());
+            return Err(format!(
+                "error: dependency cycle detected: {}",
+                cycle.join(" -> ")
+            ));
+        }
+        if loaded.contains(&imp) {
             continue;
+        }
+        if !deps.contains_key(&imp) {
+            if let Some(leaf) = imp.strip_prefix("std.") {
+                if let Some(path) = find_std_package_dir(root, leaf) {
+                    deps.insert(imp.clone(), path);
+                }
+            }
         }
         let dep_path = deps.get(&imp).cloned().ok_or_else(|| {
             if imp.starts_with("std.") {
@@ -501,7 +561,8 @@ fn resolve_imports(
                 )
             }
         })?;
-        let dep_pkg = load_dep_package(&dep_path)?;
+        active.push(imp.clone());
+        let mut dep_pkg = load_dep_package(&dep_path)?;
         if dep_pkg.package != imp {
             return Err(format!(
                 "error: dependency `{imp}` at {} has package name `{}`",
@@ -509,37 +570,45 @@ fn resolve_imports(
                 dep_pkg.package
             ));
         }
-        // Merge nested path deps relative to the dependency package root.
-        if let Ok(nested) = read_manifest_deps(&dep_pkg.root) {
-            for (k, p) in nested {
-                deps.entry(k).or_insert_with(|| dep_pkg.root.join(p));
-            }
+        loaded.insert(imp.clone());
+
+        let dep_toml = read_manifest(&dep_pkg.root)?;
+        let mut effective = dep_toml.clone();
+        materialize_registry_deps_with(&mut effective, &dep_toml, registry)?;
+        let mut nested_deps: HashMap<String, PathBuf> = effective
+            .dependencies
+            .iter()
+            .filter_map(|(name, dep)| {
+                dep.as_path()
+                    .map(|path| (name.clone(), dep_pkg.root.join(path)))
+            })
+            .collect();
+        for (name, path) in &nested_deps {
+            deps.entry(name.clone()).or_insert_with(|| path.clone());
         }
-        for i in &dep_pkg.ast.imports {
-            let name = i.path.display();
-            if !loaded.contains(&name) {
-                pending.push(name);
-            }
-        }
+        let dep_root = dep_pkg.root.clone();
+        visit_imports(
+            &mut dep_pkg,
+            &dep_root,
+            &mut nested_deps,
+            loaded,
+            active,
+            registry,
+        )?;
+        active.pop();
         merge_package(pkg, dep_pkg)?;
     }
-    Ok(deps)
+    Ok(())
 }
 
-fn read_manifest_deps(root: &Path) -> Result<HashMap<String, String>, String> {
+fn read_manifest(root: &Path) -> Result<AuraToml, String> {
     let manifest = root.join("aura.toml");
     if !manifest.is_file() {
-        return Ok(HashMap::new());
+        return Ok(AuraToml::default());
     }
     let text = fs::read_to_string(&manifest)
         .map_err(|e| format!("error: read {}: {e}", manifest.display()))?;
-    let toml = parse_aura_toml(&text).map_err(|e| format!("error: {}: {e}", manifest.display()))?;
-    // Nested path deps only (C13l: nested registry deps are not resolved from deps yet).
-    Ok(toml
-        .dependencies
-        .into_iter()
-        .filter_map(|(k, d)| d.as_path().map(|p| (k, p.to_string())))
-        .collect())
+    parse_aura_toml(&text).map_err(|e| format!("error: {}: {e}", manifest.display()))
 }
 
 fn load_dep_package(path: &Path) -> Result<LoadedPackage, String> {

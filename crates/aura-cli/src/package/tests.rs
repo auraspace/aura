@@ -590,6 +590,74 @@ fn unique_cache_root(label: &str) -> std::path::PathBuf {
     root
 }
 
+fn write_registry_package(
+    index: &Path,
+    name: &str,
+    version: &str,
+    manifest: &str,
+    source: &str,
+) -> String {
+    use flate2::write::GzEncoder;
+    use flate2::Compression;
+    use std::io::Cursor;
+    use tar::{Builder, Header};
+
+    let mut tar = Builder::new(Vec::new());
+    let prefix = format!("{name}-{version}");
+    for (path, contents) in [("aura.toml", manifest), ("src/main.aura", source)] {
+        let mut header = Header::new_gnu();
+        header.set_path(format!("{prefix}/{path}")).unwrap();
+        header.set_size(contents.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        tar.append(&header, Cursor::new(contents.as_bytes()))
+            .unwrap();
+    }
+    let tar_bytes = tar.into_inner().unwrap();
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+    std::io::Write::write_all(&mut encoder, &tar_bytes).unwrap();
+    let crate_bytes = encoder.finish().unwrap();
+    let checksum = super::sha256_hex(&crate_bytes);
+
+    fs::create_dir_all(index.join("crates")).unwrap();
+    fs::create_dir_all(index.join("packages").join(name)).unwrap();
+    fs::write(
+        index.join("crates").join(format!("{name}-{version}.crate")),
+        crate_bytes,
+    )
+    .unwrap();
+    fs::write(
+        index.join("packages").join(name).join("versions.json"),
+        format!(
+            r#"[{{"name":"{name}","vers":"{version}","cksum":"sha256:{checksum}","yanked":false}}]"#
+        ),
+    )
+    .unwrap();
+    checksum
+}
+
+fn write_local_registry_index(root: &Path) {
+    fs::create_dir_all(root).unwrap();
+    fs::write(
+        root.join("config.json"),
+        r#"{"dl":"https://example.invalid/{name}-{version}.crate"}"#,
+    )
+    .unwrap();
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/registry");
+    fs::create_dir_all(root.join("crates")).unwrap();
+    fs::create_dir_all(root.join("packages/tiny")).unwrap();
+    fs::copy(
+        fixture.join("crates/tiny-0.1.0.crate"),
+        root.join("crates/tiny-0.1.0.crate"),
+    )
+    .unwrap();
+    fs::write(
+        root.join("packages/tiny/versions.json"),
+        r#"[{"name":"tiny","vers":"0.1.0","cksum":"sha256:aac934a82529147bf2944a8cd6df510810efb0218b70b71a59439f97fc0f78e3","yanked":false}]"#,
+    )
+    .unwrap();
+}
+
 #[test]
 fn fetch_install_from_local_path() {
     let cache = unique_cache_root("path");
@@ -882,4 +950,164 @@ fn c13l_local_crate_path_helper() {
     let meta = fixture_tiny_meta();
     let src = super::crate_source_for_meta(&fixture, None, &meta).unwrap();
     assert!(src.contains("tiny-0.1.0.crate"));
+}
+
+#[test]
+fn s22_resolves_nested_registry_dependency_deterministically() {
+    use super::{cache_root_from_env, ENV_REGISTRY_CACHE, ENV_REGISTRY_INDEX};
+
+    let _guard = registry_env_lock();
+    let index = unique_cache_root("nested-index");
+    let cache = unique_cache_root("nested-cache");
+    write_local_registry_index(&index);
+    let nested_checksum = write_registry_package(
+        &index,
+        "nested",
+        "1.0.0",
+        r#"[package]
+name = "nested"
+[dependencies]
+tiny = "0.1"
+"#,
+        "package nested\nimport tiny\nfun nested_value() { println(\"nested\") }\n",
+    );
+    let app = unique_cache_root("nested-app");
+    fs::create_dir_all(app.join("src")).unwrap();
+    write_tree(
+        &app,
+        &[
+            (
+                "aura.toml",
+                r#"[package]
+name = "demo.nested"
+[[bin]]
+path = "src"
+[dependencies]
+nested = "1.0"
+"#,
+            ),
+            (
+                "src/main.aura",
+                "package demo.nested\nimport nested\nfun main() {}\n",
+            ),
+        ],
+    );
+    std::env::set_var(ENV_REGISTRY_INDEX, &index);
+    std::env::set_var(ENV_REGISTRY_CACHE, &cache);
+
+    let pkg = load_package(&app.join("aura.toml")).expect("nested registry load");
+    let origins: Vec<_> = pkg
+        .ast
+        .functions
+        .iter()
+        .map(|f| f.origin_package.as_str())
+        .collect();
+    assert!(origins.contains(&"nested"), "origins={origins:?}");
+    assert!(origins.contains(&"tiny"), "origins={origins:?}");
+    let lock = fs::read_to_string(app.join("aura.lock")).unwrap();
+    let nested_pos = lock.find("nested =").unwrap();
+    let tiny_pos = lock.find("tiny =").unwrap();
+    assert!(nested_pos < tiny_pos, "lock must be sorted: {lock}");
+    assert!(lock.contains(&nested_checksum));
+
+    // A second load reuses both verified extracted packages.
+    let _ = cache_root_from_env();
+    load_package(&app.join("aura.toml")).expect("warm nested registry load");
+    std::env::remove_var(ENV_REGISTRY_INDEX);
+    std::env::remove_var(ENV_REGISTRY_CACHE);
+    let _ = fs::remove_dir_all(index);
+    let _ = fs::remove_dir_all(cache);
+    let _ = fs::remove_dir_all(app);
+}
+
+#[test]
+fn s22_rejects_dependency_cycle() {
+    let root = unique_cache_root("cycle");
+    write_tree(
+        &root,
+        &[
+            (
+                "aura.toml",
+                r#"[package]
+name = "demo.cycle"
+[dependencies]
+demo.dep = { path = "dep" }
+"#,
+            ),
+            (
+                "src/main.aura",
+                "package demo.cycle\nimport demo.dep\nfun main() {}\n",
+            ),
+            (
+                "dep/aura.toml",
+                r#"[package]
+name = "demo.dep"
+[dependencies]
+demo.cycle = { path = ".." }
+"#,
+            ),
+            (
+                "dep/src/main.aura",
+                "package demo.dep\nimport demo.cycle\nfun dep() {}\n",
+            ),
+        ],
+    );
+    let err = load_package(&root.join("aura.toml")).unwrap_err();
+    assert!(err.contains("dependency cycle detected"), "{err}");
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn s22_rejects_missing_locked_nested_package() {
+    let _guard = registry_env_lock();
+    use super::{ENV_REGISTRY_CACHE, ENV_REGISTRY_INDEX};
+    let index = unique_cache_root("missing-lock-index");
+    let cache = unique_cache_root("missing-lock-cache");
+    write_local_registry_index(&index);
+    let nested_checksum = write_registry_package(
+        &index,
+        "nested",
+        "1.0.0",
+        r#"[package]
+name = "nested"
+[dependencies]
+tiny = "0.1"
+"#,
+        "package nested\nimport tiny\nfun nested_value() {}\n",
+    );
+    let app = unique_cache_root("missing-lock-app");
+    fs::create_dir_all(app.join("src")).unwrap();
+    write_tree(
+        &app,
+        &[
+            (
+                "aura.toml",
+                r#"[package]
+name = "demo.missing"
+[dependencies]
+nested = "1.0"
+"#,
+            ),
+            (
+                "src/main.aura",
+                "package demo.missing\nimport nested\nfun main() {}\n",
+            ),
+        ],
+    );
+    fs::write(
+        app.join("aura.lock"),
+        format!(
+            "nested = {{ version = \"1.0.0\", checksum = \"sha256:{nested_checksum}\", source = \"registry\" }}\n"
+        ),
+    )
+    .unwrap();
+    std::env::set_var(ENV_REGISTRY_INDEX, &index);
+    std::env::set_var(ENV_REGISTRY_CACHE, &cache);
+    let err = load_package(&app.join("aura.toml")).unwrap_err();
+    assert!(err.contains("missing package `tiny`"), "{err}");
+    std::env::remove_var(ENV_REGISTRY_INDEX);
+    std::env::remove_var(ENV_REGISTRY_CACHE);
+    let _ = fs::remove_dir_all(index);
+    let _ = fs::remove_dir_all(cache);
+    let _ = fs::remove_dir_all(app);
 }
