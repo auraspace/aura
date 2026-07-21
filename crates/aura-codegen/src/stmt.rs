@@ -146,35 +146,12 @@ pub(crate) fn emit_block(out: &mut String, block: &Block, indent: usize, ctx: &m
     ctx.pop_scope();
 }
 
-/// C8f: nested Array elem type key (`Array_Array_Int` → `Array_Int`).
-fn array_elem_key(key: &str) -> Option<&str> {
-    key.strip_prefix("Array_")
-}
-
 /// Free heap buffer of a local `Array` (null-safe; zeros fields).
 /// C8f: if elements are Array, free each element's buffer first.
+/// C13d: if elements are String, free each owned `const char *` first.
 pub(crate) fn emit_free_array_local(out: &mut String, indent: usize, name: &str, ty_key: &str) {
-    let p = pad(indent);
     let n = mangle_ident(name);
-    let _ = writeln!(out, "{p}if ({n}.data != NULL) {{");
-    if let Some(elem) = array_elem_key(ty_key) {
-        if is_array_type_key(elem) {
-            let _ = writeln!(
-                out,
-                "{p}  for (int64_t __af = 0; __af < {n}.len; __af++) {{"
-            );
-            let _ = writeln!(
-                out,
-                "{p}    if ({n}.data[__af].data != NULL) {{ free({n}.data[__af].data); {n}.data[__af].data = NULL; }}"
-            );
-            let _ = writeln!(out, "{p}  }}");
-        }
-    }
-    let _ = writeln!(out, "{p}  free({n}.data);");
-    let _ = writeln!(out, "{p}  {n}.data = NULL;");
-    let _ = writeln!(out, "{p}  {n}.len = 0;");
-    let _ = writeln!(out, "{p}  {n}.cap = 0;");
-    let _ = writeln!(out, "{p}}}");
+    crate::array_emit::emit_array_contents_free(out, indent, &n, ty_key);
 }
 
 pub(crate) fn emit_free_array_owners(

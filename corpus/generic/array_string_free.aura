@@ -1,0 +1,75 @@
+// C13d — free owned String elems in Array<String> on drop / clear / set
+// Segments from split/trim/substring/+ are heap-owned; drop must free them.
+// Nested Array<Array<String>> frees inner buffers then string elems.
+package demo.generic
+
+fun main() {
+  // Drop after split: free each segment + buffer
+  val parts = "a,b,c".split(",")
+  assert_eq(parts.len, 3)
+  assert_eq(parts.get(0), "a")
+  assert_eq(parts.get(2), "c")
+
+  // clear frees string elems then zeros len (capacity retained)
+  val a: Array<String> = Array(0)
+  a.push("x")
+  a.push("y".trim())
+  a.push("  z  ".trim())
+  assert_eq(a.len, 3)
+  a.clear()
+  assert_eq(a.len, 0)
+  a.push("again")
+  assert_eq(a.get(0), "again")
+
+  // set frees previous owned string at index
+  val b: Array<String> = Array(2)
+  b.set(0, "old")
+  b.set(1, "keep")
+  b.set(0, "new")
+  assert_eq(b.get(0), "new")
+  assert_eq(b.get(1), "keep")
+  // set(i, get(i)) must not UAF (get copies; set copies then frees old)
+  b.set(1, b.get(1))
+  assert_eq(b.get(1), "keep")
+
+  // concat / substring results stored via push
+  val c: Array<String> = Array(0)
+  c.push("hi" + "!")
+  c.push("abcdef".substring(1, 4))
+  assert_eq(c.get(0), "hi!")
+  assert_eq(c.get(1), "bcd")
+
+  // Nested Array<Array<String>>: free inners then string elems on clear/drop
+  val outer: Array<Array<String>> = Array(0)
+  val row0: Array<String> = Array(0)
+  row0.push("p")
+  row0.push("q")
+  outer.push(row0)
+  val row1: Array<String> = Array(0)
+  row1.push("r")
+  outer.push(row1)
+  assert_eq(outer.len, 2)
+  // Nested get is a shallow header view (bind to local; no method-on-temp)
+  val view0 = outer.get(0)
+  assert_eq(view0.len, 2)
+  assert_eq(view0.get(0), "p")
+  outer.clear()
+  assert_eq(outer.len, 0)
+
+  // Rebuild and drop at end of main
+  val nested: Array<Array<String>> = Array(0)
+  val r: Array<String> = "one,two".split(",")
+  nested.push(r)
+  val viewN = nested.get(0)
+  assert_eq(viewN.len, 2)
+  assert_eq(viewN.get(1), "two")
+
+  // clone of Array<String> deep-copies strings (independent free)
+  val src = "a,b".split(",")
+  val dup = src.clone()
+  assert_eq(dup.len, 2)
+  assert_eq(dup.get(0), "a")
+  assert_eq(dup.get(1), "b")
+
+  println("ok")
+}
