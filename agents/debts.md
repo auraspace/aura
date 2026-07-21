@@ -60,16 +60,20 @@ When you resolve debt, update or remove the matching entry.
 - Area: stdlib / RFC-007
 - Symptom: linear `Map`/`Set`; concrete HashMap monos only (no generic HashMap)
 - Why deferred: String→Int + String→String cover demos; generic needs hashable protocol
-- Progress: C9b auto-resize when load ≥ 1/2; explicit `grow()`; **C12n** `HashMapStr` String→String (`hash_map_str()`, `get` → `String?`)
-- Next step: later `HashMap<K,V>` when hashable protocol exists; String HOF helpers (**C12o**)
+- Progress: C9b auto-resize when load ≥ 1/2; explicit `grow()`; **C12n** `HashMapStr` String→String (`hash_map_str()`, `get` → `String?`); **C12o** `map_strings` / `filter_strings` / `fold_strings`
+- Next step: later `HashMap<K,V>` when hashable protocol exists; generic map/filter when Fun mono polish lands
 - Tracked: [C12 plan](../docs/plans/2026-07-21-next-20-c12a-c12t.md)
-- Introduced: narrowed after C8i; resize C9b; String→String C12n
+- Introduced: narrowed after C8i; resize C9b; String→String C12n; String HOF C12o
 
 ## Resolved
 
 ### Higher-order Int array helpers (2026-07-20)
 
 - Resolved in C10i: `std.collections` `map_ints` / `filter_ints` / `fold_ints`; corpus `fun/lambda_hof.aura`, `std_collections/hof`.
+
+### Higher-order String array helpers (2026-07-21)
+
+- Resolved in C12o: `std.collections` `map_strings` / `filter_strings` / `fold_strings`; corpus `std_collections/hof_str`.
 
 ### C10 first-class funs batch (2026-07-20)
 

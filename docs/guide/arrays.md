@@ -55,16 +55,19 @@ fun stack() {
 }
 ```
 
-## Higher-order helpers (C10i)
+## Higher-order helpers (C10i / C12o)
 
-`std.collections` provides Int-specialized free functions that take first-class funs (see [syntax cheatsheet](./syntax-cheatsheet.md#lambdas-c10) for lambda forms):
+`std.collections` provides concrete free functions that take first-class funs (see [syntax cheatsheet](./syntax-cheatsheet.md#lambdas-c10) for lambda forms). Generic map/filter is deferred.
 
-| Helper        | Signature                                     |
-| ------------- | --------------------------------------------- |
-| `map_ints`    | `(Array<Int>, (Int) -> Int) -> Array<Int>`    |
-| `join`        | `(Array<String>, String) -> String` (C12j)    |
-| `filter_ints` | `(Array<Int>, (Int) -> Bool) -> Array<Int>`   |
-| `fold_ints`   | `(Array<Int>, Int, (Int, Int) -> Int) -> Int` |
+| Helper           | Signature                                                              |
+| ---------------- | ---------------------------------------------------------------------- |
+| `map_ints`       | `(Array<Int>, (Int) -> Int) -> Array<Int>`                             |
+| `filter_ints`    | `(Array<Int>, (Int) -> Bool) -> Array<Int>`                            |
+| `fold_ints`      | `(Array<Int>, Int, (Int, Int) -> Int) -> Int`                          |
+| `map_strings`    | `(Array<String>, (String) -> String) -> Array<String>` (C12o)          |
+| `filter_strings` | `(Array<String>, (String) -> Bool) -> Array<String>` (C12o)            |
+| `fold_strings`   | `(Array<String>, String, (String, String) -> String) -> String` (C12o) |
+| `join`           | `(Array<String>, String) -> String` (C12j)                             |
 
 ```aura
 import std.collections
@@ -74,9 +77,13 @@ fun demo(xs: Array<Int>): Int {
   // Array params own the buffer — clone when reusing the same Array.
   return fold_ints(doubled.clone(), 0, (a: Int, b: Int) => a + b)
 }
+
+fun demo_str(xs: Array<String>): Array<String> {
+  return map_strings(xs, (s: String) => "[" + s + "]")
+}
 ```
 
-Corpus: `fun/lambda_hof.aura`, `std_collections/hof`, `std_collections/join`.
+Corpus: `fun/lambda_hof.aura`, `std_collections/hof`, `std_collections/hof_str`, `std_collections/join`.
 
 **Capture limits:** lambdas may close over outer `val` of `Int` / `Bool` / `String` / class / Array (C10h/C12k/C12l) and outer `var` of `Int` / `Bool` by shared mutable box (C12m). Array captures store a non-owning header view (same idea as field bind): the outer binding still owns the buffer — freeing or moving that owner while the Fun is live is undefined. Nested Fun capture and `var` String/class/Array are deferred ([debts](https://github.com/auraspace/aura/blob/main/agents/debts.md)).
 

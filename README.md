@@ -62,6 +62,7 @@ cargo run -p aura-cli -- run corpus/fun/lambda_capture_array.aura # val Array vi
 cargo run -p aura-cli -- run corpus/fun/lambda_capture_var.aura # var Int/Bool by-ref capture (C12m)
 cargo run -p aura-cli -- run corpus/fun/lambda_env_free.aura # Fun env free (C11b)
 cargo run -p aura-cli -- run corpus/std_collections/hof     # map_ints / filter_ints / fold_ints
+cargo run -p aura-cli -- run corpus/std_collections/hof_str # map_strings / filter_strings / fold_strings (C12o)
 ```
 
 Native builds use a **C backend** (`aura emit-c` + system `cc`) linked with `runtime/aura_rt.c`. LLVM IR is the longer-term path (RFC-004).
@@ -182,6 +183,7 @@ Native builds use a **C backend** (`aura emit-c` + system `cc`) linked with `run
 - **Compiler C10c–C10g** Lambdas (expr/block), `Ty::Fun`, fun type `(T) -> U`, non-capturing codegen
 - **Compiler C10h** Lambda captures MVP (`val` Int/Bool/String; fat-pointer Fun)
 - **Stdlib C10i** `map_ints` / `filter_ints` / `fold_ints`
+- **Stdlib C12o** `map_strings` / `filter_strings` / `fold_strings`
 - **Docs C10j** C10a–C10j batch closed — first-class funs/lambdas shippable
 - **Stdlib C11a** `std.io` file + console (`readFile` / `writeFile` / …)
 - **Compiler C11b** Fun capture-env ownership free (scope/move/return/param/for)

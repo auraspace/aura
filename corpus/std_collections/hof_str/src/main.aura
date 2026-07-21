@@ -1,0 +1,41 @@
+// C12o — std.collections map_strings / filter_strings / fold_strings
+// Array params own the buffer: clone when reusing the same Array.
+package demo.stdcollections.hof_str
+
+import std.collections
+import std.assert
+
+fun main() {
+  val xs: Array<String> = Array(0)
+  xs.push("a")
+  xs.push("bb")
+  xs.push("ccc")
+  xs.push("dddd")
+
+  // map: wrap each element
+  val wrapped = map_strings(xs.clone(), (s: String) => "[" + s + "]")
+  assert_eq(wrapped.len, 4)
+  assert_eq(wrapped.get(0), "[a]")
+  assert_eq(wrapped.get(1), "[bb]")
+  assert_eq(wrapped.get(2), "[ccc]")
+  assert_eq(wrapped.get(3), "[dddd]")
+  println("map")
+
+  // filter: keep len > thr (capture)
+  val thr = 2
+  val long = filter_strings(xs, (s: String) => s.len > thr)
+  assert_eq(long.len, 2)
+  assert_eq(long.get(0), "ccc")
+  assert_eq(long.get(1), "dddd")
+  println("filter")
+
+  // fold: concatenate with separator (parity with fold_ints)
+  val joined = fold_strings(wrapped, "", (acc: String, s: String) => {
+    if (acc.len == 0) {
+      return s
+    }
+    return acc + "," + s
+  })
+  assert_eq(joined, "[a],[bb],[ccc],[dddd]")
+  println("fold")
+}

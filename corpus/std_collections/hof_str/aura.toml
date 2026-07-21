@@ -1,0 +1,6 @@
+[package]
+name = "demo.stdcollections.hof_str"
+
+[[bin]]
+name = "app"
+path = "src"
