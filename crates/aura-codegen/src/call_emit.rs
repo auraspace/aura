@@ -226,6 +226,16 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
         let base = mono_base_name(mono_raw, ctx.checked).unwrap_or(mono_raw);
         let mono = crate::expr::full_type_mono(mono_raw, ctx.checked);
 
+        // C13c: builtin Int.toString() → aura_i64_to_string (malloc'd decimal).
+        if mono_raw == "Int"
+            || matches!(fe.object.as_ref(), Expr::Int(_))
+            || matches!(obj_ty.as_deref(), Some("Int"))
+        {
+            if fe.field.name == "toString" {
+                return format!("aura_i64_to_string({obj})");
+            }
+        }
+
         // C4v/C4w: builtin String methods.
         if mono_raw == "String"
             || matches!(fe.object.as_ref(), Expr::String(_))

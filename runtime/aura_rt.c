@@ -1007,6 +1007,61 @@ void aura_box_bool_release(aura_box_bool *b)
   }
 }
 
+/* C13c: Int.toString() — decimal (base 10), no locale.
+ * Returns a freshly malloc'd NUL-terminated C string. Caller owns the buffer
+ * (same ownership as other owned strings: substring/trim/split segments, concat).
+ * Handles 0, negatives, and INT64_MIN. */
+const char *aura_i64_to_string(int64_t v)
+{
+  /* "-9223372036854775808" + NUL = 21; pad for safety. */
+  char buf[32];
+  size_t i = 0;
+  uint64_t u;
+  if (v < 0)
+  {
+    /* Negate via unsigned to keep INT64_MIN well-defined. */
+    u = (uint64_t)(-(v + 1)) + 1;
+  }
+  else
+  {
+    u = (uint64_t)v;
+  }
+  if (u == 0)
+  {
+    buf[i++] = '0';
+  }
+  else
+  {
+    char tmp[32];
+    size_t n = 0;
+    while (u > 0)
+    {
+      tmp[n++] = (char)('0' + (u % 10));
+      u /= 10;
+    }
+    while (n > 0)
+    {
+      buf[i++] = tmp[--n];
+    }
+  }
+  size_t dig_len = i;
+  size_t total = dig_len + (v < 0 ? 1 : 0);
+  char *out = (char *)malloc(total + 1);
+  if (out == NULL)
+  {
+    fprintf(stderr, "aura: out of memory (i64_to_string)\n");
+    exit(1);
+  }
+  size_t o = 0;
+  if (v < 0)
+  {
+    out[o++] = '-';
+  }
+  memcpy(out + o, buf, dig_len);
+  out[o + dig_len] = '\0';
+  return (const char *)out;
+}
+
 /* C4z/C5f/C6a/C6e: stop-the-world deep mark + sweep when roots are registered. */
 void aura_gc_collect(void)
 {

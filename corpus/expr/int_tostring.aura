@@ -1,0 +1,48 @@
+// C13c — Int.toString(): String (+ String+Int / Int+String for interp)
+// Decimal base 10; malloc'd owned string; no locale.
+package demo.expr
+
+fun main() {
+  // Zero and positives
+  assert_eq(0.toString(), "0")
+  assert_eq(1.toString(), "1")
+  assert_eq(42.toString(), "42")
+  assert_eq(10.toString(), "10")
+
+  // Negatives
+  assert_eq((0 - 1).toString(), "-1")
+  assert_eq((0 - 42).toString(), "-42")
+
+  // Local binding
+  val n = 7
+  assert_eq(n.toString(), "7")
+  val m = 0 - 9
+  assert_eq(m.toString(), "-9")
+
+  // Large magnitude
+  assert_eq(9223372036854775807.toString(), "9223372036854775807")
+  // INT64_MIN via arithmetic (lexer parses digits before unary -).
+  val imin = 0 - 9223372036854775807 - 1
+  assert_eq(imin.toString(), "-9223372036854775808")
+
+  // String + Int / Int + String (interp desugar path)
+  assert_eq("x=" + 3, "x=3")
+  assert_eq(3 + "=x", "3=x")
+  assert_eq("n=" + n, "n=7")
+  assert_eq("neg=" + m, "neg=-9")
+  assert_eq("" + 0, "0")
+  assert_eq(0 + "", "0")
+
+  // Interpolation of Int (parser desugars `"x=${n}"` to `"x=" + n`)
+  val msg = "count=${n}"
+  assert_eq(msg, "count=7")
+  val mixed = "a=${n},b=${m}"
+  assert_eq(mixed, "a=7,b=-9")
+
+  // Chain / assign
+  val s: String = n.toString()
+  assert_eq(s, "7")
+  if ((100.toString() + "!") == "100!") {
+    println("ok")
+  }
+}

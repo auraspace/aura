@@ -129,8 +129,17 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
             }
             Expr::Field(fe) => {
                 // C4k: resolve receiver via type name (handles field chains like this.item).
+                // Fall back to infer so arithmetic receivers work: (0-1).toString().
                 let mono = resolve_type_name(&fe.object, ctx)
-                    .or_else(|| resolve_class_of_expr(&fe.object, ctx).map(|s| s.to_string()));
+                    .or_else(|| resolve_class_of_expr(&fe.object, ctx).map(|s| s.to_string()))
+                    .or_else(|| {
+                        let t = infer_type_name(&fe.object, ctx);
+                        if t == "Unit" || t.is_empty() {
+                            None
+                        } else {
+                            Some(t)
+                        }
+                    });
                 if let Some(mono) = mono {
                     let base = mono_base_name(&mono, ctx.checked).unwrap_or(mono.as_str());
                     // Builtin Array.get / Array.pop return element type T (C3j/C6g).
@@ -161,6 +170,10 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
                             "toInt" => return "Opt_Int".into(),
                             _ => {}
                         }
+                    }
+                    // C13c: Int.toString() → String
+                    if (mono == "Int" || base == "Int") && fe.field.name == "toString" {
+                        return "String".into();
                     }
                     if let Some(m) = ctx
                         .checked
@@ -308,7 +321,7 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
             right,
             ..
         }) => infer_type_name(right, ctx),
-        // C9d: String + String
+        // C9d: String + String; C13c: String + Int / Int + String
         Expr::Binary(BinaryExpr {
             op: BinOp::Add,
             left,
@@ -318,6 +331,8 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
             let lt = infer_type_name(left, ctx);
             let rt = infer_type_name(right, ctx);
             if lt == "String" && rt == "String" {
+                "String".into()
+            } else if (lt == "String" && rt == "Int") || (lt == "Int" && rt == "String") {
                 "String".into()
             } else {
                 "Int".into()
@@ -427,18 +442,43 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
             let rt =
                 resolve_type_name(&b.right, ctx).unwrap_or_else(|| infer_type_name(&b.right, ctx));
             // C9d: String + String → heap concat (const char *).
-            if matches!(b.op, BinOp::Add)
-                && (lt == "String" || matches!(b.left.as_ref(), Expr::String(_)))
-                && (rt == "String" || matches!(b.right.as_ref(), Expr::String(_)))
-            {
-                return format!(
-                    "({{ const char *__a = ({left}); const char *__b = ({right}); \
-                     size_t __la = __a ? strlen(__a) : 0; size_t __lb = __b ? strlen(__b) : 0; \
-                     char *__r = (char *)malloc(__la + __lb + 1); \
-                     if (__r == NULL) {{ fputs(\"aura: string concat OOM\\n\", stderr); abort(); }} \
-                     if (__la) memcpy(__r, __a, __la); if (__lb) memcpy(__r + __la, __b, __lb); \
-                     __r[__la + __lb] = '\\0'; (const char *)__r; }})"
-                );
+            // C13c: String + Int / Int + String — coerce Int via aura_i64_to_string.
+            if matches!(b.op, BinOp::Add) {
+                let left_str = lt == "String" || matches!(b.left.as_ref(), Expr::String(_));
+                let right_str = rt == "String" || matches!(b.right.as_ref(), Expr::String(_));
+                let left_int = lt == "Int" || matches!(b.left.as_ref(), Expr::Int(_));
+                let right_int = rt == "Int" || matches!(b.right.as_ref(), Expr::Int(_));
+                if left_str && right_str {
+                    return format!(
+                        "({{ const char *__a = ({left}); const char *__b = ({right}); \
+                         size_t __la = __a ? strlen(__a) : 0; size_t __lb = __b ? strlen(__b) : 0; \
+                         char *__r = (char *)malloc(__la + __lb + 1); \
+                         if (__r == NULL) {{ fputs(\"aura: string concat OOM\\n\", stderr); abort(); }} \
+                         if (__la) memcpy(__r, __a, __la); if (__lb) memcpy(__r + __la, __b, __lb); \
+                         __r[__la + __lb] = '\\0'; (const char *)__r; }})"
+                    );
+                }
+                if left_str && right_int {
+                    // Free the temporary decimal from toString after memcpy into result.
+                    return format!(
+                        "({{ const char *__a = ({left}); const char *__b = aura_i64_to_string({right}); \
+                         size_t __la = __a ? strlen(__a) : 0; size_t __lb = __b ? strlen(__b) : 0; \
+                         char *__r = (char *)malloc(__la + __lb + 1); \
+                         if (__r == NULL) {{ fputs(\"aura: string concat OOM\\n\", stderr); abort(); }} \
+                         if (__la) memcpy(__r, __a, __la); if (__lb) memcpy(__r + __la, __b, __lb); \
+                         __r[__la + __lb] = '\\0'; free((void *)__b); (const char *)__r; }})"
+                    );
+                }
+                if left_int && right_str {
+                    return format!(
+                        "({{ const char *__a = aura_i64_to_string({left}); const char *__b = ({right}); \
+                         size_t __la = __a ? strlen(__a) : 0; size_t __lb = __b ? strlen(__b) : 0; \
+                         char *__r = (char *)malloc(__la + __lb + 1); \
+                         if (__r == NULL) {{ fputs(\"aura: string concat OOM\\n\", stderr); abort(); }} \
+                         if (__la) memcpy(__r, __a, __la); if (__lb) memcpy(__r + __la, __b, __lb); \
+                         __r[__la + __lb] = '\\0'; free((void *)__a); (const char *)__r; }})"
+                    );
+                }
             }
             // C4e: String content equality (null-safe strcmp); class stays pointer identity.
             if matches!(b.op, BinOp::Coalesce) {
@@ -1243,8 +1283,17 @@ pub(crate) fn resolve_type_name(expr: &Expr, ctx: &EmitCtx<'_>) -> Option<String
             }
             if let Expr::Field(fe) = c.callee.as_ref() {
                 // C4u: method return with mono type-arg substitution (mirror infer_type_name).
+                // Fall back to infer for arithmetic receivers: (0-1).toString().
                 if let Some(recv) = resolve_type_name(&fe.object, ctx)
                     .or_else(|| resolve_class_of_expr(&fe.object, ctx).map(|s| s.to_string()))
+                    .or_else(|| {
+                        let t = infer_type_name(&fe.object, ctx);
+                        if t == "Unit" || t.is_empty() {
+                            None
+                        } else {
+                            Some(t)
+                        }
+                    })
                 {
                     let base = mono_base_name(&recv, ctx.checked).unwrap_or(recv.as_str());
                     // C13b: Array.get/pop element type (needed for a.get(i).trim() chains).
@@ -1271,6 +1320,10 @@ pub(crate) fn resolve_type_name(expr: &Expr, ctx: &EmitCtx<'_>) -> Option<String
                             "toInt" => return Some("Opt_Int".into()),
                             _ => {}
                         }
+                    }
+                    // C13c: Int.toString() → String
+                    if (recv == "Int" || base == "Int") && fe.field.name == "toString" {
+                        return Some("String".into());
                     }
                     // C9c: builtin Array.clone returns same mono key.
                     if (base == "Array" || recv.starts_with("Array_")) && fe.field.name == "clone" {

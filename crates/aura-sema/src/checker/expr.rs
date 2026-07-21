@@ -367,7 +367,11 @@ impl Checker {
                 match b.op {
                     BinOp::Add => {
                         // C9d: String + String → String (heap concat in codegen).
+                        // C13c: String + Int / Int + String → String (Int via toString).
                         if l == Ty::String && r == Ty::String {
+                            return Ok(Ty::String);
+                        }
+                        if (l == Ty::String && r == Ty::Int) || (l == Ty::Int && r == Ty::String) {
                             return Ok(Ty::String);
                         }
                         if l != Ty::Int || r != Ty::Int {

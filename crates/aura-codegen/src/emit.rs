@@ -87,7 +87,9 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("int aura_main(void);\n\n");
     // C7a: tagged optional primitives (Int? / Bool?).
     out.push_str("typedef struct { _Bool has; int64_t value; } aura_opt_i64;\n");
-    out.push_str("typedef struct { _Bool has; _Bool value; } aura_opt_bool;\n\n");
+    out.push_str("typedef struct { _Bool has; _Bool value; } aura_opt_bool;\n");
+    // C13c: Int.toString — malloc'd decimal; caller owns (like other owned strings).
+    out.push_str("const char *aura_i64_to_string(int64_t v);\n\n");
 
     // Stable class tags for interface dispatch (C9a: include generic monomorphs).
     let mut tag_monos: Vec<String> = Vec::new();

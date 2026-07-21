@@ -389,9 +389,37 @@ impl Checker {
                 }
             }
 
+            // C13c: builtin Int methods.
+            if obj_ty == Ty::Int {
+                match fe.field.name.as_str() {
+                    "toString" => {
+                        if !c.args.is_empty() {
+                            return Err(SemaError {
+                                message: format!(
+                                    "`Int.toString` expects 0 arguments, got {}",
+                                    c.args.len()
+                                ),
+                                span: c.span,
+                            });
+                        }
+                        return Ok(if safe_wrap {
+                            Ty::Nullable(Box::new(Ty::String))
+                        } else {
+                            Ty::String
+                        });
+                    }
+                    other => {
+                        return Err(SemaError {
+                            message: format!("unknown method `{other}` on `Int`"),
+                            span: fe.field.span,
+                        });
+                    }
+                }
+            }
+
             return Err(SemaError {
                 message: format!(
-                    "method call requires a class, interface, String, or bounded type parameter, got {}",
+                    "method call requires a class, interface, String, Int, or bounded type parameter, got {}",
                     obj_ty.display()
                 ),
                 span: c.span,
