@@ -128,6 +128,10 @@ cargo run -p aura-cli -- run examples/notes
 
 Pushing a tag `v*` runs [`.github/workflows/release.yml`](../../.github/workflows/release.yml): build tarballs (Linux amd64, macOS arm64/amd64) and attach them to a **GitHub Release**.
 
+### Integrity & signing (roadmap)
+
+Alpha releases ship per-archive `.sha256` files from packaging; there is **no** signed manifest or OS notarization yet. The planned path (minisign-signed `SHA256SUMS` → optional install-time verify → later macOS notarization / Windows Authenticode) is recorded in [C13s signing design note](../plans/2026-07-21-c13s-signing-note.md).
+
 Maintainer flow (version dump → changelog → commit → tag → CI):
 
 ```text
