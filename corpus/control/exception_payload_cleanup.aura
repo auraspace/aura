@@ -1,0 +1,38 @@
+// S1.3: caught class payloads are cleaned up while nested GC objects remain live.
+package demo.exception_payload_cleanup
+
+class Failure(val message: String) {
+  fun size(): Int {
+    return this.message.len
+  }
+}
+
+class Keeper(val value: Int) {
+  fun get(): Int {
+    return this.value
+  }
+}
+
+fun throwFailure(i: Int) {
+  throw Failure("failure-" + i.toString())
+}
+
+fun main(): Int {
+  val keeper = Keeper(99)
+  var total = 0
+  for (i in 0..80) {
+    try {
+      throwFailure(i)
+    } catch (e: Failure) {
+      total = total + e.size()
+    }
+  }
+  gc_collect()
+  if (keeper.get() != 99) {
+    return 1
+  }
+  if (total <= 0) {
+    return 2
+  }
+  return 0
+}

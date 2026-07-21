@@ -176,16 +176,20 @@ cargo run -p aura-cli -- run corpus/std_collections/hof
 
 ## C13 additions (batch closed)
 
-| Path                              | Intent                                 |
-| --------------------------------- | -------------------------------------- |
-| `expr/method_temp.aura`           | Method recv on call result (C13b)      |
-| `expr/int_tostring.aura`          | `Int.toString` + interp (C13c)         |
-| `expr/string_case.aura`           | `toLower` / `toUpper` ASCII (C13m)     |
-| `generic/array_string_free.aura`  | Free String elems on Array drop (C13d) |
-| `fun/lambda_capture_fun.aura`     | Fun-in-env capture (C13e)              |
-| `fun/lambda_capture_var_str.aura` | `var` String capture (C13f)            |
-| `fun/lambda_capture_stress.aura`  | Capture stress audit (C13g)            |
-| `std_io/eprint/`                  | `eprint` / `eprintln` (C13n)           |
-| `std_io/try_write_file/`          | `tryWriteFile` (C13o)                  |
+| Path                                     | Intent                                        |
+| ---------------------------------------- | --------------------------------------------- |
+| `expr/method_temp.aura`                  | Method recv on call result (C13b)             |
+| `expr/int_tostring.aura`                 | `Int.toString` + interp (C13c)                |
+| `expr/string_case.aura`                  | `toLower` / `toUpper` ASCII (C13m)            |
+| `generic/array_string_free.aura`         | Free String elems on Array drop (C13d)        |
+| `fun/lambda_capture_fun.aura`            | Fun-in-env capture (C13e)                     |
+| `fun/lambda_capture_var_str.aura`        | `var` String capture (C13f)                   |
+| `fun/lambda_capture_stress.aura`         | Capture stress audit (C13g)                   |
+| `fun/lambda_memory_safety.aura`          | Nested Fun/shared-box cleanup stress (S1.3)   |
+| `class/gc_nested_churn.aura`             | Nested GC object retention under churn (S1.3) |
+| `generic/array_memory_safety.aura`       | Array move/clone/clear/nested cleanup (S1.3)  |
+| `control/exception_payload_cleanup.aura` | Repeated caught class payload cleanup (S1.3)  |
+| `std_io/eprint/`                         | `eprint` / `eprintln` (C13n)                  |
+| `std_io/try_write_file/`                 | `tryWriteFile` (C13o)                         |
 
 Registry K1 offline: unit tests in `crates/aura-cli` (`AURA_REGISTRY_INDEX` fixture). Dogfood: `examples/wc` uses method-on-temp + `toString` (C13q).

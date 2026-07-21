@@ -1,0 +1,51 @@
+// S1.3: nested Fun capture, shared var boxes, and closure cleanup under GC.
+package demo.lambda_memory_safety
+
+fun makeCounter(seed: Int): () -> Int {
+  var count = seed
+  val add = (x: Int) => count + x
+  return () => {
+    count = count + 1
+    return add(0)
+  }
+}
+
+fun main(): Int {
+  var shared = 2
+  var label = "a"
+  val inner = (x: Int) => x + shared
+  val outer = () => {
+    shared = shared + 1
+    label = label + "b"
+    return inner(shared) + label.len
+  }
+
+  val first = outer()
+  gc_collect()
+  val second = outer()
+  if (first != 8 || second != 11 || shared != 4 || label.len != 3) {
+    return 1
+  }
+
+  val escaped = makeCounter(10)
+  gc_collect()
+  val e1 = escaped()
+  gc_collect()
+  val e2 = escaped()
+  if (e1 != 11 || e2 != 12) {
+    return 2
+  }
+
+  var total = 0
+  for (i in 0..60) {
+    val local = i
+    val short = () => local + 1
+    total = total + short()
+  }
+  // The short-lived envs must be released without affecting escaped closures.
+  if (total != 1830) {
+    return 3
+  }
+  gc_collect()
+  return escaped() - 13
+}

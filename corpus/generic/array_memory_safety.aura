@@ -1,0 +1,50 @@
+// S1.3: exercise owned String and nested Array buffers across every owner path.
+package demo.array_memory_safety
+
+fun makeRow(seed: String): Array<String> {
+  val row: Array<String> = Array(0)
+  row.push(seed)
+  row.push(seed + "-tail")
+  return row
+}
+
+fun main(): Int {
+  var source: Array<String> = Array(0)
+  source.push("move-a")
+  source.push("move-b")
+  val moved = source
+  if (source.len != 0 || moved.len != 2) {
+    return 1
+  }
+
+  val copied = moved.clone()
+  moved.clear()
+  if (moved.len != 0 || copied.get(0) != "move-a") {
+    return 2
+  }
+
+  var replaced = makeRow("old")
+  replaced = makeRow("new")
+  if (replaced.get(0) != "new") {
+    return 3
+  }
+
+  val nested: Array<Array<String>> = Array(0)
+  nested.push(copied)
+  nested.push(makeRow("nested"))
+  val nestedRow = nested.get(1)
+  if (nested.len != 2 || nestedRow.get(1) != "nested-tail") {
+    return 4
+  }
+  nested.clear()
+  if (nested.len != 0) {
+    return 5
+  }
+
+  nested.push(makeRow("again"))
+  val againRow = nested.get(0)
+  if (againRow.get(0) != "again") {
+    return 6
+  }
+  return 0
+}

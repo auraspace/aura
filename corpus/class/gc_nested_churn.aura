@@ -1,0 +1,43 @@
+// S1.3: nested GC objects survive collection while only reachable through fields.
+package demo.gc_nested_churn
+
+class Leaf(val value: Int) {
+  fun get(): Int {
+    return this.value
+  }
+}
+
+class Branch(val left: Leaf, val right: Leaf) {
+  fun sum(): Int {
+    return this.left.get() + this.right.get()
+  }
+}
+
+class Root(val branch: Branch) {
+  fun value(): Int {
+    return this.branch.sum()
+  }
+}
+
+fun makeRoot(seed: Int): Root {
+  val left = Leaf(seed)
+  val right = Leaf(seed + 1)
+  val branch = Branch(left, right)
+  return Root(branch)
+}
+
+fun main(): Int {
+  val keep = makeRoot(40)
+  for (i in 0..40) {
+    val dropped = makeRoot(i)
+    if (dropped.value() < 0) {
+      return 1
+    }
+  }
+  gc_collect()
+  if (keep.value() != 81) {
+    return 2
+  }
+  gc_collect()
+  return keep.value() - 81
+}
