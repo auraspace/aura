@@ -119,6 +119,24 @@ pub fun set(): Set<String> { return Set<String>(Array(0)) }
 pub class HashMap<K : Hashable, V>(var keys: Array<K>, var vals: Array<V>, var state: Array<Int>) {
   pub fun capacity(): Int { return this.keys.len }
 
+  /// Return live keys in logical table order, excluding empty/tombstone slots.
+  pub fun keyArray(): Array<K> {
+    val out: Array<K> = Array(0)
+    for (i in 0..this.state.len) {
+      if (this.state.get(i) == 1) { out.push(this.keys.get(i)) }
+    }
+    return out
+  }
+
+  /// Return values in the same logical order as keyArray().
+  pub fun valueArray(): Array<V> {
+    val out: Array<V> = Array(0)
+    for (i in 0..this.state.len) {
+      if (this.state.get(i) == 1) { out.push(this.vals.get(i)) }
+    }
+    return out
+  }
+
   pub fun len(): Int {
     var n: Int = 0
     for (i in 0..this.state.len) {
@@ -308,6 +326,9 @@ pub class HashSet<T : Hashable>(var table: HashMap<T, Bool>) {
   pub fun len(): Int { return this.table.len() }
   pub fun isEmpty(): Bool { return this.table.isEmpty() }
 
+  /// Return live keys in logical table order.
+  pub fun toArray(): Array<T> { return this.table.keyArray() }
+
   pub fun add(k: T): Bool { return this.table.put(k, true) }
   pub fun contains(k: T): Bool { return this.table.contains(k) }
   pub fun remove(k: T): Bool { return this.table.remove(k) }
@@ -328,6 +349,30 @@ pub class HashSet<T : Hashable>(var table: HashMap<T, Bool>) {
 
 pub fun hash_set(): HashSet<String> {
   return HashSet<String>(HashMap<String, Bool>(Array(16), Array(16), Array(16)))
+}
+
+/// Transform each live map entry in logical table order.
+/// Free-function form keeps generic type inference compatible with C2b.
+pub fun map_hash_map_values<K : Hashable, V, R>(h: HashMap<K, V>, f: (K, V) -> R): Array<R> {
+  val out: Array<R> = Array(0)
+  for (i in 0..h.state.len) {
+    if (h.state.get(i) == 1) { out.push(f(h.keys.get(i), h.vals.get(i))) }
+  }
+  return out
+}
+
+/// Keep live set keys matching the predicate in logical table order.
+pub fun filter_hash_set<T : Hashable>(s: HashSet<T>, pred: (T) -> Bool): Array<T> {
+  val out: Array<T> = Array(0)
+  for (x in s) { if (pred(x)) { out.push(x) } }
+  return out
+}
+
+/// Transform live set keys in logical table order.
+pub fun map_hash_set<T : Hashable, R>(s: HashSet<T>, f: (T) -> R): Array<R> {
+  val out: Array<R> = Array(0)
+  for (x in s) { out.push(f(x)) }
+  return out
 }
 
 /// Generic higher-order helpers. Type arguments may be explicit, for example

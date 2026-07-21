@@ -18,10 +18,23 @@ fun main() {
   if (count == 2 && s.remove(1) && !s.contains(1) && s.len() == 1) {
     println("generic-set-remove-ok")
   }
+  val items = s.toArray()
+  if (items.len == 1 && items.get(0) == 2) {
+    println("generic-set-snapshot-ok")
+  }
+  val selected = filter_hash_set<Int>(s, (x: Int) => x > 1)
+  val mapped = map_hash_set<Int, String>(s, (x: Int) => x.toString())
+  if (selected.len == 1 && selected.get(0) == 2 && mapped.len == 1 && mapped.get(0) == "2") {
+    println("generic-set-hof-ok")
+  }
 
   val words = hash_set()
   words.add("aura")
   if (words.contains("aura") && words.len() == 1) {
     println("generic-string-set-ok")
+  }
+  val upper = map_hash_set<String, String>(words, (x: String) => x + "!")
+  if (upper.len == 1 && upper.get(0) == "aura!") {
+    println("generic-string-set-map-ok")
   }
 }

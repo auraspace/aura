@@ -101,6 +101,11 @@ When you resolve debt, update or remove the matching entry.
 
 - Resolved: generic open-addressing `HashSet<T : Hashable>` backed by `HashMap<T, Bool>`, String factory, Int-key corpus, iteration API, and collection docs.
 
+### C18 generic hash-collection HOFs (2026-07-21)
+
+- Resolved: `HashMap.keyArray`/`valueArray`, `HashSet.toArray`, and generic free functions `map_hash_map_values`, `filter_hash_set`, and `map_hash_set`; Int and String runtime corpus coverage added.
+- Limitation: Aura methods cannot declare their own type parameters (C2b), so HOFs use explicit free-function names and return arrays rather than entry tuples or new collections.
+
 ### C13 batch (2026-07-21)
 
 - Resolved C13a–t: method-on-temp; `Int.toString` + String↔Int `+`; Array\<String\> elem free; Fun + `var` String captures + stress; capture reject diags; registry K1 offline (index/semver/fetch/build); `toLower`/`toUpper`; eprint corpus; `tryWriteFile`; Hashable spike; `examples/wc` polish; signing design note; docs close.

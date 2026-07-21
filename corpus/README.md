@@ -108,6 +108,9 @@ Sample `.aura` programs for the compiler: parse/typecheck (`aura check`), native
 | `std_io/app`                          | Explicit `import std.io` + `println` (C3z)                                                          |
 | `std_io/prelude`                      | Auto-prelude `std.io` without import (C4g)                                                          |
 | `std_io/files`                        | `readFile` / `writeFile` / `appendFile` / `fileExists` / `fileSize` (C11a)                          |
+| `std_collections/hashmap_int`         | Generic `HashMap<Int,String>` snapshots and map-entry HOF (C18)                                     |
+| `std_collections/hashmap_str`         | Generic `HashMap<String,String>` map-entry HOF (C18)                                                |
+| `std_collections/hashset_int`         | Generic `HashSet<Int>` snapshots and filter/map HOFs; String map (C18)                              |
 | `std_io/try_read_file`                | `tryReadFile(path): String?` null on missing/error; keep throwing `readFile` (C12p)                 |
 | `std_io/args`                         | `std.io.args(): Array<String>` process argv (C12b); optional `aura run … -- hello` (C12c)           |
 | `std_io/stdin`                        | `readLine(): String?` + `readAllStdin()` (C12d); smoke EOF without pipe; `printf … \| aura run …`   |

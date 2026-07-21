@@ -113,6 +113,10 @@ Prefer package tests that exercise `assert` / `assert_eq` for `Int` / `String` /
 | `HashMap<K,V>`                                    | Generic open addressing with `K: Hashable` (C14)          |
 | `HashSet<T>`                                      | Generic open addressing backed by `HashMap<T,Bool>` (C15) |
 | `Hashable`                                        | `hash(): Int`; built-in for `Int` and `String` (C14)      |
+| `keyArray()` / `valueArray()`                     | Live `HashMap` snapshots in logical table order (C18)     |
+| `toArray()`                                       | Live `HashSet` snapshot in logical table order (C18)      |
+| `map_hash_map_values`                             | Generic `(K,V) -> R` map-entry HOF (C18)                  |
+| `filter_hash_set` / `map_hash_set`                | Generic set HOFs returning arrays (C18)                   |
 | `Iterable<E>`                                     | `len` + `get` protocol for `for-in`                       |
 | `map<T,R>` / `filter<T>` / `fold<T,A>`            | Generic array HOFs; verified for `Int` and `String` (C16) |
 | `map_ints` / `filter_ints` / `fold_ints`          | Int compatibility wrappers                                |
@@ -130,9 +134,9 @@ aura run corpus/std_collections/hof_str
 aura run corpus/std_collections/join
 ```
 
-Generic HOFs over user-defined class or struct elements are not yet supported by
-generic codegen; the compiler currently only has a sema/typechecking regression
-for that shape.
+Hash collection HOFs are free functions because methods cannot declare their own
+type parameters yet (C2b). They return arrays in logical table order and skip
+empty/tombstone slots; they do not mutate the source collection.
 
 ## How the CLI finds `std.*`
 
