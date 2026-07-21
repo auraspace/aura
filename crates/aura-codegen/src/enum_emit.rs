@@ -7,7 +7,12 @@ use aura_sema::{CheckedFile, Ty};
 
 use crate::names::*;
 
-pub(crate) fn emit_enum_typedef(out: &mut String, checked: &CheckedFile, e: &EnumDecl, args: &[Ty]) {
+pub(crate) fn emit_enum_typedef(
+    out: &mut String,
+    checked: &CheckedFile,
+    e: &EnumDecl,
+    args: &[Ty],
+) {
     let params: Vec<String> = e.type_params.iter().map(|p| p.name.name.clone()).collect();
     let pkg = enum_decl_package(e, checked);
     let mono = type_mono(&pkg, &e.name.name, args);
@@ -32,7 +37,12 @@ pub(crate) fn emit_enum_typedef(out: &mut String, checked: &CheckedFile, e: &Enu
     let _ = writeln!(out, "  }} data;\n}} {};\n", c_enum_type(&mono));
 }
 
-pub(crate) fn emit_enum_forwards(out: &mut String, checked: &CheckedFile, e: &EnumDecl, args: &[Ty]) {
+pub(crate) fn emit_enum_forwards(
+    out: &mut String,
+    checked: &CheckedFile,
+    e: &EnumDecl,
+    args: &[Ty],
+) {
     let params: Vec<String> = e.type_params.iter().map(|p| p.name.name.clone()).collect();
     let pkg = enum_decl_package(e, checked);
     let mono = type_mono(&pkg, &e.name.name, args);

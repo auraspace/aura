@@ -309,7 +309,10 @@ pub(crate) fn write_lock_entries(
     );
     for (name, entry) in entries {
         match entry {
-            LockWriteEntry::Path { path: p, transitive } => {
+            LockWriteEntry::Path {
+                path: p,
+                transitive,
+            } => {
                 if *transitive {
                     body.push_str(&format!("{name} = \"{p}\"  # transitive\n"));
                 } else {

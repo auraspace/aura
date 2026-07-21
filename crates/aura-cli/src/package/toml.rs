@@ -71,25 +71,22 @@ pub(crate) fn parse_aura_toml(text: &str) -> Result<AuraToml, String> {
         match section.as_str() {
             "package" if key == "name" => {
                 out.package_name = Some(
-                    parse_toml_string(val_raw)
-                        .map_err(|e| format!("line {}: {e}", lineno + 1))?,
+                    parse_toml_string(val_raw).map_err(|e| format!("line {}: {e}", lineno + 1))?,
                 );
             }
             "bin" if in_bin && key == "name" => {
                 out.bin_name = Some(
-                    parse_toml_string(val_raw)
-                        .map_err(|e| format!("line {}: {e}", lineno + 1))?,
+                    parse_toml_string(val_raw).map_err(|e| format!("line {}: {e}", lineno + 1))?,
                 );
             }
             "bin" if in_bin && key == "path" => {
                 out.bin_path = Some(
-                    parse_toml_string(val_raw)
-                        .map_err(|e| format!("line {}: {e}", lineno + 1))?,
+                    parse_toml_string(val_raw).map_err(|e| format!("line {}: {e}", lineno + 1))?,
                 );
             }
             "dependencies" => {
-                let dep = parse_dep_spec(val_raw)
-                    .map_err(|e| format!("line {}: {e}", lineno + 1))?;
+                let dep =
+                    parse_dep_spec(val_raw).map_err(|e| format!("line {}: {e}", lineno + 1))?;
                 out.dependencies.insert(key.to_string(), dep);
             }
             _ => {}
@@ -127,12 +124,10 @@ fn parse_dep_spec(v: &str) -> Result<DepSpec, String> {
         return match (path, version) {
             (Some(p), None) => Ok(DepSpec::Path(p)),
             (None, Some(ver)) => Ok(DepSpec::Version(ver)),
-            (Some(_), Some(_)) => Err(
-                "dependency table cannot set both `path` and `version` (use one source)".into(),
-            ),
-            (None, None) => Err(
-                "dependency table must include `path` or `version`".into(),
-            ),
+            (Some(_), Some(_)) => {
+                Err("dependency table cannot set both `path` and `version` (use one source)".into())
+            }
+            (None, None) => Err("dependency table must include `path` or `version`".into()),
         };
     }
     let s = parse_toml_string(v)?;
@@ -172,8 +167,7 @@ fn parse_toml_string(v: &str) -> Result<String, String> {
     if let Some(inner) = v.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')) {
         return Ok(inner.to_string());
     }
-    if v
-        .chars()
+    if v.chars()
         .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.')
     {
         return Ok(v.to_string());

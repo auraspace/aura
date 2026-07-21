@@ -55,7 +55,10 @@ pub(crate) fn build_from_file_with(
 
     let c_path = parent.join(format!(
         "{}.aura.c",
-        out_bin.file_name().and_then(|s| s.to_str()).unwrap_or("out")
+        out_bin
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("out")
     ));
     fs::write(&c_path, c_src).map_err(|e| CodegenError::Io(e.to_string()))?;
 

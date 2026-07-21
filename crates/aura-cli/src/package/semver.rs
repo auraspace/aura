@@ -221,7 +221,9 @@ pub fn parse_version(input: &str) -> Result<Version, String> {
 
 fn parse_comp(s: &str, full: &str) -> Result<u64, String> {
     if s.is_empty() || !s.bytes().all(|b| b.is_ascii_digit()) {
-        return Err(format!("invalid version `{full}`: non-numeric component `{s}`"));
+        return Err(format!(
+            "invalid version `{full}`: non-numeric component `{s}`"
+        ));
     }
     // Disallow leading zeros except plain "0"
     if s.len() > 1 && s.starts_with('0') {
@@ -236,12 +238,8 @@ fn is_valid_prerelease(p: &str) -> bool {
     if p.is_empty() {
         return false;
     }
-    p.split('.').all(|seg| {
-        !seg.is_empty()
-            && seg
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b == b'-')
-    })
+    p.split('.')
+        .all(|seg| !seg.is_empty() && seg.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'))
 }
 
 /// Parse a version requirement. Bare versions mean caret (`"1.2"` → `^1.2`).

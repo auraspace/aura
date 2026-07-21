@@ -410,8 +410,7 @@ impl Parser {
                 }
                 let name = &value[start..j];
                 if name.is_empty()
-                    || !name.chars().next().unwrap().is_ascii_alphabetic()
-                        && !name.starts_with('_')
+                    || !name.chars().next().unwrap().is_ascii_alphabetic() && !name.starts_with('_')
                     || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
                 {
                     return Err(ParseError {

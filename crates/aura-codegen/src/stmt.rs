@@ -189,12 +189,7 @@ pub(crate) fn emit_free_fun_owners(
 }
 
 /// C12m/C13f: release a refcounted by-ref capture box (Int/Bool/String).
-pub(crate) fn emit_release_box_local(
-    out: &mut String,
-    indent: usize,
-    name: &str,
-    ty_key: &str,
-) {
+pub(crate) fn emit_release_box_local(out: &mut String, indent: usize, name: &str, ty_key: &str) {
     let p = pad(indent);
     let n = mangle_ident(name);
     let rel = box_release_fn(ty_key);
@@ -279,10 +274,7 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
             // C12m/C13f: `var` Int/Bool/String that is by-ref captured → heap box local.
             let needs_box = v.mutable
                 && (ty_name == "Int" || ty_name == "Bool" || ty_name == "String")
-                && ctx
-                    .checked
-                    .by_ref_capture_names()
-                    .contains(&v.name.name);
+                && ctx.checked.by_ref_capture_names().contains(&v.name.name);
             if needs_box {
                 ctx.mark_box_owner(&v.name.name);
             }

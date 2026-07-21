@@ -57,7 +57,10 @@ fn nested_array_holds_string(elem: &Ty) -> bool {
 /// Emit free of owned string pointers in `arr_expr.data[0..arr_expr.len)`.
 /// `arr_expr` is a C lvalue/expression with `.data` / `.len` (e.g. `parts` or `this->data[__i]`).
 pub(crate) fn emit_free_string_elems(out: &mut String, indent: &str, arr_expr: &str) {
-    let _ = writeln!(out, "{indent}for (int64_t __sf = 0; __sf < ({arr_expr}).len; __sf++) {{");
+    let _ = writeln!(
+        out,
+        "{indent}for (int64_t __sf = 0; __sf < ({arr_expr}).len; __sf++) {{"
+    );
     let _ = writeln!(
         out,
         "{indent}  if (({arr_expr}).data[__sf] != NULL) {{ free((void *)({arr_expr}).data[__sf]); ({arr_expr}).data[__sf] = NULL; }}"
@@ -66,7 +69,12 @@ pub(crate) fn emit_free_string_elems(out: &mut String, indent: &str, arr_expr: &
 }
 
 /// Emit free of one nested Array element at `nested_expr` (`.data` buffer + String elems if any).
-fn emit_free_one_nested_array(out: &mut String, indent: &str, nested_expr: &str, free_strings: bool) {
+fn emit_free_one_nested_array(
+    out: &mut String,
+    indent: &str,
+    nested_expr: &str,
+    free_strings: bool,
+) {
     let _ = writeln!(out, "{indent}if (({nested_expr}).data != NULL) {{");
     if free_strings {
         emit_free_string_elems(out, &format!("{indent}  "), nested_expr);
@@ -80,7 +88,12 @@ fn emit_free_one_nested_array(out: &mut String, indent: &str, nested_expr: &str,
 
 /// C13d/C8f: free Array contents for a local/field (strings, nested arrays) then free the buffer.
 /// Used by scope drop (`emit_free_array_local`).
-pub(crate) fn emit_array_contents_free(out: &mut String, indent: usize, name_c: &str, ty_key: &str) {
+pub(crate) fn emit_array_contents_free(
+    out: &mut String,
+    indent: usize,
+    name_c: &str,
+    ty_key: &str,
+) {
     let p = " ".repeat(indent);
     let _ = writeln!(out, "{p}if ({name_c}.data != NULL) {{");
     if let Some(elem) = array_elem_key(ty_key) {
@@ -353,7 +366,9 @@ pub(crate) fn emit_array_mono(out: &mut String, elem: &Ty, checked: &CheckedFile
             out.push_str("          size_t __sn = strlen(this->data[__i].data[__j]);\n");
             out.push_str("          char *__sm = (char *)malloc(__sn + 1);\n");
             out.push_str("          if (__sm == NULL) {\n");
-            out.push_str("            fputs(\"aura: Array nested string clone failed\\n\", stderr);\n");
+            out.push_str(
+                "            fputs(\"aura: Array nested string clone failed\\n\", stderr);\n",
+            );
             out.push_str("            abort();\n");
             out.push_str("          }\n");
             out.push_str(

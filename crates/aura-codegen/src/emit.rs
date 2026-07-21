@@ -80,7 +80,9 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     // C12m/C13f: shared mutable boxes for var Int/Bool/String captures.
     out.push_str("typedef struct aura_box_i64 { int64_t value; int32_t refs; } aura_box_i64;\n");
     out.push_str("typedef struct aura_box_bool { _Bool value; int32_t refs; } aura_box_bool;\n");
-    out.push_str("typedef struct aura_box_str { const char *value; int32_t refs; } aura_box_str;\n");
+    out.push_str(
+        "typedef struct aura_box_str { const char *value; int32_t refs; } aura_box_str;\n",
+    );
     out.push_str("aura_box_i64 *aura_box_i64_new(int64_t v);\n");
     out.push_str("void aura_box_i64_retain(aura_box_i64 *b);\n");
     out.push_str("void aura_box_i64_release(aura_box_i64 *b);\n");
