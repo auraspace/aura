@@ -1,0 +1,30 @@
+// C13b — method call on temporary (Array.get result is not a local)
+package demo.expr
+
+fun main() {
+  val a: Array<String> = Array(3)
+  a.set(0, "  hi  ")
+  a.set(1, "  42  ")
+  a.set(2, "nope")
+
+  // Call-result receiver: must not emit aura_method_Unknown_* or &rvalue
+  assert_eq(a.get(0).trim(), "hi")
+  assert_eq(a.get(0).trimStart(), "hi  ")
+  assert_eq(a.get(0).trimEnd(), "  hi")
+
+  // Chain String methods on temps
+  val n = a.get(1).trim().toInt()
+  assert_eq(n != null, true)
+  assert_eq(n!!, 42)
+
+  // Index / contains on get result
+  assert_eq(a.get(2).indexOf("op"), 1)
+  assert_eq(a.get(2).startsWith("no"), true)
+  assert_eq(a.get(2).contains("ope"), true)
+
+  // split on temp → join-ish check via len
+  val parts = "a,b".split(",")
+  assert_eq(parts.get(0).trim().len, 1)
+
+  println("ok")
+}

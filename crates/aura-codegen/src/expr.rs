@@ -1247,6 +1247,16 @@ pub(crate) fn resolve_type_name(expr: &Expr, ctx: &EmitCtx<'_>) -> Option<String
                     .or_else(|| resolve_class_of_expr(&fe.object, ctx).map(|s| s.to_string()))
                 {
                     let base = mono_base_name(&recv, ctx.checked).unwrap_or(recv.as_str());
+                    // C13b: Array.get/pop element type (needed for a.get(i).trim() chains).
+                    // Must live in resolve_type_name (not only infer_type_name) so method
+                    // dispatch on call-result receivers sees String/class, not Unknown.
+                    if (base == "Array" || recv.starts_with("Array_"))
+                        && (fe.field.name == "get" || fe.field.name == "pop")
+                    {
+                        if let Some(elem) = array_elem_local_key(&recv, ctx.checked) {
+                            return Some(elem);
+                        }
+                    }
                     // Builtin String methods (needed for chains like s.trim().toInt()).
                     if recv == "String" || base == "String" {
                         match fe.field.name.as_str() {

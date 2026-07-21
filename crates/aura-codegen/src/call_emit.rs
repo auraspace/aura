@@ -168,7 +168,16 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
             }
         }
 
-        let obj_ty = resolve_type_name(&fe.object, ctx);
+        // C13b: prefer resolve_type_name; fall back to infer so call-result receivers
+        // (e.g. Array.get → String) dispatch to String/Array methods, not Unknown.
+        let obj_ty = resolve_type_name(&fe.object, ctx).or_else(|| {
+            let t = crate::expr::infer_type_name(&fe.object, ctx);
+            if t == "Unit" || t.is_empty() {
+                None
+            } else {
+                Some(t)
+            }
+        });
         let obj = emit_expr(&fe.object, ctx);
 
         // Interface method (C4d package mono; C8c mono args e.g. Boxable_Int)
@@ -424,10 +433,7 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
             }
             // C12h: trim / trimStart / trimEnd — ASCII whitespace (' ','\t','\n','\r').
             // Fresh malloc copy of the kept span (same ownership MVP as substring).
-            if matches!(
-                fe.field.name.as_str(),
-                "trim" | "trimStart" | "trimEnd"
-            ) {
+            if matches!(fe.field.name.as_str(), "trim" | "trimStart" | "trimEnd") {
                 let mname = fe.field.name.as_str();
                 let (do_start, do_end) = match mname {
                     "trim" => (true, true),
