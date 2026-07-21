@@ -4,11 +4,11 @@ version = 4
 
 [[package]]
 name = "aura-ast"
-version = "0.1.0"
+version = "0.1.0-alpha"
 
 [[package]]
 name = "aura-cli"
-version = "0.1.0"
+version = "0.1.0-alpha"
 dependencies = [
  "aura-ast",
  "aura-codegen",
@@ -19,7 +19,7 @@ dependencies = [
 
 [[package]]
 name = "aura-codegen"
-version = "0.1.0"
+version = "0.1.0-alpha"
 dependencies = [
  "aura-ast",
  "aura-sema",
@@ -27,21 +27,21 @@ dependencies = [
 
 [[package]]
 name = "aura-diagnostics"
-version = "0.1.0"
+version = "0.1.0-alpha"
 dependencies = [
  "aura-ast",
 ]
 
 [[package]]
 name = "aura-lexer"
-version = "0.1.0"
+version = "0.1.0-alpha"
 dependencies = [
  "aura-ast",
 ]
 
 [[package]]
 name = "aura-parser"
-version = "0.1.0"
+version = "0.1.0-alpha"
 dependencies = [
  "aura-ast",
  "aura-lexer",
@@ -49,7 +49,7 @@ dependencies = [
 
 [[package]]
 name = "aura-sema"
-version = "0.1.0"
+version = "0.1.0-alpha"
 dependencies = [
  "aura-ast",
  "aura-parser",

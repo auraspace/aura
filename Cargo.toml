@@ -12,7 +12,7 @@ members = [
 default-members = ["crates/aura-cli"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.0-alpha"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/auraspace/aura"
