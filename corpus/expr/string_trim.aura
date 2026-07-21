@@ -1,0 +1,40 @@
+// C12h — String.trim / trimStart / trimEnd (ASCII whitespace MVP)
+// Whitespace: space, tab, newline, carriage return. Returns owned copy.
+package demo.expr
+
+fun main() {
+  // trim both sides
+  assert_eq("  hi  ".trim(), "hi")
+  assert_eq("\thi\n".trim(), "hi")
+  assert_eq("\r\n  x  \t\r".trim(), "x")
+  assert_eq("nope".trim(), "nope")
+  assert_eq("".trim(), "")
+  assert_eq("   ".trim(), "")
+  assert_eq("\t\n\r ".trim(), "")
+
+  // trimStart only
+  assert_eq("  hi  ".trimStart(), "hi  ")
+  assert_eq("\thi".trimStart(), "hi")
+  assert_eq("hi  ".trimStart(), "hi  ")
+  assert_eq("".trimStart(), "")
+  assert_eq("   ".trimStart(), "")
+
+  // trimEnd only
+  assert_eq("  hi  ".trimEnd(), "  hi")
+  assert_eq("hi\n".trimEnd(), "hi")
+  assert_eq("  hi".trimEnd(), "  hi")
+  assert_eq("".trimEnd(), "")
+  assert_eq("   ".trimEnd(), "")
+
+  // Internal whitespace preserved
+  assert_eq("  a b  ".trim(), "a b")
+  assert_eq(" a\tb ".trim(), "a\tb")
+
+  // All three on same source
+  val s = " \tfoo\n "
+  assert_eq(s.trim(), "foo")
+  assert_eq(s.trimStart(), "foo\n ")
+  assert_eq(s.trimEnd(), " \tfoo")
+
+  println("ok")
+}

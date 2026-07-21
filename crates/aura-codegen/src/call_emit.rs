@@ -391,6 +391,49 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                 }
                 return call;
             }
+            // C12h: trim / trimStart / trimEnd — ASCII whitespace (' ','\t','\n','\r').
+            // Fresh malloc copy of the kept span (same ownership MVP as substring).
+            if matches!(
+                fe.field.name.as_str(),
+                "trim" | "trimStart" | "trimEnd"
+            ) {
+                let mname = fe.field.name.as_str();
+                let (do_start, do_end) = match mname {
+                    "trim" => (true, true),
+                    "trimStart" => (true, false),
+                    "trimEnd" => (false, true),
+                    _ => unreachable!(),
+                };
+                let start_loop = if do_start {
+                    "while (__i < __n && (__s[__i] == ' ' || __s[__i] == '\\t' || __s[__i] == '\\n' || __s[__i] == '\\r')) __i++;"
+                } else {
+                    ""
+                };
+                let end_loop = if do_end {
+                    "while (__j > __i && (__s[__j - 1] == ' ' || __s[__j - 1] == '\\t' || __s[__j - 1] == '\\n' || __s[__j - 1] == '\\r')) __j--;"
+                } else {
+                    ""
+                };
+                let call = format!(
+                    "({{ const char *__s = ({obj}); \
+                     if (__s == NULL) __s = \"\"; \
+                     size_t __n = strlen(__s); \
+                     size_t __i = 0; \
+                     size_t __j = __n; \
+                     {start_loop} \
+                     {end_loop} \
+                     size_t __len = __j - __i; \
+                     char *__r = (char *)malloc(__len + 1); \
+                     if (__r == NULL) aura_throw_string(\"String {mname} out of memory\"); \
+                     if (__len > 0) memcpy(__r, __s + __i, __len); \
+                     __r[__len] = '\\0'; \
+                     (const char *)__r; }})"
+                );
+                if fe.safe {
+                    return format!("(({obj}) == NULL ? NULL : {call})");
+                }
+                return call;
+            }
         }
 
         // Builtin Array methods

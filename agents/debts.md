@@ -49,9 +49,9 @@ When you resolve debt, update or remove the matching entry.
 - Area: builtin Array
 - Symptom: C8f deep-frees nested Array elems on drop/clear/set; prim/class/enum/struct still buffer-only
 - Why deferred: class elems are GC; prim/struct/enum need no free; only nested Array owned buffers
-- Progress: C12g `String.split` allocates owned segment copies (`malloc`); Array drop still frees only the pointer buffer (segment strings leak, same MVP as `substring`/`+`)
+- Progress: C12g `String.split` allocates owned segment copies (`malloc`); C12h `trim`/`trimStart`/`trimEnd` also malloc owned copies (same MVP as `substring`/`+`); Array drop still frees only the pointer buffer (segment strings leak)
 - Next step: free `const char *` elems that are known-owned, or adopt a shared string arena/RC; extend free loop if other owned buffer elems appear
-- Introduced: narrowed after C7j; nested free C8f; split note 2026-07-21
+- Introduced: narrowed after C7j; nested free C8f; split note 2026-07-21; trim note 2026-07-21
 
 ### Stdlib collections polish
 

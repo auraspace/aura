@@ -315,6 +315,25 @@ impl Checker {
                             arr
                         });
                     }
+                    // C12h: trim / trimStart / trimEnd — ASCII whitespace MVP
+                    // (' ', '\t', '\n', '\r'). No args; returns newly allocated String.
+                    "trim" | "trimStart" | "trimEnd" => {
+                        let mname = fe.field.name.as_str();
+                        if !c.args.is_empty() {
+                            return Err(SemaError {
+                                message: format!(
+                                    "`String.{mname}` expects 0 arguments, got {}",
+                                    c.args.len()
+                                ),
+                                span: c.span,
+                            });
+                        }
+                        return Ok(if safe_wrap {
+                            Ty::Nullable(Box::new(Ty::String))
+                        } else {
+                            Ty::String
+                        });
+                    }
                     // C11d: exclusive-end substring (UTF-8 byte indices).
                     "substring" => {
                         if c.args.len() != 2 {
