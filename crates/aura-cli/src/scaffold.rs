@@ -151,7 +151,9 @@ fn sanitize_to_package(stem: &str) -> Result<String, String> {
         return Err(format!("error: cannot derive package name from `{stem}`"));
     }
     // Must start with letter or underscore.
-    let first = s.chars().next().unwrap();
+    let Some(first) = s.chars().next() else {
+        return Err(format!("error: cannot derive package name from `{stem}`"));
+    };
     let s = if first.is_ascii_digit() {
         format!("p_{s}")
     } else {
@@ -208,6 +210,12 @@ mod tests {
         let (p, b) = names_from_arg("my-app").unwrap();
         assert_eq!(p, "my_app");
         assert_eq!(b, "my-app");
+    }
+
+    #[test]
+    fn names_from_invalid_symbols_returns_error() {
+        let err = names_from_arg("___").unwrap_err();
+        assert!(err.contains("cannot derive package name"), "{err}");
     }
 
     #[test]

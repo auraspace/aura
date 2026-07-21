@@ -6,16 +6,12 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use super::fetch::{
-    cache_root_from_env, crate_source_for_meta, ensure_installed, package_src_dir,
-};
+use super::fetch::{cache_root_from_env, crate_source_for_meta, ensure_installed, package_src_dir};
 use super::lock::{
     read_lock, verify_lock_against_toml, write_lock_entries, AuraLock, LockEntry, LockWriteEntry,
 };
 use super::registry::{RegistryIndex, VersionMeta};
-use super::semver::{
-    lock_pin_from_meta, parse_req, parse_version, resolve, RegistryLockPin,
-};
+use super::semver::{lock_pin_from_meta, parse_req, parse_version, resolve, RegistryLockPin};
 use super::toml::{parse_aura_toml, AuraToml, DepSpec};
 use super::types::{LoadedPackage, SourceEntry};
 use super::util::{
@@ -251,8 +247,7 @@ fn materialize_registry_deps(
     let mut index: Option<RegistryIndex> = None;
 
     for (name, req) in registry_names {
-        let (meta, pin) =
-            resolve_registry_pin(&name, &req, lock.as_ref(), &mut index, &cache)?;
+        let (meta, pin) = resolve_registry_pin(&name, &req, lock.as_ref(), &mut index, &cache)?;
         let installed = ensure_registry_src(&meta, index.as_ref(), &cache)?;
         effective
             .dependencies
@@ -271,7 +266,9 @@ fn open_index_if_needed(index: &mut Option<RegistryIndex>) -> Result<&RegistryIn
             )
         })?);
     }
-    Ok(index.as_ref().unwrap())
+    index
+        .as_ref()
+        .ok_or_else(|| "error: registry index was not initialized".to_string())
 }
 
 /// Pick a lock pin when it still satisfies `req`; otherwise resolve via the index.
@@ -858,7 +855,12 @@ pub(crate) fn load_directory(
         });
     }
 
-    let package = package.unwrap();
+    let package = package.ok_or_else(|| {
+        format!(
+            "error: no package declaration found under {}",
+            dir.display()
+        )
+    })?;
     if let Some(expected) = expect_package {
         if expected != package {
             return Err(format!(

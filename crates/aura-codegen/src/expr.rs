@@ -23,7 +23,9 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
                     .get(&c.span.start)
                     .is_some_and(|i| !i.is_constructor && i.variant.is_none()) =>
             {
-                let inst = ctx.checked.call_instantiations.get(&c.span.start).unwrap();
+                let Some(inst) = ctx.checked.call_instantiations.get(&c.span.start) else {
+                    return "Unit".into();
+                };
                 if let Some(f) = ctx.checked.ast.functions.iter().find(|f| {
                     f.name.name == inst.name
                         && (inst.package.is_empty()
@@ -62,7 +64,9 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
                     .and_then(|i| i.variant.as_ref())
                     .is_some() =>
             {
-                let inst = ctx.checked.call_instantiations.get(&c.span.start).unwrap();
+                let Some(inst) = ctx.checked.call_instantiations.get(&c.span.start) else {
+                    return "Unit".into();
+                };
                 mono_key(&inst.name, &inst.type_args)
             }
             Expr::Ident(id)
