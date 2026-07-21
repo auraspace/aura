@@ -1,4 +1,6 @@
-// C12b — std.io.args(): Array<String> from process argv
+// C12b/C12c — std.io.args(): Array<String> from process argv
+// Smoke (no extra args): aura run corpus/std_io/args
+// Pass-through:         aura run corpus/std_io/args -- hello
 package demo.stdio.args
 
 fun main() {
@@ -7,6 +9,12 @@ fun main() {
   assert(a.len >= 1)
   val name = a.get(0)
   assert(!name.isEmpty())
+  // C12c: args after `aura run … --` appear from index 1 (optional for smoke).
+  if (a.len >= 2) {
+    val first = a.get(1)
+    assert(!first.isEmpty())
+    assert_eq(first, "hello")
+  }
   // Count is available as len; printing keeps smoke visible under aura run.
   println("args ok")
 }

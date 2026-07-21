@@ -17,15 +17,15 @@ When you resolve debt, update or remove the matching entry.
 - Tracked: [C12 plan](../docs/plans/2026-07-21-next-20-c12a-c12t.md)
 - Introduced: narrowed after C10h; env free landed 2026-07-20
 
-### No stdin / exit; `aura run` argv pass-through (alpha gap, narrowed)
+### No stdin / exit (alpha gap, narrowed)
 
 - Area: runtime / std.io / CLI
-- Symptom: no `readLine`; no process exit code API; `aura run` does not forward args after `--`
-- Progress: **C12b** — runtime stashes `argc`/`argv`; `std.io.args(): Array<String>` (`args()[0]` = program name); corpus `std_io/args`
+- Symptom: no `readLine`; no process exit code API
+- Progress: **C12b** — runtime stashes `argc`/`argv`; `std.io.args(): Array<String>` (`args()[0]` = program name); corpus `std_io/args`; **C12c** — `aura run` / `aura test` forward args after `--` to the child process
 - Why deferred: notes dogfood used fixed scenarios for 0.1.0-alpha
-- Next step: **C12c–e** (`aura run --` passthrough, `readLine`, `exit`)
+- Next step: **C12d–e** (`readLine`, `exit`)
 - Tracked: [C12 plan](../docs/plans/2026-07-21-next-20-c12a-c12t.md)
-- Introduced: documented in 0.1.0-alpha release notes; argv narrowed 2026-07-21
+- Introduced: documented in 0.1.0-alpha release notes; argv narrowed 2026-07-21; CLI pass-through 2026-07-21
 
 ### Array field return still moves (no true borrow type)
 

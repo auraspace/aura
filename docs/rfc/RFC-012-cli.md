@@ -65,23 +65,23 @@ All toolchain RFCs need a user-facing contract.
 
 ### 6.1 Command map
 
-| Command                           | Purpose                                |
-| --------------------------------- | -------------------------------------- |
-| `aura new <name>`                 | Scaffold project                       |
-| `aura init`                       | Manifest in existing dir               |
-| `aura build`                      | Compile & link                         |
-| `aura run`                        | Build (if needed) + execute bin        |
-| `aura check`                      | Typecheck/parse without full link      |
-| `aura test`                       | Build & run tests                      |
-| `aura fmt`                        | Format sources                         |
-| `aura fix`                        | Apply machine-applicable fixes (later) |
-| `aura doc`                        | Generate docs (later)                  |
-| `aura add` / `remove`             | Dependencies                           |
-| `aura update`                     | Update lock within constraints         |
-| `aura tree`                       | Dep graph                              |
-| `aura publish`                    | Publish package                        |
-| `aura clean`                      | Remove target/                         |
-| `aura version` / `aura toolchain` | Version & install (RFC-013)            |
+| Command                           | Purpose                                                            |
+| --------------------------------- | ------------------------------------------------------------------ |
+| `aura new <name>`                 | Scaffold project                                                   |
+| `aura init`                       | Manifest in existing dir                                           |
+| `aura build`                      | Compile & link                                                     |
+| `aura run [path] [-- args…]`      | Build (if needed) + execute bin; args after `--` go to the process |
+| `aura check`                      | Typecheck/parse without full link                                  |
+| `aura test [path] [-- args…]`     | Build & run tests; same `--` pass-through as `run`                 |
+| `aura fmt`                        | Format sources                                                     |
+| `aura fix`                        | Apply machine-applicable fixes (later)                             |
+| `aura doc`                        | Generate docs (later)                                              |
+| `aura add` / `remove`             | Dependencies                                                       |
+| `aura update`                     | Update lock within constraints                                     |
+| `aura tree`                       | Dep graph                                                          |
+| `aura publish`                    | Publish package                                                    |
+| `aura clean`                      | Remove target/                                                     |
+| `aura version` / `aura toolchain` | Version & install (RFC-013)                                        |
 
 ### 6.2 Global flags
 
@@ -128,6 +128,7 @@ All toolchain RFCs need a user-facing contract.
 ```text
 aura new hello && cd hello
 aura run
+aura run . -- flag value
 aura test
 aura build --release -o hello
 aura check --format json

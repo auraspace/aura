@@ -55,8 +55,8 @@ fn eprint_usage() {
            aura init [name]                  Scaffold package in current directory\n  \
            aura check [path]                 Parse + typecheck (.aura | dir | aura.toml)\n  \
            aura build [path] [-o <bin>]      Compile to native binary (C backend)\n  \
-           aura run [path]                   Build to temp and execute\n  \
-           aura test [path]                  Run @test functions (package-wide)\n  \
+           aura run [path] [-- args...]      Build to temp and execute\n  \
+           aura test [path] [-- args...]     Run @test functions (package-wide)\n  \
            aura emit-c [path]                Print generated C (debug)\n  \
            aura version                      Print CLI version\n  \
            aura help\n\n\
@@ -143,6 +143,16 @@ fn resolve_package(args: &[String]) -> Result<LoadedPackage, String> {
         load_package_default()
     } else {
         load_package(Path::new(&args[0]))
+    }
+}
+
+/// Split CLI args at the first `--` into (toolchain args, program argv tail).
+/// Without `--`, the whole slice is toolchain args and program args are empty.
+fn split_pass_through(args: &[String]) -> (&[String], &[String]) {
+    if let Some(i) = args.iter().position(|a| a == "--") {
+        (&args[..i], &args[i + 1..])
+    } else {
+        (args, &[])
     }
 }
 
@@ -362,7 +372,9 @@ fn build_package(pkg: &LoadedPackage, out: &Path) -> Result<PathBuf, String> {
 }
 
 fn cmd_run(args: &[String]) -> ExitCode {
-    let pkg = match resolve_package(args) {
+    // C12c: `aura run [path] -- arg1 arg2 …` forwards args after `--` to the binary.
+    let (cli_args, program_args) = split_pass_through(args);
+    let pkg = match resolve_package(cli_args) {
         Ok(p) => p,
         Err(msg) => {
             eprintln!("{msg}");
@@ -372,7 +384,7 @@ fn cmd_run(args: &[String]) -> ExitCode {
     let out = PathBuf::from(format!("target/aura/run-{}", pkg.bin_name));
     match build_package(&pkg, &out) {
         Ok(bin) => {
-            let status = Command::new(&bin).status();
+            let status = Command::new(&bin).args(program_args).status();
             match status {
                 Ok(s) if s.success() => ExitCode::SUCCESS,
                 Ok(s) => {
@@ -393,7 +405,9 @@ fn cmd_run(args: &[String]) -> ExitCode {
 }
 
 fn cmd_test(args: &[String]) -> ExitCode {
-    let pkg = match resolve_package(args) {
+    // Same `--` split as `aura run` so @test code can read process args if needed.
+    let (cli_args, program_args) = split_pass_through(args);
+    let pkg = match resolve_package(cli_args) {
         Ok(p) => p,
         Err(msg) => {
             eprintln!("{msg}");
@@ -412,7 +426,7 @@ fn cmd_test(args: &[String]) -> ExitCode {
     let out = PathBuf::from(format!("target/aura/test-{}", pkg.bin_name));
     match build_test_package(&pkg, &out) {
         Ok(bin) => {
-            let status = Command::new(&bin).status();
+            let status = Command::new(&bin).args(program_args).status();
             match status {
                 Ok(s) if s.success() => ExitCode::SUCCESS,
                 Ok(s) => ExitCode::from(s.code().unwrap_or(1) as u8),
@@ -435,4 +449,45 @@ fn build_test_package(pkg: &LoadedPackage, out: &Path) -> Result<PathBuf, String
         aura_codegen::CodegenError::Sema(se) => diag_sema_errors(pkg, se),
         other => format!("error: {other}"),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::split_pass_through;
+
+    fn s(xs: &[&str]) -> Vec<String> {
+        xs.iter().map(|x| (*x).to_string()).collect()
+    }
+
+    #[test]
+    fn split_no_separator_keeps_all_as_cli() {
+        let args = s(&["pkg", "extra"]);
+        let (cli, prog) = split_pass_through(&args);
+        assert_eq!(cli, &args[..]);
+        assert!(prog.is_empty());
+    }
+
+    #[test]
+    fn split_with_separator_forwards_tail() {
+        let args = s(&["corpus/std_io/args", "--", "hello", "world"]);
+        let (cli, prog) = split_pass_through(&args);
+        assert_eq!(cli, &s(&["corpus/std_io/args"])[..]);
+        assert_eq!(prog, &s(&["hello", "world"])[..]);
+    }
+
+    #[test]
+    fn split_leading_separator_allows_default_package() {
+        let args = s(&["--", "a"]);
+        let (cli, prog) = split_pass_through(&args);
+        assert!(cli.is_empty());
+        assert_eq!(prog, &s(&["a"])[..]);
+    }
+
+    #[test]
+    fn split_empty_tail_after_separator() {
+        let args = s(&["pkg", "--"]);
+        let (cli, prog) = split_pass_through(&args);
+        assert_eq!(cli, &s(&["pkg"])[..]);
+        assert!(prog.is_empty());
+    }
 }
