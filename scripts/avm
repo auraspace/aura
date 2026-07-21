@@ -9,21 +9,41 @@ set -euo pipefail
 AURA_HOME="${AURA_HOME:-${HOME}/.aura}"
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
+valid_install() {
+  local target="$1" version
+  [[ -d "$target" && -x "$target/bin/aura" ]] || return 1
+  [[ -s "$target/meta/version" && -s "$target/meta/os" && -s "$target/meta/arch" ]] || return 1
+  version="$(sed -n '1p' "$target/meta/version")"
+  [[ "$version" == "$(basename "$target")" ]] || return 1
+}
+
+version_target() {
+  local version="$1"
+  [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]] || return 1
+  printf '%s\n' "${AURA_HOME}/versions/${version}"
+}
+
 list_versions() {
   local d
   [[ -d "${AURA_HOME}/versions" ]] || return 0
   for d in "${AURA_HOME}/versions"/*/; do
     [[ -d "$d" ]] || continue
-    basename "$d"
+    valid_install "$d" && basename "$d"
   done | sort
 }
 
 show_current() {
   if [[ -L "${AURA_HOME}/current" ]]; then
-    basename "$(readlink "${AURA_HOME}/current" 2>/dev/null || readlink -f "${AURA_HOME}/current")"
+    local target version
+    target="$(readlink "${AURA_HOME}/current" 2>/dev/null || true)"
+    version="$(basename "$target")"
+    if [[ "$target" == versions/* ]] && valid_install "${AURA_HOME}/${target}"; then
+      printf '%s\n' "$version"
+    else
+      printf '(none)\n'
+    fi
   elif [[ -d "${AURA_HOME}/current" ]]; then
-    # non-symlink edge case
-    printf 'current\n'
+    printf '(none)\n'
   else
     printf '(none)\n'
   fi
@@ -79,9 +99,12 @@ Run: avm --help"
 esac
 
 ver="${cmd#v}"
-target="${AURA_HOME}/versions/${ver}"
-if [[ ! -d "$target" ]]; then
+if ! target="$(version_target "$ver")"; then
+  die "invalid version: ${ver} (expected semver such as 0.1.0-alpha)"
+fi
+if ! valid_install "$target"; then
   die "version not installed: ${ver}
+The installation is missing its executable or metadata and cannot be activated.
 Install with:
   curl -fsSL https://aura.fadosoft.com/install.sh | AURA_VERSION=${ver} bash
 Available:
@@ -90,9 +113,20 @@ Run: avm --help"
 fi
 
 mkdir -p "${AURA_HOME}/bin"
+if [[ -e "${AURA_HOME}/current" && ! -L "${AURA_HOME}/current" ]]; then
+  die "refusing to replace malformed non-symlink: ${AURA_HOME}/current"
+fi
+if [[ -e "${AURA_HOME}/bin/aura" && ! -L "${AURA_HOME}/bin/aura" ]]; then
+  die "refusing to replace non-symlink: ${AURA_HOME}/bin/aura"
+fi
 # Relative symlinks so AURA_HOME can be relocated as a tree.
-ln -sfn "versions/${ver}" "${AURA_HOME}/current"
-ln -sfn "../current/bin/aura" "${AURA_HOME}/bin/aura"
+current_tmp="${AURA_HOME}/.current.tmp.$$"
+aura_tmp="${AURA_HOME}/bin/.aura.tmp.$$"
+rm -f "$current_tmp" "$aura_tmp"
+ln -s "versions/${ver}" "$current_tmp"
+ln -s "../current/bin/aura" "$aura_tmp"
+mv -f "$current_tmp" "${AURA_HOME}/current"
+mv -f "$aura_tmp" "${AURA_HOME}/bin/aura"
 printf 'active: %s\n' "$ver"
 if [[ -x "${AURA_HOME}/bin/aura" ]]; then
   "${AURA_HOME}/bin/aura" version || true

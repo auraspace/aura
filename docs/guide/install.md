@@ -37,6 +37,10 @@ $AURA_HOME/
 
 The installer also symlinks `~/.local/bin/aura` and `~/.local/bin/avm` (disable with `AURA_LINK_USER_BIN=0`).
 
+Release installs support Linux amd64, macOS arm64, and macOS amd64. Other
+targets, including Windows amd64, are not release-install targets yet; use a
+source install instead.
+
 ### Options
 
 ```bash
@@ -62,6 +66,17 @@ aura version
 
 `avm` only flips the `current` symlink; previously installed trees under `versions/` stay on disk.
 
+The installer downloads the archive and its adjacent `.sha256` file into a
+temporary directory, verifies the archive before publishing it, and validates
+the executable and version metadata before activation. A failed or interrupted
+download leaves the active version unchanged. Reinstalling a version also
+keeps the previous copy until the new copy has passed validation.
+
+`avm --list` reports only installations with an executable and matching
+version/target metadata. `avm --show` reports `(none)` for a missing, dangling,
+or malformed `current` link. Switching refuses to replace a malformed regular
+file or directory and creates replacement links through temporary names.
+
 Source of truth: [`scripts/install.sh`](https://github.com/auraspace/aura/blob/main/scripts/install.sh) + [`scripts/avm`](https://github.com/auraspace/aura/blob/main/scripts/avm). Site build (`site/scripts/sync-install.mjs`) embeds `avm` into `public/install.sh` for the CDN.
 
 ## Prerequisites
@@ -71,6 +86,7 @@ Source of truth: [`scripts/install.sh`](https://github.com/auraspace/aura/blob/m
 | **Rust** (stable)           | Build / install the CLI (source) |
 | **`cc`** (`clang` or `gcc`) | Link Aura → C → native binary    |
 | **curl** + **tar**          | One-liner installer              |
+| **shasum** or `sha256sum`   | Verify release archive checksums |
 | **Git**                     | Clone the repository (source)    |
 
 ## Install from source (alpha)
@@ -130,7 +146,11 @@ Pushing a tag `v*` runs [`.github/workflows/release.yml`](../../.github/workflow
 
 ### Integrity & signing (roadmap)
 
-Alpha releases ship per-archive `.sha256` files from packaging; there is **no** signed manifest or OS notarization yet. The planned path (minisign-signed `SHA256SUMS` → optional install-time verify → later macOS notarization / Windows Authenticode) is recorded in [C13s signing design note](../plans/2026-07-21-c13s-signing-note.md).
+Alpha releases ship per-archive `.sha256` files from packaging, and
+`install.sh` verifies the selected archive before activation. There is **no**
+signed manifest or OS notarization yet. The planned path (minisign-signed
+`SHA256SUMS` → later macOS notarization / Windows Authenticode) is recorded in
+[C13s signing design note](../plans/2026-07-21-c13s-signing-note.md).
 
 Maintainer flow (version dump → changelog → commit → tag → CI):
 
