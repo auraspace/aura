@@ -200,7 +200,7 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C12n**  | `HashMap` String→String concrete                                   | **Done**                                   |
 | **C12o**  | String HOF helpers (`map_strings` / `filter_strings`)              | **Done**                                   |
 | **C12p**  | `tryReadFile(path): String?`                                       | **Done**                                   |
-| **C12q**  | Dogfood CLI (`examples/notes` argv or `examples/wc`)               | Planned                                    |
+| **C12q**  | Dogfood CLI (`examples/notes` argv or `examples/wc`)               | **Done**                                   |
 | **C12r**  | Corpus + guide sync for C12 surface                                | Planned                                    |
 | **C12s**  | Dist/DX polish (install smoke; optional Windows best-effort CI)    | Planned                                    |
 | **C12t**  | Close C12a–C12t batch (roadmap / debts / plan)                     | Planned                                    |

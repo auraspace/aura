@@ -1,0 +1,271 @@
+// C12q dogfood CLI: word/line/byte count using args, tryReadFile, and String tools.
+package examples.wc
+
+import std.io as Io
+
+/// Decimal string for a non-negative Int (CLI column printer; no std int→string yet).
+fun u64ToString(n: Int): String {
+  if (n == 0) {
+    return "0"
+  }
+  var x = n
+  var out = ""
+  while (x > 0) {
+    val d = x % 10
+    var dig = "0"
+    if (d == 1) {
+      dig = "1"
+    } else if (d == 2) {
+      dig = "2"
+    } else if (d == 3) {
+      dig = "3"
+    } else if (d == 4) {
+      dig = "4"
+    } else if (d == 5) {
+      dig = "5"
+    } else if (d == 6) {
+      dig = "6"
+    } else if (d == 7) {
+      dig = "7"
+    } else if (d == 8) {
+      dig = "8"
+    } else if (d == 9) {
+      dig = "9"
+    }
+    out = dig + out
+    x = x / 10
+  }
+  return out
+}
+
+/// Count newline-separated lines. A trailing newline does not add an extra empty line.
+/// Empty input → 0.
+fun countLines(text: String): Int {
+  if (text.isEmpty()) {
+    return 0
+  }
+  val parts = text.split("\n")
+  var n = parts.len
+  if (text.endsWith("\n")) {
+    n = n - 1
+  }
+  return n
+}
+
+/// Count words: non-empty segments after split on space, with trim.
+/// Tabs are treated as spaces via indexOf rewrite so split(" ") sees them.
+fun countWords(text: String): Int {
+  if (text.isEmpty()) {
+    return 0
+  }
+  var words = 0
+  val lines = text.split("\n")
+  for (i in 0..lines.len) {
+    var line = lines.get(i)
+    while (line.indexOf("\t") >= 0) {
+      val t = line.indexOf("\t")
+      line = line.substring(0, t) + " " + line.substring(t + 1, line.len)
+    }
+    val segs = line.split(" ")
+    for (j in 0..segs.len) {
+      // Bind get() result before methods (codegen: no chained recv on Array.get).
+      val seg = segs.get(j)
+      val w = seg.trim()
+      if (!w.isEmpty()) {
+        words = words + 1
+      }
+    }
+  }
+  return words
+}
+
+fun countBytes(text: String): Int {
+  return text.len
+}
+
+/// Keep only the first `n` content lines of `text`. n < 0 → whole text.
+fun takeLines(text: String, n: Int): String {
+  if (n < 0) {
+    return text
+  }
+  if (n == 0 || text.isEmpty()) {
+    return ""
+  }
+  val parts = text.split("\n")
+  var avail = parts.len
+  if (text.endsWith("\n") && avail > 0) {
+    avail = avail - 1
+  }
+  var limit = n
+  if (limit > avail) {
+    limit = avail
+  }
+  if (limit == 0) {
+    return ""
+  }
+  var out = parts.get(0)
+  for (i in 1..limit) {
+    out = out + "\n" + parts.get(i)
+  }
+  return out
+}
+
+fun printUsage() {
+  Io.eprintln("usage: wc [-l] [-w] [-c] [-n N] <file>")
+  Io.eprintln("  -l       print line count")
+  Io.eprintln("  -w       print word count")
+  Io.eprintln("  -c       print byte count")
+  Io.eprintln("  -n N     only the first N lines (N via String.toInt)")
+  Io.eprintln("  default  print lines, words, and bytes")
+}
+
+@test
+fun count_lines_words_bytes() {
+  assert_eq(countLines(""), 0)
+  assert_eq(countLines("one"), 1)
+  assert_eq(countLines("one\ntwo\n"), 2)
+  assert_eq(countLines("one\ntwo"), 2)
+
+  assert_eq(countWords(""), 0)
+  assert_eq(countWords("hello world"), 2)
+  assert_eq(countWords("  a   b  "), 2)
+  assert_eq(countWords("a\tb"), 2)
+  assert_eq(countWords("one\ntwo three"), 3)
+
+  assert_eq(countBytes("hi"), 2)
+  assert_eq(countBytes("a\n"), 2)
+
+  assert_eq(u64ToString(0), "0")
+  assert_eq(u64ToString(42), "42")
+  assert_eq(u64ToString(100), "100")
+}
+
+@test
+fun take_lines_prefix() {
+  assert_eq(takeLines("a\nb\nc", 2), "a\nb")
+  assert_eq(takeLines("a\nb\nc\n", 2), "a\nb")
+  assert_eq(takeLines("only", 5), "only")
+  assert_eq(takeLines("x\ny", 0), "")
+}
+
+fun main() {
+  val argv = Io.args()
+  // argv[0] = program name; user flags/paths from index 1.
+  var showLines = false
+  var showWords = false
+  var showBytes = false
+  var anyFlag = false
+  var maxLines = 0 - 1
+  var path = ""
+  var pathSet = false
+
+  var i = 1
+  while (i < argv.len) {
+    val arg = argv.get(i)
+    if (arg == "-h" || arg == "--help") {
+      printUsage()
+      Io.exit(0)
+    } else if (arg == "-n") {
+      i = i + 1
+      if (i >= argv.len) {
+        Io.eprintln("wc: -n requires a number")
+        printUsage()
+        Io.exit(1)
+      }
+      val numArg = argv.get(i)
+      val raw = numArg.trim()
+      val parsed = raw.toInt()
+      if (parsed == null) {
+        Io.eprintln("wc: invalid -n value (need decimal Int)")
+        Io.exit(1)
+      }
+      maxLines = parsed!!
+      if (maxLines < 0) {
+        Io.eprintln("wc: -n must be non-negative")
+        Io.exit(1)
+      }
+    } else if (arg.startsWith("-") && arg.len > 1) {
+      // Short flags: -l, -w, -c, or combined -lwc (indexOf per letter).
+      anyFlag = true
+      if (arg.indexOf("l") >= 0) {
+        showLines = true
+      }
+      if (arg.indexOf("w") >= 0) {
+        showWords = true
+      }
+      if (arg.indexOf("c") >= 0) {
+        showBytes = true
+      }
+      for (b in arg) {
+        if (b == 45) {
+          // '-'
+        } else if (b == 108) {
+          // 'l'
+        } else if (b == 119) {
+          // 'w'
+        } else if (b == 99) {
+          // 'c'
+        } else {
+          Io.eprintln("wc: unknown flag letter")
+          printUsage()
+          Io.exit(1)
+        }
+      }
+    } else {
+      if (pathSet) {
+        Io.eprintln("wc: only one file supported")
+        printUsage()
+        Io.exit(1)
+      }
+      path = arg
+      pathSet = true
+    }
+    i = i + 1
+  }
+
+  if (!pathSet) {
+    printUsage()
+    Io.exit(1)
+  }
+
+  if (!anyFlag) {
+    showLines = true
+    showWords = true
+    showBytes = true
+  }
+
+  val body = Io.tryReadFile(path)
+  if (body == null) {
+    Io.eprintln("wc: cannot read file")
+    Io.exit(1)
+  }
+
+  var text = body!!
+  if (maxLines >= 0) {
+    text = takeLines(text, maxLines)
+  }
+
+  val lines = countLines(text)
+  val words = countWords(text)
+  val bytes = countBytes(text)
+
+  // Unix-ish columns: counts then path (Int→String local helper; no std yet).
+  var out = ""
+  if (showLines) {
+    out = out + u64ToString(lines)
+  }
+  if (showWords) {
+    if (!out.isEmpty()) {
+      out = out + " "
+    }
+    out = out + u64ToString(words)
+  }
+  if (showBytes) {
+    if (!out.isEmpty()) {
+      out = out + " "
+    }
+    out = out + u64ToString(bytes)
+  }
+  out = out + " " + path
+  Io.println(out)
+}

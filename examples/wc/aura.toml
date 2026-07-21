@@ -1,0 +1,6 @@
+[package]
+name = "examples.wc"
+
+[[bin]]
+name = "wc"
+path = "src"

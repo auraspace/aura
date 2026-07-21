@@ -65,6 +65,23 @@ When you resolve debt, update or remove the matching entry.
 - Tracked: [C12 plan](../docs/plans/2026-07-21-next-20-c12a-c12t.md)
 - Introduced: narrowed after C8i; resize C9b; String→String C12n; String HOF C12o
 
+### Chained method on `Array.get` temporary (codegen)
+
+- Area: codegen / method recv
+- Symptom: `arr.get(i).trim()` / `.toInt()` emits `aura_method_Unknown_*` and takes address of rvalue `const char *` → `cc` fail
+- Why deferred: dogfood workaround is bind intermediate (`val s = arr.get(i); s.trim()`); full fix needs typed temporary for method recv on call results
+- Hit by: C12q `examples/wc`
+- Next step: emit a local for call-result receivers before method dispatch (String methods first)
+- Introduced: 2026-07-21 (C12q)
+
+### No std Int→String (CLI print)
+
+- Area: stdlib / String
+- Symptom: `"${n}"` interpolation is String-idents only (C9h); no `Int.toString` / format helper
+- Why deferred: dogfood `examples/wc` ships a local `u64ToString` for count columns
+- Next step: builtin or `std` decimal format (and optional Int in interpolation)
+- Introduced: 2026-07-21 (C12q)
+
 ## Resolved
 
 ### Higher-order Int array helpers (2026-07-20)

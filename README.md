@@ -13,7 +13,7 @@ This repository currently holds:
 | [`site/`](site/)                     | Homepage + docs + RFC site (Vite + React)                            |
 | [`crates/`](crates/)                 | Rust toolchain (`aura` CLI) — check / build / run / test (C backend) |
 | [`corpus/`](corpus/)                 | Sample `.aura` programs for the compiler                             |
-| [`examples/`](examples/)             | Dogfood apps (e.g. notes CLI package)                                |
+| [`examples/`](examples/)             | Dogfood apps (`notes`, `wc` CLI packages)                            |
 | [`std/`](std/)                       | Minimal std packages (`io`, `assert`, `collections`)                 |
 | [`runtime/`](runtime/)               | Linked C runtime (`aura_rt.c`)                                       |
 
@@ -54,6 +54,7 @@ cargo run -p aura-cli -- run corpus/import/app          # import + path dep
 cargo run -p aura-cli -- run corpus/std_io/app          # std.io.println (C3z)
 cargo run -p aura-cli -- run corpus/std_io/files        # file read/write (C11a)
 cargo run -p aura-cli -- run corpus/std_io/try_read_file # tryReadFile String? (C12p)
+cargo run -p aura-cli -- run examples/wc -- path/to/file # dogfood CLI args + String tools (C12q)
 cargo run -p aura-cli -- run corpus/std_io/prelude      # auto-prelude std.io (C4g)
 cargo run -p aura-cli -- run corpus/std_assert/app      # std.assert (C4h)
 cargo run -p aura-cli -- run corpus/fun/lambda_basic.aura   # first-class fun / lambda (C10)
@@ -186,6 +187,7 @@ Native builds use a **C backend** (`aura emit-c` + system `cc`) linked with `run
 - **Stdlib C10i** `map_ints` / `filter_ints` / `fold_ints`
 - **Stdlib C12o** `map_strings` / `filter_strings` / `fold_strings`
 - **Stdlib C12p** `tryReadFile(path): String?`
+- **Dogfood C12q** `examples/wc` CLI (`args`, `tryReadFile`, String split/trim/indexOf/toInt)
 - **Docs C10j** C10a–C10j batch closed — first-class funs/lambdas shippable
 - **Stdlib C11a** `std.io` file + console (`readFile` / `writeFile` / …)
 - **Compiler C11b** Fun capture-env ownership free (scope/move/return/param/for)
