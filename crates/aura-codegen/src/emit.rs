@@ -100,6 +100,7 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("typedef struct { _Bool has; _Bool value; } aura_opt_bool;\n");
     // C13c: Int.toString — malloc'd decimal; caller owns (like other owned strings).
     out.push_str("const char *aura_i64_to_string(int64_t v);\n\n");
+    out.push_str("int64_t aura_hash_string(const char *s);\n\n");
 
     // Stable class tags for interface dispatch (C9a: include generic monomorphs).
     let mut tag_monos: Vec<String> = Vec::new();

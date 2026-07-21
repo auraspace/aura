@@ -78,6 +78,11 @@ impl Checker {
         let same = |x: &str| {
             x == iface || crate::ty::split_nominal(x).0 == crate::ty::split_nominal(iface).0
         };
+        // Primitive implementations cannot be written as Aura `implements`
+        // declarations, so the stdlib Hashable protocol is compiler-backed.
+        if same("Hashable") && matches!(ty, Ty::Int | Ty::String) {
+            return true;
+        }
         match ty {
             Ty::Class(c) => self
                 .class_by_nominal_key(c)

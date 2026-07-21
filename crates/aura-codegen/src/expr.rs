@@ -164,7 +164,7 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
                             "isEmpty" | "startsWith" | "contains" | "endsWith" => {
                                 return "Bool".into();
                             }
-                            "charAt" | "indexOf" | "len" => return "Int".into(),
+                            "charAt" | "indexOf" | "len" | "hash" => return "Int".into(),
                             "substring" | "trim" | "trimStart" | "trimEnd" | "toLower"
                             | "toUpper" => {
                                 return "String".into();
@@ -179,6 +179,9 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
                     // C13c: Int.toString() → String
                     if (mono == "Int" || base == "Int") && fe.field.name == "toString" {
                         return "String".into();
+                    }
+                    if (mono == "Int" || base == "Int") && fe.field.name == "hash" {
+                        return "Int".into();
                     }
                     if let Some(m) = ctx
                         .checked

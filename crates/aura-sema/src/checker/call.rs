@@ -226,7 +226,23 @@ impl Checker {
                         });
                     }
                     // C5h/C5i/C5j: String predicate methods.
-                    "startsWith" | "contains" | "endsWith" => {
+                    "startsWith" | "contains" | "endsWith" | "hash" => {
+                        if fe.field.name == "hash" {
+                            if !c.args.is_empty() {
+                                return Err(SemaError {
+                                    message: format!(
+                                        "`String.hash` expects 0 arguments, got {}",
+                                        c.args.len()
+                                    ),
+                                    span: c.span,
+                                });
+                            }
+                            return Ok(if safe_wrap {
+                                Ty::Nullable(Box::new(Ty::Int))
+                            } else {
+                                Ty::Int
+                            });
+                        }
                         let mname = fe.field.name.as_str();
                         if c.args.len() != 1 {
                             return Err(SemaError {
@@ -411,20 +427,29 @@ impl Checker {
             // C13c: builtin Int methods.
             if obj_ty == Ty::Int {
                 match fe.field.name.as_str() {
-                    "toString" => {
+                    "toString" | "hash" => {
                         if !c.args.is_empty() {
                             return Err(SemaError {
                                 message: format!(
-                                    "`Int.toString` expects 0 arguments, got {}",
+                                    "`Int.{}` expects 0 arguments, got {}",
+                                    fe.field.name,
                                     c.args.len()
                                 ),
                                 span: c.span,
                             });
                         }
-                        return Ok(if safe_wrap {
-                            Ty::Nullable(Box::new(Ty::String))
+                        return Ok(if fe.field.name == "toString" {
+                            if safe_wrap {
+                                Ty::Nullable(Box::new(Ty::String))
+                            } else {
+                                Ty::String
+                            }
                         } else {
-                            Ty::String
+                            if safe_wrap {
+                                Ty::Nullable(Box::new(Ty::Int))
+                            } else {
+                                Ty::Int
+                            }
                         });
                     }
                     other => {

@@ -137,6 +137,37 @@ fun main() {
 }
 
 #[test]
+fn hashable_primitives_satisfy_bound_and_hash_method() {
+    let src = r#"
+package t
+interface Hashable { fun hash(): Int }
+fun hash_it<T : Hashable>(x: T): Int { return x.hash() }
+fun main() {
+  val a: Int = hash_it(7)
+  val b: Int = hash_it("a")
+}
+"#;
+    let file = parse_file(src).expect("parse");
+    check_file(&file).expect("primitive Hashable bound");
+}
+
+#[test]
+fn hashable_rejects_bool() {
+    let src = r#"
+package t
+interface Hashable { fun hash(): Int }
+fun hash_it<T : Hashable>(x: T): Int { return x.hash() }
+fun main() { val a: Int = hash_it(true) }
+"#;
+    let file = parse_file(src).expect("parse");
+    let err = check_file(&file).expect_err("Bool must not satisfy Hashable");
+    assert!(err
+        .primary()
+        .message
+        .contains("does not satisfy bound `Hashable`"));
+}
+
+#[test]
 fn where_multi_bounds_and_reject_unsatisfied() {
     let src_ok = r#"
 package t

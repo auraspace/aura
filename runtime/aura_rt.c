@@ -1161,6 +1161,22 @@ const char *aura_box_str_get(aura_box_str *b)
   return aura_box_str_dup(b->value);
 }
 
+/* C14: compiler-backed Hashable implementation for String.
+ * Keep the same deterministic 31-based hash used by std.collections. */
+int64_t aura_hash_string(const char *s)
+{
+  int64_t h = 0;
+  if (s == NULL)
+  {
+    return 0;
+  }
+  for (const unsigned char *p = (const unsigned char *)s; *p != '\0'; ++p)
+  {
+    h = h * 31 + (int64_t)*p;
+  }
+  return h < 0 ? -h : h;
+}
+
 /* C13c: Int.toString() — decimal (base 10), no locale.
  * Returns a freshly malloc'd NUL-terminated C string. Caller owns the buffer
  * (same ownership as other owned strings: substring/trim/split segments, concat).

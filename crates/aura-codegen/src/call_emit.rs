@@ -235,11 +235,21 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
             return format!("aura_i64_to_string({obj})");
         }
 
+        // Compiler-backed Hashable implementation for Int.
+        if (mono_raw == "Int" || matches!(obj_ty.as_deref(), Some("Int")))
+            && fe.field.name == "hash"
+        {
+            return format!("({obj})");
+        }
+
         // C4v/C4w: builtin String methods.
         if mono_raw == "String"
             || matches!(fe.object.as_ref(), Expr::String(_))
             || matches!(obj_ty.as_deref(), Some("String"))
         {
+            if fe.field.name == "hash" {
+                return format!("aura_hash_string({obj})");
+            }
             if fe.field.name == "isEmpty" {
                 // UTF-8 byte length via strlen; null-safe → true when null (empty-ish MVP).
                 let call = format!("(({obj}) == NULL || ({obj})[0] == '\\0')");
@@ -628,7 +638,11 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
             // Builtin Array constructor
             if id.name == "Array" {
                 let targs: Vec<Ty> = if let Some(inst) = inst {
-                    inst.type_args.clone()
+                    let subst = aura_sema::type_subst_map(&ctx.type_params, &ctx.type_args);
+                    inst.type_args
+                        .iter()
+                        .map(|t| aura_sema::subst_ty(t, &subst))
+                        .collect()
                 } else {
                     c.type_args
                         .iter()
