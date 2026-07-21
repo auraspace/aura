@@ -260,6 +260,18 @@ mode_local_pkg() {
   mkdir -p "$AURA_HOME/versions"
   rm -rf "$dest"
   mv "$tree" "$dest"
+  local artifact_name os arch
+  artifact_name="$(basename "$tarball" .tar.gz)"
+  if [[ "$artifact_name" =~ ^aura-(.+)-(linux|darwin)-(amd64|arm64)$ ]]; then
+    os="${BASH_REMATCH[1]}"
+    arch="${BASH_REMATCH[2]}"
+  else
+    die "unexpected local artifact name: $artifact_name"
+  fi
+  mkdir -p "$dest/meta"
+  printf '%s\n' "$ver" >"$dest/meta/version"
+  printf '%s\n' "$os" >"$dest/meta/os"
+  printf '%s\n' "$arch" >"$dest/meta/arch"
   mkdir -p "$AURA_HOME/bin"
   # Prefer packaged avm; fall back to repo scripts/avm
   if [[ -x "$dest/bin/avm" ]]; then
