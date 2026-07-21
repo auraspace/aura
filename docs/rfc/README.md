@@ -84,7 +84,7 @@ Living execution status is [docs/roadmap.md](../roadmap.md) (compiler **C0–C10
 | **RFC-002** | Static type system: kinds, nullability/errors, generics, traits/interfaces, inference, assignability, soundness goals. |
 | **RFC-003** | Memory strategy, sharing rules, async/tasks, concurrency primitives, and data-race policy for single-binary programs.  |
 | **RFC-004** | Compiler pipeline implemented in **Rust**: parse → typecheck → IR → native codegen, incremental build, diagnostics.    |
-| **RFC-005** | Packages: manifest, lockfile, resolver, registry, workspaces, publish — reproducible deps for Aura code.               |
+| **RFC-005** | Packages: manifest, lockfile, resolver, **GitHub-backed registry**, workspaces, publish — reproducible deps.           |
 | **RFC-006** | Runtime support linked into the final binary: scheduler, I/O, alloc (and GC if chosen), panic, FFI as required.        |
 | **RFC-007** | Standard library for servers and CLIs: collections, I/O, net, JSON, log, sync, crypto baseline — no app framework.     |
 | **RFC-008** | Build graph and profiles: targets, features, caching, cross-compile — produces one deployable artifact by default.     |

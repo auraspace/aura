@@ -33,8 +33,8 @@ When you resolve debt, update or remove the matching entry.
 - Area: toolchain / RFC-005
 - Symptom: path deps + lock; C8k parses registry pin form but does not fetch or resolve ranges
 - Why deferred: monorepo path graph enough for demos
-- Progress: C8b path existence; C8k `LockEntry` version/source/checksum schema
-- Next step: registry HTTP client + caret ranges in `aura.toml`
+- Progress: C8b path existence; C8k `LockEntry` version/source/checksum schema; **RFC-005 updated (2026-07-21) — default registry is GitHub-backed** (index repo + Release artifacts + `github =` source)
+- Next step: GitHub index client + tarball fetch + caret ranges in `aura.toml` (K1); then direct `github`/`git` deps (K1b) and `aura publish` (K2)
 - Introduced: narrowed after C3p; nested C4j; path check C8b; schema C8k
 
 ### Array of interface elements

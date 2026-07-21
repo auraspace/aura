@@ -15,20 +15,21 @@
 
 RFC-005 still describes the full package manager. Near-term path-only graph remains enough for monorepo + std.
 
-### Minimal registry MVP (future)
+### Minimal registry MVP (future) — **GitHub-backed** (RFC-005 §6.6, 2026-07-21)
 
-1. **Index:** `GET /api/v1/crates/{name}` → versions + yank flags + checksums.
+1. **Index:** GitHub repo `auraspace/crates-index` (sparse `packages/…/versions.json`) — not a custom SaaS.
 2. **Semver:** caret/default ranges in `aura.toml`; resolver → pin exact versions in `aura.lock`.
-3. **Fetch:** download crate tarball to cache; verify sha256.
-4. **Lock format:** extend beyond `name = "path"` to `name = { version = "…", checksum = "…", source = "registry" }` while keeping path deps.
+3. **Fetch:** download `.crate` from package **GitHub Release** assets; verify sha256.
+4. **Lock format:** `name = { version = "…", checksum = "…", source = "registry" }` (alias for default `registry+github:…`); path deps unchanged.
+5. **Direct GitHub:** `{ github = "owner/repo", tag = "v1.0.0" }` → lock pins `rev` + checksum (K1b).
 
 ### Explicit non-goals now
 
-- Git dependencies
-- Publish / `aura add`
+- Live GitHub index / publish automation (design only until K1/K2)
 - Workspaces as a first-class feature (path graphs already cover nested monorepos)
 
 ## Next after C8b
 
 - Optional: version field on path deps for documentation only
-- Registry client + lock schema (new compiler batch when needed)
+- ~~Registry lock schema~~ → **C8k done**
+- K1: GitHub index client + tarball cache + semver (see RFC-005 §11)

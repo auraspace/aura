@@ -149,12 +149,12 @@ scp greeter host:/usr/local/bin/
 
 ## 7. Open questions
 
-| #   | Question           | Options        | Owner   | Status                                                                         |
-| --- | ------------------ | -------------- | ------- | ------------------------------------------------------------------------------ |
-| 1   | Signing technology | minisign first | Dist    | **Resolved** (cosign later optional)                                           |
-| 2   | Musl tier          | tier1 / tier2  | Dist    | **Resolved** — musl **tier2** initially                                        |
-| 3   | Hosting URL / CDN  |                | Project | **Resolved** — toolchain via GitHub Releases + docs site; registry per RFC-005 |
-| 4   | Windows arm64 tier |                | Dist    | **Resolved** — Windows arm64 **tier2**                                         |
+| #   | Question           | Options        | Owner   | Status                                                                                                                                       |
+| --- | ------------------ | -------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Signing technology | minisign first | Dist    | **Resolved** (cosign later optional)                                                                                                         |
+| 2   | Musl tier          | tier1 / tier2  | Dist    | **Resolved** — musl **tier2** initially                                                                                                      |
+| 3   | Hosting URL / CDN  |                | Project | **Resolved** — toolchain via GitHub Releases + docs site; **packages** also GitHub-backed (index repo + Release `.crate` assets) per RFC-005 |
+| 4   | Windows arm64 tier |                | Dist    | **Resolved** — Windows arm64 **tier2**                                                                                                       |
 
 ## 8. Rationale & trade-offs
 

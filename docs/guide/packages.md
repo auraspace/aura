@@ -90,6 +90,8 @@ The CLI can auto-prelude `std.io` for package builds and resolve `std.*` path de
 
 **Registry schema v0** may appear as structured entries (`version` / `source` / `checksum` form) for forward compatibility — **there is no registry fetch or semver resolve yet**. Multi-package work in alpha is **path deps only**.
 
+When registry lands, the **default backend is GitHub** (index repo + Release `.crate` assets, plus direct `github = "owner/repo"` deps). Design: [RFC-005](../rfc/RFC-005-package-manager.md) §6.5–6.6.
+
 ## Alpha limits
 
 - No package registry download / publish

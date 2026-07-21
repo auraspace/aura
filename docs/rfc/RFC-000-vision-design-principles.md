@@ -188,7 +188,7 @@ Language (001–003, 009–010)
 | Interop v1             | C ABI FFI                                                                                                  | 006, 007                |
 | Targets v1             | Server + CLI; linux/mac/win × amd64/arm64; no WASM day-one                                                 | 000, 013                |
 | Macros v1              | Attributes + declarative macros; sandboxed proc plugins later                                              | 010                     |
-| Packages               | `aura.toml` + lockfile + registry; **commit lockfiles always**                                             | 005                     |
+| Packages               | `aura.toml` + lockfile + **GitHub-backed registry**; **commit lockfiles always**                           | 005                     |
 | Build scripts          | None in MVP (declarative only)                                                                             | 008                     |
 | Stability              | SemVer for toolchain/stdlib; language editions post-MVP                                                    | 000                     |
 
