@@ -21,17 +21,18 @@ Builtins such as `Array<T>` and core scalars are part of the **language**, not a
 
 ## `std.io`
 
-Console and file helpers (runtime `aura_*` intrinsics). File APIs throw a `String` message on failure (missing path, I/O error, oversized file, embedded NUL). Text is treated as a regular-file UTF-8 byte sequence (no embedded NUL); max size **256 MiB**.
+Console and file helpers (runtime `aura_*` intrinsics). Strict file APIs throw a `String` message on failure (missing path, I/O error, oversized file, embedded NUL). Soft `tryReadFile` returns `null` instead. Text is treated as a regular-file UTF-8 byte sequence (no embedded NUL); max size **256 MiB**.
 
-| API                         | Role                               |
-| --------------------------- | ---------------------------------- |
-| `print` / `println`         | stdout (no newline / with newline) |
-| `eprint` / `eprintln`       | stderr                             |
-| `readFile(path): String`    | read entire regular file           |
-| `writeFile(path, content)`  | create/truncate and write          |
-| `appendFile(path, content)` | append (create if needed)          |
-| `fileExists(path): Bool`    | regular file present               |
-| `fileSize(path): Int`       | byte size (throws if missing)      |
+| API                          | Role                                       |
+| ---------------------------- | ------------------------------------------ |
+| `print` / `println`          | stdout (no newline / with newline)         |
+| `eprint` / `eprintln`        | stderr                                     |
+| `readFile(path): String`     | read entire regular file (throws on error) |
+| `tryReadFile(path): String?` | soft read; `null` on missing/error (C12p)  |
+| `writeFile(path, content)`   | create/truncate and write                  |
+| `appendFile(path, content)`  | append (create if needed)                  |
+| `fileExists(path): Bool`     | regular file present                       |
+| `fileSize(path): Int`        | byte size (throws if missing)              |
 
 Typical use (explicit import or auto-prelude on package builds):
 
@@ -54,6 +55,7 @@ Corpus:
 aura run corpus/std_io/app
 aura run corpus/std_io/prelude
 aura run corpus/std_io/files
+aura run corpus/std_io/try_read_file
 # monorepo: cargo run -p aura-cli -- run corpus/std_io/files
 ```
 

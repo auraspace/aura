@@ -1,0 +1,6 @@
+[package]
+name = "demo.stdio.try_read_file"
+
+[[bin]]
+name = "try_read_file"
+path = "src"

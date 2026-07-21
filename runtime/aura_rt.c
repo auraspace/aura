@@ -190,6 +190,64 @@ const char *aura_read_file(const char *path)
   return buf;
 }
 
+/* C12p: soft read — same constraints as aura_read_file, but returns NULL on
+ * missing path / I/O error / oversize / OOM / embedded NUL (never throws). */
+const char *aura_try_read_file(const char *path)
+{
+  if (path == NULL || path[0] == '\0')
+  {
+    return NULL;
+  }
+  FILE *f = fopen(path, "rb");
+  if (f == NULL)
+  {
+    return NULL;
+  }
+  if (fseek(f, 0, SEEK_END) != 0)
+  {
+    fclose(f);
+    return NULL;
+  }
+  long end = ftell(f);
+  if (end < 0)
+  {
+    fclose(f);
+    return NULL;
+  }
+  if ((int64_t)end > AURA_IO_MAX_FILE)
+  {
+    fclose(f);
+    return NULL;
+  }
+  if (fseek(f, 0, SEEK_SET) != 0)
+  {
+    fclose(f);
+    return NULL;
+  }
+  size_t n = (size_t)end;
+  char *buf = (char *)malloc(n + 1);
+  if (buf == NULL)
+  {
+    fclose(f);
+    return NULL;
+  }
+  size_t got = fread(buf, 1, n, f);
+  if (got != n)
+  {
+    free(buf);
+    fclose(f);
+    return NULL;
+  }
+  fclose(f);
+  buf[n] = '\0';
+  if (memchr(buf, '\0', n) != NULL)
+  {
+    free(buf);
+    return NULL;
+  }
+  return buf;
+}
+
 static void aura_write_file_mode(const char *path, const char *content, const char *mode, const char *op)
 {
   if (path == NULL || path[0] == '\0')

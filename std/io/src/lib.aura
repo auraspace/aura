@@ -58,6 +58,14 @@ pub fun readFile(path: String): String {
   return ""
 }
 
+/// Soft read: same content rules as `readFile`, but returns `null` on missing
+/// path, I/O error, oversized file (>256 MiB), empty path, OOM, or embedded NUL.
+/// Prefer this when absence / soft failure is expected; use `readFile` to throw.
+pub fun tryReadFile(path: String): String? {
+  // Body replaced by codegen with aura_try_read_file(path).
+  return null
+}
+
 /// Write `content` to `path`, creating or truncating the file.
 /// Throws on I/O error.
 pub fun writeFile(path: String, content: String) {

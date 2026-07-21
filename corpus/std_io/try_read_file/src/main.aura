@@ -1,0 +1,40 @@
+// C12p — std.io.tryReadFile: String? (null on missing/error; keep throwing readFile)
+package demo.stdio.try_read_file
+
+import std.io as Io
+
+fun main() {
+  val path = "target/aura/std_io_try_read_file_test.txt"
+  val missing = "target/aura/std_io_try_read_file_missing_xyz.txt"
+
+  // Success: same content as readFile
+  Io.writeFile(path, "hello")
+  val soft = Io.tryReadFile(path)
+  if (soft == null) {
+    assert(false)
+  } else {
+    assert_eq(soft, "hello")
+  }
+  val strict = Io.readFile(path)
+  assert_eq(strict, "hello")
+
+  // Empty file → empty string (not null)
+  Io.writeFile(path, "")
+  val empty = Io.tryReadFile(path)
+  if (empty == null) {
+    assert(false)
+  } else {
+    assert_eq(empty, "")
+  }
+
+  // Missing path → null (do not throw)
+  assert(!Io.fileExists(missing))
+  val no = Io.tryReadFile(missing)
+  assert(no == null)
+
+  // Empty path → null
+  val bad = Io.tryReadFile("")
+  assert(bad == null)
+
+  Io.println("ok")
+}

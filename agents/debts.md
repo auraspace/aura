@@ -75,6 +75,10 @@ When you resolve debt, update or remove the matching entry.
 
 - Resolved in C12o: `std.collections` `map_strings` / `filter_strings` / `fold_strings`; corpus `std_collections/hof_str`.
 
+### Soft file read `tryReadFile` (2026-07-21)
+
+- Resolved in C12p: `std.io.tryReadFile(path): String?` (null on missing/error); throwing `readFile` kept; runtime `aura_try_read_file`; corpus `std_io/try_read_file`. Full `Result` I/O still deferred.
+
 ### C10 first-class funs batch (2026-07-20)
 
 - Resolved C10a–j: diagnostics polish, lambdas (expr/block), fun types, val captures (MVP), HOF helpers. Remaining: richer captures / env GC (see open debt).

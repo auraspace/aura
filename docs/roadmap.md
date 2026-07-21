@@ -199,7 +199,7 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C12m**  | Lambda `var` Int/Bool capture by ref                               | **Done**                                   |
 | **C12n**  | `HashMap` String→String concrete                                   | **Done**                                   |
 | **C12o**  | String HOF helpers (`map_strings` / `filter_strings`)              | **Done**                                   |
-| **C12p**  | `tryReadFile(path): String?`                                       | Planned                                    |
+| **C12p**  | `tryReadFile(path): String?`                                       | **Done**                                   |
 | **C12q**  | Dogfood CLI (`examples/notes` argv or `examples/wc`)               | Planned                                    |
 | **C12r**  | Corpus + guide sync for C12 surface                                | Planned                                    |
 | **C12s**  | Dist/DX polish (install smoke; optional Windows best-effort CI)    | Planned                                    |
