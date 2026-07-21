@@ -212,10 +212,10 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C13f**  | Lambda `var` String capture (RC box)                               | Pending                                    |
 | **C13g**  | Capture env mark/free audit + stress corpus                        | Pending                                    |
 | **C13h**  | Reject diagnostics for unsupported `var` class/Array capture       | Pending                                    |
-| **C13i**  | Registry index client MVP (fixture + cache)                        | Pending                                    |
-| **C13j**  | Semver caret resolve → lock pins                                   | Pending                                    |
-| **C13k**  | Fetch tarball + sha256 + extract cache                             | Pending                                    |
-| **C13l**  | `aura build`/`check` with locked registry deps                     | Pending                                    |
+| **C13i**  | Registry index client MVP (fixture + cache)                        | Done                                       |
+| **C13j**  | Semver caret resolve → lock pins                                   | Done                                       |
+| **C13k**  | Fetch tarball + sha256 + extract cache                             | Done                                       |
+| **C13l**  | `aura build`/`check` with locked registry deps                     | Done                                       |
 | **C13m**  | String ASCII `replace` or `toLower`/`toUpper`                      | Pending                                    |
 | **C13n**  | `std.io` `eprint` / `eprintln`                                     | Pending                                    |
 | **C13o**  | `tryWriteFile` soft write                                          | Pending                                    |

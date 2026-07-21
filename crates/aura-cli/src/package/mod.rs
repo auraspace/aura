@@ -14,8 +14,9 @@ mod util;
 mod tests;
 
 pub use fetch::{
-    cache_root_from_env, default_cache_root, expand_dl_template, fetch_and_install,
-    install_from_bytes, normalize_cksum, package_src_dir, read_crate_bytes, sha256_hex,
+    cache_root_from_env, crate_source_for_meta, default_cache_root, ensure_installed,
+    expand_dl_template, fetch_and_install, install_from_bytes, is_package_installed,
+    local_crate_path, normalize_cksum, package_src_dir, read_crate_bytes, sha256_hex,
     verify_sha256, ENV_REGISTRY_CACHE,
 };
 pub use load::{load_package, load_package_default};

@@ -159,6 +159,84 @@ fn resolve_local_source(source: &str) -> Result<PathBuf, String> {
     Ok(PathBuf::from(s))
 }
 
+/// Local fixture layout: `<index>/crates/<name>-<version>.crate`.
+pub fn local_crate_path(index_root: &Path, name: &str, version: &str) -> Option<PathBuf> {
+    let p = index_root
+        .join("crates")
+        .join(format!("{name}-{version}.crate"));
+    if p.is_file() {
+        Some(p)
+    } else {
+        None
+    }
+}
+
+/// Resolve a downloadable/local source for `meta` from the index (offline-friendly).
+///
+/// Order:
+/// 1. `<index>/crates/<name>-<version>.crate` (fixture / pre-seeded)
+/// 2. Expanded `config.json` `dl` when it is a local path or `file://` URL
+///
+/// HTTP(S) templates are not fetched (offline MVP); callers should rely on a warm
+/// cache via [`ensure_installed`] instead.
+pub fn crate_source_for_meta(
+    index_root: &Path,
+    dl_template: Option<&str>,
+    meta: &VersionMeta,
+) -> Result<String, String> {
+    if let Some(p) = local_crate_path(index_root, &meta.name, &meta.vers) {
+        return Ok(p.display().to_string());
+    }
+    if let Some(tmpl) = dl_template {
+        let url = expand_dl_template(tmpl, meta)?;
+        if url.starts_with("file://")
+            || (!url.starts_with("http://") && !url.starts_with("https://"))
+        {
+            return Ok(url);
+        }
+    }
+    Err(format!(
+        "error: package `{}-{}` has no offline crate source\n  \
+         hint: place `{0}-{1}.crate` under the index `crates/` directory, \
+         pre-seed `AURA_REGISTRY_CACHE`, or use a local/file:// download template\n  \
+         hint: network fetch is not enabled in the offline registry MVP",
+        meta.name, meta.vers
+    ))
+}
+
+/// True when `<cache>/src/<name>-<version>` already looks installed.
+pub fn is_package_installed(cache_root: &Path, name: &str, version: &str) -> bool {
+    is_installed(&package_src_dir(cache_root, name, version))
+}
+
+/// Ensure `meta` is installed under the cache. Uses a warm cache when present;
+/// otherwise fetches from `source` (required if not installed).
+///
+/// Returns the extracted package directory path.
+pub fn ensure_installed(
+    meta: &VersionMeta,
+    source: Option<&str>,
+    cache_root: Option<&Path>,
+) -> Result<PathBuf, String> {
+    let root = cache_root
+        .map(Path::to_path_buf)
+        .unwrap_or_else(cache_root_from_env);
+    let dest = package_src_dir(&root, &meta.name, &meta.vers);
+    if is_installed(&dest) {
+        return Ok(dest);
+    }
+    let source = source.ok_or_else(|| {
+        format!(
+            "error: package `{}-{}` is not in the registry cache (`{}`) and no download source is available\n  \
+             hint: set `AURA_REGISTRY_CACHE`, pre-fetch the crate, or provide a local `.crate` under the index `crates/` dir",
+            meta.name,
+            meta.vers,
+            dest.display()
+        )
+    })?;
+    fetch_and_install(meta, source, Some(&root))
+}
+
 /// Fetch crate from `source`, verify `meta.cksum`, extract into cache.
 ///
 /// `cache_root`: explicit root, or [`cache_root_from_env`] when `None`.

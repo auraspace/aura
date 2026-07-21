@@ -1,5 +1,7 @@
-//! Minimal `aura.lock` for path dependencies (C3p) + registry schema v0 (C8k).
+//! Minimal `aura.lock` for path dependencies (C3p) + registry schema v0 (C8k/C13l).
 
+use super::semver::{parse_req, parse_version, RegistryLockPin};
+use super::toml::DepSpec;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
@@ -13,13 +15,17 @@ pub(crate) struct LockEntry {
     pub(crate) version: Option<String>,
     /// `path` | `registry` (default path when only path string).
     pub(crate) source: Option<String>,
-    /// sha256 for registry crates (future fetch).
+    /// sha256 for registry crates.
     pub(crate) checksum: Option<String>,
 }
 
 impl LockEntry {
     pub(crate) fn path_str(&self) -> Option<&str> {
         self.path.as_deref()
+    }
+
+    pub(crate) fn is_registry(&self) -> bool {
+        self.source.as_deref() == Some("registry")
     }
 }
 
@@ -31,12 +37,24 @@ pub(crate) struct AuraLock {
 
 impl AuraLock {
     /// Path map for callers that only need path deps (C3p/C4j).
+    #[allow(dead_code)]
     pub(crate) fn path_map(&self) -> BTreeMap<String, String> {
         self.packages
             .iter()
             .filter_map(|(k, e)| e.path.clone().map(|p| (k.clone(), p)))
             .collect()
     }
+}
+
+/// One entry to write into `aura.lock` (path string or registry pin).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum LockWriteEntry {
+    Path {
+        path: String,
+        /// Transitive path deps get a comment marker.
+        transitive: bool,
+    },
+    Registry(RegistryLockPin),
 }
 
 pub(crate) fn lock_path(root: &Path) -> std::path::PathBuf {
@@ -155,37 +173,70 @@ fn parse_quoted(v: &str) -> Result<String, String> {
     Err(format!("expected quoted string, got {v}"))
 }
 
-/// Ensure direct `aura.toml` path deps match an existing lockfile (if any).
+/// Ensure direct `aura.toml` deps match an existing lockfile (if any).
 /// C4j: lock may list extra transitive packages; those are not required in toml.
 /// C8b: every locked path (direct + transitive) must resolve under the package root.
-/// C8k: registry entries skip path existence (not fetched yet).
+/// C13l: registry entries require version+checksum; pinned version must satisfy the req.
 pub(crate) fn verify_lock_against_toml(
     root: &Path,
-    toml_deps: &std::collections::HashMap<String, String>,
+    toml_deps: &std::collections::HashMap<String, DepSpec>,
 ) -> Result<(), String> {
     let Some(lock) = read_lock(root)? else {
         return Ok(());
     };
-    for (name, path) in toml_deps {
+    for (name, dep) in toml_deps {
         match lock.packages.get(name) {
             None => {
                 return Err(format!(
                     "error: aura.lock missing package `{name}` (declared in aura.toml)\n  \
-                     hint: delete aura.lock and re-run, or add `{name} = \"{path}\"` to aura.lock"
+                     hint: delete aura.lock and re-run, or add `{name}` to aura.lock"
                 ));
             }
-            Some(entry) => {
-                let locked = entry.path_str().unwrap_or("");
-                if locked != path {
-                    return Err(format!(
-                        "error: aura.lock path for `{name}` is `{locked}`, but aura.toml has `{path}`\n  \
-                         hint: update aura.toml or aura.lock so they agree"
-                    ));
+            Some(entry) => match dep {
+                DepSpec::Path(path) => {
+                    if entry.is_registry() {
+                        return Err(format!(
+                            "error: aura.lock has registry pin for `{name}`, but aura.toml declares a path dependency\n  \
+                             hint: update aura.toml or delete aura.lock and re-run"
+                        ));
+                    }
+                    let locked = entry.path_str().unwrap_or("");
+                    if locked != path {
+                        return Err(format!(
+                            "error: aura.lock path for `{name}` is `{locked}`, but aura.toml has `{path}`\n  \
+                             hint: update aura.toml or aura.lock so they agree"
+                        ));
+                    }
                 }
-            }
+                DepSpec::Version(req) => {
+                    if !entry.is_registry() {
+                        return Err(format!(
+                            "error: aura.lock has path entry for `{name}`, but aura.toml declares a registry version\n  \
+                             hint: update aura.toml or delete aura.lock and re-run"
+                        ));
+                    }
+                    let Some(ver) = entry.version.as_deref() else {
+                        return Err(format!(
+                            "error: aura.lock registry pin for `{name}` missing version"
+                        ));
+                    };
+                    let requirement = parse_req(req).map_err(|e| {
+                        format!("error: package `{name}`: invalid version requirement `{req}`: {e}")
+                    })?;
+                    let pinned = parse_version(ver).map_err(|e| {
+                        format!("error: aura.lock package `{name}`: invalid version `{ver}`: {e}")
+                    })?;
+                    if !requirement.matches(&pinned) {
+                        return Err(format!(
+                            "error: aura.lock pins `{name}` at `{ver}`, which does not satisfy aura.toml requirement `{req}`\n  \
+                             hint: delete aura.lock and re-run to re-resolve"
+                        ));
+                    }
+                }
+            },
         }
     }
-    // C8b/C8k: path entries must exist; registry pins are schema-only for now.
+    // C8b/C13l: path entries must exist on disk; registry pins are satisfied later via cache.
     for (name, entry) in &lock.packages {
         let source = entry.source.as_deref().unwrap_or("path");
         if source == "registry" {
@@ -213,11 +264,8 @@ pub(crate) fn verify_lock_against_toml(
     Ok(())
 }
 
-/// Write `aura.lock` from path deps (direct + optional transitive; sorted, stable).
-/// No-op when there are no path dependencies (avoids empty lockfiles).
-///
-/// `direct` is used for comments; `all` is written (must include direct).
-/// Kept for tests and simple callers; production uses [`write_lock_with_direct`].
+/// Write `aura.lock` from path deps only (tests / simple callers).
+/// No-op when there are no dependencies.
 #[allow(dead_code)]
 pub(crate) fn write_lock(
     root: &Path,
@@ -226,30 +274,52 @@ pub(crate) fn write_lock(
     write_lock_with_direct(root, all_deps, all_deps)
 }
 
-/// Write lock with optional direct-vs-transitive annotation (C4j).
+/// Write lock with optional direct-vs-transitive annotation (C4j) — path deps only.
 pub(crate) fn write_lock_with_direct(
     root: &Path,
     all_deps: &std::collections::HashMap<String, String>,
     direct: &std::collections::HashMap<String, String>,
 ) -> Result<(), String> {
-    if all_deps.is_empty() {
+    let mut entries = BTreeMap::new();
+    for (name, p) in all_deps {
+        entries.insert(
+            name.clone(),
+            LockWriteEntry::Path {
+                path: p.clone(),
+                transitive: !direct.contains_key(name),
+            },
+        );
+    }
+    write_lock_entries(root, &entries)
+}
+
+/// Write mixed path + registry lock entries (C13l). Sorted by package name.
+pub(crate) fn write_lock_entries(
+    root: &Path,
+    entries: &BTreeMap<String, LockWriteEntry>,
+) -> Result<(), String> {
+    if entries.is_empty() {
         return Ok(());
     }
     let path = lock_path(root);
     let mut body = String::from(
-        "# aura.lock — path dependencies (C3p/C4j); registry form C8k\n\
-         # Direct deps match aura.toml; extra entries are transitive path deps.\n\
+        "# aura.lock — path dependencies (C3p/C4j); registry pins (C8k/C13l)\n\
+         # Direct deps match aura.toml; extra path entries are transitive.\n\
          # Registry pins: name = { version = \"…\", checksum = \"…\", source = \"registry\" }\n",
     );
-    let sorted: BTreeMap<_, _> = all_deps
-        .iter()
-        .map(|(k, v)| (k.clone(), v.clone()))
-        .collect();
-    for (name, p) in sorted {
-        if direct.contains_key(&name) {
-            body.push_str(&format!("{name} = \"{p}\"\n"));
-        } else {
-            body.push_str(&format!("{name} = \"{p}\"  # transitive\n"));
+    for (name, entry) in entries {
+        match entry {
+            LockWriteEntry::Path { path: p, transitive } => {
+                if *transitive {
+                    body.push_str(&format!("{name} = \"{p}\"  # transitive\n"));
+                } else {
+                    body.push_str(&format!("{name} = \"{p}\"\n"));
+                }
+            }
+            LockWriteEntry::Registry(pin) => {
+                body.push_str(&pin.format_lock_line(name));
+                body.push('\n');
+            }
         }
     }
     // Skip write if identical (avoids dirty mtime).

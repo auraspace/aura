@@ -1,13 +1,22 @@
-//! Package loading from files, directories, and manifests (C3e/C3f).
+//! Package loading from files, directories, and manifests (C3e/C3f/C13l).
 
 use aura_ast::{shift_file_spans, File, ImportDecl, Path as AstPath, Span};
 use aura_parser::parse_file;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use super::lock::{verify_lock_against_toml, write_lock_with_direct};
-use super::toml::{parse_aura_toml, AuraToml};
+use super::fetch::{
+    cache_root_from_env, crate_source_for_meta, ensure_installed, package_src_dir,
+};
+use super::lock::{
+    read_lock, verify_lock_against_toml, write_lock_entries, AuraLock, LockEntry, LockWriteEntry,
+};
+use super::registry::{RegistryIndex, VersionMeta};
+use super::semver::{
+    lock_pin_from_meta, parse_req, parse_version, resolve, RegistryLockPin,
+};
+use super::toml::{parse_aura_toml, AuraToml, DepSpec};
 use super::types::{LoadedPackage, SourceEntry};
 use super::util::{
     check_dup_fun, check_dup_type, collect_aura_files, format_parse, last_segment,
@@ -166,34 +175,205 @@ pub(crate) fn load_from_manifest(manifest: &Path) -> Result<LoadedPackage, Strin
         pkg.bin_name = last_segment(&pkg.package);
     }
 
-    // C3p: if aura.lock exists, path deps must match it.
+    // C3p/C13l: if aura.lock exists, direct deps must match it (paths + registry reqs).
     verify_lock_against_toml(&root, &toml.dependencies)?;
 
     // C4g: auto-prelude — make std.io available and import it for app packages.
     let mut effective = toml.clone();
     apply_std_io_prelude(&mut pkg, &mut effective, &root)?;
 
+    // C13l: resolve registry version deps → cache src paths (offline warm cache OK).
+    let registry_pins = materialize_registry_deps(&mut effective, &root, &toml)?;
+
     // Merge path deps from this manifest and from each loaded dep's own aura.toml.
     // C4j: also collect the full resolved path map for aura.lock.
     let resolved = resolve_imports(&mut pkg, &effective, &root)?;
 
-    // Refresh lockfile: user-declared direct deps + transitive path deps (C4j).
+    // Refresh lockfile: path deps + registry pins (C4j/C13l).
     // Exclude auto-prelude-only entries not declared in the user's aura.toml.
-    let mut lock_all: HashMap<String, String> = HashMap::new();
+    let mut lock_entries: BTreeMap<String, LockWriteEntry> = BTreeMap::new();
+    for (name, pin) in &registry_pins {
+        lock_entries.insert(name.clone(), LockWriteEntry::Registry(pin.clone()));
+    }
     for (name, abs) in &resolved {
-        if toml.dependencies.contains_key(name) {
-            lock_all.insert(name.clone(), toml.dependencies[name].clone());
+        if registry_pins.contains_key(name) {
+            continue;
+        }
+        if let Some(DepSpec::Path(rel)) = toml.dependencies.get(name) {
+            lock_entries.insert(
+                name.clone(),
+                LockWriteEntry::Path {
+                    path: rel.clone(),
+                    transitive: false,
+                },
+            );
         } else if name.starts_with("std.") {
             // Auto std path resolve — omit from lock (not user-declared).
             continue;
-        } else {
-            // Transitive: store path relative to this package root when possible.
+        } else if !toml.dependencies.contains_key(name) {
+            // Transitive path: store path relative to this package root when possible.
             let rel = path_for_lock(&root, abs);
-            lock_all.insert(name.clone(), rel);
+            lock_entries.insert(
+                name.clone(),
+                LockWriteEntry::Path {
+                    path: rel,
+                    transitive: true,
+                },
+            );
         }
     }
-    write_lock_with_direct(&root, &lock_all, &toml.dependencies)?;
+    write_lock_entries(&root, &lock_entries)?;
     Ok(pkg)
+}
+
+/// Resolve registry deps from the index/lock, ensure cache install, and rewrite
+/// them as absolute path deps on `effective` so [`resolve_imports`] is unchanged.
+///
+/// Prefer env `AURA_REGISTRY_INDEX` + `AURA_REGISTRY_CACHE` (tests/CI).
+fn materialize_registry_deps(
+    effective: &mut AuraToml,
+    root: &Path,
+    original: &AuraToml,
+) -> Result<HashMap<String, RegistryLockPin>, String> {
+    let mut pins = HashMap::new();
+    let registry_names: Vec<(String, String)> = original
+        .dependencies
+        .iter()
+        .filter_map(|(n, d)| d.as_version_req().map(|v| (n.clone(), v.to_string())))
+        .collect();
+    if registry_names.is_empty() {
+        return Ok(pins);
+    }
+
+    let lock = read_lock(root)?;
+    let cache = cache_root_from_env();
+    // Open index lazily — warm cache + lock can proceed without it.
+    let mut index: Option<RegistryIndex> = None;
+
+    for (name, req) in registry_names {
+        let (meta, pin) =
+            resolve_registry_pin(&name, &req, lock.as_ref(), &mut index, &cache)?;
+        let installed = ensure_registry_src(&meta, index.as_ref(), &cache)?;
+        effective
+            .dependencies
+            .insert(name.clone(), DepSpec::Path(installed.display().to_string()));
+        pins.insert(name, pin);
+    }
+    Ok(pins)
+}
+
+fn open_index_if_needed(index: &mut Option<RegistryIndex>) -> Result<&RegistryIndex, String> {
+    if index.is_none() {
+        *index = Some(RegistryIndex::from_env_or_default().map_err(|e| {
+            format!(
+                "{e}\n  hint: set `AURA_REGISTRY_INDEX` to a local index (fixture or cache) \
+                 when resolving registry dependencies"
+            )
+        })?);
+    }
+    Ok(index.as_ref().unwrap())
+}
+
+/// Pick a lock pin when it still satisfies `req`; otherwise resolve via the index.
+fn resolve_registry_pin(
+    name: &str,
+    req: &str,
+    lock: Option<&AuraLock>,
+    index: &mut Option<RegistryIndex>,
+    cache: &Path,
+) -> Result<(VersionMeta, RegistryLockPin), String> {
+    if let Some(lock) = lock {
+        if let Some(entry) = lock.packages.get(name) {
+            if entry.is_registry() {
+                if let Some(meta_pin) = try_use_lock_pin(name, req, entry)? {
+                    return Ok(meta_pin);
+                }
+                // Pin no longer satisfies req — fall through to re-resolve.
+            }
+        }
+    }
+
+    let idx = open_index_if_needed(index)?;
+    let meta = resolve(name, req, idx)?;
+    let pin = lock_pin_from_meta(&meta);
+    let _ = cache; // reserved for future source selection hints
+    Ok((meta, pin))
+}
+
+fn try_use_lock_pin(
+    name: &str,
+    req: &str,
+    entry: &LockEntry,
+) -> Result<Option<(VersionMeta, RegistryLockPin)>, String> {
+    let ver = entry
+        .version
+        .as_deref()
+        .ok_or_else(|| format!("error: aura.lock registry pin for `{name}` missing version"))?;
+    let cksum = entry
+        .checksum
+        .as_deref()
+        .ok_or_else(|| format!("error: aura.lock registry pin for `{name}` missing checksum"))?;
+    let requirement = parse_req(req).map_err(|e| {
+        format!("error: package `{name}`: invalid version requirement `{req}`: {e}")
+    })?;
+    let pinned = parse_version(ver)
+        .map_err(|e| format!("error: aura.lock package `{name}`: invalid version `{ver}`: {e}"))?;
+    if !requirement.matches(&pinned) {
+        return Ok(None);
+    }
+    let meta = VersionMeta {
+        name: name.to_string(),
+        vers: ver.to_string(),
+        cksum: cksum.to_string(),
+        yanked: false,
+        repository: None,
+    };
+    let pin = RegistryLockPin {
+        version: ver.to_string(),
+        checksum: cksum.to_string(),
+        source: "registry".into(),
+    };
+    Ok(Some((meta, pin)))
+}
+
+/// Ensure crate sources are on disk under the registry cache; fetch from local
+/// fixture when cold.
+fn ensure_registry_src(
+    meta: &VersionMeta,
+    index: Option<&RegistryIndex>,
+    cache: &Path,
+) -> Result<PathBuf, String> {
+    let dest = package_src_dir(cache, &meta.name, &meta.vers);
+    // Warm cache: no network / no index required.
+    if dest.is_dir() && (dest.join("aura.toml").is_file() || dir_nonempty(&dest)) {
+        return Ok(dest);
+    }
+
+    let source = match index {
+        Some(idx) => Some(crate_source_for_meta(
+            idx.root(),
+            idx.config().dl.as_deref(),
+            meta,
+        )?),
+        None => {
+            // Try opening index just for local crates/ + dl template.
+            match RegistryIndex::from_env_or_default() {
+                Ok(idx) => Some(crate_source_for_meta(
+                    idx.root(),
+                    idx.config().dl.as_deref(),
+                    meta,
+                )?),
+                Err(_) => None,
+            }
+        }
+    };
+    ensure_installed(meta, source.as_deref(), Some(cache))
+}
+
+fn dir_nonempty(dir: &Path) -> bool {
+    fs::read_dir(dir)
+        .map(|mut d| d.next().is_some())
+        .unwrap_or(false)
 }
 
 /// Prefer a relative path for lock entries when `abs` is under or near `root`.
@@ -238,7 +418,7 @@ fn apply_std_io_prelude(
     if !toml.dependencies.contains_key("std.io") {
         // Prefer absolute path so nested packages resolve reliably.
         toml.dependencies
-            .insert("std.io".into(), std_io.display().to_string());
+            .insert("std.io".into(), DepSpec::Path(std_io.display().to_string()));
     }
     let already = pkg.ast.imports.iter().any(|i| i.path.display() == "std.io");
     if !already {
@@ -285,10 +465,11 @@ fn resolve_imports(
     loaded.insert(pkg.package.clone());
 
     // deps map: package name → absolute path (grows as nested manifests are read)
+    // Registry deps must already be rewritten to Path by materialize_registry_deps.
     let mut deps: HashMap<String, PathBuf> = toml
         .dependencies
         .iter()
-        .map(|(k, p)| (k.clone(), root.join(p)))
+        .filter_map(|(k, d)| d.as_path().map(|p| (k.clone(), root.join(p))))
         .collect();
 
     // C4h: auto-resolve std.* path when imported but not declared (assert, etc.).
@@ -356,7 +537,12 @@ fn read_manifest_deps(root: &Path) -> Result<HashMap<String, String>, String> {
     let text = fs::read_to_string(&manifest)
         .map_err(|e| format!("error: read {}: {e}", manifest.display()))?;
     let toml = parse_aura_toml(&text).map_err(|e| format!("error: {}: {e}", manifest.display()))?;
-    Ok(toml.dependencies)
+    // Nested path deps only (C13l: nested registry deps are not resolved from deps yet).
+    Ok(toml
+        .dependencies
+        .into_iter()
+        .filter_map(|(k, d)| d.as_path().map(|p| (k, p.to_string())))
+        .collect())
 }
 
 fn load_dep_package(path: &Path) -> Result<LoadedPackage, String> {

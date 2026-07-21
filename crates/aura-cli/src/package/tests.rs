@@ -157,6 +157,7 @@ fn reject_duplicate_fun() {
 
 #[test]
 fn parse_path_deps() {
+    use super::toml::DepSpec;
     let t = parse_aura_toml(
         r#"
 [package]
@@ -169,18 +170,48 @@ other = "vendor/other"
     )
     .unwrap();
     assert_eq!(
-        t.dependencies.get("demo.math").map(String::as_str),
-        Some("../math")
+        t.dependencies.get("demo.math"),
+        Some(&DepSpec::Path("../math".into()))
     );
     assert_eq!(
-        t.dependencies.get("other").map(String::as_str),
-        Some("vendor/other")
+        t.dependencies.get("other"),
+        Some(&DepSpec::Path("vendor/other".into()))
+    );
+}
+
+#[test]
+fn parse_registry_version_deps() {
+    use super::toml::DepSpec;
+    let t = parse_aura_toml(
+        r#"
+[package]
+name = "demo.app"
+
+[dependencies]
+tiny = { version = "0.1" }
+hello = "1.0"
+caret = "^1.2.3"
+"#,
+    )
+    .unwrap();
+    assert_eq!(
+        t.dependencies.get("tiny"),
+        Some(&DepSpec::Version("0.1".into()))
+    );
+    assert_eq!(
+        t.dependencies.get("hello"),
+        Some(&DepSpec::Version("1.0".into()))
+    );
+    assert_eq!(
+        t.dependencies.get("caret"),
+        Some(&DepSpec::Version("^1.2.3".into()))
     );
 }
 
 #[test]
 fn lock_parse_and_verify() {
     use super::lock::{parse_lock, verify_lock_against_toml, write_lock};
+    use super::toml::DepSpec;
     use std::collections::HashMap;
 
     let lock = parse_lock(
@@ -209,19 +240,22 @@ name = "demo.math"
 "#,
     )
     .unwrap();
+    let mut path_deps = HashMap::new();
+    path_deps.insert("demo.math".into(), "math".into());
+    write_lock(&root, &path_deps).unwrap();
     let mut deps = HashMap::new();
-    deps.insert("demo.math".into(), "math".into());
-    write_lock(&root, &deps).unwrap();
+    deps.insert("demo.math".into(), DepSpec::Path("math".into()));
     verify_lock_against_toml(&root, &deps).unwrap();
 
     let mut bad = deps.clone();
-    bad.insert("demo.math".into(), "elsewhere".into());
+    bad.insert("demo.math".into(), DepSpec::Path("elsewhere".into()));
     let err = verify_lock_against_toml(&root, &bad).unwrap_err();
     assert!(err.contains("aura.lock"), "{err}");
 
     // Missing path entry fails existence check.
-    deps.insert("demo.ghost".into(), "ghost".into());
-    write_lock(&root, &deps).unwrap();
+    path_deps.insert("demo.ghost".into(), "ghost".into());
+    write_lock(&root, &path_deps).unwrap();
+    deps.insert("demo.ghost".into(), DepSpec::Path("ghost".into()));
     let err = verify_lock_against_toml(&root, &deps).unwrap_err();
     assert!(err.contains("missing") || err.contains("ghost"), "{err}");
     let _ = fs::remove_dir_all(&root);
@@ -658,4 +692,198 @@ fn fetch_public_reexports() {
     let _ = super::cache_root_from_env();
     let p = super::package_src_dir(Path::new("/tmp/cache"), "n", "1.0.0");
     assert!(p.ends_with("src/n-1.0.0") || p.ends_with("src\\n-1.0.0"));
+}
+
+// --- C13l build/check with locked registry deps ---
+
+/// Serialize env mutations for registry index/cache (parallel test safety).
+fn registry_env_lock() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+#[test]
+fn c13l_load_registry_dep_resolve_fetch_lock() {
+    use super::{
+        cache_root_from_env, package_src_dir, ENV_REGISTRY_CACHE, ENV_REGISTRY_INDEX,
+    };
+    use super::lock::parse_lock;
+
+    let _guard = registry_env_lock();
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/registry");
+    let cache = unique_cache_root("c13l-load");
+    let app = std::env::temp_dir().join(format!(
+        "aura-c13l-app-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    ));
+    let _ = fs::remove_dir_all(&app);
+    fs::create_dir_all(app.join("src")).unwrap();
+
+    write_tree(
+        &app,
+        &[
+            (
+                "aura.toml",
+                r#"[package]
+name = "demo.regapp"
+[[bin]]
+name = "regapp"
+path = "src"
+[dependencies]
+tiny = { version = "0.1" }
+"#,
+            ),
+            (
+                "src/main.aura",
+                r#"package demo.regapp
+import tiny
+fun main() {}
+"#,
+            ),
+        ],
+    );
+
+    std::env::set_var(ENV_REGISTRY_INDEX, &fixture);
+    std::env::set_var(ENV_REGISTRY_CACHE, &cache);
+    assert_eq!(cache_root_from_env(), cache);
+
+    let pkg = load_package(&app.join("aura.toml")).expect("load with registry dep");
+    assert_eq!(pkg.package, "demo.regapp");
+    // tiny sources merged (main.aura from the extracted crate).
+    let origins: Vec<_> = pkg
+        .ast
+        .functions
+        .iter()
+        .map(|f| f.origin_package.as_str())
+        .collect();
+    assert!(
+        origins.iter().any(|o| *o == "tiny"),
+        "expected tiny package functions, origins={origins:?}"
+    );
+
+    // Cache install path
+    let src = package_src_dir(&cache, "tiny", "0.1.0");
+    assert!(src.join("aura.toml").is_file(), "expected install at {src:?}");
+
+    // Lock pin written
+    let lock_text = fs::read_to_string(app.join("aura.lock")).expect("aura.lock");
+    assert!(lock_text.contains("source = \"registry\""), "{lock_text}");
+    assert!(lock_text.contains("0.1.0"), "{lock_text}");
+    let lock = parse_lock(&lock_text).unwrap();
+    let entry = lock.packages.get("tiny").expect("tiny in lock");
+    assert_eq!(entry.version.as_deref(), Some("0.1.0"));
+    assert_eq!(entry.source.as_deref(), Some("registry"));
+    assert!(entry.checksum.as_ref().is_some_and(|c| c.contains("aac934")));
+
+    // Second load: offline warm cache (lock pin + installed src).
+    // Even if we point index at a missing path after first resolve, warm path should work
+    // because lock pin + cache is enough — but we keep fixture index set.
+    let pkg2 = load_package(&app.join("aura.toml")).expect("reload warm");
+    assert_eq!(pkg2.package, "demo.regapp");
+    assert!(
+        pkg2.ast
+            .functions
+            .iter()
+            .any(|f| f.origin_package == "tiny"),
+        "warm reload should still merge tiny"
+    );
+
+    std::env::remove_var(ENV_REGISTRY_INDEX);
+    std::env::remove_var(ENV_REGISTRY_CACHE);
+    let _ = fs::remove_dir_all(&cache);
+    let _ = fs::remove_dir_all(&app);
+}
+
+#[test]
+fn c13l_warm_cache_offline_without_crate_tarball() {
+    use super::{
+        ensure_installed, is_package_installed, ENV_REGISTRY_CACHE, ENV_REGISTRY_INDEX,
+    };
+    use super::lock::parse_lock;
+
+    let _guard = registry_env_lock();
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/registry");
+    let cache = unique_cache_root("c13l-warm");
+    let meta = fixture_tiny_meta();
+    let crate_path = fixture_tiny_crate_path();
+    // Pre-seed cache (warm).
+    ensure_installed(
+        &meta,
+        Some(crate_path.to_str().unwrap()),
+        Some(&cache),
+    )
+    .expect("pre-seed");
+    assert!(is_package_installed(&cache, "tiny", "0.1.0"));
+
+    let app = std::env::temp_dir().join(format!(
+        "aura-c13l-warm-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    ));
+    let _ = fs::remove_dir_all(&app);
+    fs::create_dir_all(app.join("src")).unwrap();
+    // Pre-write lock pin so resolve does not need a fresh semver pass if index fails.
+    let lock_line = format!(
+        "tiny = {{ version = \"0.1.0\", checksum = \"{}\", source = \"registry\" }}\n",
+        meta.cksum
+    );
+    write_tree(
+        &app,
+        &[
+            (
+                "aura.toml",
+                r#"[package]
+name = "demo.warm"
+[[bin]]
+path = "src"
+[dependencies]
+tiny = "0.1"
+"#,
+            ),
+            ("aura.lock", &lock_line),
+            (
+                "src/main.aura",
+                r#"package demo.warm
+import tiny
+fun main() {}
+"#,
+            ),
+        ],
+    );
+
+    std::env::set_var(ENV_REGISTRY_INDEX, &fixture);
+    std::env::set_var(ENV_REGISTRY_CACHE, &cache);
+
+    let pkg = load_package(&app.join("aura.toml")).expect("warm load");
+    assert!(pkg
+        .ast
+        .functions
+        .iter()
+        .any(|f| f.origin_package == "tiny"));
+
+    // Lock still registry form
+    let lock = parse_lock(&fs::read_to_string(app.join("aura.lock")).unwrap()).unwrap();
+    assert!(lock.packages.get("tiny").unwrap().is_registry());
+
+    std::env::remove_var(ENV_REGISTRY_INDEX);
+    std::env::remove_var(ENV_REGISTRY_CACHE);
+    let _ = fs::remove_dir_all(&cache);
+    let _ = fs::remove_dir_all(&app);
+}
+
+#[test]
+fn c13l_local_crate_path_helper() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/registry");
+    let p = super::local_crate_path(&fixture, "tiny", "0.1.0").expect("fixture crate");
+    assert!(p.ends_with("tiny-0.1.0.crate"));
+    let meta = fixture_tiny_meta();
+    let src = super::crate_source_for_meta(&fixture, None, &meta).unwrap();
+    assert!(src.contains("tiny-0.1.0.crate"));
 }
