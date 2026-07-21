@@ -31,6 +31,7 @@ Sample `.aura` programs for the compiler: parse/typecheck (`aura check`), native
 | `fun/lambda_capture.aura`       | Capture outer `val` Int (C10h MVP; Bool/String also OK)                |
 | `fun/lambda_capture_class.aura` | Capture outer `val` class (GC ptr + env roots; C12k)                   |
 | `fun/lambda_capture_array.aura` | Capture outer `val` Array (non-owning header view; C12l)               |
+| `fun/lambda_capture_var.aura`   | Capture outer `var` Int/Bool by shared mutable box (C12m)              |
 | `fun/lambda_env_free.aura`      | Fun env free: move / return / param / loop (C11b)                      |
 | `fun/lambda_hof.aura`           | Local map/filter/fold with fun values + capture (C10i)                 |
 | `pkg/dotted.aura`               | Dotted package path                                                    |

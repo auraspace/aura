@@ -698,6 +698,34 @@ pub(crate) fn is_heap_class_capture_ty(ty: &Ty, checked: &CheckedFile) -> bool {
     }
 }
 
+/// C type of a lambda env field (C12m: by-ref → shared box pointer).
+pub(crate) fn c_capture_field_type(ty: &Ty, by_ref: bool, checked: &CheckedFile) -> String {
+    if by_ref {
+        match ty {
+            Ty::Bool => "aura_box_bool *".into(),
+            _ => "aura_box_i64 *".into(),
+        }
+    } else {
+        c_type_from_ty(ty, checked)
+    }
+}
+
+pub(crate) fn box_retain_fn(ty_key: &str) -> &'static str {
+    if ty_key == "Bool" {
+        "aura_box_bool_retain"
+    } else {
+        "aura_box_i64_retain"
+    }
+}
+
+pub(crate) fn box_release_fn(ty_key: &str) -> &'static str {
+    if ty_key == "Bool" {
+        "aura_box_bool_release"
+    } else {
+        "aura_box_i64_release"
+    }
+}
+
 pub(crate) fn c_type_from_ty(ty: &Ty, checked: &CheckedFile) -> String {
     match ty {
         Ty::Unit => "void".into(),

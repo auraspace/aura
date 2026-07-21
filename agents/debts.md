@@ -9,14 +9,15 @@ When you resolve debt, update or remove the matching entry.
 
 ### Lambda capture limits (MVP)
 
-- Area: language / lambdas (C10h/C12k/C12l)
-- Symptom: immutable `val` of `Int`/`Bool`/`String`/class/Array only; no `var` or nested Fun capture
-- Why deferred: `var` by-ref needs shared mutable box; Fun-in-env risks double free
-- Progress: fat-pointer Fun `{env,fn}`; copy-out of prim + **class GC ptr** + **Array header view** captures; env `__drop` unregisters class roots then free (never frees Array buffers); corpus `lambda_capture.aura`, `lambda_capture_class.aura`, `lambda_capture_array.aura`, `lambda_env_free.aura`
+- Area: language / lambdas (C10h/C12k/C12l/C12m)
+- Symptom: no nested Fun capture; no `var` String/class/Array capture
+- Why deferred: Fun-in-env risks double free / shared-env GC; non-prim `var` needs richer box protocol
+- Progress: fat-pointer Fun `{env,fn}`; copy-out of prim + **class GC ptr** + **Array header view**; **`var` Int/Bool by shared refcounted box**; env `__drop` unregisters class roots / releases boxes then free (never frees Array buffers); corpus `lambda_capture.aura`, `lambda_capture_class.aura`, `lambda_capture_array.aura`, `lambda_capture_var.aura`, `lambda_env_free.aura`
 - Note (C12l): Array capture is a non-owning `{data,len,cap}` view (like field bind). Freeing/moving the outer Array owner while Fun is still live is **undefined**
-- Next step: **C12m** `var` Int/Bool by ref; Fun capture + shared-env GC still later
+- Note (C12m): `var` Int/Bool uses `aura_box_*` (refcount); outer + each capturing env retain; multiple lambdas share mutations; escaping Fun keeps the box alive
+- Next step: Fun capture + shared-env GC; later `var` String/class/Array if needed
 - Tracked: [C12 plan](../docs/plans/2026-07-21-next-20-c12a-c12t.md)
-- Introduced: narrowed after C10h; env free 2026-07-20; class C12k 2026-07-21; Array view C12l 2026-07-21
+- Introduced: narrowed after C10h; env free 2026-07-20; class C12k 2026-07-21; Array view C12l 2026-07-21; var Int/Bool C12m 2026-07-21
 
 ### Array field return still moves (no true borrow type)
 

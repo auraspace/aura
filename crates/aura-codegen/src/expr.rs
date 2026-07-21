@@ -359,6 +359,10 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
             {
                 return emit_expr(&c.value, ctx);
             }
+            // C12m: by-ref boxed locals read through the box.
+            if ctx.is_box_local(&i.name) {
+                return format!("({})->value", mangle_ident(&i.name));
+            }
             mangle_ident(&i.name)
         }
         Expr::This(_) => "(*this)".into(),
@@ -534,6 +538,9 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
             });
             let lhs = if dst_is_field {
                 format!("this->{}", mangle_ident(&a.name.name))
+            } else if ctx.is_box_local(&a.name.name) {
+                // C12m: assign through shared mutable box.
+                format!("({})->value", mangle_ident(&a.name.name))
             } else {
                 mangle_ident(&a.name.name)
             };
@@ -693,13 +700,17 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
             } else {
                 // GNU statement-expr: allocate env, set drop, fill captures, root GC slots.
                 // C12l: Array fields are header copies (view); outer scope still owns the buffer.
+                // C12m: by-ref slots store box pointers and retain.
                 let mut fill = String::new();
                 let _ = writeln!(fill, "  __e->__drop = aura_lenv_{id}_drop;");
-                for (name, ty) in captures {
-                    let m = mangle_ident(name);
-                    // Capture value from enclosing scope local of the same name.
+                for cap in captures {
+                    let m = mangle_ident(&cap.name);
+                    // Capture from enclosing scope local of the same name.
                     let _ = writeln!(fill, "  __e->{m} = {m};");
-                    if crate::names::is_heap_class_capture_ty(ty, ctx.checked) {
+                    if cap.by_ref {
+                        let ret = crate::names::box_retain_fn(&cap.ty.mono_suffix());
+                        let _ = writeln!(fill, "  {ret}(__e->{m});");
+                    } else if crate::names::is_heap_class_capture_ty(&cap.ty, ctx.checked) {
                         let _ = writeln!(fill, "  aura_gc_add_root((void **)&__e->{m});");
                     }
                 }

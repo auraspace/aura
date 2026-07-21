@@ -123,7 +123,31 @@ pub struct CheckedFile {
     pub call_instantiations: HashMap<u32, CallInstantiation>,
     /// C10d/e: LambdaExpr.span.start → function type (for codegen).
     pub lambda_tys: HashMap<u32, Ty>,
-    /// C10h: LambdaExpr.span.start → outer `val` captures `(name, ty)` in stable order.
-    pub lambda_captures: HashMap<u32, Vec<(String, Ty)>>,
+    /// C10h/C12m: LambdaExpr.span.start → outer captures in stable name order.
+    pub lambda_captures: HashMap<u32, Vec<LambdaCapture>>,
     pub ast: File,
+}
+
+/// One free-variable capture of a lambda (C10h/C12m).
+#[derive(Debug, Clone)]
+pub struct LambdaCapture {
+    pub name: String,
+    pub ty: Ty,
+    /// `true`: shared mutable heap box (`var` Int/Bool). `false`: copy-out (`val`).
+    pub by_ref: bool,
+}
+
+impl CheckedFile {
+    /// Names of locals that are by-ref captured by any lambda (need heap boxes in codegen).
+    pub fn by_ref_capture_names(&self) -> std::collections::HashSet<String> {
+        let mut s = std::collections::HashSet::new();
+        for caps in self.lambda_captures.values() {
+            for c in caps {
+                if c.by_ref {
+                    s.insert(c.name.clone());
+                }
+            }
+        }
+        s
+    }
 }

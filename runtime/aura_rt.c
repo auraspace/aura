@@ -849,7 +849,8 @@ void aura_gc_mark_ptr(void *obj)
 
 /* C12k/C12l: free a Fun capture env. Every capturing env starts with a drop
  * fn ptr that unregisters GC roots for class capture slots, then free(env).
- * Array capture slots are non-owning header views — drop must not free buffers. */
+ * Array capture slots are non-owning header views — drop must not free buffers.
+ * C12m: by-ref Int/Bool captures release their shared boxes in drop. */
 void aura_fun_env_free(void *env)
 {
   if (env == NULL)
@@ -864,6 +865,87 @@ void aura_fun_env_free(void *env)
   else
   {
     free(env);
+  }
+}
+
+/* C12m: shared mutable boxes for `var` Int/Bool lambda captures (refcounted). */
+typedef struct aura_box_i64
+{
+  int64_t value;
+  int32_t refs;
+} aura_box_i64;
+
+typedef struct aura_box_bool
+{
+  bool value;
+  int32_t refs;
+} aura_box_bool;
+
+aura_box_i64 *aura_box_i64_new(int64_t v)
+{
+  aura_box_i64 *b = (aura_box_i64 *)malloc(sizeof(aura_box_i64));
+  if (b == NULL)
+  {
+    fprintf(stderr, "aura: out of memory (box i64)\n");
+    exit(1);
+  }
+  b->value = v;
+  b->refs = 1;
+  return b;
+}
+
+void aura_box_i64_retain(aura_box_i64 *b)
+{
+  if (b != NULL)
+  {
+    b->refs++;
+  }
+}
+
+void aura_box_i64_release(aura_box_i64 *b)
+{
+  if (b == NULL)
+  {
+    return;
+  }
+  b->refs--;
+  if (b->refs <= 0)
+  {
+    free(b);
+  }
+}
+
+aura_box_bool *aura_box_bool_new(bool v)
+{
+  aura_box_bool *b = (aura_box_bool *)malloc(sizeof(aura_box_bool));
+  if (b == NULL)
+  {
+    fprintf(stderr, "aura: out of memory (box bool)\n");
+    exit(1);
+  }
+  b->value = v;
+  b->refs = 1;
+  return b;
+}
+
+void aura_box_bool_retain(aura_box_bool *b)
+{
+  if (b != NULL)
+  {
+    b->refs++;
+  }
+}
+
+void aura_box_bool_release(aura_box_bool *b)
+{
+  if (b == NULL)
+  {
+    return;
+  }
+  b->refs--;
+  if (b->refs <= 0)
+  {
+    free(b);
   }
 }
 

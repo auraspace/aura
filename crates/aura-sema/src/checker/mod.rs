@@ -58,13 +58,13 @@ pub(crate) struct Checker {
     call_instantiations: HashMap<u32, CallInstantiation>,
     /// C10d: LambdaExpr.span.start → Fun type.
     lambda_tys: HashMap<u32, Ty>,
-    /// C10h: LambdaExpr.span.start → captured outer locals.
-    lambda_captures: HashMap<u32, Vec<(String, Ty)>>,
+    /// C10h/C12m: LambdaExpr.span.start → captured outer locals.
+    lambda_captures: HashMap<u32, Vec<crate::sigs::LambdaCapture>>,
     /// C10h: while checking a lambda body — index of the lambda params frame.
     /// Locals in frames strictly below this are free-variable captures.
     lambda_capture_base: Option<usize>,
-    /// C10h: accumulating captures for the active lambda (name → ty).
-    lambda_captures_acc: Option<HashMap<String, Ty>>,
+    /// C10h/C12m: accumulating captures for the active lambda (name → ty, by_ref).
+    lambda_captures_acc: Option<HashMap<String, (Ty, bool)>>,
     /// C10g: when Some, infer lambda block return type (inner = found so far).
     ret_infer: Option<Option<Ty>>,
     /// C6h: statement/body errors collected without aborting the whole file.
@@ -701,7 +701,7 @@ impl Checker {
 
     /// C10h/C12k/C12l: capturable outer `val` — Int/Bool/String, heap class (GC ptr),
     /// or Array (non-owning header view in env; outer scope owns the buffer).
-    /// Rejects `var`, Fun, struct, enum, interface (C12m / later).
+    /// Rejects Fun, struct, enum, interface (later).
     pub(crate) fn is_lambda_capturable_ty(&self, ty: &Ty) -> bool {
         match ty {
             Ty::Int | Ty::Bool | Ty::String => true,
@@ -717,7 +717,12 @@ impl Checker {
         }
     }
 
-    /// C10h: if `name` resolves to an outer local of the active lambda, record a capture.
+    /// C12m: capturable outer `var` by shared mutable box — Int/Bool only.
+    pub(crate) fn is_lambda_var_capturable_ty(&self, ty: &Ty) -> bool {
+        matches!(ty, Ty::Int | Ty::Bool)
+    }
+
+    /// C10h/C12m: if `name` resolves to an outer local of the active lambda, record a capture.
     pub(crate) fn note_lambda_capture(
         &mut self,
         name: &str,
@@ -732,25 +737,32 @@ impl Checker {
         if frame >= base {
             return Ok(());
         }
-        if mutable {
-            return Err(SemaError {
-                message: format!(
-                    "cannot capture mutable `var` `{name}` in lambda (only immutable `val`)"
-                ),
-                span,
-            });
-        }
-        if !self.is_lambda_capturable_ty(ty) {
-            return Err(SemaError {
-                message: format!(
-                    "cannot capture `{name}` of type {} in lambda (MVP: Int, Bool, String, class, or Array)",
-                    ty.display()
-                ),
-                span,
-            });
-        }
+        let by_ref = if mutable {
+            if !self.is_lambda_var_capturable_ty(ty) {
+                return Err(SemaError {
+                    message: format!(
+                        "cannot capture mutable `var` `{name}` of type {} in lambda (MVP: only `var` Int/Bool by ref; String/class/Array/Fun deferred)",
+                        ty.display()
+                    ),
+                    span,
+                });
+            }
+            true
+        } else {
+            if !self.is_lambda_capturable_ty(ty) {
+                return Err(SemaError {
+                    message: format!(
+                        "cannot capture `{name}` of type {} in lambda (MVP: Int, Bool, String, class, or Array)",
+                        ty.display()
+                    ),
+                    span,
+                });
+            }
+            false
+        };
         if let Some(acc) = self.lambda_captures_acc.as_mut() {
-            acc.entry(name.to_string()).or_insert_with(|| ty.clone());
+            acc.entry(name.to_string())
+                .or_insert_with(|| (ty.clone(), by_ref));
         }
         Ok(())
     }

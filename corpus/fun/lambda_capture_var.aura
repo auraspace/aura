@@ -1,0 +1,57 @@
+// C12m: capture outer var Int/Bool by shared mutable box
+package demo.lambda_cap_var
+
+fun makeCounter(): () -> Int {
+  var n = 0
+  return () => {
+    n = n + 1
+    return n
+  }
+}
+
+fun main(): Int {
+  // Shared mutations across two lambdas on the same var.
+  var x = 10
+  val inc = () => {
+    x = x + 1
+    return x
+  }
+  val add = (d: Int) => {
+    x = x + d
+    return x
+  }
+  val a = inc() // 11
+  val b = add(4) // 15
+  val c = x // 15
+
+  // Bool by-ref capture.
+  var flag = false
+  val flip = () => {
+    flag = !flag
+    return flag
+  }
+  val f1 = flip() // true
+  val f2 = flip() // false
+  val f3 = if (flag) { 1 } else { 0 } // 0
+
+  // Escaping Fun keeps the box alive after outer scope ends (refcount).
+  val ctr = makeCounter()
+  val d = ctr() // 1
+  val e = ctr() // 2
+
+  // Write-only capture (assign without prior read in lambda).
+  var w = 0
+  val set = (v: Int) => {
+    w = v
+    return w
+  }
+  val s = set(7)
+
+  // a+b+c = 11+15+15 = 41
+  // f1/f2 as ints: true=1 false=0 → use bool branches: f1 true → 1, f2 false → 0, f3 = 0
+  // d+e+s = 1+2+7 = 10
+  // total 41 + 1 + 0 + 0 + 10 = 52
+  val t1 = if (f1) { 1 } else { 0 }
+  val t2 = if (f2) { 1 } else { 0 }
+  return a + b + c + t1 + t2 + f3 + d + e + s
+}

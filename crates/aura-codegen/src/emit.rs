@@ -74,6 +74,15 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("void aura_fun_env_free(void *env);\n");
     out.push_str("void aura_gc_collect(void);\n");
     out.push_str("void aura_gc_shutdown(void);\n");
+    // C12m: shared mutable boxes for var Int/Bool captures.
+    out.push_str("typedef struct aura_box_i64 { int64_t value; int32_t refs; } aura_box_i64;\n");
+    out.push_str("typedef struct aura_box_bool { _Bool value; int32_t refs; } aura_box_bool;\n");
+    out.push_str("aura_box_i64 *aura_box_i64_new(int64_t v);\n");
+    out.push_str("void aura_box_i64_retain(aura_box_i64 *b);\n");
+    out.push_str("void aura_box_i64_release(aura_box_i64 *b);\n");
+    out.push_str("aura_box_bool *aura_box_bool_new(_Bool v);\n");
+    out.push_str("void aura_box_bool_retain(aura_box_bool *b);\n");
+    out.push_str("void aura_box_bool_release(aura_box_bool *b);\n");
     out.push_str("int aura_main(void);\n\n");
     // C7a: tagged optional primitives (Int? / Bool?).
     out.push_str("typedef struct { _Bool has; int64_t value; } aura_opt_i64;\n");
@@ -670,9 +679,10 @@ fn emit_lambda_fns(out: &mut String, checked: &CheckedFile) {
     let mut lambdas = collect_lambdas(&checked.ast);
     lambdas.sort_by_key(|l| l.span.start);
 
-    // C10h/C12k/C12l: env structs for capturing lambdas (stable field order from sema).
-    // First field is always `__drop` so Fun free can unregister GC class slots.
+    // C10h/C12k/C12l/C12m: env structs for capturing lambdas (stable field order from sema).
+    // First field is always `__drop` so Fun free can unregister GC class slots / release boxes.
     // Array captures store a non-owning header view — drop must not free their buffers.
+    // By-ref Int/Bool captures store aura_box_* pointers (retain on fill, release on drop).
     for lam in &lambdas {
         let Some(&id) = ids.get(&lam.span.start) else {
             continue;
@@ -687,22 +697,24 @@ fn emit_lambda_fns(out: &mut String, checked: &CheckedFile) {
         }
         let _ = writeln!(out, "typedef struct {{");
         let _ = writeln!(out, "  void (*__drop)(void *);");
-        for (name, ty) in captures {
-            let _ = writeln!(
-                out,
-                "  {} {};",
-                c_type_from_ty(ty, checked),
-                mangle_ident(name)
-            );
+        for cap in captures {
+            let field_ty = c_capture_field_type(&cap.ty, cap.by_ref, checked);
+            let _ = writeln!(out, "  {field_ty} {};", mangle_ident(&cap.name));
         }
         let _ = writeln!(out, "}} aura_lenv_{id};");
-        // Per-env drop: remove GC roots for heap-class captures, then free env only.
-        // C12l: Array header views are non-owning — never free captured Array buffers here.
+        // Per-env drop: remove GC roots for heap-class captures, release by-ref boxes,
+        // then free env only. C12l: never free Array view buffers here.
         let _ = writeln!(out, "static void aura_lenv_{id}_drop(void *env) {{");
         let _ = writeln!(out, "  aura_lenv_{id} *__e = (aura_lenv_{id} *)env;");
-        for (name, ty) in captures {
-            if is_heap_class_capture_ty(ty, checked) {
-                let m = mangle_ident(name);
+        for cap in captures {
+            let m = mangle_ident(&cap.name);
+            if cap.by_ref {
+                let rel = match &cap.ty {
+                    Ty::Bool => "aura_box_bool_release",
+                    _ => "aura_box_i64_release",
+                };
+                let _ = writeln!(out, "  {rel}(__e->{m});");
+            } else if is_heap_class_capture_ty(&cap.ty, checked) {
                 let _ = writeln!(out, "  aura_gc_remove_root((void **)&__e->{m});");
             }
         }
@@ -745,9 +757,10 @@ fn emit_lambda_fns(out: &mut String, checked: &CheckedFile) {
             out.push_str("  (void)env;\n");
         } else {
             let _ = writeln!(out, "  aura_lenv_{id} *__e = (aura_lenv_{id} *)env;");
-            for (name, ty) in captures {
-                let m = mangle_ident(name);
-                let _ = writeln!(out, "  {} {m} = __e->{m};", c_type_from_ty(ty, checked));
+            for cap in captures {
+                let m = mangle_ident(&cap.name);
+                let field_ty = c_capture_field_type(&cap.ty, cap.by_ref, checked);
+                let _ = writeln!(out, "  {field_ty} {m} = __e->{m};");
             }
         }
         let ret_key = Some(ret.mono_suffix());
@@ -759,6 +772,8 @@ fn emit_lambda_fns(out: &mut String, checked: &CheckedFile) {
             locals: vec![HashMap::new()],
             array_owners: vec![std::collections::HashSet::new()],
             fun_owners: vec![std::collections::HashSet::new()],
+            box_locals: vec![std::collections::HashSet::new()],
+            box_owners: vec![std::collections::HashSet::new()],
             gc_roots: vec![std::collections::HashSet::new()],
             array_gc_roots: vec![std::collections::HashSet::new()],
             return_key: ret_key,
@@ -766,8 +781,12 @@ fn emit_lambda_fns(out: &mut String, checked: &CheckedFile) {
         };
         // C12l: Array captures are non-owning views — do not mark array_owner
         // (env/header copy only; outer scope frees the buffer).
-        for (name, ty) in captures {
-            ctx.define_local(name, ty.mono_suffix());
+        // C12m: by-ref captures are box pointers; mark so reads/writes use ->value.
+        for cap in captures {
+            ctx.define_local(&cap.name, cap.ty.mono_suffix());
+            if cap.by_ref {
+                ctx.mark_box_local(&cap.name);
+            }
         }
         for (i, p) in lam.params.iter().enumerate() {
             let key = params
@@ -923,6 +942,8 @@ pub(crate) fn emit_fun(out: &mut String, f: &FunDecl, checked: &CheckedFile, arg
         locals: vec![HashMap::new()],
         array_owners: vec![std::collections::HashSet::new()],
         fun_owners: vec![std::collections::HashSet::new()],
+        box_locals: vec![std::collections::HashSet::new()],
+        box_owners: vec![std::collections::HashSet::new()],
         gc_roots: vec![std::collections::HashSet::new()],
         array_gc_roots: vec![std::collections::HashSet::new()],
         return_key: ret_key,
@@ -972,6 +993,8 @@ pub(crate) fn emit_fun(out: &mut String, f: &FunDecl, checked: &CheckedFile, arg
     }
     // Free remaining Fun capture envs (params / locals not transferred by return).
     crate::stmt::emit_free_fun_owners(out, 1, &ctx, &ctx.fun_owners_all());
+    // C12m: release remaining by-ref boxes (outer retain).
+    crate::stmt::emit_release_box_locals(out, 1, &ctx, &ctx.box_owners_all());
     emit_return_fallback(out, &f.return_type, checked, &params, args);
     out.push_str("}\n");
 }

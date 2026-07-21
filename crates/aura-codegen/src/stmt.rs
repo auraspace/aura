@@ -141,6 +141,8 @@ pub(crate) fn emit_block(out: &mut String, block: &Block, indent: usize, ctx: &m
     emit_free_array_owners(out, indent, ctx, &ctx.array_owners_current());
     // Free Fun capture envs owned by this block.
     emit_free_fun_owners(out, indent, ctx, &ctx.fun_owners_current());
+    // C12m: release by-ref boxes owned by this block (after Fun envs drop their retains).
+    emit_release_box_locals(out, indent, ctx, &ctx.box_owners_current());
     ctx.pop_scope();
 }
 
@@ -209,6 +211,31 @@ pub(crate) fn emit_free_fun_owners(
     }
 }
 
+/// C12m: release a refcounted by-ref capture box (Int or Bool).
+pub(crate) fn emit_release_box_local(
+    out: &mut String,
+    indent: usize,
+    name: &str,
+    ty_key: &str,
+) {
+    let p = pad(indent);
+    let n = mangle_ident(name);
+    let rel = box_release_fn(ty_key);
+    let _ = writeln!(out, "{p}{rel}({n}); {n} = NULL;");
+}
+
+pub(crate) fn emit_release_box_locals(
+    out: &mut String,
+    indent: usize,
+    ctx: &EmitCtx<'_>,
+    names: &[String],
+) {
+    for name in names {
+        let ty = ctx.lookup_local(name).unwrap_or("Int");
+        emit_release_box_local(out, indent, name, ty);
+    }
+}
+
 /// C name of a GC root local. Method `this` is emitted as the C param `this` (not mangled).
 fn gc_root_c_name(name: &str) -> String {
     if name == "this" {
@@ -272,6 +299,16 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                     .unwrap_or_else(|| local_key_to_c(&ty_name, ctx.checked));
             // Store package mono key so method dispatch picks the right C symbol (C3v).
             ctx.define_local(&v.name.name, full_type_mono(&ty_name, ctx.checked));
+            // C12m: `var` Int/Bool that is by-ref captured → heap box local.
+            let needs_box = v.mutable
+                && (ty_name == "Int" || ty_name == "Bool")
+                && ctx
+                    .checked
+                    .by_ref_capture_names()
+                    .contains(&v.name.name);
+            if needs_box {
+                ctx.mark_box_owner(&v.name.name);
+            }
             // C3t: locals from `Array(...)` own the heap buffer.
             // C6d: call/return results that are Array also transfer ownership to the binding.
             // C8e: `arr.get(i)` of nested Array is a shallow view — do not own (avoids double-free).
@@ -352,7 +389,21 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
             }
             let init = coerce_expr(&v.init, &ty_name, ctx);
             let dst = mangle_ident(&v.name.name);
-            let _ = writeln!(out, "{p}{ty} {dst} = {init};");
+            if needs_box {
+                let box_ty = if ty_name == "Bool" {
+                    "aura_box_bool *"
+                } else {
+                    "aura_box_i64 *"
+                };
+                let new_fn = if ty_name == "Bool" {
+                    "aura_box_bool_new"
+                } else {
+                    "aura_box_i64_new"
+                };
+                let _ = writeln!(out, "{p}{box_ty} {dst} = {new_fn}({init});");
+            } else {
+                let _ = writeln!(out, "{p}{ty} {dst} = {init};");
+            }
             if let Some(src) = moved_from {
                 let src_m = mangle_ident(&src);
                 // Zero source so later free of src is a no-op; dst is the sole owner.
@@ -415,6 +466,7 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
             emit_remove_gc_roots(out, indent + 2, &ctx.gc_roots_current());
             emit_free_array_owners(out, indent + 2, ctx, &ctx.array_owners_current());
             emit_free_fun_owners(out, indent + 2, ctx, &ctx.fun_owners_current());
+            emit_release_box_locals(out, indent + 2, ctx, &ctx.box_owners_current());
             ctx.pop_scope();
             let _ = writeln!(out, "{p}  }}");
             let _ = writeln!(out, "{p}}}");
@@ -449,6 +501,7 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                 emit_remove_gc_roots(out, indent + 2, &ctx.gc_roots_current());
                 emit_free_array_owners(out, indent + 2, ctx, &ctx.array_owners_current());
                 emit_free_fun_owners(out, indent + 2, ctx, &ctx.fun_owners_current());
+                emit_release_box_locals(out, indent + 2, ctx, &ctx.box_owners_current());
                 ctx.pop_scope();
                 let _ = writeln!(out, "{p}  }}");
             } else if iter_key == "Array"
@@ -485,6 +538,7 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                 emit_remove_gc_roots(out, indent + 2, &ctx.gc_roots_current());
                 emit_free_array_owners(out, indent + 2, ctx, &ctx.array_owners_current());
                 emit_free_fun_owners(out, indent + 2, ctx, &ctx.fun_owners_current());
+                emit_release_box_locals(out, indent + 2, ctx, &ctx.box_owners_current());
                 ctx.pop_scope();
                 let _ = writeln!(out, "{p}  }}");
             } else if is_iface_type_key(&iter_key, ctx.checked) {
@@ -524,6 +578,7 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                 emit_remove_gc_roots(out, indent + 2, &ctx.gc_roots_current());
                 emit_free_array_owners(out, indent + 2, ctx, &ctx.array_owners_current());
                 emit_free_fun_owners(out, indent + 2, ctx, &ctx.fun_owners_current());
+                emit_release_box_locals(out, indent + 2, ctx, &ctx.box_owners_current());
                 ctx.pop_scope();
                 let _ = writeln!(out, "{p}  }}");
             } else {
@@ -592,6 +647,7 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                 emit_remove_gc_roots(out, indent + 2, &ctx.gc_roots_current());
                 emit_free_array_owners(out, indent + 2, ctx, &ctx.array_owners_current());
                 emit_free_fun_owners(out, indent + 2, ctx, &ctx.fun_owners_current());
+                emit_release_box_locals(out, indent + 2, ctx, &ctx.box_owners_current());
                 ctx.pop_scope();
                 let _ = writeln!(out, "{p}  }}");
             }
@@ -657,6 +713,7 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                     emit_remove_gc_roots(out, indent, &ctx.gc_roots_all());
                     emit_free_array_owners(out, indent, ctx, &ctx.array_owners_all());
                     emit_free_fun_owners(out, indent, ctx, &ctx.fun_owners_all());
+                    emit_release_box_locals(out, indent, ctx, &ctx.box_owners_all());
                     let _ = writeln!(out, "{p}return;");
                 }
                 Some(e) => {
@@ -686,6 +743,7 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                         emit_remove_gc_roots(out, indent, &ctx.gc_roots_all());
                         emit_free_array_owners(out, indent, ctx, &owners);
                         emit_free_fun_owners(out, indent, ctx, &fun_owners);
+                        emit_release_box_locals(out, indent, ctx, &ctx.box_owners_all());
                         let _ = writeln!(out, "{p}return;");
                     } else {
                         // Prefer declared return type for C7a opt coercion (`return 1` → Int?).
@@ -715,6 +773,7 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                         emit_remove_gc_roots(out, indent, &ctx.gc_roots_all());
                         emit_free_array_owners(out, indent, ctx, &owners);
                         emit_free_fun_owners(out, indent, ctx, &fun_owners);
+                        emit_release_box_locals(out, indent, ctx, &ctx.box_owners_all());
                         let _ = writeln!(out, "{p}return {tmp};");
                     }
                 }

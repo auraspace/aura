@@ -484,10 +484,12 @@ impl Checker {
                 }
             }
             Expr::Assign(a) => {
-                let local = self.lookup_local(&a.name.name).ok_or_else(|| SemaError {
-                    message: format!("undefined name `{}`", a.name.name),
-                    span: a.name.span,
-                })?;
+                let (frame, local) =
+                    self.lookup_local_frame(&a.name.name)
+                        .ok_or_else(|| SemaError {
+                            message: format!("undefined name `{}`", a.name.name),
+                            span: a.name.span,
+                        })?;
                 if !local.mutable {
                     return Err(SemaError {
                         message: format!("cannot assign to immutable binding `{}`", a.name.name),
@@ -495,6 +497,9 @@ impl Checker {
                     });
                 }
                 let target = local.ty.clone();
+                let mutable = local.mutable;
+                // C12m: assignment to outer `var` is a by-ref capture (even if not read).
+                self.note_lambda_capture(&a.name.name, frame, &target, mutable, a.name.span)?;
                 let value_ty = self.check_expr_expected(&a.value, Some(&target))?;
                 if !self.is_assignable(&value_ty, &target) {
                     // C5k: explicit expected/found wording for assign mismatches.
@@ -573,8 +578,11 @@ impl Checker {
                 self.lambda_capture_base = prev_base;
                 self.lambda_captures_acc = prev_acc;
                 self.locals.pop();
-                let mut captures: Vec<(String, Ty)> = captures_map.into_iter().collect();
-                captures.sort_by(|a, b| a.0.cmp(&b.0));
+                let mut captures: Vec<crate::sigs::LambdaCapture> = captures_map
+                    .into_iter()
+                    .map(|(name, (ty, by_ref))| crate::sigs::LambdaCapture { name, ty, by_ref })
+                    .collect();
+                captures.sort_by(|a, b| a.name.cmp(&b.name));
                 self.lambda_captures.insert(l.span.start, captures);
                 if let Some(exp_ret) = expected_ret {
                     if !self.is_assignable(&body_ty, exp_ret) {

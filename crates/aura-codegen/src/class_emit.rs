@@ -364,6 +364,8 @@ pub(crate) fn emit_method_mono(
         locals: vec![HashMap::new()],
         array_owners: vec![std::collections::HashSet::new()],
         fun_owners: vec![std::collections::HashSet::new()],
+        box_locals: vec![std::collections::HashSet::new()],
+        box_owners: vec![std::collections::HashSet::new()],
         gc_roots: vec![std::collections::HashSet::new()],
         array_gc_roots: vec![std::collections::HashSet::new()],
         return_key: ret_key,
@@ -420,6 +422,7 @@ pub(crate) fn emit_method_mono(
         let _ = writeln!(out, "  aura_gc_remove_root((void **)&{n});");
     }
     crate::stmt::emit_free_fun_owners(out, 1, &ctx, &ctx.fun_owners_all());
+    crate::stmt::emit_release_box_locals(out, 1, &ctx, &ctx.box_owners_all());
     emit_return_fallback(out, &m.return_type, checked, params, args);
     out.push_str("}\n");
 }

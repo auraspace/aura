@@ -16,6 +16,11 @@ pub(crate) struct EmitCtx<'a> {
     pub(crate) array_owners: Vec<HashSet<String>>,
     /// Per-scope locals that own a Fun capture env (`malloc`'d, C11).
     pub(crate) fun_owners: Vec<HashSet<String>>,
+    /// Per-scope locals that are box pointers (access via `->value`; C12m).
+    /// Includes by-ref capture aliases (not owners).
+    pub(crate) box_locals: Vec<HashSet<String>>,
+    /// Per-scope outer `var` boxes that must be released (C12m). Not capture aliases.
+    pub(crate) box_owners: Vec<HashSet<String>>,
     /// Per-scope heap-class locals registered as GC roots (C5g).
     pub(crate) gc_roots: Vec<HashSet<String>>,
     /// Per-scope Array-of-class locals registered for element GC mark (C6e).
@@ -31,6 +36,8 @@ impl<'a> EmitCtx<'a> {
         self.locals.push(HashMap::new());
         self.array_owners.push(HashSet::new());
         self.fun_owners.push(HashSet::new());
+        self.box_locals.push(HashSet::new());
+        self.box_owners.push(HashSet::new());
         self.gc_roots.push(HashSet::new());
         self.array_gc_roots.push(HashSet::new());
     }
@@ -39,6 +46,8 @@ impl<'a> EmitCtx<'a> {
         self.locals.pop();
         self.array_owners.pop();
         self.fun_owners.pop();
+        self.box_locals.pop();
+        self.box_owners.pop();
         self.gc_roots.pop();
         self.array_gc_roots.pop();
     }
@@ -121,6 +130,46 @@ impl<'a> EmitCtx<'a> {
 
     pub(crate) fn fun_owners_current(&self) -> Vec<String> {
         self.fun_owners
+            .last()
+            .map(|s| {
+                let mut names: Vec<_> = s.iter().cloned().collect();
+                names.sort();
+                names
+            })
+            .unwrap_or_default()
+    }
+
+    /// C12m: mark local as a box pointer (read/write via `->value`).
+    pub(crate) fn mark_box_local(&mut self, name: &str) {
+        if let Some(scope) = self.box_locals.last_mut() {
+            scope.insert(name.to_string());
+        }
+    }
+
+    /// C12m: mark outer `var` as owning a retain on the box (release at scope end).
+    pub(crate) fn mark_box_owner(&mut self, name: &str) {
+        if let Some(scope) = self.box_owners.last_mut() {
+            scope.insert(name.to_string());
+        }
+        self.mark_box_local(name);
+    }
+
+    pub(crate) fn is_box_local(&self, name: &str) -> bool {
+        self.box_locals.iter().any(|s| s.contains(name))
+    }
+
+    pub(crate) fn box_owners_all(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        for scope in self.box_owners.iter().rev() {
+            let mut names: Vec<_> = scope.iter().cloned().collect();
+            names.sort();
+            out.extend(names);
+        }
+        out
+    }
+
+    pub(crate) fn box_owners_current(&self) -> Vec<String> {
+        self.box_owners
             .last()
             .map(|s| {
                 let mut names: Vec<_> = s.iter().cloned().collect();
