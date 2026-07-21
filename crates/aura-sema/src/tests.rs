@@ -1016,20 +1016,26 @@ fun main() {
 }
 
 #[test]
-fn lambda_rejects_var_string_capture_clearly() {
-    // C13h / deferred C13f: `var` String still rejected with supported list.
+fn lambda_allows_var_string_capture() {
+    // C13f: outer `var` String is capturable via shared RC box.
     let src = r#"
 package t
-fun main() {
+fun main(): String {
   var s = "hi"
   val f = () => s
+  return f()
 }
 "#;
     let file = parse_file(src).expect("parse");
-    let err = check_file(&file).expect_err("var String capture");
-    let msg = &err.primary().message;
-    assert_capture_reject(msg, "s");
-    assert!(msg.contains("String"), "{msg}");
+    let checked = check_file(&file).expect("var String capture should be allowed");
+    let has_str_cap = checked.lambda_captures.values().any(|caps| {
+        caps.iter()
+            .any(|c| c.name == "s" && c.by_ref && matches!(c.ty, Ty::String))
+    });
+    assert!(
+        has_str_cap,
+        "expected outer lambda to by-ref capture String `s`"
+    );
 }
 
 #[test]

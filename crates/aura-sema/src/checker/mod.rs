@@ -720,14 +720,14 @@ impl Checker {
         }
     }
 
-    /// C12m: capturable outer `var` by shared mutable box — Int/Bool only.
+    /// C12m/C13f: capturable outer `var` by shared mutable box — Int/Bool/String.
     pub(crate) fn is_lambda_var_capturable_ty(&self, ty: &Ty) -> bool {
-        matches!(ty, Ty::Int | Ty::Bool)
+        matches!(ty, Ty::Int | Ty::Bool | Ty::String)
     }
 
-    /// C13h/C13e: human-readable list of currently supported lambda captures.
+    /// C13h/C13e/C13f: human-readable list of currently supported lambda captures.
     pub(crate) fn lambda_capture_supported_list() -> &'static str {
-        "`val` Int/Bool/String/class/Array (view)/Fun, `var` Int/Bool (by ref)"
+        "`val` Int/Bool/String/class/Array (view)/Fun, `var` Int/Bool/String (by ref)"
     }
 
     /// C10h/C12m/C13h: if `name` resolves to an outer local of the active lambda, record a capture.

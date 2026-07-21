@@ -375,9 +375,14 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
             {
                 return emit_expr(&c.value, ctx);
             }
-            // C12m: by-ref boxed locals read through the box.
+            // C12m/C13f: by-ref boxed locals read through the box.
+            // String: snapshot (heap copy) so later set does not invalidate escaped pointers.
             if ctx.is_box_local(&i.name) {
-                return format!("({})->value", mangle_ident(&i.name));
+                let m = mangle_ident(&i.name);
+                if ctx.lookup_local(&i.name) == Some("String") {
+                    return format!("aura_box_str_get({m})");
+                }
+                return format!("({m})->value");
             }
             mangle_ident(&i.name)
         }
@@ -592,6 +597,11 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
             } else {
                 emit_expr(&a.value, ctx)
             };
+            // C13f: String by-ref box owns a heap copy; set frees the previous value.
+            if ctx.is_box_local(dst_name) && dst_ty.as_deref() == Some("String") {
+                let box_ptr = mangle_ident(dst_name);
+                return format!("aura_box_str_set({box_ptr}, {rhs})");
+            }
             let dst_is_array = dst_ty
                 .as_deref()
                 .map(|t| t == "Array" || t.starts_with("Array_"))

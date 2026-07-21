@@ -1,0 +1,49 @@
+// C13f: capture outer var String by shared mutable RC box
+package demo.lambda_cap_var_str
+
+fun makeAppender(): () -> String {
+  var s = "a"
+  return () => {
+    s = s + "x"
+    return s
+  }
+}
+
+fun main(): Int {
+  // Shared mutations across two lambdas on the same var String.
+  var s = "hi"
+  val append = (t: String) => {
+    s = s + t
+    return s
+  }
+  val reset = () => {
+    s = "ok"
+    return s
+  }
+  // Annotate Fun call results as String (codegen Fun-value call ret inference is Int default).
+  val a: String = append("!") // "hi!"
+  val b: String = append("!") // "hi!!"
+  val c: String = s // "hi!!"
+  val d: String = reset() // "ok"
+  val e: String = s // "ok"
+
+  // Escaping Fun keeps the box alive after outer scope ends (refcount).
+  val app = makeAppender()
+  val f: String = app() // "ax"
+  val g: String = app() // "axx"
+
+  // Write-only capture (assign without prior read in lambda).
+  var w = ""
+  val set = (v: String) => {
+    w = v
+    return w
+  }
+  val h: String = set("z")
+
+  // Lengths: a=3 b=4 c=4 d=2 e=2 f=2 g=3 h=1 → sum 21
+  // Equality checks as ints: a=="hi!" →1, d=="ok" →1, h=="z" →1 → +3 = 24
+  val t1 = if (a == "hi!") { 1 } else { 0 }
+  val t2 = if (d == "ok") { 1 } else { 0 }
+  val t3 = if (h == "z") { 1 } else { 0 }
+  return a.len + b.len + c.len + d.len + e.len + f.len + g.len + h.len + t1 + t2 + t3
+}

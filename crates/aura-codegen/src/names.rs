@@ -703,11 +703,12 @@ pub(crate) fn is_fun_capture_ty(ty: &Ty) -> bool {
     matches!(ty, Ty::Fun { .. })
 }
 
-/// C type of a lambda env field (C12m: by-ref → shared box pointer).
+/// C type of a lambda env field (C12m/C13f: by-ref → shared box pointer).
 pub(crate) fn c_capture_field_type(ty: &Ty, by_ref: bool, checked: &CheckedFile) -> String {
     if by_ref {
         match ty {
             Ty::Bool => "aura_box_bool *".into(),
+            Ty::String => "aura_box_str *".into(),
             _ => "aura_box_i64 *".into(),
         }
     } else {
@@ -716,18 +717,18 @@ pub(crate) fn c_capture_field_type(ty: &Ty, by_ref: bool, checked: &CheckedFile)
 }
 
 pub(crate) fn box_retain_fn(ty_key: &str) -> &'static str {
-    if ty_key == "Bool" {
-        "aura_box_bool_retain"
-    } else {
-        "aura_box_i64_retain"
+    match ty_key {
+        "Bool" => "aura_box_bool_retain",
+        "String" => "aura_box_str_retain",
+        _ => "aura_box_i64_retain",
     }
 }
 
 pub(crate) fn box_release_fn(ty_key: &str) -> &'static str {
-    if ty_key == "Bool" {
-        "aura_box_bool_release"
-    } else {
-        "aura_box_i64_release"
+    match ty_key {
+        "Bool" => "aura_box_bool_release",
+        "String" => "aura_box_str_release",
+        _ => "aura_box_i64_release",
     }
 }
 

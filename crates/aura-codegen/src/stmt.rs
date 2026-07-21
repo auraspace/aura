@@ -188,7 +188,7 @@ pub(crate) fn emit_free_fun_owners(
     }
 }
 
-/// C12m: release a refcounted by-ref capture box (Int or Bool).
+/// C12m/C13f: release a refcounted by-ref capture box (Int/Bool/String).
 pub(crate) fn emit_release_box_local(
     out: &mut String,
     indent: usize,
@@ -276,9 +276,9 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                     .unwrap_or_else(|| local_key_to_c(&ty_name, ctx.checked));
             // Store package mono key so method dispatch picks the right C symbol (C3v).
             ctx.define_local(&v.name.name, full_type_mono(&ty_name, ctx.checked));
-            // C12m: `var` Int/Bool that is by-ref captured → heap box local.
+            // C12m/C13f: `var` Int/Bool/String that is by-ref captured → heap box local.
             let needs_box = v.mutable
-                && (ty_name == "Int" || ty_name == "Bool")
+                && (ty_name == "Int" || ty_name == "Bool" || ty_name == "String")
                 && ctx
                     .checked
                     .by_ref_capture_names()
@@ -367,15 +367,10 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
             let init = coerce_expr(&v.init, &ty_name, ctx);
             let dst = mangle_ident(&v.name.name);
             if needs_box {
-                let box_ty = if ty_name == "Bool" {
-                    "aura_box_bool *"
-                } else {
-                    "aura_box_i64 *"
-                };
-                let new_fn = if ty_name == "Bool" {
-                    "aura_box_bool_new"
-                } else {
-                    "aura_box_i64_new"
+                let (box_ty, new_fn) = match ty_name.as_str() {
+                    "Bool" => ("aura_box_bool *", "aura_box_bool_new"),
+                    "String" => ("aura_box_str *", "aura_box_str_new"),
+                    _ => ("aura_box_i64 *", "aura_box_i64_new"),
                 };
                 let _ = writeln!(out, "{p}{box_ty} {dst} = {new_fn}({init});");
             } else {

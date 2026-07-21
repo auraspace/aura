@@ -77,15 +77,21 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("void aura_fun_env_free(void *env);\n");
     out.push_str("void aura_gc_collect(void);\n");
     out.push_str("void aura_gc_shutdown(void);\n");
-    // C12m: shared mutable boxes for var Int/Bool captures.
+    // C12m/C13f: shared mutable boxes for var Int/Bool/String captures.
     out.push_str("typedef struct aura_box_i64 { int64_t value; int32_t refs; } aura_box_i64;\n");
     out.push_str("typedef struct aura_box_bool { _Bool value; int32_t refs; } aura_box_bool;\n");
+    out.push_str("typedef struct aura_box_str { const char *value; int32_t refs; } aura_box_str;\n");
     out.push_str("aura_box_i64 *aura_box_i64_new(int64_t v);\n");
     out.push_str("void aura_box_i64_retain(aura_box_i64 *b);\n");
     out.push_str("void aura_box_i64_release(aura_box_i64 *b);\n");
     out.push_str("aura_box_bool *aura_box_bool_new(_Bool v);\n");
     out.push_str("void aura_box_bool_retain(aura_box_bool *b);\n");
     out.push_str("void aura_box_bool_release(aura_box_bool *b);\n");
+    out.push_str("aura_box_str *aura_box_str_new(const char *v);\n");
+    out.push_str("void aura_box_str_retain(aura_box_str *b);\n");
+    out.push_str("void aura_box_str_release(aura_box_str *b);\n");
+    out.push_str("const char *aura_box_str_set(aura_box_str *b, const char *v);\n");
+    out.push_str("const char *aura_box_str_get(aura_box_str *b);\n");
     out.push_str("int aura_main(void);\n\n");
     // C7a: tagged optional primitives (Int? / Bool?).
     out.push_str("typedef struct { _Bool has; int64_t value; } aura_opt_i64;\n");
@@ -687,7 +693,7 @@ fn emit_lambda_fns(out: &mut String, checked: &CheckedFile) {
     // C10h/C12k/C12l/C12m/C13e: env structs for capturing lambdas (stable field order from sema).
     // Header: `__drop` + `__refs` (refcount for shared nested Fun envs / multi-owner free).
     // Array captures store a non-owning header view — drop must not free their buffers.
-    // By-ref Int/Bool captures store aura_box_* pointers (retain on fill, release on drop).
+    // By-ref Int/Bool/String captures store aura_box_* pointers (retain on fill, release on drop).
     // Fun captures store fat pointer; retain nested env on fill, release on drop.
     for lam in &lambdas {
         let Some(&id) = ids.get(&lam.span.start) else {
@@ -718,6 +724,7 @@ fn emit_lambda_fns(out: &mut String, checked: &CheckedFile) {
             if cap.by_ref {
                 let rel = match &cap.ty {
                     Ty::Bool => "aura_box_bool_release",
+                    Ty::String => "aura_box_str_release",
                     _ => "aura_box_i64_release",
                 };
                 let _ = writeln!(out, "  {rel}(__e->{m});");

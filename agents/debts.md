@@ -11,15 +11,15 @@ When you resolve debt, update or remove the matching entry.
 
 ### Lambda capture limits (MVP)
 
-- Area: language / lambdas (C10h/C12k/C12l/C12m)
-- Symptom: no nested Fun capture; no `var` String/class/Array capture
-- Why deferred: Fun-in-env risks double free / shared-env GC; non-prim `var` needs richer box protocol
-- Progress: fat-pointer Fun `{env,fn}`; copy-out of prim + **class GC ptr** + **Array header view**; **`var` Int/Bool by shared refcounted box**; env `__drop` unregisters class roots / releases boxes then free (never frees Array buffers); corpus `lambda_capture.aura`, `lambda_capture_class.aura`, `lambda_capture_array.aura`, `lambda_capture_var.aura`, `lambda_env_free.aura`
+- Area: language / lambdas (C10h/C12k/C12l/C12m/C13e/C13f)
+- Symptom: no `var` class/Array/Fun capture (val Fun + var Int/Bool/String OK)
+- Why deferred: class/Array `var` needs richer box/GC protocol; `var` Fun still out
+- Progress: fat-pointer Fun `{env,fn}`; copy-out of prim + **class GC ptr** + **Array header view** + **Fun nest env RC**; **`var` Int/Bool/String by shared refcounted box**; env `__drop` unregisters class roots / releases boxes / nested Fun envs then free (never frees Array buffers); corpus `lambda_capture.aura`, `lambda_capture_class.aura`, `lambda_capture_array.aura`, `lambda_capture_var.aura`, `lambda_capture_fun.aura`, `lambda_capture_var_str.aura`, `lambda_env_free.aura`
 - Note (C12l): Array capture is a non-owning `{data,len,cap}` view (like field bind). Freeing/moving the outer Array owner while Fun is still live is **undefined**
-- Note (C12m): `var` Int/Bool uses `aura_box_*` (refcount); outer + each capturing env retain; multiple lambdas share mutations; escaping Fun keeps the box alive
-- Next step: Fun capture + shared-env GC; later `var` String/class/Array if needed
-- Note: C12 batch closed (C12t); class/Array/`var` prim capture shipped — residual only
-- Introduced: narrowed after C10h; env free 2026-07-20; class C12k 2026-07-21; Array view C12l 2026-07-21; var Int/Bool C12m 2026-07-21
+- Note (C12m/C13f): `var` Int/Bool/String uses `aura_box_*` (refcount); String box owns heap copy (`set` frees previous); outer + each capturing env retain; multiple lambdas share mutations; escaping Fun keeps the box alive
+- Next step: later `var` class/Array/Fun if needed
+- Note: C12 batch closed (C12t); C13e Fun + C13f var String shipped — residual only
+- Introduced: narrowed after C10h; env free 2026-07-20; class C12k 2026-07-21; Array view C12l 2026-07-21; var Int/Bool C12m 2026-07-21; Fun C13e 2026-07-21; var String C13f 2026-07-21
 
 ### Array field return still moves (no true borrow type)
 
@@ -30,13 +30,13 @@ When you resolve debt, update or remove the matching entry.
 - Next step: true borrow type if needed
 - Introduced: narrowed after C8j; clone C9c
 
-### No registry fetch / semver resolve
+### Registry K1 offline only (no live HTTPS / publish)
 
 - Area: toolchain / RFC-005
-- Symptom: path deps + lock; C8k parses registry pin form but does not fetch or resolve ranges; **build does not wire registry pins yet**
-- Why deferred: monorepo path graph enough for demos
-- Progress: C8b path existence; C8k `LockEntry` version/source/checksum schema; **RFC-005 updated (2026-07-21) — default registry is GitHub-backed**; **C13i** offline index client; **C13j** caret semver → lock pin; **C13k** tarball fetch + sha256 + extract to `AURA_REGISTRY_CACHE`/`~/.aura/registry/src` (local/`file://` only; no HTTP client)
-- Next step: **C13l** wire lock pins into `aura build`/`check` from warm cache; then live HTTPS fetch polish, `github`/`git` deps (K1b), `aura publish` (K2)
+- Symptom: registry deps resolve + fetch from **local fixture / warm cache** only; HTTP(S) download and `aura publish` not implemented
+- Why deferred: CI stays offline-green; monorepo path graph still primary for demos
+- Progress: C8b/C8k lock schema; **C13i** index; **C13j** caret semver → pin; **C13k** tarball + sha256 → cache; **C13l** `load_package`/`build`/`check` materialize registry deps from lock + `AURA_REGISTRY_INDEX`/`AURA_REGISTRY_CACHE` (nested registry deps of deps not resolved yet)
+- Next step: live HTTPS fetch polish, nested registry resolve, `github`/`git` deps (K1b), `aura publish` (K2)
 - Introduced: narrowed after C3p; nested C4j; path check C8b; schema C8k
 
 ### Array of interface elements

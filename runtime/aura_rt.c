@@ -1070,6 +1070,97 @@ void aura_box_bool_release(aura_box_bool *b)
   }
 }
 
+/* C13f: shared mutable box for `var` String lambda captures (refcounted).
+ * The box always owns a heap copy of the string so release can free safely
+ * (literals and temporary concat results both work). */
+typedef struct aura_box_str
+{
+  const char *value;
+  int32_t refs;
+} aura_box_str;
+
+static char *aura_box_str_dup(const char *v)
+{
+  if (v == NULL)
+  {
+    return NULL;
+  }
+  size_t n = strlen(v);
+  char *p = (char *)malloc(n + 1);
+  if (p == NULL)
+  {
+    fprintf(stderr, "aura: out of memory (box str copy)\n");
+    exit(1);
+  }
+  if (n > 0)
+  {
+    memcpy(p, v, n);
+  }
+  p[n] = '\0';
+  return p;
+}
+
+aura_box_str *aura_box_str_new(const char *v)
+{
+  aura_box_str *b = (aura_box_str *)malloc(sizeof(aura_box_str));
+  if (b == NULL)
+  {
+    fprintf(stderr, "aura: out of memory (box str)\n");
+    exit(1);
+  }
+  b->value = aura_box_str_dup(v);
+  b->refs = 1;
+  return b;
+}
+
+void aura_box_str_retain(aura_box_str *b)
+{
+  if (b != NULL)
+  {
+    b->refs++;
+  }
+}
+
+void aura_box_str_release(aura_box_str *b)
+{
+  if (b == NULL)
+  {
+    return;
+  }
+  b->refs--;
+  if (b->refs <= 0)
+  {
+    free((void *)b->value);
+    free(b);
+  }
+}
+
+/* Replace boxed string; frees previous owned value. Safe for self-assign
+ * (copy first). Used by codegen for `var` String by-ref capture writes.
+ * Returns the new owned pointer (or NULL). */
+const char *aura_box_str_set(aura_box_str *b, const char *v)
+{
+  if (b == NULL)
+  {
+    return NULL;
+  }
+  const char *copy = aura_box_str_dup(v);
+  free((void *)b->value);
+  b->value = copy;
+  return b->value;
+}
+
+/* Snapshot boxed string for escape (return/bind/eq/concat). Caller owns the
+ * buffer so later box mutations do not invalidate it. */
+const char *aura_box_str_get(aura_box_str *b)
+{
+  if (b == NULL)
+  {
+    return NULL;
+  }
+  return aura_box_str_dup(b->value);
+}
+
 /* C13c: Int.toString() — decimal (base 10), no locale.
  * Returns a freshly malloc'd NUL-terminated C string. Caller owns the buffer
  * (same ownership as other owned strings: substring/trim/split segments, concat).
