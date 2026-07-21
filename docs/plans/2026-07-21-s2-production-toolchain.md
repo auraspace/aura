@@ -1,6 +1,6 @@
 # S2 — Production Toolchain & Release Readiness
 
-**Status:** Planned
+**Status:** Implementation complete; release pending
 
 ## Objective
 
@@ -52,21 +52,21 @@ CI.
 
 **Acceptance criteria:**
 
-- [ ] HTTPS metadata and archive downloads are supported with clear timeout and
+- [x] HTTPS metadata and archive downloads are supported with clear timeout and
       non-success response errors.
-- [ ] Downloaded archives are verified against the lockfile checksum before
+- [x] Downloaded archives are verified against the lockfile checksum before
       extraction or cache publication.
-- [ ] Partial downloads cannot be mistaken for valid cached packages.
-- [ ] Offline fixture tests remain deterministic and do not require network
+- [x] Partial downloads cannot be mistaken for valid cached packages.
+- [x] Offline fixture tests remain deterministic and do not require network
       access.
 
 **Verification:**
 
-- [ ] Unit-test URL, HTTP error, checksum mismatch, and interrupted-download
+- [x] Unit-test URL, HTTP error, checksum mismatch, and interrupted-download
       paths.
-- [ ] Run an HTTPS integration test against a local test server or checked-in
+- [x] Run an HTTPS integration test against a local test server or checked-in
       transport fixture.
-- [ ] `cargo test --workspace`
+- [x] `cargo test --workspace`
 
 **Dependencies:** None
 
@@ -84,20 +84,20 @@ changing the existing path-dependency behavior.
 
 **Acceptance criteria:**
 
-- [ ] Nested registry dependencies are represented in and validated from
+- [x] Nested registry dependencies are represented in and validated from
       `aura.lock`.
-- [ ] Resolution is deterministic and rejects cycles, missing versions, and
+- [x] Resolution is deterministic and rejects cycles, missing versions, and
       checksum mismatches with actionable diagnostics.
-- [ ] Repeated builds reuse the verified cache and do not refetch unchanged
+- [x] Repeated builds reuse the verified cache and do not refetch unchanged
       packages.
-- [ ] Existing path and mixed path/registry package graphs continue to work.
+- [x] Existing path and mixed path/registry package graphs continue to work.
 
 **Verification:**
 
-- [ ] Add fixture coverage for one nested dependency, a cycle, and a missing
+- [x] Add fixture coverage for one nested dependency, a cycle, and a missing
       locked package.
-- [ ] Build and run a package graph with both path and registry dependencies.
-- [ ] `bash scripts/compiler-regression.sh`
+- [x] Build and run a package graph with both path and registry dependencies.
+- [x] `bash scripts/compiler-regression.sh`
 
 **Dependencies:** S2.1
 
@@ -109,9 +109,9 @@ changing the existing path-dependency behavior.
 
 ### Checkpoint: Package consumption
 
-- [ ] Local fixture and HTTPS paths pass the same resolution assertions.
-- [ ] Nested dependencies build from a clean cache.
-- [ ] A failed or interrupted fetch leaves no usable corrupt cache entry.
+- [x] Local fixture and HTTPS paths pass the same resolution assertions.
+- [x] Nested dependencies build from a clean cache.
+- [x] A failed or interrupted fetch leaves no usable corrupt cache entry.
 
 ### Phase 2: Distribution and installation
 
@@ -123,20 +123,20 @@ version metadata, and checksums.
 
 **Acceptance criteria:**
 
-- [ ] Each supported target produces exactly one correctly named tarball and
+- [x] Each supported target produces exactly one correctly named tarball and
       checksum file.
-- [ ] The packaged CLI embeds or locates the runtime and required std packages
+- [x] The packaged CLI embeds or locates the runtime and required std packages
       without the source repository.
-- [ ] Artifact verification fails on a modified archive or checksum.
-- [ ] Rebuilding from the same revision produces stable package contents except
+- [x] Artifact verification fails on a modified archive or checksum.
+- [x] Rebuilding from the same revision produces stable package contents except
       for explicitly documented toolchain metadata.
 
 **Verification:**
 
-- [ ] `TAG_VERSION=0.2.0-alpha bash scripts/package-release.sh`
-- [ ] Verify each archive with `sha256sum --check` or the platform equivalent.
-- [ ] Run `bash scripts/install-smoke.sh --local-pkg` on a supported Unix host.
-- [ ] Inspect archive contents and run `aura version`, `aura new`, and
+- [x] `TAG_VERSION=0.2.0-alpha bash scripts/package-release.sh`
+- [x] Verify each archive with `sha256sum --check` or the platform equivalent.
+- [x] Run `bash scripts/install-smoke.sh --local-pkg` on a supported Unix host.
+- [x] Inspect archive contents and run `aura version`, `aura new`, and
       `aura run` from outside the repository.
 
 **Dependencies:** None
@@ -155,19 +155,19 @@ versions.
 
 **Acceptance criteria:**
 
-- [ ] Installer validates the selected platform and checksum before activation.
-- [ ] Failed installs do not replace the current version or leave a partial
+- [x] Installer validates the selected platform and checksum before activation.
+- [x] Failed installs do not replace the current version or leave a partial
       active directory.
-- [ ] `avm` list/use/remove behavior is deterministic for missing and malformed
+- [x] `avm` list/use/remove behavior is deterministic for missing and malformed
       installations.
-- [ ] Install documentation matches actual shell, directory, and PATH behavior.
+- [x] Install documentation matches actual shell, directory, and PATH behavior.
 
 **Verification:**
 
-- [ ] Exercise success, checksum mismatch, interrupted download, unsupported
+- [x] Exercise success, checksum mismatch, interrupted download, unsupported
       platform, and version-switch scenarios in a temporary `AURA_HOME`.
-- [ ] `bash -n scripts/install.sh scripts/avm scripts/install-smoke.sh`
-- [ ] `bash scripts/install-smoke.sh --local-pkg`
+- [x] `bash -n scripts/install.sh scripts/avm scripts/install-smoke.sh`
+- [x] `bash scripts/install-smoke.sh --local-pkg`
 
 **Dependencies:** S2.3
 
@@ -184,21 +184,21 @@ amd64.
 
 **Acceptance criteria:**
 
-- [ ] CI runs the S2 quality and packaging checks for Linux amd64 and macOS
+- [x] CI runs the S2 quality and packaging checks for Linux amd64 and macOS
       arm64/amd64.
-- [ ] Release artifacts and installer names use one documented OS/architecture
+- [x] Release artifacts and installer names use one documented OS/architecture
       convention.
-- [ ] Unsupported targets produce an actionable message with the source-build
+- [x] Unsupported targets produce an actionable message with the source-build
       alternative.
-- [ ] Windows amd64 is labeled deferred everywhere it is mentioned and is not
+- [x] Windows amd64 is labeled deferred everywhere it is mentioned and is not
       part of the required gate.
 
 **Verification:**
 
-- [ ] Validate the matrix and artifact names in CI configuration.
-- [ ] Run installer platform-detection tests with representative `uname`/
+- [x] Validate the matrix and artifact names in CI configuration.
+- [x] Run installer platform-detection tests with representative `uname`/
       architecture inputs.
-- [ ] Review `README.md`, install guide, release notes, and roadmap for
+- [x] Review `README.md`, install guide, release notes, and roadmap for
       consistent support claims.
 
 **Dependencies:** S2.3, S2.4
@@ -211,10 +211,10 @@ amd64.
 
 ### Checkpoint: Distribution
 
-- [ ] A clean supported host can install a packaged release and run a generated
+- [x] A clean supported host can install a packaged release and run a generated
       hello project without the repository.
-- [ ] Every published artifact has a matching checksum and verified smoke test.
-- [ ] Installer and release documentation agree with CI behavior.
+- [x] Every published artifact has a matching checksum and verified smoke test.
+- [x] Installer and release documentation agree with CI behavior.
 
 ### Phase 3: Ship gate
 
@@ -225,22 +225,22 @@ into a release acceptance gate that can run before tagging a production release.
 
 **Acceptance criteria:**
 
-- [ ] The gate covers clean-cache registry consumption, package build/run/test,
+- [x] The gate covers clean-cache registry consumption, package build/run/test,
       artifact verification, install, and version switching.
-- [ ] Failures identify target, artifact, and reproduction command.
-- [ ] The gate is runnable locally without GitHub credentials.
-- [ ] Network-dependent checks are isolated from the offline PR gate.
+- [x] Failures identify target, artifact, and reproduction command.
+- [x] The gate is runnable locally without GitHub credentials.
+- [x] Network-dependent checks are isolated from the offline PR gate.
 
 **Verification:**
 
-- [ ] Run the complete gate from a clean checkout and temporary cache/home.
-- [ ] Confirm intentional failures for checksum, malformed manifest, and missing
+- [x] Run the complete gate from a clean checkout and temporary cache/home.
+- [x] Confirm intentional failures for checksum, malformed manifest, and missing
       registry package are reported without panics.
-- [ ] `cargo test --workspace`
-- [ ] `cargo clippy --workspace --all-targets -- -D warnings`
-- [ ] `bash scripts/check-corpus.sh`
-- [ ] `bash scripts/compiler-regression.sh`
-- [ ] `bash scripts/sanitizer-smoke.sh`
+- [x] `cargo test --workspace`
+- [x] `cargo clippy --workspace --all-targets -- -D warnings`
+- [x] `bash scripts/check-corpus.sh`
+- [x] `bash scripts/compiler-regression.sh`
+- [x] `bash scripts/sanitizer-smoke.sh`
 
 **Dependencies:** S2.1–S2.5
 
@@ -257,19 +257,19 @@ production ship decision from one source of truth.
 
 **Acceptance criteria:**
 
-- [ ] `agents/debts.md` contains only known, actionable deferred items.
-- [ ] `docs/roadmap.md`, README, install guide, and release notes use consistent
+- [x] `agents/debts.md` contains only known, actionable deferred items.
+- [x] `docs/roadmap.md`, README, install guide, and release notes use consistent
       status and platform claims.
-- [ ] A release checklist names all required artifacts, checks, and rollback
+- [x] A release checklist names all required artifacts, checks, and rollback
       actions.
-- [ ] Windows amd64 remains explicitly deferred and is not listed as a S2 exit
+- [x] Windows amd64 remains explicitly deferred and is not listed as a S2 exit
       criterion.
 
 **Verification:**
 
-- [ ] Review the release checklist against a dry-run package and install.
-- [ ] Run the full S2 acceptance gate from S2.6.
-- [ ] `git diff --check`
+- [x] Review the release checklist against a dry-run package and install.
+- [x] Run the full S2 acceptance gate from S2.6.
+- [x] `git diff --check`
 
 **Dependencies:** S2.6
 
@@ -285,7 +285,7 @@ production ship decision from one source of truth.
 3. Start S2.4 after S2.3; it owns installer/version-manager behavior.
 4. Start S2.5 after the release artifact contract in S2.3 and installer work in
    S2.4; keep workflow/document edits coordinated.
-5. Run S2.6, then S2.7 sequentially as the final gate and documentation close.
+5. Run S2.6, then S2.7 sequentially as the final gate and documentation close. ✓
 
 ## Risks and mitigations
 
@@ -299,13 +299,21 @@ production ship decision from one source of truth.
 
 ## S2 exit criteria
 
-- [ ] Verified HTTPS registry consumption works for locked direct and nested
+- [x] Verified HTTPS registry consumption works for locked direct and nested
       dependencies.
-- [ ] Supported Unix release artifacts package, verify, install, and run from
+- [x] Supported Unix release artifacts package, verify, install, and run from
       outside the repository.
-- [ ] CI and local acceptance gates are green.
-- [ ] Release and installer documentation matches actual behavior.
-- [ ] Remaining debt is documented, with Windows amd64 explicitly deferred.
+- [x] CI and local acceptance gates are green.
+- [x] Release and installer documentation matches actual behavior.
+- [x] Remaining debt is documented, with Windows amd64 explicitly deferred.
+
+## Closeout
+
+- Acceptance run: `bash scripts/release-acceptance.sh` passed on 2026-07-21.
+- Network smoke remains opt-in because it depends on the published CDN; the
+  offline gate is the required local/PR gate.
+- The S2 implementation and local acceptance gate are complete; publishing a
+  release remains a maintainer action.
 
 ## Open questions
 

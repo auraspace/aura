@@ -7,7 +7,7 @@ When you resolve debt, update or remove the matching entry.
 
 ## Open
 
-> **Last closed batch:** [C13a–t](../docs/plans/2026-07-21-next-20-c13a-c13t.md) (2026-07-21). Residual open items below.
+> **Last closed batch:** [S2](../docs/plans/2026-07-21-s2-production-toolchain.md) (2026-07-21). Residual open items below.
 
 ### Lambda capture limits (MVP)
 
@@ -31,14 +31,18 @@ When you resolve debt, update or remove the matching entry.
 - Next step: true borrow type if needed
 - Introduced: narrowed after C8j; clone C9c
 
-### Registry K1 offline only (no live HTTPS / publish)
+### Registry publishing and alternate dependency sources
 
 - Area: toolchain / RFC-005
-- Symptom: registry deps resolve + fetch from **local fixture / warm cache** only; HTTP(S) download and `aura publish` not implemented
-- Why deferred: CI stays offline-green; monorepo path graph still primary for demos
-- Progress: C8b/C8k lock schema; **C13i** index; **C13j** caret semver → pin; **C13k** tarball + sha256 → cache; **C13l** `load_package`/`build`/`check` materialize registry deps from lock + `AURA_REGISTRY_INDEX`/`AURA_REGISTRY_CACHE` (nested registry deps of deps not resolved yet)
-- Next step: live HTTPS fetch polish, nested registry resolve, `github`/`git` deps (K1b), `aura publish` (K2)
-- Introduced: narrowed after C3p; nested C4j; path check C8b; schema C8k
+- Symptom: `aura publish`, registry authentication, and `github=`/`git=` dependency sources are not implemented.
+- Why deferred: the S2 release contract covers consuming locked packages; hosting,
+  accounts, and publishing require an external registry API decision.
+- Progress: lock schema, semver pinning, SHA-256 verification, HTTPS metadata and
+  archive downloads, nested registry resolution, atomic cache publication, and
+  production acceptance coverage are complete.
+- Next step: define the registry API/authentication contract before implementing
+  `aura publish` or alternate dependency sources.
+- Introduced: narrowed after C3p; HTTPS/nested registry work completed in S2
 
 ### Array of interface elements
 
@@ -64,7 +68,8 @@ When you resolve debt, update or remove the matching entry.
 ### C13 batch (2026-07-21)
 
 - Resolved C13a–t: method-on-temp; `Int.toString` + String↔Int `+`; Array\<String\> elem free; Fun + `var` String captures + stress; capture reject diags; registry K1 offline (index/semver/fetch/build); `toLower`/`toUpper`; eprint corpus; `tryWriteFile`; Hashable spike; `examples/wc` polish; signing design note; docs close.
-- Residual: live registry HTTPS; generic HashMap; true borrow; `var` class/Array/Fun.
+- Residual: registry publishing/authentication; generic HashMap; true borrow;
+  `var` class/Array/Fun.
 
 ### Process argv string ownership (`Io.args`) — S1.1
 

@@ -17,7 +17,7 @@ Living plan for docs, language specs, and the Rust toolchain. RFCs remain the de
 | Language MVP                | RFC-001 §6.0 + post-C1; generic iface mono (C8c); Iterable (C8d); async/macros deferred  |
 | Compiler                    | **C0–C13t** batch closed (dogfood / Fun+var String capture / registry K1 offline)        |
 | Runtime / packages / stdlib | GC + String Array free; Map/Set/HashMap/HashMapStr; path+registry lock; std.io + process |
-| Distribution contract       | **S2 targets:** Linux amd64, macOS arm64, macOS amd64; Windows amd64 deferred            |
+| Distribution contract       | **S2 complete:** Linux amd64, macOS arm64, macOS amd64; Windows amd64 deferred           |
 
 ## Phases
 
@@ -241,9 +241,11 @@ Plans:
 
 1. ~~Language surface through C13~~ (funs/lambdas, Fun+var String capture) → later: true borrow, Array-of-iface, `var` class/Array
 2. Runtime: ~~GC + process I/O + String Array free + Fun env RC~~ → later: channels/tasks; fix `Io.args` strdup vs free
-3. Toolchain: ~~path deps + **C13i–l** registry K1 offline~~ → later: live HTTPS, nested registry deps, K1b/K2 publish
+3. Toolchain: ~~path deps + registry K1 offline~~ → ~~**S2:** verified HTTPS + nested locked registry deps~~ → later: K1b/K2 publish
 4. Stdlib: ~~io + collections + C13 toString/case/eprint/tryWrite~~ → later: generic HashMap (see C13p spike)
-5. Cross targets + signed releases — **S2 contract:** Linux amd64, macOS arm64/amd64; Windows amd64 deferred → ~~**C13s** signing note~~ → later: minisign / notarization
+5. Cross targets + signed releases — ~~**S2 contract:** Linux amd64, macOS arm64/amd64~~; Windows amd64 deferred → ~~**C13s** signing note~~ → later: minisign / notarization
+
+S2 production toolchain implementation: [`docs/plans/2026-07-21-s2-production-toolchain.md`](plans/2026-07-21-s2-production-toolchain.md). Release publication remains pending.
 
 Write Wave 2–4 RFCs **as implementation needs them**, not all up front.
 

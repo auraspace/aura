@@ -34,7 +34,7 @@ pnpm site:test
 pnpm site:build
 ```
 
-### Compiler (through C13t — dogfood / captures / registry K1 offline)
+### Compiler (through C13t + S2 toolchain — dogfood / captures / verified registry)
 
 ```bash
 cargo test --workspace
@@ -230,8 +230,9 @@ when their Rust and C toolchains are available.
 - **Dist C12s** Install smoke checklist (`scripts/install-smoke.sh`) + `avm` help polish
 - **Docs C12t** C12a–C12t batch closed — post-alpha CLI/String/captures shippable ([plan](docs/plans/2026-07-21-next-20-c12a-c12t.md))
 - **Debts** Tracked in [`agents/debts.md`](agents/debts.md)
-- **Docs C13t:** C13a–C13t batch closed — dogfood/captures/registry K1 offline ([plan](docs/plans/2026-07-21-next-20-c13a-c13t.md))
-- **Next:** live registry HTTPS + publish; generic HashMap (C13p spike); `Io.args` strdup vs free; async/tasks; residual debts
+- **Docs C13t:** C13a–C13t batch closed — dogfood/captures/registry K1 foundation ([plan](docs/plans/2026-07-21-next-20-c13a-c13t.md))
+- **S2:** production toolchain complete — verified HTTPS/nested registry deps, Unix artifacts, installer safety, and acceptance gate ([plan](docs/plans/2026-07-21-s2-production-toolchain.md))
+- **Next:** registry publish/auth contract; generic HashMap; true borrow; `var` class/Array/Fun; async/tasks; residual debts
 
 ## Links
 

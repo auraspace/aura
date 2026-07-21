@@ -1,25 +1,5 @@
 # Changelog
 
-## Unreleased
-
-### Changes
-
-- test(ci): S1 runtime/compiler hardening gate with sanitizer and compiler regression smoke
-- fix(runtime): make process argv strings heap-owned and serialize registry cache environment tests
-- fix(cli): harden user-input error paths and enforce Clippy with `-D warnings`
-- docs(C13t): close C13a–C13t batch (dogfood, Fun/`var` String captures, registry K1 offline, std.io polish)
-- docs(C13s): signing/integrity design note
-- docs(C13p): Hashable / generic HashMap spike note (mono `HashMap<K,V>` path; no code)
-- feat(examples): C13q wc polish (method-on-temp + Int.toString)
-- test(lang): C13g capture env stress corpus
-- feat(cli): C13i–l registry K1 offline (index, semver, fetch, build/lock)
-- feat(lang): C13e–f Fun + var String capture; C13c Int.toString; C13m toLower/toUpper
-- fix(codegen): C13d free owned String elems in Array drop; C13b method-on-temp
-- feat(stdlib): C13n eprint corpus; C13o tryWriteFile
-- feat(sema): C13h reject diag for unsupported var captures
-- docs(C13a): plan C13a–C13t with subagent lanes + commit queue
-- docs(C12t): close C12a–C12t post-alpha batch
-
 ## 0.1.0-alpha (2026-07-21)
 
 Release `0.1.0-alpha`.
