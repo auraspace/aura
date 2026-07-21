@@ -74,7 +74,7 @@ impl RegistryIndex {
     /// Open an HTTPS registry index without writing metadata to disk.
     #[allow(dead_code)]
     pub fn open_url(base_url: &str) -> Result<Self, String> {
-        if !base_url.starts_with("https://") && !(cfg!(test) && base_url.starts_with("http://")) {
+        if !(base_url.starts_with("https://") || cfg!(test) && base_url.starts_with("http://")) {
             return Err(format!(
                 "error: registry index URL must use HTTPS: {base_url}"
             ));
