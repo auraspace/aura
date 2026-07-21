@@ -326,7 +326,8 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
             right,
             ..
         }) => infer_type_name(right, ctx),
-        // C9d: String + String; C13c: String + Int / Int + String
+        // C9d: String + String; C13c: String + Int / Int + String.
+        // Int + Int must stay Int (do not treat as concat).
         Expr::Binary(BinaryExpr {
             op: BinOp::Add,
             left,
@@ -335,7 +336,7 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
         }) => {
             let lt = infer_type_name(left, ctx);
             let rt = infer_type_name(right, ctx);
-            if (lt == "String" || lt == "Int") && (rt == "String" || rt == "Int") {
+            if lt == "String" || rt == "String" {
                 "String".into()
             } else {
                 "Int".into()
@@ -651,10 +652,7 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
                 // C8j: Array field assign is a non-owning shallow copy (no move-out).
                 // Deep ownership transfer remains on return (C7c) and local-to-local moves.
             }
-            let dst_is_fun = dst_ty
-                .as_deref()
-                .map(is_fun_type_key)
-                .unwrap_or(false);
+            let dst_is_fun = dst_ty.as_deref().map(is_fun_type_key).unwrap_or(false);
             let free_fun_lvalue = |lv: &str| -> String {
                 format!(
                     "if (({lv}).env != NULL) {{ aura_fun_env_free(({lv}).env); ({lv}).env = NULL; }} "

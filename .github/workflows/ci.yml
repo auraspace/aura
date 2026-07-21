@@ -139,9 +139,14 @@ jobs:
           checksum="${archive}.sha256"
           test -f "$archive"
           test -f "$checksum"
+          # Checksums list basenames; verify from the archive directory (same as package-release.sh).
           case "${{ runner.os }}" in
-            Linux) sha256sum --check "$checksum" ;;
-            macOS) shasum -a 256 --check "$checksum" ;;
+            Linux)
+              (cd "$(dirname "$checksum")" && sha256sum --check "$(basename "$checksum")")
+              ;;
+            macOS)
+              (cd "$(dirname "$checksum")" && shasum -a 256 --check "$(basename "$checksum")")
+              ;;
             *) echo "error: unsupported CI runner: ${{ runner.os }}" >&2; exit 1 ;;
           esac
 
