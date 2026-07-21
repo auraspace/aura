@@ -453,10 +453,17 @@ fn build_test_package(pkg: &LoadedPackage, out: &Path) -> Result<PathBuf, String
 
 #[cfg(test)]
 mod tests {
-    use super::split_pass_through;
+    use super::{build_package, split_pass_through};
+    use crate::package::load_package;
+    use std::path::PathBuf;
+    use std::process::Command;
 
     fn s(xs: &[&str]) -> Vec<String> {
         xs.iter().map(|x| (*x).to_string()).collect()
+    }
+
+    fn repo_root() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
     }
 
     #[test]
@@ -489,5 +496,38 @@ mod tests {
         let (cli, prog) = split_pass_through(&args);
         assert_eq!(cli, &s(&["pkg"])[..]);
         assert!(prog.is_empty());
+    }
+
+    /// C12e: non-zero `std.io.exit` must be observable on the process status.
+    #[test]
+    fn std_io_exit_nonzero_status() {
+        let root = repo_root();
+        let pkg_path = root.join("corpus/std_io/exit");
+        let pkg = load_package(&pkg_path).expect("load corpus/std_io/exit");
+        let out = std::env::temp_dir().join(format!(
+            "aura-exit-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let bin = build_package(&pkg, &out).expect("build exit corpus");
+        let status = Command::new(&bin)
+            .arg("7")
+            .status()
+            .expect("spawn built binary");
+        assert_eq!(
+            status.code(),
+            Some(7),
+            "std.io.exit(7) should set process exit code 7; got {status}"
+        );
+        let status0 = Command::new(&bin).status().expect("spawn default");
+        assert!(
+            status0.success(),
+            "default smoke path should exit 0; got {status0}"
+        );
+        let _ = std::fs::remove_file(&bin);
+        let _ = std::fs::remove_file(format!("{}.aura.c", out.display()));
     }
 }

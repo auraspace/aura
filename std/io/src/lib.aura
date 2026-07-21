@@ -25,6 +25,12 @@ pub fun readAllStdin(): String {
   return ""
 }
 
+/// Terminate the process with the given exit status code.
+/// Flushes stdout/stderr first. Does not return.
+pub fun exit(code: Int) {
+  // Body replaced by codegen with aura_exit(code).
+}
+
 /// Write to stdout without a trailing newline.
 pub fun print(s: String) {
   // Body replaced by codegen with aura_print(s).

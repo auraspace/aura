@@ -1,0 +1,23 @@
+// C12e — std.io.exit(code: Int)
+// Smoke (exit 0):  aura run corpus/std_io/exit
+// Non-zero status: aura run corpus/std_io/exit -- 7
+//   (aura run propagates the child exit code; check-corpus only typechecks)
+package demo.stdio.exit
+
+fun main() {
+  val a = args()
+  // Optional: first user arg is decimal exit status (e.g. "7").
+  if (a.len >= 2) {
+    val code_s = a.get(1)
+    if (code_s == "7") {
+      exit(7)
+    }
+    if (code_s == "0") {
+      exit(0)
+    }
+    // Unknown arg still exercises default path below.
+  }
+  // Default smoke: explicit exit(0) is observable as success.
+  println("exit ok")
+  exit(0)
+}

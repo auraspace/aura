@@ -1,0 +1,6 @@
+[package]
+name = "demo.stdio.exit"
+
+[[bin]]
+name = "exit"
+path = "src"

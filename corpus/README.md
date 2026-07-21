@@ -96,6 +96,7 @@ Sample `.aura` programs for the compiler: parse/typecheck (`aura check`), native
 | `std_io/files`                        | `readFile` / `writeFile` / `appendFile` / `fileExists` / `fileSize` (C11a)                          |
 | `std_io/args`                         | `std.io.args(): Array<String>` process argv (C12b); optional `aura run … -- hello` (C12c)           |
 | `std_io/stdin`                        | `readLine(): String?` + `readAllStdin()` (C12d); smoke EOF without pipe; `printf … \| aura run …`   |
+| `std_io/exit`                         | `std.io.exit(code)` (C12e); default exit 0; `aura run … -- 7` for non-zero (CLI unit test too)      |
 | `std_assert/app`                      | `std.assert` package (C4h)                                                                          |
 | `std_collections/app`                 | Map/Set/HashMap smoke                                                                               |
 | `std_collections/hof`                 | Package-level `map_ints` / `filter_ints` / `fold_ints` (C10i)                                       |

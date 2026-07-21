@@ -107,6 +107,7 @@ mod tests {
         assert!(EMBEDDED_RUNTIME_C.contains("aura_read_file"));
         assert!(EMBEDDED_RUNTIME_C.contains("aura_read_line"));
         assert!(EMBEDDED_RUNTIME_C.contains("aura_read_all_stdin"));
+        assert!(EMBEDDED_RUNTIME_C.contains("aura_exit"));
     }
 
     #[test]

@@ -43,6 +43,7 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("const char *aura_args_get(int64_t i);\n");
     out.push_str("const char *aura_read_line(void);\n");
     out.push_str("const char *aura_read_all_stdin(void);\n");
+    out.push_str("void aura_exit(int64_t code);\n");
     out.push_str("void aura_assert(_Bool cond);\n");
     out.push_str("void aura_assert_eq_int(int64_t a, int64_t b);\n");
     out.push_str("void aura_assert_eq_string(const char *a, const char *b);\n");
@@ -871,6 +872,13 @@ pub(crate) fn emit_fun(out: &mut String, f: &FunDecl, checked: &CheckedFile, arg
             }
             ("readAllStdin", 0) => {
                 out.push_str("  return aura_read_all_stdin();\n");
+                out.push_str("}\n");
+                return;
+            }
+            // C12e: std.io.exit(code) → process exit (does not return).
+            ("exit", 1) => {
+                let a = mangle_ident(&f.params[0].name.name);
+                let _ = writeln!(out, "  aura_exit({a});");
                 out.push_str("}\n");
                 return;
             }

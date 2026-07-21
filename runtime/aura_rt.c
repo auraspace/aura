@@ -991,6 +991,18 @@ const char *aura_args_get(int64_t i)
   return s != NULL ? s : "";
 }
 
+/* ---- Process exit (std.io.exit) ----
+ * Flush stdio, then terminate with the given status (truncated to int).
+ * Does not return. Prefer exit over _Exit so atexit/flush run.
+ */
+
+void aura_exit(int64_t code)
+{
+  fflush(stdout);
+  fflush(stderr);
+  exit((int)code);
+}
+
 /* Provided by generated code */
 int aura_main(void);
 
