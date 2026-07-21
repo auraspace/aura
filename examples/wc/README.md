@@ -1,17 +1,19 @@
 # examples/wc
 
-Dogfood CLI: a small **word-count** tool that exercises the C12 process/String surface.
+Dogfood CLI: a small **word-count** tool that exercises process/String surface plus C13 polish (`method-on-temp`, `Int.toString`).
 
-| Surface              | Use in `wc`                                 |
-| -------------------- | ------------------------------------------- |
-| `std.io.args()`      | paths and flags after `aura run … --`       |
-| `std.io.tryReadFile` | soft-fail read (`null` → error + `exit(1)`) |
-| `String.split`       | lines (`\n`) and words (` `)                |
-| `String.trim`        | skip empty word segments; parse `-n`        |
-| `String.indexOf`     | flag letters in `-lwc`; tab → space rewrite |
-| `String.toInt`       | `-n N` first-N-lines limit                  |
-| `String.startsWith`  | detect short flags                          |
-| `std.io.exit`        | usage / I/O failures                        |
+| Surface              | Use in `wc`                                        |
+| -------------------- | -------------------------------------------------- |
+| `std.io.args()`      | paths and flags after `aura run … --`              |
+| `std.io.tryReadFile` | soft-fail read (`null` → error + `exit(1)`)        |
+| `String.split`       | lines (`\n`) and words (` `)                       |
+| `String.trim`        | skip empty word segments; parse `-n`               |
+| method-on-temp       | `segs.get(j).trim()`, `argv.get(i).trim().toInt()` |
+| `Int.toString`       | print line/word/byte count columns                 |
+| `String.indexOf`     | flag letters in `-lwc`; tab → space rewrite        |
+| `String.toInt`       | `-n N` first-N-lines limit                         |
+| `String.startsWith`  | detect short flags                                 |
+| `std.io.exit`        | usage / I/O failures                               |
 
 ## Run
 

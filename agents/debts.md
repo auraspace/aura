@@ -48,14 +48,13 @@ When you resolve debt, update or remove the matching entry.
 - Next step (post-MVP): erase to fat pointer `(tag, data*)` or box each element as a class
 - Introduced: narrowed after C6g; decision locked C7h
 
-### Array element drop incomplete (non-Array elems)
+### Array\<String\> drop vs non-owned elems (`Io.args`)
 
-- Area: builtin Array
-- Symptom: C8f deep-frees nested Array elems on drop/clear/set; prim/class/enum/struct still buffer-only
-- Why deferred: class elems are GC; prim/struct/enum need no free; only nested Array owned buffers
-- Progress: C12g `String.split` allocates owned segment copies (`malloc`); C12h `trim`/`trimStart`/`trimEnd` also malloc owned copies (same MVP as `substring`/`+`); Array drop still frees only the pointer buffer (segment strings leak)
-- Next step: free `const char *` elems that are known-owned, or adopt a shared string arena/RC; extend free loop if other owned buffer elems appear
-- Introduced: narrowed after C7j; nested free C8f; split note 2026-07-21; trim note 2026-07-21
+- Area: builtin Array / std.io.args (C13d free + C12a args)
+- Symptom: Array\<String\> drop frees each `const char *` elem; `Io.args()` stores **process argv pointers** (not malloc'd) via `aura_args_get`. End-of-`main` drop of `val argv = Io.args()` → `free` non-heap → **SIGABRT after correct stdout** (hit by `examples/wc` `run`, not `test` harness)
+- Why deferred: C13d correctly owns split/trim segments; args need either `strdup` on get, non-owning Array view flag, or skip free for args-built arrays
+- Next step: `strdup` in `std.io.args` emit / `aura_args_get`, or mark Array as non-owning for process argv
+- Introduced: observed 2026-07-21 (C13q dogfood); root cause C13d free + C12a non-dup args
 
 ### Stdlib collections polish
 
@@ -67,24 +66,15 @@ When you resolve debt, update or remove the matching entry.
 - Note: C12 batch closed (C12t); HashMapStr + String HOF shipped — residual is generic form only
 - Introduced: narrowed after C8i; resize C9b; String→String C12n; String HOF C12o
 
-### Chained method on `Array.get` temporary (codegen)
-
-- Area: codegen / method recv
-- Symptom: `arr.get(i).trim()` / `.toInt()` emits `aura_method_Unknown_*` and takes address of rvalue `const char *` → `cc` fail
-- Why deferred: dogfood workaround is bind intermediate (`val s = arr.get(i); s.trim()`); full fix needs typed temporary for method recv on call results
-- Hit by: C12q `examples/wc`
-- Next step: emit a local for call-result receivers before method dispatch (String methods first)
-- Introduced: 2026-07-21 (C12q)
-
-### No std Int→String (CLI print)
-
-- Area: stdlib / String
-- Symptom: `"${n}"` interpolation is String-idents only (C9h); no `Int.toString` / format helper
-- Why deferred: dogfood `examples/wc` ships a local `u64ToString` for count columns
-- Next step: builtin or `std` decimal format (and optional Int in interpolation)
-- Introduced: 2026-07-21 (C12q)
-
 ## Resolved
+
+### Chained method on `Array.get` temporary (codegen) — C13b / C13q
+
+- Resolved: method-on-temp for call-result receivers; `examples/wc` uses `segs.get(j).trim()` and `argv.get(i).trim().toInt()` without intermediate binds.
+
+### No std Int→String (CLI print) — C13c / C13q
+
+- Resolved: builtin `Int.toString()` (+ String/Int `+`); `examples/wc` prints counts with `.toString()` (local `u64ToString` removed).
 
 ### C12 post-alpha batch (2026-07-21)
 
