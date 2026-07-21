@@ -48,7 +48,7 @@ fun main() {
 | `(T) -> U`            | Function type (params → result) |
 | `T : Bound`           | Type param bound                |
 
-## Lambdas (C10)
+## Lambdas (C10 + C12 captures)
 
 ```aura
 val f = (x: Int) => x + 1
@@ -57,10 +57,18 @@ val h = (x: Int) => {
   val y = x + 1
   return y * 2
 }
-// Captures: outer immutable val of Int / Bool / String only (MVP).
+// Captures: val Int/Bool/String/class/Array; var Int/Bool by ref (C12m).
 val base = 10
 val add = (x: Int) => base + x
 ```
+
+| Capture                                  | MVP rule                                        |
+| ---------------------------------------- | ----------------------------------------------- |
+| `val` Int / Bool / String                | Copy into env (C10h)                            |
+| `val` class                              | GC ptr in env; env mark walks roots (C12k)      |
+| `val` Array                              | Non-owning `{data,len,cap}` view (C12l)         |
+| `var` Int / Bool                         | Shared mutable box; lambdas share writes (C12m) |
+| `var` class / Array / String; nested Fun | **Not yet** (debts)                             |
 
 ## Operators (common)
 
@@ -84,12 +92,29 @@ Class `==` is **identity**. String content equality uses content compare in the 
 | `s.startsWith` / `contains` / `endsWith` | Substring search                                                                          |
 | `s.indexOf(sub)`                         | Byte index of first match; −1 if missing; empty sub → 0 (C12f)                            |
 | `s.split(sep)`                           | `Array<String>`; empty sep throws; consecutive/trailing seps → empty segments (C12g)      |
-| `s.trim()` / `trimStart` / `trimEnd`     | ASCII whitespace MVP (`' '`, `\\t`, `\\n`, `\\r`); owned copy (C12h)                      |
+| `s.trim()` / `trimStart` / `trimEnd`     | ASCII whitespace MVP (`' '`, `\t`, `\n`, `\r`); owned copy (C12h)                         |
 | `s.toInt()`                              | `Int?`; full-string decimal; no auto-trim; optional `+/-`; invalid/overflow → null (C12i) |
 | `join(parts, sep)`                       | `std.collections`: `Array<String>` + sep → `String`; empty → `""` (C12j)                  |
 | `s.substring(start, end)`                | Exclusive end; UTF-8 **byte** indices (C11d)                                              |
 
 No embedded NUL in strings. Indices are bytes, not Unicode scalar values.
+
+## Process I/O (`std.io`, C12b–e / C12p)
+
+| Form                     | Notes                                                              |
+| ------------------------ | ------------------------------------------------------------------ |
+| `args(): Array<String>`  | Process argv; `[0]` = program name; user flags from index 1 (C12b) |
+| `readLine(): String?`    | One line without trailing newline; `null` on EOF (C12d)            |
+| `readAllStdin(): String` | Remainder of stdin (throws on oversize / error)                    |
+| `exit(code: Int)`        | Terminate with status; flushes stdio (C12e)                        |
+| `tryReadFile(path)`      | `String?` soft file read; `null` on missing/error (C12p)           |
+
+Pass process args after `--`:
+
+```bash
+aura run path -- flag value
+aura test path -- …
+```
 
 ## Control
 
@@ -136,32 +161,17 @@ math = { path = "../math" }
 aura new hello && aura run hello
 aura check path
 aura run path
+aura run path -- a b
 aura build path -o out
 aura test path
 aura version
 
 # In-tree monorepo:
 cargo run -p aura-cli -- run path
+cargo run -p aura-cli -- run examples/wc -- file.txt
 ```
 
 ## Next
 
 - [Language tour](./language-tour.md)
 - [FAQ](./faq.md)
-
-## Next
-
-- [Language tour](./language-tour.md)
-- [FAQ](./faq.md)
-
-# In-tree monorepo:
-
-cargo run -p aura-cli -- run path
-
-```
-
-## Next
-
-- [Language tour](./language-tour.md)
-- [FAQ](./faq.md)
-```

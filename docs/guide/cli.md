@@ -21,7 +21,7 @@ From this monorepo without a global install:
 cargo run -p aura-cli -- <command> [args]
 ```
 
-## Commands (0.1.0-alpha)
+## Commands (0.1.0-alpha + C12 process args)
 
 | Command              | Purpose                                   |
 | -------------------- | ----------------------------------------- |
@@ -45,6 +45,25 @@ aura test path
 aura version
 ```
 
+### Process arguments after `--` (C12c)
+
+`aura run` and `aura test` forward everything after `--` to the process. Programs read them with `std.io.args()` (C12b): index `0` is the program name; user flags start at index `1`.
+
+```bash
+aura run examples/wc -- target/aura/wc_sample.txt
+aura run examples/wc -- -lwc -n 1 path/to/file
+cargo run -p aura-cli -- run corpus/std_io/args -- hello
+```
+
+Inside Aura:
+
+```aura
+val argv = args()          // Array<String>
+// argv[0] = program path; argv[1]… = flags after --
+```
+
+See [Standard library](./standard-library.md#stdio) and dogfood `examples/wc`.
+
 Monorepo corpus smokes:
 
 ```bash
@@ -52,6 +71,8 @@ cargo run -p aura-cli -- check corpus/hello/main.aura
 cargo run -p aura-cli -- run corpus/multi
 cargo run -p aura-cli -- test corpus/test/smoke.aura
 cargo run -p aura-cli -- build corpus/hello/main.aura -o target/aura/hello
+cargo run -p aura-cli -- run corpus/std_io/args -- hello
+cargo run -p aura-cli -- run examples/wc -- path/to/file
 ```
 
 ## Inputs
@@ -78,12 +99,13 @@ aura init                # same layout in `.` (name from directory)
 
 Hyphens in the path become underscores in the package name (`my-app` → package `my_app`). Existing `aura.toml` / `src/` are never overwritten.
 
-## Not in alpha
+## Not in alpha / deferred
 
-RFC-012 also describes `fmt`, package registry flows, and `doc`. Those are **not** implemented yet. Also out of scope for this release: program **argv** / stdin line reader (demos use fixed paths).
+RFC-012 also describes `fmt`, package registry flows, and `doc`. Those are **not** implemented yet. Process argv, stdin (`readLine` / `readAllStdin`), and `exit` **are** available post-alpha via `std.io` (C12b–e).
 
 ## Next
 
 - [Packages](./packages.md)
+- [Standard library](./standard-library.md)
 - [Testing](./testing.md)
 - [Install](./install.md)

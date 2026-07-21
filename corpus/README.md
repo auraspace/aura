@@ -1,6 +1,6 @@
 # Aura corpus
 
-Sample `.aura` programs for the compiler: parse/typecheck (`aura check`), native run (`aura run` / `aura build`), and `@test` (`aura test`). Layout tracks milestones through **C10j** (see [docs/roadmap.md](../docs/roadmap.md)).
+Sample `.aura` programs for the compiler: parse/typecheck (`aura check`), native run (`aura run` / `aura build`), and `@test` (`aura test`). Layout tracks milestones through **C12q** surface + **C12r** docs (see [docs/roadmap.md](../docs/roadmap.md)).
 
 ## Core fixtures
 
@@ -18,6 +18,8 @@ Sample `.aura` programs for the compiler: parse/typecheck (`aura check`), native
 | `expr/string_len.aura`          | `String.len` byte length (C4p)                                         |
 | `expr/string_substring.aura`    | `String.substring(start, end)` exclusive (C11d)                        |
 | `expr/string_indexof.aura`      | `String.indexOf(sub)` byte index / −1 / empty→0 (C12f)                 |
+| `expr/string_split.aura`        | `String.split(sep)` → `Array<String>` (C12g)                           |
+| `expr/string_trim.aura`         | `String.trim` / `trimStart` / `trimEnd` ASCII whitespace (C12h)        |
 | `expr/string_toint.aura`        | `String.toInt(): Int?` decimal parse / null on bad/overflow (C12i)     |
 | `expr/if_expr.aura`             | `if` as expression (C4t)                                               |
 | `fun/multi.aura`                | Multiple top-level functions                                           |
@@ -115,18 +117,37 @@ Sample `.aura` programs for the compiler: parse/typecheck (`aura check`), native
 
 Std packages live under repo `std/io`, `std/assert`, and `std/collections` (path-resolved for `std.*`).
 
-## Lambdas & captures (C10)
+## Lambdas & captures (C10 + C12)
 
-Shipped corpus under `fun/lambda_*.aura` and `std_collections/hof`:
+Shipped corpus under `fun/lambda_*.aura` and `std_collections/hof` / `hof_str`:
 
-| Supported now                                              | Not yet (debt)                             |
-| ---------------------------------------------------------- | ------------------------------------------ |
-| `(x: T) => expr` / block body                              | Capture `var` by ref                       |
-| Fun type `(T) -> U` params / annotations                   | Capture **class** / Array / nested Fun     |
-| Call through fun value; HOF over `Array<Int>`              | Free/GC of closure env (malloc leak today) |
-| Capture outer immutable `val` of `Int` / `Bool` / `String` | Generic map/filter over arbitrary `T`      |
+| Supported now                                                        | Not yet (debt)                        |
+| -------------------------------------------------------------------- | ------------------------------------- |
+| `(x: T) => expr` / block body                                        | Nested Fun capture                    |
+| Fun type `(T) -> U` params / annotations                             | `var` String / class / Array capture  |
+| Call through fun value; HOF over `Array<Int>` and `Array<String>`    | Generic map/filter over arbitrary `T` |
+| Capture outer `val` of `Int` / `Bool` / `String` / class / Array     |                                       |
+| Capture outer `var` of `Int` / `Bool` by shared mutable box (C12m)   |                                       |
+| Fun env free on drop (C11b); Array capture is non-owning view (C12l) |                                       |
 
-Do **not** add a “capture class” fixture until that debt is implemented — it will fail sema/codegen today.
+## C12 process & String smokes
+
+```bash
+cargo run -p aura-cli -- run corpus/std_io/args -- hello
+cargo run -p aura-cli -- run corpus/std_io/stdin
+cargo run -p aura-cli -- run corpus/expr/string_indexof.aura
+cargo run -p aura-cli -- run corpus/expr/string_split.aura
+cargo run -p aura-cli -- run corpus/expr/string_trim.aura
+cargo run -p aura-cli -- run corpus/expr/string_toint.aura
+cargo run -p aura-cli -- run corpus/fun/lambda_capture_class.aura
+cargo run -p aura-cli -- run corpus/fun/lambda_capture_array.aura
+cargo run -p aura-cli -- run corpus/fun/lambda_capture_var.aura
+cargo run -p aura-cli -- run corpus/std_collections/join
+cargo run -p aura-cli -- run corpus/std_collections/hashmap_str
+cargo run -p aura-cli -- run corpus/std_collections/hof_str
+cargo run -p aura-cli -- run corpus/std_io/try_read_file
+cargo run -p aura-cli -- run examples/wc -- path/to/file
+```
 
 ## Notes
 

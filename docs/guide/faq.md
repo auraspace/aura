@@ -29,7 +29,7 @@ Details: [Install](./install.md). Freeze notes: [0.1.0-alpha on GitHub](https://
 
 ### Where are examples?
 
-Under `corpus/` in the monorepo, plus `examples/notes`. Prefer corpus over stale snippets in chat.
+Under `corpus/` in the monorepo, plus dogfood packages `examples/notes` and `examples/wc` (CLI args + String tools). Prefer corpus over stale snippets in chat.
 
 ## Language
 

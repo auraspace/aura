@@ -10,13 +10,13 @@ Living plan for docs, language specs, and the Rust toolchain. RFCs remain the de
 
 ## Status snapshot
 
-| Track                       | Status                                                                                         |
-| --------------------------- | ---------------------------------------------------------------------------------------------- |
-| RFC static site (`site/`)   | Implemented; Cloudflare Pages → **https://aura.fadosoft.com**                                  |
-| RFC-000 … RFC-013           | **All Accepted** — open questions resolved or Deferred (2026-07-16)                            |
-| Language MVP                | RFC-001 §6.0 + post-C1; generic iface mono (C8c); Iterable (C8d); async/macros deferred        |
-| Compiler                    | **C0–C11e** shipped (`v0.1.0-alpha`); **C12a–C12t Planned** (post-alpha usable CLI + captures) |
-| Runtime / packages / stdlib | GC + nested Array free; Map/Set/HashMap(+resize); path lock; **std.io file I/O**               |
+| Track                       | Status                                                                                      |
+| --------------------------- | ------------------------------------------------------------------------------------------- |
+| RFC static site (`site/`)   | Implemented; Cloudflare Pages → **https://aura.fadosoft.com**                               |
+| RFC-000 … RFC-013           | **All Accepted** — open questions resolved or Deferred (2026-07-16)                         |
+| Language MVP                | RFC-001 §6.0 + post-C1; generic iface mono (C8c); Iterable (C8d); async/macros deferred     |
+| Compiler                    | **C0–C12q** surface shipped; **C12r** docs Done; **C12s–t Planned** (dist/DX + batch close) |
+| Runtime / packages / stdlib | GC + nested Array free; Map/Set/HashMap/HashMapStr; path lock; **std.io** file+process I/O  |
 
 ## Phases
 
@@ -201,7 +201,7 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C12o**  | String HOF helpers (`map_strings` / `filter_strings`)              | **Done**                                   |
 | **C12p**  | `tryReadFile(path): String?`                                       | **Done**                                   |
 | **C12q**  | Dogfood CLI (`examples/notes` argv or `examples/wc`)               | **Done**                                   |
-| **C12r**  | Corpus + guide sync for C12 surface                                | Planned                                    |
+| **C12r**  | Corpus + guide sync for C12 surface                                | **Done**                                   |
 | **C12s**  | Dist/DX polish (install smoke; optional Windows best-effort CI)    | Planned                                    |
 | **C12t**  | Close C12a–C12t batch (roadmap / debts / plan)                     | Planned                                    |
 

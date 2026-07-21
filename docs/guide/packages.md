@@ -76,11 +76,11 @@ import math as M
 
 In-tree std packages (alpha):
 
-| Package           | Role                                             |
-| ----------------- | ------------------------------------------------ |
-| `std.io`          | Console + file I/O (`println`, `readFile`, …)    |
-| `std.assert`      | Assert helpers for tests                         |
-| `std.collections` | Map / Set / HashMap / Iterable + Int HOF helpers |
+| Package           | Role                                                                  |
+| ----------------- | --------------------------------------------------------------------- |
+| `std.io`          | Console, file I/O, argv/stdin/exit (`println`, `args`, `readFile`, …) |
+| `std.assert`      | Assert helpers for tests                                              |
+| `std.collections` | Map / Set / HashMap / HashMapStr / Iterable + Int·String HOF + `join` |
 
 The CLI can auto-prelude `std.io` for package builds and resolve `std.*` path deps (via `AURA_STD` or walk-up). Details: [Standard library](./standard-library.md).
 

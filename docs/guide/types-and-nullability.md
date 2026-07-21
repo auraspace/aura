@@ -26,18 +26,22 @@ fun add(a: Int, b: Int): Int {
 }
 ```
 
-### String helpers (alpha)
+### String helpers (alpha + C12)
 
-| Form                                     | Notes                                |
-| ---------------------------------------- | ------------------------------------ |
-| `s.len`                                  | Byte length (field)                  |
-| `s.isEmpty()`                            | `len == 0`                           |
-| `s.charAt(i)`                            | Byte as `Int`; OOB throws            |
-| `s + t` / `"hi ${name}"`                 | Concat / interp                      |
-| `s.startsWith` / `contains` / `endsWith` | Search                               |
-| `s.indexOf(sub)`                         | Byte index; −1 if missing; empty → 0 |
-| `s.split(sep)`                           | `Array<String>`; empty sep throws    |
-| `s.substring(start, end)`                | Exclusive end; byte indices          |
+| Form                                     | Notes                                                                       |
+| ---------------------------------------- | --------------------------------------------------------------------------- |
+| `s.len`                                  | Byte length (field)                                                         |
+| `s.isEmpty()`                            | `len == 0`                                                                  |
+| `s.charAt(i)`                            | Byte as `Int`; OOB throws                                                   |
+| `s + t` / `"hi ${name}"`                 | Concat / interp (idents)                                                    |
+| `s.startsWith` / `contains` / `endsWith` | Search                                                                      |
+| `s.indexOf(sub)`                         | Byte index; −1 if missing; empty sub → 0 (C12f)                             |
+| `s.split(sep)`                           | `Array<String>`; empty sep throws; consecutive seps → empty segments (C12g) |
+| `s.trim()` / `trimStart` / `trimEnd`     | ASCII whitespace MVP; owned copy (C12h)                                     |
+| `s.toInt()`                              | `Int?`; full-string decimal; no auto-trim; bad/overflow → null (C12i)       |
+| `s.substring(start, end)`                | Exclusive end; byte indices (C11d)                                          |
+
+Indices are UTF-8 **bytes**, not Unicode scalar values. No embedded NUL.
 
 ## Non-null by default
 

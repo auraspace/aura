@@ -81,16 +81,20 @@ A single-file sample also lives at `corpus/hello/main.aura` if you prefer not to
 
 From a clone of this repository:
 
-| Command                           | What it shows                    |
-| --------------------------------- | -------------------------------- |
-| `run corpus/multi`                | Multi-file package + `aura.toml` |
-| `test corpus/test/smoke.aura`     | `@test` functions                |
-| `run corpus/import/app`           | Path dependencies                |
-| `run corpus/std_io/app`           | `std.io.println`                 |
-| `run corpus/std_io/files`         | `readFile` / `writeFile`         |
-| `run corpus/std_io/try_read_file` | `tryReadFile`: `String?` (C12p)  |
-| `run examples/notes`              | Dogfood multi-file notes app     |
-| `test examples/notes`             | Package `@test` suite            |
+| Command                              | What it shows                               |
+| ------------------------------------ | ------------------------------------------- |
+| `run corpus/multi`                   | Multi-file package + `aura.toml`            |
+| `test corpus/test/smoke.aura`        | `@test` functions                           |
+| `run corpus/import/app`              | Path dependencies                           |
+| `run corpus/std_io/app`              | `std.io.println`                            |
+| `run corpus/std_io/files`            | `readFile` / `writeFile`                    |
+| `run corpus/std_io/try_read_file`    | `tryReadFile`: `String?` (C12p)             |
+| `run corpus/std_io/args -- hello`    | Process argv after `--` (C12b/c)            |
+| `run corpus/std_io/stdin`            | `readLine` / `readAllStdin` (C12d)          |
+| `run corpus/fun/lambda_capture.aura` | Lambda `val` captures                       |
+| `run examples/notes`                 | Dogfood multi-file notes app                |
+| `test examples/notes`                | Package `@test` suite                       |
+| `run examples/wc -- path/to/file`    | Dogfood CLI: args + split/trim/toInt (C12q) |
 
 Prefix with `cargo run -p aura-cli --` when using the in-tree CLI. Full milestone list: root [README](https://github.com/auraspace/aura).
 

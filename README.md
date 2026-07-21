@@ -8,7 +8,7 @@ This repository currently holds:
 | ------------------------------------ | -------------------------------------------------------------------- |
 | [`docs/guide/`](docs/guide/)         | User guide (site `/docs`)                                            |
 | [`docs/rfc/`](docs/rfc/)             | Language & toolchain RFCs                                            |
-| [`docs/roadmap.md`](docs/roadmap.md) | Execution phases (P0–P3, compiler C0–C11e shipped; C12a–t planned)   |
+| [`docs/roadmap.md`](docs/roadmap.md) | Execution phases (P0–P3; C0–C12q surface + C12r docs; C12s–t next)   |
 | [`docs/releases/`](docs/releases/)   | Freeze / release notes (`0.1.0-alpha`)                               |
 | [`site/`](site/)                     | Homepage + docs + RFC site (Vite + React)                            |
 | [`crates/`](crates/)                 | Rust toolchain (`aura` CLI) — check / build / run / test (C backend) |
@@ -34,7 +34,7 @@ pnpm site:test
 pnpm site:build
 ```
 
-### Compiler (through C11e; C12 planned)
+### Compiler (through C12q surface; C12r docs)
 
 ```bash
 cargo test --workspace
@@ -53,6 +53,8 @@ cargo run -p aura-cli -- test corpus/multi              # package-wide @test
 cargo run -p aura-cli -- run corpus/import/app          # import + path dep
 cargo run -p aura-cli -- run corpus/std_io/app          # std.io.println (C3z)
 cargo run -p aura-cli -- run corpus/std_io/files        # file read/write (C11a)
+cargo run -p aura-cli -- run corpus/std_io/args -- hello # process argv after -- (C12b/c)
+cargo run -p aura-cli -- run corpus/std_io/stdin        # readLine / readAllStdin (C12d)
 cargo run -p aura-cli -- run corpus/std_io/try_read_file # tryReadFile String? (C12p)
 cargo run -p aura-cli -- run examples/wc -- path/to/file # dogfood CLI args + String tools (C12q)
 cargo run -p aura-cli -- run corpus/std_io/prelude      # auto-prelude std.io (C4g)
@@ -65,6 +67,8 @@ cargo run -p aura-cli -- run corpus/fun/lambda_capture_var.aura # var Int/Bool b
 cargo run -p aura-cli -- run corpus/fun/lambda_env_free.aura # Fun env free (C11b)
 cargo run -p aura-cli -- run corpus/std_collections/hof     # map_ints / filter_ints / fold_ints
 cargo run -p aura-cli -- run corpus/std_collections/hof_str # map_strings / filter_strings / fold_strings (C12o)
+cargo run -p aura-cli -- run corpus/std_collections/join    # join Array<String> (C12j)
+cargo run -p aura-cli -- run corpus/std_collections/hashmap_str # HashMapStr String→String (C12n)
 ```
 
 Native builds use a **C backend** (`aura emit-c` + system `cc`) linked with `runtime/aura_rt.c`. LLVM IR is the longer-term path (RFC-004).
@@ -185,9 +189,6 @@ Native builds use a **C backend** (`aura emit-c` + system `cc`) linked with `run
 - **Compiler C10c–C10g** Lambdas (expr/block), `Ty::Fun`, fun type `(T) -> U`, non-capturing codegen
 - **Compiler C10h** Lambda captures MVP (`val` Int/Bool/String; fat-pointer Fun)
 - **Stdlib C10i** `map_ints` / `filter_ints` / `fold_ints`
-- **Stdlib C12o** `map_strings` / `filter_strings` / `fold_strings`
-- **Stdlib C12p** `tryReadFile(path): String?`
-- **Dogfood C12q** `examples/wc` CLI (`args`, `tryReadFile`, String split/trim/indexOf/toInt)
 - **Docs C10j** C10a–C10j batch closed — first-class funs/lambdas shippable
 - **Stdlib C11a** `std.io` file + console (`readFile` / `writeFile` / …)
 - **Compiler C11b** Fun capture-env ownership free (scope/move/return/param/for)
@@ -195,8 +196,19 @@ Native builds use a **C backend** (`aura emit-c` + system `cc`) linked with `run
 - **Lang C11d** `String.substring` + `examples/notes` dogfood; fix heap `this.method()` recv
 - **Dist C11e** Embedded `aura_rt.c`, [install guide](docs/guide/install.md), [0.1.0-alpha freeze](docs/releases/0.1.0-alpha.md)
 - **Release** Tag `v0.1.0-alpha` + multi-OS tarballs on GitHub Releases (install via [install.sh](docs/guide/install.md))
+- **Runtime C12b** `std.io.args(): Array<String>` process argv
+- **CLI C12c** `aura run` / `test` pass args after `--`
+- **Stdlib C12d–e** `readLine` / `readAllStdin` / `exit`
+- **Lang C12f–i** `String.indexOf` / `split` / `trim*` / `toInt(): Int?`
+- **Stdlib C12j** `join(parts, sep)` for `Array<String>`
+- **Compiler C12k–m** Lambda capture class / Array view / `var` Int·Bool by ref
+- **Stdlib C12n** `HashMapStr` String→String (+ resize)
+- **Stdlib C12o** `map_strings` / `filter_strings` / `fold_strings`
+- **Stdlib C12p** `tryReadFile(path): String?`
+- **Dogfood C12q** `examples/wc` CLI (`args`, `tryReadFile`, String split/trim/indexOf/toInt)
+- **Docs C12r** Guide + corpus sync for C12 teach path
 - **Debts** Tracked in [`agents/debts.md`](agents/debts.md)
-- **Next (C12a–C12t):** [20-slice post-alpha batch](docs/plans/2026-07-21-next-20-c12a-c12t.md) — argv/stdin/exit, String tools, richer lambda captures, HashMap String→String, dogfood CLI; then registry/semver, async, signed installers
+- **Next (C12s–t):** [post-alpha plan](docs/plans/2026-07-21-next-20-c12a-c12t.md) — dist/DX polish + batch close; then registry/semver, async, signed installers
 
 ## Links
 
