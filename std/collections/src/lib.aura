@@ -300,6 +300,34 @@ pub fun hash_map_str(): HashMap<String, String> {
   return HashMap<String, String>(Array(16), Array(16), Array(16))
 }
 
+/// Open-addressing set backed by the generic HashMap.
+pub class HashSet<T : Hashable>(var table: HashMap<T, Bool>) {
+  pub fun capacity(): Int { return this.table.capacity() }
+  pub fun len(): Int { return this.table.len() }
+  pub fun isEmpty(): Bool { return this.table.isEmpty() }
+
+  pub fun add(k: T): Bool { return this.table.put(k, true) }
+  pub fun contains(k: T): Bool { return this.table.contains(k) }
+  pub fun remove(k: T): Bool { return this.table.remove(k) }
+  pub fun clear() { this.table.clear() }
+
+  /// Return the live key at logical index i, for duck Iterable / for-in.
+  pub fun get(i: Int): T {
+    var seen: Int = 0
+    for (slot in 0..this.table.state.len) {
+      if (this.table.state.get(slot) == 1) {
+        if (seen == i) { return this.table.keys.get(slot) }
+        seen = seen + 1
+      }
+    }
+    return this.table.keys.get(i)
+  }
+}
+
+pub fun hash_set(): HashSet<String> {
+  return HashSet<String>(HashMap<String, Bool>(Array(16), Array(16), Array(16)))
+}
+
 pub fun map_ints(xs: Array<Int>, f: (Int) -> Int): Array<Int> {
   val out: Array<Int> = Array(0)
   for (x in xs) { out.push(f(x)) }

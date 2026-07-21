@@ -120,6 +120,7 @@ Sample `.aura` programs for the compiler: parse/typecheck (`aura check`), native
 | `std_collections/hashmap`             | HashMap String→Int (+ resize)                                                                       |
 | `std_collections/hashmap_str`         | HashMapStr String→String (+ resize) (C12n)                                                          |
 | `std_collections/hashmap_int`         | Generic HashMap<Int, String> + update/remove (C14)                                                  |
+| `std_collections/hashset_int`         | Generic HashSet<Int> + duplicate/remove/iteration (C15)                                             |
 | `std_collections/iterable`            | `Iterable<E>` for-in                                                                                |
 | `std_collections/forin`               | for-in over Map.keys / Set                                                                          |
 

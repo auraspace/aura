@@ -58,7 +58,7 @@ Public README and repo `docs/roadmap.md` track **C0 → C13t** batch closed (dog
 
 **Shipped:** tag `v0.1.0-alpha` + multi-OS tarballs ([release notes](https://github.com/auraspace/aura/blob/main/docs/releases/0.1.0-alpha.md)); C12 + **C13** batches closed.
 
-**Next:** live registry HTTPS + nested deps; generic HashSet; residual [debts](https://github.com/auraspace/aura/blob/main/agents/debts.md).
+**Next:** live registry HTTPS + nested deps; generic collection HOFs; residual [debts](https://github.com/auraspace/aura/blob/main/agents/debts.md).
 
 Exact bullet lists live in the root [README](https://github.com/auraspace/aura) and repo [`docs/roadmap.md`](https://github.com/auraspace/aura/blob/main/docs/roadmap.md).
 

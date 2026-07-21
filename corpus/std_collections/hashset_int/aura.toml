@@ -1,0 +1,6 @@
+[package]
+name = "demo.stdhashsetint"
+
+[[bin]]
+name = "app"
+path = "src"

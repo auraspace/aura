@@ -1,0 +1,27 @@
+// C15 — generic HashSet<T> backed by HashMap<T, Bool>.
+package demo.stdhashsetint
+
+import std.collections
+
+fun main() {
+  val s: HashSet<Int> = HashSet<Int>(HashMap<Int, Bool>(Array(4), Array(4), Array(4)))
+  val first = s.add(1)
+  val duplicate = s.add(1)
+  s.add(2)
+  if (first && !duplicate && s.len() == 2 && s.contains(1) && s.contains(2)) {
+    println("generic-set-ok")
+  }
+  var count: Int = 0
+  for (x in s) {
+    if (x == 1 || x == 2) { count = count + 1 }
+  }
+  if (count == 2 && s.remove(1) && !s.contains(1) && s.len() == 1) {
+    println("generic-set-remove-ok")
+  }
+
+  val words = hash_set()
+  words.add("aura")
+  if (words.contains("aura") && words.len() == 1) {
+    println("generic-string-set-ok")
+  }
+}

@@ -70,11 +70,11 @@ When you resolve debt, update or remove the matching entry.
 ### Stdlib collections polish
 
 - Area: stdlib / RFC-007
-- Symptom: linear `Map`/`Set`; generic HashMap is now available but HashSet is not
-- Why deferred: HashSet is a thin follow-up over the generic map and needs API naming
-- Progress: C9b auto-resize; C12n String→String; C12o String HOF; **C14** `Hashable` + monomorphized `HashMap<K,V>` with Int/String factories and Int-key corpus
-- Next step: add generic `HashSet<T>` once the public collection API is chosen; generic map/filter remain deferred
-- Note: C14 resolved the generic HashMap residual; remaining item is HashSet polish
+- Symptom: linear `Map`/`Set`; generic hash collections now cover HashMap and HashSet
+- Why deferred: generic map/filter HOFs still need type-parameter lambda support
+- Progress: C9b auto-resize; C12n String→String; C12o String HOF; **C14** generic `HashMap<K,V>`; **C15** generic `HashSet<T>`
+- Next step: generic map/filter/fold HOFs once type-parameter lambdas are supported
+- Note: C14/C15 resolved the generic hash-collection residual
 - Introduced: narrowed after C8i; resize C9b; String→String C12n; String HOF C12o
 
 ## Resolved
@@ -82,6 +82,10 @@ When you resolve debt, update or remove the matching entry.
 ### C14 generic HashMap (2026-07-21)
 
 - Resolved: compiler-backed `Hashable` for `Int`/`String`, generic open-addressing `HashMap<K,V>`, compatibility factories, Int-key corpus, and collection docs.
+
+### C15 generic HashSet (2026-07-21)
+
+- Resolved: generic open-addressing `HashSet<T : Hashable>` backed by `HashMap<T, Bool>`, String factory, Int-key corpus, iteration API, and collection docs.
 
 ### C13 batch (2026-07-21)
 

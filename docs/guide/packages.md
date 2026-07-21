@@ -80,7 +80,7 @@ In-tree std packages (alpha):
 | ----------------- | --------------------------------------------------------------------- |
 | `std.io`          | Console, file I/O, argv/stdin/exit (`println`, `args`, `readFile`, …) |
 | `std.assert`      | Assert helpers for tests                                              |
-| `std.collections` | Map / Set / HashMap / HashMapStr / Iterable + Int·String HOF + `join` |
+| `std.collections` | Map / Set / HashMap / HashSet / Iterable + Int·String HOF + `join`    |
 
 The CLI can auto-prelude `std.io` for package builds and resolve `std.*` path deps (via `AURA_STD` or walk-up). Details: [Standard library](./standard-library.md).
 

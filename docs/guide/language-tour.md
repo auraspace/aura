@@ -62,7 +62,7 @@ These topics match **in-tree** behavior (corpus + CLI), not only Accepted RFCs:
 - Reflection ([RFC-009](/rfc/009))
 - LLVM backend as default ([RFC-004](/rfc/004) — C backend is what runs now)
 - Registry fetch / semver ([RFC-005](/rfc/005) — path deps + lock schema only)
-- Generic `HashMap<K,V>` (concrete String→Int and String→String only)
+- Generic `HashMap<K,V>` and `HashSet<T>` with `Hashable` keys (`Int` and `String`)
 
 See the [roadmap map](./roadmap.md#rfc-accepted-vs-implemented) for a per-RFC table.
 
