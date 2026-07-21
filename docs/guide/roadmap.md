@@ -31,7 +31,7 @@ Aura is **spec-first**: RFCs lock design; the compiler and runtime land vertical
 | [004](/rfc/004) | Compiler architecture      | Accepted   | **Partial**             | Rust toolchain + **C backend** default; LLVM later                                                            |
 | [005](/rfc/005) | Package manager            | Accepted   | **Partial**             | Path deps + **C13** registry K1 offline (index/semver/fetch/lock); no live HTTPS / publish                    |
 | [006](/rfc/006) | Runtime                    | Accepted   | **Partial**             | `aura_rt.c`, GC, exceptions, String Array free, file I/O, Fun env RC, argv/stdin/exit                         |
-| [007](/rfc/007) | Standard library           | Accepted   | **Partial**             | `std.io` (+ eprint/tryWriteFile) / `assert` / Map·Set·HashMap·HashMapStr + HOF + `Int.toString` / case        |
+| [007](/rfc/007) | Standard library           | Accepted   | **Partial**             | `std.io` (+ eprint/tryWriteFile) / `assert` / Map·Set·HashMap<K,V> + Hashable + HOF + `Int.toString` / case   |
 | [008](/rfc/008) | Build system               | Accepted   | **Partial**             | `aura.toml` package build/run/test                                                                            |
 | [009](/rfc/009) | Reflection / metadata      | Accepted   | **Deferred / limited**  | Not a day-one teach path                                                                                      |
 | [010](/rfc/010) | Plugins / macros           | Accepted   | **Deferred / limited**  | Not required for hello                                                                                        |
@@ -58,7 +58,7 @@ Public README and repo `docs/roadmap.md` track **C0 → C13t** batch closed (dog
 
 **Shipped:** tag `v0.1.0-alpha` + multi-OS tarballs ([release notes](https://github.com/auraspace/aura/blob/main/docs/releases/0.1.0-alpha.md)); C12 + **C13** batches closed.
 
-**Next:** live registry HTTPS + nested deps; generic HashMap ([C13p spike](https://github.com/auraspace/aura/blob/main/docs/plans/2026-07-21-c13p-hashable-spike.md)); fix `Io.args` strdup; residual [debts](https://github.com/auraspace/aura/blob/main/agents/debts.md).
+**Next:** live registry HTTPS + nested deps; generic HashSet; residual [debts](https://github.com/auraspace/aura/blob/main/agents/debts.md).
 
 Exact bullet lists live in the root [README](https://github.com/auraspace/aura) and repo [`docs/roadmap.md`](https://github.com/auraspace/aura/blob/main/docs/roadmap.md).
 

@@ -1,0 +1,17 @@
+// C14 — generic HashMap<K, V> with the compiler-backed Int Hashable impl.
+package demo.stdhashmapint
+
+import std.collections
+
+fun main() {
+  val h: HashMap<Int, String> = HashMap<Int, String>(Array(4), Array(4), Array(4))
+  h.put(1, "one")
+  h.put(2, "two")
+  h.put(1, "uno")
+  if (h.len() == 2 && h.getOr(1, "?") == "uno" && h.getOr(2, "?") == "two") {
+    println("generic-int-ok")
+  }
+  if (h.remove(2) && !h.contains(2)) {
+    println("generic-int-remove-ok")
+  }
+}

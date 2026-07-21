@@ -2,7 +2,7 @@
 
 Collections package (RFC-007).
 
-**Status (C6f–C8i):**
+**Status (C6f–C14):**
 
 | API              | Notes                                                                                       |
 | ---------------- | ------------------------------------------------------------------------------------------- |
@@ -10,8 +10,8 @@ Collections package (RFC-007).
 | `map()`          | Empty `Map<String, Int>` factory                                                            |
 | `Set<T>`         | Linear `add` / `remove` / `contains` / `clear` / `len` / `isEmpty` / `get(i)` (C8g/C8h)     |
 | `set()`          | Empty `Set<String>` factory                                                                 |
-| `HashMap`        | String→Int open addressing; `hash_map()` cap 16; auto-resize on load (C8i/C9b)              |
-| `HashMapStr`     | String→String open addressing; `hash_map_str()` cap 16; same resize rules (C12n)            |
+| `Hashable`       | `hash(): Int`; compiler-backed implementations for `Int` and `String` (C14)                 |
+| `HashMap<K,V>`   | Generic open addressing; `K: Hashable`; `hash_map()` and `hash_map_str()` factories (C14)   |
 | `Iterable<E>`    | Protocol: `len(): Int` + `get(i: Int): E` for `for-in` (C8d)                                |
 | `map_ints`       | `Array<Int>` × `(Int) -> Int` → new array (C10i)                                            |
 | `filter_ints`    | `Array<Int>` × `(Int) -> Bool` → new array (C10i)                                           |
@@ -27,7 +27,7 @@ Collections package (RFC-007).
 - `for (x in set)` — duck Iterable via `len` + `get`
 - `for (k in set.keys)` — same buffer via `Array` field
 
-**Not yet:** generic `HashMap<K,V>`; generic map/filter over arbitrary `T`. Concrete monos: String→Int (`HashMap`) and String→String (`HashMapStr`). Keys/elements must support `==`. Resize: double when load ≥ 1/2.
+Generic `HashMap<K,V>` is monomorphized. Keys must satisfy `Hashable` and support `==`; the concrete factories remain compatibility sugar. Resize doubles capacity when load ≥ 1/2.
 
 **Also available language-wide:**
 

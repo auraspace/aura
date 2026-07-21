@@ -1,34 +1,21 @@
-// C6f — std.collections Map (linear scan).
-// C7a: get returns optional value.
-// C7e: Set of String.
-// C7f: Map remove/clear.
-// C8a: Map<K,V> generic (Array of type params allowed at mono).
-// C8d: Iterable<E> protocol (len + get).
-// C8i: HashMap String→Int.
-// C12n: HashMapStr String→String.
-// C12o: map_strings / filter_strings / fold_strings.
-// C8h: for-in over Map.keys / Set (Set.get for duck).
+// RFC-007 standard collections.
+// C14: Hashable + one generic open-addressing HashMap<K, V>.
 package std.collections
 
-/// Indexed sequence protocol for `for-in` (C6c/C8d).
-/// Implementors provide `len()` and `get(i)`; codegen dispatches via mono iface.
 pub interface Iterable<E> {
   fun len(): Int
   fun get(i: Int): E
 }
 
-/// Mutable map (linear scan). Keys must support `==` (e.g. String, Int).
+/// Hash protocol. Int and String have compiler-backed implementations.
+pub interface Hashable {
+  fun hash(): Int
+}
+
 pub class Map<K, V>(val keys: Array<K>, val vals: Array<V>) {
-  /// Number of entries.
-  pub fun len(): Int {
-    return this.keys.len
-  }
+  pub fun len(): Int { return this.keys.len }
+  pub fun isEmpty(): Bool { return this.keys.len == 0 }
 
-  pub fun isEmpty(): Bool {
-    return this.keys.len == 0
-  }
-
-  /// Insert or replace. Returns true if the key was newly inserted.
   pub fun put(k: K, v: V): Bool {
     for (i in 0..this.keys.len) {
       if (this.keys.get(i) == k) {
@@ -41,38 +28,27 @@ pub class Map<K, V>(val keys: Array<K>, val vals: Array<V>) {
     return true
   }
 
-  /// Value for `k`, or `null` if missing.
   pub fun get(k: K): V? {
     for (i in 0..this.keys.len) {
-      if (this.keys.get(i) == k) {
-        return this.vals.get(i)
-      }
+      if (this.keys.get(i) == k) { return this.vals.get(i) }
     }
     return null
   }
 
-  /// Value for `k`, or `default` if missing.
   pub fun getOr(k: K, default: V): V {
     for (i in 0..this.keys.len) {
-      if (this.keys.get(i) == k) {
-        return this.vals.get(i)
-      }
+      if (this.keys.get(i) == k) { return this.vals.get(i) }
     }
     return default
   }
 
-  /// true if `k` is present.
   pub fun contains(k: K): Bool {
     for (i in 0..this.keys.len) {
-      if (this.keys.get(i) == k) {
-        return true
-      }
+      if (this.keys.get(i) == k) { return true }
     }
     return false
   }
 
-  /// Remove `k` if present. Returns true if removed.
-  /// Swaps with last entry then pop (order not preserved).
   pub fun remove(k: K): Bool {
     for (i in 0..this.keys.len) {
       if (this.keys.get(i) == k) {
@@ -89,66 +65,41 @@ pub class Map<K, V>(val keys: Array<K>, val vals: Array<V>) {
     return false
   }
 
-  /// Drop all entries.
   pub fun clear() {
     this.keys.clear()
     this.vals.clear()
   }
 }
 
-/// Empty String→Int map (common factory).
 pub fun map(): Map<String, Int> {
   return Map<String, Int>(Array(0), Array(0))
 }
 
-// C7e — Set of String (linear scan MVP).
-// C8g — generic Set<T> (linear membership; T must support `==`).
-// C8h — duck Iterable via get(i) for `for (x in set)`.
-/// Mutable set (linear membership). Elements must support `==`.
 pub class Set<T>(val keys: Array<T>) {
-  pub fun len(): Int {
-    return this.keys.len
-  }
+  pub fun len(): Int { return this.keys.len }
+  pub fun get(i: Int): T { return this.keys.get(i) }
+  pub fun isEmpty(): Bool { return this.keys.len == 0 }
 
-  /// Element at index (for `for-in` / duck Iterable).
-  pub fun get(i: Int): T {
-    return this.keys.get(i)
-  }
-
-  pub fun isEmpty(): Bool {
-    return this.keys.len == 0
-  }
-
-  /// true if `k` is present.
   pub fun contains(k: T): Bool {
     for (i in 0..this.keys.len) {
-      if (this.keys.get(i) == k) {
-        return true
-      }
+      if (this.keys.get(i) == k) { return true }
     }
     return false
   }
 
-  /// Insert `k`. Returns true if newly inserted.
   pub fun add(k: T): Bool {
     for (i in 0..this.keys.len) {
-      if (this.keys.get(i) == k) {
-        return false
-      }
+      if (this.keys.get(i) == k) { return false }
     }
     this.keys.push(k)
     return true
   }
 
-  /// Remove `k` if present. Returns true if removed.
-  /// Swaps with last element then pop (order not preserved).
   pub fun remove(k: T): Bool {
     for (i in 0..this.keys.len) {
       if (this.keys.get(i) == k) {
         val last = this.keys.len - 1
-        if (i != last) {
-          this.keys.set(i, this.keys.get(last))
-        }
+        if (i != last) { this.keys.set(i, this.keys.get(last)) }
         val _dropped = this.keys.pop()
         return true
       }
@@ -156,70 +107,43 @@ pub class Set<T>(val keys: Array<T>) {
     return false
   }
 
-  /// Drop all elements.
-  pub fun clear() {
-    this.keys.clear()
-  }
+  pub fun clear() { this.keys.clear() }
 }
 
-/// Empty String set (common factory).
-pub fun set(): Set<String> {
-  return Set<String>(Array(0))
-}
+pub fun set(): Set<String> { return Set<String>(Array(0)) }
 
-// C8i/C9b — HashMap String→Int (open addressing; pure Aura hash; auto-resize).
-// Note: avoid `this.otherMethod()` chains (codegen this-recv bug); inline helpers.
-fun hash_string(s: String): Int {
-  var h: Int = 0
-  for (b in s) {
-    h = h * 31 + b
-  }
-  if (h < 0) {
-    h = 0 - h
-  }
-  return h
-}
-
-/// Open-addressing hash map String→Int.
-/// `state`: 0 empty, 1 full, 2 tombstone.
-/// C9b: `var` table fields so `put` can double capacity when load ≥ 1/2.
-pub class HashMap(var keys: Array<String>, var vals: Array<Int>, var state: Array<Int>) {
-  pub fun capacity(): Int {
-    return this.keys.len
-  }
+/// Open-addressing map. state: 0 empty, 1 full, 2 tombstone.
+/// The key bound supplies both the hash operation and the equality contract.
+pub class HashMap<K : Hashable, V>(var keys: Array<K>, var vals: Array<V>, var state: Array<Int>) {
+  pub fun capacity(): Int { return this.keys.len }
 
   pub fun len(): Int {
     var n: Int = 0
     for (i in 0..this.state.len) {
-      if (this.state.get(i) == 1) {
-        n = n + 1
-      }
+      if (this.state.get(i) == 1) { n = n + 1 }
     }
     return n
   }
 
   pub fun isEmpty(): Bool {
     for (i in 0..this.state.len) {
-      if (this.state.get(i) == 1) {
-        return false
-      }
+      if (this.state.get(i) == 1) { return false }
     }
     return true
   }
 
-  /// Double capacity and rehash live entries (C9b).
-  /// Call as bare field rewrites only — do not recurse via `this.put` (this-recv).
+  /// Double capacity and rehash live entries.
   pub fun grow() {
     val old_n = this.keys.len
     val new_n = if (old_n < 4) { 4 } else { old_n * 2 }
-    val nk: Array<String> = Array(new_n)
-    val nv: Array<Int> = Array(new_n)
+    val nk: Array<K> = Array(new_n)
+    val nv: Array<V> = Array(new_n)
     val ns: Array<Int> = Array(new_n)
     for (i in 0..old_n) {
       if (this.state.get(i) == 1) {
         val ok = this.keys.get(i)
         val ov = this.vals.get(i)
-        var j: Int = hash_string(ok) % new_n
+        var j: Int = ok.hash() % new_n
         for (step in 0..new_n) {
           if (ns.get(j) == 0) {
             nk.set(j, ok)
@@ -236,67 +160,42 @@ pub class HashMap(var keys: Array<String>, var vals: Array<Int>, var state: Arra
     state = ns
   }
 
-  /// Insert or replace. Returns true if newly inserted.
-  /// Grows when load would exceed ~1/2 (C9b). Inlines grow (no this.method).
-  pub fun put(k: String, v: Int): Bool {
+  pub fun put(k: K, v: V): Bool {
     var n = this.keys.len
     if (n == 0) {
-      // inline grow for empty table
-      val new_n: Int = 4
-      val nk0: Array<String> = Array(new_n)
-      val nv0: Array<Int> = Array(new_n)
-      val ns0: Array<Int> = Array(new_n)
-      keys = nk0
-      vals = nv0
-      state = ns0
+      keys = Array(4)
+      vals = Array(4)
+      state = Array(4)
       n = this.keys.len
     }
     var live: Int = 0
     for (i in 0..this.state.len) {
-      if (this.state.get(i) == 1) {
-        live = live + 1
-      }
+      if (this.state.get(i) == 1) { live = live + 1 }
     }
-    // If inserting a new key would exceed load 1/2, rehash first.
-    // Probe for existing key without growing.
-    var i: Int = hash_string(k) % n
+    var i: Int = k.hash() % n
     var first_tomb: Int = -1
-    var found: Bool = false
-    var found_i: Int = 0
     for (step in 0..n) {
       val st = this.state.get(i)
-      if (st == 0) {
-        break
-      }
+      if (st == 0) { break }
       if (st == 2) {
-        if (first_tomb < 0) {
-          first_tomb = i
-        }
-      } else {
-        if (this.keys.get(i) == k) {
-          found = true
-          found_i = i
-          break
-        }
+        if (first_tomb < 0) { first_tomb = i }
+      } else if (this.keys.get(i) == k) {
+        this.vals.set(i, v)
+        return false
       }
       i = (i + 1) % n
     }
-    if (found) {
-      this.vals.set(found_i, v)
-      return false
-    }
-    // New key — grow if needed, then insert.
     if (live * 2 >= n) {
       val old_n = this.keys.len
       val new_n = if (old_n < 4) { 4 } else { old_n * 2 }
-      val nk: Array<String> = Array(new_n)
-      val nv: Array<Int> = Array(new_n)
+      val nk: Array<K> = Array(new_n)
+      val nv: Array<V> = Array(new_n)
       val ns: Array<Int> = Array(new_n)
       for (gi in 0..old_n) {
         if (this.state.get(gi) == 1) {
           val ok = this.keys.get(gi)
           val ov = this.vals.get(gi)
-          var j: Int = hash_string(ok) % new_n
+          var j: Int = ok.hash() % new_n
           for (step in 0..new_n) {
             if (ns.get(j) == 0) {
               nk.set(j, ok)
@@ -312,10 +211,8 @@ pub class HashMap(var keys: Array<String>, var vals: Array<Int>, var state: Arra
       vals = nv
       state = ns
       n = this.keys.len
-      first_tomb = -1
     }
-    // Insert into (possibly new) table.
-    i = hash_string(k) % n
+    i = k.hash() % n
     first_tomb = -1
     for (step in 0..n) {
       val st = this.state.get(i)
@@ -327,14 +224,10 @@ pub class HashMap(var keys: Array<String>, var vals: Array<Int>, var state: Arra
         return true
       }
       if (st == 2) {
-        if (first_tomb < 0) {
-          first_tomb = i
-        }
-      } else {
-        if (this.keys.get(i) == k) {
-          this.vals.set(i, v)
-          return false
-        }
+        if (first_tomb < 0) { first_tomb = i }
+      } else if (this.keys.get(i) == k) {
+        this.vals.set(i, v)
+        return false
       }
       i = (i + 1) % n
     }
@@ -347,444 +240,105 @@ pub class HashMap(var keys: Array<String>, var vals: Array<Int>, var state: Arra
     return false
   }
 
-  pub fun get(k: String): Int? {
+  pub fun get(k: K): V? {
     val n = this.keys.len
-    if (n == 0) {
-      return null
-    }
-    var i: Int = hash_string(k) % n
+    if (n == 0) { return null }
+    var i: Int = k.hash() % n
     for (step in 0..n) {
       val st = this.state.get(i)
-      if (st == 0) {
-        return null
-      }
-      if (st == 1) {
-        if (this.keys.get(i) == k) {
-          return this.vals.get(i)
-        }
-      }
+      if (st == 0) { return null }
+      if (st == 1 && this.keys.get(i) == k) { return this.vals.get(i) }
       i = (i + 1) % n
     }
     return null
   }
 
-  pub fun getOr(k: String, default: Int): Int {
-    val n = this.keys.len
-    if (n == 0) {
-      return default
-    }
-    var i: Int = hash_string(k) % n
-    for (step in 0..n) {
-      val st = this.state.get(i)
-      if (st == 0) {
-        return default
-      }
-      if (st == 1) {
-        if (this.keys.get(i) == k) {
-          return this.vals.get(i)
-        }
-      }
-      i = (i + 1) % n
-    }
-    return default
+  pub fun getOr(k: K, default: V): V {
+    val got = this.get(k)
+    return got ?: default
   }
 
-  pub fun contains(k: String): Bool {
+  pub fun contains(k: K): Bool {
     val n = this.keys.len
-    if (n == 0) {
-      return false
-    }
-    var i: Int = hash_string(k) % n
+    if (n == 0) { return false }
+    var i: Int = k.hash() % n
     for (step in 0..n) {
       val st = this.state.get(i)
-      if (st == 0) {
-        return false
-      }
-      if (st == 1) {
-        if (this.keys.get(i) == k) {
-          return true
-        }
-      }
+      if (st == 0) { return false }
+      if (st == 1 && this.keys.get(i) == k) { return true }
       i = (i + 1) % n
     }
     return false
   }
 
-  pub fun remove(k: String): Bool {
+  pub fun remove(k: K): Bool {
     val n = this.keys.len
-    if (n == 0) {
-      return false
-    }
-    var i: Int = hash_string(k) % n
+    if (n == 0) { return false }
+    var i: Int = k.hash() % n
     for (step in 0..n) {
       val st = this.state.get(i)
-      if (st == 0) {
-        return false
-      }
-      if (st == 1) {
-        if (this.keys.get(i) == k) {
-          this.state.set(i, 2)
-          return true
-        }
-      }
-      i = (i + 1) % n
-    }
-    return false
-  }
-
-  pub fun clear() {
-    for (i in 0..this.state.len) {
-      this.state.set(i, 0)
-    }
-  }
-}
-
-/// Empty HashMap with capacity 16.
-pub fun hash_map(): HashMap {
-  return HashMap(Array(16), Array(16), Array(16))
-}
-
-// C12n — HashMap String→String (open addressing; same resize rules as HashMap).
-// Second concrete mono; generic HashMap<K,V> deferred.
-// Note: avoid `this.otherMethod()` chains (codegen this-recv bug); inline helpers.
-
-/// Open-addressing hash map String→String.
-/// `state`: 0 empty, 1 full, 2 tombstone.
-/// C9b rules: `var` table fields so `put` can double capacity when load ≥ 1/2.
-pub class HashMapStr(var keys: Array<String>, var vals: Array<String>, var state: Array<Int>) {
-  pub fun capacity(): Int {
-    return this.keys.len
-  }
-
-  pub fun len(): Int {
-    var n: Int = 0
-    for (i in 0..this.state.len) {
-      if (this.state.get(i) == 1) {
-        n = n + 1
-      }
-    }
-    return n
-  }
-
-  pub fun isEmpty(): Bool {
-    for (i in 0..this.state.len) {
-      if (this.state.get(i) == 1) {
-        return false
-      }
-    }
-    return true
-  }
-
-  /// Double capacity and rehash live entries (C9b parity).
-  /// Call as bare field rewrites only — do not recurse via `this.put` (this-recv).
-  pub fun grow() {
-    val old_n = this.keys.len
-    val new_n = if (old_n < 4) { 4 } else { old_n * 2 }
-    val nk: Array<String> = Array(new_n)
-    val nv: Array<String> = Array(new_n)
-    val ns: Array<Int> = Array(new_n)
-    for (i in 0..old_n) {
-      if (this.state.get(i) == 1) {
-        val ok = this.keys.get(i)
-        val ov = this.vals.get(i)
-        var j: Int = hash_string(ok) % new_n
-        for (step in 0..new_n) {
-          if (ns.get(j) == 0) {
-            nk.set(j, ok)
-            nv.set(j, ov)
-            ns.set(j, 1)
-            break
-          }
-          j = (j + 1) % new_n
-        }
-      }
-    }
-    keys = nk
-    vals = nv
-    state = ns
-  }
-
-  /// Insert or replace. Returns true if newly inserted.
-  /// Grows when load would exceed ~1/2 (C9b). Inlines grow (no this.method).
-  pub fun put(k: String, v: String): Bool {
-    var n = this.keys.len
-    if (n == 0) {
-      val new_n: Int = 4
-      val nk0: Array<String> = Array(new_n)
-      val nv0: Array<String> = Array(new_n)
-      val ns0: Array<Int> = Array(new_n)
-      keys = nk0
-      vals = nv0
-      state = ns0
-      n = this.keys.len
-    }
-    var live: Int = 0
-    for (i in 0..this.state.len) {
-      if (this.state.get(i) == 1) {
-        live = live + 1
-      }
-    }
-    // Probe for existing key without growing.
-    var i: Int = hash_string(k) % n
-    var first_tomb: Int = -1
-    var found: Bool = false
-    var found_i: Int = 0
-    for (step in 0..n) {
-      val st = this.state.get(i)
-      if (st == 0) {
-        break
-      }
-      if (st == 2) {
-        if (first_tomb < 0) {
-          first_tomb = i
-        }
-      } else {
-        if (this.keys.get(i) == k) {
-          found = true
-          found_i = i
-          break
-        }
-      }
-      i = (i + 1) % n
-    }
-    if (found) {
-      this.vals.set(found_i, v)
-      return false
-    }
-    // New key — grow if needed, then insert.
-    if (live * 2 >= n) {
-      val old_n = this.keys.len
-      val new_n = if (old_n < 4) { 4 } else { old_n * 2 }
-      val nk: Array<String> = Array(new_n)
-      val nv: Array<String> = Array(new_n)
-      val ns: Array<Int> = Array(new_n)
-      for (gi in 0..old_n) {
-        if (this.state.get(gi) == 1) {
-          val ok = this.keys.get(gi)
-          val ov = this.vals.get(gi)
-          var j: Int = hash_string(ok) % new_n
-          for (step in 0..new_n) {
-            if (ns.get(j) == 0) {
-              nk.set(j, ok)
-              nv.set(j, ov)
-              ns.set(j, 1)
-              break
-            }
-            j = (j + 1) % new_n
-          }
-        }
-      }
-      keys = nk
-      vals = nv
-      state = ns
-      n = this.keys.len
-      first_tomb = -1
-    }
-    // Insert into (possibly new) table.
-    i = hash_string(k) % n
-    first_tomb = -1
-    for (step in 0..n) {
-      val st = this.state.get(i)
-      if (st == 0) {
-        val slot = if (first_tomb >= 0) { first_tomb } else { i }
-        this.keys.set(slot, k)
-        this.vals.set(slot, v)
-        this.state.set(slot, 1)
+      if (st == 0) { return false }
+      if (st == 1 && this.keys.get(i) == k) {
+        this.state.set(i, 2)
         return true
       }
-      if (st == 2) {
-        if (first_tomb < 0) {
-          first_tomb = i
-        }
-      } else {
-        if (this.keys.get(i) == k) {
-          this.vals.set(i, v)
-          return false
-        }
-      }
-      i = (i + 1) % n
-    }
-    if (first_tomb >= 0) {
-      this.keys.set(first_tomb, k)
-      this.vals.set(first_tomb, v)
-      this.state.set(first_tomb, 1)
-      return true
-    }
-    return false
-  }
-
-  pub fun get(k: String): String? {
-    val n = this.keys.len
-    if (n == 0) {
-      return null
-    }
-    var i: Int = hash_string(k) % n
-    for (step in 0..n) {
-      val st = this.state.get(i)
-      if (st == 0) {
-        return null
-      }
-      if (st == 1) {
-        if (this.keys.get(i) == k) {
-          return this.vals.get(i)
-        }
-      }
-      i = (i + 1) % n
-    }
-    return null
-  }
-
-  pub fun getOr(k: String, default: String): String {
-    val n = this.keys.len
-    if (n == 0) {
-      return default
-    }
-    var i: Int = hash_string(k) % n
-    for (step in 0..n) {
-      val st = this.state.get(i)
-      if (st == 0) {
-        return default
-      }
-      if (st == 1) {
-        if (this.keys.get(i) == k) {
-          return this.vals.get(i)
-        }
-      }
-      i = (i + 1) % n
-    }
-    return default
-  }
-
-  pub fun contains(k: String): Bool {
-    val n = this.keys.len
-    if (n == 0) {
-      return false
-    }
-    var i: Int = hash_string(k) % n
-    for (step in 0..n) {
-      val st = this.state.get(i)
-      if (st == 0) {
-        return false
-      }
-      if (st == 1) {
-        if (this.keys.get(i) == k) {
-          return true
-        }
-      }
-      i = (i + 1) % n
-    }
-    return false
-  }
-
-  pub fun remove(k: String): Bool {
-    val n = this.keys.len
-    if (n == 0) {
-      return false
-    }
-    var i: Int = hash_string(k) % n
-    for (step in 0..n) {
-      val st = this.state.get(i)
-      if (st == 0) {
-        return false
-      }
-      if (st == 1) {
-        if (this.keys.get(i) == k) {
-          this.state.set(i, 2)
-          return true
-        }
-      }
       i = (i + 1) % n
     }
     return false
   }
 
   pub fun clear() {
-    for (i in 0..this.state.len) {
-      this.state.set(i, 0)
-    }
+    for (i in 0..this.state.len) { this.state.set(i, 0) }
   }
 }
 
-/// Empty HashMapStr with capacity 16.
-pub fun hash_map_str(): HashMapStr {
-  return HashMapStr(Array(16), Array(16), Array(16))
+pub fun hash_map(): HashMap<String, Int> {
+  return HashMap<String, Int>(Array(16), Array(16), Array(16))
 }
 
-// C10i — higher-order helpers over Array<Int> (first-class funs).
-// Generic map/filter deferred until more capture types + Fun mono polish.
+pub fun hash_map_str(): HashMap<String, String> {
+  return HashMap<String, String>(Array(16), Array(16), Array(16))
+}
 
-/// Apply `f` to each element; returns a new array.
 pub fun map_ints(xs: Array<Int>, f: (Int) -> Int): Array<Int> {
   val out: Array<Int> = Array(0)
-  for (x in xs) {
-    out.push(f(x))
-  }
+  for (x in xs) { out.push(f(x)) }
   return out
 }
 
-/// Keep elements where `pred` is true.
 pub fun filter_ints(xs: Array<Int>, pred: (Int) -> Bool): Array<Int> {
   val out: Array<Int> = Array(0)
-  for (x in xs) {
-    if (pred(x)) {
-      out.push(x)
-    }
-  }
+  for (x in xs) { if (pred(x)) { out.push(x) } }
   return out
 }
 
-/// Left fold: `f(…f(f(init, xs[0]), xs[1]), …)`.
 pub fun fold_ints(xs: Array<Int>, init: Int, f: (Int, Int) -> Int): Int {
   var acc = init
-  for (x in xs) {
-    acc = f(acc, x)
-  }
+  for (x in xs) { acc = f(acc, x) }
   return acc
 }
 
-// C12o — higher-order helpers over Array<String> (parity with C10i Int helpers).
-
-/// Apply `f` to each element; returns a new array.
 pub fun map_strings(xs: Array<String>, f: (String) -> String): Array<String> {
   val out: Array<String> = Array(0)
-  for (x in xs) {
-    out.push(f(x))
-  }
+  for (x in xs) { out.push(f(x)) }
   return out
 }
 
-/// Keep elements where `pred` is true.
 pub fun filter_strings(xs: Array<String>, pred: (String) -> Bool): Array<String> {
   val out: Array<String> = Array(0)
-  for (x in xs) {
-    if (pred(x)) {
-      out.push(x)
-    }
-  }
+  for (x in xs) { if (pred(x)) { out.push(x) } }
   return out
 }
 
-/// Left fold over strings: `f(…f(f(init, xs[0]), xs[1]), …)`.
 pub fun fold_strings(xs: Array<String>, init: String, f: (String, String) -> String): String {
   var acc = init
-  for (x in xs) {
-    acc = f(acc, x)
-  }
+  for (x in xs) { acc = f(acc, x) }
   return acc
 }
 
-// C12j — join Array<String> with a separator (free function; Array is generic).
-
-/// Join string parts with `sep` between elements.
-/// Empty array → `""`; single element → that element (no separator).
 pub fun join(parts: Array<String>, sep: String): String {
-  if (parts.len == 0) {
-    return ""
-  }
+  if (parts.len == 0) { return "" }
   var out: String = parts.get(0)
-  for (i in 1..parts.len) {
-    out = out + sep + parts.get(i)
-  }
+  for (i in 1..parts.len) { out = out + sep + parts.get(i) }
   return out
 }
-

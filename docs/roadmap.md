@@ -226,6 +226,7 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C13r**  | Corpus + guide sync for C13                                        | **Done**                                   |
 | **C13s**  | Dist/DX: signing design note (option B)                            | **Done**                                   |
 | **C13t**  | Close C13a–C13t batch (roadmap / debts / plan)                     | **Done**                                   |
+| **C14**   | `Hashable` + generic `HashMap<K,V>` (mono, Int/String keys)        | **Done**                                   |
 
 Plans:
 
@@ -236,14 +237,14 @@ Plans:
 
 **Out of scope C12:** async/tasks, registry HTTP/semver, LLVM, true borrow, Array-of-iface, generic `HashMap<K,V>`, Fun-in-env capture, signed installers.
 
-**Out of scope C13:** async/tasks, LLVM, true borrow, Array-of-iface, full generic HashMap, K1b `github=` / K2 publish, notarized installers (design note optional via C13s).
+**Out of scope C13:** async/tasks, LLVM, true borrow, Array-of-iface, full generic HashMap, K1b `github=` / K2 publish, notarized installers (design note optional via C13s). C14 shipped the generic HashMap follow-up.
 
 ### P3 — Expand (after hello)
 
 1. ~~Language surface through C13~~ (funs/lambdas, Fun+var String capture) → later: true borrow, Array-of-iface, `var` class/Array
 2. Runtime: ~~GC + process I/O + String Array free + Fun env RC~~ → later: channels/tasks; fix `Io.args` strdup vs free
 3. Toolchain: ~~path deps + registry K1 offline~~ → ~~**S2:** verified HTTPS + nested locked registry deps~~ → later: K1b/K2 publish
-4. Stdlib: ~~io + collections + C13 toString/case/eprint/tryWrite~~ → later: generic HashMap (see C13p spike)
+4. Stdlib: ~~io + collections + C13 toString/case/eprint/tryWrite + C14 generic HashMap~~ → later: generic HashSet
 5. Cross targets + signed releases — ~~**S2 contract:** Linux amd64, macOS arm64/amd64~~; Windows amd64 deferred → ~~**C13s** signing note~~ → later: minisign / notarization
 
 S2 production toolchain implementation: [`docs/plans/2026-07-21-s2-production-toolchain.md`](plans/2026-07-21-s2-production-toolchain.md). Release publication remains pending.

@@ -106,18 +106,18 @@ Prefer package tests that exercise `assert` / `assert_eq` for `Int` / `String` /
 
 ## `std.collections`
 
-| Type / helper                                     | Notes                                                  |
-| ------------------------------------------------- | ------------------------------------------------------ |
-| `Map<K, V>`                                       | Linear map; `get` → `V?`; `put` / `remove` / `clear`   |
-| `Set<T>`                                          | Generic set (linear)                                   |
-| `HashMap`                                         | String→Int open addressing + auto-resize (C8i/C9b)     |
-| `HashMapStr`                                      | String→String open addressing; `hash_map_str()` (C12n) |
-| `Iterable<E>`                                     | `len` + `get` protocol for `for-in`                    |
-| `map_ints` / `filter_ints` / `fold_ints`          | Int array HOF helpers                                  |
-| `map_strings` / `filter_strings` / `fold_strings` | String array HOF helpers (C12o)                        |
-| `join(parts, sep)`                                | `Array<String>` → `String` with separator (C12j)       |
+| Type / helper                                     | Notes                                                |
+| ------------------------------------------------- | ---------------------------------------------------- |
+| `Map<K, V>`                                       | Linear map; `get` → `V?`; `put` / `remove` / `clear` |
+| `Set<T>`                                          | Generic set (linear)                                 |
+| `HashMap<K,V>`                                    | Generic open addressing with `K: Hashable` (C14)     |
+| `Hashable`                                        | `hash(): Int`; built-in for `Int` and `String` (C14) |
+| `Iterable<E>`                                     | `len` + `get` protocol for `for-in`                  |
+| `map_ints` / `filter_ints` / `fold_ints`          | Int array HOF helpers                                |
+| `map_strings` / `filter_strings` / `fold_strings` | String array HOF helpers (C12o)                      |
+| `join(parts, sep)`                                | `Array<String>` → `String` with separator (C12j)     |
 
-**Alpha limits:** no generic `HashMap<K,V>` yet (concrete monos: String→Int, String→String). See [Arrays](./arrays.md) for HOF usage and capture limits.
+See [Arrays](./arrays.md) for HOF usage and capture limits.
 
 ```bash
 aura run corpus/std_collections/app

@@ -73,7 +73,8 @@ cargo run -p aura-cli -- run corpus/fun/lambda_env_free.aura # Fun env free (C11
 cargo run -p aura-cli -- run corpus/std_collections/hof     # map_ints / filter_ints / fold_ints
 cargo run -p aura-cli -- run corpus/std_collections/hof_str # map_strings / filter_strings / fold_strings (C12o)
 cargo run -p aura-cli -- run corpus/std_collections/join    # join Array<String> (C12j)
-cargo run -p aura-cli -- run corpus/std_collections/hashmap_str # HashMapStr String→String (C12n)
+cargo run -p aura-cli -- run corpus/std_collections/hashmap_str # generic HashMap<String,String> factory (C14)
+cargo run -p aura-cli -- run corpus/std_collections/hashmap_int # generic HashMap<Int,String> (C14)
 ```
 
 Native builds use a **C backend** (`aura emit-c` + system `cc`) linked with `runtime/aura_rt.c`. LLVM IR is the longer-term path (RFC-004).
@@ -222,7 +223,7 @@ when their Rust and C toolchains are available.
 - **Lang C12f–i** `String.indexOf` / `split` / `trim*` / `toInt(): Int?`
 - **Stdlib C12j** `join(parts, sep)` for `Array<String>`
 - **Compiler C12k–m** Lambda capture class / Array view / `var` Int·Bool by ref
-- **Stdlib C12n** `HashMapStr` String→String (+ resize)
+- **Stdlib C14** generic `HashMap<K,V>` with `Hashable` keys (+ resize)
 - **Stdlib C12o** `map_strings` / `filter_strings` / `fold_strings`
 - **Stdlib C12p** `tryReadFile(path): String?`
 - **Dogfood C12q** `examples/wc` CLI (`args`, `tryReadFile`, String split/trim/indexOf/toInt)
@@ -232,7 +233,7 @@ when their Rust and C toolchains are available.
 - **Debts** Tracked in [`agents/debts.md`](agents/debts.md)
 - **Docs C13t:** C13a–C13t batch closed — dogfood/captures/registry K1 foundation ([plan](docs/plans/2026-07-21-next-20-c13a-c13t.md))
 - **S2:** production toolchain complete — verified HTTPS/nested registry deps, Unix artifacts, installer safety, and acceptance gate ([plan](docs/plans/2026-07-21-s2-production-toolchain.md))
-- **Next:** registry publish/auth contract; generic HashMap; true borrow; `var` class/Array/Fun; async/tasks; residual debts
+- **Next:** registry publish/auth contract; generic HashSet; true borrow; `var` class/Array/Fun; async/tasks; residual debts
 
 ## Links
 

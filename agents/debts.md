@@ -70,14 +70,18 @@ When you resolve debt, update or remove the matching entry.
 ### Stdlib collections polish
 
 - Area: stdlib / RFC-007
-- Symptom: linear `Map`/`Set`; concrete HashMap monos only (no generic HashMap)
-- Why deferred: String→Int + String→String cover demos; generic needs hashable protocol
-- Progress: C9b auto-resize when load ≥ 1/2; explicit `grow()`; **C12n** `HashMapStr` String→String (`hash_map_str()`, `get` → `String?`); **C12o** `map_strings` / `filter_strings` / `fold_strings`
-- Next step: later `HashMap<K,V>` when hashable protocol exists; generic map/filter when Fun mono polish lands
-- Note: C12 batch closed (C12t); HashMapStr + String HOF shipped — residual is generic form only
+- Symptom: linear `Map`/`Set`; generic HashMap is now available but HashSet is not
+- Why deferred: HashSet is a thin follow-up over the generic map and needs API naming
+- Progress: C9b auto-resize; C12n String→String; C12o String HOF; **C14** `Hashable` + monomorphized `HashMap<K,V>` with Int/String factories and Int-key corpus
+- Next step: add generic `HashSet<T>` once the public collection API is chosen; generic map/filter remain deferred
+- Note: C14 resolved the generic HashMap residual; remaining item is HashSet polish
 - Introduced: narrowed after C8i; resize C9b; String→String C12n; String HOF C12o
 
 ## Resolved
+
+### C14 generic HashMap (2026-07-21)
+
+- Resolved: compiler-backed `Hashable` for `Int`/`String`, generic open-addressing `HashMap<K,V>`, compatibility factories, Int-key corpus, and collection docs.
 
 ### C13 batch (2026-07-21)
 
