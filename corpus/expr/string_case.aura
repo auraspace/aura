@@ -1,0 +1,46 @@
+// C13m — String.toLower / toUpper (ASCII letter case only)
+// Caveat: only A–Z / a–z are folded. UTF-8 multi-byte bytes and other
+// ASCII (digits, punctuation, whitespace) are left unchanged. Returns owned copy.
+package demo.expr
+
+fun main() {
+  // Basic ASCII case fold
+  assert_eq("Hello".toLower(), "hello")
+  assert_eq("Hello".toUpper(), "HELLO")
+  assert_eq("hello".toLower(), "hello")
+  assert_eq("HELLO".toUpper(), "HELLO")
+  assert_eq("hello".toUpper(), "HELLO")
+  assert_eq("HELLO".toLower(), "hello")
+
+  // Mixed / non-letters preserved
+  assert_eq("AbC123!".toLower(), "abc123!")
+  assert_eq("AbC123!".toUpper(), "ABC123!")
+  assert_eq("  x Y  ".toLower(), "  x y  ")
+  assert_eq("  x Y  ".toUpper(), "  X Y  ")
+
+  // Empty
+  assert_eq("".toLower(), "")
+  assert_eq("".toUpper(), "")
+
+  // Round-trip identity on pure ASCII letters
+  assert_eq("Aura".toLower().toUpper(), "AURA")
+  assert_eq("Aura".toUpper().toLower(), "aura")
+
+  // Non-letter ASCII unchanged under both
+  assert_eq("42_ok".toLower(), "42_ok")
+  assert_eq("42_ok".toUpper(), "42_OK")
+
+  // UTF-8 multi-byte: not full Unicode case fold — multi-byte sequences are
+  // byte-stable. "café" is c a f + U+00E9; only ASCII letters fold, so é stays.
+  assert_eq("café".toUpper(), "CAFé")
+  // Likewise: É (U+00C9) is not mapped by ASCII toLower.
+  assert_eq("CAFÉ".toLower(), "cafÉ")
+
+  val s = "MiXeD"
+  assert_eq(s.toLower(), "mixed")
+  assert_eq(s.toUpper(), "MIXED")
+  // original unchanged (methods return a new owned String)
+  assert_eq(s, "MiXeD")
+
+  println("ok")
+}

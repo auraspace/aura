@@ -161,7 +161,8 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
                                 return "Bool".into();
                             }
                             "charAt" | "indexOf" | "len" => return "Int".into(),
-                            "substring" | "trim" | "trimStart" | "trimEnd" => {
+                            "substring" | "trim" | "trimStart" | "trimEnd" | "toLower"
+                            | "toUpper" => {
                                 return "String".into();
                             }
                             // C12g: split(sep) → Array<String>
@@ -1313,7 +1314,8 @@ pub(crate) fn resolve_type_name(expr: &Expr, ctx: &EmitCtx<'_>) -> Option<String
                                 return Some("Bool".into());
                             }
                             "charAt" | "indexOf" => return Some("Int".into()),
-                            "substring" | "trim" | "trimStart" | "trimEnd" => {
+                            "substring" | "trim" | "trimStart" | "trimEnd" | "toLower"
+                            | "toUpper" => {
                                 return Some("String".into());
                             }
                             "split" => return Some(mono_key("Array", &[Ty::String])),

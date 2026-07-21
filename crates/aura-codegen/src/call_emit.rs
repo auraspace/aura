@@ -481,6 +481,34 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                 }
                 return call;
             }
+            // C13m: toLower / toUpper — ASCII A–Z/a–z only; other bytes (incl. UTF-8
+            // multi-byte sequences) copied unchanged. Fresh malloc copy.
+            if matches!(fe.field.name.as_str(), "toLower" | "toUpper") {
+                let mname = fe.field.name.as_str();
+                let map_byte = if mname == "toLower" {
+                    "if (__c >= 'A' && __c <= 'Z') __c = (char)(__c + ('a' - 'A'));"
+                } else {
+                    "if (__c >= 'a' && __c <= 'z') __c = (char)(__c - ('a' - 'A'));"
+                };
+                let call = format!(
+                    "({{ const char *__s = ({obj}); \
+                     if (__s == NULL) __s = \"\"; \
+                     size_t __n = strlen(__s); \
+                     char *__r = (char *)malloc(__n + 1); \
+                     if (__r == NULL) aura_throw_string(\"String {mname} out of memory\"); \
+                     for (size_t __i = 0; __i < __n; __i++) {{ \
+                       char __c = __s[__i]; \
+                       {map_byte} \
+                       __r[__i] = __c; \
+                     }} \
+                     __r[__n] = '\\0'; \
+                     (const char *)__r; }})"
+                );
+                if fe.safe {
+                    return format!("(({obj}) == NULL ? NULL : {call})");
+                }
+                return call;
+            }
         }
 
         // Builtin Array methods

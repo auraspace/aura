@@ -334,6 +334,25 @@ impl Checker {
                             Ty::String
                         });
                     }
+                    // C13m: toLower / toUpper — ASCII letter case only (A–Z / a–z).
+                    // UTF-8 multi-byte bytes are left unchanged. Fresh malloc copy.
+                    "toLower" | "toUpper" => {
+                        let mname = fe.field.name.as_str();
+                        if !c.args.is_empty() {
+                            return Err(SemaError {
+                                message: format!(
+                                    "`String.{mname}` expects 0 arguments, got {}",
+                                    c.args.len()
+                                ),
+                                span: c.span,
+                            });
+                        }
+                        return Ok(if safe_wrap {
+                            Ty::Nullable(Box::new(Ty::String))
+                        } else {
+                            Ty::String
+                        });
+                    }
                     // C12i: toInt() — parse entire string as decimal Int; invalid/overflow → null.
                     // No auto-trim (caller can trim first). Optional leading +/-; digits only.
                     "toInt" => {
