@@ -115,7 +115,7 @@ Sample `.aura` programs for the compiler: parse/typecheck (`aura check`), native
 | `std_assert/app`                      | `std.assert` package (C4h)                                                                          |
 | `std_collections/app`                 | Map/Set/HashMap smoke                                                                               |
 | `std_collections/hof`                 | Generic `map` / `filter` / `fold` over `Array<Int>` (C16)                                           |
-| `std_collections/hof_str`             | Package-level `map_strings` / `filter_strings` / `fold_strings` (C12o)                              |
+| `std_collections/hof_str`             | Generic `map` / `filter` / `fold` over `Array<String>` (C16)                                        |
 | `std_collections/join`                | `join(parts, sep)` for `Array<String>` (C12j)                                                       |
 | `std_collections/hashmap`             | HashMap String→Int (+ resize)                                                                       |
 | `std_collections/hashmap_str`         | HashMapStr String→String (+ resize) (C12n)                                                          |
@@ -130,14 +130,14 @@ Std packages live under repo `std/io`, `std/assert`, and `std/collections` (path
 
 Shipped corpus under `fun/lambda_*.aura` and `std_collections/hof` / `hof_str`:
 
-| Supported now                                                        | Not yet (debt)                        |
-| -------------------------------------------------------------------- | ------------------------------------- |
-| `(x: T) => expr` / block body                                        | Nested Fun capture                    |
-| Fun type `(T) -> U` params / annotations                             | `var` String / class / Array capture  |
-| Call through fun value; HOF over `Array<Int>` and `Array<String>`    | Generic map/filter over arbitrary `T` |
-| Capture outer `val` of `Int` / `Bool` / `String` / class / Array     |                                       |
-| Capture outer `var` of `Int` / `Bool` by shared mutable box (C12m)   |                                       |
-| Fun env free on drop (C11b); Array capture is non-owning view (C12l) |                                       |
+| Supported now                                                             | Not yet (debt)                                    |
+| ------------------------------------------------------------------------- | ------------------------------------------------- |
+| `(x: T) => expr` / block body                                             | Nested Fun capture                                |
+| Fun type `(T) -> U` params / annotations                                  | `var` String / class / Array capture              |
+| Call through fun value; generic HOF over `Array<Int>` and `Array<String>` | User-defined element types (generic codegen debt) |
+| Capture outer `val` of `Int` / `Bool` / `String` / class / Array          |                                                   |
+| Capture outer `var` of `Int` / `Bool` by shared mutable box (C12m)        |                                                   |
+| Fun env free on drop (C11b); Array capture is non-owning view (C12l)      |                                                   |
 
 ## C12 process & String smokes
 

@@ -4,7 +4,7 @@ package demo.stdforin
 import std.collections
 
 fun main() {
-  val m = map()
+  val m = map_string_int()
   m.put("a", 1)
   m.put("b", 2)
   var s: Int = 0

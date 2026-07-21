@@ -71,9 +71,9 @@ When you resolve debt, update or remove the matching entry.
 
 - Area: stdlib / RFC-007
 - Symptom: linear `Map`/`Set`; generic hash collections now cover HashMap and HashSet
-- Why deferred: stdlib generic `map`/`filter`/`fold` API and corpus remain a separate task
-- Progress: C9b auto-resize; C12n String→String; C12o String HOF; **C14** generic `HashMap<K,V>`; **C15** generic `HashSet<T>`; compiler support for generic HOF function types
-- Next step: add stdlib generic `map`/`filter`/`fold` implementations and corpus coverage
+- Why deferred: generic collection codegen for arbitrary user-defined element types is not complete
+- Progress: C9b auto-resize; C12n String→String; C12o String HOF; **C14** generic `HashMap<K,V>`; **C15** generic `HashSet<T>`; **C16** generic `map`/`filter`/`fold` API and Int/String corpus coverage
+- Next step: extend generic codegen to user-defined element types, then add a class/struct HOF corpus case
 - Note: C14/C15 resolved the generic hash-collection residual
 - Introduced: narrowed after C8i; resize C9b; String→String C12n; String HOF C12o
 
@@ -82,6 +82,11 @@ When you resolve debt, update or remove the matching entry.
 ### C16 generic HOF compiler support (2026-07-21)
 
 - Resolved: sema accepts generic function parameters such as `(T) -> R`; codegen skips open generic `Fun<T, R>` typedefs and emits only concrete monomorphs, allowing generic `map`/`filter`/`fold` implementations to compile.
+
+### C16 generic HOF stdlib coverage (2026-07-21)
+
+- Resolved: `std.collections` generic `map<T,R>`, `filter<T>`, and `fold<T,A>` are exercised end-to-end by corpus packages for `Array<Int>` and `Array<String>`.
+- Residual: generic HOF codegen for arbitrary user-defined element types remains unsupported; the existing sema regression only confirms typechecking for that shape.
 
 ### C14 generic HashMap (2026-07-21)
 

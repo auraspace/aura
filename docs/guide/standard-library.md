@@ -114,8 +114,9 @@ Prefer package tests that exercise `assert` / `assert_eq` for `Int` / `String` /
 | `HashSet<T>`                                      | Generic open addressing backed by `HashMap<T,Bool>` (C15) |
 | `Hashable`                                        | `hash(): Int`; built-in for `Int` and `String` (C14)      |
 | `Iterable<E>`                                     | `len` + `get` protocol for `for-in`                       |
-| `map_ints` / `filter_ints` / `fold_ints`          | Int array HOF helpers                                     |
-| `map_strings` / `filter_strings` / `fold_strings` | String array HOF helpers (C12o)                           |
+| `map<T,R>` / `filter<T>` / `fold<T,A>`            | Generic array HOFs; verified for `Int` and `String` (C16) |
+| `map_ints` / `filter_ints` / `fold_ints`          | Int compatibility wrappers                                |
+| `map_strings` / `filter_strings` / `fold_strings` | String compatibility wrappers (C12o)                      |
 | `join(parts, sep)`                                | `Array<String>` → `String` with separator (C12j)          |
 
 See [Arrays](./arrays.md) for HOF usage and capture limits.
@@ -128,6 +129,10 @@ aura run corpus/std_collections/hof
 aura run corpus/std_collections/hof_str
 aura run corpus/std_collections/join
 ```
+
+Generic HOFs over user-defined class or struct elements are not yet supported by
+generic codegen; the compiler currently only has a sema/typechecking regression
+for that shape.
 
 ## How the CLI finds `std.*`
 

@@ -1,4 +1,4 @@
-// C12o — std.collections map_strings / filter_strings / fold_strings
+// C16 — generic std.collections map / filter / fold over Array<String>
 // Array params own the buffer: clone when reusing the same Array.
 package demo.stdcollections.hof_str
 
@@ -13,7 +13,7 @@ fun main() {
   xs.push("dddd")
 
   // map: wrap each element
-  val wrapped = map_strings(xs.clone(), (s: String) => "[" + s + "]")
+  val wrapped = map<String, String>(xs.clone(), (s: String) => "[" + s + "]")
   assert_eq(wrapped.len, 4)
   assert_eq(wrapped.get(0), "[a]")
   assert_eq(wrapped.get(1), "[bb]")
@@ -23,14 +23,14 @@ fun main() {
 
   // filter: keep len > thr (capture)
   val thr = 2
-  val long = filter_strings(xs, (s: String) => s.len > thr)
+  val long = filter<String>(xs, (s: String) => s.len > thr)
   assert_eq(long.len, 2)
   assert_eq(long.get(0), "ccc")
   assert_eq(long.get(1), "dddd")
   println("filter")
 
   // fold: concatenate with separator (parity with fold_ints)
-  val joined = fold_strings(wrapped, "", (acc: String, s: String) => {
+  val joined = fold<String, String>(wrapped, "", (acc: String, s: String) => {
     if (acc.len == 0) {
       return s
     }

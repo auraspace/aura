@@ -2,7 +2,7 @@
 
 Collections package (RFC-007).
 
-**Status (C6f–C14):**
+**Status (C6f–C16):**
 
 | API                | Notes                                                                                           |
 | ------------------ | ----------------------------------------------------------------------------------------------- |
@@ -31,7 +31,7 @@ Collections package (RFC-007).
 - `for (x in set)` — duck Iterable via `len` + `get`
 - `for (k in set.keys)` — same buffer via `Array` field
 
-Generic `HashMap<K,V>` and `HashSet<T>` are monomorphized. Keys must satisfy `Hashable` and support `==`; the concrete factories remain compatibility sugar. Resize doubles capacity when load ≥ 1/2.
+Generic `HashMap<K,V>` and `HashSet<T>` are monomorphized. Keys must satisfy `Hashable` and support `==`; the concrete factories remain compatibility sugar. Resize doubles capacity when load ≥ 1/2. Generic HOFs are currently verified for primitive `Int` and `String` arrays; user-defined element types remain a generic-codegen limitation.
 
 **Also available language-wide:**
 

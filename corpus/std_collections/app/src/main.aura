@@ -9,7 +9,7 @@ package demo.stdcollections
 import std.collections
 
 fun main() {
-  val m = map()
+  val m = map_string_int()
   if (m.isEmpty()) {
     println("empty")
   }
