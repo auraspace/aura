@@ -15,7 +15,7 @@ Living plan for docs, language specs, and the Rust toolchain. RFCs remain the de
 | RFC static site (`site/`)   | Implemented; Cloudflare Pages → **https://aura.fadosoft.com**                              |
 | RFC-000 … RFC-013           | **All Accepted** — open questions resolved or Deferred (2026-07-16)                        |
 | Language MVP                | RFC-001 §6.0 + post-C1; generic iface mono (C8c); Iterable (C8d); async/macros deferred    |
-| Compiler                    | **C0–C12t** batch closed (post-alpha argv/String/captures/HashMapStr/tryReadFile/wc/DX)    |
+| Compiler                    | **C0–C12t** closed; **C13a–t** planned (dogfood fix / Fun capture / registry K1)           |
 | Runtime / packages / stdlib | GC + nested Array free; Map/Set/HashMap/HashMapStr; path lock; **std.io** file+process I/O |
 
 ## Phases
@@ -204,20 +204,45 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C12r**  | Corpus + guide sync for C12 surface                                | **Done**                                   |
 | **C12s**  | Dist/DX polish (install smoke; avm help; Windows CI skipped)       | **Done**                                   |
 | **C12t**  | Close C12a–C12t batch (roadmap / debts / plan)                     | **Done**                                   |
+| **C13a**  | Plan + roadmap C13a–C13t                                           | **Done**                                   |
+| **C13b**  | Codegen: method recv on call-result temporary                      | Pending                                    |
+| **C13c**  | `Int.toString(): String` (+ optional Int interp)                   | Pending                                    |
+| **C13d**  | Free owned String elems in `Array<String>` drop                    | Pending                                    |
+| **C13e**  | Lambda capture Fun + env GC mark                                   | Pending                                    |
+| **C13f**  | Lambda `var` String capture (RC box)                               | Pending                                    |
+| **C13g**  | Capture env mark/free audit + stress corpus                        | Pending                                    |
+| **C13h**  | Reject diagnostics for unsupported `var` class/Array capture       | Pending                                    |
+| **C13i**  | Registry index client MVP (fixture + cache)                        | Pending                                    |
+| **C13j**  | Semver caret resolve → lock pins                                   | Pending                                    |
+| **C13k**  | Fetch tarball + sha256 + extract cache                             | Pending                                    |
+| **C13l**  | `aura build`/`check` with locked registry deps                     | Pending                                    |
+| **C13m**  | String ASCII `replace` or `toLower`/`toUpper`                      | Pending                                    |
+| **C13n**  | `std.io` `eprint` / `eprintln`                                     | Pending                                    |
+| **C13o**  | `tryWriteFile` soft write                                          | Pending                                    |
+| **C13p**  | Hashable / generic HashMap spike (docs)                            | Pending                                    |
+| **C13q**  | Dogfood: `examples/wc` polish (+ optional registry fixture)        | Pending                                    |
+| **C13r**  | Corpus + guide sync for C13                                        | Pending                                    |
+| **C13s**  | Dist/DX: Windows CI best-effort **or** signing design note         | Pending                                    |
+| **C13t**  | Close C13a–C13t batch (roadmap / debts / plan)                     | Pending                                    |
 
-Plan: [`docs/plans/2026-07-21-next-20-c12a-c12t.md`](plans/2026-07-21-next-20-c12a-c12t.md).
+Plans:
+
+- C12 (closed): [`docs/plans/2026-07-21-next-20-c12a-c12t.md`](plans/2026-07-21-next-20-c12a-c12t.md)
+- C13 (active): [`docs/plans/2026-07-21-next-20-c13a-c13t.md`](plans/2026-07-21-next-20-c13a-c13t.md) — **lanes + commit queue for parallel subagents**
 
 **Out of scope C0/C1:** generics mono, async/tasks, macros, registry, incremental, LTO.
 
 **Out of scope C12:** async/tasks, registry HTTP/semver, LLVM, true borrow, Array-of-iface, generic `HashMap<K,V>`, Fun-in-env capture, signed installers.
 
+**Out of scope C13:** async/tasks, LLVM, true borrow, Array-of-iface, full generic HashMap, K1b `github=` / K2 publish, notarized installers (design note optional via C13s).
+
 ### P3 — Expand (after hello)
 
-1. ~~Language surface C2–C10j~~ (funs/lambdas + HOF) → ~~**C12k–m** richer captures~~ → later: Fun capture, true borrow, Array-of-iface
-2. Runtime: ~~alloc/GC + deep mark/sweep + nested Array free~~ + ~~Fun env free~~ → ~~**C12b–e** process I/O~~ → later: channels/tasks
-3. Toolchain: ~~path deps + path lock + registry lock schema~~ → registry client / semver (RFC-005; post-C12)
-4. Stdlib: ~~io (console+file) + assert + Map/Set/HashMap(+resize) + Iterable~~ → ~~**C12 String tools + HashMap str + tryReadFile**~~ → later: generic HashMap
-5. Cross targets + signed releases — ~~**C12s** smoke/avm~~ Done (Windows matrix deferred; signing still open)
+1. ~~Language surface C2–C10j~~ (funs/lambdas + HOF) → ~~**C12k–m** richer captures~~ → **C13e–g** Fun + var String capture → later: true borrow, Array-of-iface
+2. Runtime: ~~alloc/GC + deep mark/sweep + nested Array free~~ + ~~Fun env free~~ → ~~**C12b–e** process I/O~~ → **C13d** String array free → later: channels/tasks
+3. Toolchain: ~~path deps + path lock + registry lock schema~~ → **C13i–l** registry K1 (fixture/offline) → later: live GH polish, publish
+4. Stdlib: ~~io + assert + Map/Set/HashMap + Iterable + C12 String tools~~ → **C13c/m/n/o** toString / ASCII / eprint / tryWrite → later: generic HashMap
+5. Cross targets + signed releases — ~~**C12s** smoke/avm~~ → **C13s** Windows CI or signing note
 
 Write Wave 2–4 RFCs **as implementation needs them**, not all up front.
 

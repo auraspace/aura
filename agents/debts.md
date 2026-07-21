@@ -7,6 +7,8 @@ When you resolve debt, update or remove the matching entry.
 
 ## Open
 
+> **Active batch:** [C13a–t plan](../docs/plans/2026-07-21-next-20-c13a-c13t.md) schedules work on several debts below (method-on-temp, Int→String, String array free, Fun/`var` String capture, registry K1). Update or remove entries when the matching C13 slice lands (prefer C13t batch pass).
+
 ### Lambda capture limits (MVP)
 
 - Area: language / lambdas (C10h/C12k/C12l/C12m)

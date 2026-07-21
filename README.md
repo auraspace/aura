@@ -8,7 +8,7 @@ This repository currently holds:
 | ------------------------------------ | -------------------------------------------------------------------- |
 | [`docs/guide/`](docs/guide/)         | User guide (site `/docs`)                                            |
 | [`docs/rfc/`](docs/rfc/)             | Language & toolchain RFCs                                            |
-| [`docs/roadmap.md`](docs/roadmap.md) | Execution phases (P0–P3; C0–C12t batch closed)                       |
+| [`docs/roadmap.md`](docs/roadmap.md) | Execution phases (P0–P3; C0–C12t closed; C13 planned)                |
 | [`docs/releases/`](docs/releases/)   | Freeze / release notes (`0.1.0-alpha`)                               |
 | [`site/`](site/)                     | Homepage + docs + RFC site (Vite + React)                            |
 | [`crates/`](crates/)                 | Rust toolchain (`aura` CLI) — check / build / run / test (C backend) |
@@ -210,7 +210,7 @@ Native builds use a **C backend** (`aura emit-c` + system `cc`) linked with `run
 - **Dist C12s** Install smoke checklist (`scripts/install-smoke.sh`) + `avm` help polish
 - **Docs C12t** C12a–C12t batch closed — post-alpha CLI/String/captures shippable ([plan](docs/plans/2026-07-21-next-20-c12a-c12t.md))
 - **Debts** Tracked in [`agents/debts.md`](agents/debts.md)
-- **Next:** registry fetch/semver resolve; tasks/async; signed installers; residual open debts (Fun capture, generic HashMap, true borrow, …)
+- **Next (C13):** [plan C13a–t](docs/plans/2026-07-21-next-20-c13a-c13t.md) — method-on-temp, `Int.toString`, String array free, Fun/`var` String captures, registry K1, eprint/tryWrite; residual: async, LLVM, true borrow, generic HashMap
 
 ## Links
 

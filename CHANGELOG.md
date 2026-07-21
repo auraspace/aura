@@ -4,6 +4,7 @@
 
 ### Changes
 
+- docs(C13a): plan C13a–C13t (dogfood/closures/registry K1) with subagent lanes + commit queue
 - docs(C12t): close C12a–C12t post-alpha batch (argv/stdin/exit, String tools, richer captures, HashMapStr, tryReadFile, `examples/wc`, install smoke)
 
 ## 0.1.0-alpha (2026-07-21)

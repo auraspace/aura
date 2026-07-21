@@ -41,7 +41,7 @@ Aura is **spec-first**: RFCs lock design; the compiler and runtime land vertical
 
 ## Compiler milestone band
 
-Public README and repo `docs/roadmap.md` track **C0 → C12t** batch closed (post-alpha process I/O, String tools, captures, collections polish, dogfood/docs/DX).
+Public README and repo `docs/roadmap.md` track **C0 → C12t** closed and **C13a–t** planned (dogfood/closures/registry K1 — see plan lanes).
 
 | Band   | User-visible outcome                                                                                                                  |
 | ------ | ------------------------------------------------------------------------------------------------------------------------------------- |
@@ -54,10 +54,11 @@ Public README and repo `docs/roadmap.md` track **C0 → C12t** batch closed (pos
 | C10    | First-class funs/lambdas (expr/block), fun types, val captures MVP, Int HOF                                                           |
 | C11a–e | file I/O, Fun env free, `aura new`, substring, notes dogfood, **install/embed runtime**, 0.1 freeze                                   |
 | C12a–t | **Done:** argv/stdin/exit, String tools, class·Array·var captures, HashMapStr, HOF str, tryReadFile, `examples/wc`, guide, install DX |
+| C13a–t | **Planned:** method-on-temp, `Int.toString`, String array free, Fun/`var` String capture, registry K1, eprint/tryWrite, docs close    |
 
 **Shipped:** tag `v0.1.0-alpha` + multi-OS tarballs ([release notes](https://github.com/auraspace/aura/blob/main/docs/releases/0.1.0-alpha.md)); C12a–C12t post-alpha batch closed.
 
-**Next:** registry fetch/semver; tasks/async; signed installers (see [C12 plan](https://github.com/auraspace/aura/blob/main/docs/plans/2026-07-21-next-20-c12a-c12t.md) out-of-scope + [debts](https://github.com/auraspace/aura/blob/main/agents/debts.md)).
+**Next:** [C13a–t plan](https://github.com/auraspace/aura/blob/main/docs/plans/2026-07-21-next-20-c13a-c13t.md) — dogfood codegen/Int→String, Fun capture, registry K1, std.io polish (parallel lanes for subagents). Residual debts: [debts](https://github.com/auraspace/aura/blob/main/agents/debts.md).
 
 Exact bullet lists live in the root [README](https://github.com/auraspace/aura) and repo [`docs/roadmap.md`](https://github.com/auraspace/aura/blob/main/docs/roadmap.md).
 
