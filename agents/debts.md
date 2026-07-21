@@ -71,9 +71,9 @@ When you resolve debt, update or remove the matching entry.
 
 - Area: stdlib / RFC-007
 - Symptom: linear `Map`/`Set`; generic hash collections now cover HashMap and HashSet
-- Why deferred: generic collection codegen for arbitrary user-defined element types is not complete
-- Progress: C9b auto-resize; C12n String→String; C12o String HOF; **C14** generic `HashMap<K,V>`; **C15** generic `HashSet<T>`; **C16** generic `map`/`filter`/`fold` API and Int/String corpus coverage
-- Next step: extend generic codegen to user-defined element types, then add a class/struct HOF corpus case
+- Why deferred: generic collection codegen for arbitrary user-defined element types was not covered end-to-end
+- Progress: C9b auto-resize; C12n String→String; C12o String HOF; **C14** generic `HashMap<K,V>`; **C15** generic `HashSet<T>`; **C16** generic `map`/`filter`/`fold` API; **C17** generic class HOF corpus coverage
+- Next step: extend coverage to richer nested/user-defined generic layouts if needed
 - Note: C14/C15 resolved the generic hash-collection residual
 - Introduced: narrowed after C8i; resize C9b; String→String C12n; String HOF C12o
 
@@ -86,7 +86,12 @@ When you resolve debt, update or remove the matching entry.
 ### C16 generic HOF stdlib coverage (2026-07-21)
 
 - Resolved: `std.collections` generic `map<T,R>`, `filter<T>`, and `fold<T,A>` are exercised end-to-end by corpus packages for `Array<Int>` and `Array<String>`.
-- Residual: generic HOF codegen for arbitrary user-defined element types remains unsupported; the existing sema regression only confirms typechecking for that shape.
+- Extended by C17: generic HOF codegen is exercised end-to-end with `Box<Int>` as both element and accumulator.
+
+### C17 generic HOF user-defined class coverage (2026-07-21)
+
+- Resolved: generic `map<T,R>`, `filter<T>`, and `fold<T,A>` compile and run with a generic heap class `Box<Int>` in `Array<Box<Int>>`.
+- Coverage remains focused on closed monomorphs; interface elements and richer nested generic layouts remain separate work.
 
 ### C14 generic HashMap (2026-07-21)
 

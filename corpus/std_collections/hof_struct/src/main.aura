@@ -1,0 +1,21 @@
+package demo.stdcollections.hofstruct
+
+import std.collections
+import std.assert
+
+class Box<T>(val value: T) {
+}
+
+fun main() {
+  val xs: Array<Box<Int>> = Array(0)
+  xs.push(Box<Int>(1))
+  xs.push(Box<Int>(2))
+  val ys: Array<Box<Int>> = map<Box<Int>, Box<Int>>(xs.clone(), (p: Box<Int>) => Box<Int>(p.value + 1))
+  assert_eq(ys.get(0).value, 2)
+  assert_eq(ys.get(1).value, 3)
+  val filtered: Array<Box<Int>> = filter<Box<Int>>(xs, (p: Box<Int>) => p.value > 1)
+  assert_eq(filtered.len, 1)
+  val total: Box<Int> = fold<Box<Int>, Box<Int>>(filtered, Box<Int>(0), (acc: Box<Int>, p: Box<Int>) => Box<Int>(acc.value + p.value))
+  assert_eq(total.value, 2)
+  println("hof-struct-ok")
+}

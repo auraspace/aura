@@ -984,6 +984,50 @@ fun main() {
 }
 
 #[test]
+fn generic_higher_order_function_accepts_generic_class_values() {
+    let src = r#"
+package t
+class Box<T>(val value: T) {}
+fun map<T, R>(xs: Array<T>, f: (T) -> R): Array<R> {
+  val out: Array<R> = Array(xs.len)
+  var i: Int = 0
+  while (i < xs.len) {
+    out.set(i, f(xs.get(i)))
+    i = i + 1
+  }
+  return out
+}
+fun filter<T>(xs: Array<T>, pred: (T) -> Bool): Array<T> {
+  val out: Array<T> = Array(0)
+  var i: Int = 0
+  while (i < xs.len) {
+    if (pred(xs.get(i))) { out.push(xs.get(i)) }
+    i = i + 1
+  }
+  return out
+}
+fun fold<T, A>(xs: Array<T>, init: A, f: (A, T) -> A): A {
+  var acc: A = init
+  var i: Int = 0
+  while (i < xs.len) {
+    acc = f(acc, xs.get(i))
+    i = i + 1
+  }
+  return acc
+}
+fun main() {
+  val xs: Array<Box<Int>> = Array(0)
+  xs.push(Box<Int>(1))
+  val ys: Array<Box<Int>> = map<Box<Int>, Box<Int>>(xs, (x: Box<Int>) => Box<Int>(x.value + 1))
+  val zs: Array<Box<Int>> = filter<Box<Int>>(ys, (x: Box<Int>) => x.value > 1)
+  val total: Box<Int> = fold<Box<Int>, Box<Int>>(zs, Box<Int>(0), (a: Box<Int>, x: Box<Int>) => Box<Int>(a.value + x.value))
+}
+"#;
+    let file = parse_file(src).expect("parse generic class HOF");
+    check_file(&file).expect("generic HOFs over generic class values");
+}
+
+#[test]
 fn array_accepts_struct_elem() {
     let src = r#"
 package t

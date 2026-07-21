@@ -1,0 +1,4 @@
+name = "demo.stdcollections.hofstruct"
+version = "0.1.0"
+entry = "src/main.aura"
+
