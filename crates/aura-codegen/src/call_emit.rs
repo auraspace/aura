@@ -284,6 +284,24 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                 }
                 return call;
             }
+            // C12f: indexOf — byte index of first strstr match; -1 if missing; empty sub → 0.
+            if fe.field.name == "indexOf" {
+                let sub = if c.args.len() == 1 {
+                    emit_expr(&c.args[0], ctx)
+                } else {
+                    "\"\"".into()
+                };
+                let call = format!(
+                    "({{ const char *__s = ({obj}); const char *__n = ({sub}); \
+                     if (__s == NULL) __s = \"\"; if (__n == NULL) __n = \"\"; \
+                     const char *__p = strstr(__s, __n); \
+                     (__p == NULL ? (int64_t)-1 : (int64_t)(__p - __s)); }})"
+                );
+                if fe.safe {
+                    return format!("(({obj}) == NULL ? INT64_C(0) : {call})");
+                }
+                return call;
+            }
             // C5j: endsWith — compare suffix bytes.
             if fe.field.name == "endsWith" {
                 let suf = if c.args.len() == 1 {

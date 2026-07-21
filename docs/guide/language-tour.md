@@ -43,7 +43,7 @@ These topics match **in-tree** behavior (corpus + CLI), not only Accepted RFCs:
 - `throw` / `try` / `catch` / `finally`; `if` as expression
 - `Array<T>` (+ `clone`, nested free), ranges, `for-in` (array / string bytes / Iterable)
 - String `+`, `"hi ${name}"` interpolation (idents), `substring(start, end)` (exclusive end; UTF-8 **byte** indices)
-- Other String helpers: `len`, `isEmpty`, `charAt`, `startsWith` / `contains` / `endsWith`
+- Other String helpers: `len`, `isEmpty`, `charAt`, `startsWith` / `contains` / `endsWith`, `indexOf`
 - `type` aliases, top-level `const`, `is` type test
 - Expression-body functions `fun f(): T = expr`
 - First-class functions / lambdas: `(x: T) => expr`, block body, fun type `(T) -> U`

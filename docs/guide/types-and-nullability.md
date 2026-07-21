@@ -28,14 +28,15 @@ fun add(a: Int, b: Int): Int {
 
 ### String helpers (alpha)
 
-| Form                                     | Notes                       |
-| ---------------------------------------- | --------------------------- |
-| `s.len`                                  | Byte length (field)         |
-| `s.isEmpty()`                            | `len == 0`                  |
-| `s.charAt(i)`                            | Byte as `Int`; OOB throws   |
-| `s + t` / `"hi ${name}"`                 | Concat / interp             |
-| `s.startsWith` / `contains` / `endsWith` | Search                      |
-| `s.substring(start, end)`                | Exclusive end; byte indices |
+| Form                                     | Notes                                |
+| ---------------------------------------- | ------------------------------------ |
+| `s.len`                                  | Byte length (field)                  |
+| `s.isEmpty()`                            | `len == 0`                           |
+| `s.charAt(i)`                            | Byte as `Int`; OOB throws            |
+| `s + t` / `"hi ${name}"`                 | Concat / interp                      |
+| `s.startsWith` / `contains` / `endsWith` | Search                               |
+| `s.indexOf(sub)`                         | Byte index; −1 if missing; empty → 0 |
+| `s.substring(start, end)`                | Exclusive end; byte indices          |
 
 ## Non-null by default
 

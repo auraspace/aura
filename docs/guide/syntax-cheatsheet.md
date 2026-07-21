@@ -76,13 +76,14 @@ Class `==` is **identity**. String content equality uses content compare in the 
 
 ## String helpers (MVP)
 
-| Form                                     | Notes                                             |
-| ---------------------------------------- | ------------------------------------------------- |
-| `s + t` / `"hi ${name}"`                 | Concat; interp desugars to `+` (idents in `${…}`) |
-| `s.len` / `s.isEmpty()`                  | UTF-8 **byte** length                             |
-| `s.charAt(i)`                            | Byte as `Int`; OOB throws                         |
-| `s.startsWith` / `contains` / `endsWith` | Substring search                                  |
-| `s.substring(start, end)`                | Exclusive end; UTF-8 **byte** indices (C11d)      |
+| Form                                     | Notes                                                          |
+| ---------------------------------------- | -------------------------------------------------------------- |
+| `s + t` / `"hi ${name}"`                 | Concat; interp desugars to `+` (idents in `${…}`)              |
+| `s.len` / `s.isEmpty()`                  | UTF-8 **byte** length                                          |
+| `s.charAt(i)`                            | Byte as `Int`; OOB throws                                      |
+| `s.startsWith` / `contains` / `endsWith` | Substring search                                               |
+| `s.indexOf(sub)`                         | Byte index of first match; −1 if missing; empty sub → 0 (C12f) |
+| `s.substring(start, end)`                | Exclusive end; UTF-8 **byte** indices (C11d)                   |
 
 No embedded NUL in strings. Indices are bytes, not Unicode scalar values.
 

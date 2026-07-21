@@ -1,0 +1,20 @@
+// C12f — String.indexOf(sub): Int (UTF-8 byte index; -1 if missing; empty sub → 0)
+package demo.expr
+
+fun main() {
+  val s = "Hello, Aura"
+  assert_eq(s.indexOf("Hello"), 0)
+  assert_eq(s.indexOf("Aura"), 7)
+  assert_eq(s.indexOf("ll"), 2)
+  assert_eq(s.indexOf("xyz"), -1)
+  assert_eq(s.indexOf(""), 0)
+  assert_eq("".indexOf(""), 0)
+  assert_eq("".indexOf("a"), -1)
+  // Mid-string first match only
+  assert_eq("abab".indexOf("ab"), 0)
+  assert_eq("abab".indexOf("ba"), 1)
+  // contains still works
+  assert(s.contains("Aura"))
+  assert(!s.contains("xyz"))
+  println("ok")
+}

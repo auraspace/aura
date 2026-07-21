@@ -253,6 +253,34 @@ impl Checker {
                             Ty::Bool
                         });
                     }
+                    // C12f: indexOf(sub) — UTF-8 byte index of first match; -1 if missing.
+                    // Empty sub → 0 (like many languages / strstr).
+                    "indexOf" => {
+                        if c.args.len() != 1 {
+                            return Err(SemaError {
+                                message: format!(
+                                    "`String.indexOf` expects 1 argument, got {}",
+                                    c.args.len()
+                                ),
+                                span: c.span,
+                            });
+                        }
+                        let arg = self.check_expr(&c.args[0])?;
+                        if arg != Ty::String {
+                            return Err(SemaError {
+                                message: format!(
+                                    "`String.indexOf` argument must be String, got {}",
+                                    arg.display()
+                                ),
+                                span: c.args[0].span(),
+                            });
+                        }
+                        return Ok(if safe_wrap {
+                            Ty::Nullable(Box::new(Ty::Int))
+                        } else {
+                            Ty::Int
+                        });
+                    }
                     // C11d: exclusive-end substring (UTF-8 byte indices).
                     "substring" => {
                         if c.args.len() != 2 {

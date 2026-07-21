@@ -189,7 +189,7 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C12c**  | `aura run` / `test` pass-through args after `--`                   | **Done**                                   |
 | **C12d**  | `std.io.readLine(): String?` (+ optional `readAllStdin`)           | **Done**                                   |
 | **C12e**  | `std.io.exit(code: Int)`                                           | **Done**                                   |
-| **C12f**  | `String.indexOf`                                                   | Planned                                    |
+| **C12f**  | `String.indexOf`                                                   | **Done**                                   |
 | **C12g**  | `String.split` → `Array<String>`                                   | Planned                                    |
 | **C12h**  | `String.trim` / `trimStart` / `trimEnd`                            | Planned                                    |
 | **C12i**  | `String.toInt(): Int?`                                             | Planned                                    |

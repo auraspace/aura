@@ -151,13 +151,8 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
                             "isEmpty" | "startsWith" | "contains" | "endsWith" => {
                                 return "Bool".into();
                             }
-                            "charAt" => return "Int".into(),
-                            "substring" | "len" => {
-                                if fe.field.name == "len" {
-                                    return "Int".into();
-                                }
-                                return "String".into();
-                            }
+                            "charAt" | "indexOf" | "len" => return "Int".into(),
+                            "substring" => return "String".into(),
                             _ => {}
                         }
                     }
