@@ -441,7 +441,9 @@ fn registry_default_index_path_shape() {
     }
 
     let idx = fixture_registry_index();
-    assert!(idx.root().ends_with("testdata/registry") || idx.root().ends_with("testdata\\registry"));
+    assert!(
+        idx.root().ends_with("testdata/registry") || idx.root().ends_with("testdata\\registry")
+    );
     let _cfg: &crate::package::RegistryConfig = idx.config();
     let _meta: crate::package::VersionMeta = idx.get_version_meta("hello", "1.0.0").unwrap();
 }
@@ -565,13 +567,13 @@ fn semver_public_reexports() {
 // --- C13k registry tarball fetch + sha256 ---
 
 fn fixture_tiny_crate_path() -> std::path::PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("testdata/registry/crates/tiny-0.1.0.crate")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/registry/crates/tiny-0.1.0.crate")
 }
 
 fn fixture_tiny_meta() -> crate::package::VersionMeta {
     let idx = fixture_registry_index();
-    idx.get_version_meta("tiny", "0.1.0").expect("tiny in index")
+    idx.get_version_meta("tiny", "0.1.0")
+        .expect("tiny in index")
 }
 
 fn unique_cache_root(label: &str) -> std::path::PathBuf {
@@ -593,14 +595,15 @@ fn fetch_install_from_local_path() {
     let cache = unique_cache_root("path");
     let meta = fixture_tiny_meta();
     let crate_path = fixture_tiny_crate_path();
-    assert!(crate_path.is_file(), "missing fixture {}", crate_path.display());
+    assert!(
+        crate_path.is_file(),
+        "missing fixture {}",
+        crate_path.display()
+    );
 
     let dest = super::fetch_and_install(&meta, crate_path.to_str().unwrap(), Some(&cache))
         .expect("fetch_and_install");
-    assert_eq!(
-        dest,
-        super::package_src_dir(&cache, "tiny", "0.1.0")
-    );
+    assert_eq!(dest, super::package_src_dir(&cache, "tiny", "0.1.0"));
     assert!(dest.join("aura.toml").is_file());
     assert!(dest.join("src/main.aura").is_file());
     let toml = fs::read_to_string(dest.join("aura.toml")).unwrap();
@@ -632,11 +635,10 @@ fn fetch_install_from_file_url() {
 fn fetch_checksum_mismatch_rejected() {
     let cache = unique_cache_root("badcksum");
     let mut meta = fixture_tiny_meta();
-    meta.cksum =
-        "sha256:0000000000000000000000000000000000000000000000000000000000000000".into();
+    meta.cksum = "sha256:0000000000000000000000000000000000000000000000000000000000000000".into();
     let crate_path = fixture_tiny_crate_path();
-    let err = super::fetch_and_install(&meta, crate_path.to_str().unwrap(), Some(&cache))
-        .unwrap_err();
+    let err =
+        super::fetch_and_install(&meta, crate_path.to_str().unwrap(), Some(&cache)).unwrap_err();
     assert!(err.contains("sha256 mismatch"), "{err}");
     // Must not leave a partial install.
     assert!(!super::package_src_dir(&cache, "tiny", "0.1.0").exists());
@@ -665,10 +667,7 @@ fn fetch_cache_root_env_and_defaults() {
     let _guard = registry_env_lock();
     let def = default_cache_root();
     let s = def.to_string_lossy();
-    assert!(
-        s.contains(".aura") && s.ends_with("registry"),
-        "{def:?}"
-    );
+    assert!(s.contains(".aura") && s.ends_with("registry"), "{def:?}");
     if std::env::var_os(ENV_REGISTRY_CACHE).is_none() {
         assert_eq!(cache_root_from_env(), def);
     }
@@ -679,11 +678,13 @@ fn fetch_cache_root_env_and_defaults() {
     let dl = idx.config().dl.as_deref().expect("fixture dl");
     let url = super::expand_dl_template(dl, &meta).unwrap();
     assert!(url.contains("tiny-0.1.0.crate"), "{url}");
-    assert!(url.contains("auraspace/tiny") || url.contains("/tiny/"), "{url}");
+    assert!(
+        url.contains("auraspace/tiny") || url.contains("/tiny/"),
+        "{url}"
+    );
 
-    // HTTPS sources are rejected (offline MVP).
-    let err = super::read_crate_bytes("https://example.com/tiny.crate").unwrap_err();
-    assert!(err.contains("network fetch"), "{err}");
+    // Network behavior is covered by the local transport tests in fetch.rs;
+    // this fixture test remains entirely offline.
 }
 
 #[test]
@@ -691,6 +692,7 @@ fn fetch_public_reexports() {
     let _ = super::ENV_REGISTRY_CACHE;
     let _ = super::default_cache_root();
     let _ = super::cache_root_from_env();
+    let _ = super::read_crate_bytes;
     let p = super::package_src_dir(Path::new("/tmp/cache"), "n", "1.0.0");
     assert!(p.ends_with("src/n-1.0.0") || p.ends_with("src\\n-1.0.0"));
 }
@@ -705,10 +707,8 @@ fn registry_env_lock() -> std::sync::MutexGuard<'static, ()> {
 
 #[test]
 fn c13l_load_registry_dep_resolve_fetch_lock() {
-    use super::{
-        cache_root_from_env, package_src_dir, ENV_REGISTRY_CACHE, ENV_REGISTRY_INDEX,
-    };
     use super::lock::parse_lock;
+    use super::{cache_root_from_env, package_src_dir, ENV_REGISTRY_CACHE, ENV_REGISTRY_INDEX};
 
     let _guard = registry_env_lock();
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/registry");
@@ -768,7 +768,10 @@ fun main() {}
 
     // Cache install path
     let src = package_src_dir(&cache, "tiny", "0.1.0");
-    assert!(src.join("aura.toml").is_file(), "expected install at {src:?}");
+    assert!(
+        src.join("aura.toml").is_file(),
+        "expected install at {src:?}"
+    );
 
     // Lock pin written
     let lock_text = fs::read_to_string(app.join("aura.lock")).expect("aura.lock");
@@ -778,7 +781,10 @@ fun main() {}
     let entry = lock.packages.get("tiny").expect("tiny in lock");
     assert_eq!(entry.version.as_deref(), Some("0.1.0"));
     assert_eq!(entry.source.as_deref(), Some("registry"));
-    assert!(entry.checksum.as_ref().is_some_and(|c| c.contains("aac934")));
+    assert!(entry
+        .checksum
+        .as_ref()
+        .is_some_and(|c| c.contains("aac934")));
 
     // Second load: offline warm cache (lock pin + installed src).
     // Even if we point index at a missing path after first resolve, warm path should work
@@ -801,10 +807,8 @@ fun main() {}
 
 #[test]
 fn c13l_warm_cache_offline_without_crate_tarball() {
-    use super::{
-        ensure_installed, is_package_installed, ENV_REGISTRY_CACHE, ENV_REGISTRY_INDEX,
-    };
     use super::lock::parse_lock;
+    use super::{ensure_installed, is_package_installed, ENV_REGISTRY_CACHE, ENV_REGISTRY_INDEX};
 
     let _guard = registry_env_lock();
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/registry");
@@ -812,12 +816,7 @@ fn c13l_warm_cache_offline_without_crate_tarball() {
     let meta = fixture_tiny_meta();
     let crate_path = fixture_tiny_crate_path();
     // Pre-seed cache (warm).
-    ensure_installed(
-        &meta,
-        Some(crate_path.to_str().unwrap()),
-        Some(&cache),
-    )
-    .expect("pre-seed");
+    ensure_installed(&meta, Some(crate_path.to_str().unwrap()), Some(&cache)).expect("pre-seed");
     assert!(is_package_installed(&cache, "tiny", "0.1.0"));
 
     let app = std::env::temp_dir().join(format!(
@@ -863,11 +862,7 @@ fun main() {}
     std::env::set_var(ENV_REGISTRY_CACHE, &cache);
 
     let pkg = load_package(&app.join("aura.toml")).expect("warm load");
-    assert!(pkg
-        .ast
-        .functions
-        .iter()
-        .any(|f| f.origin_package == "tiny"));
+    assert!(pkg.ast.functions.iter().any(|f| f.origin_package == "tiny"));
 
     // Lock still registry form
     let lock = parse_lock(&fs::read_to_string(app.join("aura.lock")).unwrap()).unwrap();

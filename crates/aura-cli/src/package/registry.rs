@@ -10,12 +10,14 @@
 //! ```
 //!
 //! Prefer `AURA_REGISTRY_INDEX` for tests; otherwise `~/.aura/registry/index`.
-//! No network I/O — suitable for offline unit tests and later C13j resolve.
+//! HTTPS metadata is fetched on demand by [`RegistryIndex::open_url`].
 
 use std::collections::BTreeMap;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
+
+use super::fetch::read_crate_bytes;
 
 /// Env override for the index root (fixture or cache). Preferred in tests.
 pub const ENV_REGISTRY_INDEX: &str = "AURA_REGISTRY_INDEX";
@@ -48,6 +50,7 @@ pub struct VersionMeta {
 pub struct RegistryIndex {
     root: PathBuf,
     config: RegistryConfig,
+    remote: Option<String>,
 }
 
 impl RegistryIndex {
@@ -61,7 +64,32 @@ impl RegistryIndex {
             ));
         }
         let config = load_config(&root.join("config.json"))?;
-        Ok(Self { root, config })
+        Ok(Self {
+            root,
+            config,
+            remote: None,
+        })
+    }
+
+    /// Open an HTTPS registry index without writing metadata to disk.
+    #[allow(dead_code)]
+    pub fn open_url(base_url: &str) -> Result<Self, String> {
+        if !base_url.starts_with("https://") && !(cfg!(test) && base_url.starts_with("http://")) {
+            return Err(format!(
+                "error: registry index URL must use HTTPS: {base_url}"
+            ));
+        }
+        let base = base_url.trim_end_matches('/').to_string();
+        let config_bytes = read_crate_bytes(&format!("{base}/config.json"))?;
+        let config_text = String::from_utf8(config_bytes)
+            .map_err(|e| format!("error: registry config is not UTF-8: {e}"))?;
+        let config =
+            parse_config_json(&config_text).map_err(|e| format!("error: registry config: {e}"))?;
+        Ok(Self {
+            root: PathBuf::new(),
+            config,
+            remote: Some(base),
+        })
     }
 
     /// Index root from `AURA_REGISTRY_INDEX`, else default cache path.
@@ -100,13 +128,23 @@ impl RegistryIndex {
 
     /// Full metadata for every version of `name`.
     pub fn package_versions(&self, name: &str) -> Result<Vec<VersionMeta>, String> {
-        let path = self
-            .versions_path(name)
-            .ok_or_else(|| format!("error: package `{name}` not found in registry index"))?;
-        let text = fs::read_to_string(&path)
-            .map_err(|e| format!("error: read {}: {e}", path.display()))?;
+        let text = if let Some(base) = &self.remote {
+            let rel = package_versions_rel_paths(name)
+                .into_iter()
+                .next()
+                .expect("registry package path");
+            let url = format!("{base}/{}", rel.to_string_lossy());
+            let bytes = read_crate_bytes(&url)?;
+            String::from_utf8(bytes)
+                .map_err(|e| format!("error: registry metadata is not UTF-8: {e}"))?
+        } else {
+            let path = self
+                .versions_path(name)
+                .ok_or_else(|| format!("error: package `{name}` not found in registry index"))?;
+            fs::read_to_string(&path).map_err(|e| format!("error: read {}: {e}", path.display()))?
+        };
         parse_versions_json(&text)
-            .map_err(|e| format!("error: {}: {e}", path.display()))
+            .map_err(|e| format!("error: registry metadata for `{name}`: {e}"))
     }
 
     /// Metadata for an exact version pin.
@@ -238,10 +276,7 @@ fn parse_versions_json(text: &str) -> Result<Vec<VersionMeta>, String> {
 
 fn versions_from_json(v: Json) -> Result<Vec<VersionMeta>, String> {
     match v {
-        Json::Array(items) => items
-            .iter()
-            .map(version_meta_from_object)
-            .collect(),
+        Json::Array(items) => items.iter().map(version_meta_from_object).collect(),
         Json::Object(map) => {
             if let Some(arr) = map.get("versions") {
                 let items = arr
@@ -468,7 +503,9 @@ impl<'a> Parser<'a> {
                 None => return Err("unterminated string".into()),
                 Some(b'"') => return Ok(out),
                 Some(b'\\') => {
-                    let esc = self.bump().ok_or_else(|| "unterminated escape".to_string())?;
+                    let esc = self
+                        .bump()
+                        .ok_or_else(|| "unterminated escape".to_string())?;
                     match esc {
                         b'"' => out.push('"'),
                         b'\\' => out.push('\\'),
@@ -490,7 +527,8 @@ impl<'a> Parser<'a> {
                             let cp = u32::from_str_radix(s, 16)
                                 .map_err(|_| "bad unicode escape".to_string())?;
                             out.push(
-                                char::from_u32(cp).ok_or_else(|| "bad unicode escape".to_string())?,
+                                char::from_u32(cp)
+                                    .ok_or_else(|| "bad unicode escape".to_string())?,
                             );
                         }
                         other => {
@@ -565,6 +603,9 @@ impl<'a> Parser<'a> {
 #[cfg(test)]
 mod unit {
     use super::*;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::thread;
 
     #[test]
     fn sparse_path_hello() {
@@ -592,10 +633,40 @@ mod unit {
 
     #[test]
     fn parse_versions_wrapped() {
-        let v = parse_versions_json(
-            r#"{ "versions": [ {"name":"y","vers":"0.1.0","cksum":"c"} ] }"#,
-        )
-        .unwrap();
+        let v =
+            parse_versions_json(r#"{ "versions": [ {"name":"y","vers":"0.1.0","cksum":"c"} ] }"#)
+                .unwrap();
         assert_eq!(v[0].name, "y");
+    }
+
+    #[test]
+    fn open_remote_index_fetches_metadata() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let addr = listener.local_addr().unwrap();
+        thread::spawn(move || {
+            for _ in 0..2 {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = [0; 2048];
+                let size = stream.read(&mut request).unwrap();
+                let request = String::from_utf8_lossy(&request[..size]);
+                let body = if request.contains("/config.json") {
+                    br#"{"dl":"https://example.test/{name}-{version}.crate","api":"https://example.test"}"#.to_vec()
+                } else {
+                    br#"[{"name":"tiny","vers":"0.1.0","cksum":"sha256:aa","yanked":false}]"#
+                        .to_vec()
+                };
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                )
+                .unwrap();
+                stream.write_all(&body).unwrap();
+            }
+        });
+
+        let index = RegistryIndex::open_url(&format!("http://{addr}")).unwrap();
+        assert_eq!(index.config().api.as_deref(), Some("https://example.test"));
+        assert_eq!(index.package_versions("tiny").unwrap()[0].vers, "0.1.0");
     }
 }

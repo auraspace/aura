@@ -20,4 +20,4 @@ aura-ast.workspace = true
 flate2 = "1"
 sha2 = "0.10"
 tar = "0.4"
-
+ureq = "2"

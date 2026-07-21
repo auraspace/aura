@@ -21,7 +21,7 @@ use flate2::read::GzDecoder;
 use sha2::{Digest, Sha256};
 use std::env;
 use std::fs;
-use std::io::Cursor;
+use std::io::{Cursor, Read};
 use std::path::{Component, Path, PathBuf};
 use tar::Archive;
 
@@ -45,9 +45,7 @@ pub fn cache_root_from_env() -> PathBuf {
 
 /// Extracted package directory: `<cache>/src/<name>-<version>`.
 pub fn package_src_dir(cache_root: &Path, name: &str, version: &str) -> PathBuf {
-    cache_root
-        .join("src")
-        .join(format!("{name}-{version}"))
+    cache_root.join("src").join(format!("{name}-{version}"))
 }
 
 fn home_dir() -> Option<PathBuf> {
@@ -122,12 +120,33 @@ pub fn expand_dl_template(template: &str, meta: &VersionMeta) -> Result<String, 
     Ok(out)
 }
 
-/// Read crate bytes from a local path or `file://` URL.
-///
-/// `http://` / `https://` are rejected so tests and CI stay offline.
+const HTTP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Read crate bytes from a local path, `file://`, or HTTP(S) URL.
 pub fn read_crate_bytes(source: &str) -> Result<Vec<u8>, String> {
+    let source = source.trim();
+    if source.starts_with("http://") || source.starts_with("https://") {
+        return read_http_bytes(source);
+    }
     let path = resolve_local_source(source)?;
     fs::read(&path).map_err(|e| format!("error: read crate {}: {e}", path.display()))
+}
+
+fn read_http_bytes(url: &str) -> Result<Vec<u8>, String> {
+    let response = ureq::AgentBuilder::new()
+        .timeout_connect(HTTP_TIMEOUT)
+        .timeout_read(HTTP_TIMEOUT)
+        .timeout_write(HTTP_TIMEOUT)
+        .build()
+        .get(url)
+        .call()
+        .map_err(|e| format!("error: HTTPS download {url}: {e}"))?;
+    let mut bytes = Vec::new();
+    response
+        .into_reader()
+        .read_to_end(&mut bytes)
+        .map_err(|e| format!("error: read HTTPS download {url}: {e}"))?;
+    Ok(bytes)
 }
 
 fn resolve_local_source(source: &str) -> Result<PathBuf, String> {
@@ -177,8 +196,7 @@ pub fn local_crate_path(index_root: &Path, name: &str, version: &str) -> Option<
 /// 1. `<index>/crates/<name>-<version>.crate` (fixture / pre-seeded)
 /// 2. Expanded `config.json` `dl` when it is a local path or `file://` URL
 ///
-/// HTTP(S) templates are not fetched (offline MVP); callers should rely on a warm
-/// cache via [`ensure_installed`] instead.
+/// HTTP(S) templates are fetched when no pre-seeded local fixture is available.
 pub fn crate_source_for_meta(
     index_root: &Path,
     dl_template: Option<&str>,
@@ -195,11 +213,16 @@ pub fn crate_source_for_meta(
             return Ok(url);
         }
     }
+    if let Some(tmpl) = dl_template {
+        let url = expand_dl_template(tmpl, meta)?;
+        if url.starts_with("http://") || url.starts_with("https://") {
+            return Ok(url);
+        }
+    }
     Err(format!(
-        "error: package `{}-{}` has no offline crate source\n  \
+        "error: package `{}-{}` has no registry crate source\n  \
          hint: place `{0}-{1}.crate` under the index `crates/` directory, \
-         pre-seed `AURA_REGISTRY_CACHE`, or use a local/file:// download template\n  \
-         hint: network fetch is not enabled in the offline registry MVP",
+         pre-seed `AURA_REGISTRY_CACHE`, or use a local/file:// download template",
         meta.name, meta.vers
     ))
 }
@@ -437,13 +460,33 @@ fn validate_tar_path(path: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod unit {
     use super::*;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::thread;
+
+    fn serve_once(status: &str, body: &[u8], content_length: Option<usize>) -> String {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let addr = listener.local_addr().unwrap();
+        let status = status.to_string();
+        let body = body.to_vec();
+        thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0; 1024];
+            let _ = stream.read(&mut request);
+            let length = content_length.unwrap_or(body.len());
+            write!(
+                stream,
+                "HTTP/1.1 {status}\r\nContent-Length: {length}\r\nConnection: close\r\n\r\n"
+            )
+            .unwrap();
+            stream.write_all(&body).unwrap();
+        });
+        format!("http://{addr}/crate")
+    }
 
     #[test]
     fn normalize_cksum_strips_prefix() {
-        assert_eq!(
-            normalize_cksum("sha256:AbCd"),
-            "abcd"
-        );
+        assert_eq!(normalize_cksum("sha256:AbCd"), "abcd");
         assert_eq!(normalize_cksum("  DEADBEEF  "), "deadbeef");
     }
 
@@ -486,8 +529,25 @@ mod unit {
     }
 
     #[test]
-    fn reject_https() {
-        let err = read_crate_bytes("https://example.com/x.crate").unwrap_err();
-        assert!(err.contains("network fetch"), "{err}");
+    fn fetch_http_bytes() {
+        let url = serve_once("200 OK", b"crate-bytes", None);
+        assert_eq!(read_crate_bytes(&url).unwrap(), b"crate-bytes");
+    }
+
+    #[test]
+    fn reject_http_error_status() {
+        let url = serve_once("404 Not Found", b"missing", None);
+        let err = read_crate_bytes(&url).unwrap_err();
+        assert!(err.contains("404"), "{err}");
+    }
+
+    #[test]
+    fn reject_interrupted_http_download() {
+        let url = serve_once("200 OK", b"short", Some(100));
+        let err = read_crate_bytes(&url).unwrap_err();
+        assert!(
+            err.contains("HTTPS download") || err.contains("read HTTPS"),
+            "{err}"
+        );
     }
 }
