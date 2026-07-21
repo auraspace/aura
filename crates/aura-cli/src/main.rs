@@ -530,4 +530,31 @@ mod tests {
         let _ = std::fs::remove_file(&bin);
         let _ = std::fs::remove_file(format!("{}.aura.c", out.display()));
     }
+
+    /// S1.1: argv strings must remain valid when Array<String> is dropped.
+    #[test]
+    fn std_io_args_owns_strings_through_teardown() {
+        let root = repo_root();
+        let pkg_path = root.join("corpus/std_io/args");
+        let pkg = load_package(&pkg_path).expect("load corpus/std_io/args");
+        let out = std::env::temp_dir().join(format!(
+            "aura-args-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let bin = build_package(&pkg, &out).expect("build args corpus");
+        let status = Command::new(&bin)
+            .args(["hello", "world"])
+            .status()
+            .expect("spawn built binary");
+        assert!(
+            status.success(),
+            "std.io.args() should not abort while dropping Array<String>: {status}"
+        );
+        let _ = std::fs::remove_file(&bin);
+        let _ = std::fs::remove_file(format!("{}.aura.c", out.display()));
+    }
 }

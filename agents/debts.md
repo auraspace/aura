@@ -49,14 +49,6 @@ When you resolve debt, update or remove the matching entry.
 - Next step (post-MVP): erase to fat pointer `(tag, data*)` or box each element as a class
 - Introduced: narrowed after C6g; decision locked C7h
 
-### Array\<String\> drop vs non-owned elems (`Io.args`)
-
-- Area: builtin Array / std.io.args (C13d free + C12a args)
-- Symptom: Array\<String\> drop frees each `const char *` elem; `Io.args()` stores **process argv pointers** (not malloc'd) via `aura_args_get`. End-of-`main` drop of `val argv = Io.args()` → `free` non-heap → **SIGABRT after correct stdout** (hit by `examples/wc` `run`, not `test` harness)
-- Why deferred: C13d correctly owns split/trim segments; args need either `strdup` on get, non-owning Array view flag, or skip free for args-built arrays
-- Next step: `strdup` in `std.io.args` emit / `aura_args_get`, or mark Array as non-owning for process argv
-- Introduced: observed 2026-07-21 (C13q dogfood); root cause C13d free + C12a non-dup args
-
 ### Stdlib collections polish
 
 - Area: stdlib / RFC-007
@@ -72,7 +64,13 @@ When you resolve debt, update or remove the matching entry.
 ### C13 batch (2026-07-21)
 
 - Resolved C13a–t: method-on-temp; `Int.toString` + String↔Int `+`; Array\<String\> elem free; Fun + `var` String captures + stress; capture reject diags; registry K1 offline (index/semver/fetch/build); `toLower`/`toUpper`; eprint corpus; `tryWriteFile`; Hashable spike; `examples/wc` polish; signing design note; docs close.
-- Residual: `Io.args` free vs non-malloc; live registry HTTPS; generic HashMap; true borrow; `var` class/Array/Fun.
+- Residual: live registry HTTPS; generic HashMap; true borrow; `var` class/Array/Fun.
+
+### Process argv string ownership (`Io.args`) — S1.1
+
+- Resolved: `aura_args_get` now returns a heap-allocated copy for each process argument, matching `Array<String>` element destruction.
+- Regression: `aura-cli` builds and executes `corpus/std_io/args` with forwarded arguments and verifies successful teardown.
+- Resolved: 2026-07-21
 
 ### Chained method on `Array.get` temporary (codegen) — C13b / C13q
 

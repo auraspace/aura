@@ -1333,7 +1333,8 @@ void aura_gc_shutdown(void)
 
 /* ---- Process argv (std.io.args) ----
  * Stashed from C main before aura_main so user programs keep fun main().
- * argv string pointers are process-lifetime; Array of them does not free chars.
+ * Each returned string is an owned copy because Array<String> frees its
+ * elements when the array is dropped.
  */
 
 static int aura_saved_argc = 0;
@@ -1356,8 +1357,15 @@ const char *aura_args_get(int64_t i)
   {
     aura_throw_string("args index out of bounds");
   }
-  const char *s = aura_saved_argv[i];
-  return s != NULL ? s : "";
+  const char *s = aura_saved_argv[i] != NULL ? aura_saved_argv[i] : "";
+  size_t n = strlen(s);
+  char *copy = (char *)malloc(n + 1);
+  if (copy == NULL)
+  {
+    aura_throw_string("args allocation failed");
+  }
+  memcpy(copy, s, n + 1);
+  return copy;
 }
 
 /* ---- Process exit (std.io.exit) ----
