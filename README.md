@@ -8,7 +8,7 @@ This repository currently holds:
 | ------------------------------------ | -------------------------------------------------------------------- |
 | [`docs/guide/`](docs/guide/)         | User guide (site `/docs`)                                            |
 | [`docs/rfc/`](docs/rfc/)             | Language & toolchain RFCs                                            |
-| [`docs/roadmap.md`](docs/roadmap.md) | Execution phases (P0–P3; C0–C12t closed; C13 planned)                |
+| [`docs/roadmap.md`](docs/roadmap.md) | Execution phases (P0–P3; C0–C13t batch closed)                       |
 | [`docs/releases/`](docs/releases/)   | Freeze / release notes (`0.1.0-alpha`)                               |
 | [`site/`](site/)                     | Homepage + docs + RFC site (Vite + React)                            |
 | [`crates/`](crates/)                 | Rust toolchain (`aura` CLI) — check / build / run / test (C backend) |
@@ -34,7 +34,7 @@ pnpm site:test
 pnpm site:build
 ```
 
-### Compiler (through C12t — post-alpha batch closed)
+### Compiler (through C13t — dogfood / captures / registry K1 offline)
 
 ```bash
 cargo test --workspace
@@ -64,6 +64,11 @@ cargo run -p aura-cli -- run corpus/fun/lambda_capture.aura # val Int/Bool/Strin
 cargo run -p aura-cli -- run corpus/fun/lambda_capture_class.aura # val class capture (C12k)
 cargo run -p aura-cli -- run corpus/fun/lambda_capture_array.aura # val Array view capture (C12l)
 cargo run -p aura-cli -- run corpus/fun/lambda_capture_var.aura # var Int/Bool by-ref capture (C12m)
+cargo run -p aura-cli -- run corpus/fun/lambda_capture_fun.aura # val Fun nest capture (C13e)
+cargo run -p aura-cli -- run corpus/fun/lambda_capture_var_str.aura # var String box (C13f)
+cargo run -p aura-cli -- run corpus/expr/int_tostring.aura # Int.toString + interp (C13c)
+cargo run -p aura-cli -- run corpus/expr/method_temp.aura # method on Array.get temp (C13b)
+cargo run -p aura-cli -- run corpus/std_io/try_write_file # tryWriteFile Bool (C13o)
 cargo run -p aura-cli -- run corpus/fun/lambda_env_free.aura # Fun env free (C11b)
 cargo run -p aura-cli -- run corpus/std_collections/hof     # map_ints / filter_ints / fold_ints
 cargo run -p aura-cli -- run corpus/std_collections/hof_str # map_strings / filter_strings / fold_strings (C12o)
@@ -210,7 +215,8 @@ Native builds use a **C backend** (`aura emit-c` + system `cc`) linked with `run
 - **Dist C12s** Install smoke checklist (`scripts/install-smoke.sh`) + `avm` help polish
 - **Docs C12t** C12a–C12t batch closed — post-alpha CLI/String/captures shippable ([plan](docs/plans/2026-07-21-next-20-c12a-c12t.md))
 - **Debts** Tracked in [`agents/debts.md`](agents/debts.md)
-- **Next (C13):** [plan C13a–t](docs/plans/2026-07-21-next-20-c13a-c13t.md) — method-on-temp, `Int.toString`, String array free, Fun/`var` String captures, registry K1, eprint/tryWrite; residual: async, LLVM, true borrow, generic HashMap
+- **Docs C13t:** C13a–C13t batch closed — dogfood/captures/registry K1 offline ([plan](docs/plans/2026-07-21-next-20-c13a-c13t.md))
+- **Next:** live registry HTTPS + publish; generic HashMap (C13p spike); `Io.args` strdup vs free; async/tasks; residual debts
 
 ## Links
 

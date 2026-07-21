@@ -7,7 +7,7 @@ When you resolve debt, update or remove the matching entry.
 
 ## Open
 
-> **Active batch:** [C13a–t plan](../docs/plans/2026-07-21-next-20-c13a-c13t.md) schedules work on several debts below (method-on-temp, Int→String, String array free, Fun/`var` String capture, registry K1). Update or remove entries when the matching C13 slice lands (prefer C13t batch pass).
+> **Last closed batch:** [C13a–t](../docs/plans/2026-07-21-next-20-c13a-c13t.md) (2026-07-21). Residual open items below.
 
 ### Lambda capture limits (MVP)
 
@@ -69,6 +69,11 @@ When you resolve debt, update or remove the matching entry.
 
 ## Resolved
 
+### C13 batch (2026-07-21)
+
+- Resolved C13a–t: method-on-temp; `Int.toString` + String↔Int `+`; Array\<String\> elem free; Fun + `var` String captures + stress; capture reject diags; registry K1 offline (index/semver/fetch/build); `toLower`/`toUpper`; eprint corpus; `tryWriteFile`; Hashable spike; `examples/wc` polish; signing design note; docs close.
+- Residual: `Io.args` free vs non-malloc; live registry HTTPS; generic HashMap; true borrow; `var` class/Array/Fun.
+
 ### Chained method on `Array.get` temporary (codegen) — C13b / C13q
 
 - Resolved: method-on-temp for call-result receivers; `examples/wc` uses `segs.get(j).trim()` and `argv.get(i).trim().toInt()` without intermediate binds.
@@ -76,6 +81,10 @@ When you resolve debt, update or remove the matching entry.
 ### No std Int→String (CLI print) — C13c / C13q
 
 - Resolved: builtin `Int.toString()` (+ String/Int `+`); `examples/wc` prints counts with `.toString()` (local `u64ToString` removed).
+
+### Array element drop for String (C13d)
+
+- Resolved: free owned `const char *` elems on Array\<String\> drop/clear/set; push/set heap-copy. Residual: process argv arrays (see open debt).
 
 ### C12 post-alpha batch (2026-07-21)
 

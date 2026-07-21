@@ -1,4 +1,4 @@
-# aura.lock — path dependencies (C3p/C4j); registry form C8k
-# Direct deps match aura.toml; extra entries are transitive path deps.
+# aura.lock — path dependencies (C3p/C4j); registry pins (C8k/C13l)
+# Direct deps match aura.toml; extra path entries are transitive.
 # Registry pins: name = { version = "…", checksum = "…", source = "registry" }
 std.io = "../../../std/io"
