@@ -1,0 +1,16 @@
+// C13n — std.io.eprint / eprintln (stderr)
+// Smoke: aura run corpus/std_io/eprint
+// Messages go to stderr; success line on stdout.
+package demo.stdio.eprint
+
+import std.io as Io
+
+fun main() {
+  // Explicit package import (not only auto-prelude free names).
+  Io.eprint("err-no-nl")
+  Io.eprintln("err-with-nl")
+  // Free names from auto-prelude still work.
+  eprint("free-eprint")
+  eprintln("free-eprintln")
+  println("eprint ok")
+}

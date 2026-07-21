@@ -1,0 +1,6 @@
+[package]
+name = "demo.stdio.eprint"
+
+[[bin]]
+name = "eprint"
+path = "src"
