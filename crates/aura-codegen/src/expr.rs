@@ -153,6 +153,8 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
                             }
                             "charAt" | "indexOf" | "len" => return "Int".into(),
                             "substring" => return "String".into(),
+                            // C12g: split(sep) → Array<String>
+                            "split" => return mono_key("Array", &[Ty::String]),
                             _ => {}
                         }
                     }

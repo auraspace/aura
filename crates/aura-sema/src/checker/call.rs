@@ -281,6 +281,40 @@ impl Checker {
                             Ty::Int
                         });
                     }
+                    // C12g: split(sep) — byte/string separator → Array<String>.
+                    // Empty sep rejected at runtime (throw String). Consecutive / trailing seps
+                    // yield empty segments (JS-like). Segments are newly allocated owned copies.
+                    "split" => {
+                        if c.args.len() != 1 {
+                            return Err(SemaError {
+                                message: format!(
+                                    "`String.split` expects 1 argument, got {}",
+                                    c.args.len()
+                                ),
+                                span: c.span,
+                            });
+                        }
+                        let arg = self.check_expr(&c.args[0])?;
+                        if arg != Ty::String {
+                            return Err(SemaError {
+                                message: format!(
+                                    "`String.split` argument must be String, got {}",
+                                    arg.display()
+                                ),
+                                span: c.args[0].span(),
+                            });
+                        }
+                        let arr = Ty::ClassApp {
+                            name: "Array".into(),
+                            args: vec![Ty::String],
+                        };
+                        self.note_mono_ty(&arr);
+                        return Ok(if safe_wrap {
+                            Ty::Nullable(Box::new(arr))
+                        } else {
+                            arr
+                        });
+                    }
                     // C11d: exclusive-end substring (UTF-8 byte indices).
                     "substring" => {
                         if c.args.len() != 2 {

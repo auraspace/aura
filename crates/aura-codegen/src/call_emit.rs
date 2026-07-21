@@ -302,6 +302,48 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                 }
                 return call;
             }
+            // C12g: split(sep) → Array<String>. Empty sep throws; consecutive/trailing seps
+            // yield empty segments; each segment is a freshly malloc'd copy.
+            if fe.field.name == "split" {
+                let sep = if c.args.len() == 1 {
+                    emit_expr(&c.args[0], ctx)
+                } else {
+                    "\"\"".into()
+                };
+                let arr_ty = c_class_type("Array_String");
+                let ctor = c_ctor_name("Array_String");
+                let call = format!(
+                    "({{ const char *__s = ({obj}); const char *__sep = ({sep}); \
+                     if (__s == NULL) __s = \"\"; if (__sep == NULL) __sep = \"\"; \
+                     size_t __seplen = strlen(__sep); \
+                     if (__seplen == 0) aura_throw_string(\"String split empty separator\"); \
+                     size_t __n = 1; \
+                     const char *__scan = __s; \
+                     while ((__scan = strstr(__scan, __sep)) != NULL) {{ \
+                       __n++; \
+                       __scan += __seplen; \
+                     }} \
+                     {arr_ty} __a = {ctor}((int64_t)__n); \
+                     const char *__start = __s; \
+                     int64_t __i = 0; \
+                     for (;;) {{ \
+                       const char *__found = strstr(__start, __sep); \
+                       size_t __len = __found ? (size_t)(__found - __start) : strlen(__start); \
+                       char *__copy = (char *)malloc(__len + 1); \
+                       if (__copy == NULL) aura_throw_string(\"String split out of memory\"); \
+                       if (__len > 0) memcpy(__copy, __start, __len); \
+                       __copy[__len] = '\\0'; \
+                       __a.data[__i++] = (const char *)__copy; \
+                       if (__found == NULL) break; \
+                       __start = __found + __seplen; \
+                     }} \
+                     __a; }})"
+                );
+                if fe.safe {
+                    return format!("(({obj}) == NULL ? {ctor}(0) : {call})");
+                }
+                return call;
+            }
             // C5j: endsWith — compare suffix bytes.
             if fe.field.name == "endsWith" {
                 let suf = if c.args.len() == 1 {

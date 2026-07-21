@@ -190,7 +190,7 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C12d**  | `std.io.readLine(): String?` (+ optional `readAllStdin`)           | **Done**                                   |
 | **C12e**  | `std.io.exit(code: Int)`                                           | **Done**                                   |
 | **C12f**  | `String.indexOf`                                                   | **Done**                                   |
-| **C12g**  | `String.split` → `Array<String>`                                   | Planned                                    |
+| **C12g**  | `String.split` → `Array<String>`                                   | **Done**                                   |
 | **C12h**  | `String.trim` / `trimStart` / `trimEnd`                            | Planned                                    |
 | **C12i**  | `String.toInt(): Int?`                                             | Planned                                    |
 | **C12j**  | Join helper for `Array<String>`                                    | Planned                                    |

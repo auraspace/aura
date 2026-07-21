@@ -1,0 +1,70 @@
+// C12g — String.split(sep): Array<String>
+// Byte/string separator (not regex). Empty sep throws at runtime.
+// Consecutive seps → empty middle segments; trailing sep → trailing empty.
+// Segments are newly allocated owned string copies.
+package demo.expr
+
+fun main() {
+  val s = "a,b,c"
+  val parts = s.split(",")
+  assert_eq(parts.len, 3)
+  assert_eq(parts.get(0), "a")
+  assert_eq(parts.get(1), "b")
+  assert_eq(parts.get(2), "c")
+
+  // Consecutive separators → empty segment
+  val mid = "a,,b".split(",")
+  assert_eq(mid.len, 3)
+  assert_eq(mid.get(0), "a")
+  assert_eq(mid.get(1), "")
+  assert_eq(mid.get(2), "b")
+
+  // Trailing separator → trailing empty
+  val trail = "a,b,".split(",")
+  assert_eq(trail.len, 3)
+  assert_eq(trail.get(0), "a")
+  assert_eq(trail.get(1), "b")
+  assert_eq(trail.get(2), "")
+
+  // Leading separator → leading empty
+  val lead = ",a".split(",")
+  assert_eq(lead.len, 2)
+  assert_eq(lead.get(0), "")
+  assert_eq(lead.get(1), "a")
+
+  // No separator match → single-element array (whole string)
+  val one = "hello".split(",")
+  assert_eq(one.len, 1)
+  assert_eq(one.get(0), "hello")
+
+  // Empty receiver → one empty segment
+  val empty = "".split(",")
+  assert_eq(empty.len, 1)
+  assert_eq(empty.get(0), "")
+
+  // Multi-char separator
+  val multi = "a::b::c".split("::")
+  assert_eq(multi.len, 3)
+  assert_eq(multi.get(0), "a")
+  assert_eq(multi.get(1), "b")
+  assert_eq(multi.get(2), "c")
+
+  // Only separator
+  val only = ",".split(",")
+  assert_eq(only.len, 2)
+  assert_eq(only.get(0), "")
+  assert_eq(only.get(1), "")
+
+  // Empty-sep reject (runtime throw; do not bind the result — throw aborts before assign)
+  var threw = false
+  try {
+    "x".split("")
+    assert(false)
+  } catch (e: String) {
+    threw = true
+    assert(e.contains("empty"))
+  }
+  assert(threw)
+
+  println("ok")
+}

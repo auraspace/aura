@@ -36,6 +36,7 @@ fun add(a: Int, b: Int): Int {
 | `s + t` / `"hi ${name}"`                 | Concat / interp                      |
 | `s.startsWith` / `contains` / `endsWith` | Search                               |
 | `s.indexOf(sub)`                         | Byte index; −1 if missing; empty → 0 |
+| `s.split(sep)`                           | `Array<String>`; empty sep throws    |
 | `s.substring(start, end)`                | Exclusive end; byte indices          |
 
 ## Non-null by default
