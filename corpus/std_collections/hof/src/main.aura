@@ -1,4 +1,4 @@
-// C10i — std.collections map_ints / filter_ints / fold_ints
+// C16 — generic std.collections map / filter / fold
 // Array params own the buffer: clone when reusing the same Array.
 package demo.stdcollections.hof
 
@@ -11,15 +11,15 @@ fun main() {
   xs.push(3)
   xs.push(4)
 
-  val squared = map_ints(xs, (x: Int) => x * x)
+  val squared = map<Int, Int>(xs, (x: Int) => x * x)
   // 1+4+9+16 = 30
-  val sum = fold_ints(squared.clone(), 0, (a: Int, b: Int) => a + b)
+  val sum = fold<Int, Int>(squared.clone(), 0, (a: Int, b: Int) => a + b)
   if (sum == 30) {
     println("fold")
   }
 
   val thr = 5
-  val big = filter_ints(squared, (n: Int) => n > thr)
+  val big = filter<Int>(squared, (n: Int) => n > thr)
   if (big.len == 2) {
     println("filter")
   }

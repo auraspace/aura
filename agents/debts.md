@@ -127,6 +127,10 @@ When you resolve debt, update or remove the matching entry.
 
 - Resolved in C12o: `std.collections` `map_strings` / `filter_strings` / `fold_strings`; corpus `std_collections/hof_str`.
 
+### Generic collection higher-order helpers (2026-07-21)
+
+- Resolved in C16: `std.collections` now exposes generic `map<T,R>`, `filter<T>`, and `fold<T,A>`; the Int/String helpers remain compatibility wrappers. The old zero-argument `map()` factory was renamed to `map_string_int()` because Aura does not yet support overloads by arity. Generic HOFs over arbitrary user-defined element types still depend on broader generic codegen coverage.
+
 ### Soft file read `tryReadFile` (2026-07-21)
 
 - Resolved in C12p: `std.io.tryReadFile(path): String?` (null on missing/error); throwing `readFile` kept; runtime `aura_try_read_file`; corpus `std_io/try_read_file`. Full `Result` I/O still deferred.

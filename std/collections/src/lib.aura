@@ -71,7 +71,9 @@ pub class Map<K, V>(val keys: Array<K>, val vals: Array<V>) {
   }
 }
 
-pub fun map(): Map<String, Int> {
+/// Factory retained under a distinct name because Aura does not overload
+/// functions by arity; `map` is now the generic HOF below.
+pub fun map_string_int(): Map<String, Int> {
   return Map<String, Int>(Array(0), Array(0))
 }
 
@@ -328,40 +330,49 @@ pub fun hash_set(): HashSet<String> {
   return HashSet<String>(HashMap<String, Bool>(Array(16), Array(16), Array(16)))
 }
 
-pub fun map_ints(xs: Array<Int>, f: (Int) -> Int): Array<Int> {
-  val out: Array<Int> = Array(0)
+/// Generic higher-order helpers. Type arguments may be explicit, for example
+/// `map<Int, String>(xs, f)`, or inferred from the arguments and result.
+pub fun map<T, R>(xs: Array<T>, f: (T) -> R): Array<R> {
+  val out: Array<R> = Array(0)
   for (x in xs) { out.push(f(x)) }
   return out
+}
+
+pub fun filter<T>(xs: Array<T>, pred: (T) -> Bool): Array<T> {
+  val out: Array<T> = Array(0)
+  for (x in xs) { if (pred(x)) { out.push(x) } }
+  return out
+}
+
+pub fun fold<T, A>(xs: Array<T>, init: A, f: (A, T) -> A): A {
+  var acc = init
+  for (x in xs) { acc = f(acc, x) }
+  return acc
+}
+
+/// Compatibility wrappers for the pre-generic API.
+pub fun map_ints(xs: Array<Int>, f: (Int) -> Int): Array<Int> {
+  return map<Int, Int>(xs, f)
 }
 
 pub fun filter_ints(xs: Array<Int>, pred: (Int) -> Bool): Array<Int> {
-  val out: Array<Int> = Array(0)
-  for (x in xs) { if (pred(x)) { out.push(x) } }
-  return out
+  return filter<Int>(xs, pred)
 }
 
 pub fun fold_ints(xs: Array<Int>, init: Int, f: (Int, Int) -> Int): Int {
-  var acc = init
-  for (x in xs) { acc = f(acc, x) }
-  return acc
+  return fold<Int, Int>(xs, init, f)
 }
 
 pub fun map_strings(xs: Array<String>, f: (String) -> String): Array<String> {
-  val out: Array<String> = Array(0)
-  for (x in xs) { out.push(f(x)) }
-  return out
+  return map<String, String>(xs, f)
 }
 
 pub fun filter_strings(xs: Array<String>, pred: (String) -> Bool): Array<String> {
-  val out: Array<String> = Array(0)
-  for (x in xs) { if (pred(x)) { out.push(x) } }
-  return out
+  return filter<String>(xs, pred)
 }
 
 pub fun fold_strings(xs: Array<String>, init: String, f: (String, String) -> String): String {
-  var acc = init
-  for (x in xs) { acc = f(acc, x) }
-  return acc
+  return fold<String, String>(xs, init, f)
 }
 
 pub fun join(parts: Array<String>, sep: String): String {
