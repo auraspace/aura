@@ -1,0 +1,35 @@
+// C13o — std.io.tryWriteFile: Bool (false on fail; keep throwing writeFile)
+package demo.stdio.try_write_file
+
+import std.io as Io
+
+fun main() {
+  val path = "target/aura/std_io_try_write_file_test.txt"
+  val nested = "target/aura/std_io_try_write_missing_dir_xyz/nope.txt"
+
+  // Success: soft write + round-trip read
+  assert(Io.tryWriteFile(path, "hello"))
+  assert(Io.fileExists(path))
+  assert_eq(Io.readFile(path), "hello")
+
+  // Truncate / overwrite
+  assert(Io.tryWriteFile(path, "world"))
+  assert_eq(Io.readFile(path), "world")
+
+  // Empty content → empty file (success, not false)
+  assert(Io.tryWriteFile(path, ""))
+  assert(Io.fileSize(path) == 0)
+  assert_eq(Io.readFile(path), "")
+
+  // Empty path → false (do not throw)
+  assert(!Io.tryWriteFile("", "x"))
+
+  // Missing parent dir → false (do not throw)
+  assert(!Io.tryWriteFile(nested, "x"))
+
+  // Throwing writeFile still works for valid path
+  Io.writeFile(path, "strict")
+  assert_eq(Io.readFile(path), "strict")
+
+  Io.println("ok")
+}

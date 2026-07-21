@@ -72,6 +72,14 @@ pub fun writeFile(path: String, content: String) {
   // Body replaced by codegen with aura_write_file(path, content).
 }
 
+/// Soft write: create/truncate `path` with `content`. Returns `true` on success;
+/// `false` on empty path, open/write/flush/close failure (does not throw).
+/// Prefer this when soft failure is expected; use `writeFile` to throw.
+pub fun tryWriteFile(path: String, content: String): Bool {
+  // Body replaced by codegen with aura_try_write_file(path, content).
+  return false
+}
+
 /// Append `content` to `path`, creating the file if needed.
 /// Throws on I/O error.
 pub fun appendFile(path: String, content: String) {

@@ -38,6 +38,7 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("const char *aura_read_file(const char *path);\n");
     out.push_str("const char *aura_try_read_file(const char *path);\n");
     out.push_str("void aura_write_file(const char *path, const char *content);\n");
+    out.push_str("_Bool aura_try_write_file(const char *path, const char *content);\n");
     out.push_str("void aura_append_file(const char *path, const char *content);\n");
     out.push_str("_Bool aura_file_exists(const char *path);\n");
     out.push_str("int64_t aura_file_size(const char *path);\n");
@@ -877,6 +878,14 @@ pub(crate) fn emit_fun(out: &mut String, f: &FunDecl, checked: &CheckedFile, arg
                 let p = mangle_ident(&f.params[0].name.name);
                 let c = mangle_ident(&f.params[1].name.name);
                 let _ = writeln!(out, "  aura_write_file({p}, {c});");
+                out.push_str("}\n");
+                return;
+            }
+            // C13o: soft write — false on empty path / I/O fail (no throw).
+            ("tryWriteFile", 2) => {
+                let p = mangle_ident(&f.params[0].name.name);
+                let c = mangle_ident(&f.params[1].name.name);
+                let _ = writeln!(out, "  return aura_try_write_file({p}, {c});");
                 out.push_str("}\n");
                 return;
             }

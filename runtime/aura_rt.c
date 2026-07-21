@@ -296,6 +296,42 @@ void aura_append_file(const char *path, const char *content)
   aura_write_file_mode(path, content, "ab", "append_file");
 }
 
+/* Soft write: true on success; false on empty path / open / write / flush / close fail.
+ * Does not throw (unlike aura_write_file). */
+bool aura_try_write_file(const char *path, const char *content)
+{
+  if (path == NULL || path[0] == '\0')
+  {
+    return false;
+  }
+  FILE *f = fopen(path, "wb");
+  if (f == NULL)
+  {
+    return false;
+  }
+  const char *s = content ? content : "";
+  size_t n = strlen(s);
+  if (n > 0)
+  {
+    size_t wrote = fwrite(s, 1, n, f);
+    if (wrote != n)
+    {
+      fclose(f);
+      return false;
+    }
+  }
+  if (fflush(f) != 0)
+  {
+    fclose(f);
+    return false;
+  }
+  if (fclose(f) != 0)
+  {
+    return false;
+  }
+  return true;
+}
+
 /* ---- Stdin (std.io.readLine / readAllStdin) ----
  * readLine: one line without trailing \n or \r\n; NULL on EOF; empty line is "".
  * Oversized line / whole-stdin throws String (MVP caps).
