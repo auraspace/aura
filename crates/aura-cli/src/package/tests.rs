@@ -527,3 +527,135 @@ fn semver_public_reexports() {
     let req: super::VersionReq = super::parse_req("^1.2.3").unwrap();
     assert!(req.matches(&v));
 }
+
+// --- C13k registry tarball fetch + sha256 ---
+
+fn fixture_tiny_crate_path() -> std::path::PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("testdata/registry/crates/tiny-0.1.0.crate")
+}
+
+fn fixture_tiny_meta() -> crate::package::VersionMeta {
+    let idx = fixture_registry_index();
+    idx.get_version_meta("tiny", "0.1.0").expect("tiny in index")
+}
+
+fn unique_cache_root(label: &str) -> std::path::PathBuf {
+    let root = std::env::temp_dir().join(format!(
+        "aura-fetch-{}-{}-{}",
+        label,
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    ));
+    let _ = fs::remove_dir_all(&root);
+    root
+}
+
+#[test]
+fn fetch_install_from_local_path() {
+    let cache = unique_cache_root("path");
+    let meta = fixture_tiny_meta();
+    let crate_path = fixture_tiny_crate_path();
+    assert!(crate_path.is_file(), "missing fixture {}", crate_path.display());
+
+    let dest = super::fetch_and_install(&meta, crate_path.to_str().unwrap(), Some(&cache))
+        .expect("fetch_and_install");
+    assert_eq!(
+        dest,
+        super::package_src_dir(&cache, "tiny", "0.1.0")
+    );
+    assert!(dest.join("aura.toml").is_file());
+    assert!(dest.join("src/main.aura").is_file());
+    let toml = fs::read_to_string(dest.join("aura.toml")).unwrap();
+    assert!(toml.contains("name = \"tiny\""), "{toml}");
+
+    // Idempotent: second install skips re-extract.
+    let dest2 = super::fetch_and_install(&meta, crate_path.to_str().unwrap(), Some(&cache))
+        .expect("reinstall");
+    assert_eq!(dest, dest2);
+
+    let _ = fs::remove_dir_all(&cache);
+}
+
+#[test]
+fn fetch_install_from_file_url() {
+    let cache = unique_cache_root("fileurl");
+    let meta = fixture_tiny_meta();
+    let crate_path = fixture_tiny_crate_path();
+    let url = format!("file://{}", crate_path.display());
+
+    let dest = super::fetch_and_install(&meta, &url, Some(&cache)).expect("file:// fetch");
+    assert!(dest.join("aura.toml").is_file());
+    assert!(dest.join("README.md").is_file());
+
+    let _ = fs::remove_dir_all(&cache);
+}
+
+#[test]
+fn fetch_checksum_mismatch_rejected() {
+    let cache = unique_cache_root("badcksum");
+    let mut meta = fixture_tiny_meta();
+    meta.cksum =
+        "sha256:0000000000000000000000000000000000000000000000000000000000000000".into();
+    let crate_path = fixture_tiny_crate_path();
+    let err = super::fetch_and_install(&meta, crate_path.to_str().unwrap(), Some(&cache))
+        .unwrap_err();
+    assert!(err.contains("sha256 mismatch"), "{err}");
+    // Must not leave a partial install.
+    assert!(!super::package_src_dir(&cache, "tiny", "0.1.0").exists());
+    let _ = fs::remove_dir_all(&cache);
+}
+
+#[test]
+fn install_from_bytes_and_sha256_helpers() {
+    let cache = unique_cache_root("bytes");
+    let meta = fixture_tiny_meta();
+    let bytes = fs::read(fixture_tiny_crate_path()).unwrap();
+    let got = super::sha256_hex(&bytes);
+    assert_eq!(super::normalize_cksum(&meta.cksum), got);
+    super::verify_sha256(&bytes, &meta.cksum).unwrap();
+
+    let dest = super::install_from_bytes(&meta, &bytes, Some(&cache)).expect("install bytes");
+    assert!(dest.join("src/main.aura").is_file());
+
+    let _ = fs::remove_dir_all(&cache);
+}
+
+#[test]
+fn fetch_cache_root_env_and_defaults() {
+    use crate::package::{cache_root_from_env, default_cache_root, ENV_REGISTRY_CACHE};
+
+    let def = default_cache_root();
+    let s = def.to_string_lossy();
+    assert!(
+        s.contains(".aura") && s.ends_with("registry"),
+        "{def:?}"
+    );
+    if std::env::var_os(ENV_REGISTRY_CACHE).is_none() {
+        assert_eq!(cache_root_from_env(), def);
+    }
+
+    // Expand dl template from fixture index config.
+    let idx = fixture_registry_index();
+    let meta = fixture_tiny_meta();
+    let dl = idx.config().dl.as_deref().expect("fixture dl");
+    let url = super::expand_dl_template(dl, &meta).unwrap();
+    assert!(url.contains("tiny-0.1.0.crate"), "{url}");
+    assert!(url.contains("auraspace/tiny") || url.contains("/tiny/"), "{url}");
+
+    // HTTPS sources are rejected (offline MVP).
+    let err = super::read_crate_bytes("https://example.com/tiny.crate").unwrap_err();
+    assert!(err.contains("network fetch"), "{err}");
+}
+
+#[test]
+fn fetch_public_reexports() {
+    let _ = super::ENV_REGISTRY_CACHE;
+    let _ = super::default_cache_root();
+    let _ = super::cache_root_from_env();
+    let p = super::package_src_dir(Path::new("/tmp/cache"), "n", "1.0.0");
+    assert!(p.ends_with("src/n-1.0.0") || p.ends_with("src\\n-1.0.0"));
+}

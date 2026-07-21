@@ -33,10 +33,10 @@ When you resolve debt, update or remove the matching entry.
 ### No registry fetch / semver resolve
 
 - Area: toolchain / RFC-005
-- Symptom: path deps + lock; C8k parses registry pin form but does not fetch or resolve ranges
+- Symptom: path deps + lock; C8k parses registry pin form but does not fetch or resolve ranges; **build does not wire registry pins yet**
 - Why deferred: monorepo path graph enough for demos
-- Progress: C8b path existence; C8k `LockEntry` version/source/checksum schema; **RFC-005 updated (2026-07-21) — default registry is GitHub-backed** (index repo + Release artifacts + `github =` source)
-- Next step: GitHub index client + tarball fetch + caret ranges in `aura.toml` (K1); then direct `github`/`git` deps (K1b) and `aura publish` (K2)
+- Progress: C8b path existence; C8k `LockEntry` version/source/checksum schema; **RFC-005 updated (2026-07-21) — default registry is GitHub-backed**; **C13i** offline index client; **C13j** caret semver → lock pin; **C13k** tarball fetch + sha256 + extract to `AURA_REGISTRY_CACHE`/`~/.aura/registry/src` (local/`file://` only; no HTTP client)
+- Next step: **C13l** wire lock pins into `aura build`/`check` from warm cache; then live HTTPS fetch polish, `github`/`git` deps (K1b), `aura publish` (K2)
 - Introduced: narrowed after C3p; nested C4j; path check C8b; schema C8k
 
 ### Array of interface elements

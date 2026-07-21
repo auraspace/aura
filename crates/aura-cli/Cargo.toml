@@ -16,4 +16,8 @@ aura-sema.workspace = true
 aura-codegen.workspace = true
 aura-diagnostics.workspace = true
 aura-ast.workspace = true
+# C13k: registry crate tarball (gzip tar) + sha256
+flate2 = "1"
+sha2 = "0.10"
+tar = "0.4"
 
