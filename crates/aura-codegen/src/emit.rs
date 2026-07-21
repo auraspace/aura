@@ -29,6 +29,7 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("#include <stdlib.h>\n");
     out.push_str("#include <stdio.h>\n");
     out.push_str("#include <string.h>\n");
+    out.push_str("#include <errno.h>\n");
     out.push_str("#include <setjmp.h>\n");
     out.push_str("void aura_print(const char *s);\n");
     out.push_str("void aura_println(const char *s);\n");

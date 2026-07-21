@@ -334,6 +334,22 @@ impl Checker {
                             Ty::String
                         });
                     }
+                    // C12i: toInt() — parse entire string as decimal Int; invalid/overflow → null.
+                    // No auto-trim (caller can trim first). Optional leading +/-; digits only.
+                    "toInt" => {
+                        if !c.args.is_empty() {
+                            return Err(SemaError {
+                                message: format!(
+                                    "`String.toInt` expects 0 arguments, got {}",
+                                    c.args.len()
+                                ),
+                                span: c.span,
+                            });
+                        }
+                        // Already Int?; safe call on null receiver still yields null Int?
+                        // (same tagged-opt rep; no double-wrap).
+                        return Ok(Ty::Nullable(Box::new(Ty::Int)));
+                    }
                     // C11d: exclusive-end substring (UTF-8 byte indices).
                     "substring" => {
                         if c.args.len() != 2 {

@@ -18,6 +18,7 @@ Sample `.aura` programs for the compiler: parse/typecheck (`aura check`), native
 | `expr/string_len.aura`       | `String.len` byte length (C4p)                                         |
 | `expr/string_substring.aura` | `String.substring(start, end)` exclusive (C11d)                        |
 | `expr/string_indexof.aura`   | `String.indexOf(sub)` byte index / −1 / empty→0 (C12f)                 |
+| `expr/string_toint.aura`     | `String.toInt(): Int?` decimal parse / null on bad/overflow (C12i)     |
 | `expr/if_expr.aura`          | `if` as expression (C4t)                                               |
 | `fun/multi.aura`             | Multiple top-level functions                                           |
 | `fun/nested_calls.aura`      | Nested calls                                                           |

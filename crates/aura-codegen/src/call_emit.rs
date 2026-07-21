@@ -391,6 +391,37 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                 }
                 return call;
             }
+            // C12i: toInt() — full-string decimal parse → Int? (aura_opt_i64).
+            // No auto-trim; optional leading +/-; empty/invalid/overflow → null.
+            if fe.field.name == "toInt" {
+                let none = null_opt_prim("Opt_Int");
+                let call = format!(
+                    "({{ const char *__s = ({obj}); \
+                     if (__s == NULL) __s = \"\"; \
+                     aura_opt_i64 __out = {none}; \
+                     size_t __i = 0; \
+                     if (__s[0] == '+' || __s[0] == '-') __i = 1; \
+                     if (__s[__i] != '\\0') {{ \
+                       int __ok = 1; \
+                       for (size_t __j = __i; __s[__j]; __j++) {{ \
+                         if (__s[__j] < '0' || __s[__j] > '9') {{ __ok = 0; break; }} \
+                       }} \
+                       if (__ok) {{ \
+                         errno = 0; \
+                         char *__end = NULL; \
+                         long long __v = strtoll(__s, &__end, 10); \
+                         if (errno != ERANGE && __end != NULL && *__end == '\\0') {{ \
+                           __out = ((aura_opt_i64){{ .has = true, .value = (int64_t)__v }}); \
+                         }} \
+                       }} \
+                     }} \
+                     __out; }})"
+                );
+                if fe.safe {
+                    return format!("(({obj}) == NULL ? {none} : {call})");
+                }
+                return call;
+            }
             // C12h: trim / trimStart / trimEnd — ASCII whitespace (' ','\t','\n','\r').
             // Fresh malloc copy of the kept span (same ownership MVP as substring).
             if matches!(

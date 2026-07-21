@@ -1,0 +1,69 @@
+// C12i — String.toInt(): Int?
+// Full-string decimal parse; no auto-trim; optional leading +/-.
+// Empty / invalid / overflow → null.
+package demo.expr
+
+fun main() {
+  // Valid decimals
+  assert_eq("0".toInt()!!, 0)
+  assert_eq("42".toInt()!!, 42)
+  assert_eq("+7".toInt()!!, 7)
+  assert_eq("-3".toInt()!!, -3)
+  assert_eq("9223372036854775807".toInt()!!, 9223372036854775807)
+  // INT64_MIN: avoid bare min literal (lexer parses digits before unary -).
+  assert_eq("-9223372036854775808".toInt()!!, 0 - 9223372036854775807 - 1)
+
+  // Leading zeros OK
+  assert_eq("007".toInt()!!, 7)
+  assert_eq("-01".toInt()!!, -1)
+
+  // Empty / only sign → null
+  if ("".toInt() == null) {
+    println("empty")
+  }
+  if ("+".toInt() == null) {
+    println("plus")
+  }
+  if ("-".toInt() == null) {
+    println("minus")
+  }
+
+  // Invalid: whitespace (no auto-trim), trailing junk, letters
+  if (" 1".toInt() == null) {
+    println("lws")
+  }
+  if ("1 ".toInt() == null) {
+    println("tws")
+  }
+  if ("12a".toInt() == null) {
+    println("trail")
+  }
+  if ("a12".toInt() == null) {
+    println("lead")
+  }
+  if ("1.5".toInt() == null) {
+    println("dot")
+  }
+  if ("--1".toInt() == null) {
+    println("dbl")
+  }
+
+  // Overflow → null
+  if ("9223372036854775808".toInt() == null) {
+    println("ov+")
+  }
+  if ("-9223372036854775809".toInt() == null) {
+    println("ov-")
+  }
+
+  // Assign / coalesce
+  var n: Int? = "99".toInt()
+  assert_eq(n!!, 99)
+  n = "nope".toInt()
+  assert_eq(n ?: -1, -1)
+
+  // After trim works for padded input
+  assert_eq("  21  ".trim().toInt()!!, 21)
+
+  println("ok")
+}

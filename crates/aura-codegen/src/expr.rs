@@ -157,6 +157,8 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
                             }
                             // C12g: split(sep) → Array<String>
                             "split" => return mono_key("Array", &[Ty::String]),
+                            // C12i: toInt() → Int?
+                            "toInt" => return "Opt_Int".into(),
                             _ => {}
                         }
                     }
@@ -1227,6 +1229,21 @@ pub(crate) fn resolve_type_name(expr: &Expr, ctx: &EmitCtx<'_>) -> Option<String
                     .or_else(|| resolve_class_of_expr(&fe.object, ctx).map(|s| s.to_string()))
                 {
                     let base = mono_base_name(&recv, ctx.checked).unwrap_or(recv.as_str());
+                    // Builtin String methods (needed for chains like s.trim().toInt()).
+                    if recv == "String" || base == "String" {
+                        match fe.field.name.as_str() {
+                            "isEmpty" | "startsWith" | "contains" | "endsWith" => {
+                                return Some("Bool".into());
+                            }
+                            "charAt" | "indexOf" => return Some("Int".into()),
+                            "substring" | "trim" | "trimStart" | "trimEnd" => {
+                                return Some("String".into());
+                            }
+                            "split" => return Some(mono_key("Array", &[Ty::String])),
+                            "toInt" => return Some("Opt_Int".into()),
+                            _ => {}
+                        }
+                    }
                     // C9c: builtin Array.clone returns same mono key.
                     if (base == "Array" || recv.starts_with("Array_")) && fe.field.name == "clone" {
                         return Some(recv);
