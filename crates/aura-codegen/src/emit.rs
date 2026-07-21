@@ -41,6 +41,8 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("int64_t aura_file_size(const char *path);\n");
     out.push_str("int64_t aura_args_count(void);\n");
     out.push_str("const char *aura_args_get(int64_t i);\n");
+    out.push_str("const char *aura_read_line(void);\n");
+    out.push_str("const char *aura_read_all_stdin(void);\n");
     out.push_str("void aura_assert(_Bool cond);\n");
     out.push_str("void aura_assert_eq_int(int64_t a, int64_t b);\n");
     out.push_str("void aura_assert_eq_string(const char *a, const char *b);\n");
@@ -858,6 +860,17 @@ pub(crate) fn emit_fun(out: &mut String, f: &FunDecl, checked: &CheckedFile, arg
                 out.push_str("    __a.data[__i] = aura_args_get(__i);\n");
                 out.push_str("  }\n");
                 out.push_str("  return __a;\n");
+                out.push_str("}\n");
+                return;
+            }
+            // C12d: stdin line / whole-stdin (NULL = EOF for readLine).
+            ("readLine", 0) => {
+                out.push_str("  return aura_read_line();\n");
+                out.push_str("}\n");
+                return;
+            }
+            ("readAllStdin", 0) => {
+                out.push_str("  return aura_read_all_stdin();\n");
                 out.push_str("}\n");
                 return;
             }

@@ -10,6 +10,21 @@ pub fun args(): Array<String> {
   return Array(0)
 }
 
+/// Read one line from stdin without the trailing `\n` or `\r\n`.
+/// Returns `null` on EOF (including immediate EOF with no bytes).
+/// An empty line is `""` (not null). Throws String if the line exceeds 1 MiB.
+pub fun readLine(): String? {
+  // Body replaced by codegen with aura_read_line().
+  return null
+}
+
+/// Read the remainder of stdin as a String (UTF-8 bytes, no embedded NUL).
+/// Throws on I/O error, embedded NUL, or input larger than 256 MiB.
+pub fun readAllStdin(): String {
+  // Body replaced by codegen with aura_read_all_stdin().
+  return ""
+}
+
 /// Write to stdout without a trailing newline.
 pub fun print(s: String) {
   // Body replaced by codegen with aura_print(s).

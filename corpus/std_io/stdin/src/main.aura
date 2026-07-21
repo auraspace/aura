@@ -1,0 +1,50 @@
+// C12d — std.io.readLine / readAllStdin
+// Smoke (no pipe): immediate EOF → readLine null; empty readAllStdin.
+// Pipe example:
+//   printf 'hi\n\nbye\n' | cargo run -p aura-cli -- run corpus/std_io/stdin
+//   printf 'one\ntwo' | cargo run -p aura-cli -- run corpus/std_io/stdin -- all
+package demo.stdio.stdin
+
+fun main() {
+  val a = args()
+  // Mode "all": consume remainder via readAllStdin (pipe recommended).
+  if (a.len >= 2 && a.get(1) == "all") {
+    val rest = readAllStdin()
+    // May be empty when no pipe; when piped, content preserved including newlines.
+    assert(rest.len >= 0)
+    if (rest.len > 0) {
+      assert(rest.contains("one") || rest.contains("two") || rest.contains("hi"))
+    }
+    println("readAllStdin ok")
+    return
+  }
+
+  // Default: line mode. Without a pipe, first readLine is null (EOF).
+  val line1 = readLine()
+  if (line1 == null) {
+    // No stdin content — still exercises EOF path.
+    val line2 = readLine()
+    assert(line2 == null)
+    val empty = readAllStdin()
+    assert_eq(empty, "")
+    println("readLine eof ok")
+  } else {
+    // Piped: first non-null line (narrowed in else).
+    assert_eq(line1, "hi")
+    val line2 = readLine()
+    if (line2 == null) {
+      assert(false)
+    } else {
+      assert_eq(line2, "") // empty line between hi and bye
+    }
+    val line3 = readLine()
+    if (line3 == null) {
+      assert(false)
+    } else {
+      assert_eq(line3, "bye")
+    }
+    val line4 = readLine()
+    assert(line4 == null)
+    println("readLine ok")
+  }
+}

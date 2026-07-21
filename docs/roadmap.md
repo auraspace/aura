@@ -187,7 +187,7 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C12a**  | Plan + roadmap C12a–C12t (post-alpha batch)                        | **Done**                                   |
 | **C12b**  | Program argv: runtime + `std.io.args(): Array<String>`             | **Done**                                   |
 | **C12c**  | `aura run` / `test` pass-through args after `--`                   | **Done**                                   |
-| **C12d**  | `std.io.readLine(): String?` (+ optional `readAllStdin`)           | Planned                                    |
+| **C12d**  | `std.io.readLine(): String?` (+ optional `readAllStdin`)           | **Done**                                   |
 | **C12e**  | `std.io.exit(code: Int)`                                           | Planned                                    |
 | **C12f**  | `String.indexOf`                                                   | Planned                                    |
 | **C12g**  | `String.split` → `Array<String>`                                   | Planned                                    |

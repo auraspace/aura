@@ -1,0 +1,6 @@
+[package]
+name = "demo.stdio.stdin"
+
+[[bin]]
+name = "stdin"
+path = "src"

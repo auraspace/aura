@@ -17,15 +17,16 @@ When you resolve debt, update or remove the matching entry.
 - Tracked: [C12 plan](../docs/plans/2026-07-21-next-20-c12a-c12t.md)
 - Introduced: narrowed after C10h; env free landed 2026-07-20
 
-### No stdin / exit (alpha gap, narrowed)
+### No process exit API (alpha gap, narrowed)
 
 - Area: runtime / std.io / CLI
-- Symptom: no `readLine`; no process exit code API
-- Progress: **C12b** — runtime stashes `argc`/`argv`; `std.io.args(): Array<String>` (`args()[0]` = program name); corpus `std_io/args`; **C12c** — `aura run` / `aura test` forward args after `--` to the child process
+- Symptom: no process exit code API (`std.io.exit` / `std.process`)
+- Progress: **C12b** argv + **C12c** CLI pass-through; **C12d** — `std.io.readLine(): String?` (EOF → null; empty line `""`; 1 MiB line cap throws String) + `readAllStdin(): String` (256 MiB cap); runtime `aura_read_line` / `aura_read_all_stdin`; corpus `std_io/stdin` (pipe verify below)
 - Why deferred: notes dogfood used fixed scenarios for 0.1.0-alpha
-- Next step: **C12d–e** (`readLine`, `exit`)
+- Next step: **C12e** (`exit`)
+- Residual (stdin): corpus smoke runs without pipe (EOF path only); full line/`readAllStdin` path is manual `printf … | aura run …`; line cap is 1 MiB (smaller than file 256 MiB)
 - Tracked: [C12 plan](../docs/plans/2026-07-21-next-20-c12a-c12t.md)
-- Introduced: documented in 0.1.0-alpha release notes; argv narrowed 2026-07-21; CLI pass-through 2026-07-21
+- Introduced: documented in 0.1.0-alpha release notes; argv narrowed 2026-07-21; CLI pass-through 2026-07-21; stdin 2026-07-21
 
 ### Array field return still moves (no true borrow type)
 

@@ -238,6 +238,161 @@ void aura_append_file(const char *path, const char *content)
   aura_write_file_mode(path, content, "ab", "append_file");
 }
 
+/* ---- Stdin (std.io.readLine / readAllStdin) ----
+ * readLine: one line without trailing \n or \r\n; NULL on EOF; empty line is "".
+ * Oversized line / whole-stdin throws String (MVP caps).
+ */
+
+#define AURA_IO_MAX_LINE ((int64_t)1 * 1024 * 1024)
+
+const char *aura_read_line(void)
+{
+  size_t cap = 128;
+  size_t n = 0;
+  char *buf = (char *)malloc(cap);
+  if (buf == NULL)
+  {
+    aura_io_throw_msg("io read_line failed: out of memory");
+  }
+  int c = EOF;
+  for (;;)
+  {
+    c = fgetc(stdin);
+    if (c == EOF)
+    {
+      break;
+    }
+    if (c == '\n')
+    {
+      break;
+    }
+    /* Treat \r or \r\n as end of line (strip CR). */
+    if (c == '\r')
+    {
+      int next = fgetc(stdin);
+      if (next != '\n' && next != EOF)
+      {
+        ungetc(next, stdin);
+      }
+      break;
+    }
+    if ((int64_t)n >= AURA_IO_MAX_LINE)
+    {
+      free(buf);
+      aura_io_throw_msg("io read_line failed: line exceeds 1 MiB limit");
+    }
+    if (n + 1 >= cap)
+    {
+      size_t ncap = cap * 2;
+      if ((int64_t)ncap > AURA_IO_MAX_LINE + 1)
+      {
+        ncap = (size_t)AURA_IO_MAX_LINE + 1;
+      }
+      char *nb = (char *)realloc(buf, ncap);
+      if (nb == NULL)
+      {
+        free(buf);
+        aura_io_throw_msg("io read_line failed: out of memory");
+      }
+      buf = nb;
+      cap = ncap;
+    }
+    buf[n++] = (char)c;
+  }
+  if (ferror(stdin))
+  {
+    free(buf);
+    aura_io_throw_msg("io read_line failed: stdin read error");
+  }
+  /* Immediate EOF with no bytes → null (String?). */
+  if (c == EOF && n == 0)
+  {
+    free(buf);
+    return NULL;
+  }
+  buf[n] = '\0';
+  return buf;
+}
+
+const char *aura_read_all_stdin(void)
+{
+  size_t cap = 4096;
+  size_t n = 0;
+  char *buf = (char *)malloc(cap);
+  if (buf == NULL)
+  {
+    aura_io_throw_msg("io read_all_stdin failed: out of memory");
+  }
+  for (;;)
+  {
+    if (n + 1 >= cap)
+    {
+      if ((int64_t)cap >= AURA_IO_MAX_FILE)
+      {
+        free(buf);
+        aura_io_throw_msg("io read_all_stdin failed: input exceeds 256 MiB limit");
+      }
+      size_t ncap = cap * 2;
+      if ((int64_t)ncap > AURA_IO_MAX_FILE)
+      {
+        ncap = (size_t)AURA_IO_MAX_FILE;
+      }
+      if (ncap <= cap)
+      {
+        free(buf);
+        aura_io_throw_msg("io read_all_stdin failed: input exceeds 256 MiB limit");
+      }
+      char *nb = (char *)realloc(buf, ncap);
+      if (nb == NULL)
+      {
+        free(buf);
+        aura_io_throw_msg("io read_all_stdin failed: out of memory");
+      }
+      buf = nb;
+      cap = ncap;
+    }
+    size_t want = cap - n - 1; /* leave room for NUL */
+    if (want == 0)
+    {
+      free(buf);
+      aura_io_throw_msg("io read_all_stdin failed: input exceeds 256 MiB limit");
+    }
+    size_t got = fread(buf + n, 1, want, stdin);
+    n += got;
+    if (got < want)
+    {
+      if (ferror(stdin))
+      {
+        free(buf);
+        aura_io_throw_msg("io read_all_stdin failed: stdin read error");
+      }
+      break; /* EOF */
+    }
+    if ((int64_t)n >= AURA_IO_MAX_FILE)
+    {
+      int extra = fgetc(stdin);
+      if (extra != EOF)
+      {
+        free(buf);
+        aura_io_throw_msg("io read_all_stdin failed: input exceeds 256 MiB limit");
+      }
+      if (ferror(stdin))
+      {
+        free(buf);
+        aura_io_throw_msg("io read_all_stdin failed: stdin read error");
+      }
+      break;
+    }
+  }
+  if (memchr(buf, '\0', n) != NULL)
+  {
+    free(buf);
+    aura_io_throw_msg("io read_all_stdin failed: input contains embedded NUL (not a String)");
+  }
+  buf[n] = '\0';
+  return buf;
+}
+
 void aura_assert(bool cond)
 {
   if (!cond)
