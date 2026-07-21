@@ -3,6 +3,7 @@
 mod package;
 mod runtime_path;
 mod scaffold;
+mod std_path;
 
 use aura_codegen::{build_from_file, build_tests_from_file, emit_c_from_ast};
 use aura_diagnostics::{format_error_with, FormatOptions};

@@ -265,24 +265,8 @@ fn apply_std_io_prelude(
     Ok(())
 }
 
-/// Walk up from `from` (and env `AURA_STD`) looking for `std/<leaf>` package dir.
 fn find_std_package_dir(from: &Path, leaf: &str) -> Option<PathBuf> {
-    if let Ok(std_root) = std::env::var("AURA_STD") {
-        let p = PathBuf::from(std_root).join(leaf);
-        if p.is_dir() && p.join("aura.toml").is_file() {
-            return fs::canonicalize(&p).ok().or(Some(p));
-        }
-    }
-    let start = fs::canonicalize(from).unwrap_or_else(|_| from.to_path_buf());
-    let mut cur = Some(start.as_path());
-    while let Some(dir) = cur {
-        let candidate = dir.join("std").join(leaf);
-        if candidate.is_dir() && candidate.join("aura.toml").is_file() {
-            return fs::canonicalize(&candidate).ok().or(Some(candidate));
-        }
-        cur = dir.parent();
-    }
-    None
+    crate::std_path::find_std_package_dir(from, leaf)
 }
 
 fn find_std_io_dir(from: &Path) -> Option<PathBuf> {
@@ -324,11 +308,20 @@ fn resolve_imports(
             continue;
         }
         let dep_path = deps.get(&imp).cloned().ok_or_else(|| {
-            format!(
-                "error: package `{}` imports `{imp}` but no path dependency is declared in aura.toml\n  \
-                 hint: add `{imp} = {{ path = \"...\" }}` under [dependencies]",
-                pkg.package
-            )
+            if imp.starts_with("std.") {
+                format!(
+                    "error: package `{}` imports `{imp}` but the standard library was not found\n  \
+                     hint: reinstall Aura (release tarball includes share/aura/std) or set AURA_STD to the monorepo `std/` directory\n  \
+                     hint: or add `{imp} = {{ path = \"...\" }}` under [dependencies]",
+                    pkg.package
+                )
+            } else {
+                format!(
+                    "error: package `{}` imports `{imp}` but no path dependency is declared in aura.toml\n  \
+                     hint: add `{imp} = {{ path = \"...\" }}` under [dependencies]",
+                    pkg.package
+                )
+            }
         })?;
         let dep_pkg = load_dep_package(&dep_path)?;
         if dep_pkg.package != imp {

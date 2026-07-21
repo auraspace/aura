@@ -70,7 +70,7 @@ STAGE="$DIST/$NAME"
 echo "packaging $NAME"
 
 rm -rf "$STAGE"
-mkdir -p "$STAGE/bin" "$STAGE/share/aura"
+mkdir -p "$STAGE/bin" "$STAGE/share/aura/std"
 
 if [[ ! -f "$BIN" ]]; then
   echo "error: missing $BIN" >&2
@@ -79,6 +79,19 @@ fi
 
 cp "$BIN" "$STAGE/bin/aura"
 cp "$ROOT/runtime/aura_rt.c" "$STAGE/share/aura/aura_rt.c"
+# Std packages for import / auto-prelude outside the monorepo.
+for pkg in io assert collections; do
+  if [[ -d "$ROOT/std/$pkg" ]]; then
+    mkdir -p "$STAGE/share/aura/std/$pkg"
+    # Copy package tree without junk.
+    if command -v rsync >/dev/null 2>&1; then
+      rsync -a --exclude '.DS_Store' --exclude 'README.md' "$ROOT/std/$pkg/" "$STAGE/share/aura/std/$pkg/"
+    else
+      cp -R "$ROOT/std/$pkg/." "$STAGE/share/aura/std/$pkg/"
+      find "$STAGE/share/aura/std/$pkg" -name '.DS_Store' -delete 2>/dev/null || true
+    fi
+  fi
+done
 cp "$ROOT/LICENSE" "$STAGE/LICENSE"
 cat >"$STAGE/README.txt" <<EOF
 Aura toolchain ${TAG_VERSION} (${OS}/${ARCH})
@@ -91,6 +104,10 @@ Install:
 Runtime:
   share/aura/aura_rt.c is included; the CLI also embeds a copy.
   Optional: export AURA_RUNTIME="\$PWD/share/aura/aura_rt.c"
+
+Standard library:
+  share/aura/std/{io,assert,collections} — used by auto-prelude and \`import std.*\`.
+  Optional: export AURA_STD="\$PWD/share/aura/std"
 
 Docs: https://aura.fadosoft.com
 Freeze: docs/releases/0.1.0-alpha.md

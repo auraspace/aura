@@ -101,6 +101,18 @@ The C runtime (`runtime/aura_rt.c`) is **embedded** in the CLI and written to a 
 | Next to the binary                      | Optional layout               |
 | `~/.cache/aura/<cli-version>/aura_rt.c` | Materialized from the embed   |
 
+### Standard library (`std.io`, …)
+
+Auto-prelude and `import std.*` resolve packages from:
+
+| Location                                         | When used                         |
+| ------------------------------------------------ | --------------------------------- |
+| `AURA_STD`                                       | Explicit root containing `io/`, … |
+| Monorepo `std/<pkg>` (walk-up from package root) | Dev workflow                      |
+| `$AURA_HOME/.../share/aura/std/<pkg>`            | From release tarball              |
+| Next to the binary `share/aura/std/<pkg>`        | Unpacked archive layout           |
+| `~/.cache/aura/<cli-version>/std/`               | Materialized from the embed       |
+
 You do **not** need to keep the git clone after install for compiling Aura programs.
 
 ## Without installing
@@ -153,13 +165,13 @@ Expect `Hello, Aura` on stdout.
 
 ## Troubleshooting
 
-| Symptom                  | Fix                                                                     |
-| ------------------------ | ----------------------------------------------------------------------- |
-| `cc` / `clang` not found | Install Xcode CLT (macOS) or `build-essential` (Debian/Ubuntu)          |
-| `cannot find runtime`    | Upgrade CLI (embed) or set `AURA_RUNTIME` to a valid `aura_rt.c`        |
-| `std.io` / std not found | Use package mode (`aura.toml`); for monorepo samples run from repo root |
-| Wrong CLI                | `which aura` / `avm --show` — prefer `$AURA_HOME/bin`                   |
-| Old binary on PATH       | Ensure `$AURA_HOME/bin` or `~/.local/bin` precedes `~/.cargo/bin`       |
+| Symptom                  | Fix                                                                         |
+| ------------------------ | --------------------------------------------------------------------------- |
+| `cc` / `clang` not found | Install Xcode CLT (macOS) or `build-essential` (Debian/Ubuntu)              |
+| `cannot find runtime`    | Upgrade CLI (embed) or set `AURA_RUNTIME` to a valid `aura_rt.c`            |
+| `std.io` / std not found | Upgrade CLI (embed + `share/aura/std`) or set `AURA_STD` to monorepo `std/` |
+| Wrong CLI                | `which aura` / `avm --show` — prefer `$AURA_HOME/bin`                       |
+| Old binary on PATH       | Ensure `$AURA_HOME/bin` or `~/.local/bin` precedes `~/.cargo/bin`           |
 
 ## Next
 

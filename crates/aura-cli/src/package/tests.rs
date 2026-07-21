@@ -74,8 +74,12 @@ fun main() {
     let pkg = load_package(&root.join("aura.toml")).expect("load");
     assert_eq!(pkg.package, "demo.multi");
     assert_eq!(pkg.bin_name, "multi");
-    assert_eq!(pkg.sources.len(), 2);
-    assert_eq!(pkg.ast.functions.len(), 2);
+    // App sources only: main + util (std.io may be merged as extra sources via auto-prelude).
+    assert!(
+        pkg.sources.len() >= 2,
+        "expected at least app sources, got {}",
+        pkg.sources.len()
+    );
     let names: Vec<_> = pkg
         .ast
         .functions
@@ -84,6 +88,11 @@ fun main() {
         .collect();
     assert!(names.contains(&"main"));
     assert!(names.contains(&"square"));
+    // Auto-prelude merges std.io free functions when the std tree is discoverable.
+    assert!(
+        names.contains(&"println"),
+        "expected std.io auto-prelude println, got {names:?}"
+    );
     let _ = fs::remove_dir_all(&root);
 }
 

@@ -8,7 +8,7 @@
 
 use std::env;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// Exact runtime sources linked into every user binary (compile-time embed).
 pub const EMBEDDED_RUNTIME_C: &str = include_str!(concat!(
@@ -120,6 +120,6 @@ mod tests {
         let a = materialize_embedded().unwrap();
         let b = materialize_embedded().unwrap();
         assert_eq!(a, b);
-        assert!(Path::new(&a).is_file());
+        assert!(a.is_file());
     }
 }

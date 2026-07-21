@@ -87,9 +87,13 @@ aura run corpus/std_collections/hof
 ## How the CLI finds `std.*`
 
 - Auto-prelude **`std.io`** for package builds
-- Path resolution for `std.*` imports via `AURA_STD` or walk-up from the package
+- Path resolution for `std.*` (io / assert / collections):
+  1. `AURA_STD` (directory that contains `io/`, `assert/`, …)
+  2. Walk-up from the package looking for monorepo `std/<pkg>`
+  3. Release install: `share/aura/std/<pkg>` next to the toolchain
+  4. Embedded copy materialized under `~/.cache/aura/<version>/std/`
 
-If imports fail, verify you are invoking the CLI on a **package directory** (with `aura.toml`) and that `std/` is reachable (monorepo layout, or your install’s std path when applicable).
+After a normal install (or `cargo install` of a recent CLI), you should **not** need to declare `std.io = { path = "..." }` in app `aura.toml`.
 
 ## What is _not_ in core (by design)
 

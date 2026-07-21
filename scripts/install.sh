@@ -185,6 +185,16 @@ download_and_install() {
     cp "${stage}/share/aura_rt.c" "${vdir}/share/aura/aura_rt.c"
   fi
 
+  # Std packages (io/assert/collections) when present in the archive.
+  if [[ -d "${stage}/share/aura/std" ]]; then
+    mkdir -p "${vdir}/share/aura/std"
+    if command -v rsync >/dev/null 2>&1; then
+      rsync -a "${stage}/share/aura/std/" "${vdir}/share/aura/std/"
+    else
+      cp -R "${stage}/share/aura/std/." "${vdir}/share/aura/std/"
+    fi
+  fi
+
   printf '%s\n' "$version" >"${vdir}/meta/version"
   printf '%s\n' "$os" >"${vdir}/meta/os"
   printf '%s\n' "$arch" >"${vdir}/meta/arch"
