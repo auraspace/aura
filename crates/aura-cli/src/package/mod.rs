@@ -2,6 +2,7 @@
 
 mod load;
 mod lock;
+mod registry;
 mod toml;
 mod types;
 mod util;
@@ -11,4 +12,8 @@ mod util;
 mod tests;
 
 pub use load::{load_package, load_package_default};
+pub use registry::{
+    default_index_path, index_root_from_env, RegistryConfig, RegistryIndex, VersionMeta,
+    ENV_REGISTRY_INDEX,
+};
 pub use types::LoadedPackage;

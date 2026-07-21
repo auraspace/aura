@@ -1,0 +1,9 @@
+[
+  {
+    "name": "serde",
+    "vers": "1.0.0",
+    "cksum": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "yanked": false,
+    "repository": "auraspace/serde"
+  }
+]

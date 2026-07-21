@@ -1,0 +1,5 @@
+{
+  "dl": "https://github.com/{owner}/{repo}/releases/download/v{version}/{name}-{version}.crate",
+  "api": "https://github.com/auraspace/crates-index",
+  "github_api": "https://api.github.com"
+}

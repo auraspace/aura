@@ -1,0 +1,23 @@
+[
+  {
+    "name": "hello",
+    "vers": "1.0.0",
+    "cksum": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "yanked": false,
+    "repository": "auraspace/hello"
+  },
+  {
+    "name": "hello",
+    "vers": "1.1.0",
+    "cksum": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "yanked": false,
+    "repository": "auraspace/hello"
+  },
+  {
+    "name": "hello",
+    "vers": "1.2.0",
+    "cksum": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "yanked": true,
+    "repository": "auraspace/hello"
+  }
+]

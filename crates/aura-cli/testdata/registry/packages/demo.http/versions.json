@@ -1,0 +1,18 @@
+{
+  "versions": [
+    {
+      "name": "demo.http",
+      "vers": "0.1.0",
+      "cksum": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "yanked": false,
+      "repository": "auraspace/demo-http"
+    },
+    {
+      "name": "demo.http",
+      "vers": "0.2.0",
+      "cksum": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      "yanked": false,
+      "repository": "auraspace/demo-http"
+    }
+  ]
+}

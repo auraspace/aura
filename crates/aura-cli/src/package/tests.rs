@@ -317,3 +317,103 @@ fun main() { square(2) }
     assert_eq!(square.origin_package, "demo.math");
     let _ = fs::remove_dir_all(&root);
 }
+
+// --- C13i registry index client ---
+
+fn fixture_registry_index() -> crate::package::RegistryIndex {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/registry");
+    crate::package::RegistryIndex::open(&root).expect("open fixture registry")
+}
+
+#[test]
+fn registry_list_versions_flat_fixture() {
+    let idx = fixture_registry_index();
+    let vers = idx.list_versions("hello").expect("list hello");
+    assert_eq!(vers, vec!["1.0.0", "1.1.0", "1.2.0"]);
+
+    let unyanked = idx.list_versions_unyanked("hello").unwrap();
+    assert_eq!(unyanked, vec!["1.0.0", "1.1.0"]);
+}
+
+#[test]
+fn registry_get_version_meta() {
+    let idx = fixture_registry_index();
+    let meta = idx.get_version_meta("hello", "1.1.0").unwrap();
+    assert_eq!(meta.name, "hello");
+    assert_eq!(meta.vers, "1.1.0");
+    assert!(meta.cksum.starts_with("sha256:"));
+    assert!(!meta.yanked);
+    assert_eq!(meta.repository.as_deref(), Some("auraspace/hello"));
+
+    let yanked = idx.get_version_meta("hello", "1.2.0").unwrap();
+    assert!(yanked.yanked);
+
+    let err = idx.get_version_meta("hello", "9.9.9").unwrap_err();
+    assert!(err.contains("not found"), "{err}");
+}
+
+#[test]
+fn registry_wrapped_versions_object() {
+    let idx = fixture_registry_index();
+    let vers = idx.list_versions("demo.http").unwrap();
+    assert_eq!(vers, vec!["0.1.0", "0.2.0"]);
+    let meta = idx.get_version_meta("demo.http", "0.2.0").unwrap();
+    assert_eq!(
+        meta.cksum,
+        "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+    );
+}
+
+#[test]
+fn registry_sparse_layout_package() {
+    let idx = fixture_registry_index();
+    // Only present under packages/se/rd/serde/versions.json (RFC-005 sparse)
+    let vers = idx.list_versions("serde").unwrap();
+    assert_eq!(vers, vec!["1.0.0"]);
+    let meta = idx.get_version_meta("serde", "1.0.0").unwrap();
+    assert_eq!(meta.repository.as_deref(), Some("auraspace/serde"));
+}
+
+#[test]
+fn registry_config_loaded() {
+    let idx = fixture_registry_index();
+    let cfg = idx.config();
+    assert!(cfg.dl.as_ref().is_some_and(|d| d.contains("{version}")));
+    assert!(cfg.api.as_ref().is_some_and(|a| a.contains("crates-index")));
+}
+
+#[test]
+fn registry_missing_package() {
+    let idx = fixture_registry_index();
+    let err = idx.list_versions("no.such.pkg").unwrap_err();
+    assert!(err.contains("not found"), "{err}");
+}
+
+#[test]
+fn registry_default_index_path_shape() {
+    use crate::package::{default_index_path, index_root_from_env, ENV_REGISTRY_INDEX};
+
+    let def = default_index_path();
+    let s = def.to_string_lossy();
+    assert!(
+        s.contains(".aura") && s.contains("registry") && s.ends_with("index"),
+        "{def:?}"
+    );
+    // When AURA_REGISTRY_INDEX is unset, env root equals default cache path.
+    if std::env::var_os(ENV_REGISTRY_INDEX).is_none() {
+        assert_eq!(index_root_from_env(), def);
+        // from_env_or_default only succeeds if the cache dir already exists.
+        let _ = crate::package::RegistryIndex::from_env_or_default();
+    }
+
+    let idx = fixture_registry_index();
+    assert!(idx.root().ends_with("testdata/registry") || idx.root().ends_with("testdata\\registry"));
+    let _cfg: &crate::package::RegistryConfig = idx.config();
+    let _meta: crate::package::VersionMeta = idx.get_version_meta("hello", "1.0.0").unwrap();
+}
+
+#[test]
+fn registry_open_missing_dir() {
+    let err = crate::package::RegistryIndex::open("/no/such/aura/registry/index/xyz").unwrap_err();
+    assert!(err.contains("not found"), "{err}");
+}
