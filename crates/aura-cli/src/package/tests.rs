@@ -662,6 +662,7 @@ fn install_from_bytes_and_sha256_helpers() {
 fn fetch_cache_root_env_and_defaults() {
     use crate::package::{cache_root_from_env, default_cache_root, ENV_REGISTRY_CACHE};
 
+    let _guard = registry_env_lock();
     let def = default_cache_root();
     let s = def.to_string_lossy();
     assert!(

@@ -4,6 +4,9 @@
 
 ### Changes
 
+- test(ci): S1 runtime/compiler hardening gate with sanitizer and compiler regression smoke
+- fix(runtime): make process argv strings heap-owned and serialize registry cache environment tests
+- fix(cli): harden user-input error paths and enforce Clippy with `-D warnings`
 - docs(C13t): close C13a–C13t batch (dogfood, Fun/`var` String captures, registry K1 offline, std.io polish)
 - docs(C13s): signing/integrity design note
 - docs(C13p): Hashable / generic HashMap spike note (mono `HashMap<K,V>` path; no code)

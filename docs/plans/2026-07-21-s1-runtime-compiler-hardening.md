@@ -1,5 +1,9 @@
 # S1 — Runtime & Compiler Hardening
 
+**Status:** Complete
+
+**Completed:** 2026-07-21
+
 ## Objective
 
 Move the compiler/runtime from alpha dogfood quality toward a stronger release gate by fixing known ownership issues, enforcing strict linting, expanding regression coverage, and validating memory safety.
@@ -179,3 +183,12 @@ Move the compiler/runtime from alpha dogfood quality toward a stronger release g
 - Runtime sanitizer smoke tests pass on Linux CI.
 - `examples/wc` does not crash when using process arguments.
 - CI has sufficient gates to prevent ownership/compiler regressions before S2.
+
+## Completion notes
+
+- `cargo test --workspace` passes with an isolated writable `XDG_CACHE_HOME`.
+- `cargo clippy --workspace --all-targets -- -D warnings` passes.
+- `bash scripts/check-corpus.sh` passes.
+- `bash scripts/compiler-regression.sh` passes all 24 checks.
+- `bash scripts/sanitizer-smoke.sh` passes all 6 sanitizer cases locally.
+- Environment-sensitive registry cache tests are serialized with the existing registry test lock.
