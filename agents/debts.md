@@ -16,7 +16,7 @@ When you resolve debt, update or remove the matching entry.
 - Note (C12l): Array capture is a non-owning `{data,len,cap}` view (like field bind). Freeing/moving the outer Array owner while Fun is still live is **undefined**
 - Note (C12m): `var` Int/Bool uses `aura_box_*` (refcount); outer + each capturing env retain; multiple lambdas share mutations; escaping Fun keeps the box alive
 - Next step: Fun capture + shared-env GC; later `var` String/class/Array if needed
-- Tracked: [C12 plan](../docs/plans/2026-07-21-next-20-c12a-c12t.md)
+- Note: C12 batch closed (C12t); class/Array/`var` prim capture shipped — residual only
 - Introduced: narrowed after C10h; env free 2026-07-20; class C12k 2026-07-21; Array view C12l 2026-07-21; var Int/Bool C12m 2026-07-21
 
 ### Array field return still moves (no true borrow type)
@@ -62,7 +62,7 @@ When you resolve debt, update or remove the matching entry.
 - Why deferred: String→Int + String→String cover demos; generic needs hashable protocol
 - Progress: C9b auto-resize when load ≥ 1/2; explicit `grow()`; **C12n** `HashMapStr` String→String (`hash_map_str()`, `get` → `String?`); **C12o** `map_strings` / `filter_strings` / `fold_strings`
 - Next step: later `HashMap<K,V>` when hashable protocol exists; generic map/filter when Fun mono polish lands
-- Tracked: [C12 plan](../docs/plans/2026-07-21-next-20-c12a-c12t.md)
+- Note: C12 batch closed (C12t); HashMapStr + String HOF shipped — residual is generic form only
 - Introduced: narrowed after C8i; resize C9b; String→String C12n; String HOF C12o
 
 ### Chained method on `Array.get` temporary (codegen)
@@ -83,6 +83,10 @@ When you resolve debt, update or remove the matching entry.
 - Introduced: 2026-07-21 (C12q)
 
 ## Resolved
+
+### C12 post-alpha batch (2026-07-21)
+
+- Resolved C12a–t: process argv/stdin/exit; String `indexOf`/`split`/`trim*`/`toInt`; `join`; lambda class/Array/`var` Int·Bool captures; HashMapStr; String HOF; `tryReadFile`; `examples/wc`; guide/corpus/install smoke; batch close. Residual open debts (Fun capture, generic HashMap, String free, method-on-temp, Int→String, registry, borrow, Array&lt;I&gt;) unchanged in scope.
 
 ### Higher-order Int array helpers (2026-07-20)
 

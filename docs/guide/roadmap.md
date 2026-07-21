@@ -25,7 +25,7 @@ Aura is **spec-first**: RFCs lock design; the compiler and runtime land vertical
 | RFC             | Title                      | RFC status | In code (approx.)       | Notes                                                                                                      |
 | --------------- | -------------------------- | ---------- | ----------------------- | ---------------------------------------------------------------------------------------------------------- |
 | [000](/rfc/000) | Vision & design principles | Accepted   | **Shipped (docs)**      | Product north star                                                                                         |
-| [001](/rfc/001) | Language specification     | Accepted   | **Partial → broad MVP** | Through **C12q**: classes, packages, lambdas + richer captures, String tools; async/macros not full        |
+| [001](/rfc/001) | Language specification     | Accepted   | **Partial → broad MVP** | Through **C12t**: classes, packages, lambdas + richer captures, String tools; async/macros not full        |
 | [002](/rfc/002) | Type system                | Accepted   | **Partial**             | Null flow, generics, bounds, Result, fun types; deeper rules ongoing                                       |
 | [003](/rfc/003) | Memory & concurrency       | Accepted   | **Partial**             | GC mark/sweep + class heap; tasks/channels limited                                                         |
 | [004](/rfc/004) | Compiler architecture      | Accepted   | **Partial**             | Rust toolchain + **C backend** default; LLVM later                                                         |
@@ -41,7 +41,7 @@ Aura is **spec-first**: RFCs lock design; the compiler and runtime land vertical
 
 ## Compiler milestone band
 
-Public README and repo `docs/roadmap.md` track **C0 → C12q** shipped (surface), **C12r–s** docs/DX Done, **C12t** remaining.
+Public README and repo `docs/roadmap.md` track **C0 → C12t** batch closed (post-alpha process I/O, String tools, captures, collections polish, dogfood/docs/DX).
 
 | Band   | User-visible outcome                                                                                                                  |
 | ------ | ------------------------------------------------------------------------------------------------------------------------------------- |
@@ -53,14 +53,11 @@ Public README and repo `docs/roadmap.md` track **C0 → C12q** shipped (surface)
 | C8–C9  | Generic iface/class mono, nested Array, HashMap(+resize), String+/interp, `is`                                                        |
 | C10    | First-class funs/lambdas (expr/block), fun types, val captures MVP, Int HOF                                                           |
 | C11a–e | file I/O, Fun env free, `aura new`, substring, notes dogfood, **install/embed runtime**, 0.1 freeze                                   |
-| C12a–q | **Shipped:** argv/stdin/exit, String split/trim/toInt/join, class·Array·var captures, HashMapStr, HOF str, tryReadFile, `examples/wc` |
-| C12r   | **Done:** corpus + guide sync for C12 teach path                                                                                      |
-| C12s   | **Done:** install smoke checklist + `avm` help polish (Windows CI deferred)                                                           |
-| C12t   | **Planned:** batch close                                                                                                              |
+| C12a–t | **Done:** argv/stdin/exit, String tools, class·Array·var captures, HashMapStr, HOF str, tryReadFile, `examples/wc`, guide, install DX |
 
-**Shipped:** tag `v0.1.0-alpha` + multi-OS tarballs ([release notes](https://github.com/auraspace/aura/blob/main/docs/releases/0.1.0-alpha.md)); C12 surface through dogfood CLI + install smoke.
+**Shipped:** tag `v0.1.0-alpha` + multi-OS tarballs ([release notes](https://github.com/auraspace/aura/blob/main/docs/releases/0.1.0-alpha.md)); C12a–C12t post-alpha batch closed.
 
-**Next:** [C12t](https://github.com/auraspace/aura/blob/main/docs/plans/2026-07-21-next-20-c12a-c12t.md) batch close. After C12: registry fetch/semver; tasks/async; signed installers.
+**Next:** registry fetch/semver; tasks/async; signed installers (see [C12 plan](https://github.com/auraspace/aura/blob/main/docs/plans/2026-07-21-next-20-c12a-c12t.md) out-of-scope + [debts](https://github.com/auraspace/aura/blob/main/agents/debts.md)).
 
 Exact bullet lists live in the root [README](https://github.com/auraspace/aura) and repo [`docs/roadmap.md`](https://github.com/auraspace/aura/blob/main/docs/roadmap.md).
 
