@@ -2,14 +2,14 @@
 title: Standard library
 section: Toolchain
 order: 55
-summary: In-tree std packages — std.io, std.assert, and how prelude resolution works.
+summary: In-tree std packages — std.io, std.assert, std.collections, and prelude resolution.
 ---
 
 # Standard library
 
 Aura’s **core** stdlib is intentionally small ([RFC-007](/rfc/007), [RFC-000](/rfc/000) batteries-included-but-modular). In this repository, packages live under `std/`.
 
-## Packages today
+## Packages today (0.1.0-alpha)
 
 | Package           | Path              | Role                                                  |
 | ----------------- | ----------------- | ----------------------------------------------------- |
@@ -51,9 +51,10 @@ fun main() {
 Corpus:
 
 ```bash
-cargo run -p aura-cli -- run corpus/std_io/app
-cargo run -p aura-cli -- run corpus/std_io/prelude
-cargo run -p aura-cli -- run corpus/std_io/files
+aura run corpus/std_io/app
+aura run corpus/std_io/prelude
+aura run corpus/std_io/files
+# monorepo: cargo run -p aura-cli -- run corpus/std_io/files
 ```
 
 ## `std.assert`
@@ -61,19 +62,34 @@ cargo run -p aura-cli -- run corpus/std_io/files
 Use with `aura test` and `@test` functions:
 
 ```bash
-cargo run -p aura-cli -- run corpus/std_assert/app
+aura run corpus/std_assert/app
 ```
 
 Prefer package tests that exercise `assert` / `assert_eq` for `Int` / `String` / `Bool` in the current MVP.
 
-## How the CLI finds `std.*`
+## `std.collections`
 
-Milestones in the root README (C4g / C4h):
+| Type / helper                            | Notes                                                |
+| ---------------------------------------- | ---------------------------------------------------- |
+| `Map<K, V>`                              | Linear map; `get` → `V?`; `put` / `remove` / `clear` |
+| `Set<T>`                                 | Generic set (linear)                                 |
+| `HashMap`                                | String→Int open addressing + auto-resize (C9b)       |
+| `Iterable<E>`                            | `len` + `get` protocol for `for-in`                  |
+| `map_ints` / `filter_ints` / `fold_ints` | Int array HOF helpers                                |
+
+**Alpha limits:** no generic `HashMap<K,V>` yet (String→Int only for the hashed map). See [Arrays](./arrays.md) for HOF usage and capture limits.
+
+```bash
+aura run corpus/std_collections/app
+aura run corpus/std_collections/hof
+```
+
+## How the CLI finds `std.*`
 
 - Auto-prelude **`std.io`** for package builds
 - Path resolution for `std.*` imports via `AURA_STD` or walk-up from the package
 
-If imports fail, verify you are invoking the CLI on a **package directory** (with `aura.toml`) and that `std/` is reachable from the monorepo layout.
+If imports fail, verify you are invoking the CLI on a **package directory** (with `aura.toml`) and that `std/` is reachable (monorepo layout, or your install’s std path when applicable).
 
 ## What is _not_ in core (by design)
 

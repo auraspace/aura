@@ -17,16 +17,16 @@ You write with a **class-based** object model, **null-safe types**, and **lightw
 
 ## Who these docs are for
 
-| You are…                       | Start with…                                 |
-| ------------------------------ | ------------------------------------------- |
-| Trying Aura for the first time | [Getting started](./getting-started.md)     |
-| Learning the surface language  | [Language tour](./language-tour.md)         |
-| Quick syntax lookup            | [Syntax cheatsheet](./syntax-cheatsheet.md) |
-| Using the CLI day to day       | [CLI](./cli.md)                             |
-| Std packages (`io`, `assert`)  | [Standard library](./standard-library.md)   |
-| Packaging multi-file projects  | [Packages](./packages.md)                   |
-| Common questions               | [FAQ](./faq.md)                             |
-| Reading design decisions       | [RFCs](/rfc)                                |
+| You are…                         | Start with…                                 |
+| -------------------------------- | ------------------------------------------- |
+| Trying Aura for the first time   | [Getting started](./getting-started.md)     |
+| Learning the surface language    | [Language tour](./language-tour.md)         |
+| Quick syntax lookup              | [Syntax cheatsheet](./syntax-cheatsheet.md) |
+| Using the CLI day to day         | [CLI](./cli.md)                             |
+| Std packages (`io`, `assert`, …) | [Standard library](./standard-library.md)   |
+| Packaging multi-file projects    | [Packages](./packages.md)                   |
+| Common questions                 | [FAQ](./faq.md)                             |
+| Reading design decisions         | [RFCs](/rfc)                                |
 
 ## Docs vs RFCs
 
@@ -42,9 +42,9 @@ When a guide summarizes behavior, the RFC remains the source of truth for edge c
 
 - Vision is locked in **[RFC-000](/rfc/000)** (Accepted).
 - MVP language surface is tracked in **[RFC-001 §6.0](/rfc/001)**.
-- The `aura` CLI can **check**, **build**, **run**, and **test** real packages in this repository (C backend + runtime).
+- First public alpha: **`0.1.0-alpha`** — install with the [one-liner](./install.md); CLI supports `new` / `init` / `check` / `build` / `run` / `test` / `version` (C backend + embedded runtime).
 
-See also the public [roadmap](./roadmap.md) notes.
+See also the public [roadmap](./roadmap.md) notes and [0.1.0-alpha freeze](https://github.com/auraspace/aura/blob/main/docs/releases/0.1.0-alpha.md).
 
 ## Next
 

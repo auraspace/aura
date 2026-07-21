@@ -16,7 +16,7 @@ Aura is developed in the open under the **MIT** license.
 | Language / design   | `docs/rfc/`         | Copy `TEMPLATE.md`; statuses are controlled        |
 | Compiler / CLI      | `crates/`           | Rust workspace; tests via `cargo test --workspace` |
 | Runtime             | `runtime/aura_rt.c` | Linked into native builds                          |
-| Std packages        | `std/`              | `io`, `assert`, …                                  |
+| Std packages        | `std/`              | `io`, `assert`, `collections`, …                   |
 | Executable examples | `corpus/`           | Preferred proof for features                       |
 | User docs           | `docs/guide/`       | This site’s `/docs` content                        |
 | Website             | `site/`             | Vite + React; `pnpm site:dev`                      |

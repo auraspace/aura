@@ -7,31 +7,47 @@ summary: Install aura, scaffold Hello, and run examples.
 
 # Getting started
 
-Alpha install paths: **`cargo install`** from a clone, or **`cargo run -p aura-cli`** inside the monorepo. See [Install](./install.md) and [0.1.0-alpha notes](../releases/0.1.0-alpha.md).
+Preferred install: the **one-liner** (after [0.1.0-alpha](https://github.com/auraspace/aura/blob/main/docs/releases/0.1.0-alpha.md) Release assets exist). Full layout and switches: [Install](./install.md).
 
 ## Prerequisites
 
-- **Rust** toolchain (`cargo`, `rustc`) — current stable is fine
 - A C compiler on `PATH` (`cc`, `clang`, or `gcc`) for the native link step
+- **curl** + **tar** for the one-liner installer
+- **Rust** (`cargo`, `rustc`) only if you install from source or develop the toolchain
 - **pnpm** only if you want the docs site locally
 
 ## Install the CLI
 
 ```bash
-# From a clone of this repository:
-cargo install --path crates/aura-cli
+curl -fsSL https://aura.fadosoft.com/install.sh | bash
+# pin: curl -fsSL https://aura.fadosoft.com/install.sh | AURA_VERSION=0.1.0-alpha bash
+
+export PATH="$HOME/.aura/bin:$HOME/.local/bin:$PATH"
 aura version
 ```
 
-Or without installing, from the repository root:
+Switch installed versions with `avm` (see [Install](./install.md)).
+
+### From source (contributors / monorepo)
 
 ```bash
+git clone https://github.com/auraspace/aura.git
+cd aura
+cargo install --path crates/aura-cli
+# or without installing:
 cargo run -p aura-cli -- --help
 ```
 
-The binary is the `aura` CLI (package `aura-cli`). The C runtime is embedded; you do not need the repo tree after install.
+The C runtime is **embedded** in the CLI; you do not need the repo tree after a binary install.
 
 ## Hello, Aura (scaffold)
+
+```bash
+aura new hello
+aura run hello
+```
+
+In the monorepo without a global install:
 
 ```bash
 cargo run -p aura-cli -- new hello
@@ -52,16 +68,18 @@ fun main() {
 ### Typecheck / build
 
 ```bash
-cargo run -p aura-cli -- check hello
-cargo run -p aura-cli -- build hello -o target/aura/hello
+aura check hello
+aura build hello -o target/aura/hello
 ./target/aura/hello
 ```
 
-Native builds emit C, compile with the system `cc`, and link `runtime/aura_rt.c`.
+Native builds emit C, compile with the system `cc`, and link `aura_rt.c` (embedded or from the release tree).
 
-A single-file sample also lives at `corpus/hello/main.aura` if you prefer not to scaffold.
+A single-file sample also lives at `corpus/hello/main.aura` if you prefer not to scaffold (monorepo).
 
 ## More corpus samples
+
+From a clone of this repository:
 
 | Command                       | What it shows                    |
 | ----------------------------- | -------------------------------- |
@@ -73,7 +91,7 @@ A single-file sample also lives at `corpus/hello/main.aura` if you prefer not to
 | `run examples/notes`          | Dogfood multi-file notes app     |
 | `test examples/notes`         | Package `@test` suite            |
 
-Full list of compiler milestones is in the root [README](https://github.com/auraspace/aura).
+Prefix with `cargo run -p aura-cli --` when using the in-tree CLI. Full milestone list: root [README](https://github.com/auraspace/aura).
 
 ## Docs site (optional)
 

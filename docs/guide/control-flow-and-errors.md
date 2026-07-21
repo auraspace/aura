@@ -21,7 +21,29 @@ fun sign(n: Int): String {
 }
 ```
 
-`if` can also participate as an expression where the language surface allows (see RFC-001).
+### `if` as expression (C4t)
+
+When every branch ends in a value expression (and there is an `else`), `if` can produce a value:
+
+```aura
+fun label(x: Int): String {
+  return if (x == 2) {
+    "two"
+  } else {
+    "other"
+  }
+}
+```
+
+Corpus: `expr/if_expr.aura`.
+
+### `is` in conditions
+
+```aura
+if (obj is Greeter) {
+  println("greeter")
+}
+```
 
 ## Loops
 
@@ -105,6 +127,8 @@ fun safe(): Int {
 ```
 
 Payload types currently include scalars and object-ish values in the implementation path — see compiler notes / corpus `control/try_catch.aura`.
+
+**Alpha note:** file I/O in `std.io` throws `String` messages on failure (not `Result` yet). Max read size 256 MiB.
 
 ## Choosing Result vs throw
 

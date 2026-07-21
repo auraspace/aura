@@ -14,13 +14,15 @@ Aura’s MVP test runner is the `test` CLI verb ([RFC-011](/rfc/011)).
 Single file:
 
 ```bash
-cargo run -p aura-cli -- test corpus/test/smoke.aura
+aura test corpus/test/smoke.aura
+# monorepo: cargo run -p aura-cli -- test corpus/test/smoke.aura
 ```
 
 Whole package:
 
 ```bash
-cargo run -p aura-cli -- test corpus/multi
+aura test corpus/multi
+aura test examples/notes
 ```
 
 ## `@test` functions
@@ -34,7 +36,7 @@ fun adds() {
 }
 ```
 
-See `corpus/test/` and package-level tests under `corpus/` for patterns that compile today.
+See `corpus/test/` and package-level tests under `corpus/` / `examples/notes` for patterns that compile today.
 
 ## Design intent
 
@@ -43,4 +45,5 @@ RFC-011 describes a broader framework (discovery, filtering, reporting). The **w
 ## Next
 
 - [Getting started](./getting-started.md)
+- [Standard library](./standard-library.md)
 - [RFC-011](/rfc/011) — testing framework design

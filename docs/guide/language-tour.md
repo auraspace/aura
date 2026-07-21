@@ -37,19 +37,20 @@ Every file lives in a **package**. Programs enter at `fun main()`.
 These topics match **in-tree** behavior (corpus + CLI), not only Accepted RFCs:
 
 - Packages, functions, locals, expressions
-- Nullability flow and force-unwrap
-- Classes (GC), structs (value), interfaces, monomorphized generics (incl. generic class implements)
+- Nullability flow, force-unwrap `!!`, coalesce `?:`, safe call `?.`
+- Classes (GC), structs (value), interfaces (`class C : I`), monomorphized generics (incl. generic iface/class implements)
 - Enums + `match`, `Result`
-- `throw` / `try` / `catch` / `finally`
-- `Array<T>` (+ `clone`), ranges, `for-in`
-- String `+` and `"hi ${name}"` interpolation (idents)
+- `throw` / `try` / `catch` / `finally`; `if` as expression
+- `Array<T>` (+ `clone`, nested free), ranges, `for-in` (array / string bytes / Iterable)
+- String `+`, `"hi ${name}"` interpolation (idents), `substring(start, end)` (exclusive end; UTF-8 **byte** indices)
+- Other String helpers: `len`, `isEmpty`, `charAt`, `startsWith` / `contains` / `endsWith`
 - `type` aliases, top-level `const`, `is` type test
 - Expression-body functions `fun f(): T = expr`
 - First-class functions / lambdas: `(x: T) => expr`, block body, fun type `(T) -> U`
 - Captures MVP: outer immutable `val` of `Int` / `Bool` / `String` only (no `var`, class, Array, or nested Fun yet)
-- Multi-file packages, imports, path deps
+- Multi-file packages, imports, path deps; `aura new` / `init` / `version`
 - `aura test` + `@test`
-- `std.collections` Map/Set/HashMap/Iterable + Int HOF (`map_ints` / `filter_ints` / `fold_ints`)
+- `std.io` console + file I/O; `std.assert`; `std.collections` Map/Set/HashMap/Iterable + Int HOF
 
 ## Still design-first (limited or deferred in code)
 

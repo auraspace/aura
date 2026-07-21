@@ -39,7 +39,7 @@ See corpus under `corpus/class/` for working samples.
 
 ## `struct` — value types
 
-Structs are **values** (copy/by-value semantics at the model level). Primary constructor fields + methods; **no `implements`** in the current MVP.
+Structs are **values** (copy/by-value semantics at the model level). Primary constructor fields + methods; **no interface implements** in the current MVP.
 
 ```aura
 struct Point(var x: Int, var y: Int) {
@@ -52,20 +52,54 @@ struct Point(var x: Int, var y: Int) {
 
 Use structs when you want data without shared mutable identity.
 
-## `interface` + `implements`
+## `interface` + implements (`:`)
 
-Interfaces define method contracts. Classes implement them; calls on interface-typed receivers use closed-world dispatch in the C backend.
-
-**Generic interfaces (C7i):** the parser accepts `interface Iterable<E> { … }` and type-checks method signatures with those type parameters. **Implementing** a generic interface is not monomorphized yet — use a non-generic interface (fixed element type) for `for-in` protocols until implements type-args land.
+Interfaces define method contracts. Classes implement them with a trailing **`: Iface…`** after the primary constructor. Calls on interface-typed receivers use closed-world dispatch in the C backend.
 
 ```aura
 interface Named {
   fun name(): String
 }
 
-class User(var id: Int) implements Named {
+class User(var id: Int) : Named {
   fun name(): String {
     return "user"
+  }
+}
+```
+
+### Generic interfaces (C8c / C9a)
+
+Generic interfaces and **implements mono** ship in alpha:
+
+```aura
+interface Boxable<T> {
+  fun get(): T
+}
+
+// Fixed type args on the implementor
+class IntBox(val n: Int) : Boxable<Int> {
+  fun get(): Int {
+    return this.n
+  }
+}
+
+// Generic class implements matching interface args
+class Box<T>(val v: T) : Boxable<T> {
+  fun get(): T {
+    return this.v
+  }
+}
+```
+
+`std.collections.Iterable<E>` uses this path for `for-in` (see [Standard library](./standard-library.md)). Corpus: `iface/generic_impl.aura`, `iface/generic_class_impl.aura`.
+
+### `is` type test (C9i)
+
+```aura
+fun check(n: Named) {
+  if (n is User) {
+    println("user")
   }
 }
 ```
@@ -84,7 +118,7 @@ Monomorphization produces specialized C symbols (e.g. `Box_String`).
 | Prefer `class` when…          | Prefer `struct` when…            |
 | ----------------------------- | -------------------------------- |
 | Shared identity / heap object | Small value payload              |
-| Interface polymorphism        | No need for `implements`         |
+| Interface polymorphism        | No need for implements           |
 | Graph of objects              | Tight numeric or point-like data |
 
 ## Next

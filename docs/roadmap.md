@@ -4,7 +4,7 @@ Living plan for docs, language specs, and the Rust toolchain. RFCs remain the de
 
 | Field        | Value                                                                          |
 | ------------ | ------------------------------------------------------------------------------ |
-| **Updated**  | 2026-07-20                                                                     |
+| **Updated**  | 2026-07-21                                                                     |
 | **Strategy** | Dual-track: freeze MVP surface in RFCs while shipping vertical compiler slices |
 | **License**  | MIT (see root `LICENSE`)                                                       |
 
@@ -15,7 +15,7 @@ Living plan for docs, language specs, and the Rust toolchain. RFCs remain the de
 | RFC static site (`site/`)   | Implemented; Cloudflare Pages → **https://aura.fadosoft.com**                           |
 | RFC-000 … RFC-013           | **All Accepted** — open questions resolved or Deferred (2026-07-16)                     |
 | Language MVP                | RFC-001 §6.0 + post-C1; generic iface mono (C8c); Iterable (C8d); async/macros deferred |
-| Compiler                    | **C0–C11e** — install-ready CLI (embedded runtime); 0.1.0-alpha freeze                  |
+| Compiler                    | **C0–C11e** — install-ready CLI; **`v0.1.0-alpha` published** (tarballs + install.sh)   |
 | Runtime / packages / stdlib | GC + nested Array free; Map/Set/HashMap(+resize); path lock; **std.io file I/O**        |
 
 ## Phases

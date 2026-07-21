@@ -8,12 +8,13 @@ This repository currently holds:
 | ------------------------------------ | -------------------------------------------------------------------- |
 | [`docs/guide/`](docs/guide/)         | User guide (site `/docs`)                                            |
 | [`docs/rfc/`](docs/rfc/)             | Language & toolchain RFCs                                            |
-| [`docs/roadmap.md`](docs/roadmap.md) | Execution phases (P0–P3, compiler C0–C11c+)                          |
+| [`docs/roadmap.md`](docs/roadmap.md) | Execution phases (P0–P3, compiler C0–C11e)                           |
+| [`docs/releases/`](docs/releases/)   | Freeze / release notes (`0.1.0-alpha`)                               |
 | [`site/`](site/)                     | Homepage + docs + RFC site (Vite + React)                            |
 | [`crates/`](crates/)                 | Rust toolchain (`aura` CLI) — check / build / run / test (C backend) |
 | [`corpus/`](corpus/)                 | Sample `.aura` programs for the compiler                             |
 | [`examples/`](examples/)             | Dogfood apps (e.g. notes CLI package)                                |
-| [`std/`](std/)                       | Minimal std packages (`io`, `assert`)                                |
+| [`std/`](std/)                       | Minimal std packages (`io`, `assert`, `collections`)                 |
 | [`runtime/`](runtime/)               | Linked C runtime (`aura_rt.c`)                                       |
 
 **License:** [MIT](LICENSE)
@@ -184,8 +185,9 @@ Native builds use a **C backend** (`aura emit-c` + system `cc`) linked with `run
 - **CLI C11c** `aura new` / `init` / `version`
 - **Lang C11d** `String.substring` + `examples/notes` dogfood; fix heap `this.method()` recv
 - **Dist C11e** Embedded `aura_rt.c`, [install guide](docs/guide/install.md), [0.1.0-alpha freeze](docs/releases/0.1.0-alpha.md)
+- **Release** Tag `v0.1.0-alpha` + multi-OS tarballs on GitHub Releases (install via [install.sh](docs/guide/install.md))
 - **Debts** Tracked in [`agents/debts.md`](agents/debts.md)
-- **Next (after C11e):** tag `v0.1.0-alpha` + tarball; richer captures; registry; tasks/async
+- **Next (post-alpha):** richer lambda captures; registry fetch/semver; tasks/async; Windows matrix / signed installers
 
 ## Links
 

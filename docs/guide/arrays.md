@@ -7,7 +7,7 @@ summary: Array<T> construction, len/get/set, push/pop, and for-in iteration.
 
 # Arrays
 
-Builtin `Array<T>` is the primary growable sequence type in the MVP ([RFC-001](/rfc/001)). Element types include `Int`, `Bool`, `String`, class references, structs, and enums (by value).
+Builtin `Array<T>` is the primary growable sequence type in the MVP ([RFC-001](/rfc/001)). Element types include `Int`, `Bool`, `String`, class references, structs, enums (by value), and nested `Array<Array<T>>`.
 
 ### Interface elements (C7h)
 
@@ -19,30 +19,35 @@ Post-MVP options (not implemented): erase each element to a fat pointer `(dispat
 
 ```aura
 fun demo() {
-  val xs = Array<Int>()
+  val xs: Array<Int> = Array(0)   // capacity hint; grow with push
   xs.push(10)
   xs.push(20)
-  val n = xs.len()
+  val n = xs.len                  // field: element count
   val first = xs.get(0)
   xs.set(0, 11)
+  if (xs.isEmpty()) {
+    // …
+  }
 }
 ```
 
-Out-of-bounds access is a runtime failure — prefer checking `len()` before `get`/`set` when input is untrusted.
+Out-of-bounds access is a runtime failure — prefer checking `len` before `get`/`set` when input is untrusted.
 
 ## Grow and shrink
 
-| Method       | Behavior                                            |
-| ------------ | --------------------------------------------------- |
-| `push(x)`    | Append; capacity grows as needed                    |
-| `pop()`      | Remove last; empty array throws                     |
-| `clone()`    | Owning buffer copy (C9c); nested Arrays deep-copied |
-| `clear()`    | `len = 0`, keep capacity                            |
-| `reserve(n)` | Ensure capacity (when available in your build)      |
+| Method / field | Behavior                                            |
+| -------------- | --------------------------------------------------- |
+| `len`          | Element count (field)                               |
+| `isEmpty()`    | `len == 0`                                          |
+| `push(x)`      | Append; capacity grows as needed                    |
+| `pop()`        | Remove last; empty array throws                     |
+| `clone()`      | Owning buffer copy (C9c); nested Arrays deep-copied |
+| `clear()`      | `len = 0`, keep capacity                            |
+| `reserve(n)`   | Ensure capacity ≥ `n`                               |
 
 ```aura
 fun stack() {
-  val xs = Array<Int>()
+  val xs: Array<Int> = Array(0)
   xs.push(1)
   xs.push(2)
   val top = xs.pop()
@@ -88,13 +93,13 @@ fun sum(xs: Array<Int>): Int {
 }
 
 fun indices(xs: Array<Int>) {
-  for (i in 0..xs.len()) {
+  for (i in 0..xs.len) {
     println(xs.get(i))
   }
 }
 ```
 
-String iteration over UTF-8 bytes as `Int` is also supported in the compiler path (`for (b in string)`).
+String iteration over UTF-8 bytes as `Int` is also supported (`for (b in string)`). Duck / interface `Iterable` (`len` + `get`) works via `std.collections.Iterable<E>` and matching implementors.
 
 ## Arrays of class references
 
@@ -102,9 +107,12 @@ String iteration over UTF-8 bytes as `Int` is also supported in the compiler pat
 
 ## Ownership notes (implementation)
 
-The C backend frees owned array buffers at scope end / before return in the current runtime model. Prefer clear lifetime patterns in local scopes; deeper GC interaction is evolving ([RFC-003](/rfc/003), [RFC-006](/rfc/006)).
+The C backend frees owned array buffers at scope end / before return / on owner reassignment. Prefer clear lifetime patterns in local scopes ([RFC-003](/rfc/003), [RFC-006](/rfc/006)).
 
-**Element drop (C7j):** free is **buffer-only** — elements are not finalized. That is correct for primitives, class references (GC), and by-value enums/structs without owned buffers. Nested `Array<Array<T>>` deep free is deferred until nested mono emit order is fixed.
+**Element drop:**
+
+- **Nested `Array<Array<T>>`:** deep-frees nested buffers on drop / clear / set (**C8e / C8f**).
+- **Other elems:** buffer-only free is enough — primitives and by-value structs/enums need no dtor; class elems are GC roots.
 
 ## Corpus
 

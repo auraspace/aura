@@ -11,7 +11,7 @@ Aura’s toolchain is the **`aura` CLI** (Rust crate `aura-cli`). User programs 
 
 ## One-liner (release tarball)
 
-After a GitHub Release exists for your platform:
+`v0.1.0-alpha` assets are on [GitHub Releases](https://github.com/auraspace/aura/releases/tag/v0.1.0-alpha):
 
 ```bash
 curl -fsSL https://aura.fadosoft.com/install.sh | bash
@@ -75,7 +75,7 @@ Source of truth: [`scripts/install.sh`](https://github.com/auraspace/aura/blob/m
 
 ## Install from source (alpha)
 
-`cargo install` puts a **single** binary in `~/.cargo/bin` (not versioned under `$AURA_HOME`). Prefer the one-liner when Release assets exist.
+`cargo install` puts a **single** binary in `~/.cargo/bin` (not versioned under `$AURA_HOME`). Prefer the one-liner for normal use.
 
 ```bash
 git clone https://github.com/auraspace/aura.git

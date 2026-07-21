@@ -11,23 +11,25 @@ summary: Common questions about install, null, errors, GC, and docs vs RFCs.
 
 ### Do I need to install Aura globally?
 
-For alpha, install from a clone:
+For **0.1.0-alpha**, prefer the installer (versioned under `~/.aura`):
 
 ```bash
-cargo install --path crates/aura-cli
+curl -fsSL https://aura.fadosoft.com/install.sh | bash
+export PATH="$HOME/.aura/bin:$HOME/.local/bin:$PATH"
 aura new hello && aura run hello
 ```
 
-Or run in-tree without installing: `cargo run -p aura-cli -- …`.  
-Details: [Install](./install.md), freeze notes [0.1.0-alpha](/docs/releases/0.1.0-alpha) (repo path `docs/releases/0.1.0-alpha.md`).
+Contributors can still `cargo install --path crates/aura-cli` from a clone, or run in-tree: `cargo run -p aura-cli -- …`.
+
+Details: [Install](./install.md). Freeze notes: [0.1.0-alpha on GitHub](https://github.com/auraspace/aura/blob/main/docs/releases/0.1.0-alpha.md).
 
 ### Why is a C compiler required?
 
-`build` / `run` use a **C backend**: Aura → C → system `cc`, linked with `runtime/aura_rt.c`. LLVM is the longer-term backend ([RFC-004](/rfc/004)).
+`build` / `run` use a **C backend**: Aura → C → system `cc`, linked with `aura_rt.c`. LLVM is the longer-term backend ([RFC-004](/rfc/004)).
 
 ### Where are examples?
 
-Under `corpus/`. Prefer corpus over stale snippets in chat.
+Under `corpus/` in the monorepo, plus `examples/notes`. Prefer corpus over stale snippets in chat.
 
 ## Language
 
@@ -61,7 +63,7 @@ If they disagree, file an issue; RFCs are the design source of truth until docs 
 
 ### Why is my `std.io` import failing?
 
-Use package mode (`aura.toml` + directory target), ensure `std/` is present, and see [Standard library](./standard-library.md).
+Use package mode (`aura.toml` + directory target), ensure `std/` is present (or auto-prelude resolves), and see [Standard library](./standard-library.md).
 
 ### Does `aura test` need a framework package?
 

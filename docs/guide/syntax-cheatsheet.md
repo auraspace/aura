@@ -29,7 +29,7 @@ fun main() {
 | Class           | `class C(var n: Int) { fun f() {} }`            |
 | Struct          | `struct S(var x: Int) {}`                       |
 | Interface       | `interface I { fun f(): Int }`                  |
-| Implements      | `class C() implements I { ... }`                |
+| Implements      | `class C() : I { ... }` / `class Box<T> : I<T>` |
 | Enum            | `enum E { A, B }`                               |
 | Generic class   | `class Box<T>(var v: T) {}`                     |
 | Generic fun     | `fun id<T>(x: T): T { return x }`               |
@@ -74,6 +74,18 @@ val add = (x: Int) => base + x
 
 Class `==` is **identity**. String content equality uses content compare in the current path; struct/enum equality is restricted in sema.
 
+## String helpers (MVP)
+
+| Form                                     | Notes                                             |
+| ---------------------------------------- | ------------------------------------------------- |
+| `s + t` / `"hi ${name}"`                 | Concat; interp desugars to `+` (idents in `${…}`) |
+| `s.len` / `s.isEmpty()`                  | UTF-8 **byte** length                             |
+| `s.charAt(i)`                            | Byte as `Int`; OOB throws                         |
+| `s.startsWith` / `contains` / `endsWith` | Substring search                                  |
+| `s.substring(start, end)`                | Exclusive end; UTF-8 **byte** indices (C11d)      |
+
+No embedded NUL in strings. Indices are bytes, not Unicode scalar values.
+
 ## Control
 
 ```aura
@@ -115,13 +127,36 @@ math = { path = "../math" }
 ## CLI one-liners
 
 ```bash
-cargo run -p aura-cli -- check path
+# After install (or with aura on PATH):
+aura new hello && aura run hello
+aura check path
+aura run path
+aura build path -o out
+aura test path
+aura version
+
+# In-tree monorepo:
 cargo run -p aura-cli -- run path
-cargo run -p aura-cli -- build path -o out
-cargo run -p aura-cli -- test path
 ```
 
 ## Next
 
 - [Language tour](./language-tour.md)
 - [FAQ](./faq.md)
+
+## Next
+
+- [Language tour](./language-tour.md)
+- [FAQ](./faq.md)
+
+# In-tree monorepo:
+
+cargo run -p aura-cli -- run path
+
+```
+
+## Next
+
+- [Language tour](./language-tour.md)
+- [FAQ](./faq.md)
+```
