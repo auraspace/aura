@@ -597,7 +597,9 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
                 .map(|t| is_fun_type_key(t))
                 .unwrap_or(false);
             let free_fun_lvalue = |lv: &str| -> String {
-                format!("if (({lv}).env != NULL) {{ free(({lv}).env); ({lv}).env = NULL; }} ")
+                format!(
+                    "if (({lv}).env != NULL) {{ aura_fun_env_free(({lv}).env); ({lv}).env = NULL; }} "
+                )
             };
             // Reassign Fun from capturing lambda or call: free old env first.
             let is_fun_new = matches!(a.value.as_ref(), Expr::Lambda(_) | Expr::Call(_));
@@ -689,12 +691,16 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
             if captures.is_empty() {
                 format!("(({fp}){{ .env = NULL, .fn = aura_lambda_{id} }})")
             } else {
-                // GNU statement-expr: allocate env, fill captures, return fat ptr.
+                // GNU statement-expr: allocate env, set drop, fill captures, root GC slots.
                 let mut fill = String::new();
-                for (name, _ty) in captures {
+                let _ = writeln!(fill, "  __e->__drop = aura_lenv_{id}_drop;");
+                for (name, ty) in captures {
                     let m = mangle_ident(name);
                     // Capture value from enclosing scope local of the same name.
                     let _ = writeln!(fill, "  __e->{m} = {m};");
+                    if crate::names::is_heap_class_capture_ty(ty, ctx.checked) {
+                        let _ = writeln!(fill, "  aura_gc_add_root((void **)&__e->{m});");
+                    }
                 }
                 format!(
                     "({{ aura_lenv_{id} *__e = (aura_lenv_{id} *)malloc(sizeof(aura_lenv_{id}));{fill} ({fp}){{ .env = __e, .fn = aura_lambda_{id} }}; }})"

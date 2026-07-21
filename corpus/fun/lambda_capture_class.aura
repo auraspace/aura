@@ -1,0 +1,25 @@
+// C12k: capture outer val of class type (GC ptr) into Fun env
+package demo.lambda_cap_class
+
+class Box(val n: Int) {
+  fun get(): Int {
+    return this.n
+  }
+}
+
+// Env keeps class ptr after local `b` leaves scope; GC must still mark it.
+fun makeGetter(b: Box): () -> Int {
+  return () => b.get()
+}
+
+fun main(): Int {
+  val b = Box(40)
+  val add = (x: Int) => b.get() + x
+  val r1 = add(2)
+
+  val f = makeGetter(Box(7))
+  gc_collect()
+  val r2 = f()
+
+  return r1 + r2
+}

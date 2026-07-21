@@ -699,6 +699,22 @@ impl Checker {
         None
     }
 
+    /// C10h/C12k: capturable outer `val` — Int/Bool/String or heap class (GC ptr).
+    /// Rejects `var`, Array, Fun, struct, enum, interface (C12l/m or later).
+    pub(crate) fn is_lambda_capturable_ty(&self, ty: &Ty) -> bool {
+        match ty {
+            Ty::Int | Ty::Bool | Ty::String => true,
+            Ty::Class(n) | Ty::ClassApp { name: n, .. } => {
+                let simple = crate::ty::split_nominal(n).0;
+                if simple == "Array" {
+                    return false;
+                }
+                !self.is_struct_ty(ty)
+            }
+            _ => false,
+        }
+    }
+
     /// C10h: if `name` resolves to an outer local of the active lambda, record a capture.
     pub(crate) fn note_lambda_capture(
         &mut self,
@@ -722,10 +738,10 @@ impl Checker {
                 span,
             });
         }
-        if !matches!(ty, Ty::Int | Ty::Bool | Ty::String) {
+        if !self.is_lambda_capturable_ty(ty) {
             return Err(SemaError {
                 message: format!(
-                    "cannot capture `{name}` of type {} in lambda (MVP: Int, Bool, String only)",
+                    "cannot capture `{name}` of type {} in lambda (MVP: Int, Bool, String, or class)",
                     ty.display()
                 ),
                 span,

@@ -57,6 +57,7 @@ cargo run -p aura-cli -- run corpus/std_io/prelude      # auto-prelude std.io (C
 cargo run -p aura-cli -- run corpus/std_assert/app      # std.assert (C4h)
 cargo run -p aura-cli -- run corpus/fun/lambda_basic.aura   # first-class fun / lambda (C10)
 cargo run -p aura-cli -- run corpus/fun/lambda_capture.aura # val Int/Bool/String capture (C10h)
+cargo run -p aura-cli -- run corpus/fun/lambda_capture_class.aura # val class capture (C12k)
 cargo run -p aura-cli -- run corpus/fun/lambda_env_free.aura # Fun env free (C11b)
 cargo run -p aura-cli -- run corpus/std_collections/hof     # map_ints / filter_ints / fold_ints
 ```

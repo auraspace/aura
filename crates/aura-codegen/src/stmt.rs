@@ -188,12 +188,13 @@ pub(crate) fn emit_free_array_owners(
 }
 
 /// Free capture env of a Fun local (`env` may be NULL for non-capturing).
+/// C12k: uses `aura_fun_env_free` so class capture GC roots are unregistered.
 pub(crate) fn emit_free_fun_local(out: &mut String, indent: usize, name: &str) {
     let p = pad(indent);
     let n = mangle_ident(name);
     let _ = writeln!(
         out,
-        "{p}if ({n}.env != NULL) {{ free({n}.env); {n}.env = NULL; }}"
+        "{p}if ({n}.env != NULL) {{ aura_fun_env_free({n}.env); {n}.env = NULL; }}"
     );
 }
 

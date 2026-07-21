@@ -71,6 +71,7 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("void aura_gc_remove_root(void **slot);\n");
     out.push_str("void aura_gc_add_array_root(void **data_slot, int64_t *len_slot);\n");
     out.push_str("void aura_gc_remove_array_root(void **data_slot);\n");
+    out.push_str("void aura_fun_env_free(void *env);\n");
     out.push_str("void aura_gc_collect(void);\n");
     out.push_str("void aura_gc_shutdown(void);\n");
     out.push_str("int aura_main(void);\n\n");
@@ -669,7 +670,8 @@ fn emit_lambda_fns(out: &mut String, checked: &CheckedFile) {
     let mut lambdas = collect_lambdas(&checked.ast);
     lambdas.sort_by_key(|l| l.span.start);
 
-    // C10h: env structs for capturing lambdas (stable field order from sema).
+    // C10h/C12k: env structs for capturing lambdas (stable field order from sema).
+    // First field is always `__drop` so Fun free can unregister GC class slots.
     for lam in &lambdas {
         let Some(&id) = ids.get(&lam.span.start) else {
             continue;
@@ -683,6 +685,7 @@ fn emit_lambda_fns(out: &mut String, checked: &CheckedFile) {
             continue;
         }
         let _ = writeln!(out, "typedef struct {{");
+        let _ = writeln!(out, "  void (*__drop)(void *);");
         for (name, ty) in captures {
             let _ = writeln!(
                 out,
@@ -691,7 +694,18 @@ fn emit_lambda_fns(out: &mut String, checked: &CheckedFile) {
                 mangle_ident(name)
             );
         }
-        let _ = writeln!(out, "}} aura_lenv_{id};\n");
+        let _ = writeln!(out, "}} aura_lenv_{id};");
+        // Per-env drop: remove GC roots for heap-class captures, then free.
+        let _ = writeln!(out, "static void aura_lenv_{id}_drop(void *env) {{");
+        let _ = writeln!(out, "  aura_lenv_{id} *__e = (aura_lenv_{id} *)env;");
+        for (name, ty) in captures {
+            if is_heap_class_capture_ty(ty, checked) {
+                let m = mangle_ident(name);
+                let _ = writeln!(out, "  aura_gc_remove_root((void **)&__e->{m});");
+            }
+        }
+        let _ = writeln!(out, "  free(__e);");
+        let _ = writeln!(out, "}}\n");
     }
 
     for lam in lambdas {

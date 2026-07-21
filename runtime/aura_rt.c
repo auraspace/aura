@@ -847,6 +847,25 @@ void aura_gc_mark_ptr(void *obj)
   }
 }
 
+/* C12k: free a Fun capture env. Every capturing env starts with a drop fn ptr
+ * that unregisters GC roots for class capture slots, then free(env). */
+void aura_fun_env_free(void *env)
+{
+  if (env == NULL)
+  {
+    return;
+  }
+  void (*drop)(void *) = *(void (**)(void *))env;
+  if (drop != NULL)
+  {
+    drop(env);
+  }
+  else
+  {
+    free(env);
+  }
+}
+
 /* C4z/C5f/C6a/C6e: stop-the-world deep mark + sweep when roots are registered. */
 void aura_gc_collect(void)
 {

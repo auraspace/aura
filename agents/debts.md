@@ -9,13 +9,13 @@ When you resolve debt, update or remove the matching entry.
 
 ### Lambda capture limits (MVP)
 
-- Area: language / lambdas (C10h)
-- Symptom: only immutable `val` of `Int`/`Bool`/`String`; no `var`, class, Array, or nested Fun capture
-- Why deferred: richer capture types need layout/protocol work
-- Progress: fat-pointer Fun `{env,fn}`; copy-out of primitive captures; **env free via Fun ownership** (scope / move / return / param / for-loop); corpus `lambda_capture.aura`, `lambda_env_free.aura`
-- Next step: **C12k–m** — class capture, Array view capture, `var` Int/Bool by ref; Fun capture + shared-env GC still later
+- Area: language / lambdas (C10h/C12k)
+- Symptom: immutable `val` of `Int`/`Bool`/`String`/class only; no `var`, Array, or nested Fun capture
+- Why deferred: Array view + `var` by-ref need more layout/protocol work
+- Progress: fat-pointer Fun `{env,fn}`; copy-out of prim + **class GC ptr** captures; env `__drop` unregisters class roots then free; corpus `lambda_capture.aura`, `lambda_capture_class.aura`, `lambda_env_free.aura`
+- Next step: **C12l** Array view capture; **C12m** `var` Int/Bool by ref; Fun capture + shared-env GC still later
 - Tracked: [C12 plan](../docs/plans/2026-07-21-next-20-c12a-c12t.md)
-- Introduced: narrowed after C10h; env free landed 2026-07-20
+- Introduced: narrowed after C10h; env free 2026-07-20; class capture C12k 2026-07-21
 
 ### Array field return still moves (no true borrow type)
 

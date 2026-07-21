@@ -687,6 +687,17 @@ pub(crate) fn c_fun_typedef(key: &str) -> String {
 }
 
 /// C type for a semantic `Ty` (primitives, fun pointers; classes as mono struct pointers).
+/// C12k: capture type is a GC heap class pointer (not struct/Array/prim).
+pub(crate) fn is_heap_class_capture_ty(ty: &Ty, checked: &CheckedFile) -> bool {
+    match ty {
+        Ty::Class(_) | Ty::ClassApp { .. } => {
+            let mono = ty.mono_suffix();
+            is_heap_class_mono(&mono, checked)
+        }
+        _ => false,
+    }
+}
+
 pub(crate) fn c_type_from_ty(ty: &Ty, checked: &CheckedFile) -> String {
     match ty {
         Ty::Unit => "void".into(),

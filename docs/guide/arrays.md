@@ -78,7 +78,7 @@ fun demo(xs: Array<Int>): Int {
 
 Corpus: `fun/lambda_hof.aura`, `std_collections/hof`, `std_collections/join`.
 
-**Capture limits (C10h MVP):** lambdas may close over outer immutable `val` of `Int` / `Bool` / `String` only. Class, Array, `var`, and nested Fun captures are deferred ([debts](https://github.com/auraspace/aura/blob/main/agents/debts.md)).
+**Capture limits:** lambdas may close over outer immutable `val` of `Int` / `Bool` / `String` / class (C10h/C12k). Array, `var`, and nested Fun captures are deferred ([debts](https://github.com/auraspace/aura/blob/main/agents/debts.md)).
 
 Array parameters **own** the buffer (move at call site). Use `clone()` if you need the same array after a call that takes it.
 

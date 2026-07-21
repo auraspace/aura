@@ -4,37 +4,38 @@ Sample `.aura` programs for the compiler: parse/typecheck (`aura check`), native
 
 ## Core fixtures
 
-| Path                         | Intent                                                                 |
-| ---------------------------- | ---------------------------------------------------------------------- |
-| `hello/main.aura`            | Package + `fun main` + call + string                                   |
-| `control/if_while.aura`      | Params, types, `if`/`while`, locals                                    |
-| `control/else_if.aura`       | `else if` chaining (C4l)                                               |
-| `types/nullable.aura`        | `T?`, flow `!= null` / `== null`, `!!`                                 |
-| `types/opt_prim.aura`        | `Int?` / `Bool?` tagged optional C emit (C7a)                          |
-| `types/coalesce.aura`        | Null coalesce `?:` (C4m)                                               |
-| `expr/arith.aura`            | Arithmetic, comparisons, `&&`                                          |
-| `expr/unary.aura`            | `!` and negation                                                       |
-| `expr/string_eq.aura`        | String content equality (C4e)                                          |
-| `expr/string_len.aura`       | `String.len` byte length (C4p)                                         |
-| `expr/string_substring.aura` | `String.substring(start, end)` exclusive (C11d)                        |
-| `expr/string_indexof.aura`   | `String.indexOf(sub)` byte index / −1 / empty→0 (C12f)                 |
-| `expr/string_toint.aura`     | `String.toInt(): Int?` decimal parse / null on bad/overflow (C12i)     |
-| `expr/if_expr.aura`          | `if` as expression (C4t)                                               |
-| `fun/multi.aura`             | Multiple top-level functions                                           |
-| `fun/nested_calls.aura`      | Nested calls                                                           |
-| `fun/expr_body.aura`         | Expression-body functions `fun f(): T = expr` (C9e)                    |
-| `fun/lambda_basic.aura`      | Non-capturing lambda + call through fun value (C10c–e)                 |
-| `fun/lambda_zero.aura`       | Zero-arg lambda `() => …`                                              |
-| `fun/lambda_fun_type.aura`   | Fun type annotation `(T) -> U` (C10f)                                  |
-| `fun/lambda_param.aura`      | Fun-typed parameter                                                    |
-| `fun/lambda_block.aura`      | Lambda block body `(x) => { … }` (C10g)                                |
-| `fun/lambda_capture.aura`    | Capture outer `val` Int (C10h MVP; Bool/String also OK)                |
-| `fun/lambda_env_free.aura`   | Fun env free: move / return / param / loop (C11b)                      |
-| `fun/lambda_hof.aura`        | Local map/filter/fold with fun values + capture (C10i)                 |
-| `pkg/dotted.aura`            | Dotted package path                                                    |
-| `edge/empty_main.aura`       | Empty function body                                                    |
-| `edge/comments.aura`         | Line and block comments                                                |
-| `diag/undefined.aura`        | **Expected fail** — diagnostics smoke (excluded from green run corpus) |
+| Path                            | Intent                                                                 |
+| ------------------------------- | ---------------------------------------------------------------------- |
+| `hello/main.aura`               | Package + `fun main` + call + string                                   |
+| `control/if_while.aura`         | Params, types, `if`/`while`, locals                                    |
+| `control/else_if.aura`          | `else if` chaining (C4l)                                               |
+| `types/nullable.aura`           | `T?`, flow `!= null` / `== null`, `!!`                                 |
+| `types/opt_prim.aura`           | `Int?` / `Bool?` tagged optional C emit (C7a)                          |
+| `types/coalesce.aura`           | Null coalesce `?:` (C4m)                                               |
+| `expr/arith.aura`               | Arithmetic, comparisons, `&&`                                          |
+| `expr/unary.aura`               | `!` and negation                                                       |
+| `expr/string_eq.aura`           | String content equality (C4e)                                          |
+| `expr/string_len.aura`          | `String.len` byte length (C4p)                                         |
+| `expr/string_substring.aura`    | `String.substring(start, end)` exclusive (C11d)                        |
+| `expr/string_indexof.aura`      | `String.indexOf(sub)` byte index / −1 / empty→0 (C12f)                 |
+| `expr/string_toint.aura`        | `String.toInt(): Int?` decimal parse / null on bad/overflow (C12i)     |
+| `expr/if_expr.aura`             | `if` as expression (C4t)                                               |
+| `fun/multi.aura`                | Multiple top-level functions                                           |
+| `fun/nested_calls.aura`         | Nested calls                                                           |
+| `fun/expr_body.aura`            | Expression-body functions `fun f(): T = expr` (C9e)                    |
+| `fun/lambda_basic.aura`         | Non-capturing lambda + call through fun value (C10c–e)                 |
+| `fun/lambda_zero.aura`          | Zero-arg lambda `() => …`                                              |
+| `fun/lambda_fun_type.aura`      | Fun type annotation `(T) -> U` (C10f)                                  |
+| `fun/lambda_param.aura`         | Fun-typed parameter                                                    |
+| `fun/lambda_block.aura`         | Lambda block body `(x) => { … }` (C10g)                                |
+| `fun/lambda_capture.aura`       | Capture outer `val` Int (C10h MVP; Bool/String also OK)                |
+| `fun/lambda_capture_class.aura` | Capture outer `val` class (GC ptr + env roots; C12k)                   |
+| `fun/lambda_env_free.aura`      | Fun env free: move / return / param / loop (C11b)                      |
+| `fun/lambda_hof.aura`           | Local map/filter/fold with fun values + capture (C10i)                 |
+| `pkg/dotted.aura`               | Dotted package path                                                    |
+| `edge/empty_main.aura`          | Empty function body                                                    |
+| `edge/comments.aura`            | Line and block comments                                                |
+| `diag/undefined.aura`           | **Expected fail** — diagnostics smoke (excluded from green run corpus) |
 
 ## Classes, interfaces, values
 
