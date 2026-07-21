@@ -33,7 +33,8 @@ How Aura cuts a public toolchain release (alpha → stable uses the same path).
 ┌─────────────────────┐
 │ GitHub Actions      │  .github/workflows/release.yml
 │  on push tags v*    │
-│                     │  matrix: linux-amd64, darwin-arm64, darwin-amd64
+│                     │  matrix: linux-amd64, darwin-arm64,
+│                     │          darwin-amd64 (cross from macos-14)
 │                     │  scripts/package-release.sh → tarball + sha256
 │                     │  gh release create + attach assets
 └──────────┬──────────┘

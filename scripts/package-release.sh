@@ -21,19 +21,47 @@ else
   TAG_VERSION="${TAG_VERSION#v}"
 fi
 
-OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
-# Normalize OS names used in artifact filenames (uname -s on Linux is "linux").
-case "$OS" in
-  linux*) OS=linux ;;
-  darwin*) OS=darwin ;;
-  mingw*|msys*|cygwin*) OS=windows ;;
-esac
+# Optional cross-compile: RUST_TARGET=x86_64-apple-darwin (GitHub no longer hosts macos-13 Intel).
+# When unset, build for the host triple and name the artifact from uname.
+if [[ -n "${RUST_TARGET:-}" ]]; then
+  case "$RUST_TARGET" in
+    x86_64-apple-darwin) OS=darwin; ARCH=amd64 ;;
+    aarch64-apple-darwin|arm64-apple-darwin) OS=darwin; ARCH=arm64 ;;
+    x86_64-unknown-linux-gnu) OS=linux; ARCH=amd64 ;;
+    aarch64-unknown-linux-gnu) OS=linux; ARCH=arm64 ;;
+    x86_64-pc-windows-msvc) OS=windows; ARCH=amd64 ;;
+    aarch64-pc-windows-msvc) OS=windows; ARCH=arm64 ;;
+    *)
+      echo "error: unsupported RUST_TARGET=$RUST_TARGET" >&2
+      exit 1
+      ;;
+  esac
+  echo "cross-compiling for $RUST_TARGET → ${OS}/${ARCH}"
+  rustup target add "$RUST_TARGET" >/dev/null
+  cargo build -p aura-cli --release --target "$RUST_TARGET"
+  BIN="$ROOT/target/${RUST_TARGET}/release/aura"
+  # Windows produces aura.exe; alpha matrix is Unix-only today.
+  if [[ ! -x "$BIN" && -f "${BIN}.exe" ]]; then
+    BIN="${BIN}.exe"
+  fi
+else
+  OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
+  # Normalize OS names used in artifact filenames (uname -s on Linux is "linux").
+  case "$OS" in
+    linux*) OS=linux ;;
+    darwin*) OS=darwin ;;
+    mingw*|msys*|cygwin*) OS=windows ;;
+  esac
 
-ARCH="$(uname -m)"
-case "$ARCH" in
-  x86_64|amd64) ARCH=amd64 ;;
-  aarch64|arm64) ARCH=arm64 ;;
-esac
+  ARCH="$(uname -m)"
+  case "$ARCH" in
+    x86_64|amd64) ARCH=amd64 ;;
+    aarch64|arm64) ARCH=arm64 ;;
+  esac
+
+  cargo build -p aura-cli --release
+  BIN="$ROOT/target/release/aura"
+fi
 
 NAME="aura-${TAG_VERSION}-${OS}-${ARCH}"
 DIST="$ROOT/dist"
@@ -44,9 +72,7 @@ echo "packaging $NAME"
 rm -rf "$STAGE"
 mkdir -p "$STAGE/bin" "$STAGE/share/aura"
 
-cargo build -p aura-cli --release
-BIN="$ROOT/target/release/aura"
-if [[ ! -x "$BIN" ]]; then
+if [[ ! -f "$BIN" ]]; then
   echo "error: missing $BIN" >&2
   exit 1
 fi

@@ -26,8 +26,10 @@ jobs:
             name: linux-amd64
           - os: macos-14
             name: darwin-arm64
-          - os: macos-13
+          # macos-13 (Intel) retired Dec 2025; cross-compile amd64 on Apple Silicon.
+          - os: macos-14
             name: darwin-amd64
+            rust_target: x86_64-apple-darwin
 
     steps:
       - uses: actions/checkout@v4
@@ -39,6 +41,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
+          targets: ${{ matrix.rust_target }}
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -48,9 +51,12 @@ jobs:
         env:
           # scripts/package-release.sh: strip leading v from the tag
           TAG_VERSION: ${{ github.ref_name }}
+          RUST_TARGET: ${{ matrix.rust_target }}
         run: bash scripts/package-release.sh
 
+      # Native artifacts only: a cross-built x86_64 binary cannot run on arm64 runners.
       - name: Smoke the packaged binary
+        if: ${{ !matrix.rust_target }}
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -80,6 +86,31 @@ jobs:
           TMP="$(mktemp -d)"
           aura new "$TMP/hello"
           aura run "$TMP/hello"
+
+      - name: Verify cross-built binary (file type)
+        if: ${{ matrix.rust_target }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          tarballs=(dist/aura-*.tar.gz)
+          if [[ ${#tarballs[@]} -ne 1 ]]; then
+            echo "error: expected exactly one dist/aura-*.tar.gz, found ${#tarballs[@]}" >&2
+            exit 1
+          fi
+          tar="${tarballs[0]}"
+          stage="$(
+            tar -tzf "$tar" | {
+              IFS= read -r first
+              printf '%s\n' "${first%%/*}"
+              cat >/dev/null
+            }
+          )"
+          tar -xzf "$tar" -C dist
+          bin="dist/$stage/bin/aura"
+          file "$bin"
+          # Expect Mach-O x86_64 (not arm64)
+          file "$bin" | grep -qiE 'x86_64|Intel 64'
+          lipo -info "$bin" 2>/dev/null || true
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
