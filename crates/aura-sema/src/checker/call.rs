@@ -408,9 +408,13 @@ impl Checker {
         };
 
         // C10d: local (or param) of function type `f(x)`.
-        if let Some(local) = self.lookup_local(&name) {
+        // C13h: also record/reject outer capture (Fun capture still unsupported).
+        if let Some((frame, local)) = self.lookup_local_frame(&name) {
             if matches!(local.ty, Ty::Fun { .. }) {
                 let ty = local.ty.clone();
+                let mutable = local.mutable;
+                let span = c.callee.span();
+                self.note_lambda_capture(&name, frame, &ty, mutable, span)?;
                 return self.check_fun_value_call(&ty, c);
             }
         }

@@ -962,3 +962,88 @@ fun main() {
         err.primary().message
     );
 }
+
+/// C13h: unsupported lambda captures must name the binding and list what is supported.
+fn assert_capture_reject(msg: &str, name: &str) {
+    assert!(
+        msg.contains("cannot capture")
+            && msg.contains(name)
+            && msg.contains("supported captures")
+            && msg.contains("`val`")
+            && msg.contains("`var`")
+            && msg.contains("Int")
+            && msg.contains("Bool"),
+        "expected clear capture reject listing supported forms, got: {msg}"
+    );
+}
+
+#[test]
+fn lambda_rejects_var_class_capture_clearly() {
+    // C13h: `var` class is not capturable yet.
+    let src = r#"
+package t
+class Box(val n: Int) {}
+fun main() {
+  var b = Box(1)
+  val f = () => b.n
+}
+"#;
+    let file = parse_file(src).expect("parse");
+    let err = check_file(&file).expect_err("var class capture");
+    let msg = &err.primary().message;
+    assert_capture_reject(msg, "b");
+    assert!(
+        msg.contains("`var`") && (msg.contains("Box") || msg.contains("class")),
+        "{msg}"
+    );
+}
+
+#[test]
+fn lambda_rejects_var_array_capture_clearly() {
+    // C13h: `var` Array is not capturable yet.
+    let src = r#"
+package t
+fun main() {
+  var a: Array<Int> = Array(1)
+  val f = () => a.len
+}
+"#;
+    let file = parse_file(src).expect("parse");
+    let err = check_file(&file).expect_err("var Array capture");
+    let msg = &err.primary().message;
+    assert_capture_reject(msg, "a");
+    assert!(msg.contains("Array"), "{msg}");
+}
+
+#[test]
+fn lambda_rejects_var_string_capture_clearly() {
+    // C13h / deferred C13f: `var` String still rejected with supported list.
+    let src = r#"
+package t
+fun main() {
+  var s = "hi"
+  val f = () => s
+}
+"#;
+    let file = parse_file(src).expect("parse");
+    let err = check_file(&file).expect_err("var String capture");
+    let msg = &err.primary().message;
+    assert_capture_reject(msg, "s");
+    assert!(msg.contains("String"), "{msg}");
+}
+
+#[test]
+fn lambda_rejects_fun_capture_clearly() {
+    // C13h / deferred C13e: nested Fun capture still rejected with supported list.
+    let src = r#"
+package t
+fun main() {
+  val inner: (Int) -> Int = (x: Int) => x + 1
+  val outer = () => inner(2)
+}
+"#;
+    let file = parse_file(src).expect("parse");
+    let err = check_file(&file).expect_err("Fun capture");
+    let msg = &err.primary().message;
+    assert_capture_reject(msg, "inner");
+}

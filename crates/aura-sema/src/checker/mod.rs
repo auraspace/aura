@@ -722,7 +722,12 @@ impl Checker {
         matches!(ty, Ty::Int | Ty::Bool)
     }
 
-    /// C10h/C12m: if `name` resolves to an outer local of the active lambda, record a capture.
+    /// C13h: human-readable list of currently supported lambda captures.
+    pub(crate) fn lambda_capture_supported_list() -> &'static str {
+        "`val` Int/Bool/String/class/Array (view), `var` Int/Bool (by ref)"
+    }
+
+    /// C10h/C12m/C13h: if `name` resolves to an outer local of the active lambda, record a capture.
     pub(crate) fn note_lambda_capture(
         &mut self,
         name: &str,
@@ -737,11 +742,13 @@ impl Checker {
         if frame >= base {
             return Ok(());
         }
+        let supported = Self::lambda_capture_supported_list();
         let by_ref = if mutable {
             if !self.is_lambda_var_capturable_ty(ty) {
+                // C13h: clear reject for unsupported `var` class/Array/String/Fun, etc.
                 return Err(SemaError {
                     message: format!(
-                        "cannot capture mutable `var` `{name}` of type {} in lambda (MVP: only `var` Int/Bool by ref; String/class/Array/Fun deferred)",
+                        "cannot capture `var` `{name}` of type {} in lambda; supported captures: {supported}",
                         ty.display()
                     ),
                     span,
@@ -750,9 +757,10 @@ impl Checker {
             true
         } else {
             if !self.is_lambda_capturable_ty(ty) {
+                // C13h: e.g. Fun, enum, interface — list what is allowed today.
                 return Err(SemaError {
                     message: format!(
-                        "cannot capture `{name}` of type {} in lambda (MVP: Int, Bool, String, class, or Array)",
+                        "cannot capture `{name}` of type {} in lambda; supported captures: {supported}",
                         ty.display()
                     ),
                     span,
