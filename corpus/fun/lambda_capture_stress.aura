@@ -1,0 +1,144 @@
+// C13g: capture env mark/free stress (class + box + Fun-in-env + var String)
+// No new language features — exercises free/mark/retain for mixed envs under
+// loop churn, GC while escaped Funs live, and nested Fun-in-env RC.
+package demo.lambda_cap_stress
+
+class Box(val n: Int) {
+  fun get(): Int {
+    return this.n
+  }
+}
+
+// Escaping outer holds: nested Fun (class in its env) + var Int box + var String box.
+fun makeMixedEscaper(seed: Int): () -> Int {
+  val b = Box(seed)
+  val getN = () => b.get()
+  var count = 0
+  var tag = "s"
+  return () => {
+    count = count + 1
+    tag = tag + "x"
+    return getN() + count + tag.len
+  }
+}
+
+// Outer captures Fun that itself captures class; GC must keep both live.
+fun makeNestedClassCaller(b: Box): () -> Int {
+  val inner = () => b.get()
+  return () => inner() + 1
+}
+
+// HOF-style: param Fun retained in env of returned Fun.
+fun composeOnce(f: (Int) -> Int, g: (Int) -> Int): (Int) -> Int {
+  return (x: Int) => g(f(x))
+}
+
+fun applyTwice(f: () -> Int): Int {
+  return f() + f()
+}
+
+fun main(): Int {
+  // --- Mixed single env: class + var Int + var String + nested Fun ---
+  val box = Box(10)
+  val peek = () => box.get()
+  var n = 1
+  var s = "a"
+  val mixed = () => {
+    n = n + 1
+    s = s + "b"
+    return peek() + n + s.len
+  }
+  // peek=10, n→2, s→"ab" len=2 → 10+2+2 = 14
+  val r1 = mixed()
+  // peek=10, n→3, s→"abb" len=3 → 10+3+3 = 16
+  val r2 = mixed()
+  // Shared boxes still visible to outer.
+  val r3 = n + s.len // 3+3 = 6
+
+  // --- Escaping multi-kind env after maker scope ends ---
+  val esc = makeMixedEscaper(20)
+  gc_collect()
+  // count→1 tag→"sx" len=2; 20+1+2 = 23
+  val r4 = esc()
+  gc_collect()
+  // count→2 tag→"sxx" len=3; 20+2+3 = 25
+  val r5 = esc()
+
+  // --- Nested class Fun-in-env + GC ---
+  val nested = makeNestedClassCaller(Box(7))
+  gc_collect()
+  val r6 = nested() // 8
+
+  // --- Fun-in-env compose via param transfer (env moved into callee) ---
+  val base = 5
+  val addMoved = (x: Int) => x + base
+  val mul = (x: Int) => x * 2
+  val both = composeOnce(addMoved, mul)
+  val r7 = both(3) // (3+5)*2 = 16
+
+  // Fun still live when nested via capture retain (not param move).
+  val base2 = 5
+  val addKeep = (x: Int) => x + base2
+  val wrap = (x: Int) => addKeep(x) * 2
+  val r8a = wrap(3) // (3+5)*2 = 16
+  val r8 = addKeep(1) // 6; outer Fun still owns env after nested retain
+
+  // --- Short-lived capturing envs in a tight loop (free each iter) ---
+  var sum = 0
+  for (i in 0..100) {
+    val k = i
+    val localBox = Box(i)
+    var v = 0
+    var t = "z"
+    val f = () => {
+      v = v + 1
+      t = t + "y"
+      return k + localBox.get() + v + t.len
+    }
+    // k + i + 1 + 2 = 2*i + 3
+    sum = sum + f()
+  }
+  // sum_{i=0..99} (2i+3) = 2*(99*100/2) + 3*100 = 9900 + 300 = 10200
+  val r9 = sum
+
+  // --- Escaped Fun passed as param; env free after applyTwice ---
+  var hits = 0
+  val tick = () => {
+    hits = hits + 1
+    return hits
+  }
+  val r10 = applyTwice(tick) // 1+2 = 3
+  val r11 = hits // 2
+
+  // --- Array view capture alongside class (env free must not free buffer) ---
+  val xs: Array<Int> = Array(0)
+  xs.push(4)
+  xs.push(5)
+  val arrF = () => xs.len + xs.get(0) + box.get()
+  val r12 = arrF() // 2+4+10 = 16
+  val r13 = xs.get(1) // 5; buffer still intact after arrF live/use
+
+  // --- Many mixed escapers: retain class roots + boxes under GC ---
+  var acc = 0
+  for (j in 0..20) {
+    val e = makeMixedEscaper(j)
+    gc_collect()
+    // first call: j + 1 + 2 = j+3
+    acc = acc + e()
+  }
+  // sum_{j=0..19} (j+3) = (19*20/2) + 3*20 = 190 + 60 = 250
+  val r14 = acc
+
+  // Totals:
+  // r1..r3: 14+16+6 = 36
+  // r4+r5: 23+25 = 48
+  // r6: 8
+  // r7: 16
+  // r8a+r8: 16+6 = 22
+  // r9: 10200
+  // r10+r11: 3+2 = 5
+  // r12+r13: 16+5 = 21
+  // r14: 250
+  // grand: 36+48+8+16+22+10200+5+21+250 = 10606
+  return r1 + r2 + r3 + r4 + r5 + r6 + r7 + r8a + r8 + r9 + r10 + r11 + r12 + r13 + r14
+}
