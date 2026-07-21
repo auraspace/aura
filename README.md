@@ -4,18 +4,18 @@
 
 This repository currently holds:
 
-| Path                                 | Purpose                                                              |
-| ------------------------------------ | -------------------------------------------------------------------- |
-| [`docs/guide/`](docs/guide/)         | User guide (site `/docs`)                                            |
-| [`docs/rfc/`](docs/rfc/)             | Language & toolchain RFCs                                            |
-| [`docs/roadmap.md`](docs/roadmap.md) | Execution phases (P0–P3; C0–C12q surface + C12r docs; C12s–t next)   |
-| [`docs/releases/`](docs/releases/)   | Freeze / release notes (`0.1.0-alpha`)                               |
-| [`site/`](site/)                     | Homepage + docs + RFC site (Vite + React)                            |
-| [`crates/`](crates/)                 | Rust toolchain (`aura` CLI) — check / build / run / test (C backend) |
-| [`corpus/`](corpus/)                 | Sample `.aura` programs for the compiler                             |
-| [`examples/`](examples/)             | Dogfood apps (`notes`, `wc` CLI packages)                            |
-| [`std/`](std/)                       | Minimal std packages (`io`, `assert`, `collections`)                 |
-| [`runtime/`](runtime/)               | Linked C runtime (`aura_rt.c`)                                       |
+| Path                                 | Purpose                                                               |
+| ------------------------------------ | --------------------------------------------------------------------- |
+| [`docs/guide/`](docs/guide/)         | User guide (site `/docs`)                                             |
+| [`docs/rfc/`](docs/rfc/)             | Language & toolchain RFCs                                             |
+| [`docs/roadmap.md`](docs/roadmap.md) | Execution phases (P0–P3; C0–C12q surface + C12r–s docs/DX; C12t next) |
+| [`docs/releases/`](docs/releases/)   | Freeze / release notes (`0.1.0-alpha`)                                |
+| [`site/`](site/)                     | Homepage + docs + RFC site (Vite + React)                             |
+| [`crates/`](crates/)                 | Rust toolchain (`aura` CLI) — check / build / run / test (C backend)  |
+| [`corpus/`](corpus/)                 | Sample `.aura` programs for the compiler                              |
+| [`examples/`](examples/)             | Dogfood apps (`notes`, `wc` CLI packages)                             |
+| [`std/`](std/)                       | Minimal std packages (`io`, `assert`, `collections`)                  |
+| [`runtime/`](runtime/)               | Linked C runtime (`aura_rt.c`)                                        |
 
 **License:** [MIT](LICENSE)
 
@@ -34,7 +34,7 @@ pnpm site:test
 pnpm site:build
 ```
 
-### Compiler (through C12q surface; C12r docs)
+### Compiler (through C12q surface; C12r–s docs/DX)
 
 ```bash
 cargo test --workspace
@@ -207,8 +207,9 @@ Native builds use a **C backend** (`aura emit-c` + system `cc`) linked with `run
 - **Stdlib C12p** `tryReadFile(path): String?`
 - **Dogfood C12q** `examples/wc` CLI (`args`, `tryReadFile`, String split/trim/indexOf/toInt)
 - **Docs C12r** Guide + corpus sync for C12 teach path
+- **Dist C12s** Install smoke checklist (`scripts/install-smoke.sh`) + `avm` help polish
 - **Debts** Tracked in [`agents/debts.md`](agents/debts.md)
-- **Next (C12s–t):** [post-alpha plan](docs/plans/2026-07-21-next-20-c12a-c12t.md) — dist/DX polish + batch close; then registry/semver, async, signed installers
+- **Next (C12t):** [post-alpha plan](docs/plans/2026-07-21-next-20-c12a-c12t.md) — batch close; then registry/semver, async, signed installers
 
 ## Links
 

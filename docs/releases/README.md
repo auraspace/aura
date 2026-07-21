@@ -89,6 +89,8 @@ scripts/prepare-release.sh 0.2.0 --no-commit
 | `scripts/prepare-release.sh` | Version dump + changelog + **release commit**     |
 | `scripts/package-release.sh` | Build local / CI tarball (`dist/aura-…tar.gz`)    |
 | `scripts/install.sh`         | End-user installer (site copies to `/install.sh`) |
+| `scripts/avm`                | Version manager (embedded into CDN install.sh)    |
+| `scripts/install-smoke.sh`   | Post-install / post-release verify checklist      |
 
 ## Version naming
 

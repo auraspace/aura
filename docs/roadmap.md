@@ -10,13 +10,13 @@ Living plan for docs, language specs, and the Rust toolchain. RFCs remain the de
 
 ## Status snapshot
 
-| Track                       | Status                                                                                      |
-| --------------------------- | ------------------------------------------------------------------------------------------- |
-| RFC static site (`site/`)   | Implemented; Cloudflare Pages → **https://aura.fadosoft.com**                               |
-| RFC-000 … RFC-013           | **All Accepted** — open questions resolved or Deferred (2026-07-16)                         |
-| Language MVP                | RFC-001 §6.0 + post-C1; generic iface mono (C8c); Iterable (C8d); async/macros deferred     |
-| Compiler                    | **C0–C12q** surface shipped; **C12r** docs Done; **C12s–t Planned** (dist/DX + batch close) |
-| Runtime / packages / stdlib | GC + nested Array free; Map/Set/HashMap/HashMapStr; path lock; **std.io** file+process I/O  |
+| Track                       | Status                                                                                     |
+| --------------------------- | ------------------------------------------------------------------------------------------ |
+| RFC static site (`site/`)   | Implemented; Cloudflare Pages → **https://aura.fadosoft.com**                              |
+| RFC-000 … RFC-013           | **All Accepted** — open questions resolved or Deferred (2026-07-16)                        |
+| Language MVP                | RFC-001 §6.0 + post-C1; generic iface mono (C8c); Iterable (C8d); async/macros deferred    |
+| Compiler                    | **C0–C12q** surface shipped; **C12r–s** docs/DX Done; **C12t Planned** (batch close)       |
+| Runtime / packages / stdlib | GC + nested Array free; Map/Set/HashMap/HashMapStr; path lock; **std.io** file+process I/O |
 
 ## Phases
 
@@ -202,7 +202,7 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C12p**  | `tryReadFile(path): String?`                                       | **Done**                                   |
 | **C12q**  | Dogfood CLI (`examples/notes` argv or `examples/wc`)               | **Done**                                   |
 | **C12r**  | Corpus + guide sync for C12 surface                                | **Done**                                   |
-| **C12s**  | Dist/DX polish (install smoke; optional Windows best-effort CI)    | Planned                                    |
+| **C12s**  | Dist/DX polish (install smoke; avm help; Windows CI skipped)       | **Done**                                   |
 | **C12t**  | Close C12a–C12t batch (roadmap / debts / plan)                     | Planned                                    |
 
 Plan: [`docs/plans/2026-07-21-next-20-c12a-c12t.md`](plans/2026-07-21-next-20-c12a-c12t.md).
@@ -217,7 +217,7 @@ Plan: [`docs/plans/2026-07-21-next-20-c12a-c12t.md`](plans/2026-07-21-next-20-c1
 2. Runtime: ~~alloc/GC + deep mark/sweep + nested Array free~~ + ~~Fun env free~~ → **C12b–e** process I/O → later: channels/tasks
 3. Toolchain: ~~path deps + path lock + registry lock schema~~ → registry client / semver (RFC-005; **after C12**)
 4. Stdlib: ~~io (console+file) + assert + Map/Set/HashMap(+resize) + Iterable~~ → **C12 String tools + HashMap str + tryReadFile** → later: generic HashMap
-5. Cross targets + signed releases — **C12s** best-effort only
+5. Cross targets + signed releases — **C12s** smoke/avm Done (Windows matrix deferred)
 
 Write Wave 2–4 RFCs **as implementation needs them**, not all up front.
 

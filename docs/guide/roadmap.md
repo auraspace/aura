@@ -41,7 +41,7 @@ Aura is **spec-first**: RFCs lock design; the compiler and runtime land vertical
 
 ## Compiler milestone band
 
-Public README and repo `docs/roadmap.md` track **C0 → C12q** shipped (surface), **C12r** docs sync Done, **C12s–t** remaining.
+Public README and repo `docs/roadmap.md` track **C0 → C12q** shipped (surface), **C12r–s** docs/DX Done, **C12t** remaining.
 
 | Band   | User-visible outcome                                                                                                                  |
 | ------ | ------------------------------------------------------------------------------------------------------------------------------------- |
@@ -55,11 +55,12 @@ Public README and repo `docs/roadmap.md` track **C0 → C12q** shipped (surface)
 | C11a–e | file I/O, Fun env free, `aura new`, substring, notes dogfood, **install/embed runtime**, 0.1 freeze                                   |
 | C12a–q | **Shipped:** argv/stdin/exit, String split/trim/toInt/join, class·Array·var captures, HashMapStr, HOF str, tryReadFile, `examples/wc` |
 | C12r   | **Done:** corpus + guide sync for C12 teach path                                                                                      |
-| C12s–t | **Planned:** dist/DX polish; batch close                                                                                              |
+| C12s   | **Done:** install smoke checklist + `avm` help polish (Windows CI deferred)                                                           |
+| C12t   | **Planned:** batch close                                                                                                              |
 
-**Shipped:** tag `v0.1.0-alpha` + multi-OS tarballs ([release notes](https://github.com/auraspace/aura/blob/main/docs/releases/0.1.0-alpha.md)); C12 surface through dogfood CLI.
+**Shipped:** tag `v0.1.0-alpha` + multi-OS tarballs ([release notes](https://github.com/auraspace/aura/blob/main/docs/releases/0.1.0-alpha.md)); C12 surface through dogfood CLI + install smoke.
 
-**Next:** [C12s–t](https://github.com/auraspace/aura/blob/main/docs/plans/2026-07-21-next-20-c12a-c12t.md) dist/DX + batch close. After C12: registry fetch/semver; tasks/async; signed installers.
+**Next:** [C12t](https://github.com/auraspace/aura/blob/main/docs/plans/2026-07-21-next-20-c12a-c12t.md) batch close. After C12: registry fetch/semver; tasks/async; signed installers.
 
 Exact bullet lists live in the root [README](https://github.com/auraspace/aura) and repo [`docs/roadmap.md`](https://github.com/auraspace/aura/blob/main/docs/roadmap.md).
 

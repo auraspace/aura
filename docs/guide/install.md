@@ -157,11 +157,33 @@ TAG_VERSION=0.1.0-alpha bash scripts/package-release.sh
 ```bash
 export PATH="$HOME/.aura/bin:$HOME/.local/bin:$PATH"
 aura version
+avm --help
 avm --show
 aura new /tmp/aura-smoke && aura run /tmp/aura-smoke
 ```
 
 Expect `Hello, Aura` on stdout.
+
+### Install smoke checklist (C12s)
+
+Automated / printable checklist after a release or local package:
+
+```bash
+# Human steps only
+bash scripts/install-smoke.sh --checklist
+
+# Check the install already on PATH / $AURA_HOME (no network)
+bash scripts/install-smoke.sh
+
+# Maintainer: package this checkout into a temp $AURA_HOME and smoke
+TAG_VERSION=0.1.0-alpha bash scripts/package-release.sh
+bash scripts/install-smoke.sh --local-pkg
+
+# Optional: curl the published installer into a temp home (network)
+# AURA_VERSION=0.1.0-alpha bash scripts/install-smoke.sh --from-release
+```
+
+Source: [`scripts/install-smoke.sh`](https://github.com/auraspace/aura/blob/main/scripts/install-smoke.sh).
 
 ## Troubleshooting
 

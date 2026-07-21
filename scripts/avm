@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # avm — Aura Version Manager
-# Usage: avm <version> | avm --list | avm --show
+# Switch the active toolchain under $AURA_HOME (default ~/.aura).
+# Source of truth for install.sh embed (site/scripts/sync-install.mjs).
+#
+# Note: avoid large heredocs inside functions — some bash builds hang on them
+# (same constraint as scripts/install.sh write_avm).
 set -euo pipefail
 AURA_HOME="${AURA_HOME:-${HOME}/.aura}"
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
@@ -25,16 +29,39 @@ show_current() {
   fi
 }
 
+usage() {
+  printf '%s\n' \
+    'avm — Aura Version Manager' \
+    '' \
+    'Switch the active Aura toolchain under $AURA_HOME (default: ~/.aura).' \
+    'Does not download; only flips the current symlink among installed trees.' \
+    '' \
+    'Usage:' \
+    '  avm <version>     Activate an installed version (leading v is optional)' \
+    '  avm --list, -l    List installed versions under $AURA_HOME/versions/' \
+    '  avm --show, -s    Print the active version (or "(none)")' \
+    '  avm --help, -h    Show this help' \
+    '' \
+    'Environment:' \
+    '  AURA_HOME         Toolchain root (default: $HOME/.aura)' \
+    '' \
+    'Examples:' \
+    '  avm --list' \
+    '  avm --show' \
+    '  avm 0.1.0-alpha' \
+    '  AURA_HOME=/opt/aura avm 0.2.0' \
+    '' \
+    'Install a version first:' \
+    '  curl -fsSL https://aura.fadosoft.com/install.sh | AURA_VERSION=0.1.0-alpha bash' \
+    '' \
+    'PATH: put $AURA_HOME/bin (or ~/.local/bin after install) ahead of other aura binaries.' \
+    'Verify:  scripts/install-smoke.sh   (see docs/guide/install.md)'
+}
+
 cmd="${1:-}"
 case "$cmd" in
   ""|-h|--help)
-    printf '%s\n' \
-      'avm — Aura Version Manager' \
-      '' \
-      'Usage:' \
-      '  avm <version>   Activate an installed version' \
-      '  avm --list      List installed versions' \
-      '  avm --show      Print active version'
+    usage
     exit 0
     ;;
   --list|-l)
@@ -46,7 +73,8 @@ case "$cmd" in
     exit 0
     ;;
   -*)
-    die "unknown option: $cmd"
+    die "unknown option: $cmd
+Run: avm --help"
     ;;
 esac
 
@@ -57,7 +85,8 @@ if [[ ! -d "$target" ]]; then
 Install with:
   curl -fsSL https://aura.fadosoft.com/install.sh | AURA_VERSION=${ver} bash
 Available:
-$(list_versions | sed 's/^/  /')"
+$(list_versions | sed 's/^/  /' || true)
+Run: avm --help"
 fi
 
 mkdir -p "${AURA_HOME}/bin"
