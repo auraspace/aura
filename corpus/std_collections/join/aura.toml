@@ -1,0 +1,6 @@
+[package]
+name = "demo.stdcollections.join"
+
+[[bin]]
+name = "app"
+path = "src"

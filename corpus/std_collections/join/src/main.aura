@@ -1,0 +1,51 @@
+// C12j — std.collections.join(parts: Array<String>, sep: String): String
+// Empty → ""; single → element; multi → sep between parts.
+// Array params own the buffer: clone when reusing the same Array.
+// Round-trip with String.split.
+package demo.stdcollections.join
+
+import std.collections
+import std.assert
+
+fun main() {
+  // Empty array
+  val empty: Array<String> = Array(0)
+  assert_eq(join(empty, ","), "")
+
+  // Single element — no separator
+  val one: Array<String> = Array(0)
+  one.push("solo")
+  assert_eq(join(one.clone(), ","), "solo")
+  assert_eq(join(one, "::"), "solo")
+
+  // Two elements
+  val two: Array<String> = Array(0)
+  two.push("a")
+  two.push("b")
+  assert_eq(join(two.clone(), ","), "a,b")
+  assert_eq(join(two, " - "), "a - b")
+
+  // Three elements + empty sep
+  val three: Array<String> = Array(0)
+  three.push("x")
+  three.push("y")
+  three.push("z")
+  assert_eq(join(three.clone(), ","), "x,y,z")
+  assert_eq(join(three.clone(), ""), "xyz")
+  assert_eq(join(three, "::"), "x::y::z")
+
+  // Empty segments preserved
+  val mid: Array<String> = Array(0)
+  mid.push("a")
+  mid.push("")
+  mid.push("b")
+  assert_eq(join(mid, ","), "a,,b")
+
+  // Round-trip: join(split(s, sep), sep) == s for common cases
+  val s = "a,b,c"
+  assert_eq(join(s.split(","), ","), s)
+  assert_eq(join("a::b::c".split("::"), "::"), "a::b::c")
+  assert_eq(join("solo".split(","), ","), "solo")
+
+  println("ok")
+}

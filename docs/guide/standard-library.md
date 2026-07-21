@@ -15,7 +15,7 @@ Aura’s **core** stdlib is intentionally small ([RFC-007](/rfc/007), [RFC-000](
 | ----------------- | ----------------- | ----------------------------------------------------- |
 | `std.io`          | `std/io`          | Console + file I/O (`print`/`println`, `readFile`, …) |
 | `std.assert`      | `std/assert`      | Assert helpers for tests                              |
-| `std.collections` | `std/collections` | Map/Set/HashMap, Iterable, Int HOF helpers (C10i)     |
+| `std.collections` | `std/collections` | Map/Set/HashMap, Iterable, Int HOF, `join` (C12j)     |
 
 Builtins such as `Array<T>` and core scalars are part of the **language**, not a separate import.
 
@@ -76,12 +76,14 @@ Prefer package tests that exercise `assert` / `assert_eq` for `Int` / `String` /
 | `HashMap`                                | String→Int open addressing + auto-resize (C9b)       |
 | `Iterable<E>`                            | `len` + `get` protocol for `for-in`                  |
 | `map_ints` / `filter_ints` / `fold_ints` | Int array HOF helpers                                |
+| `join(parts, sep)`                       | `Array<String>` → `String` with separator (C12j)     |
 
 **Alpha limits:** no generic `HashMap<K,V>` yet (String→Int only for the hashed map). See [Arrays](./arrays.md) for HOF usage and capture limits.
 
 ```bash
 aura run corpus/std_collections/app
 aura run corpus/std_collections/hof
+aura run corpus/std_collections/join
 ```
 
 ## How the CLI finds `std.*`

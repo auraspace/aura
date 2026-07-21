@@ -62,6 +62,7 @@ fun stack() {
 | Helper        | Signature                                     |
 | ------------- | --------------------------------------------- |
 | `map_ints`    | `(Array<Int>, (Int) -> Int) -> Array<Int>`    |
+| `join`        | `(Array<String>, String) -> String` (C12j)    |
 | `filter_ints` | `(Array<Int>, (Int) -> Bool) -> Array<Int>`   |
 | `fold_ints`   | `(Array<Int>, Int, (Int, Int) -> Int) -> Int` |
 
@@ -75,7 +76,7 @@ fun demo(xs: Array<Int>): Int {
 }
 ```
 
-Corpus: `fun/lambda_hof.aura`, `std_collections/hof`.
+Corpus: `fun/lambda_hof.aura`, `std_collections/hof`, `std_collections/join`.
 
 **Capture limits (C10h MVP):** lambdas may close over outer immutable `val` of `Int` / `Bool` / `String` only. Class, Array, `var`, and nested Fun captures are deferred ([debts](https://github.com/auraspace/aura/blob/main/agents/debts.md)).
 

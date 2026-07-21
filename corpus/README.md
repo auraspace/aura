@@ -102,6 +102,7 @@ Sample `.aura` programs for the compiler: parse/typecheck (`aura check`), native
 | `std_assert/app`                      | `std.assert` package (C4h)                                                                          |
 | `std_collections/app`                 | Map/Set/HashMap smoke                                                                               |
 | `std_collections/hof`                 | Package-level `map_ints` / `filter_ints` / `fold_ints` (C10i)                                       |
+| `std_collections/join`                | `join(parts, sep)` for `Array<String>` (C12j)                                                       |
 | `std_collections/hashmap`             | HashMap String→Int (+ resize)                                                                       |
 | `std_collections/iterable`            | `Iterable<E>` for-in                                                                                |
 | `std_collections/forin`               | for-in over Map.keys / Set                                                                          |

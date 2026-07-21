@@ -86,6 +86,7 @@ Class `==` is **identity**. String content equality uses content compare in the 
 | `s.split(sep)`                           | `Array<String>`; empty sep throws; consecutive/trailing seps → empty segments (C12g)      |
 | `s.trim()` / `trimStart` / `trimEnd`     | ASCII whitespace MVP (`' '`, `\\t`, `\\n`, `\\r`); owned copy (C12h)                      |
 | `s.toInt()`                              | `Int?`; full-string decimal; no auto-trim; optional `+/-`; invalid/overflow → null (C12i) |
+| `join(parts, sep)`                       | `std.collections`: `Array<String>` + sep → `String`; empty → `""` (C12j)                  |
 | `s.substring(start, end)`                | Exclusive end; UTF-8 **byte** indices (C11d)                                              |
 
 No embedded NUL in strings. Indices are bytes, not Unicode scalar values.

@@ -474,3 +474,18 @@ pub fun fold_ints(xs: Array<Int>, init: Int, f: (Int, Int) -> Int): Int {
   return acc
 }
 
+// C12j — join Array<String> with a separator (free function; Array is generic).
+
+/// Join string parts with `sep` between elements.
+/// Empty array → `""`; single element → that element (no separator).
+pub fun join(parts: Array<String>, sep: String): String {
+  if (parts.len == 0) {
+    return ""
+  }
+  var out: String = parts.get(0)
+  for (i in 1..parts.len) {
+    out = out + sep + parts.get(i)
+  }
+  return out
+}
+
