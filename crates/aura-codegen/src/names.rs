@@ -698,6 +698,11 @@ pub(crate) fn is_heap_class_capture_ty(ty: &Ty, checked: &CheckedFile) -> bool {
     }
 }
 
+/// C13e: capture type is a Fun fat pointer (nested env retain/release).
+pub(crate) fn is_fun_capture_ty(ty: &Ty) -> bool {
+    matches!(ty, Ty::Fun { .. })
+}
+
 /// C type of a lambda env field (C12m: by-ref → shared box pointer).
 pub(crate) fn c_capture_field_type(ty: &Ty, by_ref: bool, checked: &CheckedFile) -> String {
     if by_ref {

@@ -1,0 +1,52 @@
+// C13e: capture outer val Fun (fat pointer) into env; nested env retain/release
+package demo.lambda_cap_fun
+
+// Nested map-style: outer Fun holds inner Fun in its env.
+fun makeTwice(inner: (Int) -> Int): (Int) -> Int {
+  return (x: Int) => inner(inner(x))
+}
+
+// Escaping outer after local capturing Fun leaves scope.
+fun makeAdderChain(n: Int): () -> Int {
+  val add = (x: Int) => x + n
+  val call = () => add(10)
+  return call
+}
+
+// Fun that itself captures a class; outer captures that Fun.
+class Box(val n: Int) {
+  fun get(): Int {
+    return this.n
+  }
+}
+
+fun makeBoxCaller(b: Box): () -> Int {
+  val getN = () => b.get()
+  return () => getN() + 1
+}
+
+fun main(): Int {
+  // Non-capturing inner Fun nested in outer (env NULL — retain is no-op).
+  val inc: (Int) -> Int = (x: Int) => x + 1
+  val twice = makeTwice(inc)
+  val r1 = twice(3) // 5
+
+  // Capturing inner Fun shared with outer env via RC.
+  val n = 7
+  val addN = (x: Int) => x + n
+  val apply = (x: Int) => addN(x) * 2
+  val r2 = apply(3) // (3+7)*2 = 20
+  val r3 = addN(1) // still live after outer created: 8
+
+  // Escaping nested Fun after local scope ends.
+  val f = makeAdderChain(5)
+  val r4 = f() // 15
+
+  // Class inside nested Fun env stays rooted while outer Fun lives.
+  val g = makeBoxCaller(Box(40))
+  gc_collect()
+  val r5 = g() // 41
+
+  // r1+r2+r3+r4+r5 = 5+20+8+15+41 = 89
+  return r1 + r2 + r3 + r4 + r5
+}

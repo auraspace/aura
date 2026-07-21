@@ -941,20 +941,47 @@ void aura_gc_mark_ptr(void *obj)
   }
 }
 
-/* C12k/C12l: free a Fun capture env. Every capturing env starts with a drop
- * fn ptr that unregisters GC roots for class capture slots, then free(env).
+/* C12k/C12l/C13e: Fun capture env header (must match codegen layout).
+ * Layout of every capturing env:
+ *   void (*__drop)(void *);
+ *   int32_t __refs;
+ *   … capture slots (class GC roots, boxes, nested Fun fat pointers, …)
  * Array capture slots are non-owning header views — drop must not free buffers.
- * C12m: by-ref Int/Bool captures release their shared boxes in drop. */
+ * C12m: by-ref Int/Bool captures release their shared boxes in drop.
+ * C13e: Fun slots retain nested env; drop releases nested env once via RC. */
+typedef struct
+{
+  void (*drop)(void *);
+  int32_t refs;
+} aura_fun_env_hdr;
+
+void aura_fun_env_retain(void *env)
+{
+  if (env == NULL)
+  {
+    return;
+  }
+  aura_fun_env_hdr *h = (aura_fun_env_hdr *)env;
+  h->refs++;
+}
+
+/* Release one ownership share; on zero refs run __drop then free. */
 void aura_fun_env_free(void *env)
 {
   if (env == NULL)
   {
     return;
   }
-  void (*drop)(void *) = *(void (**)(void *))env;
-  if (drop != NULL)
+  aura_fun_env_hdr *h = (aura_fun_env_hdr *)env;
+  if (h->refs > 1)
   {
-    drop(env);
+    h->refs--;
+    return;
+  }
+  h->refs = 0;
+  if (h->drop != NULL)
+  {
+    h->drop(env);
   }
   else
   {

@@ -1033,17 +1033,38 @@ fun main() {
 }
 
 #[test]
-fn lambda_rejects_fun_capture_clearly() {
-    // C13h / deferred C13e: nested Fun capture still rejected with supported list.
+fn lambda_allows_fun_capture() {
+    // C13e: outer `val` Fun is capturable (nested env retain/release in codegen).
     let src = r#"
 package t
-fun main() {
+fun main(): Int {
   val inner: (Int) -> Int = (x: Int) => x + 1
   val outer = () => inner(2)
+  return outer()
 }
 "#;
     let file = parse_file(src).expect("parse");
-    let err = check_file(&file).expect_err("Fun capture");
+    let checked = check_file(&file).expect("Fun capture should be allowed");
+    let has_fun_cap = checked.lambda_captures.values().any(|caps| {
+        caps.iter()
+            .any(|c| c.name == "inner" && matches!(c.ty, Ty::Fun { .. }))
+    });
+    assert!(has_fun_cap, "expected outer lambda to capture Fun `inner`");
+}
+
+#[test]
+fn lambda_rejects_var_fun_capture_clearly() {
+    // C13h: `var` Fun still unsupported (only `val` Fun in C13e).
+    let src = r#"
+package t
+fun main() {
+  var f: (Int) -> Int = (x: Int) => x
+  val g = () => f(1)
+}
+"#;
+    let file = parse_file(src).expect("parse");
+    let err = check_file(&file).expect_err("var Fun capture");
     let msg = &err.primary().message;
-    assert_capture_reject(msg, "inner");
+    assert_capture_reject(msg, "f");
+    assert!(msg.contains("`var`"), "{msg}");
 }

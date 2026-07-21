@@ -739,11 +739,13 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
             if captures.is_empty() {
                 format!("(({fp}){{ .env = NULL, .fn = aura_lambda_{id} }})")
             } else {
-                // GNU statement-expr: allocate env, set drop, fill captures, root GC slots.
+                // GNU statement-expr: allocate env, set drop+refs, fill captures, root GC slots.
                 // C12l: Array fields are header copies (view); outer scope still owns the buffer.
                 // C12m: by-ref slots store box pointers and retain.
+                // C13e: Fun slots copy fat pointer and retain nested env (shared RC).
                 let mut fill = String::new();
                 let _ = writeln!(fill, "  __e->__drop = aura_lenv_{id}_drop;");
+                let _ = writeln!(fill, "  __e->__refs = 1;");
                 for cap in captures {
                     let m = mangle_ident(&cap.name);
                     // Capture from enclosing scope local of the same name.
@@ -751,6 +753,8 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
                     if cap.by_ref {
                         let ret = crate::names::box_retain_fn(&cap.ty.mono_suffix());
                         let _ = writeln!(fill, "  {ret}(__e->{m});");
+                    } else if crate::names::is_fun_capture_ty(&cap.ty) {
+                        let _ = writeln!(fill, "  aura_fun_env_retain(__e->{m}.env);");
                     } else if crate::names::is_heap_class_capture_ty(&cap.ty, ctx.checked) {
                         let _ = writeln!(fill, "  aura_gc_add_root((void **)&__e->{m});");
                     }

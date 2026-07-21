@@ -73,6 +73,7 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("void aura_gc_remove_root(void **slot);\n");
     out.push_str("void aura_gc_add_array_root(void **data_slot, int64_t *len_slot);\n");
     out.push_str("void aura_gc_remove_array_root(void **data_slot);\n");
+    out.push_str("void aura_fun_env_retain(void *env);\n");
     out.push_str("void aura_fun_env_free(void *env);\n");
     out.push_str("void aura_gc_collect(void);\n");
     out.push_str("void aura_gc_shutdown(void);\n");
@@ -683,10 +684,11 @@ fn emit_lambda_fns(out: &mut String, checked: &CheckedFile) {
     let mut lambdas = collect_lambdas(&checked.ast);
     lambdas.sort_by_key(|l| l.span.start);
 
-    // C10h/C12k/C12l/C12m: env structs for capturing lambdas (stable field order from sema).
-    // First field is always `__drop` so Fun free can unregister GC class slots / release boxes.
+    // C10h/C12k/C12l/C12m/C13e: env structs for capturing lambdas (stable field order from sema).
+    // Header: `__drop` + `__refs` (refcount for shared nested Fun envs / multi-owner free).
     // Array captures store a non-owning header view — drop must not free their buffers.
     // By-ref Int/Bool captures store aura_box_* pointers (retain on fill, release on drop).
+    // Fun captures store fat pointer; retain nested env on fill, release on drop.
     for lam in &lambdas {
         let Some(&id) = ids.get(&lam.span.start) else {
             continue;
@@ -701,13 +703,14 @@ fn emit_lambda_fns(out: &mut String, checked: &CheckedFile) {
         }
         let _ = writeln!(out, "typedef struct {{");
         let _ = writeln!(out, "  void (*__drop)(void *);");
+        let _ = writeln!(out, "  int32_t __refs;");
         for cap in captures {
             let field_ty = c_capture_field_type(&cap.ty, cap.by_ref, checked);
             let _ = writeln!(out, "  {field_ty} {};", mangle_ident(&cap.name));
         }
         let _ = writeln!(out, "}} aura_lenv_{id};");
         // Per-env drop: remove GC roots for heap-class captures, release by-ref boxes,
-        // then free env only. C12l: never free Array view buffers here.
+        // release nested Fun envs, then free env only. C12l: never free Array view buffers.
         let _ = writeln!(out, "static void aura_lenv_{id}_drop(void *env) {{");
         let _ = writeln!(out, "  aura_lenv_{id} *__e = (aura_lenv_{id} *)env;");
         for cap in captures {
@@ -718,6 +721,9 @@ fn emit_lambda_fns(out: &mut String, checked: &CheckedFile) {
                     _ => "aura_box_i64_release",
                 };
                 let _ = writeln!(out, "  {rel}(__e->{m});");
+            } else if is_fun_capture_ty(&cap.ty) {
+                // C13e: release retained nested env (no-op when env is NULL).
+                let _ = writeln!(out, "  aura_fun_env_free(__e->{m}.env);");
             } else if is_heap_class_capture_ty(&cap.ty, checked) {
                 let _ = writeln!(out, "  aura_gc_remove_root((void **)&__e->{m});");
             }

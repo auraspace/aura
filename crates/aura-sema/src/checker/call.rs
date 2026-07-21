@@ -455,7 +455,7 @@ impl Checker {
         };
 
         // C10d: local (or param) of function type `f(x)`.
-        // C13h: also record/reject outer capture (Fun capture still unsupported).
+        // C13e: calling an outer Fun from a lambda records a Fun capture.
         if let Some((frame, local)) = self.lookup_local_frame(&name) {
             if matches!(local.ty, Ty::Fun { .. }) {
                 let ty = local.ty.clone();
