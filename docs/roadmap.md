@@ -18,6 +18,7 @@ Living plan for docs, language specs, and the Rust toolchain. RFCs remain the de
 | Compiler                    | **C0–C13t** batch closed (dogfood / Fun+var String capture / registry K1 offline)        |
 | Runtime / packages / stdlib | GC + String Array free; Map/Set/HashMap/HashMapStr; path+registry lock; std.io + process |
 | Distribution contract       | **S2 complete:** Linux amd64, macOS arm64, macOS amd64; Windows amd64 deferred           |
+| Release metadata            | **0.1.0-alpha published**; subsequent release work tracks changes after `v0.1.0-alpha`   |
 
 ## Phases
 

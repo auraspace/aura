@@ -118,6 +118,7 @@ expect_success 'aura version' version
 expect_success 'aura check standalone' check corpus/hello/main.aura
 expect_success 'aura check package' check corpus/import/app
 expect_output 'aura run' 'Hello, Aura' run corpus/generic/id.aura
+expect_output 'forwarded CLI args' 'args ok' run corpus/std_io/args -- hello
 expect_output 'aura test' '3 passed' test corpus/test/smoke.aura
 
 build_dir="$(mktemp -d "${TMPDIR:-/tmp}/aura-regression.XXXXXX")"

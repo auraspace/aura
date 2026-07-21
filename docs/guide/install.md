@@ -11,7 +11,8 @@ Aura’s toolchain is the **`aura` CLI** (Rust crate `aura-cli`). User programs 
 
 ## One-liner (release tarball)
 
-`v0.1.0-alpha` assets are on [GitHub Releases](https://github.com/auraspace/aura/releases/tag/v0.1.0-alpha):
+The `0.1.0-alpha` GitHub Release assets are available for the supported Unix
+targets.
 
 ```bash
 curl -fsSL https://aura.fadosoft.com/install.sh | bash

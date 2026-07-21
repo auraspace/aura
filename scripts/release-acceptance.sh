@@ -70,6 +70,22 @@ run_stage() {
   fi
 }
 
+report_native_scope() {
+  local os arch
+  os="$(uname -s)"
+  arch="$(uname -m)"
+  case "$os/$arch" in
+    Linux/x86_64|Linux/amd64|Darwin/arm64|Darwin/aarch64|Darwin/x86_64|Darwin/amd64)
+      printf '    native target exercised by this run: %s/%s\n' "$os" "$arch"
+      printf '    other supported targets require their own native host; no cross-target runtime claim is made\n'
+      ;;
+    *)
+      printf '    unsupported host for native release smoke: %s/%s\n' "$os" "$arch" >&2
+      printf '    no supported native target is being claimed by this run\n' >&2
+      ;;
+  esac
+}
+
 if [[ "$dry_run" -eq 0 ]]; then
   caller_home="${HOME:-}"
   caller_rustup_home="${RUSTUP_HOME:-}"
@@ -88,6 +104,8 @@ if [[ "$dry_run" -eq 0 ]]; then
   mkdir -p "$HOME" "$XDG_CACHE_HOME" "$AURA_REGISTRY_CACHE"
   printf 'release acceptance: isolated HOME/cache at %s\n' "$tmp"
 fi
+
+run_stage "native host scope" report_native_scope
 
 run_stage "workspace tests" cargo test --workspace
 run_stage "Clippy warnings gate" cargo clippy --workspace --all-targets -- -D warnings

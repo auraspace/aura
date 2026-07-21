@@ -148,6 +148,61 @@ jobs:
             exit 1
           fi
 
+      - name: Generate aggregate SHA256 manifest
+        run: |
+          set -euo pipefail
+          manifest="release-assets/SHA256SUMS"
+          : >"$manifest"
+          # SHA256SUMS and its detached signature are metadata about the
+          # payload; excluding them avoids a self-referential manifest. The
+          # published minisign.pub is trust configuration, not a payload.
+          (
+            cd release-assets
+            find . -maxdepth 1 -type f \
+              ! -name 'SHA256SUMS' \
+              ! -name 'SHA256SUMS.minisig' \
+              ! -name 'minisign.pub' \
+              -print \
+              | sed 's#^\./##' \
+              | LC_ALL=C sort \
+              | while IFS= read -r asset; do
+                  sha256sum "$asset"
+                done
+          ) >"$manifest"
+          [[ -s "$manifest" ]] || { echo "error: aggregate manifest is empty" >&2; exit 1; }
+          echo "generated $manifest covering $(wc -l <"$manifest" | tr -d ' ') assets"
+
+      - name: Sign aggregate manifest (optional, minisign)
+        env:
+          AURA_MINISIGN_SECRET_KEY: ${{ secrets.AURA_MINISIGN_SECRET_KEY }}
+          AURA_MINISIGN_PUBLIC_KEY: ${{ vars.AURA_MINISIGN_PUBLIC_KEY }}
+        run: |
+          set -euo pipefail
+          # The private key is supplied only through GitHub Actions Secrets and
+          # is never checked into or written to the repository checkout.
+          if [[ -z "${AURA_MINISIGN_SECRET_KEY:-}" ]]; then
+            echo "minisign signing disabled: configure secret AURA_MINISIGN_SECRET_KEY"
+            exit 0
+          fi
+          [[ -n "${AURA_MINISIGN_PUBLIC_KEY:-}" ]] || {
+            echo "error: AURA_MINISIGN_PUBLIC_KEY repository variable is required when signing is enabled" >&2
+            exit 1
+          }
+          command -v minisign >/dev/null 2>&1 || {
+            sudo apt-get update
+            sudo apt-get install -y minisign
+          }
+          key_file="$(mktemp)"
+          pub_file="$(mktemp)"
+          trap 'rm -f "$key_file" "$pub_file"' EXIT
+          umask 077
+          printf '%s\n' "$AURA_MINISIGN_SECRET_KEY" >"$key_file"
+          printf '%s\n' "$AURA_MINISIGN_PUBLIC_KEY" >"$pub_file"
+          minisign -Sm release-assets/SHA256SUMS -s "$key_file"
+          minisign -Vm release-assets/SHA256SUMS -p "$pub_file" >/dev/null
+          cp "$pub_file" release-assets/minisign.pub
+          echo "signed release-assets/SHA256SUMS"
+
       - name: Release notes body
         id: notes
         run: |

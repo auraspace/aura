@@ -2,7 +2,8 @@
 
 ## 0.1.0-alpha (2026-07-21)
 
-Release `0.1.0-alpha`.
+Release `0.1.0-alpha` is published with GitHub Release assets and the public
+installer for the supported Unix targets.
 
 Full notes: [`docs/releases/0.1.0-alpha.md`](docs/releases/0.1.0-alpha.md).
 

@@ -42,9 +42,9 @@ When a guide summarizes behavior, the RFC remains the source of truth for edge c
 
 - Vision is locked in **[RFC-000](/rfc/000)** (Accepted).
 - MVP language surface is tracked in **[RFC-001 §6.0](/rfc/001)**.
-- First public alpha: **`0.1.0-alpha`** — install with the [one-liner](./install.md); CLI supports `new` / `init` / `check` / `build` / `run` / `test` / `version` (C backend + embedded runtime).
+- First public alpha: **`0.1.0-alpha`**, available through the [release installer](./install.md); the CLI supports `new` / `init` / `check` / `build` / `run` / `test` / `version` (C backend + embedded runtime).
 
-See also the public [roadmap](./roadmap.md) notes and [0.1.0-alpha freeze](https://github.com/auraspace/aura/blob/main/docs/releases/0.1.0-alpha.md).
+See also the [roadmap](./roadmap.md) notes and [0.1.0-alpha release notes](https://github.com/auraspace/aura/blob/main/docs/releases/0.1.0-alpha.md).
 
 ## Next
 

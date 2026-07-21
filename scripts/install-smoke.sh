@@ -141,6 +141,107 @@ smoke_cli() {
       bad "aura run unexpected output: $out"
     fi
   fi
+  printf '\n@test\nfun smoke_install_flow() {}\n' >>"$work/hello/src/main.aura"
+  if ! "$aura" build "$work/hello" -o "$work/hello-built" >/dev/null 2>&1; then
+    bad "aura build failed"
+  elif [[ ! -x "$work/hello-built" ]]; then
+    bad "aura build did not create executable"
+  elif ! out="$("$work/hello-built" 2>&1)" || [[ "$out" != *Hello* ]]; then
+    bad "built executable failed or printed unexpected output: $out"
+  else
+    ok "aura build and built executable"
+  fi
+  if ! out="$("$aura" test "$work/hello" 2>&1)"; then
+    bad "aura test failed: $out"
+  else
+    ok "aura test"
+  fi
+  rm -rf "$work"
+}
+
+sha256_verify() {
+  local checksum="$1"
+  if command -v sha256sum >/dev/null 2>&1; then
+    (cd "$(dirname "$checksum")" && sha256sum --check "$(basename "$checksum")")
+  elif command -v shasum >/dev/null 2>&1; then
+    (cd "$(dirname "$checksum")" && shasum -a 256 --check "$(basename "$checksum")")
+  else
+    die "need sha256sum or shasum for archive verification"
+  fi
+}
+
+archive_has_path() {
+  local listing="$1" path="$2"
+  printf '%s\n' "$listing" | awk -v path="$path" \
+    '$0 == path || $0 == path "/" || index($0, path "/") == 1 { found = 1 } END { exit !found }'
+}
+
+verify_archive_contract() {
+  local tarball="$1" expected_name="$2" listing readme
+  [[ -s "$tarball" ]] || die "release archive is missing or empty: $tarball"
+  sha256_verify "${tarball}.sha256" >/dev/null || die "archive checksum failed: $(basename "$tarball")"
+  listing="$(tar -tzf "$tarball")" || die "cannot list release archive: $tarball"
+  for required in \
+    "$expected_name/bin/aura" \
+    "$expected_name/share/aura/aura_rt.c" \
+    "$expected_name/share/aura/std/io" \
+    "$expected_name/share/aura/std/assert" \
+    "$expected_name/share/aura/std/collections" \
+    "$expected_name/LICENSE" \
+    "$expected_name/README.txt"; do
+    archive_has_path "$listing" "$required" \
+      || die "archive is missing required path: $required"
+  done
+  readme="$(tar -xOzf "$tarball" "$expected_name/README.txt")" \
+    || die "cannot read archive README"
+  [[ "$readme" == *"Aura toolchain ${AURA_VERSION} ("* ]] \
+    || die "archive README has incorrect version metadata"
+  ok "checksum and archive contents: $(basename "$tarball")"
+}
+
+verify_failed_archive_preserves_current() {
+  local home="$1" tarball="$2" current_before current_after bad_checksum
+  current_before="$(readlink "$home/current")"
+  bad_checksum="${tarball}.smoke-bad.sha256"
+  printf '%064d  %s\n' 0 "$(basename "$tarball")" >"$bad_checksum"
+  if (cd "$(dirname "$bad_checksum")" && sha256_verify "$(basename "$bad_checksum")") >/dev/null 2>&1; then
+    rm -f "$bad_checksum"
+    die "corrupted archive checksum unexpectedly passed"
+  fi
+  current_after="$(readlink "$home/current")"
+  rm -f "$bad_checksum"
+  [[ "$current_before" == "$current_after" ]] \
+    || die "failed archive verification replaced current version"
+  ok "failed archive verification preserved current: $current_after"
+}
+
+smoke_wc() {
+  local aura="$1" work input output
+  work="$(mktemp -d "${TMPDIR:-/tmp}/aura-wc-smoke.XXXXXX")"
+  input="$work/input.txt"
+  printf 'hello world\nsecond line\n' >"$input"
+  info "examples/wc forwarded-args smoke"
+  if ! output="$("$aura" run examples/wc -- "$input" 2>&1)"; then
+    bad "examples/wc default forwarded args failed: $output"
+  elif [[ "$output" != *"2 4 24 $input"* ]]; then
+    bad "examples/wc default output mismatch: $output"
+  else
+    ok "examples/wc forwarded path"
+  fi
+  if ! output="$("$aura" run examples/wc -- -lwc "$input" 2>&1)"; then
+    bad "examples/wc forwarded flags failed: $output"
+  elif [[ "$output" != *"2 4 24 $input"* ]]; then
+    bad "examples/wc forwarded flags output mismatch: $output"
+  else
+    ok "examples/wc forwarded flags"
+  fi
+  if ! output="$("$aura" run examples/wc -- -n 1 "$input" 2>&1)"; then
+    bad "examples/wc forwarded -n failed: $output"
+  elif [[ "$output" != *"1 2 11 $input"* ]]; then
+    bad "examples/wc forwarded -n output mismatch: $output"
+  else
+    ok "examples/wc forwarded -n"
+  fi
   rm -rf "$work"
 }
 
@@ -238,9 +339,23 @@ mode_local_pkg() {
     cd "$root"
     TAG_VERSION="$ver" bash scripts/package-release.sh
   )
+  local host_os host_arch
+  case "$(uname -s)" in
+    Linux*) host_os=linux ;;
+    Darwin*) host_os=darwin ;;
+    *) die "unsupported host OS for --local-pkg: $(uname -s)" ;;
+  esac
+  case "$(uname -m)" in
+    x86_64|amd64) host_arch=amd64 ;;
+    arm64|aarch64) host_arch=arm64 ;;
+    *) die "unsupported host architecture for --local-pkg: $(uname -m)" ;;
+  esac
   local tarball
-  tarball="$(ls -1 "$root"/dist/aura-"${ver}"-*.tar.gz 2>/dev/null | head -1 || true)"
+  tarball="$root/dist/aura-${ver}-${host_os}-${host_arch}.tar.gz"
   [[ -n "$tarball" && -f "$tarball" ]] || die "no tarball under dist/ after package-release.sh"
+  local artifact_name
+  artifact_name="$(basename "$tarball" .tar.gz)"
+  verify_archive_contract "$tarball" "$artifact_name"
 
   local tmp
   tmp="$(mktemp -d "${TMPDIR:-/tmp}/aura-local-smoke.XXXXXX")"
@@ -260,8 +375,7 @@ mode_local_pkg() {
   mkdir -p "$AURA_HOME/versions"
   rm -rf "$dest"
   mv "$tree" "$dest"
-  local artifact_name os arch
-  artifact_name="$(basename "$tarball" .tar.gz)"
+  local os arch
   if [[ "$artifact_name" =~ ^aura-(.+)-(linux|darwin)-(amd64|arm64)$ ]]; then
     os="${BASH_REMATCH[1]}"
     arch="${BASH_REMATCH[2]}"
@@ -283,8 +397,10 @@ mode_local_pkg() {
   AURA_HOME="$AURA_HOME" "$AURA_HOME/bin/avm" "$ver"
 
   check_layout "$AURA_HOME"
+  verify_failed_archive_preserves_current "$AURA_HOME" "$tarball"
   smoke_avm "$AURA_HOME/bin/avm" "$AURA_HOME"
   smoke_cli "$AURA_HOME/bin/aura"
+  smoke_wc "$AURA_HOME/bin/aura"
 
   if [[ "${SMOKE_KEEP:-0}" == "1" ]]; then
     info "kept AURA_HOME=$AURA_HOME"

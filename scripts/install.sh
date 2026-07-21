@@ -20,6 +20,13 @@
 #   AURA_SET_DEFAULT   1 (default) update `current`; 0 only install side-by-side
 #   AURA_LINK_USER_BIN 1 (default) symlink $AURA_HOME/bin/aura → ~/.local/bin/aura
 #   AURA_NO_PATH_HINT  1 skip PATH hint
+#   AURA_VERIFY_SIGNATURE 1 opt in to minisign verification of SHA256SUMS
+#   AURA_MINISIGN_PUBLIC_KEY_FILE path to a trusted minisign public key
+#   AURA_MINISIGN_PUBLIC_KEY inline trusted minisign public key
+#
+# Signature verification is opt-in because the public-key trust decision is
+# deployment-specific. When enabled, the installer can use the release's
+# minisign.pub asset if neither explicit public-key setting is provided.
 set -euo pipefail
 
 REPO="${AURA_REPO:-auraspace/aura}"
@@ -86,6 +93,59 @@ validate_version() {
 
 version_dir() {
   printf '%s\n' "${AURA_HOME}/versions/$1"
+}
+
+verify_signed_manifest() {
+  local version="$1" tmp="$2" archive_name="$3" archive_path="$4"
+  [[ "${AURA_VERIFY_SIGNATURE:-0}" == "1" ]] || return 0
+  need_cmd minisign
+
+  local manifest_url="${RELEASES}/download/v${version}/SHA256SUMS"
+  local signature_url="${manifest_url}.minisig"
+  local public_key_url="${RELEASES}/download/v${version}/minisign.pub"
+  local manifest="${tmp}/SHA256SUMS"
+  local signature="${tmp}/SHA256SUMS.minisig"
+  local public_key="${tmp}/minisign.pub"
+
+  info "downloading signed aggregate checksum manifest"
+  curl -fsSL --retry 2 --connect-timeout 15 --max-time 60 "$manifest_url" -o "$manifest" \
+    || die "signed manifest download failed: ${manifest_url}"
+  curl -fsSL --retry 2 --connect-timeout 15 --max-time 60 "$signature_url" -o "$signature" \
+    || die "signature download failed: ${signature_url}"
+
+  if [[ -n "${AURA_MINISIGN_PUBLIC_KEY_FILE:-}" ]]; then
+    [[ -f "$AURA_MINISIGN_PUBLIC_KEY_FILE" ]] \
+      || die "configured public key file does not exist: ${AURA_MINISIGN_PUBLIC_KEY_FILE}"
+    cp "$AURA_MINISIGN_PUBLIC_KEY_FILE" "$public_key"
+  elif [[ -n "${AURA_MINISIGN_PUBLIC_KEY:-}" ]]; then
+    printf '%s\n' "$AURA_MINISIGN_PUBLIC_KEY" >"$public_key"
+  else
+    curl -fsSL --retry 2 --connect-timeout 15 --max-time 60 "$public_key_url" -o "$public_key" \
+      || die "public key unavailable; set AURA_MINISIGN_PUBLIC_KEY_FILE or AURA_MINISIGN_PUBLIC_KEY"
+  fi
+
+  minisign -Vm "$manifest" -p "$public_key" -x "$signature" >/dev/null \
+    || die "signature verification failed for SHA256SUMS"
+
+  local expected
+  expected="$(awk -v file="$archive_name" '$2 == file { print $1; found = 1; exit } END { if (!found) exit 1 }' "$manifest")" \
+    || die "signed manifest has no entry for ${archive_name}"
+  [[ "$expected" =~ ^[[:xdigit:]]{64}$ ]] \
+    || die "signed manifest has malformed checksum for ${archive_name}"
+  verify_archive_checksum "$archive_path" "$expected" "signed manifest"
+}
+
+verify_archive_checksum() {
+  local archive="$1" expected="$2" source="$3" actual
+  if command -v shasum >/dev/null 2>&1; then
+    actual="$(shasum -a 256 "$archive" | awk '{print $1}')"
+  elif command -v sha256sum >/dev/null 2>&1; then
+    actual="$(sha256sum "$archive" | awk '{print $1}')"
+  else
+    die "need shasum or sha256sum to verify release checksum"
+  fi
+  [[ "${actual,,}" == "${expected,,}" ]] \
+    || die "${source} checksum mismatch for $(basename "$archive")"
 }
 
 # avm payload for curl|bash installs. Empty in the repo source of truth;
@@ -182,7 +242,7 @@ download_and_install() {
   local name="aura-${version}-${os}-${arch}"
   local url="${RELEASES}/download/v${version}/${name}.tar.gz"
   local checksum_url="${url}.sha256"
-  local vdir tmp stage candidate backup expected actual bin
+  local vdir tmp stage candidate backup expected bin
   vdir="$(version_dir "$version")"
   tmp="$(mktemp -d "${TMPDIR:-/tmp}/aura-install.XXXXXX")"
   INSTALL_TMP="$tmp"
@@ -200,14 +260,10 @@ download_and_install() {
   fi
   expected="$(awk 'NF { print $1; exit }' "${tmp}/aura.tar.gz.sha256")"
   [[ "$expected" =~ ^[[:xdigit:]]{64}$ ]] || die "malformed checksum file: ${checksum_url}"
-  if command -v shasum >/dev/null 2>&1; then
-    actual="$(shasum -a 256 "${tmp}/aura.tar.gz" | awk '{print $1}')"
-  elif command -v sha256sum >/dev/null 2>&1; then
-    actual="$(sha256sum "${tmp}/aura.tar.gz" | awk '{print $1}')"
-  else
-    die "need shasum or sha256sum to verify release checksum"
-  fi
-  [[ "${actual,,}" == "${expected,,}" ]] || die "checksum mismatch for ${name}.tar.gz"
+  # This adjacent checksum check is mandatory, including when signatures are
+  # enabled. Signature verification never weakens checksum failure behavior.
+  verify_archive_checksum "${tmp}/aura.tar.gz" "$expected" "release"
+  verify_signed_manifest "$version" "$tmp" "${name}.tar.gz" "${tmp}/aura.tar.gz"
 
   info "extracting into versions/${version}"
   tar -xzf "${tmp}/aura.tar.gz" -C "$tmp"
@@ -329,6 +385,9 @@ main() {
   need_cmd basename
   need_cmd sort
   need_cmd date
+  if [[ "${AURA_VERIFY_SIGNATURE:-0}" != "0" && "${AURA_VERIFY_SIGNATURE:-0}" != "1" ]]; then
+    die "AURA_VERIFY_SIGNATURE must be 0 (default) or 1"
+  fi
 
   read -r os arch <<<"$(detect_os_arch)"
   local version

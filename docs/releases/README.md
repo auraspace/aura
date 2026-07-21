@@ -2,6 +2,10 @@
 
 How Aura cuts a public toolchain release (alpha → stable uses the same path).
 
+Current release: `0.1.0-alpha` is published with GitHub Release assets. The
+local `v0.1.0-alpha` tag does not point to the current `main` HEAD; changes
+after that tag belong to a subsequent release or maintenance update.
+
 ## Flow
 
 ```text
@@ -60,7 +64,7 @@ $EDITOR docs/releases/0.1.0-alpha.md CHANGELOG.md
 git add docs/releases/0.1.0-alpha.md CHANGELOG.md
 git commit --amend --no-edit   # only if not pushed yet
 
-# 4) Publish commit + tag
+# 4) Publish the release commit + tag
 git push origin HEAD
 git tag v0.1.0-alpha
 git push origin v0.1.0-alpha

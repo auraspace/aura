@@ -9,6 +9,20 @@ When you resolve debt, update or remove the matching entry.
 
 > **Last closed batch:** [S2](../docs/plans/2026-07-21-s2-production-toolchain.md) (2026-07-21). Residual open items below.
 
+### S3 release rehearsal external blockers
+
+- Area: production release / S3.2 + S3.6
+- Symptom: this offline rehearsal can exercise only the current host's native
+  target. macOS amd64/arm64 and Linux amd64 each still need a matching clean
+  host run; a cross-compiled archive is not treated as a runtime pass.
+- Blocker: published installer smoke requires the release URL, CDN availability,
+  GitHub release assets, and credentials/permissions outside this repository.
+- Next step: on each supported clean host, run `bash scripts/install-smoke.sh
+--from-release` against the frozen release, then record the URL, target, and
+  checksum result. Keep failed/interrupted-install evidence with the release
+  ticket; the offline script only proves failed archive verification preserves
+  the active `current` link.
+
 ### Lambda capture limits (MVP)
 
 - Area: language / lambdas (C10h/C12k/C12l/C12m/C13e/C13f/C13g)

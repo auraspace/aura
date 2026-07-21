@@ -37,9 +37,12 @@ cargo run -p aura-cli -- run examples/wc -- -lwc target/aura/wc_sample.txt
 # First N lines only (-n uses String.toInt)
 cargo run -p aura-cli -- run examples/wc -- -n 1 target/aura/wc_sample.txt
 
-# Tests + check
+# Full dogfood verification: check, test, then forwarded-argument run/build
 cargo run -p aura-cli -- test examples/wc
 cargo run -p aura-cli -- check examples/wc
+cargo run -p aura-cli -- run examples/wc -- -lwc target/aura/wc_sample.txt
+cargo run -p aura-cli -- build examples/wc -o target/aura/wc
+target/aura/wc -n 1 target/aura/wc_sample.txt
 ```
 
 Installed `aura` (same args after `--`):
@@ -47,6 +50,10 @@ Installed `aura` (same args after `--`):
 ```bash
 aura run examples/wc -- target/aura/wc_sample.txt
 ```
+
+The `--` is required: it separates Aura CLI options from the arguments passed
+to `examples/wc`. The release rehearsal also checks `-lwc` and `-n 1` through
+this forwarded-argument path, plus the built executable.
 
 ## Layout
 
