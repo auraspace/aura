@@ -1,0 +1,12 @@
+// C12b — std.io.args(): Array<String> from process argv
+package demo.stdio.args
+
+fun main() {
+  val a = args()
+  // At least argv[0] (program path) is present when linked via runtime main.
+  assert(a.len >= 1)
+  val name = a.get(0)
+  assert(!name.isEmpty())
+  // Count is available as len; printing keeps smoke visible under aura run.
+  println("args ok")
+}

@@ -1,0 +1,6 @@
+[package]
+name = "demo.stdio.args"
+
+[[bin]]
+name = "args"
+path = "src"

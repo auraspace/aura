@@ -807,13 +807,41 @@ void aura_gc_shutdown(void)
   aura_gc_array_root_n = 0;
 }
 
+/* ---- Process argv (std.io.args) ----
+ * Stashed from C main before aura_main so user programs keep fun main().
+ * argv string pointers are process-lifetime; Array of them does not free chars.
+ */
+
+static int aura_saved_argc = 0;
+static char **aura_saved_argv = NULL;
+
+void aura_set_args(int argc, char **argv)
+{
+  aura_saved_argc = argc > 0 ? argc : 0;
+  aura_saved_argv = argv;
+}
+
+int64_t aura_args_count(void)
+{
+  return (int64_t)aura_saved_argc;
+}
+
+const char *aura_args_get(int64_t i)
+{
+  if (i < 0 || i >= (int64_t)aura_saved_argc || aura_saved_argv == NULL)
+  {
+    aura_throw_string("args index out of bounds");
+  }
+  const char *s = aura_saved_argv[i];
+  return s != NULL ? s : "";
+}
+
 /* Provided by generated code */
 int aura_main(void);
 
 int main(int argc, char **argv)
 {
-  (void)argc;
-  (void)argv;
+  aura_set_args(argc, argv);
   int rc = aura_main();
   aura_gc_shutdown();
   return rc;

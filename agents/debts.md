@@ -13,8 +13,19 @@ When you resolve debt, update or remove the matching entry.
 - Symptom: only immutable `val` of `Int`/`Bool`/`String`; no `var`, class, Array, or nested Fun capture
 - Why deferred: richer capture types need layout/protocol work
 - Progress: fat-pointer Fun `{env,fn}`; copy-out of primitive captures; **env free via Fun ownership** (scope / move / return / param / for-loop); corpus `lambda_capture.aura`, `lambda_env_free.aura`
-- Next step: capture class/Array/Fun; optional `var` by ref; env GC if shared Fun copies appear
+- Next step: **C12k–m** — class capture, Array view capture, `var` Int/Bool by ref; Fun capture + shared-env GC still later
+- Tracked: [C12 plan](../docs/plans/2026-07-21-next-20-c12a-c12t.md)
 - Introduced: narrowed after C10h; env free landed 2026-07-20
+
+### No stdin / exit; `aura run` argv pass-through (alpha gap, narrowed)
+
+- Area: runtime / std.io / CLI
+- Symptom: no `readLine`; no process exit code API; `aura run` does not forward args after `--`
+- Progress: **C12b** — runtime stashes `argc`/`argv`; `std.io.args(): Array<String>` (`args()[0]` = program name); corpus `std_io/args`
+- Why deferred: notes dogfood used fixed scenarios for 0.1.0-alpha
+- Next step: **C12c–e** (`aura run --` passthrough, `readLine`, `exit`)
+- Tracked: [C12 plan](../docs/plans/2026-07-21-next-20-c12a-c12t.md)
+- Introduced: documented in 0.1.0-alpha release notes; argv narrowed 2026-07-21
 
 ### Array field return still moves (no true borrow type)
 
@@ -57,7 +68,8 @@ When you resolve debt, update or remove the matching entry.
 - Symptom: linear `Map`/`Set`; `HashMap` String→Int open addressing; no generic HashMap
 - Why deferred: String→Int + resize (C9b) enough for demos
 - Progress: C9b auto-resize when load ≥ 1/2; explicit `grow()`
-- Next step: `HashMap<K,V>` when hashable protocol exists
+- Next step: **C12n** String→String concrete; later `HashMap<K,V>` when hashable protocol exists
+- Tracked: [C12 plan](../docs/plans/2026-07-21-next-20-c12a-c12t.md)
 - Introduced: narrowed after C8i; resize C9b
 
 ## Resolved

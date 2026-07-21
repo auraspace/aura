@@ -2,6 +2,14 @@
 // Errors throw String messages (see RFC-007 I/O notes; Result wrappers later).
 package std.io
 
+/// Process argument vector as `Array<String>`.
+/// `args()[0]` is the program name (`argv[0]`); user flags start at index 1.
+/// Values are process-lifetime views of the OS argv (not independent copies).
+pub fun args(): Array<String> {
+  // Body replaced by codegen: Array from runtime-stashed argc/argv.
+  return Array(0)
+}
+
 /// Write to stdout without a trailing newline.
 pub fun print(s: String) {
   // Body replaced by codegen with aura_print(s).

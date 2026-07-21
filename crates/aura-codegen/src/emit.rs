@@ -39,6 +39,8 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("void aura_append_file(const char *path, const char *content);\n");
     out.push_str("_Bool aura_file_exists(const char *path);\n");
     out.push_str("int64_t aura_file_size(const char *path);\n");
+    out.push_str("int64_t aura_args_count(void);\n");
+    out.push_str("const char *aura_args_get(int64_t i);\n");
     out.push_str("void aura_assert(_Bool cond);\n");
     out.push_str("void aura_assert_eq_int(int64_t a, int64_t b);\n");
     out.push_str("void aura_assert_eq_string(const char *a, const char *b);\n");
@@ -843,6 +845,19 @@ pub(crate) fn emit_fun(out: &mut String, f: &FunDecl, checked: &CheckedFile, arg
             ("fileSize", 1) => {
                 let a = mangle_ident(&f.params[0].name.name);
                 let _ = writeln!(out, "  return aura_file_size({a});");
+                out.push_str("}\n");
+                return;
+            }
+            // C12b: std.io.args() → Array<String> from stashed argc/argv.
+            ("args", 0) => {
+                let arr_ty = c_class_type("Array_String");
+                let ctor = c_ctor_name("Array_String");
+                let _ = writeln!(out, "  int64_t __n = aura_args_count();");
+                let _ = writeln!(out, "  {arr_ty} __a = {ctor}(__n);");
+                out.push_str("  for (int64_t __i = 0; __i < __n; __i++) {\n");
+                out.push_str("    __a.data[__i] = aura_args_get(__i);\n");
+                out.push_str("  }\n");
+                out.push_str("  return __a;\n");
                 out.push_str("}\n");
                 return;
             }

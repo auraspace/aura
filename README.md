@@ -8,7 +8,7 @@ This repository currently holds:
 | ------------------------------------ | -------------------------------------------------------------------- |
 | [`docs/guide/`](docs/guide/)         | User guide (site `/docs`)                                            |
 | [`docs/rfc/`](docs/rfc/)             | Language & toolchain RFCs                                            |
-| [`docs/roadmap.md`](docs/roadmap.md) | Execution phases (P0–P3, compiler C0–C11e)                           |
+| [`docs/roadmap.md`](docs/roadmap.md) | Execution phases (P0–P3, compiler C0–C11e shipped; C12a–t planned)   |
 | [`docs/releases/`](docs/releases/)   | Freeze / release notes (`0.1.0-alpha`)                               |
 | [`site/`](site/)                     | Homepage + docs + RFC site (Vite + React)                            |
 | [`crates/`](crates/)                 | Rust toolchain (`aura` CLI) — check / build / run / test (C backend) |
@@ -34,7 +34,7 @@ pnpm site:test
 pnpm site:build
 ```
 
-### Compiler (through C11e)
+### Compiler (through C11e; C12 planned)
 
 ```bash
 cargo test --workspace
@@ -187,7 +187,7 @@ Native builds use a **C backend** (`aura emit-c` + system `cc`) linked with `run
 - **Dist C11e** Embedded `aura_rt.c`, [install guide](docs/guide/install.md), [0.1.0-alpha freeze](docs/releases/0.1.0-alpha.md)
 - **Release** Tag `v0.1.0-alpha` + multi-OS tarballs on GitHub Releases (install via [install.sh](docs/guide/install.md))
 - **Debts** Tracked in [`agents/debts.md`](agents/debts.md)
-- **Next (post-alpha):** richer lambda captures; registry fetch/semver; tasks/async; Windows matrix / signed installers
+- **Next (C12a–C12t):** [20-slice post-alpha batch](docs/plans/2026-07-21-next-20-c12a-c12t.md) — argv/stdin/exit, String tools, richer lambda captures, HashMap String→String, dogfood CLI; then registry/semver, async, signed installers
 
 ## Links
 

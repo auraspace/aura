@@ -94,6 +94,7 @@ Sample `.aura` programs for the compiler: parse/typecheck (`aura check`), native
 | `std_io/app`                          | Explicit `import std.io` + `println` (C3z)                                                          |
 | `std_io/prelude`                      | Auto-prelude `std.io` without import (C4g)                                                          |
 | `std_io/files`                        | `readFile` / `writeFile` / `appendFile` / `fileExists` / `fileSize` (C11a)                          |
+| `std_io/args`                         | `std.io.args(): Array<String>` process argv (C12b)                                                  |
 | `std_assert/app`                      | `std.assert` package (C4h)                                                                          |
 | `std_collections/app`                 | Map/Set/HashMap smoke                                                                               |
 | `std_collections/hof`                 | Package-level `map_ints` / `filter_ints` / `fold_ints` (C10i)                                       |

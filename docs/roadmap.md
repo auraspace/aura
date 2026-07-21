@@ -10,13 +10,13 @@ Living plan for docs, language specs, and the Rust toolchain. RFCs remain the de
 
 ## Status snapshot
 
-| Track                       | Status                                                                                  |
-| --------------------------- | --------------------------------------------------------------------------------------- |
-| RFC static site (`site/`)   | Implemented; Cloudflare Pages → **https://aura.fadosoft.com**                           |
-| RFC-000 … RFC-013           | **All Accepted** — open questions resolved or Deferred (2026-07-16)                     |
-| Language MVP                | RFC-001 §6.0 + post-C1; generic iface mono (C8c); Iterable (C8d); async/macros deferred |
-| Compiler                    | **C0–C11e** — install-ready CLI; **`v0.1.0-alpha` published** (tarballs + install.sh)   |
-| Runtime / packages / stdlib | GC + nested Array free; Map/Set/HashMap(+resize); path lock; **std.io file I/O**        |
+| Track                       | Status                                                                                         |
+| --------------------------- | ---------------------------------------------------------------------------------------------- |
+| RFC static site (`site/`)   | Implemented; Cloudflare Pages → **https://aura.fadosoft.com**                                  |
+| RFC-000 … RFC-013           | **All Accepted** — open questions resolved or Deferred (2026-07-16)                            |
+| Language MVP                | RFC-001 §6.0 + post-C1; generic iface mono (C8c); Iterable (C8d); async/macros deferred        |
+| Compiler                    | **C0–C11e** shipped (`v0.1.0-alpha`); **C12a–C12t Planned** (post-alpha usable CLI + captures) |
+| Runtime / packages / stdlib | GC + nested Array free; Map/Set/HashMap(+resize); path lock; **std.io file I/O**               |
 
 ## Phases
 
@@ -184,16 +184,40 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C11c**  | `aura new` / `aura init` + `version` scaffold                      | Done                                       |
 | **C11d**  | `String.substring` + dogfood `examples/notes` + `this.method` fix  | Done                                       |
 | **C11e**  | Embedded runtime + install docs + 0.1.0-alpha freeze               | Done                                       |
+| **C12a**  | Plan + roadmap C12a–C12t (post-alpha batch)                        | **Done**                                   |
+| **C12b**  | Program argv: runtime + `std.io.args(): Array<String>`             | **Done**                                   |
+| **C12c**  | `aura run` / `test` pass-through args after `--`                   | Planned                                    |
+| **C12d**  | `std.io.readLine(): String?` (+ optional `readAllStdin`)           | Planned                                    |
+| **C12e**  | `std.io.exit(code: Int)`                                           | Planned                                    |
+| **C12f**  | `String.indexOf`                                                   | Planned                                    |
+| **C12g**  | `String.split` → `Array<String>`                                   | Planned                                    |
+| **C12h**  | `String.trim` / `trimStart` / `trimEnd`                            | Planned                                    |
+| **C12i**  | `String.toInt(): Int?`                                             | Planned                                    |
+| **C12j**  | Join helper for `Array<String>`                                    | Planned                                    |
+| **C12k**  | Lambda capture class (GC ptr + env mark)                           | Planned                                    |
+| **C12l**  | Lambda capture Array (non-owning view MVP)                         | Planned                                    |
+| **C12m**  | Lambda `var` Int/Bool capture by ref                               | Planned                                    |
+| **C12n**  | `HashMap` String→String concrete                                   | Planned                                    |
+| **C12o**  | String HOF helpers (`map_strings` / `filter_strings`)              | Planned                                    |
+| **C12p**  | `tryReadFile(path): String?`                                       | Planned                                    |
+| **C12q**  | Dogfood CLI (`examples/notes` argv or `examples/wc`)               | Planned                                    |
+| **C12r**  | Corpus + guide sync for C12 surface                                | Planned                                    |
+| **C12s**  | Dist/DX polish (install smoke; optional Windows best-effort CI)    | Planned                                    |
+| **C12t**  | Close C12a–C12t batch (roadmap / debts / plan)                     | Planned                                    |
+
+Plan: [`docs/plans/2026-07-21-next-20-c12a-c12t.md`](plans/2026-07-21-next-20-c12a-c12t.md).
 
 **Out of scope C0/C1:** generics mono, async/tasks, macros, registry, incremental, LTO.
 
+**Out of scope C12:** async/tasks, registry HTTP/semver, LLVM, true borrow, Array-of-iface, generic `HashMap<K,V>`, Fun-in-env capture, signed installers.
+
 ### P3 — Expand (after hello)
 
-1. ~~Language surface C2–C10j~~ (funs/lambdas + HOF) → later: richer captures, true borrow, Array-of-iface
-2. Runtime: ~~alloc/GC + deep mark/sweep + nested Array free~~ + ~~Fun env free~~ → channels/tasks
-3. Toolchain: ~~path deps + path lock + registry lock schema~~ → registry client / semver (RFC-005)
-4. Stdlib: ~~io (console+file) + assert + Map/Set/HashMap(+resize) + Iterable~~ → generic HashMap; richer collections
-5. Cross targets + signed releases
+1. ~~Language surface C2–C10j~~ (funs/lambdas + HOF) → **C12k–m** richer captures → later: Fun capture, true borrow, Array-of-iface
+2. Runtime: ~~alloc/GC + deep mark/sweep + nested Array free~~ + ~~Fun env free~~ → **C12b–e** process I/O → later: channels/tasks
+3. Toolchain: ~~path deps + path lock + registry lock schema~~ → registry client / semver (RFC-005; **after C12**)
+4. Stdlib: ~~io (console+file) + assert + Map/Set/HashMap(+resize) + Iterable~~ → **C12 String tools + HashMap str + tryReadFile** → later: generic HashMap
+5. Cross targets + signed releases — **C12s** best-effort only
 
 Write Wave 2–4 RFCs **as implementation needs them**, not all up front.
 
