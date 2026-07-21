@@ -78,6 +78,21 @@ cargo run -p aura-cli -- run corpus/std_collections/hashmap_str # HashMapStr Str
 
 Native builds use a **C backend** (`aura emit-c` + system `cc`) linked with `runtime/aura_rt.c`. LLVM IR is the longer-term path (RFC-004).
 
+## Supported release targets
+
+Release tarballs and the installer support exactly these Unix targets:
+
+| Target       | Artifact convention |
+| ------------ | ------------------- |
+| Linux x86_64 | `linux-amd64`       |
+| macOS arm64  | `darwin-arm64`      |
+| macOS x86_64 | `darwin-amd64`      |
+
+CI and tagged releases enforce this same matrix. Windows amd64 is explicitly
+deferred and is not part of the required S2 gate. Other targets can use the
+[source installation](docs/guide/install.md#install-from-source-alpha) path
+when their Rust and C toolchains are available.
+
 ## Status
 
 - **RFC-000** Accepted (vision locked)

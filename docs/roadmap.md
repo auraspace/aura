@@ -17,6 +17,7 @@ Living plan for docs, language specs, and the Rust toolchain. RFCs remain the de
 | Language MVP                | RFC-001 §6.0 + post-C1; generic iface mono (C8c); Iterable (C8d); async/macros deferred  |
 | Compiler                    | **C0–C13t** batch closed (dogfood / Fun+var String capture / registry K1 offline)        |
 | Runtime / packages / stdlib | GC + String Array free; Map/Set/HashMap/HashMapStr; path+registry lock; std.io + process |
+| Distribution contract       | **S2 targets:** Linux amd64, macOS arm64, macOS amd64; Windows amd64 deferred            |
 
 ## Phases
 
@@ -202,7 +203,7 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C12p**  | `tryReadFile(path): String?`                                       | **Done**                                   |
 | **C12q**  | Dogfood CLI (`examples/notes` argv or `examples/wc`)               | **Done**                                   |
 | **C12r**  | Corpus + guide sync for C12 surface                                | **Done**                                   |
-| **C12s**  | Dist/DX polish (install smoke; avm help; Windows CI skipped)       | **Done**                                   |
+| **C12s**  | Dist/DX polish (install smoke; avm help; Windows amd64 deferred)   | **Done**                                   |
 | **C12t**  | Close C12a–C12t batch (roadmap / debts / plan)                     | **Done**                                   |
 | **C13a**  | Plan + roadmap C13a–C13t                                           | **Done**                                   |
 | **C13b**  | Codegen: method recv on call-result temporary                      | **Done**                                   |
@@ -242,7 +243,7 @@ Plans:
 2. Runtime: ~~GC + process I/O + String Array free + Fun env RC~~ → later: channels/tasks; fix `Io.args` strdup vs free
 3. Toolchain: ~~path deps + **C13i–l** registry K1 offline~~ → later: live HTTPS, nested registry deps, K1b/K2 publish
 4. Stdlib: ~~io + collections + C13 toString/case/eprint/tryWrite~~ → later: generic HashMap (see C13p spike)
-5. Cross targets + signed releases — ~~**C12s** smoke~~ → ~~**C13s** signing note~~ → later: minisign / notarization
+5. Cross targets + signed releases — **S2 contract:** Linux amd64, macOS arm64/amd64; Windows amd64 deferred → ~~**C13s** signing note~~ → later: minisign / notarization
 
 Write Wave 2–4 RFCs **as implementation needs them**, not all up front.
 

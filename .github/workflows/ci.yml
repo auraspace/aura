@@ -94,6 +94,57 @@ jobs:
           AURA_BIN: target/debug/aura
         run: bash scripts/sanitizer-smoke.sh
 
+  platform-contract:
+    name: Package (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: linux-amd64
+            rust_target: x86_64-unknown-linux-gnu
+          - os: macos-14
+            name: darwin-arm64
+            rust_target: aarch64-apple-darwin
+          - os: macos-14
+            name: darwin-amd64
+            rust_target: x86_64-apple-darwin
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install C toolchain (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y build-essential
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: ${{ matrix.rust_target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: platform-${{ matrix.name }}
+
+      - name: Package and verify supported target
+        env:
+          TAG_VERSION: 0.0.0-ci
+          RUST_TARGET: ${{ matrix.rust_target }}
+        run: |
+          set -euo pipefail
+          bash -n scripts/package-release.sh scripts/install.sh scripts/avm
+          bash scripts/package-release.sh
+          archive="dist/aura-${TAG_VERSION}-${{ matrix.name }}.tar.gz"
+          checksum="${archive}.sha256"
+          test -f "$archive"
+          test -f "$checksum"
+          case "${{ runner.os }}" in
+            Linux) sha256sum --check "$checksum" ;;
+            macOS) shasum -a 256 --check "$checksum" ;;
+            *) echo "error: unsupported CI runner: ${{ runner.os }}" >&2; exit 1 ;;
+          esac
+
   site:
     name: Site
     runs-on: ubuntu-latest

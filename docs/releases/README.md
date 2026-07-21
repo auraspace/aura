@@ -92,6 +92,21 @@ scripts/prepare-release.sh 0.2.0 --no-commit
 | `scripts/avm`                | Version manager (embedded into CDN install.sh)    |
 | `scripts/install-smoke.sh`   | Post-install / post-release verify checklist      |
 
+## Support contract
+
+The CI and release workflows use the same required artifact matrix:
+
+| Target       | Artifact suffix | Build mode                |
+| ------------ | --------------- | ------------------------- |
+| Linux x86_64 | `linux-amd64`   | native on `ubuntu-latest` |
+| macOS arm64  | `darwin-arm64`  | native on `macos-14`      |
+| macOS x86_64 | `darwin-amd64`  | cross-built on `macos-14` |
+
+Windows amd64 is explicitly deferred. It is not a required CI job, release
+artifact, or installer target. Unsupported targets should use the
+[source-install path](../guide/install.md#install-from-source-alpha) when
+their Rust and C toolchains are available.
+
 ## Version naming
 
 | Concept             | Example                                | Where                                              |

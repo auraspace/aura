@@ -38,8 +38,8 @@ $AURA_HOME/
 The installer also symlinks `~/.local/bin/aura` and `~/.local/bin/avm` (disable with `AURA_LINK_USER_BIN=0`).
 
 Release installs support Linux amd64, macOS arm64, and macOS amd64. Other
-targets, including Windows amd64, are not release-install targets yet; use a
-source install instead.
+targets, including Windows amd64, are explicitly deferred release-install
+targets; use a source install instead.
 
 ### Options
 
@@ -149,7 +149,7 @@ Pushing a tag `v*` runs [`.github/workflows/release.yml`](../../.github/workflow
 Alpha releases ship per-archive `.sha256` files from packaging, and
 `install.sh` verifies the selected archive before activation. There is **no**
 signed manifest or OS notarization yet. The planned path (minisign-signed
-`SHA256SUMS` → later macOS notarization / Windows Authenticode) is recorded in
+`SHA256SUMS` → later macOS notarization / deferred Windows Authenticode) is recorded in
 [C13s signing design note](../plans/2026-07-21-c13s-signing-note.md).
 
 Maintainer flow (version dump → changelog → commit → tag → CI):
