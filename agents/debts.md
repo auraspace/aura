@@ -58,12 +58,12 @@ When you resolve debt, update or remove the matching entry.
 ### Stdlib collections polish
 
 - Area: stdlib / RFC-007
-- Symptom: linear `Map`/`Set`; `HashMap` String→Int open addressing; no generic HashMap
-- Why deferred: String→Int + resize (C9b) enough for demos
-- Progress: C9b auto-resize when load ≥ 1/2; explicit `grow()`
-- Next step: **C12n** String→String concrete; later `HashMap<K,V>` when hashable protocol exists
+- Symptom: linear `Map`/`Set`; concrete HashMap monos only (no generic HashMap)
+- Why deferred: String→Int + String→String cover demos; generic needs hashable protocol
+- Progress: C9b auto-resize when load ≥ 1/2; explicit `grow()`; **C12n** `HashMapStr` String→String (`hash_map_str()`, `get` → `String?`)
+- Next step: later `HashMap<K,V>` when hashable protocol exists; String HOF helpers (**C12o**)
 - Tracked: [C12 plan](../docs/plans/2026-07-21-next-20-c12a-c12t.md)
-- Introduced: narrowed after C8i; resize C9b
+- Introduced: narrowed after C8i; resize C9b; String→String C12n
 
 ## Resolved
 

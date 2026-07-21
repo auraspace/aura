@@ -1,0 +1,6 @@
+[package]
+name = "demo.stdhashmapstr"
+
+[[bin]]
+name = "app"
+path = "src"

@@ -1,0 +1,91 @@
+// C12n — HashMap String→String (bucketed + resize)
+package demo.stdhashmapstr
+
+import std.collections
+
+fun main() {
+  val h = hash_map_str()
+  if (h.isEmpty()) {
+    println("empty")
+  }
+  if (h.put("a", "one")) {
+    println("ins")
+  }
+  h.put("b", "two")
+  h.put("a", "ten")
+  if (h.len() == 2) {
+    println("len")
+  }
+  if (h.getOr("a", "?") == "ten") {
+    println("geta")
+  }
+  if (h.contains("b")) {
+    println("hasb")
+  }
+  val g = h.get("b")
+  if (g != null) {
+    if (g == "two") {
+      println("getb")
+    }
+  }
+  val miss = h.get("z")
+  if (miss == null) {
+    println("getmiss")
+  }
+  if (h.getOr("z", "def") == "def") {
+    println("ordef")
+  }
+  if (h.remove("b")) {
+    println("rmb")
+  }
+  if (!h.contains("b")) {
+    println("nob")
+  }
+  h.clear()
+  if (h.isEmpty()) {
+    println("clr")
+  }
+  // C9b parity: insert enough keys to trip load ≥ 1/2 (cap 16 → grow) and retain values.
+  val r = hash_map_str()
+  r.put("a", "v1")
+  r.put("b", "v2")
+  r.put("c", "v3")
+  r.put("d", "v4")
+  r.put("e", "v5")
+  r.put("f", "v6")
+  r.put("g", "v7")
+  r.put("h", "v8")
+  r.put("i", "v9")
+  // 9 live / 16 → next insert triggers grow (live*2 >= n)
+  r.put("j", "v10")
+  if (r.capacity() >= 32) {
+    println("grew")
+  }
+  r.put("k", "v11")
+  r.put("l", "v12")
+  r.put("m", "v13")
+  r.put("n", "v14")
+  r.put("o", "v15")
+  r.put("p", "v16")
+  r.put("q", "v17")
+  r.put("r", "v18")
+  r.put("s", "v19")
+  r.put("t", "v20")
+  if (r.len() == 20) {
+    println("n20")
+  }
+  if (r.getOr("t", "?") == "v20") {
+    println("gett")
+  }
+  if (r.getOr("a", "?") == "v1") {
+    println("geta2")
+  }
+  // Explicit grow() still works from outside.
+  r.grow()
+  if (r.capacity() >= 64) {
+    println("grew2")
+  }
+  if (r.getOr("j", "?") == "v10") {
+    println("getj")
+  }
+}

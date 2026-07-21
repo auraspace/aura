@@ -69,19 +69,22 @@ Prefer package tests that exercise `assert` / `assert_eq` for `Int` / `String` /
 
 ## `std.collections`
 
-| Type / helper                            | Notes                                                |
-| ---------------------------------------- | ---------------------------------------------------- |
-| `Map<K, V>`                              | Linear map; `get` → `V?`; `put` / `remove` / `clear` |
-| `Set<T>`                                 | Generic set (linear)                                 |
-| `HashMap`                                | String→Int open addressing + auto-resize (C9b)       |
-| `Iterable<E>`                            | `len` + `get` protocol for `for-in`                  |
-| `map_ints` / `filter_ints` / `fold_ints` | Int array HOF helpers                                |
-| `join(parts, sep)`                       | `Array<String>` → `String` with separator (C12j)     |
+| Type / helper                            | Notes                                                  |
+| ---------------------------------------- | ------------------------------------------------------ |
+| `Map<K, V>`                              | Linear map; `get` → `V?`; `put` / `remove` / `clear`   |
+| `Set<T>`                                 | Generic set (linear)                                   |
+| `HashMap`                                | String→Int open addressing + auto-resize (C8i/C9b)     |
+| `HashMapStr`                             | String→String open addressing; `hash_map_str()` (C12n) |
+| `Iterable<E>`                            | `len` + `get` protocol for `for-in`                    |
+| `map_ints` / `filter_ints` / `fold_ints` | Int array HOF helpers                                  |
+| `join(parts, sep)`                       | `Array<String>` → `String` with separator (C12j)       |
 
-**Alpha limits:** no generic `HashMap<K,V>` yet (String→Int only for the hashed map). See [Arrays](./arrays.md) for HOF usage and capture limits.
+**Alpha limits:** no generic `HashMap<K,V>` yet (concrete monos: String→Int, String→String). See [Arrays](./arrays.md) for HOF usage and capture limits.
 
 ```bash
 aura run corpus/std_collections/app
+aura run corpus/std_collections/hashmap
+aura run corpus/std_collections/hashmap_str
 aura run corpus/std_collections/hof
 aura run corpus/std_collections/join
 ```

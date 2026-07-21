@@ -11,10 +11,12 @@ Collections package (RFC-007).
 | `Set<T>`      | Linear `add` / `remove` / `contains` / `clear` / `len` / `isEmpty` / `get(i)` (C8g/C8h)     |
 | `set()`       | Empty `Set<String>` factory                                                                 |
 | `HashMap`     | String→Int open addressing; `hash_map()` cap 16; auto-resize on load (C8i/C9b)              |
+| `HashMapStr`  | String→String open addressing; `hash_map_str()` cap 16; same resize rules (C12n)            |
 | `Iterable<E>` | Protocol: `len(): Int` + `get(i: Int): E` for `for-in` (C8d)                                |
 | `map_ints`    | `Array<Int>` × `(Int) -> Int` → new array (C10i)                                            |
 | `filter_ints` | `Array<Int>` × `(Int) -> Bool` → new array (C10i)                                           |
 | `fold_ints`   | `Array<Int>` × init × `(Int, Int) -> Int` (C10i)                                            |
+| `join`        | `Array<String>` × sep → joined `String` (C12j)                                              |
 
 **Iteration:**
 
@@ -22,7 +24,7 @@ Collections package (RFC-007).
 - `for (x in set)` — duck Iterable via `len` + `get`
 - `for (k in set.keys)` — same buffer via `Array` field
 
-**Not yet:** generic HashMap; generic map/filter over arbitrary `T`. Keys/elements must support `==`. Resize: double when load ≥ 1/2.
+**Not yet:** generic `HashMap<K,V>`; generic map/filter over arbitrary `T`. Concrete monos: String→Int (`HashMap`) and String→String (`HashMapStr`). Keys/elements must support `==`. Resize: double when load ≥ 1/2.
 
 **Also available language-wide:**
 

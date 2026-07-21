@@ -197,7 +197,7 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C12k**  | Lambda capture class (GC ptr + env mark)                           | **Done**                                   |
 | **C12l**  | Lambda capture Array (non-owning view MVP)                         | **Done**                                   |
 | **C12m**  | Lambda `var` Int/Bool capture by ref                               | **Done**                                   |
-| **C12n**  | `HashMap` String→String concrete                                   | Planned                                    |
+| **C12n**  | `HashMap` String→String concrete                                   | **Done**                                   |
 | **C12o**  | String HOF helpers (`map_strings` / `filter_strings`)              | Planned                                    |
 | **C12p**  | `tryReadFile(path): String?`                                       | Planned                                    |
 | **C12q**  | Dogfood CLI (`examples/notes` argv or `examples/wc`)               | Planned                                    |
