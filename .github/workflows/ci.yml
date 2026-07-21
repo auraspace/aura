@@ -41,21 +41,10 @@ jobs:
         run: bash scripts/check-corpus.sh
 
       - name: Smoke run / test
+        env:
+          AURA_BIN: target/debug/aura
         run: |
-          set -euo pipefail
-          bin=target/debug/aura
-          "$bin" version
-          "$bin" run corpus/hello/main.aura
-          "$bin" test corpus/test/smoke.aura
-          "$bin" run corpus/multi
-          "$bin" test corpus/multi
-          "$bin" run corpus/import/app
-          "$bin" run corpus/std_io/app
-          "$bin" run corpus/std_io/files
-          "$bin" run corpus/std_assert/app
-          "$bin" run corpus/expr/string_substring.aura
-          "$bin" test examples/notes
-          "$bin" run examples/notes
+          bash scripts/compiler-regression.sh
 
       - name: Embedded runtime (no monorepo path)
         run: |
