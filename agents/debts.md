@@ -71,13 +71,17 @@ When you resolve debt, update or remove the matching entry.
 
 - Area: stdlib / RFC-007
 - Symptom: linear `Map`/`Set`; generic hash collections now cover HashMap and HashSet
-- Why deferred: generic map/filter HOFs still need type-parameter lambda support
-- Progress: C9b auto-resize; C12n String→String; C12o String HOF; **C14** generic `HashMap<K,V>`; **C15** generic `HashSet<T>`
-- Next step: generic map/filter/fold HOFs once type-parameter lambdas are supported
+- Why deferred: stdlib generic `map`/`filter`/`fold` API and corpus remain a separate task
+- Progress: C9b auto-resize; C12n String→String; C12o String HOF; **C14** generic `HashMap<K,V>`; **C15** generic `HashSet<T>`; compiler support for generic HOF function types
+- Next step: add stdlib generic `map`/`filter`/`fold` implementations and corpus coverage
 - Note: C14/C15 resolved the generic hash-collection residual
 - Introduced: narrowed after C8i; resize C9b; String→String C12n; String HOF C12o
 
 ## Resolved
+
+### C16 generic HOF compiler support (2026-07-21)
+
+- Resolved: sema accepts generic function parameters such as `(T) -> R`; codegen skips open generic `Fun<T, R>` typedefs and emits only concrete monomorphs, allowing generic `map`/`filter`/`fold` implementations to compile.
 
 ### C14 generic HashMap (2026-07-21)
 
@@ -90,7 +94,7 @@ When you resolve debt, update or remove the matching entry.
 ### C13 batch (2026-07-21)
 
 - Resolved C13a–t: method-on-temp; `Int.toString` + String↔Int `+`; Array\<String\> elem free; Fun + `var` String captures + stress; capture reject diags; registry K1 offline (index/semver/fetch/build); `toLower`/`toUpper`; eprint corpus; `tryWriteFile`; Hashable spike; `examples/wc` polish; signing design note; docs close.
-- Residual: registry publishing/authentication; generic HashMap; true borrow;
+- Residual: registry publishing/authentication; stdlib generic HOF API; true borrow;
   `var` class/Array/Fun.
 
 ### Process argv string ownership (`Io.args`) — S1.1

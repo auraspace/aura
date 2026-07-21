@@ -572,7 +572,7 @@ fn walk_expr_lambdas<'a>(e: &'a Expr, out: &mut Vec<&'a LambdaExpr>) {
 /// Collect Fun types that need C typedefs (lambdas + AST annotations).
 fn collect_fun_tys(checked: &CheckedFile) -> Vec<Ty> {
     let mut out: Vec<Ty> = checked.lambda_tys.values().cloned().collect();
-    fn from_type_ref(t: &TypeRef, acc: &mut Vec<Ty>) {
+    fn from_type_ref(t: &TypeRef, acc: &mut Vec<Ty>, open_params: &[String]) {
         if let Some(fun) = &t.fun {
             let params: Vec<Ty> = fun
                 .params
@@ -580,37 +580,45 @@ fn collect_fun_tys(checked: &CheckedFile) -> Vec<Ty> {
                 .map(|p| {
                     // shallow: only nested fun handled by recursion
                     let mut nested = Vec::new();
-                    from_type_ref(p, &mut nested);
+                    from_type_ref(p, &mut nested, open_params);
                     if let Some(fun) = &p.fun {
-                        let ps = fun.params.iter().map(type_ref_to_ty_loose).collect();
-                        let ret = type_ref_to_ty_loose(&fun.ret);
+                        let ps = fun
+                            .params
+                            .iter()
+                            .map(|p| type_ref_to_ty_loose(p, open_params))
+                            .collect();
+                        let ret = type_ref_to_ty_loose(&fun.ret, open_params);
                         Ty::Fun {
                             params: ps,
                             ret: Box::new(ret),
                         }
                     } else {
-                        type_ref_to_ty_loose(p)
+                        type_ref_to_ty_loose(p, open_params)
                     }
                 })
                 .collect();
-            let ret = type_ref_to_ty_loose(&fun.ret);
+            let ret = type_ref_to_ty_loose(&fun.ret, open_params);
             acc.push(Ty::Fun {
                 params,
                 ret: Box::new(ret),
             });
             for p in &fun.params {
-                from_type_ref(p, acc);
+                from_type_ref(p, acc, open_params);
             }
-            from_type_ref(&fun.ret, acc);
+            from_type_ref(&fun.ret, acc, open_params);
         }
         for a in &t.type_args {
-            from_type_ref(a, acc);
+            from_type_ref(a, acc, open_params);
         }
     }
-    fn type_ref_to_ty_loose(t: &TypeRef) -> Ty {
+    fn type_ref_to_ty_loose(t: &TypeRef, open_params: &[String]) -> Ty {
         if let Some(fun) = &t.fun {
-            let params = fun.params.iter().map(type_ref_to_ty_loose).collect();
-            let ret = type_ref_to_ty_loose(&fun.ret);
+            let params = fun
+                .params
+                .iter()
+                .map(|p| type_ref_to_ty_loose(p, open_params))
+                .collect();
+            let ret = type_ref_to_ty_loose(&fun.ret, open_params);
             let base = Ty::Fun {
                 params,
                 ret: Box::new(ret),
@@ -626,13 +634,18 @@ fn collect_fun_tys(checked: &CheckedFile) -> Vec<Ty> {
             "Bool" => Ty::Bool,
             "String" => Ty::String,
             "Unit" => Ty::Unit,
+            name if open_params.iter().any(|p| p == name) => Ty::TypeParam(name.into()),
             other => {
                 if t.type_args.is_empty() {
                     Ty::Class(other.to_string())
                 } else {
                     Ty::ClassApp {
                         name: other.to_string(),
-                        args: t.type_args.iter().map(type_ref_to_ty_loose).collect(),
+                        args: t
+                            .type_args
+                            .iter()
+                            .map(|a| type_ref_to_ty_loose(a, open_params))
+                            .collect(),
                     }
                 }
             }
@@ -644,23 +657,27 @@ fn collect_fun_tys(checked: &CheckedFile) -> Vec<Ty> {
         }
     }
     for f in &checked.ast.functions {
+        let params: Vec<String> = f.type_params.iter().map(|p| p.name.name.clone()).collect();
         for p in &f.params {
-            from_type_ref(&p.ty, &mut out);
+            from_type_ref(&p.ty, &mut out, &params);
         }
         if let Some(rt) = &f.return_type {
-            from_type_ref(rt, &mut out);
+            from_type_ref(rt, &mut out, &params);
         }
     }
     for c in &checked.ast.classes {
+        let class_params: Vec<String> = c.type_params.iter().map(|p| p.name.name.clone()).collect();
         for field in &c.fields {
-            from_type_ref(&field.ty, &mut out);
+            from_type_ref(&field.ty, &mut out, &class_params);
         }
         for m in &c.methods {
+            let mut params = class_params.clone();
+            params.extend(m.type_params.iter().map(|p| p.name.name.clone()));
             for p in &m.params {
-                from_type_ref(&p.ty, &mut out);
+                from_type_ref(&p.ty, &mut out, &params);
             }
             if let Some(rt) = &m.return_type {
-                from_type_ref(rt, &mut out);
+                from_type_ref(rt, &mut out, &params);
             }
         }
     }
@@ -672,7 +689,11 @@ fn emit_fun_typedefs(out: &mut String, checked: &CheckedFile) {
     let mut tys = collect_fun_tys(checked);
     tys.sort_by_key(|t| t.mono_suffix());
     for ty in &tys {
-        if !matches!(ty, Ty::Fun { .. }) {
+        // Generic declarations contribute open `Fun<T, R>` annotations while
+        // their concrete call sites contribute the monomorphized function
+        // types.  An open function type has no valid C representation yet;
+        // emitting it would produce identifiers such as `aura_cls_T`.
+        if !matches!(ty, Ty::Fun { .. }) || ty.is_open() {
             continue;
         }
         let key = ty.mono_suffix();

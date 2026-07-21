@@ -940,6 +940,50 @@ fun main() {
 }
 
 #[test]
+fn generic_higher_order_function_typechecks() {
+    let src = r#"
+package t
+fun map<T, R>(xs: Array<T>, f: (T) -> R): Array<R> {
+  val out: Array<R> = Array(xs.len)
+  var i: Int = 0
+  while (i < xs.len) {
+    out.set(i, f(xs.get(i)))
+    i = i + 1
+  }
+  return out
+}
+fun filter<T>(xs: Array<T>, pred: (T) -> Bool): Array<T> {
+  val out: Array<T> = Array(0)
+  var i: Int = 0
+  while (i < xs.len) {
+    if (pred(xs.get(i))) { out.push(xs.get(i)) }
+    i = i + 1
+  }
+  return out
+}
+fun fold<T, A>(xs: Array<T>, init: A, f: (A, T) -> A): A {
+  var acc: A = init
+  var i: Int = 0
+  while (i < xs.len) {
+    acc = f(acc, xs.get(i))
+    i = i + 1
+  }
+  return acc
+}
+fun main() {
+  val xs: Array<Int> = Array(2)
+  xs.set(0, 2)
+  xs.set(1, 3)
+  val ys: Array<String> = map<Int, String>(xs, (x: Int) => x.toString())
+  val zs: Array<Int> = filter<Int>(xs, (x: Int) => x > 2)
+  val total: Int = fold<Int, Int>(xs, 0, (acc: Int, x: Int) => acc + x)
+}
+"#;
+    let file = parse_file(src).expect("parse");
+    check_file(&file).expect("generic HOFs");
+}
+
+#[test]
 fn array_accepts_struct_elem() {
     let src = r#"
 package t
