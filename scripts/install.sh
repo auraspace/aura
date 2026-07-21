@@ -74,81 +74,47 @@ version_dir() {
   printf '%s\n' "${AURA_HOME}/versions/$1"
 }
 
+# avm payload for curl|bash installs. Empty in the repo source of truth;
+# site/scripts/sync-install.mjs embeds base64 of scripts/avm into public/install.sh.
+# Do not put a large heredoc inside write_avm — bash can hang on that.
+# @AVM_EMBED_BEGIN@
+AVM_SCRIPT_B64=''
+# @AVM_EMBED_END@
+
 write_avm() {
   # avm = Aura Version Manager (switch active toolchain under $AURA_HOME)
   local avm="${AURA_HOME}/bin/avm"
   mkdir -p "${AURA_HOME}/bin"
-  cat >"$avm" <<'AVM'
-#!/usr/bin/env bash
-# avm — Aura Version Manager
-# Usage: avm <version> | avm --list | avm --show
-set -euo pipefail
-AURA_HOME="${AURA_HOME:-${HOME}/.aura}"
-die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
-list_versions() {
-  local d
-  [[ -d "${AURA_HOME}/versions" ]] || return 0
-  for d in "${AURA_HOME}/versions"/*/; do
-    [[ -d "$d" ]] || continue
-    basename "$d"
-  done | sort
-}
-
-show_current() {
-  if [[ -L "${AURA_HOME}/current" ]]; then
-    basename "$(readlink "${AURA_HOME}/current" 2>/dev/null || readlink -f "${AURA_HOME}/current")"
-  elif [[ -d "${AURA_HOME}/current" ]]; then
-    # non-symlink edge case
-    printf 'current\n'
+  if [[ -n "${AVM_SCRIPT_B64}" ]]; then
+    # CDN / built install.sh: decode embedded payload (no large heredoc-in-function).
+    if printf '%s' "$AVM_SCRIPT_B64" | base64 -d >"$avm" 2>/dev/null \
+      || printf '%s' "$AVM_SCRIPT_B64" | base64 -D >"$avm" 2>/dev/null \
+      || printf '%s' "$AVM_SCRIPT_B64" | base64 --decode >"$avm" 2>/dev/null; then
+      :
+    else
+      die "failed to decode embedded avm (need base64)"
+    fi
   else
-    printf '(none)\n'
+    # Repo checkout: copy scripts/avm next to this installer (or AURA_INSTALL_AVM).
+    local src="" here
+    if [[ -n "${AURA_INSTALL_AVM:-}" && -f "${AURA_INSTALL_AVM}" ]]; then
+      src="${AURA_INSTALL_AVM}"
+    elif [[ -n "${BASH_SOURCE[0]:-}" && -f "${BASH_SOURCE[0]}" ]]; then
+      here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+      if [[ -f "${here}/avm" ]]; then
+        src="${here}/avm"
+      fi
+    fi
+    [[ -n "$src" ]] || die "avm payload missing (run site sync-install, or place scripts/avm next to install.sh)"
+    if command -v install >/dev/null 2>&1; then
+      install -m 755 "$src" "$avm"
+    else
+      cp "$src" "$avm"
+      chmod 755 "$avm"
+    fi
   fi
-}
 
-cmd="${1:-}"
-case "$cmd" in
-  ""|-h|--help)
-    cat <<EOF
-avm — Aura Version Manager
-
-Usage:
-  avm <version>   Activate an installed version
-  avm --list      List installed versions
-  avm --show      Print active version
-EOF
-    exit 0
-    ;;
-  --list|-l)
-    list_versions
-    exit 0
-    ;;
-  --show|-s)
-    show_current
-    exit 0
-    ;;
-  -*)
-    die "unknown option: $cmd"
-    ;;
-esac
-
-ver="${cmd#v}"
-target="${AURA_HOME}/versions/${ver}"
-[[ -d "$target" ]] || die "version not installed: ${ver}
-Install with:
-  curl -fsSL https://aura.fadosoft.com/install.sh | AURA_VERSION=${ver} bash
-Available:
-$(list_versions | sed 's/^/  /')"
-
-mkdir -p "${AURA_HOME}/bin"
-# Relative symlinks so AURA_HOME can be relocated as a tree.
-ln -sfn "versions/${ver}" "${AURA_HOME}/current"
-ln -sfn "../current/bin/aura" "${AURA_HOME}/bin/aura"
-printf 'active: %s\n' "$ver"
-if [[ -x "${AURA_HOME}/bin/aura" ]]; then
-  "${AURA_HOME}/bin/aura" version || true
-fi
-AVM
   chmod 755 "$avm"
   # Drop legacy helper name if present from older installers.
   rm -f "${AURA_HOME}/bin/aura-switch"

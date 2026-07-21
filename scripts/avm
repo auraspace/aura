@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# avm — Aura Version Manager
+# Usage: avm <version> | avm --list | avm --show
+set -euo pipefail
+AURA_HOME="${AURA_HOME:-${HOME}/.aura}"
+die() { printf 'error: %s\n' "$*" >&2; exit 1; }
+
+list_versions() {
+  local d
+  [[ -d "${AURA_HOME}/versions" ]] || return 0
+  for d in "${AURA_HOME}/versions"/*/; do
+    [[ -d "$d" ]] || continue
+    basename "$d"
+  done | sort
+}
+
+show_current() {
+  if [[ -L "${AURA_HOME}/current" ]]; then
+    basename "$(readlink "${AURA_HOME}/current" 2>/dev/null || readlink -f "${AURA_HOME}/current")"
+  elif [[ -d "${AURA_HOME}/current" ]]; then
+    # non-symlink edge case
+    printf 'current\n'
+  else
+    printf '(none)\n'
+  fi
+}
+
+cmd="${1:-}"
+case "$cmd" in
+  ""|-h|--help)
+    printf '%s\n' \
+      'avm — Aura Version Manager' \
+      '' \
+      'Usage:' \
+      '  avm <version>   Activate an installed version' \
+      '  avm --list      List installed versions' \
+      '  avm --show      Print active version'
+    exit 0
+    ;;
+  --list|-l)
+    list_versions
+    exit 0
+    ;;
+  --show|-s)
+    show_current
+    exit 0
+    ;;
+  -*)
+    die "unknown option: $cmd"
+    ;;
+esac
+
+ver="${cmd#v}"
+target="${AURA_HOME}/versions/${ver}"
+if [[ ! -d "$target" ]]; then
+  die "version not installed: ${ver}
+Install with:
+  curl -fsSL https://aura.fadosoft.com/install.sh | AURA_VERSION=${ver} bash
+Available:
+$(list_versions | sed 's/^/  /')"
+fi
+
+mkdir -p "${AURA_HOME}/bin"
+# Relative symlinks so AURA_HOME can be relocated as a tree.
+ln -sfn "versions/${ver}" "${AURA_HOME}/current"
+ln -sfn "../current/bin/aura" "${AURA_HOME}/bin/aura"
+printf 'active: %s\n' "$ver"
+if [[ -x "${AURA_HOME}/bin/aura" ]]; then
+  "${AURA_HOME}/bin/aura" version || true
+fi

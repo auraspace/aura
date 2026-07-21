@@ -62,7 +62,7 @@ aura version
 
 `avm` only flips the `current` symlink; previously installed trees under `versions/` stay on disk.
 
-Source of truth: [`scripts/install.sh`](https://github.com/auraspace/aura/blob/main/scripts/install.sh) (copied to the site root on deploy).
+Source of truth: [`scripts/install.sh`](https://github.com/auraspace/aura/blob/main/scripts/install.sh) + [`scripts/avm`](https://github.com/auraspace/aura/blob/main/scripts/avm). Site build (`site/scripts/sync-install.mjs`) embeds `avm` into `public/install.sh` for the CDN.
 
 ## Prerequisites
 
