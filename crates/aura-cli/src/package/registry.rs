@@ -78,6 +78,7 @@ impl RegistryIndex {
     }
 
     /// All version strings for `name` (including yanked), in index order.
+    #[cfg(test)]
     pub fn list_versions(&self, name: &str) -> Result<Vec<String>, String> {
         Ok(self
             .package_versions(name)?
@@ -87,6 +88,7 @@ impl RegistryIndex {
     }
 
     /// Non-yanked version strings only (for future semver resolve).
+    #[cfg(test)]
     pub fn list_versions_unyanked(&self, name: &str) -> Result<Vec<String>, String> {
         Ok(self
             .package_versions(name)?
@@ -108,6 +110,7 @@ impl RegistryIndex {
     }
 
     /// Metadata for an exact version pin.
+    #[cfg(test)]
     pub fn get_version_meta(&self, name: &str, version: &str) -> Result<VersionMeta, String> {
         let versions = self.package_versions(name)?;
         versions

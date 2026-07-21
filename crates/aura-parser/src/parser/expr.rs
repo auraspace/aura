@@ -72,7 +72,7 @@ impl Parser {
             break;
         }
 
-        if min_bp <= 0 && matches!(self.peek().kind, TokenKind::Eq) {
+        if min_bp == 0 && matches!(self.peek().kind, TokenKind::Eq) {
             if let Expr::Ident(name) = &lhs {
                 let name = name.clone();
                 self.bump();
@@ -411,7 +411,7 @@ impl Parser {
                 let name = &value[start..j];
                 if name.is_empty()
                     || !name.chars().next().unwrap().is_ascii_alphabetic()
-                        && name.chars().next() != Some('_')
+                        && !name.starts_with('_')
                     || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
                 {
                     return Err(ParseError {

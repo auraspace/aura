@@ -29,6 +29,9 @@ jobs:
       - name: cargo test --workspace
         run: cargo test --workspace
 
+      - name: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
       - name: Build aura CLI
         run: cargo build -p aura-cli
 

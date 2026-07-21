@@ -456,7 +456,7 @@ pub(crate) fn build_lambda_ids(checked: &CheckedFile) -> HashMap<u32, usize> {
 }
 
 /// Collect LambdaExpr nodes from the AST (for body emission).
-fn collect_lambdas<'a>(file: &'a File) -> Vec<&'a LambdaExpr> {
+fn collect_lambdas(file: &File) -> Vec<&LambdaExpr> {
     let mut out = Vec::new();
     for f in &file.functions {
         walk_block_lambdas(&f.body, &mut out);
@@ -579,7 +579,7 @@ fn collect_fun_tys(checked: &CheckedFile) -> Vec<Ty> {
                     let mut nested = Vec::new();
                     from_type_ref(p, &mut nested);
                     if let Some(fun) = &p.fun {
-                        let ps = fun.params.iter().map(|x| type_ref_to_ty_loose(x)).collect();
+                        let ps = fun.params.iter().map(type_ref_to_ty_loose).collect();
                         let ret = type_ref_to_ty_loose(&fun.ret);
                         Ty::Fun {
                             params: ps,

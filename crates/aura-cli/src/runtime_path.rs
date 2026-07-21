@@ -41,12 +41,13 @@ pub fn resolve_runtime_c() -> Result<PathBuf, String> {
 }
 
 fn disk_candidates() -> Vec<PathBuf> {
-    let mut out = Vec::new();
-    // In-tree when developing from the monorepo.
-    out.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../runtime/aura_rt.c"));
-    out.push(PathBuf::from("runtime/aura_rt.c"));
-    out.push(PathBuf::from("../runtime/aura_rt.c"));
-    out.push(PathBuf::from("../../runtime/aura_rt.c"));
+    let mut out = vec![
+        // In-tree when developing from the monorepo.
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../runtime/aura_rt.c"),
+        PathBuf::from("runtime/aura_rt.c"),
+        PathBuf::from("../runtime/aura_rt.c"),
+        PathBuf::from("../../runtime/aura_rt.c"),
+    ];
 
     // Alongside installed binary (optional layout from package-release).
     if let Ok(exe) = env::current_exe() {

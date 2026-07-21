@@ -227,13 +227,12 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
         let mono = crate::expr::full_type_mono(mono_raw, ctx.checked);
 
         // C13c: builtin Int.toString() → aura_i64_to_string (malloc'd decimal).
-        if mono_raw == "Int"
+        if (mono_raw == "Int"
             || matches!(fe.object.as_ref(), Expr::Int(_))
-            || matches!(obj_ty.as_deref(), Some("Int"))
+            || matches!(obj_ty.as_deref(), Some("Int")))
+            && fe.field.name == "toString"
         {
-            if fe.field.name == "toString" {
-                return format!("aura_i64_to_string({obj})");
-            }
+            return format!("aura_i64_to_string({obj})");
         }
 
         // C4v/C4w: builtin String methods.
@@ -383,7 +382,7 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
             }
             // C11d: substring(start, end) exclusive end; malloc copy; OOB throws.
             if fe.field.name == "substring" {
-                let start = if c.args.len() >= 1 {
+                let start = if !c.args.is_empty() {
                     emit_expr(&c.args[0], ctx)
                 } else {
                     "0".into()
@@ -665,7 +664,7 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                 let pkg = inst
                     .map(|i| i.package.as_str())
                     .filter(|p| !p.is_empty())
-                    .unwrap_or_else(|| {
+                    .unwrap_or({
                         if class.origin_package.is_empty() {
                             ctx.checked.package.as_str()
                         } else {

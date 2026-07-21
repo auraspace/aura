@@ -205,6 +205,7 @@ pub fn crate_source_for_meta(
 }
 
 /// True when `<cache>/src/<name>-<version>` already looks installed.
+#[cfg(test)]
 pub fn is_package_installed(cache_root: &Path, name: &str, version: &str) -> bool {
     is_installed(&package_src_dir(cache_root, name, version))
 }

@@ -431,10 +431,6 @@ pub(crate) fn ty_to_c_local(t: &Ty, checked: &CheckedFile) -> String {
     }
 }
 
-pub(crate) fn c_type_ref(ty: &TypeRef, checked: &CheckedFile) -> String {
-    c_type_ref_subst(ty, checked, &[], &[])
-}
-
 pub(crate) fn c_type_ref_subst(
     ty: &TypeRef,
     checked: &CheckedFile,
@@ -550,37 +546,41 @@ pub(crate) fn c_type_ref_subst(
         let targs: Vec<Ty> = ty
             .type_args
             .iter()
-            .filter_map(|t| {
-                if let Some(idx) = params.iter().position(|p| p == &t.name.name) {
-                    return args.get(idx).cloned();
+            .map(|t| {
+                if let Some(arg) = params
+                    .iter()
+                    .position(|p| p == &t.name.name)
+                    .and_then(|idx| args.get(idx).cloned())
+                {
+                    return arg;
                 }
                 match t.name.name.as_str() {
-                    "Int" => Some(Ty::Int),
-                    "Bool" => Some(Ty::Bool),
-                    "String" => Some(Ty::String),
+                    "Int" => Ty::Int,
+                    "Bool" => Ty::Bool,
+                    "String" => Ty::String,
                     other => {
                         // C4c: package-qualify class type args (Array<Box@pkg>).
                         let epkg = resolve_type_ref_package(t, checked);
                         if t.type_args.is_empty() {
-                            Some(Ty::Class(nominal_key(&epkg, other)))
+                            Ty::Class(nominal_key(&epkg, other))
                         } else {
                             let nested: Vec<Ty> = t
                                 .type_args
                                 .iter()
-                                .filter_map(|n| match n.name.name.as_str() {
-                                    "Int" => Some(Ty::Int),
-                                    "Bool" => Some(Ty::Bool),
-                                    "String" => Some(Ty::String),
+                                .map(|n| match n.name.name.as_str() {
+                                    "Int" => Ty::Int,
+                                    "Bool" => Ty::Bool,
+                                    "String" => Ty::String,
                                     o => {
                                         let p = resolve_type_ref_package(n, checked);
-                                        Some(Ty::Class(nominal_key(&p, o)))
+                                        Ty::Class(nominal_key(&p, o))
                                     }
                                 })
                                 .collect();
-                            Some(Ty::ClassApp {
+                            Ty::ClassApp {
                                 name: nominal_key(&epkg, other),
                                 args: nested,
-                            })
+                            }
                         }
                     }
                 }

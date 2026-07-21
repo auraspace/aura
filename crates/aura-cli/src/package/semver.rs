@@ -37,6 +37,7 @@ impl Version {
     }
 
     /// Display form matching index `vers` strings when no pre: `X.Y.Z`.
+    #[cfg(test)]
     pub fn to_string_canonical(&self) -> String {
         match &self.pre {
             None => format!("{}.{}.{}", self.major, self.minor, self.patch),
@@ -349,6 +350,7 @@ pub fn resolve(name: &str, req: &str, index: &RegistryIndex) -> Result<VersionMe
 }
 
 /// Convenience: resolve then produce lock pin fields (version + checksum + source).
+#[cfg(test)]
 pub fn resolve_lock_pin(
     name: &str,
     req: &str,

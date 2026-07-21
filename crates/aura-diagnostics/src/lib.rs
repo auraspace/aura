@@ -80,7 +80,7 @@ pub fn format_error_with(
     };
     // columns are 1-based; underline starts at col-1
     let pad = " ".repeat(col.saturating_sub(1));
-    let carets = "^".repeat(mark_len.min(80).max(1));
+    let carets = "^".repeat(mark_len.clamp(1, 80));
     let line_no = start.line;
     let gutter = format!("{line_no}");
     let gw = gutter.len().max(2);

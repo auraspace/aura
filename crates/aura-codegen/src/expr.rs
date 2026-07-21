@@ -335,9 +335,7 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
         }) => {
             let lt = infer_type_name(left, ctx);
             let rt = infer_type_name(right, ctx);
-            if lt == "String" && rt == "String" {
-                "String".into()
-            } else if (lt == "String" && rt == "Int") || (lt == "Int" && rt == "String") {
+            if (lt == "String" || lt == "Int") && (rt == "String" || rt == "Int") {
                 "String".into()
             } else {
                 "Int".into()
@@ -432,7 +430,6 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
             let target_mono = full_type_mono(&target_key, ctx.checked);
             // Interface-typed receiver: compare runtime tag.
             if is_iface_type_key(&recv, ctx.checked) {
-                let imono = resolve_iface_mono_key(&recv, ctx.checked);
                 // tag lives on the iface struct value.
                 return format!("({val}).tag == AURA_TAG_{target_mono}");
             }
@@ -656,7 +653,7 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
             }
             let dst_is_fun = dst_ty
                 .as_deref()
-                .map(|t| is_fun_type_key(t))
+                .map(is_fun_type_key)
                 .unwrap_or(false);
             let free_fun_lvalue = |lv: &str| -> String {
                 format!(
@@ -1264,7 +1261,7 @@ pub(crate) fn resolve_type_name(expr: &Expr, ctx: &EmitCtx<'_>) -> Option<String
                     let pkg = inst
                         .map(|i| i.package.as_str())
                         .filter(|p| !p.is_empty())
-                        .unwrap_or_else(|| {
+                        .unwrap_or({
                             if class.origin_package.is_empty() {
                                 ctx.checked.package.as_str()
                             } else {

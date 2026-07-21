@@ -116,11 +116,11 @@ pub(crate) fn emit_return_fallback(
                 out.push_str("  return false; /* fallback */\n");
             } else if ct == "const char *" {
                 out.push_str("  return \"\"; /* fallback */\n");
-            } else if ct == "aura_opt_i64" || ct == "aura_opt_bool" {
-                let _ = writeln!(out, "  return ({ct}){{0}}; /* fallback */");
-            } else if ct.starts_with("aura_cls_") {
-                let _ = writeln!(out, "  return ({ct}){{0}}; /* fallback */");
-            } else if ct.starts_with("aura_iface_") {
+            } else if ct == "aura_opt_i64"
+                || ct == "aura_opt_bool"
+                || ct.starts_with("aura_cls_")
+                || ct.starts_with("aura_iface_")
+            {
                 let _ = writeln!(out, "  return ({ct}){{0}}; /* fallback */");
             }
         }

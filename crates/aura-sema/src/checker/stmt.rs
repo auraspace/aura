@@ -83,11 +83,10 @@ impl Checker {
 
     /// Types that may be thrown/caught (C3c primitives + C3g class/struct values).
     pub(crate) fn is_throwable(ty: &Ty) -> bool {
-        match ty {
-            Ty::String | Ty::Int | Ty::Bool => true,
-            Ty::Class(_) | Ty::ClassApp { .. } => true,
-            _ => false,
-        }
+        matches!(
+            ty,
+            Ty::String | Ty::Int | Ty::Bool | Ty::Class(_) | Ty::ClassApp { .. }
+        )
     }
 
     pub(crate) fn check_block(

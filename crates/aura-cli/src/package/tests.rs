@@ -761,7 +761,7 @@ fun main() {}
         .map(|f| f.origin_package.as_str())
         .collect();
     assert!(
-        origins.iter().any(|o| *o == "tiny"),
+        origins.contains(&"tiny"),
         "expected tiny package functions, origins={origins:?}"
     );
 

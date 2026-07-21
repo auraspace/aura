@@ -188,19 +188,6 @@ pub(crate) fn mono_implementors_for_iface<'a>(
     out
 }
 
-/// Prefer ClassSig implements keys (package-qualified) when available.
-/// For mono ifaces, `args` must match the implemented InterfaceApp args.
-pub(crate) fn implementors_for_iface<'a>(
-    checked: &'a CheckedFile,
-    iface: &InterfaceDecl,
-    args: &[Ty],
-) -> Vec<&'a ClassDecl> {
-    mono_implementors_for_iface(checked, iface, args)
-        .into_iter()
-        .map(|m| m.class)
-        .collect()
-}
-
 pub(crate) fn emit_upcast(
     out: &mut String,
     checked: &CheckedFile,
