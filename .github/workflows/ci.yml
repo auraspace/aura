@@ -82,6 +82,29 @@ jobs:
           unset AURA_RUNTIME || true
           (cd "$TMP" && ./aura run hello)
 
+  sanitizer:
+    name: Sanitizer smoke (C runtime/codegen)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install C toolchain
+        run: sudo apt-get update && sudo apt-get install -y build-essential
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build aura CLI
+        run: cargo build -p aura-cli
+
+      - name: AddressSanitizer and UBSan smoke
+        env:
+          AURA_BIN: target/debug/aura
+        run: bash scripts/sanitizer-smoke.sh
+
   site:
     name: Site
     runs-on: ubuntu-latest
