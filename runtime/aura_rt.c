@@ -4763,6 +4763,7 @@ struct AuraTaskFrame
   AuraTaskResult error;
   AuraTaskResultDestroyFn error_destroy;
   int error_rooted;
+  uint32_t error_source_id;
   uint32_t resume_state;
   AuraTaskPollState state;
   int cancel_requested;
@@ -4988,6 +4989,62 @@ AuraTaskResult aura_task_frame_error(const AuraTaskFrame *frame)
   return frame != NULL ? frame->error : empty;
 }
 
+uint32_t aura_task_frame_error_source_id(const AuraTaskFrame *frame)
+{
+  return frame != NULL ? frame->error_source_id : 0;
+}
+
+static void aura_task_result_release(AuraTaskResult *result,
+                                     AuraTaskResultDestroyFn *destroy,
+                                     int *rooted)
+{
+  void *data;
+  size_t size;
+  AuraTaskResultDestroyFn drop;
+
+  if (result == NULL || destroy == NULL || rooted == NULL)
+  {
+    return;
+  }
+  if (*rooted)
+  {
+    aura_gc_remove_root(&result->data);
+  }
+  data = result->data;
+  size = result->size;
+  drop = *destroy;
+  *result = (AuraTaskResult){NULL, 0};
+  *destroy = NULL;
+  *rooted = 0;
+  if (drop != NULL && data != NULL)
+  {
+    drop(data, size);
+  }
+}
+
+void aura_task_frame_set_error_at(AuraTaskFrame *frame,
+                                  void *data,
+                                  size_t size,
+                                  AuraTaskResultDestroyFn destroy,
+                                  uint32_t source_id)
+{
+  if (frame == NULL)
+  {
+    return;
+  }
+  aura_task_result_release(&frame->error, &frame->error_destroy,
+                           &frame->error_rooted);
+  frame->error = (AuraTaskResult){data, size};
+  frame->error_destroy = destroy;
+  frame->error_source_id = source_id;
+  if (data != NULL)
+  {
+    aura_gc_add_root(&frame->error.data);
+    frame->error_rooted = 1;
+    frame->state = AURA_TASK_FAILED;
+  }
+}
+
 void aura_task_frame_set_error(AuraTaskFrame *frame,
                                void *data,
                                size_t size,
@@ -4997,26 +5054,8 @@ void aura_task_frame_set_error(AuraTaskFrame *frame,
   {
     return;
   }
-  if (frame->error_destroy != NULL && frame->error.data != NULL)
-  {
-    frame->error_destroy(frame->error.data, frame->error.size);
-  }
-  if (frame->error_rooted)
-  {
-    aura_gc_remove_root(&frame->error.data);
-    frame->error_rooted = 0;
-  }
-  frame->error = (AuraTaskResult){data, size};
-  frame->error_destroy = destroy;
-  if (data != NULL)
-  {
-    aura_gc_add_root(&frame->error.data);
-    frame->error_rooted = 1;
-  }
-  if (data != NULL)
-  {
-    frame->state = AURA_TASK_FAILED;
-  }
+  aura_task_frame_set_error_at(
+      frame, data, size, destroy, frame->race_source_id);
 }
 
 void aura_task_frame_set_result(AuraTaskFrame *frame,
@@ -5028,15 +5067,8 @@ void aura_task_frame_set_result(AuraTaskFrame *frame,
   {
     return;
   }
-  if (frame->result_destroy != NULL && frame->result.data != NULL)
-  {
-    frame->result_destroy(frame->result.data, frame->result.size);
-  }
-  if (frame->result_rooted)
-  {
-    aura_gc_remove_root(&frame->result.data);
-    frame->result_rooted = 0;
-  }
+  aura_task_result_release(&frame->result, &frame->result_destroy,
+                           &frame->result_rooted);
   frame->result.data = data;
   frame->result.size = size;
   frame->result_destroy = destroy;
@@ -5063,24 +5095,12 @@ void aura_task_frame_destroy(AuraTaskFrame *frame)
   {
     frame->destroy(frame);
   }
-  if (frame->result_destroy != NULL && frame->result.data != NULL)
-  {
-    frame->result_destroy(frame->result.data, frame->result.size);
-  }
-  if (frame->result_rooted)
-  {
-    aura_gc_remove_root(&frame->result.data);
-  }
+  aura_task_result_release(&frame->result, &frame->result_destroy,
+                           &frame->result_rooted);
   aura_task_frame_storage_release(&frame->captures);
   aura_task_frame_storage_release(&frame->pending);
-  if (frame->error_destroy != NULL && frame->error.data != NULL)
-  {
-    frame->error_destroy(frame->error.data, frame->error.size);
-  }
-  if (frame->error_rooted)
-  {
-    aura_gc_remove_root(&frame->error.data);
-  }
+  aura_task_result_release(&frame->error, &frame->error_destroy,
+                           &frame->error_rooted);
   free(frame->data);
   free(frame);
 }
