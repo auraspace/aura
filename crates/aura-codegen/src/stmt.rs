@@ -439,9 +439,11 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                 let _ = writeln!(out, "{p}{src_m}.env = NULL;");
                 ctx.unmark_fun_owner(&src);
             }
-            // C5g: heap-class locals are GC roots until scope exit.
+            // C5g/C21e: owning heap-class locals are GC roots until scope exit.
+            // A scoped `ref` alias borrows an already-live iterator/source and
+            // must not add an independent root or ownership edge.
             let mono = full_type_mono(&ty_name, ctx.checked);
-            if is_heap_class_mono(&mono, ctx.checked) && !needs_ptr_box {
+            if is_heap_class_mono(&mono, ctx.checked) && !needs_ptr_box && !borrow_binding {
                 ctx.mark_gc_root(&v.name.name);
                 let _ = writeln!(out, "{p}aura_gc_add_root((void **)&{dst});");
             }

@@ -12,6 +12,7 @@ use std::collections::{HashMap, HashSet};
 use crate::error::SemaError;
 use crate::sigs::*;
 use crate::ty::Ty;
+use crate::util::{subst_ty, type_subst_map};
 use aura_ast::{ClassDecl, FunDecl, Span};
 
 /// Builtin `Array<T>` primitives (C3j). Heap class elements allowed in C4c via Checker.
@@ -734,13 +735,16 @@ impl Checker {
             // A field view borrows from its receiver.  Restrict this propagation
             // to receivers whose lexical lifetime we can name; temporaries and
             // calls must not become borrow sources.
-            aura_ast::Expr::Field(f) if !f.safe && f.field.name != "len" => match f.object.as_ref()
+            aura_ast::Expr::Field(f)
+                if !f.safe && f.field.name != "len" && self.is_array_field_access(f) =>
             {
-                aura_ast::Expr::This(_) => self.locals.len().checked_sub(1),
-                _ => self
-                    .borrow_source_frame(f.object.as_ref())
-                    .or_else(|| self.lookup_local_frame_for_owner(f.object.as_ref())),
-            },
+                match f.object.as_ref() {
+                    aura_ast::Expr::This(_) => self.locals.len().checked_sub(1),
+                    _ => self
+                        .borrow_source_frame(f.object.as_ref())
+                        .or_else(|| self.lookup_local_frame_for_owner(f.object.as_ref())),
+                }
+            }
             aura_ast::Expr::If(i) => {
                 fn block_source(checker: &Checker, block: &aura_ast::Block) -> Option<usize> {
                     match block.stmts.last() {
@@ -755,6 +759,57 @@ impl Checker {
             }
             _ => None,
         }
+    }
+
+    /// Only Array fields are implicit non-owning views. Snapshot iterator and
+    /// entry fields remain ordinary owned values, so `entry.key` and
+    /// `entry.value` may be copied or stored without becoming a borrow escape.
+    fn is_array_field_access(&self, field: &aura_ast::FieldExpr) -> bool {
+        let Some(receiver_ty) = self.receiver_type(field.object.as_ref()) else {
+            return false;
+        };
+        let Some(class_name) = receiver_ty.class_name() else {
+            return false;
+        };
+        let Some(class) = self.class_by_nominal_key(class_name) else {
+            return false;
+        };
+        let subst = type_subst_map(&class.type_params, receiver_ty.class_args());
+        class
+            .fields
+            .iter()
+            .find(|candidate| candidate.name == field.field.name)
+            .map(|candidate| {
+                matches!(
+                    subst_ty(&candidate.ty, &subst),
+                    Ty::Class(n) | Ty::ClassApp { name: n, .. }
+                        if crate::ty::split_nominal(&n).0 == "Array"
+                )
+            })
+            .unwrap_or(false)
+    }
+
+    fn receiver_type(&self, expr: &aura_ast::Expr) -> Option<Ty> {
+        match expr {
+            aura_ast::Expr::Ident(id) => self.lookup_local(&id.name).map(|local| local.ty.clone()),
+            aura_ast::Expr::This(_) => self.current_class.clone().map(Ty::Class),
+            aura_ast::Expr::Group(inner, _) => self.receiver_type(inner),
+            aura_ast::Expr::ForceUnwrap(force) => self.receiver_type(&force.expr),
+            aura_ast::Expr::Field(field) if !field.safe => self.field_type(field),
+            _ => None,
+        }
+    }
+
+    fn field_type(&self, field: &aura_ast::FieldExpr) -> Option<Ty> {
+        let receiver_ty = self.receiver_type(field.object.as_ref())?;
+        let class_name = receiver_ty.class_name()?;
+        let class = self.class_by_nominal_key(class_name)?;
+        let subst = type_subst_map(&class.type_params, receiver_ty.class_args());
+        class
+            .fields
+            .iter()
+            .find(|candidate| candidate.name == field.field.name)
+            .map(|candidate| subst_ty(&candidate.ty, &subst))
     }
 
     fn lookup_local_frame_for_owner(&self, expr: &aura_ast::Expr) -> Option<usize> {

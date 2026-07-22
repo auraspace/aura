@@ -86,6 +86,31 @@ fun main() {}
 }
 
 #[test]
+fn snapshot_entry_values_remain_owned_after_iteration() {
+    let file = parse_file(
+        r#"
+package t
+class HashMapEntry(val key: Int, val value: String) {}
+class HashMapEntryIterator(val items: Array<HashMapEntry>) {
+  fun len(): Int { return this.items.len }
+  fun get(i: Int): HashMapEntry { return this.items.get(i) }
+}
+fun inspect(entries: HashMapEntryIterator) {
+  for (entry in entries) {
+    val key: Int = entry.key
+    val value: String = entry.value
+    println(value)
+    if (key == 1) { println("entry") }
+  }
+}
+fun main() {}
+"#,
+    )
+    .expect("parse");
+    check_file(&file).expect("snapshot entry values should remain owning values");
+}
+
+#[test]
 fn scoped_ref_rejects_collection_iteration_escape() {
     let returned = parse_file(
         r#"
