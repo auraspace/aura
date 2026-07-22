@@ -8,7 +8,7 @@ This repository currently holds:
 | ------------------------------------ | -------------------------------------------------------------------- |
 | [`docs/guide/`](docs/guide/)         | User guide (site `/docs`)                                            |
 | [`docs/rfc/`](docs/rfc/)             | Language & toolchain RFCs                                            |
-| [`docs/roadmap.md`](docs/roadmap.md) | Execution phases (P0–P3; C20 collection batch closed)                 |
+| [`docs/roadmap.md`](docs/roadmap.md) | Execution phases (P0–P3; C21 borrow/DX batch closed)                 |
 | [`docs/releases/`](docs/releases/)   | Freeze / release notes (`0.1.0-alpha`)                               |
 | [`site/`](site/)                     | Homepage + docs + RFC site (Vite + React)                            |
 | [`crates/`](crates/)                 | Rust toolchain (`aura` CLI) — check / build / run / test (C backend) |
@@ -34,7 +34,7 @@ pnpm site:test
 pnpm site:build
 ```
 
-### Compiler (through C20 + S2 toolchain — captures / collection snapshots)
+### Compiler (through C21 + S2 toolchain — borrow/ref, captures, collections, and DX)
 
 ```bash
 cargo test --workspace
@@ -70,6 +70,7 @@ cargo run -p aura-cli -- run corpus/fun/lambda_capture_var_class.aura # var clas
 cargo run -p aura-cli -- run corpus/fun/lambda_capture_var_array.aura # var Array shared capture MVP (C20d)
 cargo run -p aura-cli -- run corpus/fun/lambda_capture_var_fun.aura # var Fun shared capture MVP (C20e)
 cargo run -p aura-cli -- run corpus/std_collections/snapshot_iterator # deterministic collection snapshots (C20g)
+cargo run -p aura-cli -- run corpus/std_collections/scoped_borrow_iteration # scoped ref iteration checks (C21e)
 cargo run -p aura-cli -- run corpus/expr/int_tostring.aura # Int.toString + interp (C13c)
 cargo run -p aura-cli -- run corpus/expr/method_temp.aura # method on Array.get temp (C13b)
 cargo run -p aura-cli -- run corpus/std_io/try_write_file # tryWriteFile Bool (C13o)
@@ -228,8 +229,11 @@ when their Rust and C toolchains are available.
 - **Lang C12f–i** `String.indexOf` / `split` / `trim*` / `toInt(): Int?`
 - **Stdlib C12j** `join(parts, sep)` for `Array<String>`
 - **Compiler C12k–m** Lambda capture class / Array view / `var` Int·Bool by ref
-- **Compiler C20c–e** Mutable `var` class/Array/Fun captures via shared pointer boxes; Array live-view/borrow ownership remains deferred
+- **Compiler C20c–e** Mutable `var` class/Array/Fun captures via shared pointer boxes; Array live-view ownership remains deferred
 - **Collections C20f–i** Snapshot iterator contract and fixtures are shipped; `Array<Interface>` and mutation-through-entry remain explicitly deferred
+- **Compiler C21b–e** Scoped non-owning `ref T`, borrow escape checks, borrow-safe Array field returns, and collection iteration checks
+- **DX C21f–h** `aura fmt`, structured diagnostics, test filtering, and JSON reports
+- **Stdlib C21i** Non-throwing `readFileResult` / `writeFileResult` wrappers
 - **Stdlib C14** generic `HashMap<K,V>` with `Hashable` keys (+ resize)
 - **Stdlib C12o** `map_strings` / `filter_strings` / `fold_strings`
 - **Stdlib C12p** `tryReadFile(path): String?`
@@ -240,7 +244,7 @@ when their Rust and C toolchains are available.
 - **Debts** Tracked in [`agents/debts.md`](agents/debts.md)
 - **Docs C13t:** C13a–C13t batch closed — dogfood/captures/registry K1 foundation ([plan](docs/plans/2026-07-21-next-20-c13a-c13t.md))
 - **S2:** production toolchain complete — verified HTTPS/nested registry deps, Unix artifacts, installer safety, and acceptance gate ([plan](docs/plans/2026-07-21-s2-production-toolchain.md))
-- **Next:** C21 remains pending; registry publish/auth, true borrow/live Array views, async/tasks, and residual debts remain deferred
+- **Next:** registry publish/auth, live Array/collection views, `Array<Interface>`, async/tasks, and residual debts remain deferred
 
 ### Mutable capture status
 
@@ -250,9 +254,10 @@ class payloads participate in GC rooting, and nested Fun environments retain and
 release through the existing environment protocol. This is the behavior covered
 by the C20 sema, runtime, codegen, and corpus commits.
 
-Array capture still uses a captured payload/header representation rather than a
-language-level borrow. Live views, owner movement while a closure escapes, and
-mutation-invalidation and owner-movement guarantees remain deferred.
+Array capture still uses a captured payload/header representation. The shipped
+scoped `ref T` MVP now rejects escaping borrows and makes Array field returns
+non-moving, but live views, mutable borrows, and owner-movement guarantees for
+escaping closures remain deferred.
 
 ## Links
 

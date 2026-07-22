@@ -1,6 +1,6 @@
 # Aura corpus
 
-Sample `.aura` programs for the compiler: parse/typecheck (`aura check`), native run (`aura run` / `aura build`), and `@test` (`aura test`). Layout tracks milestones through **C20** (mutable captures and collection snapshots; C21 pending) + guide sync (see [docs/roadmap.md](../docs/roadmap.md)).
+Sample `.aura` programs for the compiler: parse/typecheck (`aura check`), native run (`aura run` / `aura build`), and `@test` (`aura test`). Layout tracks milestones through **C21** (scoped borrows, mutable captures, collection snapshots, and DX) + guide sync (see [docs/roadmap.md](../docs/roadmap.md)).
 
 ## Core fixtures
 
@@ -101,51 +101,62 @@ Sample `.aura` programs for the compiler: parse/typecheck (`aura check`), native
 
 ## Packages, import, stdlib
 
-| Path                                  | Intent                                                                                                       |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `test/smoke.aura`                     | `@test` + `assert` / `assert_eq`                                                                             |
-| `multi/`                              | Multi-file package + `aura.toml` (C3e)                                                                       |
-| `import/app` + `import/math`          | `import` + `pub` + path dep (C3f); alias `Math.square` (C3n); `Math.Point` (C3u); `aura.lock` (C3p)          |
-| `import/collide` + lib_a/lib_b        | same `fun add` (C3o) + same `class Token` (C3v); lockfile (C3p)                                              |
-| `import/iface_app` + iface_a/iface_b  | same interface name across packages (C4d)                                                                    |
-| `import/nested_app` + nested_mid/leaf | Nested path deps in `aura.lock` (C4j)                                                                        |
-| `std_io/app`                          | Explicit `import std.io` + `println` (C3z)                                                                   |
-| `std_io/prelude`                      | Auto-prelude `std.io` without import (C4g)                                                                   |
-| `std_io/files`                        | `readFile` / `writeFile` / `appendFile` / `fileExists` / `fileSize` (C11a)                                   |
-| `std_collections/hashmap_int`         | Generic `HashMap<Int,String>` accessors, snapshots, snapshot iterators, `HashMapEntry` `for-in`, and HOF (C18–C20) |
-| `std_collections/hashmap_str`         | Generic `HashMap<String,String>` accessors, paired snapshots/iterators, direct entry `for-in`, and HOF (C18–C20) |
-| `std_collections/hashset_int`         | Generic `HashSet<Int>` snapshots/iterators, `containsAll`, and filter/map HOFs (C18–C20)                    |
-| `std_collections/snapshot_iterator`   | Deterministic read-only collection snapshots across mutation/rehash/clear (C20g)                           |
-| `std_io/try_read_file`                | `tryReadFile(path): String?` null on missing/error; keep throwing `readFile` (C12p)                          |
-| `std_io/args`                         | `std.io.args(): Array<String>` process argv (C12b); optional `aura run … -- hello` (C12c)                    |
-| `std_io/stdin`                        | `readLine(): String?` + `readAllStdin()` (C12d); smoke EOF without pipe; `printf … \| aura run …`            |
-| `std_io/exit`                         | `std.io.exit(code)` (C12e); default exit 0; `aura run … -- 7` for non-zero (CLI unit test too)               |
-| `std_assert/app`                      | `std.assert` package (C4h)                                                                                   |
-| `std_collections/app`                 | Map/Set/HashMap smoke                                                                                        |
-| `std_collections/hof`                 | Generic `map` / `filter` / `fold` over `Array<Int>` (C16)                                                    |
-| `std_collections/hof_str`             | Generic `map` / `filter` / `fold` over `Array<String>` (C16)                                                 |
-| `std_collections/join`                | `join(parts, sep)` for `Array<String>` (C12j)                                                                |
-| `std_collections/hashmap`             | HashMap String→Int (+ resize)                                                                                |
-| `std_collections/hashmap_str`         | HashMapStr String→String (+ resize) (C12n)                                                                   |
-| `std_collections/hashmap_int`         | Generic HashMap<Int, String> + update/remove/accessors/entry snapshot iteration (C14/C19)                    |
-| `std_collections/hashset_int`         | Generic HashSet<Int> + duplicate/remove/iteration/`containsAll` (C15/C19)                                    |
-| `std_collections/iterable`            | `Iterable<E>` for-in                                                                                         |
-| `std_collections/forin`               | for-in over Map.keys / Set                                                                                   |
+| Path                                      | Intent                                                                                                             |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `test/smoke.aura`                         | `@test` + `assert` / `assert_eq`                                                                                   |
+| `multi/`                                  | Multi-file package + `aura.toml` (C3e)                                                                             |
+| `import/app` + `import/math`              | `import` + `pub` + path dep (C3f); alias `Math.square` (C3n); `Math.Point` (C3u); `aura.lock` (C3p)                |
+| `import/collide` + lib_a/lib_b            | same `fun add` (C3o) + same `class Token` (C3v); lockfile (C3p)                                                    |
+| `import/iface_app` + iface_a/iface_b      | same interface name across packages (C4d)                                                                          |
+| `import/nested_app` + nested_mid/leaf     | Nested path deps in `aura.lock` (C4j)                                                                              |
+| `std_io/app`                              | Explicit `import std.io` + `println` (C3z)                                                                         |
+| `std_io/prelude`                          | Auto-prelude `std.io` without import (C4g)                                                                         |
+| `std_io/files`                            | `readFile` / `writeFile` / `appendFile` / `fileExists` / `fileSize` (C11a)                                         |
+| `std_collections/hashmap_int`             | Generic `HashMap<Int,String>` accessors, snapshots, snapshot iterators, `HashMapEntry` `for-in`, and HOF (C18–C20) |
+| `std_collections/hashmap_str`             | Generic `HashMap<String,String>` accessors, paired snapshots/iterators, direct entry `for-in`, and HOF (C18–C20)   |
+| `std_collections/hashset_int`             | Generic `HashSet<Int>` snapshots/iterators, `containsAll`, and filter/map HOFs (C18–C20)                           |
+| `std_collections/snapshot_iterator`       | Deterministic read-only collection snapshots across mutation/rehash/clear (C20g)                                   |
+| `std_collections/scoped_borrow_iteration` | Scoped `ref` use during snapshot iteration; return/closure escapes rejected (C21e)                                 |
+| `std_io/try_read_file`                    | `tryReadFile(path): String?` null on missing/error; keep throwing `readFile` (C12p)                                |
+| `std_io/args`                             | `std.io.args(): Array<String>` process argv (C12b); optional `aura run … -- hello` (C12c)                          |
+| `std_io/stdin`                            | `readLine(): String?` + `readAllStdin()` (C12d); smoke EOF without pipe; `printf … \| aura run …`                  |
+| `std_io/exit`                             | `std.io.exit(code)` (C12e); default exit 0; `aura run … -- 7` for non-zero (CLI unit test too)                     |
+| `std_io/result_wrappers`                  | Non-throwing `readFileResult` / `writeFileResult` APIs (C21i)                                                      |
+| `fmt/basic` / `fmt/comments`              | Formatter idempotence and comment preservation smoke corpus (C21f)                                                 |
+| `test/filter.aura`                        | Deterministic test-name filtering corpus (C21h)                                                                    |
+| `std_assert/app`                          | `std.assert` package (C4h)                                                                                         |
+| `std_collections/app`                     | Map/Set/HashMap smoke                                                                                              |
+| `std_collections/hof`                     | Generic `map` / `filter` / `fold` over `Array<Int>` (C16)                                                          |
+| `std_collections/hof_str`                 | Generic `map` / `filter` / `fold` over `Array<String>` (C16)                                                       |
+| `std_collections/join`                    | `join(parts, sep)` for `Array<String>` (C12j)                                                                      |
+| `std_collections/hashmap`                 | HashMap String→Int (+ resize)                                                                                      |
+| `std_collections/hashmap_str`             | HashMapStr String→String (+ resize) (C12n)                                                                         |
+| `std_collections/hashmap_int`             | Generic HashMap<Int, String> + update/remove/accessors/entry snapshot iteration (C14/C19)                          |
+| `std_collections/hashset_int`             | Generic HashSet<Int> + duplicate/remove/iteration/`containsAll` (C15/C19)                                          |
+| `std_collections/iterable`                | `Iterable<E>` for-in                                                                                               |
+| `std_collections/forin`                   | for-in over Map.keys / Set                                                                                         |
 
 Std packages live under repo `std/io`, `std/assert`, and `std/collections` (path-resolved for `std.*`).
 
-## Lambdas & captures (C10 + C12)
+## Lambdas & captures (C10 + C12 + C20)
 
 Shipped corpus under `fun/lambda_*.aura` and `std_collections/hof` / `hof_str`:
 
-| Supported now                                                             | Not yet (debt)                                    |
-| ------------------------------------------------------------------------- | ------------------------------------------------- |
-| `(x: T) => expr` / block body                                             | Nested Fun capture                                |
-| Fun type `(T) -> U` params / annotations                                  | `var` String / class / Array capture              |
-| Call through fun value; generic HOF over `Array<Int>` and `Array<String>` | User-defined element types (generic codegen debt) |
-| Capture outer `val` of `Int` / `Bool` / `String` / class / Array          |                                                   |
-| Capture outer `var` of `Int` / `Bool` by shared mutable box (C12m)        |                                                   |
-| Fun env free on drop (C11b); Array capture is non-owning view (C12l)      |                                                   |
+| Supported now                                                                                           | Not yet (debt)                                     |
+| ------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| `(x: T) => expr` / block body                                                                           | Nested Fun capture                                 |
+| Fun type `(T) -> U` params / annotations                                                                | `var` String / class / Array capture               |
+| Call through fun value; generic HOF over `Array<Int>` and `Array<String>`                               | User-defined element types (generic codegen debt)  |
+| Capture outer `val` of `Int` / `Bool` / `String` / class / Array                                        |                                                    |
+| Capture outer `var` of scalar, String, class, Array, or Fun via shared mutable boxes (C12m/C13f/C20c–e) |                                                    |
+| Fun env free on drop (C11b); Array capture is non-owning view (C12l)                                    | Live view owner movement and mutation invalidation |
+
+## Scoped borrows (C21)
+
+`ref T` is a non-owning, non-null, lexical-scope-bounded reference. The C21
+MVP rejects nullable/nested/mutable refs and escape through returns, closures,
+or longer-lived bindings. See `corpus/std_collections/scoped_borrow_iteration`
+and `corpus/generic/array_field_borrow.aura`.
 
 ## C12 process & String smokes
 
