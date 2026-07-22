@@ -317,6 +317,31 @@ interface Drawable {
 }
 ```
 
+#### Arrays of interfaces (C20h spike)
+
+`Array<I>` is a valid future surface type, but remains deferred for the C20
+MVP. The C backend needs every Array element to have one stable size and one
+well-defined ownership action. Two layouts were considered:
+
+- A **fat element** stores an interface data pointer plus a method-table (or
+  type) pointer inline. This gives direct dispatch and avoids one allocation
+  per element, but makes Array copies, GC scanning, and element drops depend on
+  interface-specific metadata. It also requires a stable ABI for nullable and
+  value-backed implementations.
+- A **boxed element** stores one GC-managed pointer per element. The box owns
+  the concrete payload and carries its interface dispatch metadata. Array
+  layout stays pointer-sized and simple, but every insertion may allocate,
+  iteration adds indirection, and drop/GC must coordinate box finalization
+  without double-releasing a payload.
+
+The spike recommendation is to **defer both layouts** until borrow/lifetime
+rules and a precise erased-value drop contract exist. If implementation is
+reopened, boxed elements are the safer first C backend target because their
+uniform pointer representation fits the current GC model; a fat layout should
+only be reconsidered when allocation overhead is demonstrated to matter.
+See the [C20h layout spike](../plans/2026-07-22-c20h-array-interface-spike.md)
+for the comparison and follow-up conditions.
+
 #### Modules, packages, visibility
 
 | Modifier    | Meaning                                                       |
