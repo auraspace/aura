@@ -121,6 +121,7 @@ pub fn expand_dl_template(template: &str, meta: &VersionMeta) -> Result<String, 
 }
 
 const HTTP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+const HTTP_ATTEMPTS: usize = 3;
 
 /// Read crate bytes from a local path, `file://`, or HTTP(S) URL.
 pub fn read_crate_bytes(source: &str) -> Result<Vec<u8>, String> {
@@ -133,20 +134,35 @@ pub fn read_crate_bytes(source: &str) -> Result<Vec<u8>, String> {
 }
 
 fn read_http_bytes(url: &str) -> Result<Vec<u8>, String> {
-    let response = ureq::AgentBuilder::new()
+    let agent = ureq::AgentBuilder::new()
         .timeout_connect(HTTP_TIMEOUT)
         .timeout_read(HTTP_TIMEOUT)
         .timeout_write(HTTP_TIMEOUT)
-        .build()
-        .get(url)
-        .call()
-        .map_err(|e| format!("error: HTTPS download {url}: {e}"))?;
-    let mut bytes = Vec::new();
-    response
-        .into_reader()
-        .read_to_end(&mut bytes)
-        .map_err(|e| format!("error: read HTTPS download {url}: {e}"))?;
-    Ok(bytes)
+        .build();
+    let mut last_error = None;
+    for attempt in 0..HTTP_ATTEMPTS {
+        match agent.get(url).call() {
+            Ok(response) => {
+                let mut bytes = Vec::new();
+                response
+                    .into_reader()
+                    .read_to_end(&mut bytes)
+                    .map_err(|e| format!("error: read HTTPS download {url}: {e}"))?;
+                return Ok(bytes);
+            }
+            Err(ureq::Error::Status(code, _)) if code >= 500 && attempt + 1 < HTTP_ATTEMPTS => {
+                last_error = Some(format!("HTTP status {code}"));
+            }
+            Err(ureq::Error::Transport(error)) if attempt + 1 < HTTP_ATTEMPTS => {
+                last_error = Some(error.to_string());
+            }
+            Err(error) => return Err(format!("error: HTTPS download {url}: {error}")),
+        }
+    }
+    Err(format!(
+        "error: HTTPS download {url} failed after {HTTP_ATTEMPTS} attempts: {}",
+        last_error.unwrap_or_else(|| "unknown transport error".into())
+    ))
 }
 
 fn resolve_local_source(source: &str) -> Result<PathBuf, String> {
@@ -484,6 +500,33 @@ mod unit {
         format!("http://{addr}/crate")
     }
 
+    fn serve_retry() -> String {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let addr = listener.local_addr().unwrap();
+        thread::spawn(move || {
+            for (index, (status, body)) in [("503 Service Unavailable", b"retry".as_slice()),
+                                             ("200 OK", b"crate-bytes".as_slice())]
+                .into_iter()
+                .enumerate()
+            {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = [0; 1024];
+                let _ = stream.read(&mut request);
+                write!(
+                    stream,
+                    "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                )
+                .unwrap();
+                stream.write_all(body).unwrap();
+                if index == 1 {
+                    break;
+                }
+            }
+        });
+        format!("http://{addr}/crate")
+    }
+
     #[test]
     fn normalize_cksum_strips_prefix() {
         assert_eq!(normalize_cksum("sha256:AbCd"), "abcd");
@@ -531,6 +574,12 @@ mod unit {
     #[test]
     fn fetch_http_bytes() {
         let url = serve_once("200 OK", b"crate-bytes", None);
+        assert_eq!(read_crate_bytes(&url).unwrap(), b"crate-bytes");
+    }
+
+    #[test]
+    fn retries_transient_http_status() {
+        let url = serve_retry();
         assert_eq!(read_crate_bytes(&url).unwrap(), b"crate-bytes");
     }
 
