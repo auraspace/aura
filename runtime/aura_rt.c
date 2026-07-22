@@ -1473,6 +1473,7 @@ void aura_gc_shutdown(void)
 #define AURA_RT_ABI_VERSION 1u
 
 typedef struct AuraTaskFrame AuraTaskFrame;
+typedef struct AuraTaskExecutor AuraTaskExecutor;
 
 typedef enum
 {
@@ -1504,6 +1505,10 @@ struct AuraTaskFrame
   AuraTaskResultDestroyFn result_destroy;
   AuraTaskPollState state;
   int cancel_requested;
+  int queued;
+  AuraTaskExecutor *executor;
+  AuraTaskFrame *queue_next;
+  AuraTaskFrame *owned_next;
 };
 
 AuraTaskFrame *aura_task_frame_new(size_t data_size,
@@ -1591,6 +1596,174 @@ void aura_task_frame_destroy(AuraTaskFrame *frame)
   }
   free(frame->data);
   free(frame);
+}
+
+/* ---- C22k deterministic single-threaded executor ----
+ *
+ * Submission transfers frame ownership to the executor.  The executor keeps
+ * terminal frames alive so generated code can read their result until
+ * shutdown; aura_task_executor_shutdown destroys every submitted frame once.
+ * A poll callback returning READY is immediately queued at the FIFO tail.
+ * PENDING parks the frame until aura_task_executor_wake is called.  No OS
+ * threads, blocking waits, or implicit polling are used.
+ */
+
+struct AuraTaskExecutor
+{
+  AuraTaskFrame *ready_head;
+  AuraTaskFrame *ready_tail;
+  AuraTaskFrame *owned_head;
+  size_t ready_count;
+  size_t owned_count;
+  int shutdown;
+};
+
+int aura_task_executor_wake(AuraTaskExecutor *executor, AuraTaskFrame *frame);
+
+AuraTaskExecutor *aura_task_executor_new(void)
+{
+  return (AuraTaskExecutor *)calloc(1, sizeof(AuraTaskExecutor));
+}
+
+static void aura_task_executor_push_owned(AuraTaskExecutor *executor,
+                                           AuraTaskFrame *frame)
+{
+  frame->owned_next = executor->owned_head;
+  executor->owned_head = frame;
+  executor->owned_count++;
+  frame->executor = executor;
+}
+
+int aura_task_executor_submit(AuraTaskExecutor *executor, AuraTaskFrame *frame)
+{
+  if (executor == NULL || frame == NULL || executor->shutdown || frame->executor != NULL)
+  {
+    return 0;
+  }
+  aura_task_executor_push_owned(executor, frame);
+  frame->state = AURA_TASK_READY;
+  return aura_task_executor_wake(executor, frame);
+}
+
+int aura_task_executor_wake(AuraTaskExecutor *executor, AuraTaskFrame *frame)
+{
+  if (executor == NULL || frame == NULL || executor->shutdown || frame->executor != executor ||
+      frame->queued || frame->state == AURA_TASK_COMPLETE || frame->state == AURA_TASK_FAILED ||
+      frame->state == AURA_TASK_CANCELLED)
+  {
+    return 0;
+  }
+  frame->queue_next = NULL;
+  frame->queued = 1;
+  if (executor->ready_tail == NULL)
+  {
+    executor->ready_head = frame;
+  }
+  else
+  {
+    executor->ready_tail->queue_next = frame;
+  }
+  executor->ready_tail = frame;
+  executor->ready_count++;
+  frame->state = AURA_TASK_READY;
+  return 1;
+}
+
+int aura_task_executor_cancel(AuraTaskExecutor *executor, AuraTaskFrame *frame)
+{
+  if (executor == NULL || frame == NULL || frame->executor != executor || executor->shutdown)
+  {
+    return 0;
+  }
+  if (frame->state == AURA_TASK_COMPLETE || frame->state == AURA_TASK_FAILED ||
+      frame->state == AURA_TASK_CANCELLED)
+  {
+    return 0;
+  }
+  frame->cancel_requested = 1;
+  if (!frame->queued)
+  {
+    aura_task_executor_wake(executor, frame);
+  }
+  return 1;
+}
+
+size_t aura_task_executor_ready_count(const AuraTaskExecutor *executor)
+{
+  return executor != NULL ? executor->ready_count : 0;
+}
+
+size_t aura_task_executor_task_count(const AuraTaskExecutor *executor)
+{
+  return executor != NULL ? executor->owned_count : 0;
+}
+
+int aura_task_executor_run_one(AuraTaskExecutor *executor)
+{
+  if (executor == NULL || executor->shutdown || executor->ready_head == NULL)
+  {
+    return 0;
+  }
+  AuraTaskFrame *frame = executor->ready_head;
+  executor->ready_head = frame->queue_next;
+  if (executor->ready_head == NULL)
+  {
+    executor->ready_tail = NULL;
+  }
+  frame->queue_next = NULL;
+  frame->queued = 0;
+  executor->ready_count--;
+
+  if (frame->cancel_requested)
+  {
+    frame->state = AURA_TASK_CANCELLED;
+    return 1;
+  }
+
+  AuraTaskPollState state = frame->poll(frame);
+  if (state == AURA_TASK_READY)
+  {
+    aura_task_executor_wake(executor, frame);
+  }
+  else if (state == AURA_TASK_PENDING || state == AURA_TASK_COMPLETE ||
+           state == AURA_TASK_FAILED || state == AURA_TASK_CANCELLED)
+  {
+    frame->state = state;
+  }
+  else
+  {
+    frame->state = AURA_TASK_FAILED;
+  }
+  return 1;
+}
+
+size_t aura_task_executor_run(AuraTaskExecutor *executor)
+{
+  size_t polled = 0;
+  while (aura_task_executor_run_one(executor) != 0)
+  {
+    polled++;
+  }
+  return polled;
+}
+
+void aura_task_executor_shutdown(AuraTaskExecutor *executor)
+{
+  if (executor == NULL || executor->shutdown)
+  {
+    return;
+  }
+  executor->shutdown = 1;
+  AuraTaskFrame *frame = executor->owned_head;
+  while (frame != NULL)
+  {
+    AuraTaskFrame *next = frame->owned_next;
+    frame->executor = NULL;
+    frame->queued = 0;
+    aura_task_frame_destroy(frame);
+    frame = next;
+  }
+  free(executor);
 }
 
 /* ---- Process argv (std.io.args) ----
