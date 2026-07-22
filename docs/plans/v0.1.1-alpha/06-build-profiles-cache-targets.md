@@ -119,11 +119,16 @@ the release profile is covered by a native run smoke test.
 ## P8. Reproducible build matrix
 
 **Objective:** Prove cold/warm and cross-host build claims.
+**Implementation status:** Partial. The codegen test matrix now performs two
+native cold rebuilds for every normalized profile (`Debug`, `Dev`, `Test`, and
+`Release`), compares artifact bytes and `BuildIdentity`, and executes each
+artifact. Cross-host macOS evidence and clean-checkout/cache-warm evidence
+still require the supported hosts and release acceptance environment.
 **Checklist:**
 
 - [ ] Run repeated cold and warm builds for each profile and target.
 - [ ] Compare checksums, metadata, and runtime behavior.
-- [ ] Record native versus compile-only results.
+- [x] Record native versus compile-only results.
       **Acceptance:** Release claims are backed by repeatable evidence.
       **Verification:** Execute the matrix from clean checkouts on supported hosts.
       **Dependencies:** P3–P7.

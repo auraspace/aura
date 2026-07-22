@@ -72,6 +72,7 @@ mod tests {
     use crate::{
         Backend, CompileOptions, DiagnosticMode, OutputKind, Profile, RuntimeAbi, Target,
     };
+    use crate::driver::{CBackend, Driver};
 
     fn empty_program() -> File {
         let span = Span::new(0, 1);
@@ -154,6 +155,66 @@ mod tests {
 
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn supported_profiles_rebuild_reproducibly_on_native_host() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let runtime = root.join("runtime/aura_rt.c");
+        let dir = std::env::temp_dir();
+
+        for profile in [Profile::Debug, Profile::Dev, Profile::Test, Profile::Release] {
+            let stem = format!("aura-matrix-{}-{}", profile.name(), std::process::id());
+            let bin = dir.join(&stem);
+            let generated_c = dir.join(format!("{stem}.aura.c"));
+            let options = CompileOptions::builder()
+                .backend(Backend::C)
+                .target(Target::Native)
+                .profile(profile)
+                .runtime_abi(RuntimeAbi::AuraRtC)
+                .output(OutputKind::Executable)
+                .diagnostics(DiagnosticMode::Human)
+                .build()
+                .expect("complete matrix options");
+
+            let first = Driver::new(CBackend)
+                .build(
+                    &empty_program(),
+                    &bin,
+                    &runtime,
+                    options.clone(),
+                    crate::ctx::EmitOptions::default(),
+                )
+                .expect("cold matrix build");
+            let first_bytes = fs::read(first.path()).expect("read first artifact");
+            let _ = fs::remove_file(&bin);
+            let _ = fs::remove_file(&generated_c);
+            let second = Driver::new(CBackend)
+                .build(
+                    &empty_program(),
+                    &bin,
+                    &runtime,
+                    options,
+                    crate::ctx::EmitOptions::default(),
+                )
+                .expect("warm matrix build");
+            assert_eq!(first.identity(), second.identity());
+            assert_eq!(
+                first_bytes,
+                fs::read(second.path()).expect("read second artifact")
+            );
+            assert!(Command::new(second.path())
+                .status()
+                .expect("run matrix artifact")
+                .success());
+
+            for path in [bin, generated_c] {
+                let _ = fs::remove_file(path);
+            }
+        }
     }
 
     #[test]
