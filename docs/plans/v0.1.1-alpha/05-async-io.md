@@ -17,7 +17,7 @@ return `OK`, `PENDING`, `TIMEOUT`, `EOF`, `ERROR`, `CLOSED`, or
 `UNSUPPORTED`; positive timeout values bound one readiness wait in milliseconds.
 Buffers are borrowed only for the duration of a call and byte counts are
 returned explicitly. The current capability is localhost TCP on POSIX targets
-(`__unix__`/`__APPLE__`); scheduler suspension, task cancellation wakeups, and
+(`__linux__`/`__APPLE__`); scheduler suspension, task cancellation wakeups, and
 filesystem async operations are not part of this slice yet.
 **Checklist:**
 
