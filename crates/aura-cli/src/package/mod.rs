@@ -27,7 +27,7 @@ pub use load::{load_package, load_package_default};
 pub use publish::{publish_dry_run, publish_package};
 pub use registry::PublishErrorKind;
 pub use fetch::ENV_REGISTRY_TOKEN;
-pub use registry::{activate_update, current_target, RegistryIndex, UpdateActivation, UpdateDecision};
+pub use registry::{activate_update, current_target, RegistryIndex, UpdateDecision};
 #[cfg(test)]
 pub use registry::{
     default_index_path, index_root_from_env, RegistryConfig, VersionMeta,

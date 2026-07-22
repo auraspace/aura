@@ -702,7 +702,10 @@ mod unit {
     #[test]
     fn sends_optional_bearer_token_without_exposing_it_in_errors() {
         let url = serve_auth();
-        assert_eq!(read_http_bytes_with_token(&url, Some("test-token")).unwrap(), b"crate-bytes");
+        assert_eq!(
+            read_http_bytes_with_token(&url, Some("test-token"), MAX_ARTIFACT_BYTES).unwrap(),
+            b"crate-bytes"
+        );
     }
 
     #[test]
