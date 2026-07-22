@@ -87,6 +87,28 @@ typedef enum AuraFfiOutcome
 } AuraFfiOutcome;
 #endif
 
+#ifndef AURA_FILE_H
+#define AURA_FILE_H
+typedef struct AuraFile AuraFile;
+typedef enum AuraFileStatus
+{
+  AURA_FILE_OK = 0,
+  AURA_FILE_PENDING = 1,
+  AURA_FILE_EOF = 2,
+  AURA_FILE_ERROR = -1,
+  AURA_FILE_CLOSED = -2,
+  AURA_FILE_UNSUPPORTED = -3,
+  AURA_FILE_PERMISSION = -4
+} AuraFileStatus;
+typedef enum AuraFileMode
+{
+  AURA_FILE_READ = 0,
+  AURA_FILE_WRITE = 1,
+  AURA_FILE_READ_WRITE = 2,
+  AURA_FILE_APPEND = 3
+} AuraFileMode;
+#endif
+
 #if defined(__linux__) || defined(__APPLE__)
 #define AURA_TCP_POSIX 1
 #include <fcntl.h>
@@ -168,6 +190,154 @@ void aura_eprintln(const char *s)
 #define AURA_IO_MAX_FILE ((int64_t)256 * 1024 * 1024)
 
 static char aura_io_errbuf[1024];
+
+/* ---- Bounded file handle I/O ----
+ * Regular files do not provide portable readiness notifications: POSIX
+ * O_NONBLOCK is ignored for them. Keep this API explicit about that fact.
+ * Each operation owns no caller buffer beyond the call and performs at most
+ * one read/write syscall, so an eventual async scheduler can resume around
+ * this boundary without changing ownership semantics. */
+struct AuraFile
+{
+  int fd;
+  bool closed;
+};
+
+static char aura_file_errbuf[256] = "no error";
+
+const char *aura_file_last_error(void)
+{
+  return aura_file_errbuf;
+}
+
+static AuraFileStatus aura_file_status_for_errno(int error)
+{
+  if (error == EACCES || error == EPERM || error == EROFS)
+  {
+    return AURA_FILE_PERMISSION;
+  }
+  if (error == EAGAIN || error == EWOULDBLOCK)
+  {
+    return AURA_FILE_PENDING;
+  }
+  return AURA_FILE_ERROR;
+}
+
+static AuraFileStatus aura_file_error(const char *op, int error)
+{
+  if (error == 0)
+  {
+    error = EIO;
+  }
+  snprintf(aura_file_errbuf, sizeof(aura_file_errbuf), "file %s failed: %s",
+           op ? op : "operation", strerror(error));
+  return aura_file_status_for_errno(error);
+}
+
+#if AURA_TCP_POSIX
+AuraFileStatus aura_file_open(const char *path, AuraFileMode mode, AuraFile **out)
+{
+  if (out == NULL)
+  {
+    return aura_file_error("open", EINVAL);
+  }
+  *out = NULL;
+  if (path == NULL || path[0] == '\0')
+  {
+    return aura_file_error("open", EINVAL);
+  }
+  int flags = 0;
+  switch (mode)
+  {
+    case AURA_FILE_READ: flags = O_RDONLY; break;
+    case AURA_FILE_WRITE: flags = O_WRONLY | O_CREAT | O_TRUNC; break;
+    case AURA_FILE_READ_WRITE: flags = O_RDWR | O_CREAT; break;
+    case AURA_FILE_APPEND: flags = O_WRONLY | O_CREAT | O_APPEND; break;
+    default: return aura_file_error("open", EINVAL);
+  }
+  int fd = open(path, flags, 0666);
+  if (fd < 0)
+  {
+    return aura_file_error("open", errno);
+  }
+  AuraFile *file = (AuraFile *)calloc(1, sizeof(*file));
+  if (file == NULL)
+  {
+    int error = errno ? errno : ENOMEM;
+    close(fd);
+    return aura_file_error("open", error);
+  }
+  file->fd = fd;
+  *out = file;
+  return AURA_FILE_OK;
+}
+
+AuraFileStatus aura_file_read(AuraFile *file, void *buffer, uint64_t capacity,
+                              uint64_t *out_read)
+{
+  if (out_read != NULL) *out_read = 0;
+  if (file == NULL || file->closed) return AURA_FILE_CLOSED;
+  if (out_read == NULL || (capacity > 0 && buffer == NULL))
+    return aura_file_error("read", EINVAL);
+  ssize_t result = read(file->fd, buffer, (size_t)capacity);
+  if (result > 0)
+  {
+    *out_read = (uint64_t)result;
+    return AURA_FILE_OK;
+  }
+  if (result == 0) return AURA_FILE_EOF;
+  return aura_file_error("read", errno);
+}
+
+AuraFileStatus aura_file_write(AuraFile *file, const void *buffer,
+                               uint64_t length, uint64_t *out_written)
+{
+  if (out_written != NULL) *out_written = 0;
+  if (file == NULL || file->closed) return AURA_FILE_CLOSED;
+  if (out_written == NULL || (length > 0 && buffer == NULL))
+    return aura_file_error("write", EINVAL);
+  ssize_t result = write(file->fd, buffer, (size_t)length);
+  if (result >= 0)
+  {
+    *out_written = (uint64_t)result;
+    return result == 0 && length > 0 ? AURA_FILE_PENDING : AURA_FILE_OK;
+  }
+  return aura_file_error("write", errno);
+}
+
+AuraFileStatus aura_file_flush(AuraFile *file)
+{
+  if (file == NULL || file->closed) return AURA_FILE_CLOSED;
+  return fsync(file->fd) == 0 ? AURA_FILE_OK : aura_file_error("flush", errno);
+}
+
+AuraFileStatus aura_file_close(AuraFile *file)
+{
+  if (file == NULL || file->closed) return AURA_FILE_CLOSED;
+  file->closed = true;
+  if (close(file->fd) != 0) return aura_file_error("close", errno);
+  return AURA_FILE_OK;
+}
+
+AuraFileStatus aura_file_destroy(AuraFile **file)
+{
+  if (file == NULL || *file == NULL) return AURA_FILE_CLOSED;
+  AuraFileStatus status = aura_file_close(*file);
+  free(*file);
+  *file = NULL;
+  return status == AURA_FILE_CLOSED ? AURA_FILE_OK : status;
+}
+#else
+AuraFileStatus aura_file_open(const char *path, AuraFileMode mode, AuraFile **out)
+{ (void)path; (void)mode; if (out) *out = NULL; return AURA_FILE_UNSUPPORTED; }
+AuraFileStatus aura_file_read(AuraFile *file, void *buffer, uint64_t capacity, uint64_t *out_read)
+{ (void)file; (void)buffer; (void)capacity; if (out_read) *out_read = 0; return AURA_FILE_UNSUPPORTED; }
+AuraFileStatus aura_file_write(AuraFile *file, const void *buffer, uint64_t length, uint64_t *out_written)
+{ (void)file; (void)buffer; (void)length; if (out_written) *out_written = 0; return AURA_FILE_UNSUPPORTED; }
+AuraFileStatus aura_file_flush(AuraFile *file) { (void)file; return AURA_FILE_UNSUPPORTED; }
+AuraFileStatus aura_file_close(AuraFile *file) { (void)file; return AURA_FILE_UNSUPPORTED; }
+AuraFileStatus aura_file_destroy(AuraFile **file) { if (file) *file = NULL; return AURA_FILE_UNSUPPORTED; }
+#endif
 
 /* ---- Bounded TCP I/O (std.net, POSIX alpha slice) ----
  *

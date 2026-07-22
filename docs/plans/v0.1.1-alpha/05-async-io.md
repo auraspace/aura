@@ -38,10 +38,18 @@ filesystem async operations are not part of this slice yet.
 
 **Objective:** Make file operations suspend safely in async code.
 
+**Implementation status (bounded runtime slice):** `runtime/aura_ffi.h` and
+`runtime/aura_rt.c` expose an opaque POSIX `AuraFile` handle with explicit
+`open`, one-syscall `read`/`write`, `flush`, idempotent `close`, and
+`destroy`. Calls borrow buffers only for their duration and return stable
+`OK`, `EOF`, `PENDING`, `PERMISSION`, `ERROR`, `CLOSED`, or `UNSUPPORTED`
+statuses. Regular-file `O_NONBLOCK` is not a real readiness mechanism on the
+supported hosts, so this slice does not claim scheduler suspension.
+
 **Checklist:**
 
-- [ ] Implement async open, read, write, flush, and close semantics.
-- [ ] Distinguish pending, ready, EOF, permission, and other errors.
+- [x] Implement bounded open, read, write, flush, and close semantics.
+- [x] Distinguish pending, ready (`OK`), EOF, permission, and other errors.
 - [ ] Preserve buffers and handles across suspension.
 - [ ] Release resources on cancellation, failure, and GC.
 
@@ -51,6 +59,10 @@ filesystem async operations are not part of this slice yet.
 cases.
 
 **Dependencies:** IO1, A4–A8.
+
+The remaining two checklist items and the acceptance claim require the async
+state machine, cancellation wakeups, and GC frame-root contract from A4–A8;
+they remain intentionally open.
 
 ## IO3. TCP listener and stream integration
 

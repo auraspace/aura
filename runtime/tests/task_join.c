@@ -12,11 +12,16 @@ typedef struct
 } JoinTask;
 
 static int result_drops;
+static AuraTaskFrame *destroying_frame;
 
 static void destroy_result(void *data, size_t size)
 {
   (void)size;
   result_drops++;
+  if (destroying_frame != NULL)
+  {
+    assert(aura_task_frame_error(destroying_frame).data == NULL);
+  }
   free(data);
 }
 
@@ -33,7 +38,7 @@ static AuraTaskPollState poll_join_task(AuraTaskFrame *frame)
     int *error = (int *)malloc(sizeof(*error));
     assert(error != NULL);
     *error = 99;
-    aura_task_frame_set_error(frame, error, sizeof(*error), destroy_result);
+    aura_task_frame_set_error_at(frame, error, sizeof(*error), destroy_result, 0xfeedU);
     return AURA_TASK_FAILED;
   }
   if (task->outcome == 2)
@@ -86,9 +91,11 @@ int main(void)
   assert(aura_task_executor_join(executor, failed, &result, &error) == AURA_TASK_FAILED);
   assert(result.data == NULL);
   assert(error.data != NULL && *(int *)error.data == 99);
+  assert(aura_task_frame_error_source_id(failed) == 0xfeedU);
   assert(aura_task_executor_join(executor, failed, &result, &error) == AURA_TASK_FAILED);
   assert(result.data == NULL);
   assert(error.data != NULL && *(int *)error.data == 99);
+  assert(aura_task_frame_error_source_id(failed) == 0xfeedU);
 
   AuraTaskFrame *cancelled = new_join_task(2, 0);
   assert(aura_task_executor_submit(executor, cancelled) == 1);
@@ -103,10 +110,12 @@ int main(void)
   AuraTaskFrame *success_handle = success;
   int drops_before_release = result_drops;
   assert(aura_task_executor_task_count(executor) == 3);
+  destroying_frame = failed;
   assert(aura_task_executor_release(executor, &failed_handle) == 1);
   assert(failed_handle == NULL);
   assert(result_drops == drops_before_release + 1);
   assert(aura_task_executor_release(executor, &failed_handle) == 1);
+  destroying_frame = NULL;
   assert(aura_task_executor_task_count(executor) == 2);
   assert(aura_task_executor_release(executor, &cancelled_handle) == 1);
   assert(cancelled_handle == NULL);

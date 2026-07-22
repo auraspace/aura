@@ -7,6 +7,21 @@ When you resolve debt, update or remove the matching entry.
 
 ## Open
 
+### File I/O has no scheduler suspension yet (IO2, 2026-07-22)
+
+- Area: runtime file operations
+- Symptom: `AuraFile` provides bounded, status-based POSIX descriptor calls,
+  but regular-file operations can still block in the host kernel and are not
+  registered with an Aura async executor.
+- Why deferred: the runtime has no completed A4–A8 suspension state machine,
+  cancellation wakeup, or GC frame-root contract to safely park a file
+  operation.
+- Progress: open/read/write/flush/close/destroy own descriptors explicitly,
+  borrow buffers only per call, classify permission/pending/EOF/closed/error,
+  and are covered by `runtime/tests/file_io.c` under ASAN/UBSAN.
+- Next step: integrate file handles with the async operation frame and define
+  cancellation/GC cleanup before checking the remaining IO2 items.
+
 ### Foreign symbol lowering deferred to F2 (2026-07-22)
 
 - F1 validates and preserves explicit foreign declarations, but does not add
@@ -58,6 +73,21 @@ When you resolve debt, update or remove the matching entry.
 - Symptom: `await` parses and type-checks but has no lowered suspension state machine; only empty `spawn {}` bodies execute; task failure propagation is not complete.
 - Progress: no-await code generation now emits deterministic `resume_state` transitions; immediate `await` polls a ready frame and returns its completed result; repeated polling is covered by runtime fixtures; A1–A3 define the frame ABI, ownership classes, roots, and error storage.
 - Next step: lower await points with captured-local storage, implement non-empty spawn capture/drop, and define end-to-end success/failure/cancellation propagation before advertising the full C22 contract as executable.
+
+### S4 source locations and nested failures remain bounded (2026-07-22)
+
+- Area: runtime task failure outcomes
+- Symptom: the bounded executor retains a numeric source identity with each
+  failure, but does not yet carry file/line/column metadata or nested exception
+  chains through compiler-generated async frames.
+- Why deferred: those fields depend on the A4–A7 suspension/state-machine and
+  diagnostic payload contracts; inventing a second source-location format in
+  the C-only runtime would not prove end-to-end propagation.
+- Progress: failed joins preserve payload and source ID across repeated
+  observation; result/error slots clear before GC-root removal and user cleanup,
+  and terminal release is covered by `runtime/tests/task_join.c`.
+- Next step: extend the typed compiler outcome ABI when async lowering defines
+  source spans and nested failure representation.
 
 ### Executor-owned non-terminal handle drop (S3, 2026-07-22)
 

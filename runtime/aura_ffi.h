@@ -14,6 +14,43 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifndef AURA_FILE_H
+#define AURA_FILE_H
+typedef struct AuraFile AuraFile;
+
+typedef enum AuraFileStatus {
+  AURA_FILE_OK = 0,
+  AURA_FILE_PENDING = 1,
+  AURA_FILE_EOF = 2,
+  AURA_FILE_ERROR = -1,
+  AURA_FILE_CLOSED = -2,
+  AURA_FILE_UNSUPPORTED = -3,
+  AURA_FILE_PERMISSION = -4
+} AuraFileStatus;
+
+typedef enum AuraFileMode {
+  AURA_FILE_READ = 0,
+  AURA_FILE_WRITE = 1,
+  AURA_FILE_READ_WRITE = 2,
+  AURA_FILE_APPEND = 3
+} AuraFileMode;
+
+/* Bounded file operations. Buffers are borrowed for one call only. A
+ * successful open owns the descriptor until close/destroy; close is safe to
+ * repeat. On POSIX regular files these calls perform one bounded syscall and
+ * never suspend an Aura task. */
+AuraFileStatus aura_file_open(const char *path, AuraFileMode mode,
+                              AuraFile **out);
+AuraFileStatus aura_file_read(AuraFile *file, void *buffer, uint64_t capacity,
+                              uint64_t *out_read);
+AuraFileStatus aura_file_write(AuraFile *file, const void *buffer,
+                               uint64_t length, uint64_t *out_written);
+AuraFileStatus aura_file_flush(AuraFile *file);
+AuraFileStatus aura_file_close(AuraFile *file);
+AuraFileStatus aura_file_destroy(AuraFile **file);
+const char *aura_file_last_error(void);
+#endif
+
 #define AURA_FFI_ABI_VERSION 1u
 
 typedef enum AuraFfiStatus {

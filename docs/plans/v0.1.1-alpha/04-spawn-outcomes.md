@@ -85,21 +85,30 @@ join, repeated release, dropped-handle, and sanitizer cases.
 **Objective:** Propagate task exceptions without losing source context or leaking
 resources.
 
+**Implementation status:** Complete for the bounded single-threaded executor
+slice. Failed frames retain a borrowed error snapshot and stable source ID
+through repeated joins. Error/result release clears the ownership slot and
+removes its GC root before invoking user cleanup, so terminal release and
+frame destruction are idempotent with respect to repeated observation and
+re-entrant cleanup inspection.
+
 **Checklist:**
 
-- [ ] Store failure payload and source location in the terminal outcome.
+- [x] Store failure payload and bounded source identity in the terminal outcome.
 - [x] Make join distinguish failure from cancellation through terminal poll
       states and borrowed result/error snapshots.
-- [x] Release an owned capture exactly once when a failed frame is destroyed;
-      complete failure payload/source/frame cleanup remains open.
+- [x] Release an owned capture and failure payload exactly once when a failed
+      frame is destroyed; clear the payload slot before user cleanup.
 - [x] Define repeated observation of a failed task as a stable terminal result;
-      failure payload/source retention and cleanup remain open.
+      failure payload/source retention and cleanup are covered by focused tests.
 
 **Acceptance:** A failed task is observable deterministically with no ownership
 violation.
 
-**Verification:** Run thrown-error, nested-error, forced-GC, and repeated-join
-cases.
+**Verification:** `runtime/tests/task_join.c` covers thrown-error, repeated
+join, stable source identity, terminal release, and cleanup re-entrancy
+inspection. Nested compiler error lowering and forced-GC end-to-end cases remain
+deferred with the async state-machine work.
 
 **Dependencies:** S3, A7.
 
