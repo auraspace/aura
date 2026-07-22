@@ -8,7 +8,7 @@
  * layouts.  A foreign function may borrow a view for the duration of a call,
  * copy a view into an Aura-owned value, or transfer a malloc-compatible buffer
  * exactly once.  No callback, arbitrary element destructor, or raw pointer
- * dereference is part of this ABI (those belong to F4/F5).
+ * dereference is part of this ABI (callbacks belong to F5).
  */
 #include <stddef.h>
 #include <stdint.h>
@@ -89,5 +89,57 @@ typedef struct AuraFfiRootGuard {
 
 AuraFfiStatus aura_ffi_root_begin(AuraFfiRootGuard *guard, void **slot);
 void aura_ffi_root_end(AuraFfiRootGuard *guard);
+
+/* F4 opaque foreign-resource handles.  The resource pointer is never exposed
+ * by the handle itself: foreign code must hold a live pin token and ask the
+ * runtime to validate it before each operation.  A released handle remains a
+ * tombstone until aura_ffi_handle_destroy, so stale aliases fail safely. */
+typedef struct AuraFfiOpaqueHandle AuraFfiOpaqueHandle;
+typedef void (*AuraFfiHandleDestroyFn)(void *resource);
+
+typedef struct AuraFfiHandlePin {
+  AuraFfiOpaqueHandle *handle;
+  void *resource;
+  uint64_t generation;
+} AuraFfiHandlePin;
+
+typedef enum AuraFfiBoundary {
+  AURA_FFI_BOUNDARY_SYNC = 0,
+  AURA_FFI_BOUNDARY_TASK = 1,
+  AURA_FFI_BOUNDARY_AWAIT = 2,
+  AURA_FFI_BOUNDARY_CHANNEL = 3,
+  AURA_FFI_BOUNDARY_CALLBACK = 4
+} AuraFfiBoundary;
+
+#define AURA_FFI_BOUNDARY_REJECTED ((AuraFfiStatus)3)
+#define AURA_FFI_BUSY ((AuraFfiStatus)4)
+
+/* Non-null and nullable construction are intentionally separate operations. */
+AuraFfiStatus aura_ffi_handle_new(void *resource,
+                                  AuraFfiHandleDestroyFn destroy,
+                                  AuraFfiOpaqueHandle **out);
+AuraFfiStatus aura_ffi_handle_new_nullable(void *resource,
+                                            AuraFfiHandleDestroyFn destroy,
+                                            AuraFfiOpaqueHandle **out);
+int aura_ffi_handle_is_null(const AuraFfiOpaqueHandle *handle);
+
+/* Pinning grants a checked, synchronous operation window. */
+AuraFfiStatus aura_ffi_handle_pin(AuraFfiOpaqueHandle *handle,
+                                  AuraFfiHandlePin *out);
+AuraFfiStatus aura_ffi_handle_pin_resource(const AuraFfiHandlePin *pin,
+                                           void **out_resource);
+AuraFfiStatus aura_ffi_handle_unpin(AuraFfiHandlePin *pin);
+
+/* Release invalidates the resource immediately and invokes its destructor at
+ * most once (deferred until all pins are unpinned).  Invalidation is the same
+ * operation for runtimes that observe an external resource death. */
+AuraFfiStatus aura_ffi_handle_release(AuraFfiOpaqueHandle *handle);
+AuraFfiStatus aura_ffi_handle_invalidate(AuraFfiOpaqueHandle *handle);
+AuraFfiStatus aura_ffi_handle_destroy(AuraFfiOpaqueHandle **handle);
+
+/* Only synchronous calls may carry an opaque pointer handle in this alpha
+ * ABI.  Task, await, channel, and callback crossings are rejected. */
+AuraFfiStatus aura_ffi_handle_check_boundary(const AuraFfiOpaqueHandle *handle,
+                                             AuraFfiBoundary boundary);
 
 #endif

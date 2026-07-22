@@ -376,3 +376,11 @@ When you resolve debt, update or remove the matching entry.
   arrays, arbitrary destructors, pointers, callbacks, and async retention are
   intentionally deferred to F4/F5; extend the declaration model only after
   those lifetimes have a complete contract.
+
+### F4 opaque foreign handles (2026-07-22)
+
+- F4 provides a synchronous, tombstoned opaque-handle ABI with deferred
+  destruction while pinned. Task, await, channel, and callback crossings are
+  rejected. Aura-level pointer types and automatic handle rooting across an
+  asynchronous boundary remain deferred; callbacks and foreign error mapping
+  belong to F5.

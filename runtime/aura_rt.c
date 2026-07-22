@@ -50,6 +50,24 @@ typedef struct AuraFfiArray
   AuraFfiArrayKind kind;
 } AuraFfiArray;
 typedef struct AuraFfiRootGuard { void **slot; int active; } AuraFfiRootGuard;
+typedef struct AuraFfiOpaqueHandle AuraFfiOpaqueHandle;
+typedef void (*AuraFfiHandleDestroyFn)(void *resource);
+typedef struct AuraFfiHandlePin
+{
+  AuraFfiOpaqueHandle *handle;
+  void *resource;
+  uint64_t generation;
+} AuraFfiHandlePin;
+typedef enum AuraFfiBoundary
+{
+  AURA_FFI_BOUNDARY_SYNC = 0,
+  AURA_FFI_BOUNDARY_TASK = 1,
+  AURA_FFI_BOUNDARY_AWAIT = 2,
+  AURA_FFI_BOUNDARY_CHANNEL = 3,
+  AURA_FFI_BOUNDARY_CALLBACK = 4
+} AuraFfiBoundary;
+#define AURA_FFI_BOUNDARY_REJECTED ((AuraFfiStatus)3)
+#define AURA_FFI_BUSY ((AuraFfiStatus)4)
 #endif
 
 #if defined(__linux__) || defined(__APPLE__)
@@ -3853,6 +3871,179 @@ void aura_ffi_root_end(AuraFfiRootGuard *guard)
   guard->active = 0;
 }
 
+/* ---- F4 opaque foreign-resource handle ABI ---- */
+
+struct AuraFfiOpaqueHandle
+{
+  void *resource;
+  AuraFfiHandleDestroyFn destroy;
+  uint64_t generation;
+  size_t pins;
+  int nullable;
+  int released;
+  int destroyed;
+};
+
+static void aura_ffi_handle_finish(AuraFfiOpaqueHandle *handle)
+{
+  if (handle == NULL || !handle->released || handle->pins != 0 ||
+      handle->destroyed)
+  {
+    return;
+  }
+  void *resource = handle->resource;
+  handle->resource = NULL;
+  handle->destroyed = 1;
+  if (handle->destroy != NULL && resource != NULL)
+  {
+    handle->destroy(resource);
+  }
+}
+
+static AuraFfiStatus aura_ffi_handle_new_impl(void *resource,
+                                               AuraFfiHandleDestroyFn destroy,
+                                               int nullable,
+                                               AuraFfiOpaqueHandle **out)
+{
+  if (out == NULL || (!nullable && resource == NULL))
+  {
+    return AURA_FFI_INVALID;
+  }
+  *out = NULL;
+  AuraFfiOpaqueHandle *handle =
+      (AuraFfiOpaqueHandle *)calloc(1, sizeof(*handle));
+  if (handle == NULL)
+  {
+    return AURA_FFI_OOM;
+  }
+  handle->resource = resource;
+  handle->destroy = destroy;
+  handle->generation = 1;
+  handle->nullable = nullable;
+  *out = handle;
+  return AURA_FFI_OK;
+}
+
+AuraFfiStatus aura_ffi_handle_new(void *resource,
+                                  AuraFfiHandleDestroyFn destroy,
+                                  AuraFfiOpaqueHandle **out)
+{
+  return aura_ffi_handle_new_impl(resource, destroy, 0, out);
+}
+
+AuraFfiStatus aura_ffi_handle_new_nullable(void *resource,
+                                            AuraFfiHandleDestroyFn destroy,
+                                            AuraFfiOpaqueHandle **out)
+{
+  return aura_ffi_handle_new_impl(resource, destroy, 1, out);
+}
+
+int aura_ffi_handle_is_null(const AuraFfiOpaqueHandle *handle)
+{
+  return handle == NULL || handle->released || handle->resource == NULL;
+}
+
+AuraFfiStatus aura_ffi_handle_pin(AuraFfiOpaqueHandle *handle,
+                                  AuraFfiHandlePin *out)
+{
+  if (out == NULL)
+  {
+    return AURA_FFI_INVALID;
+  }
+  memset(out, 0, sizeof(*out));
+  if (handle == NULL || handle->released || handle->resource == NULL ||
+      handle->destroyed)
+  {
+    return AURA_FFI_INVALID;
+  }
+  handle->pins++;
+  out->handle = handle;
+  out->resource = handle->resource;
+  out->generation = handle->generation;
+  return AURA_FFI_OK;
+}
+
+AuraFfiStatus aura_ffi_handle_pin_resource(const AuraFfiHandlePin *pin,
+                                           void **out_resource)
+{
+  if (out_resource == NULL)
+  {
+    return AURA_FFI_INVALID;
+  }
+  *out_resource = NULL;
+  if (pin == NULL || pin->handle == NULL || pin->resource == NULL ||
+      pin->handle->released || pin->handle->destroyed ||
+      pin->handle->generation != pin->generation ||
+      pin->handle->resource != pin->resource)
+  {
+    return AURA_FFI_INVALID;
+  }
+  *out_resource = pin->resource;
+  return AURA_FFI_OK;
+}
+
+AuraFfiStatus aura_ffi_handle_unpin(AuraFfiHandlePin *pin)
+{
+  if (pin == NULL || pin->handle == NULL || pin->resource == NULL ||
+      pin->generation != pin->handle->generation || pin->handle->pins == 0)
+  {
+    return AURA_FFI_INVALID;
+  }
+  AuraFfiOpaqueHandle *handle = pin->handle;
+  handle->pins--;
+  memset(pin, 0, sizeof(*pin));
+  aura_ffi_handle_finish(handle);
+  return AURA_FFI_OK;
+}
+
+AuraFfiStatus aura_ffi_handle_release(AuraFfiOpaqueHandle *handle)
+{
+  if (handle == NULL || handle->released || handle->destroyed)
+  {
+    return AURA_FFI_INVALID;
+  }
+  handle->released = 1;
+  aura_ffi_handle_finish(handle);
+  return AURA_FFI_OK;
+}
+
+AuraFfiStatus aura_ffi_handle_invalidate(AuraFfiOpaqueHandle *handle)
+{
+  return aura_ffi_handle_release(handle);
+}
+
+AuraFfiStatus aura_ffi_handle_destroy(AuraFfiOpaqueHandle **handle)
+{
+  if (handle == NULL || *handle == NULL)
+  {
+    return AURA_FFI_INVALID;
+  }
+  AuraFfiOpaqueHandle *value = *handle;
+  if (!value->released)
+  {
+    return AURA_FFI_INVALID;
+  }
+  if (value->pins != 0)
+  {
+    return AURA_FFI_BUSY;
+  }
+  aura_ffi_handle_finish(value);
+  free(value);
+  *handle = NULL;
+  return AURA_FFI_OK;
+}
+
+AuraFfiStatus aura_ffi_handle_check_boundary(const AuraFfiOpaqueHandle *handle,
+                                             AuraFfiBoundary boundary)
+{
+  if (handle == NULL || handle->released || handle->destroyed)
+  {
+    return AURA_FFI_INVALID;
+  }
+  return boundary == AURA_FFI_BOUNDARY_SYNC ? AURA_FFI_OK
+                                             : AURA_FFI_BOUNDARY_REJECTED;
+}
+
 /* ---- C22j task-frame ABI (single-threaded MVP) ----
  *
  * A task frame is an opaque, heap-owned state machine object.  The poll
@@ -3936,6 +4127,47 @@ typedef struct
   uint64_t clock;
 } AuraRaceTracker;
 
+/* R3 compiler instrumentation is deliberately process-local and opt-in.
+ * Generated development/test binaries install a tracker here; ordinary
+ * binaries leave it NULL, so the instrumentation helpers are no-ops. */
+static AuraRaceTracker *aura_race_active_tracker = NULL;
+static uint64_t aura_race_active_task_id = 0;
+static uint32_t aura_race_active_source_id = 0;
+
+static int aura_race_tracker_record_internal(AuraRaceTracker *tracker,
+                                             uint64_t task_id,
+                                             uintptr_t address,
+                                             uint32_t source_id,
+                                             AuraRaceEventKind kind);
+
+void aura_race_tracker_set_active(AuraRaceTracker *tracker)
+{
+  aura_race_active_tracker = tracker;
+  aura_race_active_task_id = 0;
+  aura_race_active_source_id = 0;
+}
+
+void aura_race_set_source_id(uint32_t source_id)
+{
+  aura_race_active_source_id = source_id;
+}
+
+void aura_race_record_access(uintptr_t address,
+                             uint32_t source_id,
+                             AuraRaceEventKind kind)
+{
+  if (aura_race_active_tracker == NULL ||
+      (kind != AURA_RACE_READ && kind != AURA_RACE_WRITE))
+  {
+    return;
+  }
+  (void)aura_race_tracker_record_internal(aura_race_active_tracker,
+                                          aura_race_active_task_id,
+                                          address,
+                                          source_id,
+                                          kind);
+}
+
 AuraRaceTracker *aura_race_tracker_new(void)
 {
   AuraRaceTracker *tracker = (AuraRaceTracker *)calloc(1, sizeof(*tracker));
@@ -4001,6 +4233,15 @@ int aura_race_tracker_record(AuraRaceTracker *tracker,
     *out = event;
   }
   return 1;
+}
+
+static int aura_race_tracker_record_internal(AuraRaceTracker *tracker,
+                                              uint64_t task_id,
+                                              uintptr_t address,
+                                              uint32_t source_id,
+                                              AuraRaceEventKind kind)
+{
+  return aura_race_tracker_record(tracker, task_id, address, source_id, kind, NULL);
 }
 
 size_t aura_race_tracker_count(const AuraRaceTracker *tracker)
@@ -4075,6 +4316,7 @@ struct AuraTaskFrame
 {
   uint32_t abi_version;
   uint64_t task_id;
+  uint32_t race_source_id;
   AuraTaskPollFn poll;
   AuraTaskFrameDestroyFn destroy;
   void *data;
@@ -4140,6 +4382,14 @@ void *aura_task_frame_data(AuraTaskFrame *frame)
 uint64_t aura_task_frame_task_id(const AuraTaskFrame *frame)
 {
   return frame != NULL ? frame->task_id : 0;
+}
+
+void aura_task_frame_set_race_source_id(AuraTaskFrame *frame, uint32_t source_id)
+{
+  if (frame != NULL)
+  {
+    frame->race_source_id = source_id;
+  }
 }
 
 AuraTaskPollState aura_task_frame_state(const AuraTaskFrame *frame)
@@ -4462,6 +4712,7 @@ void aura_task_executor_set_race_tracker(AuraTaskExecutor *executor,
   if (executor != NULL && !executor->shutdown)
   {
     executor->race_tracker = tracker;
+    aura_race_tracker_set_active(tracker);
   }
 }
 
@@ -4486,7 +4737,7 @@ int aura_task_executor_submit(AuraTaskExecutor *executor, AuraTaskFrame *frame)
     (void)aura_race_tracker_record(executor->race_tracker,
                                    frame->task_id,
                                    0,
-                                   0,
+                                   frame->race_source_id,
                                    AURA_RACE_TASK_SPAWN,
                                    NULL);
   }
@@ -4564,7 +4815,13 @@ int aura_task_executor_run_one(AuraTaskExecutor *executor)
   frame->queued = 0;
   executor->ready_count--;
 
+  uint64_t previous_task_id = aura_race_active_task_id;
+  uint32_t previous_source_id = aura_race_active_source_id;
+  aura_race_active_task_id = frame->task_id;
+  aura_race_active_source_id = frame->race_source_id;
   AuraTaskPollState state = aura_task_frame_poll_once(frame);
+  aura_race_active_task_id = previous_task_id;
+  aura_race_active_source_id = previous_source_id;
   if (state == AURA_TASK_READY)
   {
     aura_task_executor_wake(executor, frame);
@@ -4592,7 +4849,7 @@ int aura_task_executor_run_one(AuraTaskExecutor *executor)
       kind = AURA_RACE_TASK_CANCELLED;
     }
     (void)aura_race_tracker_record(
-        executor->race_tracker, frame->task_id, 0, 0, kind, NULL);
+        executor->race_tracker, frame->task_id, 0, frame->race_source_id, kind, NULL);
   }
   return 1;
 }
@@ -4662,7 +4919,7 @@ AuraTaskPollState aura_task_executor_join(AuraTaskExecutor *executor,
   {
     (void)aura_race_tracker_record(executor->race_tracker,
                                    frame->task_id,
-                                   0,
+                                   aura_race_active_source_id,
                                    0,
                                    AURA_RACE_TASK_JOIN,
                                    NULL);

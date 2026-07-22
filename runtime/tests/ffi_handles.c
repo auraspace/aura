@@ -1,0 +1,105 @@
+#include <assert.h>
+#include <stdint.h>
+
+#include "../aura_ffi.h"
+
+#define AURA_RUNTIME_NO_MAIN
+#include "../aura_rt.c"
+
+static unsigned released_resources;
+
+static void destroy_resource(void *resource)
+{
+  assert(resource != NULL);
+  released_resources++;
+  free(resource);
+}
+
+static void test_nullable_and_boundaries(void)
+{
+  AuraFfiOpaqueHandle *empty = NULL;
+  assert(aura_ffi_handle_new(NULL, NULL, &empty) == AURA_FFI_INVALID);
+  assert(aura_ffi_handle_new_nullable(NULL, NULL, &empty) == AURA_FFI_OK);
+  assert(aura_ffi_handle_is_null(empty));
+  assert(aura_ffi_handle_check_boundary(empty, AURA_FFI_BOUNDARY_SYNC) ==
+         AURA_FFI_OK);
+  assert(aura_ffi_handle_check_boundary(empty, AURA_FFI_BOUNDARY_TASK) ==
+         AURA_FFI_BOUNDARY_REJECTED);
+  assert(aura_ffi_handle_check_boundary(empty, AURA_FFI_BOUNDARY_AWAIT) ==
+         AURA_FFI_BOUNDARY_REJECTED);
+  assert(aura_ffi_handle_check_boundary(empty, AURA_FFI_BOUNDARY_CHANNEL) ==
+         AURA_FFI_BOUNDARY_REJECTED);
+  assert(aura_ffi_handle_check_boundary(empty, AURA_FFI_BOUNDARY_CALLBACK) ==
+         AURA_FFI_BOUNDARY_REJECTED);
+  assert(aura_ffi_handle_release(empty) == AURA_FFI_OK);
+  assert(aura_ffi_handle_release(empty) == AURA_FFI_INVALID);
+  assert(aura_ffi_handle_destroy(&empty) == AURA_FFI_OK);
+  assert(empty == NULL);
+}
+
+static void test_pin_release_and_stale_alias(void)
+{
+  int *value = (int *)malloc(sizeof(*value));
+  assert(value != NULL);
+  *value = 42;
+
+  AuraFfiOpaqueHandle *handle = NULL;
+  assert(aura_ffi_handle_new(value, destroy_resource, &handle) == AURA_FFI_OK);
+  AuraFfiOpaqueHandle *stale_alias = handle;
+  AuraFfiHandlePin live_pin = {0};
+  AuraFfiHandlePin stale_pin = {0};
+  void *resource = NULL;
+  assert(aura_ffi_handle_pin(handle, &live_pin) == AURA_FFI_OK);
+  assert(aura_ffi_handle_pin_resource(&live_pin, &resource) == AURA_FFI_OK);
+  assert(resource == value && *(int *)resource == 42);
+
+  /* Release invalidates all aliases immediately, but defers destruction until
+   * the outstanding operation pin is returned. */
+  assert(aura_ffi_handle_release(handle) == AURA_FFI_OK);
+  assert(released_resources == 0);
+  assert(aura_ffi_handle_is_null(stale_alias));
+  assert(aura_ffi_handle_pin(stale_alias, &stale_pin) == AURA_FFI_INVALID);
+  assert(aura_ffi_handle_pin_resource(&stale_pin, &resource) == AURA_FFI_INVALID);
+  assert(aura_ffi_handle_destroy(&handle) == AURA_FFI_BUSY);
+  assert(aura_ffi_handle_unpin(&stale_pin) == AURA_FFI_INVALID);
+  assert(aura_ffi_handle_unpin(&live_pin) == AURA_FFI_OK);
+  assert(released_resources == 1);
+  assert(aura_ffi_handle_destroy(&handle) == AURA_FFI_OK);
+
+  /* Re-create the pin state for the deferred-release path. */
+  AuraFfiOpaqueHandle *second = NULL;
+  value = (int *)malloc(sizeof(*value));
+  assert(value != NULL);
+  assert(aura_ffi_handle_new(value, destroy_resource, &second) == AURA_FFI_OK);
+  assert(aura_ffi_handle_pin(second, &live_pin) == AURA_FFI_OK);
+  assert(aura_ffi_handle_release(second) == AURA_FFI_OK);
+  assert(aura_ffi_handle_unpin(&live_pin) == AURA_FFI_OK);
+  assert(released_resources == 2);
+  assert(aura_ffi_handle_destroy(&second) == AURA_FFI_OK);
+}
+
+static void test_pin_and_destroy_boundaries(void)
+{
+  AuraFfiOpaqueHandle *handle = NULL;
+  int *value = (int *)malloc(sizeof(*value));
+  assert(value != NULL);
+  assert(aura_ffi_handle_new(value, destroy_resource, &handle) == AURA_FFI_OK);
+
+  AuraFfiHandlePin pin = {0};
+  assert(aura_ffi_handle_pin(handle, &pin) == AURA_FFI_OK);
+  assert(aura_ffi_handle_destroy(&handle) == AURA_FFI_INVALID);
+  assert(aura_ffi_handle_release(handle) == AURA_FFI_OK);
+  assert(aura_ffi_handle_destroy(&handle) == AURA_FFI_BUSY);
+  assert(aura_ffi_handle_unpin(&pin) == AURA_FFI_OK);
+  assert(aura_ffi_handle_destroy(&handle) == AURA_FFI_OK);
+  assert(aura_ffi_handle_destroy(&handle) == AURA_FFI_INVALID);
+}
+
+int main(void)
+{
+  test_nullable_and_boundaries();
+  test_pin_release_and_stale_alias();
+  test_pin_and_destroy_boundaries();
+  assert(released_resources == 3);
+  return 0;
+}

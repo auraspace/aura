@@ -80,13 +80,29 @@ double-destroy paths.
 **Objective:** Represent opaque external resources with explicit lifetime rules.
 **Checklist:**
 
-- [ ] Define pointer creation, nullability, pinning, release, and invalidation.
-- [ ] Prevent accidental dereference or use-after-release in Aura code.
-- [ ] Define task, await, channel, and callback crossing rules.
+- [x] Define pointer creation, nullability, pinning, release, and invalidation.
+- [x] Prevent accidental dereference or use-after-release in Aura code.
+- [x] Define task, await, channel, and callback crossing rules.
       **Acceptance:** Invalid pointer lifetimes are rejected or reported deterministically.
       **Verification:** Run null, double-release, early-release, GC, and cancellation
       fixtures.
-      **Dependencies:** F3, A3.
+**Dependencies:** F3, A3.
+
+**Implementation status (F4, bounded alpha slice):** `runtime/aura_ffi.h`
+exposes separate non-null and nullable opaque-handle constructors. A handle
+never exposes its resource directly: a checked pin token is required to obtain
+the borrowed resource for one synchronous operation window. Release and
+invalidation immediately tombstone the handle, reject stale aliases and
+double-release, and defer the destructor until outstanding pins are returned.
+Tombstones are explicitly destroyed after release; destroying an active handle
+or one with pins is rejected. Handle values are rejected at task, await,
+channel, and callback boundaries; this matches the existing sema rule that
+borrowed values cannot cross those asynchronous/ownership boundaries.
+
+**Verification:** `runtime/tests/ffi_handles.c` is compiled with strict C11
+warnings and exercises nullable construction, null and boundary behavior,
+double release, stale use after release, early destruction, pinning, deferred
+cleanup, and invalidated-handle cleanup. Callback implementation remains F5.
 
 ## F5. Callbacks and errors
 
