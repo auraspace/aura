@@ -1,6 +1,8 @@
 //! Multi-file package loading and minimal `aura.toml` (C3e).
 
 mod fetch;
+#[allow(dead_code)]
+mod archive;
 mod load;
 mod lock;
 mod registry;

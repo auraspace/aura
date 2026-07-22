@@ -271,3 +271,9 @@ When you resolve debt, update or remove the matching entry.
 - Await now resumes pending frames that are not blocked on a channel/I/O waiter
   by re-queueing them through the deterministic executor. Waiter-driven wakeup,
   live-local hoisting, and full async I/O continuation remain deferred.
+
+### Registry archive publication wiring (2026-07-22)
+
+- U1 now provides a deterministic gzip/tar archive primitive and SHA-256 helper,
+  but no `publish`/dry-run CLI command consumes it yet. Next step: wire manifest
+  and dependency validation plus upload preview/orchestration before claiming U4.

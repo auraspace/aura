@@ -5,11 +5,18 @@ Owner: Tooling + Release. Scope: 8 tasks.
 ## U1. Package/archive contract
 
 **Objective:** Define a verifiable artifact exchanged with registries and users.
+**Implementation status:** Partial. The package module now builds deterministic
+gzip/tar source archives rooted at `name-version/`, with sorted repository
+paths, normalized tar ownership/mode/timestamp metadata, safe path validation,
+and a lowercase SHA-256 helper. Manifest/dependency validation, signatures,
+target-specific metadata, and publish orchestration remain deferred.
 **Checklist:**
 
-- [ ] Define identity, version, manifest, source inclusion, target naming, and
-      archive layout.
-- [ ] Define checksum, signature, metadata, and reproducibility rules.
+- [x] Define identity, version, source inclusion, target naming, and archive
+      layout for the deterministic source archive primitive; full manifest
+      validation remains deferred.
+- [x] Define checksum and reproducibility rules for the archive primitive;
+      signatures and release metadata remain deferred.
 - [ ] Define compatibility and rejection behavior.
       **Acceptance:** The same package input produces the same verified archive.
       **Verification:** Compare repeated archives and malformed metadata cases.
