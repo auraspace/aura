@@ -5,11 +5,14 @@ Owner: Compiler Expert. Scope: 6 tasks.
 ## M1. Attribute syntax
 
 **Objective:** Parse attributes on every mandatory declaration site.
+**Implementation status:** Complete for the current AST/parser surface. The
+parser preserves ordered attributes, nested values, named/positional arguments,
+and spans on declarations, members, fields, variants, and parameters.
 **Checklist:**
 
-- [ ] Define argument forms, nesting, ordering, and source spans.
-- [ ] Reject malformed syntax with recovery suitable for diagnostics.
-- [ ] Preserve attributes across package boundaries.
+- [x] Define argument forms, nesting, ordering, and source spans.
+- [x] Reject malformed syntax with recovery suitable for diagnostics.
+- [x] Preserve attributes across package boundaries.
       **Acceptance:** Valid sites parse and invalid forms produce stable diagnostics.
       **Verification:** Run syntax positives, malformed inputs, and span snapshots.
       **Dependencies:** B2, C1.
@@ -17,11 +20,14 @@ Owner: Compiler Expert. Scope: 6 tasks.
 ## M2. Attribute registry and diagnostics
 
 **Objective:** Validate known attributes consistently.
+**Implementation status:** Complete for the registered built-in attributes.
+Unknown, misplaced, duplicate, conflicting, and invalid-argument cases emit
+stable `AURA-M2-*` diagnostics with source spans.
 **Checklist:**
 
-- [ ] Register name, allowed sites, arguments, retention, and conflicts.
-- [ ] Make unknown attributes hard errors according to the contract.
-- [ ] Assign stable error identity and source spans.
+- [x] Register name, allowed sites, arguments, retention, and conflicts.
+- [x] Make unknown attributes hard errors according to the contract.
+- [x] Assign stable error identity and source spans.
       **Acceptance:** Every invalid attribute explains the expected form and location.
       **Verification:** Run unknown, misplaced, duplicate, and conflicting cases.
       **Dependencies:** M1.

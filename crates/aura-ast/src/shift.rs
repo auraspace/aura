@@ -37,12 +37,14 @@ pub fn shift_file_spans(file: &mut File, delta: BytePos) {
 }
 
 fn shift_type_alias(t: &mut TypeAliasDecl, delta: BytePos) {
+    shift_attributes(&mut t.attributes, delta);
     shift_ident(&mut t.name, delta);
     shift_type_ref(&mut t.ty, delta);
     t.span = t.span.shift(delta);
 }
 
 fn shift_const(c: &mut ConstDecl, delta: BytePos) {
+    shift_attributes(&mut c.attributes, delta);
     shift_ident(&mut c.name, delta);
     shift_type_ref(&mut c.ty, delta);
     shift_expr(&mut c.value, delta);
@@ -59,6 +61,49 @@ fn shift_import(imp: &mut ImportDecl, delta: BytePos) {
 
 fn shift_ident(i: &mut Ident, delta: BytePos) {
     i.span = i.span.shift(delta);
+}
+
+fn shift_attribute_arg(arg: &mut AttributeArg, delta: BytePos) {
+    match arg {
+        AttributeArg::Positional(value) => shift_attribute_value(value, delta),
+        AttributeArg::Named { name, value, span } => {
+            shift_ident(name, delta);
+            shift_attribute_value(value, delta);
+            *span = span.shift(delta);
+        }
+    }
+}
+
+fn shift_attribute_value(value: &mut AttributeValue, delta: BytePos) {
+    match value {
+        AttributeValue::Ident(ident) => shift_ident(ident, delta),
+        AttributeValue::Int { span, .. }
+        | AttributeValue::String { span, .. }
+        | AttributeValue::Bool { span, .. } => *span = span.shift(delta),
+        AttributeValue::Array { values, span } => {
+            for value in values {
+                shift_attribute_value(value, delta);
+            }
+            *span = span.shift(delta);
+        }
+        AttributeValue::Call { name, args, span } => {
+            shift_ident(name, delta);
+            for arg in args {
+                shift_attribute_arg(arg, delta);
+            }
+            *span = span.shift(delta);
+        }
+    }
+}
+
+fn shift_attributes(attributes: &mut [Attribute], delta: BytePos) {
+    for attribute in attributes {
+        shift_ident(&mut attribute.name, delta);
+        for arg in &mut attribute.args {
+            shift_attribute_arg(arg, delta);
+        }
+        attribute.span = attribute.span.shift(delta);
+    }
 }
 
 fn shift_type_param(tp: &mut TypeParam, delta: BytePos) {
@@ -86,12 +131,14 @@ fn shift_type_ref(t: &mut TypeRef, delta: BytePos) {
 }
 
 fn shift_param(p: &mut Param, delta: BytePos) {
+    shift_attributes(&mut p.attributes, delta);
     shift_ident(&mut p.name, delta);
     shift_type_ref(&mut p.ty, delta);
     p.span = p.span.shift(delta);
 }
 
 fn shift_method_sig(m: &mut MethodSig, delta: BytePos) {
+    shift_attributes(&mut m.attributes, delta);
     shift_ident(&mut m.name, delta);
     for p in &mut m.params {
         shift_param(p, delta);
@@ -103,6 +150,7 @@ fn shift_method_sig(m: &mut MethodSig, delta: BytePos) {
 }
 
 fn shift_interface(i: &mut InterfaceDecl, delta: BytePos) {
+    shift_attributes(&mut i.attributes, delta);
     shift_ident(&mut i.name, delta);
     for tp in &mut i.type_params {
         shift_type_param(tp, delta);
@@ -114,6 +162,7 @@ fn shift_interface(i: &mut InterfaceDecl, delta: BytePos) {
 }
 
 fn shift_enum_variant(v: &mut EnumVariant, delta: BytePos) {
+    shift_attributes(&mut v.attributes, delta);
     shift_ident(&mut v.name, delta);
     for f in &mut v.fields {
         shift_param(f, delta);
@@ -122,6 +171,7 @@ fn shift_enum_variant(v: &mut EnumVariant, delta: BytePos) {
 }
 
 fn shift_enum(e: &mut EnumDecl, delta: BytePos) {
+    shift_attributes(&mut e.attributes, delta);
     shift_ident(&mut e.name, delta);
     for tp in &mut e.type_params {
         shift_type_param(tp, delta);
@@ -133,12 +183,14 @@ fn shift_enum(e: &mut EnumDecl, delta: BytePos) {
 }
 
 fn shift_field(f: &mut FieldDecl, delta: BytePos) {
+    shift_attributes(&mut f.attributes, delta);
     shift_ident(&mut f.name, delta);
     shift_type_ref(&mut f.ty, delta);
     f.span = f.span.shift(delta);
 }
 
 fn shift_class(c: &mut ClassDecl, delta: BytePos) {
+    shift_attributes(&mut c.attributes, delta);
     shift_ident(&mut c.name, delta);
     for tp in &mut c.type_params {
         shift_type_param(tp, delta);
@@ -156,6 +208,7 @@ fn shift_class(c: &mut ClassDecl, delta: BytePos) {
 }
 
 fn shift_fun(f: &mut FunDecl, delta: BytePos) {
+    shift_attributes(&mut f.attributes, delta);
     shift_ident(&mut f.name, delta);
     for tp in &mut f.type_params {
         shift_type_param(tp, delta);
@@ -178,6 +231,7 @@ impl AsyncFunDecl {
 }
 
 fn shift_async_fun(f: &mut AsyncFunDecl, delta: BytePos) {
+    shift_attributes(&mut f.attributes, delta);
     shift_ident(&mut f.name, delta);
     for tp in &mut f.type_params {
         shift_type_param(tp, delta);

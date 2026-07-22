@@ -1,6 +1,7 @@
 //! Minimal `aura.toml` parsing.
 
-use std::collections::HashMap;
+use aura_codegen::{Backend, Lto, OptimizationLevel, PanicStrategy, Profile, ProfileSettings};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 /// One `[dependencies]` entry: path or registry version requirement (C13l).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -27,7 +28,7 @@ impl DepSpec {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub(crate) struct AuraToml {
     pub(crate) package_name: Option<String>,
     pub(crate) bin_name: Option<String>,
@@ -35,12 +36,52 @@ pub(crate) struct AuraToml {
     pub(crate) bin_path: Option<String>,
     /// Dependencies: path and/or registry version requirements.
     pub(crate) dependencies: HashMap<String, DepSpec>,
+    /// Fully normalized build settings for each built-in profile.
+    pub(crate) profiles: BTreeMap<Profile, ProfileSettings>,
+}
+
+impl Default for AuraToml {
+    fn default() -> Self {
+        Self {
+            package_name: None,
+            bin_name: None,
+            bin_path: None,
+            dependencies: HashMap::new(),
+            profiles: normalized_default_profiles(),
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+struct ProfileOverride {
+    inherits: Option<Profile>,
+    optimization: Option<OptimizationLevel>,
+    debug: Option<bool>,
+    lto: Option<Lto>,
+    detector: Option<bool>,
+    panic: Option<PanicStrategy>,
+    backend: Option<Backend>,
+    linker: Option<String>,
+}
+
+fn built_in_profiles() -> [Profile; 3] {
+    [Profile::Dev, Profile::Test, Profile::Release]
+}
+
+fn normalized_default_profiles() -> BTreeMap<Profile, ProfileSettings> {
+    built_in_profiles()
+        .into_iter()
+        .map(|profile| (profile, ProfileSettings::for_profile(profile)))
+        .collect()
 }
 
 pub(crate) fn parse_aura_toml(text: &str) -> Result<AuraToml, String> {
     let mut out = AuraToml::default();
     let mut section = String::new();
     let mut in_bin = false;
+    let mut profile = None;
+    let mut profile_overrides: BTreeMap<Profile, ProfileOverride> = BTreeMap::new();
+    let mut profile_keys = BTreeSet::new();
 
     for (lineno, raw) in text.lines().enumerate() {
         let line = raw.split('#').next().unwrap_or("").trim();
@@ -51,15 +92,38 @@ pub(crate) fn parse_aura_toml(text: &str) -> Result<AuraToml, String> {
             if line == "[package]" {
                 section = "package".into();
                 in_bin = false;
+                profile = None;
             } else if line == "[[bin]]" {
                 section = "bin".into();
                 in_bin = true;
+                profile = None;
             } else if line == "[dependencies]" {
                 section = "dependencies".into();
                 in_bin = false;
+                profile = None;
+            } else if let Some(name) = line
+                .strip_prefix("[profile.")
+                .and_then(|s| s.strip_suffix(']'))
+            {
+                let selected = match name {
+                    "dev" => Profile::Dev,
+                    "test" => Profile::Test,
+                    "release" => Profile::Release,
+                    _ => {
+                        return Err(format!(
+                            "line {}: unknown profile `{name}` (expected dev, test, or release)",
+                            lineno + 1
+                        ))
+                    }
+                };
+                section = "profile".into();
+                in_bin = false;
+                profile = Some(selected);
+                profile_overrides.entry(selected).or_default();
             } else {
                 section = "other".into();
                 in_bin = false;
+                profile = None;
             }
             continue;
         }
@@ -69,6 +133,90 @@ pub(crate) fn parse_aura_toml(text: &str) -> Result<AuraToml, String> {
         let key = k.trim();
         let val_raw = v.trim();
         match section.as_str() {
+            "profile" => {
+                let selected = profile.expect("profile section must select a profile");
+                let key_id = (selected, key.to_string());
+                if !profile_keys.insert(key_id) {
+                    return Err(format!(
+                        "line {}: duplicate profile key `{key}` in `{}`",
+                        lineno + 1,
+                        profile_section(selected)
+                    ));
+                }
+                let settings = profile_overrides
+                    .get_mut(&selected)
+                    .expect("profile override created with section");
+                match key {
+                    "inherits" => settings.inherits = Some(parse_profile(val_raw, lineno)?),
+                    "optimization" | "opt-level" => {
+                        if settings.optimization.is_some() {
+                            return Err(format!(
+                                "line {}: conflicting optimization keys in `{}`",
+                                lineno + 1,
+                                profile_section(selected)
+                            ));
+                        }
+                        settings.optimization = Some(parse_optimization(val_raw, lineno)?);
+                    }
+                    "debug" | "debug-info" => {
+                        if settings.debug.is_some() {
+                            return Err(format!(
+                                "line {}: conflicting debug keys in `{}`",
+                                lineno + 1,
+                                profile_section(selected)
+                            ));
+                        }
+                        settings.debug = Some(parse_bool(val_raw, lineno, key)?);
+                    }
+                    "lto" => settings.lto = Some(parse_lto(val_raw, lineno)?),
+                    "detector" | "race-detector" => {
+                        if settings.detector.is_some() {
+                            return Err(format!(
+                                "line {}: conflicting detector keys in `{}`",
+                                lineno + 1,
+                                profile_section(selected)
+                            ));
+                        }
+                        settings.detector = Some(parse_bool(val_raw, lineno, key)?);
+                    }
+                    "panic" | "panic-strategy" => {
+                        if settings.panic.is_some() {
+                            return Err(format!(
+                                "line {}: conflicting panic keys in `{}`",
+                                lineno + 1,
+                                profile_section(selected)
+                            ));
+                        }
+                        settings.panic = Some(parse_panic(val_raw, lineno)?);
+                    }
+                    "backend" => {
+                        let backend = parse_toml_string(val_raw)
+                            .map_err(|e| format!("line {}: {e}", lineno + 1))?;
+                        settings.backend = Some(match backend.as_str() {
+                            "c" => Backend::C,
+                            _ => {
+                                return Err(format!(
+                                    "line {}: unsupported backend `{backend}`",
+                                    lineno + 1
+                                ))
+                            }
+                        });
+                    }
+                    "linker" => {
+                        settings.linker = Some(
+                            parse_toml_string(val_raw)
+                                .map_err(|e| format!("line {}: {e}", lineno + 1))?,
+                        )
+                    }
+                    _ => {
+                        return Err(format!(
+                            "line {}: unknown key `{key}` in `{}`",
+                            lineno + 1,
+                            profile_section(selected)
+                        ));
+                    }
+                }
+            }
             "package" if key == "name" => {
                 out.package_name = Some(
                     parse_toml_string(val_raw).map_err(|e| format!("line {}: {e}", lineno + 1))?,
@@ -92,7 +240,148 @@ pub(crate) fn parse_aura_toml(text: &str) -> Result<AuraToml, String> {
             _ => {}
         }
     }
+    out.profiles = resolve_profiles(&profile_overrides)?;
     Ok(out)
+}
+
+fn profile_section(profile: Profile) -> &'static str {
+    match profile {
+        Profile::Debug | Profile::Dev => "profile.dev",
+        Profile::Test => "profile.test",
+        Profile::Release => "profile.release",
+    }
+}
+
+fn parse_profile(raw: &str, lineno: usize) -> Result<Profile, String> {
+    let value = parse_toml_string(raw).map_err(|e| format!("line {}: {e}", lineno + 1))?;
+    match value.as_str() {
+        "dev" => Ok(Profile::Dev),
+        "test" => Ok(Profile::Test),
+        "release" => Ok(Profile::Release),
+        _ => Err(format!(
+            "line {}: unknown inherited profile `{value}`",
+            lineno + 1
+        )),
+    }
+}
+
+fn parse_bool(raw: &str, lineno: usize, key: &str) -> Result<bool, String> {
+    match raw.trim() {
+        "true" => Ok(true),
+        "false" => Ok(false),
+        value => Err(format!(
+            "line {}: `{key}` must be true or false, got `{value}`",
+            lineno + 1
+        )),
+    }
+}
+
+fn parse_optimization(raw: &str, lineno: usize) -> Result<OptimizationLevel, String> {
+    let value = parse_toml_string(raw).map_err(|e| format!("line {}: {e}", lineno + 1))?;
+    match value.to_ascii_lowercase().as_str() {
+        "0" | "o0" => Ok(OptimizationLevel::O0),
+        "1" | "o1" => Ok(OptimizationLevel::O1),
+        "2" | "o2" => Ok(OptimizationLevel::O2),
+        "3" | "o3" => Ok(OptimizationLevel::O3),
+        "s" | "os" => Ok(OptimizationLevel::Os),
+        "z" | "oz" => Ok(OptimizationLevel::Oz),
+        value => Err(format!(
+            "line {}: invalid optimization level `{value}` (expected 0, 1, 2, 3, s, or z)",
+            lineno + 1
+        )),
+    }
+}
+
+fn parse_lto(raw: &str, lineno: usize) -> Result<Lto, String> {
+    let value = parse_toml_string(raw).map_err(|e| format!("line {}: {e}", lineno + 1))?;
+    match value.as_str() {
+        "off" | "false" => Ok(Lto::Off),
+        "thin" => Ok(Lto::Thin),
+        "full" | "true" => Ok(Lto::Full),
+        _ => Err(format!(
+            "line {}: invalid lto `{value}` (expected off, thin, or full)",
+            lineno + 1
+        )),
+    }
+}
+
+fn parse_panic(raw: &str, lineno: usize) -> Result<PanicStrategy, String> {
+    let value = parse_toml_string(raw).map_err(|e| format!("line {}: {e}", lineno + 1))?;
+    match value.as_str() {
+        "unwind" => Ok(PanicStrategy::Unwind),
+        "abort" => Ok(PanicStrategy::Abort),
+        _ => Err(format!(
+            "line {}: invalid panic strategy `{value}` (expected unwind or abort)",
+            lineno + 1
+        )),
+    }
+}
+
+fn apply_override(settings: &mut ProfileSettings, override_: &ProfileOverride) {
+    if let Some(value) = override_.optimization {
+        settings.optimization = value;
+    }
+    if let Some(value) = override_.debug {
+        settings.debug = value;
+    }
+    if let Some(value) = override_.lto {
+        settings.lto = value;
+    }
+    if let Some(value) = override_.detector {
+        settings.detector = value;
+    }
+    if let Some(value) = override_.panic {
+        settings.panic = value;
+    }
+    if let Some(value) = override_.backend {
+        settings.backend = value;
+    }
+    if let Some(value) = &override_.linker {
+        settings.linker = Some(value.clone());
+    }
+}
+
+fn resolve_profiles(
+    overrides: &BTreeMap<Profile, ProfileOverride>,
+) -> Result<BTreeMap<Profile, ProfileSettings>, String> {
+    fn resolve_one(
+        profile: Profile,
+        overrides: &BTreeMap<Profile, ProfileOverride>,
+        resolved: &mut BTreeMap<Profile, ProfileSettings>,
+        visiting: &mut BTreeSet<Profile>,
+    ) -> Result<ProfileSettings, String> {
+        if let Some(settings) = resolved.get(&profile) {
+            return Ok(settings.clone());
+        }
+        if !visiting.insert(profile) {
+            return Err(format!(
+                "profile inheritance cycle includes `{}`",
+                profile_section(profile)
+            ));
+        }
+        let override_ = overrides.get(&profile);
+        let mut settings = if let Some(parent) = override_.and_then(|o| o.inherits) {
+            resolve_one(parent, overrides, resolved, visiting)?
+        } else {
+            ProfileSettings::for_profile(profile)
+        };
+        if let Some(override_) = override_ {
+            apply_override(&mut settings, override_);
+        }
+        settings
+            .validate()
+            .map_err(|e| format!("{}: {e}", profile_section(profile)))?;
+        visiting.remove(&profile);
+        resolved.insert(profile, settings.clone());
+        Ok(settings)
+    }
+
+    let mut resolved = BTreeMap::new();
+    let mut visiting = BTreeSet::new();
+    for profile in built_in_profiles() {
+        resolve_one(profile, overrides, &mut resolved, &mut visiting)?;
+    }
+    Ok(resolved)
 }
 
 /// Path, registry version table, or bare string (version-like → registry; else path).

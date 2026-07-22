@@ -5,11 +5,14 @@ Owner: Tooling + Compiler. Scope: 8 tasks.
 ## P1. Profile schema
 
 **Objective:** Define `dev`, `test`, and `release` configuration.
+**Implementation status:** Complete. Profiles now normalize deterministic
+defaults, support inheritance, validate known keys and values, reject unknown
+profiles/conflicting aliases, and preserve minimal manifest compatibility.
 **Checklist:**
 
-- [ ] Define defaults, inheritance, validation, and unknown-key behavior.
-- [ ] Preserve compatibility with minimal existing manifests.
-- [ ] Document optimization, debug, detector, panic, backend, and linker knobs.
+- [x] Define defaults, inheritance, validation, and unknown-key behavior.
+- [x] Preserve compatibility with minimal existing manifests.
+- [x] Document optimization, debug, detector, panic, backend, and linker knobs.
       **Acceptance:** Every profile has a deterministic normalized configuration.
       **Verification:** Parse valid, missing, conflicting, and invalid manifests.
       **Dependencies:** B1, C1–C3.

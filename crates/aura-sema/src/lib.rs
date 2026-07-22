@@ -1,5 +1,6 @@
 //! Name resolution + typecheck for Aura C0–C3b (enums, match, Result).
 
+mod attributes;
 mod checker;
 mod error;
 mod sigs;
@@ -24,6 +25,7 @@ use checker::Checker;
 /// issues can be reported in one `aura check` run when processing can continue.
 pub fn check_file(file: &File) -> Result<CheckedFile, SemaErrors> {
     let mut c = Checker::new();
+    c.errors.extend(attributes::validate_file(file));
     match c.check_file(file) {
         Ok(checked) => {
             if c.errors.is_empty() {

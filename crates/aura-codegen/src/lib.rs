@@ -25,7 +25,8 @@ pub use driver::{build_artifact, Artifact, BuildIdentity};
 pub use emit::{emit_c, emit_c_with};
 pub use error::CodegenError;
 pub use options::{
-    Backend, CompileOptions, CompileOptionsBuilder, DiagnosticMode, OptionsError, OutputKind,
-    Profile, RuntimeAbi, Target,
+    Backend, CompileOptions, CompileOptionsBuilder, DiagnosticMode, Lto, OptimizationLevel,
+    OptionsError, OutputKind, PanicStrategy, Profile, ProfileSettings, ProfileSettingsError,
+    RuntimeAbi, Target,
 };
 pub use runtime_abi::{ID as RUNTIME_ABI_ID, VERSION as RUNTIME_ABI_VERSION};

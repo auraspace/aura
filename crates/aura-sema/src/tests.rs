@@ -10,6 +10,7 @@ fn promote_to_async(file: &mut aura_ast::File, index: usize) {
     file.async_functions.push(AsyncFunDecl {
         is_pub: f.is_pub,
         origin_package: f.origin_package,
+        attributes: f.attributes,
         is_test: f.is_test,
         name: f.name,
         type_params: f.type_params,
@@ -55,6 +56,38 @@ fn task_handle_and_channel_types_accept_owned_elements() {
     )
     .expect("parse");
     check_file(&file).expect("async semantic types");
+}
+
+#[test]
+fn attributes_validate_known_sites_and_arguments() {
+    let file = parse_file(
+        "package t\n@derive(Eq) class Box(@deprecated(\"old\") val value: Int) {}\nfun main(@notNull value: String) {}\n",
+    )
+    .expect("attribute syntax");
+    check_file(&file).expect("valid attributes");
+}
+
+#[test]
+fn attributes_report_unknown_target_duplicate_and_conflict() {
+    let file = parse_file(
+        "package t\n@unknown fun main() {}\n@inline @noinline fun other() {}\n@inline class Wrong() {}\n",
+    )
+    .expect("attribute syntax");
+    let errors = check_file(&file).expect_err("invalid attributes");
+    let messages = errors
+        .errors
+        .iter()
+        .map(|error| error.message.as_str())
+        .collect::<Vec<_>>();
+    assert!(messages
+        .iter()
+        .any(|message| message.contains("AURA-M2-UNKNOWN")));
+    assert!(messages
+        .iter()
+        .any(|message| message.contains("AURA-M2-CONFLICT")));
+    assert!(messages
+        .iter()
+        .any(|message| message.contains("AURA-M2-TARGET")));
 }
 
 #[test]

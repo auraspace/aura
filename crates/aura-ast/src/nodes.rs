@@ -22,11 +22,82 @@ pub struct File {
     pub span: Span,
 }
 
+/// `@name`, optionally with positional or named literal arguments.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Attribute {
+    pub name: Ident,
+    pub args: Vec<AttributeArg>,
+    /// Span includes the `@` introducer and the complete argument list.
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum AttributeArg {
+    Positional(AttributeValue),
+    Named {
+        name: Ident,
+        value: AttributeValue,
+        span: Span,
+    },
+}
+
+/// Attribute arguments deliberately stay syntax-level. Semantic validation
+/// decides which names, literals, and nested forms each registered attribute
+/// accepts.
+#[derive(Debug, Clone, PartialEq)]
+pub enum AttributeValue {
+    Ident(Ident),
+    Int {
+        value: i64,
+        span: Span,
+    },
+    String {
+        value: String,
+        span: Span,
+    },
+    Bool {
+        value: bool,
+        span: Span,
+    },
+    Array {
+        values: Vec<AttributeValue>,
+        span: Span,
+    },
+    Call {
+        name: Ident,
+        args: Vec<AttributeArg>,
+        span: Span,
+    },
+}
+
+impl AttributeArg {
+    pub fn span(&self) -> Span {
+        match self {
+            Self::Positional(value) => value.span(),
+            Self::Named { span, .. } => *span,
+        }
+    }
+}
+
+impl AttributeValue {
+    pub fn span(&self) -> Span {
+        match self {
+            Self::Ident(ident) => ident.span,
+            Self::Int { span, .. }
+            | Self::String { span, .. }
+            | Self::Bool { span, .. }
+            | Self::Array { span, .. }
+            | Self::Call { span, .. } => *span,
+        }
+    }
+}
+
 /// `type Name = TypeRef` (C9f).
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeAliasDecl {
     pub is_pub: bool,
     pub origin_package: String,
+    pub attributes: Vec<Attribute>,
     pub name: Ident,
     pub ty: TypeRef,
     pub span: Span,
@@ -37,6 +108,7 @@ pub struct TypeAliasDecl {
 pub struct ConstDecl {
     pub is_pub: bool,
     pub origin_package: String,
+    pub attributes: Vec<Attribute>,
     pub name: Ident,
     pub ty: TypeRef,
     pub value: Expr,
@@ -59,6 +131,7 @@ pub struct EnumDecl {
     pub is_pub: bool,
     /// Declaring package; empty means use `File.package`.
     pub origin_package: String,
+    pub attributes: Vec<Attribute>,
     pub name: Ident,
     pub type_params: Vec<TypeParam>,
     pub variants: Vec<EnumVariant>,
@@ -68,6 +141,7 @@ pub struct EnumDecl {
 /// `case Name` or `case Name(field: Type, …)`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct EnumVariant {
+    pub attributes: Vec<Attribute>,
     pub name: Ident,
     pub fields: Vec<Param>,
     pub span: Span,
@@ -80,6 +154,7 @@ pub struct InterfaceDecl {
     pub is_pub: bool,
     /// Declaring package; empty means use `File.package`.
     pub origin_package: String,
+    pub attributes: Vec<Attribute>,
     pub name: Ident,
     pub type_params: Vec<TypeParam>,
     pub methods: Vec<MethodSig>,
@@ -89,6 +164,7 @@ pub struct InterfaceDecl {
 /// Method signature without body (interfaces).
 #[derive(Debug, Clone, PartialEq)]
 pub struct MethodSig {
+    pub attributes: Vec<Attribute>,
     pub name: Ident,
     pub params: Vec<Param>,
     pub return_type: Option<TypeRef>,
@@ -147,6 +223,7 @@ pub struct ClassDecl {
     pub is_pub: bool,
     /// Declaring package; empty means use `File.package`.
     pub origin_package: String,
+    pub attributes: Vec<Attribute>,
     pub kind: NominalKind,
     pub name: Ident,
     pub type_params: Vec<TypeParam>,
@@ -160,6 +237,7 @@ pub struct ClassDecl {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FieldDecl {
+    pub attributes: Vec<Attribute>,
     pub mutable: bool,
     pub name: Ident,
     pub ty: TypeRef,
@@ -172,6 +250,7 @@ pub struct FunDecl {
     pub is_pub: bool,
     /// Declaring package; empty means use `File.package`.
     pub origin_package: String,
+    pub attributes: Vec<Attribute>,
     /// Discovered by `aura test` (RFC-011 MVP: only `@test`).
     pub is_test: bool,
     pub name: Ident,
@@ -191,6 +270,7 @@ pub struct FunDecl {
 pub struct AsyncFunDecl {
     pub is_pub: bool,
     pub origin_package: String,
+    pub attributes: Vec<Attribute>,
     pub is_test: bool,
     pub name: Ident,
     pub type_params: Vec<TypeParam>,
@@ -290,6 +370,7 @@ pub fn decl_package<'a>(origin: &'a str, file_package: &'a str) -> &'a str {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Param {
+    pub attributes: Vec<Attribute>,
     pub name: Ident,
     pub ty: TypeRef,
     pub span: Span,

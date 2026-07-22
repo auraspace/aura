@@ -34,6 +34,94 @@ path = "src"
 }
 
 #[test]
+fn profile_schema_normalizes_defaults_and_inheritance() {
+    use aura_codegen::{Lto, OptimizationLevel, PanicStrategy, Profile};
+
+    let t = parse_aura_toml(
+        r#"
+[package]
+name = "demo.profiled"
+
+[profile.dev]
+opt-level = 1
+debug = false
+lto = "thin"
+detector = false
+panic = "abort"
+backend = "c"
+linker = "clang"
+
+[profile.test]
+inherits = "dev"
+debug = true
+
+[profile.release]
+optimization = "O3"
+"#,
+    )
+    .expect("valid profile schema");
+
+    let dev = &t.profiles[&Profile::Dev];
+    assert_eq!(dev.optimization, OptimizationLevel::O1);
+    assert!(!dev.debug);
+    assert_eq!(dev.lto, Lto::Thin);
+    assert!(!dev.detector);
+    assert_eq!(dev.panic, PanicStrategy::Abort);
+    assert_eq!(dev.linker.as_deref(), Some("clang"));
+
+    let test = &t.profiles[&Profile::Test];
+    assert_eq!(test.optimization, OptimizationLevel::O1);
+    assert!(test.debug);
+    assert_eq!(test.lto, Lto::Thin);
+
+    let release = &t.profiles[&Profile::Release];
+    assert_eq!(release.optimization, OptimizationLevel::O3);
+    assert!(!release.detector);
+}
+
+#[test]
+fn minimal_manifest_gets_stable_profile_defaults() {
+    use aura_codegen::{OptimizationLevel, PanicStrategy, Profile};
+
+    let t = parse_aura_toml("[package]\nname = \"demo.minimal\"\n").unwrap();
+    assert_eq!(t.profiles.len(), 3);
+    assert_eq!(
+        t.profiles[&Profile::Dev].optimization,
+        OptimizationLevel::O0
+    );
+    assert!(t.profiles[&Profile::Dev].debug);
+    assert!(t.profiles[&Profile::Dev].detector);
+    assert_eq!(
+        t.profiles[&Profile::Release].optimization,
+        OptimizationLevel::O2
+    );
+    assert!(!t.profiles[&Profile::Release].debug);
+    assert!(!t.profiles[&Profile::Release].detector);
+    assert_eq!(t.profiles[&Profile::Release].panic, PanicStrategy::Abort);
+}
+
+#[test]
+fn profile_schema_rejects_unknown_invalid_and_conflicting_settings() {
+    let unknown = parse_aura_toml("[profile.dev]\nwat = true\n").unwrap_err();
+    assert!(unknown.contains("unknown key `wat`"), "{unknown}");
+
+    let invalid = parse_aura_toml("[profile.release]\nopt-level = 9\n").unwrap_err();
+    assert!(invalid.contains("invalid optimization level"), "{invalid}");
+
+    let conflict = parse_aura_toml("[profile.dev]\nopt-level = 1\noptimization = 2\n").unwrap_err();
+    assert!(
+        conflict.contains("conflicting optimization keys"),
+        "{conflict}"
+    );
+
+    let unknown_profile = parse_aura_toml("[profile.fast]\noptimization = 3\n").unwrap_err();
+    assert!(
+        unknown_profile.contains("unknown profile `fast`"),
+        "{unknown_profile}"
+    );
+}
+
+#[test]
 fn merge_two_files() {
     let root = std::env::temp_dir().join(format!("aura-pkg-test-{}", std::process::id()));
     let _ = fs::remove_dir_all(&root);

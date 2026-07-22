@@ -64,6 +64,7 @@ mod tests {
         let mut decl = AsyncFunDecl {
             is_pub: false,
             origin_package: String::new(),
+            attributes: Vec::new(),
             is_test: false,
             name: Ident {
                 name: "load".into(),

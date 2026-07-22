@@ -91,6 +91,7 @@ mod tests {
             functions: vec![FunDecl {
                 is_pub: false,
                 origin_package: String::new(),
+                attributes: vec![],
                 is_test: false,
                 name: ident("main"),
                 type_params: vec![],
@@ -174,6 +175,7 @@ mod tests {
         let async_fun = AsyncFunDecl {
             is_pub: false,
             origin_package: String::new(),
+            attributes: vec![],
             is_test: false,
             name: ident("answer"),
             type_params: vec![],
@@ -191,6 +193,7 @@ mod tests {
         let main_fun = FunDecl {
             is_pub: false,
             origin_package: String::new(),
+            attributes: vec![],
             is_test: false,
             name: ident("main"),
             type_params: vec![],
@@ -275,6 +278,7 @@ mod tests {
         let main_fun = FunDecl {
             is_pub: false,
             origin_package: String::new(),
+            attributes: vec![],
             is_test: false,
             name: ident("main"),
             type_params: vec![],
@@ -396,6 +400,7 @@ mod tests {
         let main_fun = FunDecl {
             is_pub: false,
             origin_package: String::new(),
+            attributes: vec![],
             is_test: false,
             name: ident("main"),
             type_params: vec![],

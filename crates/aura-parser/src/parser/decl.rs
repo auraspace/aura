@@ -16,7 +16,10 @@ impl Parser {
         self.expect(TokenKind::LBrace, "`{`")?;
         let mut variants = Vec::new();
         while !matches!(self.peek().kind, TokenKind::RBrace | TokenKind::Eof) {
-            variants.push(self.parse_enum_variant()?);
+            let attributes = self.parse_attributes()?;
+            let mut variant = self.parse_enum_variant()?;
+            variant.attributes = attributes;
+            variants.push(variant);
         }
         let end = self.expect(TokenKind::RBrace, "`}`")?.span.end;
         if variants.is_empty() {
@@ -28,6 +31,7 @@ impl Parser {
         Ok(EnumDecl {
             is_pub: false,
             origin_package: String::new(),
+            attributes: Vec::new(),
             name,
             type_params,
             variants,
@@ -64,6 +68,7 @@ impl Parser {
         }
         let end = name.span.end;
         Ok(EnumVariant {
+            attributes: Vec::new(),
             name,
             fields,
             span: Span::new(start, end),
@@ -79,15 +84,19 @@ impl Parser {
         self.expect(TokenKind::LBrace, "`{`")?;
         let mut methods = Vec::new();
         while !matches!(self.peek().kind, TokenKind::RBrace | TokenKind::Eof) {
+            let attributes = self.parse_attributes()?;
             if matches!(self.peek().kind, TokenKind::Pub) {
                 self.bump();
             }
-            methods.push(self.parse_method_sig()?);
+            let mut method = self.parse_method_sig()?;
+            method.attributes = attributes;
+            methods.push(method);
         }
         let end = self.expect(TokenKind::RBrace, "`}`")?.span.end;
         Ok(InterfaceDecl {
             is_pub: false,
             origin_package: String::new(),
+            attributes: Vec::new(),
             name,
             type_params,
             methods,
@@ -124,6 +133,7 @@ impl Parser {
             .map(|t| t.span.end)
             .unwrap_or(name.span.end);
         Ok(MethodSig {
+            attributes: Vec::new(),
             name,
             params,
             return_type,
@@ -162,7 +172,10 @@ impl Parser {
         let mut fields = Vec::new();
         if !matches!(self.peek().kind, TokenKind::RParen) {
             loop {
-                fields.push(self.parse_field()?);
+                let attributes = self.parse_attributes()?;
+                let mut field = self.parse_field()?;
+                field.attributes = attributes;
+                fields.push(field);
                 if matches!(self.peek().kind, TokenKind::Comma) {
                     self.bump();
                     continue;
@@ -195,15 +208,19 @@ impl Parser {
         self.expect(TokenKind::LBrace, "`{`")?;
         let mut methods = Vec::new();
         while !matches!(self.peek().kind, TokenKind::RBrace | TokenKind::Eof) {
+            let attributes = self.parse_attributes()?;
             if matches!(self.peek().kind, TokenKind::Pub) {
                 self.bump();
             }
-            methods.push(self.parse_fun()?);
+            let mut method = self.parse_fun()?;
+            method.attributes = attributes;
+            methods.push(method);
         }
         let end = self.expect(TokenKind::RBrace, "`}`")?.span.end;
         Ok(ClassDecl {
             is_pub: false,
             origin_package: String::new(),
+            attributes: Vec::new(),
             kind,
             name,
             type_params,
@@ -306,6 +323,7 @@ impl Parser {
         let ty = self.parse_type()?;
         let end = ty.span.end;
         Ok(FieldDecl {
+            attributes: Vec::new(),
             mutable,
             name,
             ty,
@@ -324,6 +342,7 @@ impl Parser {
         Ok(TypeAliasDecl {
             is_pub: false,
             origin_package: String::new(),
+            attributes: Vec::new(),
             name,
             ty,
             span: Span::new(start, end),
@@ -343,6 +362,7 @@ impl Parser {
         Ok(ConstDecl {
             is_pub: false,
             origin_package: String::new(),
+            attributes: Vec::new(),
             name,
             ty,
             value,
@@ -395,6 +415,7 @@ impl Parser {
         Ok(FunDecl {
             is_pub: false,
             origin_package: String::new(),
+            attributes: Vec::new(),
             is_test: false,
             name,
             type_params,
@@ -450,6 +471,7 @@ impl Parser {
         Ok(AsyncFunDecl {
             is_pub: false,
             origin_package: String::new(),
+            attributes: Vec::new(),
             is_test: false,
             name,
             type_params,
@@ -461,12 +483,14 @@ impl Parser {
     }
 
     pub(crate) fn parse_param(&mut self) -> Result<Param, ParseError> {
+        let attributes = self.parse_attributes()?;
         let name = self.expect_ident()?;
         let start = name.span.start;
         self.expect(TokenKind::Colon, "`:`")?;
         let ty = self.parse_type()?;
         let end = ty.span.end;
         Ok(Param {
+            attributes,
             name,
             ty,
             span: Span::new(start, end),

@@ -12,18 +12,143 @@ pub enum Target {
     Native,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Profile {
+    /// Legacy name retained for callers that used the pre-profile API.
     Debug,
+    Dev,
+    Test,
+    Release,
 }
 
 impl Profile {
-    pub const fn optimization_level(self) -> &'static str {
+    pub fn optimization_level(self) -> &'static str {
+        ProfileSettings::for_profile(self).optimization.flag()
+    }
+
+    pub const fn name(self) -> &'static str {
         match self {
-            Self::Debug => "O0",
+            Self::Debug | Self::Dev => "dev",
+            Self::Test => "test",
+            Self::Release => "release",
         }
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OptimizationLevel {
+    O0,
+    O1,
+    O2,
+    O3,
+    Os,
+    Oz,
+}
+
+impl OptimizationLevel {
+    pub const fn flag(self) -> &'static str {
+        match self {
+            Self::O0 => "O0",
+            Self::O1 => "O1",
+            Self::O2 => "O2",
+            Self::O3 => "O3",
+            Self::Os => "Os",
+            Self::Oz => "Oz",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Lto {
+    Off,
+    Thin,
+    Full,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PanicStrategy {
+    Unwind,
+    Abort,
+}
+
+/// Fully normalized settings used by the backend. Manifest inheritance and
+/// defaults are resolved before these settings reach codegen.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProfileSettings {
+    pub optimization: OptimizationLevel,
+    pub debug: bool,
+    pub lto: Lto,
+    pub detector: bool,
+    pub panic: PanicStrategy,
+    pub backend: Backend,
+    /// Optional linker flavor passed through the selected C compiler.
+    pub linker: Option<String>,
+}
+
+impl ProfileSettings {
+    pub const fn for_profile(profile: Profile) -> Self {
+        match profile {
+            Profile::Debug | Profile::Dev => Self {
+                optimization: OptimizationLevel::O0,
+                debug: true,
+                lto: Lto::Off,
+                detector: true,
+                panic: PanicStrategy::Unwind,
+                backend: Backend::C,
+                linker: None,
+            },
+            Profile::Test => Self {
+                optimization: OptimizationLevel::O0,
+                debug: true,
+                lto: Lto::Off,
+                detector: true,
+                panic: PanicStrategy::Unwind,
+                backend: Backend::C,
+                linker: None,
+            },
+            Profile::Release => Self {
+                optimization: OptimizationLevel::O2,
+                debug: false,
+                lto: Lto::Off,
+                detector: false,
+                panic: PanicStrategy::Abort,
+                backend: Backend::C,
+                linker: None,
+            },
+        }
+    }
+
+    pub fn validate(&self) -> Result<(), ProfileSettingsError> {
+        if self.backend != Backend::C {
+            return Err(ProfileSettingsError::UnsupportedBackend);
+        }
+        if self
+            .linker
+            .as_deref()
+            .is_some_and(|linker| linker.trim().is_empty())
+        {
+            return Err(ProfileSettingsError::EmptyLinker);
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProfileSettingsError {
+    UnsupportedBackend,
+    EmptyLinker,
+}
+
+impl std::fmt::Display for ProfileSettingsError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnsupportedBackend => write!(f, "only the C backend is supported"),
+            Self::EmptyLinker => write!(f, "linker must not be empty"),
+        }
+    }
+}
+
+impl std::error::Error for ProfileSettingsError {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeAbi {
@@ -59,6 +184,7 @@ pub struct CompileOptions {
     pub backend: Backend,
     pub target: Target,
     pub profile: Profile,
+    pub profile_settings: ProfileSettings,
     pub features: BTreeSet<String>,
     pub runtime_abi: Option<RuntimeAbi>,
     pub output: OutputKind,
@@ -71,6 +197,7 @@ impl Default for CompileOptions {
             backend: Backend::C,
             target: Target::Native,
             profile: Profile::Debug,
+            profile_settings: ProfileSettings::for_profile(Profile::Debug),
             features: BTreeSet::new(),
             runtime_abi: Some(RuntimeAbi::AuraRtC),
             output: OutputKind::Executable,
@@ -81,6 +208,9 @@ impl Default for CompileOptions {
 
 impl CompileOptions {
     pub fn validate(&self) -> Result<(), OptionsError> {
+        self.profile_settings
+            .validate()
+            .map_err(OptionsError::InvalidProfileSettings)?;
         if self.output == OutputKind::Executable && self.runtime_abi.is_none() {
             return Err(OptionsError::MissingRuntimeAbi {
                 output: self.output,
@@ -95,11 +225,12 @@ impl std::fmt::Display for CompileOptions {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "backend={:?}, target={:?}, profile={:?}/{}, runtime_abi={:?}, output={:?}, diagnostics={:?}, features={:?}",
+            "backend={:?}, target={:?}, profile={:?}/{}, settings={:?}, runtime_abi={:?}, output={:?}, diagnostics={:?}, features={:?}",
             self.backend,
             self.target,
             self.profile,
             self.profile.optimization_level(),
+            self.profile_settings,
             self.runtime_abi,
             self.output,
             self.diagnostics,
@@ -116,6 +247,7 @@ pub enum OptionsError {
     MissingRuntimeAbi { output: OutputKind },
     MissingOutput,
     MissingDiagnostics,
+    InvalidProfileSettings(ProfileSettingsError),
 }
 
 impl std::fmt::Display for OptionsError {
@@ -129,6 +261,7 @@ impl std::fmt::Display for OptionsError {
             }
             Self::MissingOutput => write!(f, "output kind is required"),
             Self::MissingDiagnostics => write!(f, "diagnostic mode is required"),
+            Self::InvalidProfileSettings(error) => write!(f, "invalid profile settings: {error}"),
         }
     }
 }
@@ -140,6 +273,7 @@ pub struct CompileOptionsBuilder {
     backend: Option<Backend>,
     target: Option<Target>,
     profile: Option<Profile>,
+    profile_settings: Option<ProfileSettings>,
     features: BTreeSet<String>,
     runtime_abi: Option<RuntimeAbi>,
     output: Option<OutputKind>,
@@ -159,6 +293,11 @@ impl CompileOptionsBuilder {
 
     pub fn profile(mut self, profile: Profile) -> Self {
         self.profile = Some(profile);
+        self
+    }
+
+    pub fn profile_settings(mut self, settings: ProfileSettings) -> Self {
+        self.profile_settings = Some(settings);
         self
     }
 
@@ -183,10 +322,16 @@ impl CompileOptionsBuilder {
     }
 
     pub fn build(self) -> Result<CompileOptions, OptionsError> {
+        let backend = self.backend.ok_or(OptionsError::MissingBackend)?;
+        let target = self.target.ok_or(OptionsError::MissingTarget)?;
+        let profile = self.profile.ok_or(OptionsError::MissingProfile)?;
         let options = CompileOptions {
-            backend: self.backend.ok_or(OptionsError::MissingBackend)?,
-            target: self.target.ok_or(OptionsError::MissingTarget)?,
-            profile: self.profile.ok_or(OptionsError::MissingProfile)?,
+            backend,
+            target,
+            profile,
+            profile_settings: self
+                .profile_settings
+                .unwrap_or_else(|| ProfileSettings::for_profile(profile)),
             features: self.features,
             runtime_abi: self.runtime_abi,
             output: self.output.ok_or(OptionsError::MissingOutput)?,

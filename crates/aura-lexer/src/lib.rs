@@ -97,6 +97,8 @@ pub enum TokenKind {
     RBrace,
     Comma,
     Colon,
+    LBracket,
+    RBracket,
     Question,
     /// `?:` null-coalesce (C4m).
     QuestionColon,
@@ -218,6 +220,8 @@ impl<'a> Lexer<'a> {
             b'}' => self.simple(TokenKind::RBrace, 1),
             b',' => self.simple(TokenKind::Comma, 1),
             b':' => self.simple(TokenKind::Colon, 1),
+            b'[' => self.simple(TokenKind::LBracket, 1),
+            b']' => self.simple(TokenKind::RBracket, 1),
             b'?' => match self.bytes.get(self.pos + 1) {
                 Some(&b':') => self.simple(TokenKind::QuestionColon, 2),
                 Some(&b'.') => self.simple(TokenKind::QuestionDot, 2),
