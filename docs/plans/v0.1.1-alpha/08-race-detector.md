@@ -45,11 +45,16 @@ executors and channels remain silent.
 ## R3. Compiler instrumentation
 
 **Objective:** Instrument compiler-generated accesses consistently.
+**Implementation status:** Development/test profiles now emit source-IDed
+read/write hooks for local accesses and writes, attach source IDs to generated
+task frames, and bracket join/await/channel synchronization calls. Release
+profiles select the non-instrumented lowering. The runtime remains an event
+collector only; conflict suppression and stable reports are R4.
 **Checklist:**
 
-- [ ] Instrument reads, writes, task boundaries, and synchronization operations.
-- [ ] Preserve source spans through lowering and code generation.
-- [ ] Ensure profile selection controls instrumentation.
+- [x] Instrument reads, writes, task boundaries, and synchronization operations.
+- [x] Preserve source spans through lowering and code generation.
+- [x] Ensure profile selection controls instrumentation.
       **Acceptance:** Generated operations are tracked without changing normal results.
       **Verification:** Compare instrumented and non-instrumented outputs.
       **Dependencies:** R1, R2, B2.

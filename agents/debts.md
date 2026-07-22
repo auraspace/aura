@@ -319,9 +319,10 @@ When you resolve debt, update or remove the matching entry.
 
 ### Alpha race instrumentation (2026-07-22)
 
-- Runtime executor lifecycle events now cover spawn and terminal outcomes.
-  Compiler read/write instrumentation, synchronization edges, suppression, and
-  stable conflict reports remain deferred to R1–R5 follow-up slices.
+- R3 now emits source-IDed local read/write hooks and source-tagged task,
+  await, join, and channel boundaries in detector-enabled profiles. The
+  runtime still records events without conflict suppression or stable report
+  formatting; vector-clock refinement and actionable diagnostics remain R4.
 
 ### Async I/O suspension (2026-07-22)
 
