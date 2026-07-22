@@ -145,14 +145,24 @@ fn cmd_update(args: &[String]) -> ExitCode {
     if json {
         println!("{}", decision.render_json());
     } else {
+        let code = decision.code();
         match &decision {
             UpdateDecision::Update(candidate) => println!(
-                "update available: {} -> {} ({}, {})",
-                current, candidate.meta.vers, candidate.target, candidate.reason
+                "[{code}] update available: {} -> {} ({}, {})",
+                current,
+                candidate.meta.vers,
+                candidate.target,
+                candidate.reason
             ),
-            UpdateDecision::NoUpdate { current } => println!("no update available (current {current})"),
-            UpdateDecision::Unsupported { target, .. } => println!("update unsupported for target {target}"),
-            UpdateDecision::Revoked { version, reason } => println!("update {version} revoked: {reason}"),
+            UpdateDecision::NoUpdate { current } => {
+                println!("[{code}] no update available (current {current})")
+            }
+            UpdateDecision::Unsupported { target, .. } => {
+                println!("[{code}] update unsupported for target {target}")
+            }
+            UpdateDecision::Revoked { version, reason } => {
+                println!("[{code}] update {version} revoked: {reason}")
+            }
         }
     }
     match decision {
