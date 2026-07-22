@@ -291,6 +291,14 @@ pub class HashMap<K : Hashable, V>(var keys: Array<K>, var vals: Array<V>, var s
     return false
   }
 
+  /// True when a live entry stores v. Empty and tombstone slots are ignored.
+  pub fun containsValue(v: V): Bool {
+    for (i in 0..this.state.len) {
+      if (this.state.get(i) == 1 && this.vals.get(i) == v) { return true }
+    }
+    return false
+  }
+
   pub fun remove(k: K): Bool {
     val n = this.keys.len
     if (n == 0) { return false }
@@ -331,6 +339,15 @@ pub class HashSet<T : Hashable>(var table: HashMap<T, Bool>) {
 
   pub fun add(k: T): Bool { return this.table.put(k, true) }
   pub fun contains(k: T): Bool { return this.table.contains(k) }
+
+  /// True when every requested key is present; an empty request is true.
+  pub fun containsAll(keys: Array<T>): Bool {
+    for (key in keys) {
+      if (!this.contains(key)) { return false }
+    }
+    return true
+  }
+
   pub fun remove(k: T): Bool { return this.table.remove(k) }
   pub fun clear() { this.table.clear() }
 

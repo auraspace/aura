@@ -35,6 +35,9 @@ fun main() {
   if (h.getOr("z", "def") == "def") {
     println("ordef")
   }
+  if (h.get("none") == null && !h.contains("none") && h.containsValue("ten") && !h.containsValue("missing")) {
+    println("generic-string-accessors-ok")
+  }
   if (h.remove("b")) {
     println("rmb")
   }

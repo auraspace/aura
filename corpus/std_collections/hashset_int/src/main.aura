@@ -11,6 +11,14 @@ fun main() {
   if (first && !duplicate && s.len() == 2 && s.contains(1) && s.contains(2)) {
     println("generic-set-ok")
   }
+  val requested: Array<Int> = Array(0)
+  requested.push(1)
+  requested.push(2)
+  val missing: Array<Int> = Array(0)
+  missing.push(3)
+  if (s.containsAll(requested) && !s.containsAll(missing) && s.containsAll(Array<Int>(0))) {
+    println("generic-set-accessors-ok")
+  }
   var count: Int = 0
   for (x in s) {
     if (x == 1 || x == 2) { count = count + 1 }
@@ -30,7 +38,9 @@ fun main() {
 
   val words = hash_set()
   words.add("aura")
-  if (words.contains("aura") && words.len() == 1) {
+  val requestedWords: Array<String> = Array(0)
+  requestedWords.push("aura")
+  if (words.contains("aura") && !words.contains("missing") && words.containsAll(requestedWords) && words.len() == 1) {
     println("generic-string-set-ok")
   }
   val upper = map_hash_set<String, String>(words, (x: String) => x + "!")

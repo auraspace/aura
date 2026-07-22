@@ -14,6 +14,9 @@ fun main() {
   if (h.remove(2) && !h.contains(2)) {
     println("generic-int-remove-ok")
   }
+  if (h.get(9) == null && !h.contains(9) && h.containsValue("uno") && !h.containsValue("nine")) {
+    println("generic-int-accessors-ok")
+  }
   val keys = h.keyArray()
   val values = h.valueArray()
   if (keys.len == 1 && keys.get(0) == 1 && values.get(0) == "uno") {
