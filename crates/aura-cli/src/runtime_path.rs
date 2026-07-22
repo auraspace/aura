@@ -78,13 +78,45 @@ fn cache_file() -> PathBuf {
     env::temp_dir().join(format!("aura-{AURA_VERSION}-aura_rt.c"))
 }
 
+fn fallback_cache_file() -> PathBuf {
+    env::temp_dir()
+        .join(format!("aura-{AURA_VERSION}-{}", std::process::id()))
+        .join("aura_rt.c")
+}
+
 /// Write embedded runtime to the user cache if missing or stale.
 fn materialize_embedded() -> Result<PathBuf, String> {
-    let path = cache_file();
+    let primary = cache_file();
+    let fallback = fallback_cache_file();
+    materialize_embedded_from(&primary, &fallback)
+}
+
+fn materialize_embedded_from(
+    primary: &std::path::Path,
+    fallback: &std::path::Path,
+) -> Result<PathBuf, String> {
+    if primary == fallback {
+        return materialize_embedded_at(primary);
+    }
+
+    let mut errors = Vec::new();
+    for path in [primary, fallback] {
+        match materialize_embedded_at(path) {
+            Ok(path) => return Ok(path),
+            Err(error) => errors.push(error),
+        }
+    }
+    Err(format!(
+        "error: unable to materialize embedded runtime; {}",
+        errors.join("; ")
+    ))
+}
+
+fn materialize_embedded_at(path: &std::path::Path) -> Result<PathBuf, String> {
     if path.is_file() {
         if let Ok(existing) = fs::read_to_string(&path) {
             if existing == EMBEDDED_RUNTIME_C {
-                return Ok(path);
+                return Ok(path.to_path_buf());
             }
         }
     }
@@ -94,7 +126,7 @@ fn materialize_embedded() -> Result<PathBuf, String> {
     }
     fs::write(&path, EMBEDDED_RUNTIME_C)
         .map_err(|e| format!("error: write runtime cache {}: {e}", path.display()))?;
-    Ok(path)
+    Ok(path.to_path_buf())
 }
 
 /// For tests: ensure resolve always succeeds (embedded fallback).
@@ -127,5 +159,27 @@ mod tests {
         let b = materialize_embedded().unwrap();
         assert_eq!(a, b);
         assert!(a.is_file());
+    }
+
+    #[test]
+    fn materialize_falls_back_when_primary_cache_is_unwritable() {
+        let root = env::temp_dir().join(format!(
+            "aura-runtime-path-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let blocked_parent = root.join("blocked");
+        fs::write(&blocked_parent, "not a directory").unwrap();
+        let primary = blocked_parent.join("aura_rt.c");
+        let fallback = root.join("fallback").join("aura_rt.c");
+
+        let path = materialize_embedded_from(&primary, &fallback).expect("fallback runtime path");
+
+        assert_eq!(path, fallback);
+        assert_eq!(fs::read_to_string(path).unwrap(), EMBEDDED_RUNTIME_C);
+        let _ = fs::remove_dir_all(root);
     }
 }
