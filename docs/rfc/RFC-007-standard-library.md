@@ -21,7 +21,7 @@ This RFC outlines the **Aura standard library** for servers and CLIs: prelude, c
 
 Implementation is primarily **Aura**, with thin runtime/FFI bridges where required.
 
-**Toolchain today (2026-07-22, S2/C21i):** repo packages `std/io` (console, file, process, stdin, exit, and non-throwing `readFileResult`/`writeFileResult`), `std/assert`, and `std/collections` (Map/Set, generic `HashMap<K,V>`/`HashSet<T>`, Iterable, generic map/filter/fold, join, hash-collection snapshots/HOFs, read-only snapshot iterators, and `HashMapEntry` snapshots with direct `for-in`). Package builds auto-prelude `std.io` and resolve `std.*` path deps. Strict file I/O still throws `String`; Result wrappers provide structured failures. Live iterators/views, mutation-through-entry, networking, JSON, logging, crypto, synchronization, and async I/O remain deferred.
+**Toolchain today (2026-07-22, C22t):** repo packages `std/io` (console, file, process, stdin, exit, and non-throwing `readFileResult`/`writeFileResult`), `std/assert`, and `std/collections` (Map/Set, generic `HashMap<K,V>`/`HashSet<T>`, Iterable, generic map/filter/fold, join, hash-collection snapshots/HOFs, read-only snapshot iterators, and `HashMapEntry` snapshots with direct `for-in`). C22 adds compiler/runtime support for deterministic task frames, empty spawn lifecycle, bounded channels, and typed Int/String/class channel payloads; it does not yet ship a complete `std/task` package surface. Strict file I/O still throws `String`; Result wrappers provide structured failures. Live iterators/views, mutation-through-entry, networking, JSON, logging, crypto, synchronization, and async I/O remain deferred.
 
 ## 2. Motivation
 
@@ -68,26 +68,26 @@ Compiler MVP needs types to lower; users need I/O and collections for non-toy pr
 
 ### 6.1 Package map (v1)
 
-| Package                | Contents                                                                                                       |
-| ---------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `std.prelude`          | Auto-imported essentials: `String` methods surface, `Result`, `Option`/`T?` helpers, `println` maybe re-export |
-| `std.core`             | `Any`, `Error`, primitives wrappers if any                                                                     |
-| `std.collections`      | `List`, `Map`, `Set`, `Vec`/`ArrayList`, iterators                                                             |
-| `std.str` / string ops | Unicode-aware helpers                                                                                          |
-| `std.io`               | Reader/Writer, files, stdin/stdout                                                                             |
-| `std.fs`               | Path, metadata, directory                                                                                      |
-| `std.net`              | TCP/UDP/Unix sockets; **not** full HTTP server framework                                                       |
-| `std.http`             | **Deferred** as full client/server; ecosystem packages first. Net primitives stay in `std.net`                 |
-| `std.json`             | Parse/serialize                                                                                                |
-| `std.log`              | Structured levels                                                                                              |
-| `std.sync`             | Mutex, RwLock, bounded `Channel<T>`, Atomic, Once                                                              |
-| `std.task`             | `Task<T>`, `TaskHandle<T>`, spawn, join, cancel, scope, sleep (thin over runtime)                              |
-| `std.time`             | Instant, Duration, clock                                                                                       |
-| `std.crypto`           | Hash (SHA-2), HMAC, random; TLS via well-scoped API                                                            |
-| `std.encoding`         | Base64, hex, UTF-8                                                                                             |
-| `std.ffi`              | C string/buffer helpers                                                                                        |
-| `std.reflect`          | Opt-in reflection (RFC-009)                                                                                    |
-| `std.test`             | Assert helpers (RFC-011)                                                                                       |
+| Package                | Contents                                                                                                                                  |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `std.prelude`          | Auto-imported essentials: `String` methods surface, `Result`, `Option`/`T?` helpers, `println` maybe re-export                            |
+| `std.core`             | `Any`, `Error`, primitives wrappers if any                                                                                                |
+| `std.collections`      | `List`, `Map`, `Set`, `Vec`/`ArrayList`, iterators                                                                                        |
+| `std.str` / string ops | Unicode-aware helpers                                                                                                                     |
+| `std.io`               | Reader/Writer, files, stdin/stdout                                                                                                        |
+| `std.fs`               | Path, metadata, directory                                                                                                                 |
+| `std.net`              | TCP/UDP/Unix sockets; **not** full HTTP server framework                                                                                  |
+| `std.http`             | **Deferred** as full client/server; ecosystem packages first. Net primitives stay in `std.net`                                            |
+| `std.json`             | Parse/serialize                                                                                                                           |
+| `std.log`              | Structured levels                                                                                                                         |
+| `std.sync`             | Mutex, RwLock, bounded `Channel<T>`, Atomic, Once                                                                                         |
+| `std.task`             | Planned surface; C22 currently exposes only the implemented task lifecycle/channel slice; scope, sleep, and full outcomes remain deferred |
+| `std.time`             | Instant, Duration, clock                                                                                                                  |
+| `std.crypto`           | Hash (SHA-2), HMAC, random; TLS via well-scoped API                                                                                       |
+| `std.encoding`         | Base64, hex, UTF-8                                                                                                                        |
+| `std.ffi`              | C string/buffer helpers                                                                                                                   |
+| `std.reflect`          | Opt-in reflection (RFC-009)                                                                                                               |
+| `std.test`             | Assert helpers (RFC-011)                                                                                                                  |
 
 ### 6.2 Error conventions
 
@@ -184,7 +184,7 @@ stored, sent, or retained by a task or channel.
 
 ### 6.5 I/O & net
 
-- Async methods: `await file.readToEnd()`, `await tcp.accept()`.
+- Async methods such as `await file.readToEnd()` and `await tcp.accept()` remain design examples; await suspension lowering and async I/O are deferred.
 - Blocking variants available for scripts; prefer async in servers.
 
 ### 6.6 JSON

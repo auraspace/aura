@@ -144,19 +144,19 @@ class Greeter(val name: String) {
 
 **Originally deferred at C0/C1 freeze** (many now shipped — see roadmap C2–C10j):
 
-| Item                                                            | Toolchain status (2026-07-20)                                                                     |
-| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| Generics, interfaces, `struct`/`enum`/`match`                   | **Implemented** (C2–C3)                                                                           |
-| Exceptions / `throw`/`try`/`catch`/`finally`                    | **Implemented** (C3c/C3g)                                                                         |
-| Multi-file packages, `import`, path deps, `aura.lock`           | **Implemented** (C3e–C3p, C4j); lock schema v0 (C8k)                                              |
-| `for` ranges / for-in (Array, String bytes), `break`/`continue` | **Implemented** (C3h–C3l, C3w)                                                                    |
-| Builtin `Array<T>`, null `?:` / `?.`, `if` expr                 | **Implemented** (C3j+, C4m/C4s/C4t)                                                               |
-| String `+` / interpolation `${}` (idents), `type`/`const`, `is` | **Implemented** (C9d–C9i)                                                                         |
-| Lambdas / fun types `(T) -> U`                                  | **Implemented** (C10c–j + C12k–m + C20c–e captures); escaping live Array ownership still deferred |
-| `async`/`await`/`spawn`                                         | **C22 surface contract frozen; implementation in progress**                                       |
-| Attributes/macros, full Unicode identifiers                     | **Still deferred**                                                                                |
-| Iterable protocol                                               | **Implemented** (C8d); generic class implements C9a                                               |
-| Registry/semver fetch                                           | **Still deferred** (debts)                                                                        |
+| Item                                                            | Toolchain status (2026-07-20)                                                                                                                  |
+| --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Generics, interfaces, `struct`/`enum`/`match`                   | **Implemented** (C2–C3)                                                                                                                        |
+| Exceptions / `throw`/`try`/`catch`/`finally`                    | **Implemented** (C3c/C3g)                                                                                                                      |
+| Multi-file packages, `import`, path deps, `aura.lock`           | **Implemented** (C3e–C3p, C4j); lock schema v0 (C8k)                                                                                           |
+| `for` ranges / for-in (Array, String bytes), `break`/`continue` | **Implemented** (C3h–C3l, C3w)                                                                                                                 |
+| Builtin `Array<T>`, null `?:` / `?.`, `if` expr                 | **Implemented** (C3j+, C4m/C4s/C4t)                                                                                                            |
+| String `+` / interpolation `${}` (idents), `type`/`const`, `is` | **Implemented** (C9d–C9i)                                                                                                                      |
+| Lambdas / fun types `(T) -> U`                                  | **Implemented** (C10c–j + C12k–m + C20c–e captures); escaping live Array ownership still deferred                                              |
+| `async`/`await`/`spawn`                                         | **C22 surface and checks landed; lowering is partial** — no-await tasks/empty spawn only; await state machines and non-empty captures deferred |
+| Attributes/macros, full Unicode identifiers                     | **Still deferred**                                                                                                                             |
+| Iterable protocol                                               | **Implemented** (C8d); generic class implements C9a                                                                                            |
+| Registry/semver fetch                                           | **Still deferred** (debts)                                                                                                                     |
 
 **Corpus:** programs under `corpus/` exercise the implemented surface above; see [`corpus/README.md`](../../corpus/README.md).
 

@@ -19,7 +19,7 @@
 
 This RFC specifies the **Aura runtime** linked into application binaries: tracing **GC**, **M:N task scheduler**, async I/O reactor, exception personality support, panic/abort paths, timers, and **C ABI FFI** bridges. The runtime is shipped as libraries produced by the Rust toolchain and linked by `aura build`, not installed as a separate end-user package.
 
-**Toolchain today (2026-07-22, S2/C19):** embedded C runtime [`runtime/aura_rt.c`](../../runtime/aura_rt.c) linked by the C backend — console/file/process I/O, exception frames with object payloads, Array/String ownership helpers, and a stop-the-world mark/sweep GC with registered roots, deep object scanning, Array/class-field marking, and shutdown cleanup. No M:N scheduler, channels, `async` I/O, concurrent GC, or broad C FFI surface yet.
+**Toolchain today (2026-07-22, C22t):** embedded C runtime [`runtime/aura_rt.c`](../../runtime/aura_rt.c) linked by the C backend — console/file/process I/O, exception frames with object payloads, Array/String ownership helpers, stop-the-world mark/sweep GC with registered roots, task-frame ABI, a deterministic single-threaded FIFO executor, and bounded channels with typed payload cleanup. C22 does not yet provide the full RFC scheduler: await suspension state machines, non-empty spawn capture frames, complete task failure propagation, async I/O, concurrent GC, and broad C FFI remain deferred.
 
 ## 2. Motivation
 
@@ -213,12 +213,12 @@ Linking the runtime into each binary matches single-file deploy and avoids “in
 
 ## 11. Implementation plan (optional)
 
-| Phase | Scope                  | Exit criteria    | Status                                                     |
-| ----- | ---------------------- | ---------------- | ---------------------------------------------------------- |
-| R0    | Alloc + print + exit   | Hello            | **Done** (C1 + C3x path)                                   |
-| R1    | GC MVP single-thread   | Class heap refs  | **Partial** — alloc + free-all (C3x/C3y); not full tracing |
-| R2    | Scheduler + channels   | Concurrent tests | Deferred                                                   |
-| R3    | Async net + exceptions | Echo server      | Exceptions partial (C3c/C3g/C3s); async net deferred       |
+| Phase | Scope                  | Exit criteria    | Status                                                                                        |
+| ----- | ---------------------- | ---------------- | --------------------------------------------------------------------------------------------- |
+| R0    | Alloc + print + exit   | Hello            | **Done** (C1 + C3x path)                                                                      |
+| R1    | GC MVP single-thread   | Class heap refs  | **Partial** — alloc + free-all (C3x/C3y); not full tracing                                    |
+| R2    | Scheduler + channels   | Concurrent tests | **Partial** — C22 single-threaded FIFO executor/channels landed; parallel scheduling deferred |
+| R3    | Async net + exceptions | Echo server      | Exceptions partial (C3c/C3g/C3s); await state machines and async net deferred                 |
 
 ## 12. References
 

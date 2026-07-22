@@ -16,6 +16,13 @@ When you resolve debt, update or remove the matching entry.
 - Why deferred: C22l state-machine/capture lowering and the corresponding frame-root contract are not implemented; the shipped slice supports no-await tasks and empty `spawn {}` only.
 - Next step: add an explicit frame data mark/drop contract, root captured owned values across suspension, and reject borrowed C21 views at every suspension boundary before enabling non-empty async bodies.
 
+### Async lowering and task outcome gaps (C22t, 2026-07-22)
+
+- Area: async/task codegen and runtime outcomes
+- Symptom: `await` parses and type-checks but has no lowered suspension state machine; only empty `spawn {}` bodies execute; task failure propagation is not complete.
+- Why deferred: C22l/C22m landed the no-await task-frame and empty-lifecycle slices, but framing locals/captures across suspension and a stable failed-task result ABI still need implementation and ownership tests.
+- Next step: lower await points with captured-local storage, implement non-empty spawn capture/drop, and define end-to-end success/failure/cancellation propagation before advertising the full C22 contract as executable.
+
 ### S3 release rehearsal external blockers
 
 - Area: production release / S3.2 + S3.6
@@ -29,6 +36,13 @@ When you resolve debt, update or remove the matching entry.
   checksum result. Keep failed/interrupted-install evidence with the release
   ticket; the offline script only proves failed archive verification preserves
   the active `current` link.
+
+### C22 release work deferred (C22t, 2026-07-22)
+
+- Area: release / publication
+- Symptom: C22t records implementation status only; no new release rehearsal, signing, publication, or cross-target artifact work was performed.
+- Why deferred: release execution is outside the C22 scope and requires an explicit release request plus external hosts, credentials, and distribution services.
+- Next step: create a separate release task after await/capture/failure gaps are resolved and run the supported-target acceptance matrix.
 
 ### Lambda capture limits (MVP)
 

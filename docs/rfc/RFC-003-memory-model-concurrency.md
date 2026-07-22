@@ -21,7 +21,7 @@ This RFC defines Aura’s **memory and concurrency model**: tracing GC, referenc
 
 Runtime implementation details (scheduler, collector algorithm) are expanded in **RFC-006**; this document is the language-level contract.
 
-**Toolchain today (2026-07-22, S2/C21i):** class instances are GC heap references, `struct` values remain by-value, and execution is single-threaded. The runtime has a stop-the-world mark/sweep collector with registered roots and deep scans, plus ownership handling for Array/String values and captured environments. C20c–e add MVP shared pointer boxes for mutable class, Array, and nested Fun captures; C20g adds read-only collection snapshots. C21b–e add sema-checked, non-owning scoped refs and borrow-safe Array field returns without a new runtime ownership ABI. Class payloads are rooted and nested Fun environments retain/release. Tasks, channels, `async`/`await`, a race detector, and concurrent GC are **not** implemented and remain deferred.
+**Toolchain today (2026-07-22, C22t):** class instances are GC heap references, `struct` values remain by-value, and execution is single-threaded. The runtime has a stop-the-world mark/sweep collector with registered roots and deep scans, plus ownership handling for Array/String values and captured environments. C20c–e add MVP shared pointer boxes for mutable class, Array, and nested Fun captures; C20g adds read-only collection snapshots. C21b–e add sema-checked, non-owning scoped refs and borrow-safe Array field returns. C22a–i land async/task syntax, AST, type checks, and borrow barriers; C22j–k land task frames and a deterministic executor; C22n–o land bounded channels and typed Int/String/class payload lowering. C22l–m remain partial: no-await async bodies and empty `spawn {}` are supported, while await suspension state machines, non-empty spawn captures, and complete task failure propagation are deferred. Async frame GC roots across suspension remain an open debt.
 
 ## 2. Motivation
 
@@ -93,6 +93,12 @@ The C22 MVP excludes OS-thread scheduling, work stealing, a blocking-I/O
 reactor, and concurrent GC. Those facilities may be added by a later RFC or
 milestone without changing the source vocabulary below. Release packaging,
 signing, notarization, and publication are also outside C22.
+
+The landed C22 implementation is intentionally narrower than this contract:
+`await` parses and type-checks but does not yet lower to suspension states;
+only empty `spawn {}` bodies are executable; and task failure propagation is
+not complete. These are implementation follow-ups, not changes to the source
+contract.
 
 ### 6.2 Memory management strategy
 

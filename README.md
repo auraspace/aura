@@ -244,7 +244,7 @@ when their Rust and C toolchains are available.
 - **Debts** Tracked in [`agents/debts.md`](agents/debts.md)
 - **Docs C13t:** C13a–C13t batch closed — dogfood/captures/registry K1 foundation ([plan](docs/plans/2026-07-21-next-20-c13a-c13t.md))
 - **S2:** production toolchain complete — verified HTTPS/nested registry deps, Unix artifacts, installer safety, and acceptance gate ([plan](docs/plans/2026-07-21-s2-production-toolchain.md))
-- **Next:** registry publish/auth, live Array/collection views, `Array<Interface>`, async/tasks, and residual debts remain deferred
+- **C22:** async/task syntax, sema borrow barriers, deterministic task frames/executor, bounded channels, typed Int/String/class channel lowering, corpus, diagnostics, and churn/audit checks are landed. `await` suspension state machines, non-empty `spawn` capture lowering, complete task failure propagation, async GC roots across suspension, and release work remain deferred; see the [C22 plan](docs/plans/2026-07-22-next-20-c22-async-tasks.md).
 
 ### Mutable capture status
 
