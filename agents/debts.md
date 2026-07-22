@@ -70,11 +70,12 @@ When you resolve debt, update or remove the matching entry.
 ### Stdlib collections polish
 
 - Area: stdlib / RFC-007
-- Symptom: linear `Map`/`Set`; generic hash collections now cover HashMap and HashSet
-- Why deferred: generic collection codegen for arbitrary user-defined element types was not covered end-to-end
-- Progress: C9b auto-resize; C12n String→String; C12o String HOF; **C14** generic `HashMap<K,V>`; **C15** generic `HashSet<T>`; **C16** generic `map`/`filter`/`fold` API; **C17** generic class HOF corpus coverage
-- Next step: extend coverage to richer nested/user-defined generic layouts if needed
-- Note: C14/C15 resolved the generic hash-collection residual
+- Symptom: no live iterator/entry view or mutation-through-entry API; `Map`/`Set` remain linear alternatives.
+- Why deferred: C19 deliberately exposes stable array snapshots rather than a borrowed or mutable iterator representation.
+- Progress: C9b auto-resize; C12n String→String; C12o String HOF; **C14** generic `HashMap<K,V>`; **C15** generic `HashSet<T>`; **C16** generic `map`/`filter`/`fold`; **C17** user-defined class HOF coverage; **C18** hash snapshots/HOFs; **C19a** `containsValue`/`containsAll`; **C19b** `HashMapEntry<K,V>` `entries()` snapshots; **C19c** direct entry `for-in`. Compiler prerequisites **C19x** generic constructor substitution and **C19y** nested generic return/local substitution are resolved.
+- Limitation: `entries()` is a fresh shallow structural snapshot in logical table order. It preserves key/value pairing and never mutates the source map, but it is not live and entries cannot mutate the map.
+- Next step: add iterator objects, entry views, or mutation APIs only when their ownership/borrow contract is designed.
+- Note: C14/C15 resolved the generic hash-collection residual; C19 resolved the nested generic codegen blockers exposed by entry snapshots.
 - Introduced: narrowed after C8i; resize C9b; String→String C12n; String HOF C12o
 
 ## Resolved
@@ -85,17 +86,6 @@ When you resolve debt, update or remove the matching entry.
   before emitting generic class constructor symbols, including alias-qualified
   constructors. Corpus `generic/constructor_subst.aura` covers both a generic
   function and a generic-class method returning concrete `Pair` monomorphs.
-
-### Nested generic return/local type substitution (C19y, 2026-07-22)
-
-- Area: compiler/codegen / generic monomorphization
-- Symptom: `Array<Generic<K,V>>` or a generic entry type in a generic function
-  can still emit an open `Generic_K_V` type in a return signature or local C
-  declaration.
-- Why deferred: C19x fixed constructor symbols only; nested type emission is a
-  separate substitution path exposed by the C19b entry-snapshot prototype.
-- Next step: substitute nested generic types consistently before C signatures
-  and type keys are emitted, then remove this entry when C19y lands.
 
 ### C16 generic HOF compiler support (2026-07-21)
 

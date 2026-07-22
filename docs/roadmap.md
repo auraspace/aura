@@ -228,6 +228,12 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C13t**  | Close C13a–C13t batch (roadmap / debts / plan)                     | **Done**                                   |
 | **C14**   | `Hashable` + generic `HashMap<K,V>` (mono, Int/String keys)        | **Done**                                   |
 | **C18**   | Generic hash-collection snapshots and HOFs (HashMap/HashSet)       | **Done**                                   |
+| **C19a**  | HashMap/HashSet accessors (`containsValue` / `containsAll`)        | **Done**                                   |
+| **C19x**  | Substitute generic class constructors in generic bodies            | **Done**                                   |
+| **C19y**  | Substitute nested generic return/local types                       | **Done**                                   |
+| **C19b**  | `HashMapEntry<K,V>` shallow snapshots via `entries()`              | **Done**                                   |
+| **C19c**  | Direct `for-in` over generic hash-map entry snapshots              | **Done**                                   |
+| **C19d**  | Close C19 collection batch (guide / corpus / roadmap / debts)      | **Done**                                   |
 
 Plans:
 
@@ -245,7 +251,7 @@ Plans:
 1. ~~Language surface through C13~~ (funs/lambdas, Fun+var String capture) → later: true borrow, Array-of-iface, `var` class/Array
 2. Runtime: ~~GC + process I/O + String Array free + Fun env RC~~ → later: channels/tasks; fix `Io.args` strdup vs free
 3. Toolchain: ~~path deps + registry K1 offline~~ → ~~**S2:** verified HTTPS + nested locked registry deps~~ → later: K1b/K2 publish
-4. Stdlib: ~~io + collections + C13 toString/case/eprint/tryWrite + C14 generic HashMap + C15 generic HashSet + C18 hash-collection HOFs~~ → later: richer iterator/entry APIs
+4. Stdlib: ~~io + collections + C13 toString/case/eprint/tryWrite + C14 generic HashMap + C15 generic HashSet + C18 hash-collection HOFs + C19 accessors/entry snapshots/entry for-in~~ → later: live iterator/entry-view APIs and entry mutation
 5. Cross targets + signed releases — ~~**S2 contract:** Linux amd64, macOS arm64/amd64~~; Windows amd64 deferred → ~~**C13s** signing note~~ → later: minisign / notarization
 
 S2 production toolchain implementation: [`docs/plans/2026-07-21-s2-production-toolchain.md`](plans/2026-07-21-s2-production-toolchain.md). Release publication remains pending.

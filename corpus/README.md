@@ -97,35 +97,35 @@ Sample `.aura` programs for the compiler: parse/typecheck (`aura check`), native
 
 ## Packages, import, stdlib
 
-| Path                                  | Intent                                                                                              |
-| ------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `test/smoke.aura`                     | `@test` + `assert` / `assert_eq`                                                                    |
-| `multi/`                              | Multi-file package + `aura.toml` (C3e)                                                              |
-| `import/app` + `import/math`          | `import` + `pub` + path dep (C3f); alias `Math.square` (C3n); `Math.Point` (C3u); `aura.lock` (C3p) |
-| `import/collide` + lib_a/lib_b        | same `fun add` (C3o) + same `class Token` (C3v); lockfile (C3p)                                     |
-| `import/iface_app` + iface_a/iface_b  | same interface name across packages (C4d)                                                           |
-| `import/nested_app` + nested_mid/leaf | Nested path deps in `aura.lock` (C4j)                                                               |
-| `std_io/app`                          | Explicit `import std.io` + `println` (C3z)                                                          |
-| `std_io/prelude`                      | Auto-prelude `std.io` without import (C4g)                                                          |
-| `std_io/files`                        | `readFile` / `writeFile` / `appendFile` / `fileExists` / `fileSize` (C11a)                          |
-| `std_collections/hashmap_int`         | Generic `HashMap<Int,String>` snapshots and map-entry HOF (C18)                                     |
-| `std_collections/hashmap_str`         | Generic `HashMap<String,String>` map-entry HOF (C18)                                                |
-| `std_collections/hashset_int`         | Generic `HashSet<Int>` snapshots and filter/map HOFs; String map (C18)                              |
-| `std_io/try_read_file`                | `tryReadFile(path): String?` null on missing/error; keep throwing `readFile` (C12p)                 |
-| `std_io/args`                         | `std.io.args(): Array<String>` process argv (C12b); optional `aura run … -- hello` (C12c)           |
-| `std_io/stdin`                        | `readLine(): String?` + `readAllStdin()` (C12d); smoke EOF without pipe; `printf … \| aura run …`   |
-| `std_io/exit`                         | `std.io.exit(code)` (C12e); default exit 0; `aura run … -- 7` for non-zero (CLI unit test too)      |
-| `std_assert/app`                      | `std.assert` package (C4h)                                                                          |
-| `std_collections/app`                 | Map/Set/HashMap smoke                                                                               |
-| `std_collections/hof`                 | Generic `map` / `filter` / `fold` over `Array<Int>` (C16)                                           |
-| `std_collections/hof_str`             | Generic `map` / `filter` / `fold` over `Array<String>` (C16)                                        |
-| `std_collections/join`                | `join(parts, sep)` for `Array<String>` (C12j)                                                       |
-| `std_collections/hashmap`             | HashMap String→Int (+ resize)                                                                       |
-| `std_collections/hashmap_str`         | HashMapStr String→String (+ resize) (C12n)                                                          |
-| `std_collections/hashmap_int`         | Generic HashMap<Int, String> + update/remove (C14)                                                  |
-| `std_collections/hashset_int`         | Generic HashSet<Int> + duplicate/remove/iteration (C15)                                             |
-| `std_collections/iterable`            | `Iterable<E>` for-in                                                                                |
-| `std_collections/forin`               | for-in over Map.keys / Set                                                                          |
+| Path                                  | Intent                                                                                                       |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `test/smoke.aura`                     | `@test` + `assert` / `assert_eq`                                                                             |
+| `multi/`                              | Multi-file package + `aura.toml` (C3e)                                                                       |
+| `import/app` + `import/math`          | `import` + `pub` + path dep (C3f); alias `Math.square` (C3n); `Math.Point` (C3u); `aura.lock` (C3p)          |
+| `import/collide` + lib_a/lib_b        | same `fun add` (C3o) + same `class Token` (C3v); lockfile (C3p)                                              |
+| `import/iface_app` + iface_a/iface_b  | same interface name across packages (C4d)                                                                    |
+| `import/nested_app` + nested_mid/leaf | Nested path deps in `aura.lock` (C4j)                                                                        |
+| `std_io/app`                          | Explicit `import std.io` + `println` (C3z)                                                                   |
+| `std_io/prelude`                      | Auto-prelude `std.io` without import (C4g)                                                                   |
+| `std_io/files`                        | `readFile` / `writeFile` / `appendFile` / `fileExists` / `fileSize` (C11a)                                   |
+| `std_collections/hashmap_int`         | Generic `HashMap<Int,String>` accessors, snapshots, `HashMapEntry` `for-in`, and map-entry HOF (C18/C19)     |
+| `std_collections/hashmap_str`         | Generic `HashMap<String,String>` accessors, paired entry snapshots, direct entry `for-in`, and HOF (C18/C19) |
+| `std_collections/hashset_int`         | Generic `HashSet<Int>` snapshots, `containsAll`, and filter/map HOFs; String map (C18/C19)                   |
+| `std_io/try_read_file`                | `tryReadFile(path): String?` null on missing/error; keep throwing `readFile` (C12p)                          |
+| `std_io/args`                         | `std.io.args(): Array<String>` process argv (C12b); optional `aura run … -- hello` (C12c)                    |
+| `std_io/stdin`                        | `readLine(): String?` + `readAllStdin()` (C12d); smoke EOF without pipe; `printf … \| aura run …`            |
+| `std_io/exit`                         | `std.io.exit(code)` (C12e); default exit 0; `aura run … -- 7` for non-zero (CLI unit test too)               |
+| `std_assert/app`                      | `std.assert` package (C4h)                                                                                   |
+| `std_collections/app`                 | Map/Set/HashMap smoke                                                                                        |
+| `std_collections/hof`                 | Generic `map` / `filter` / `fold` over `Array<Int>` (C16)                                                    |
+| `std_collections/hof_str`             | Generic `map` / `filter` / `fold` over `Array<String>` (C16)                                                 |
+| `std_collections/join`                | `join(parts, sep)` for `Array<String>` (C12j)                                                                |
+| `std_collections/hashmap`             | HashMap String→Int (+ resize)                                                                                |
+| `std_collections/hashmap_str`         | HashMapStr String→String (+ resize) (C12n)                                                                   |
+| `std_collections/hashmap_int`         | Generic HashMap<Int, String> + update/remove/accessors/entry snapshot iteration (C14/C19)                    |
+| `std_collections/hashset_int`         | Generic HashSet<Int> + duplicate/remove/iteration/`containsAll` (C15/C19)                                    |
+| `std_collections/iterable`            | `Iterable<E>` for-in                                                                                         |
+| `std_collections/forin`               | for-in over Map.keys / Set                                                                                   |
 
 Std packages live under repo `std/io`, `std/assert`, and `std/collections` (path-resolved for `std.*`).
 

@@ -11,11 +11,11 @@ Aura’s **core** stdlib is intentionally small ([RFC-007](/rfc/007), [RFC-000](
 
 ## Packages today (post-alpha C12)
 
-| Package           | Path              | Role                                                                |
-| ----------------- | ----------------- | ------------------------------------------------------------------- |
-| `std.io`          | `std/io`          | Console, file I/O, argv, stdin, exit                                |
-| `std.assert`      | `std/assert`      | Assert helpers for tests                                            |
-| `std.collections` | `std/collections` | Map/Set/HashMap/HashMapStr, Iterable, Int·String HOF, `join` (C12j) |
+| Package           | Path              | Role                                                                      |
+| ----------------- | ----------------- | ------------------------------------------------------------------------- |
+| `std.io`          | `std/io`          | Console, file I/O, argv, stdin, exit                                      |
+| `std.assert`      | `std/assert`      | Assert helpers for tests                                                  |
+| `std.collections` | `std/collections` | Map/Set, generic hash collections and snapshots, `Iterable`, HOFs, `join` |
 
 Builtins such as `Array<T>` and core scalars are part of the **language**, not a separate import. String methods (`indexOf`, `split`, `trim`, `toInt`, …) are language surface — see [Types](./types-and-nullability.md) and the [cheatsheet](./syntax-cheatsheet.md).
 
@@ -106,22 +106,23 @@ Prefer package tests that exercise `assert` / `assert_eq` for `Int` / `String` /
 
 ## `std.collections`
 
-| Type / helper                                     | Notes                                                     |
-| ------------------------------------------------- | --------------------------------------------------------- |
-| `Map<K, V>`                                       | Linear map; `get` → `V?`; `put` / `remove` / `clear`      |
-| `Set<T>`                                          | Generic set (linear)                                      |
-| `HashMap<K,V>`                                    | Generic open addressing with `K: Hashable` (C14)          |
-| `HashSet<T>`                                      | Generic open addressing backed by `HashMap<T,Bool>` (C15) |
-| `Hashable`                                        | `hash(): Int`; built-in for `Int` and `String` (C14)      |
-| `keyArray()` / `valueArray()`                     | Live `HashMap` snapshots in logical table order (C18)     |
-| `toArray()`                                       | Live `HashSet` snapshot in logical table order (C18)      |
-| `map_hash_map_values`                             | Generic `(K,V) -> R` map-entry HOF (C18)                  |
-| `filter_hash_set` / `map_hash_set`                | Generic set HOFs returning arrays (C18)                   |
-| `Iterable<E>`                                     | `len` + `get` protocol for `for-in`                       |
-| `map<T,R>` / `filter<T>` / `fold<T,A>`            | Generic array HOFs; verified for `Int` and `String` (C16) |
-| `map_ints` / `filter_ints` / `fold_ints`          | Int compatibility wrappers                                |
-| `map_strings` / `filter_strings` / `fold_strings` | String compatibility wrappers (C12o)                      |
-| `join(parts, sep)`                                | `Array<String>` → `String` with separator (C12j)          |
+| Type / helper                                     | Notes                                                                                |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `Map<K, V>`                                       | Linear map; `get` → `V?`; `put` / `remove` / `clear`                                 |
+| `Set<T>`                                          | Generic set (linear)                                                                 |
+| `HashMap<K,V>`                                    | Generic open addressing with `K: Hashable`; `containsValue` (C19a)                   |
+| `HashSet<T>`                                      | Generic open addressing backed by `HashMap<T,Bool>`; `containsAll(Array<T>)` (C19a)  |
+| `Hashable`                                        | `hash(): Int`; built-in for `Int` and `String` (C14)                                 |
+| `keyArray()` / `valueArray()`                     | Live `HashMap` snapshots in logical table order (C18)                                |
+| `HashMapEntry<K,V>` / `entries()`                 | Key/value snapshot pairs in logical table order (C19b)                               |
+| `toArray()`                                       | Live `HashSet` snapshot in logical table order (C18)                                 |
+| `map_hash_map_values`                             | Generic `(K,V) -> R` map-entry HOF (C18)                                             |
+| `filter_hash_set` / `map_hash_set`                | Generic set HOFs returning arrays (C18)                                              |
+| `Iterable<E>`                                     | `len` + `get` protocol for `for-in`, including `for (entry in map.entries())` (C19c) |
+| `map<T,R>` / `filter<T>` / `fold<T,A>`            | Generic array HOFs; verified for `Int` and `String` (C16)                            |
+| `map_ints` / `filter_ints` / `fold_ints`          | Int compatibility wrappers                                                           |
+| `map_strings` / `filter_strings` / `fold_strings` | String compatibility wrappers (C12o)                                                 |
+| `join(parts, sep)`                                | `Array<String>` → `String` with separator (C12j)                                     |
 
 See [Arrays](./arrays.md) for HOF usage and capture limits.
 
@@ -129,6 +130,8 @@ See [Arrays](./arrays.md) for HOF usage and capture limits.
 aura run corpus/std_collections/app
 aura run corpus/std_collections/hashmap
 aura run corpus/std_collections/hashmap_str
+aura run corpus/std_collections/hashmap_int
+aura run corpus/std_collections/hashset_int
 aura run corpus/std_collections/hof
 aura run corpus/std_collections/hof_str
 aura run corpus/std_collections/join
@@ -137,6 +140,11 @@ aura run corpus/std_collections/join
 Hash collection HOFs are free functions because methods cannot declare their own
 type parameters yet (C2b). They return arrays in logical table order and skip
 empty/tombstone slots; they do not mutate the source collection.
+
+`HashMap.entries()` likewise returns a fresh, shallow structural snapshot of
+`HashMapEntry<K,V>` pairs. It preserves key/value pairing and can be consumed
+directly with `for-in`, but it is not a live iterator or entry view: changing an
+entry cannot mutate the source map.
 
 ## How the CLI finds `std.*`
 
