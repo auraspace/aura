@@ -175,10 +175,7 @@ fn render(tokens: &[Token]) -> String {
         } else if t == ":" {
             trim_space(&mut out);
             out.push_str(": ");
-        } else if t == "." || t == "?." || t == "!!" {
-            trim_space(&mut out);
-            out.push_str(t);
-        } else if t == ")" || t == "]" {
+        } else if t == "." || t == "?." || t == "!!" || t == ")" || t == "]" {
             trim_space(&mut out);
             out.push_str(t);
         } else if t == "(" || t == "[" {

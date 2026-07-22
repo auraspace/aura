@@ -114,7 +114,7 @@ fn materialize_embedded_from(
 
 fn materialize_embedded_at(path: &std::path::Path) -> Result<PathBuf, String> {
     if path.is_file() {
-        if let Ok(existing) = fs::read_to_string(&path) {
+        if let Ok(existing) = fs::read_to_string(path) {
             if existing == EMBEDDED_RUNTIME_C {
                 return Ok(path.to_path_buf());
             }
@@ -124,7 +124,7 @@ fn materialize_embedded_at(path: &std::path::Path) -> Result<PathBuf, String> {
         fs::create_dir_all(parent)
             .map_err(|e| format!("error: create runtime cache {}: {e}", parent.display()))?;
     }
-    fs::write(&path, EMBEDDED_RUNTIME_C)
+    fs::write(path, EMBEDDED_RUNTIME_C)
         .map_err(|e| format!("error: write runtime cache {}: {e}", path.display()))?;
     Ok(path.to_path_buf())
 }
