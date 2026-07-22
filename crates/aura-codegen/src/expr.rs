@@ -964,6 +964,17 @@ pub(crate) fn full_type_mono(key: &str, checked: &CheckedFile) -> String {
 }
 
 pub(crate) fn type_ref_to_ty(t: &TypeRef, ctx: &EmitCtx<'_>) -> Option<Ty> {
+    if t.type_args.is_empty() {
+        if let Some(idx) = ctx.type_params.iter().position(|p| p == &t.name.name) {
+            if let Some(arg) = ctx.type_args.get(idx) {
+                return Some(if t.nullable {
+                    Ty::Nullable(Box::new(arg.clone()))
+                } else {
+                    arg.clone()
+                });
+            }
+        }
+    }
     if !t.type_args.is_empty() {
         let args: Vec<Ty> = t
             .type_args

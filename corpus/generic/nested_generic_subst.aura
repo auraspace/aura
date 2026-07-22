@@ -1,0 +1,31 @@
+// C19y — nested generic local and return types substitute in generic functions.
+package demo.generic.nested_generic_subst
+
+class Pair<K, V>(val key: K, val value: V) {
+}
+
+fun singleton<K, V>(key: K, value: V): Array<Pair<K, V>> {
+  val out: Array<Pair<K, V>> = Array(0)
+  out.push(Pair<K, V>(key, value))
+  return out
+}
+
+class PairMaker<K, V>(val key: K, val value: V) {
+  fun singleton(): Array<Pair<K, V>> {
+    val out: Array<Pair<K, V>> = Array(0)
+    out.push(Pair<K, V>(this.key, this.value))
+    return out
+  }
+}
+
+fun main() {
+  val pairs: Array<Pair<Int, String>> = singleton<Int, String>(7, "seven")
+  val first: Pair<Int, String> = pairs.get(0)
+  assert_eq(first.key, 7)
+  assert_eq(first.value, "seven")
+
+  val more: Array<Pair<Int, String>> = PairMaker<Int, String>(8, "eight").singleton()
+  assert_eq(more.get(0).key, 8)
+  assert_eq(more.get(0).value, "eight")
+  println("nested-generic-subst-ok")
+}

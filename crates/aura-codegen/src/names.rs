@@ -431,6 +431,100 @@ pub(crate) fn ty_to_c_local(t: &Ty, checked: &CheckedFile) -> String {
     }
 }
 
+/// Resolve a type reference under a concrete generic instantiation.
+///
+/// This must recurse through type arguments: a direct substitution handles `T`,
+/// but a type such as `Array<Pair<K, V>>` needs both `K` and `V` replaced before
+/// its monomorph key is used by C emission.
+fn type_ref_to_ty_subst(ty: &TypeRef, checked: &CheckedFile, params: &[String], args: &[Ty]) -> Ty {
+    if let Some(fun) = &ty.fun {
+        let fun_ty = Ty::Fun {
+            params: fun
+                .params
+                .iter()
+                .map(|p| type_ref_to_ty_subst(p, checked, params, args))
+                .collect(),
+            ret: Box::new(type_ref_to_ty_subst(&fun.ret, checked, params, args)),
+        };
+        return if ty.nullable {
+            Ty::Nullable(Box::new(fun_ty))
+        } else {
+            fun_ty
+        };
+    }
+    if ty.type_args.is_empty() {
+        if let Some(idx) = params.iter().position(|p| p == &ty.name.name) {
+            if let Some(arg) = args.get(idx) {
+                return if ty.nullable {
+                    Ty::Nullable(Box::new(arg.clone()))
+                } else {
+                    arg.clone()
+                };
+            }
+        }
+        if let Some(alias) = checked
+            .ast
+            .type_aliases
+            .iter()
+            .find(|a| a.name.name == ty.name.name)
+        {
+            return type_ref_to_ty_subst(&alias.ty, checked, params, args);
+        }
+    }
+
+    let type_args: Vec<Ty> = ty
+        .type_args
+        .iter()
+        .map(|arg| type_ref_to_ty_subst(arg, checked, params, args))
+        .collect();
+    let pkg = resolve_type_ref_package(ty, checked);
+    let base = match ty.name.name.as_str() {
+        "Int" => Ty::Int,
+        "Bool" => Ty::Bool,
+        "String" => Ty::String,
+        "Unit" => Ty::Unit,
+        "Array" => Ty::ClassApp {
+            name: "Array".into(),
+            args: type_args,
+        },
+        name if checked.ast.enums.iter().any(|e| e.name.name == name) => {
+            if type_args.is_empty() {
+                Ty::Enum(nominal_key(&pkg, name))
+            } else {
+                Ty::EnumApp {
+                    name: nominal_key(&pkg, name),
+                    args: type_args,
+                }
+            }
+        }
+        name if checked.ast.interfaces.iter().any(|i| i.name.name == name) => {
+            if type_args.is_empty() {
+                Ty::Interface(nominal_key(&pkg, name))
+            } else {
+                Ty::InterfaceApp {
+                    name: nominal_key(&pkg, name),
+                    args: type_args,
+                }
+            }
+        }
+        name => {
+            if type_args.is_empty() {
+                Ty::Class(nominal_key(&pkg, name))
+            } else {
+                Ty::ClassApp {
+                    name: nominal_key(&pkg, name),
+                    args: type_args,
+                }
+            }
+        }
+    };
+    if ty.nullable {
+        Ty::Nullable(Box::new(base))
+    } else {
+        base
+    }
+}
+
 pub(crate) fn c_type_ref_subst(
     ty: &TypeRef,
     checked: &CheckedFile,
@@ -442,9 +536,9 @@ pub(crate) fn c_type_ref_subst(
         let params_ty: Vec<Ty> = fun
             .params
             .iter()
-            .map(|p| type_ref_to_ty_simple(p, params, args))
+            .map(|p| type_ref_to_ty_subst(p, checked, params, args))
             .collect();
-        let ret_ty = type_ref_to_ty_simple(&fun.ret, params, args);
+        let ret_ty = type_ref_to_ty_subst(&fun.ret, checked, params, args);
         let fun_ty = Ty::Fun {
             params: params_ty,
             ret: Box::new(ret_ty),
@@ -525,20 +619,7 @@ pub(crate) fn c_type_ref_subst(
             let targs: Vec<Ty> = ty
                 .type_args
                 .iter()
-                .filter_map(|t| {
-                    if let Some(idx) = params.iter().position(|p| p == &t.name.name) {
-                        return args.get(idx).cloned();
-                    }
-                    match t.name.name.as_str() {
-                        "Int" => Some(Ty::Int),
-                        "Bool" => Some(Ty::Bool),
-                        "String" => Some(Ty::String),
-                        other => {
-                            let epkg = resolve_type_ref_package(t, checked);
-                            Some(Ty::Class(nominal_key(&epkg, other)))
-                        }
-                    }
-                })
+                .map(|t| type_ref_to_ty_subst(t, checked, params, args))
                 .collect();
             let mono = type_mono(&pkg, &ty.name.name, &targs);
             return c_iface_type(&mono);
@@ -546,45 +627,7 @@ pub(crate) fn c_type_ref_subst(
         let targs: Vec<Ty> = ty
             .type_args
             .iter()
-            .map(|t| {
-                if let Some(arg) = params
-                    .iter()
-                    .position(|p| p == &t.name.name)
-                    .and_then(|idx| args.get(idx).cloned())
-                {
-                    return arg;
-                }
-                match t.name.name.as_str() {
-                    "Int" => Ty::Int,
-                    "Bool" => Ty::Bool,
-                    "String" => Ty::String,
-                    other => {
-                        // C4c: package-qualify class type args (Array<Box@pkg>).
-                        let epkg = resolve_type_ref_package(t, checked);
-                        if t.type_args.is_empty() {
-                            Ty::Class(nominal_key(&epkg, other))
-                        } else {
-                            let nested: Vec<Ty> = t
-                                .type_args
-                                .iter()
-                                .map(|n| match n.name.name.as_str() {
-                                    "Int" => Ty::Int,
-                                    "Bool" => Ty::Bool,
-                                    "String" => Ty::String,
-                                    o => {
-                                        let p = resolve_type_ref_package(n, checked);
-                                        Ty::Class(nominal_key(&p, o))
-                                    }
-                                })
-                                .collect();
-                            Ty::ClassApp {
-                                name: nominal_key(&epkg, other),
-                                args: nested,
-                            }
-                        }
-                    }
-                }
-            })
+            .map(|t| type_ref_to_ty_subst(t, checked, params, args))
             .collect();
         let mono = if targs.len() == ty.type_args.len() {
             type_mono(&pkg, &ty.name.name, &targs)
