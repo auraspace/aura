@@ -482,3 +482,70 @@ fn rejects_async_without_fun() {
     assert!(err.message.contains("`fun` after `async`"));
     assert_eq!(err.span.start, 19);
 }
+
+#[test]
+fn parses_task_and_channel_operations() {
+    let file = parse_file(
+        "package demo\nfun main() {\n  val ch = Channel<Int>(2)\n  val task = spawn { ch.send(1) }\n  val value = ch.receive()\n  join(task)\n  cancel(task)\n  ch.close()\n}\n",
+    )
+    .expect("parse");
+    let body = &file.functions[0].body.stmts;
+    assert!(matches!(
+        body[0],
+        Stmt::Var(VarStmt {
+            init: Expr::Async(AsyncExpr::ChannelCreate(_)),
+            ..
+        })
+    ));
+    assert!(matches!(
+        body[1],
+        Stmt::Var(VarStmt {
+            init: Expr::Async(AsyncExpr::Spawn(_)),
+            ..
+        })
+    ));
+    assert!(matches!(
+        body[2],
+        Stmt::Var(VarStmt {
+            init: Expr::Async(AsyncExpr::ChannelReceive(_)),
+            ..
+        })
+    ));
+    assert!(matches!(
+        body[3],
+        Stmt::Expr(Expr::Async(AsyncExpr::Join(_)))
+    ));
+    assert!(matches!(
+        body[4],
+        Stmt::Expr(Expr::Async(AsyncExpr::Cancel(_)))
+    ));
+    assert!(matches!(
+        body[5],
+        Stmt::Expr(Expr::Async(AsyncExpr::ChannelClose(_)))
+    ));
+}
+
+#[test]
+fn rejects_malformed_task_and_channel_operations() {
+    for (src, expected) in [
+        (
+            "package demo\nfun main() { join() }\n",
+            "expected expression",
+        ),
+        (
+            "package demo\nfun main() { cancel(a, b) }\n",
+            "expected `)`",
+        ),
+        (
+            "package demo\nfun main() { Channel<Int>() }\n",
+            "capacity argument",
+        ),
+        (
+            "package demo\nfun main() { ch.send() }\n",
+            "requires 1 argument",
+        ),
+    ] {
+        let err = parse_file(src).expect_err("malformed async operation");
+        assert!(err.message.contains(expected), "{src}: {}", err.message);
+    }
+}

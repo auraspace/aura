@@ -15,12 +15,13 @@ impl Parser {
             // `Ident<TypeArgs>(...)` — only if `<...>` is followed by `(`
             if matches!(self.peek().kind, TokenKind::Lt) {
                 if let Some(call) = self.try_parse_generic_call(lhs.clone())? {
-                    lhs = call;
+                    lhs = self.lower_async_call(call)?;
                     continue;
                 }
             }
             if matches!(self.peek().kind, TokenKind::LParen) {
-                lhs = self.parse_call(lhs, Vec::new())?;
+                let call = self.parse_call(lhs, Vec::new())?;
+                lhs = self.lower_async_call(call)?;
                 continue;
             }
             if matches!(self.peek().kind, TokenKind::Dot) {
@@ -137,6 +138,9 @@ impl Parser {
                     span,
                 })))
             }
+            TokenKind::Spawn => self.parse_spawn(),
+            TokenKind::Join => self.parse_join_or_cancel(false),
+            TokenKind::Cancel => self.parse_join_or_cancel(true),
             TokenKind::Minus => {
                 let start = self.peek().span.start;
                 self.bump();
@@ -254,6 +258,107 @@ impl Parser {
                 span: self.peek().span,
             }),
         }
+    }
+
+    /// C22g: `spawn { ... }` (or the expression shorthand wrapped in a block).
+    fn parse_spawn(&mut self) -> Result<Expr, ParseError> {
+        let start = self.bump().span.start;
+        let body = if matches!(self.peek().kind, TokenKind::LBrace) {
+            self.parse_block()?
+        } else {
+            let expr = self.parse_expr(prefix_binding_power())?;
+            let span = expr.span();
+            Block {
+                stmts: vec![Stmt::Expr(expr)],
+                span,
+            }
+        };
+        Ok(Expr::Async(AsyncExpr::Spawn(SpawnExpr {
+            span: Span::new(start, body.span.end),
+            body,
+        })))
+    }
+
+    /// C22g: `join(handle)` and `cancel(handle)` each take exactly one operand.
+    fn parse_join_or_cancel(&mut self, cancel: bool) -> Result<Expr, ParseError> {
+        let start = self.bump().span.start;
+        self.expect(TokenKind::LParen, "`(` after async operation")?;
+        let handle = self.parse_expr(0)?;
+        let end = self.expect(TokenKind::RParen, "`)`")?.span.end;
+        let span = Span::new(start, end);
+        if cancel {
+            Ok(Expr::Async(AsyncExpr::Cancel(CancelExpr {
+                handle: Box::new(handle),
+                span,
+            })))
+        } else {
+            Ok(Expr::Async(AsyncExpr::Join(JoinExpr {
+                handle: Box::new(handle),
+                span,
+            })))
+        }
+    }
+
+    fn lower_async_call(&mut self, expr: Expr) -> Result<Expr, ParseError> {
+        let Expr::Call(call) = expr else {
+            return Ok(expr);
+        };
+        let span = call.span;
+        if let Expr::Ident(name) = call.callee.as_ref() {
+            if name.name == "Channel" {
+                if call.type_args.len() != 1 {
+                    return Err(ParseError {
+                        message: "`Channel` requires exactly one element type".into(),
+                        span,
+                    });
+                }
+                if call.args.len() != 1 {
+                    return Err(ParseError {
+                        message: "`Channel` requires exactly one capacity argument".into(),
+                        span,
+                    });
+                }
+                return Ok(Expr::Async(AsyncExpr::ChannelCreate(ChannelCreateExpr {
+                    element_type: call.type_args.into_iter().next().unwrap(),
+                    capacity: Box::new(call.args.into_iter().next().unwrap()),
+                    span,
+                })));
+            }
+        }
+        if let Expr::Field(field) = call.callee.as_ref() {
+            let operation = match field.field.name.as_str() {
+                "send" => Some(0),
+                "receive" => Some(1),
+                "close" => Some(2),
+                _ => None,
+            };
+            if let Some(operation) = operation {
+                let expected = if operation == 0 { 1 } else { 0 };
+                if call.args.len() != expected {
+                    return Err(ParseError {
+                        message: format!(
+                            "channel `{}` requires {expected} argument(s)",
+                            field.field.name
+                        ),
+                        span,
+                    });
+                }
+                let channel = field.object.clone();
+                return Ok(match operation {
+                    0 => Expr::Async(AsyncExpr::ChannelSend(ChannelSendExpr {
+                        channel,
+                        value: Box::new(call.args.into_iter().next().unwrap()),
+                        span,
+                    })),
+                    1 => Expr::Async(AsyncExpr::ChannelReceive(ChannelReceiveExpr {
+                        channel,
+                        span,
+                    })),
+                    _ => Expr::Async(AsyncExpr::ChannelClose(ChannelCloseExpr { channel, span })),
+                });
+            }
+        }
+        Ok(Expr::Call(call))
     }
 
     /// C10c: `(x: Int) => x + 1`, `(a: Int, b: Int) => a + b`, `() => 0`.
