@@ -103,6 +103,23 @@ When you resolve debt, update or remove the matching entry.
 - Next step: integrate file handles with the async operation frame and define
   cancellation/GC cleanup before checking the remaining IO2 items.
 
+### IO4 native operation adapters remain open (2026-07-22)
+
+- Area: async file/TCP cancellation and cleanup
+- Symptom: `AuraTaskFrame` now provides an exactly-once cleanup hook for a
+  registered pending resource, but `AuraFile` and `AuraTcpStream` do not yet
+  register operations with the executor or expose readiness completion/wake
+  sources.
+- Why deferred: the current POSIX APIs perform bounded synchronous calls (or
+  return `PENDING` for a zero-timeout probe), so claiming disconnect cleanup or
+  scheduler-wide failure wakeup would overstate the ABI.
+- Progress: `runtime/tests/task_io_cleanup_sanitizer.c` proves file and TCP
+  descriptor cleanup on cancellation, failure, and forced executor shutdown
+  under ASAN/UBSAN.
+- Next step: define an operation handle and readiness/event registration after
+  the full A4–A8 suspension contract is available; connect disconnect and
+  failure completion to executor wake before closing the remaining IO4 items.
+
 ### Foreign symbol lowering deferred to F2 (2026-07-22)
 
 - F1 validates and preserves explicit foreign declarations, but does not add

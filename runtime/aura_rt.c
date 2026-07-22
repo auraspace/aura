@@ -4936,6 +4936,7 @@ typedef enum
 typedef void (*AuraTaskResultDestroyFn)(void *data, size_t size);
 typedef AuraTaskPollState (*AuraTaskPollFn)(AuraTaskFrame *frame);
 typedef void (*AuraTaskFrameDestroyFn)(AuraTaskFrame *frame);
+typedef void (*AuraTaskCleanupFn)(void *data);
 
 typedef enum
 {
@@ -4980,6 +4981,12 @@ typedef struct
   int rooted;
 } AuraTaskFrameStorage;
 
+typedef struct
+{
+  void *data;
+  AuraTaskCleanupFn cleanup;
+} AuraTaskFrameCleanup;
+
 struct AuraTaskFrame
 {
   uint32_t abi_version;
@@ -4994,6 +5001,7 @@ struct AuraTaskFrame
   int result_rooted;
   AuraTaskFrameStorage captures;
   AuraTaskFrameStorage pending;
+  AuraTaskFrameCleanup cleanup;
   AuraTaskResult error;
   AuraTaskResultDestroyFn error_destroy;
   int error_rooted;
@@ -5175,6 +5183,48 @@ AuraTaskFrameStorage aura_task_frame_pending(const AuraTaskFrame *frame)
   return frame != NULL ? frame->pending : empty;
 }
 
+/* A frame-scoped cleanup is the bounded bridge between a pending I/O
+ * operation and the task lifecycle.  The callback owns the resource while
+ * armed; clearing the slot before invoking it makes cancellation, failure,
+ * and shutdown cleanup re-entrant and exactly-once. */
+static void aura_task_frame_cleanup_run(AuraTaskFrame *frame)
+{
+  void *data;
+  AuraTaskCleanupFn cleanup;
+
+  if (frame == NULL || frame->cleanup.cleanup == NULL)
+  {
+    return;
+  }
+  data = frame->cleanup.data;
+  cleanup = frame->cleanup.cleanup;
+  frame->cleanup = (AuraTaskFrameCleanup){NULL, NULL};
+  if (cleanup != NULL && data != NULL)
+  {
+    cleanup(data);
+  }
+}
+
+void aura_task_frame_set_cleanup(AuraTaskFrame *frame,
+                                  void *data,
+                                  AuraTaskCleanupFn cleanup)
+{
+  if (frame == NULL)
+  {
+    return;
+  }
+  aura_task_frame_cleanup_run(frame);
+  frame->cleanup = (AuraTaskFrameCleanup){data, cleanup};
+}
+
+void aura_task_frame_clear_cleanup(AuraTaskFrame *frame)
+{
+  if (frame != NULL)
+  {
+    frame->cleanup = (AuraTaskFrameCleanup){NULL, NULL};
+  }
+}
+
 void aura_task_frame_set_pending(AuraTaskFrame *frame,
                                  void *data,
                                  size_t size,
@@ -5327,6 +5377,7 @@ void aura_task_frame_destroy(AuraTaskFrame *frame)
   {
     return;
   }
+  aura_task_frame_cleanup_run(frame);
   if (frame->destroy != NULL)
   {
     frame->destroy(frame);
@@ -5387,6 +5438,7 @@ AuraTaskPollState aura_task_frame_poll_once(AuraTaskFrame *frame)
      * observable without keeping cancelled work alive. */
     aura_task_frame_storage_release(&frame->pending);
     aura_task_frame_storage_release(&frame->captures);
+    aura_task_frame_cleanup_run(frame);
     frame->state = AURA_TASK_CANCELLED;
     return frame->state;
   }
@@ -5394,6 +5446,10 @@ AuraTaskPollState aura_task_frame_poll_once(AuraTaskFrame *frame)
   if (state < AURA_TASK_READY || state > AURA_TASK_CANCELLED)
   {
     state = AURA_TASK_FAILED;
+  }
+  if (state == AURA_TASK_FAILED || state == AURA_TASK_CANCELLED)
+  {
+    aura_task_frame_cleanup_run(frame);
   }
   frame->state = state;
   return state;

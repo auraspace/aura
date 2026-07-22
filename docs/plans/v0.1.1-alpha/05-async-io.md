@@ -102,17 +102,32 @@ and concurrent-connection tests on Linux and macOS.
 
 **Objective:** Make pending I/O safe under every task lifecycle outcome.
 
+**Bounded implementation status:** `AuraTaskFrame` now exposes a frame-scoped
+cleanup hook for an adapter-owned pending file/socket operation. The hook is
+cleared before its callback runs, runs before cancellation/failure becomes
+observable, and also runs when executor shutdown destroys a live frame.
+Cancellation already wakes a pending frame through the bounded executor. This
+does not yet register `AuraFile`/`AuraTcpStream` operations with a readiness
+source or scheduler; adapters must explicitly arm and clear the hook.
+
 **Checklist:**
 
-- [ ] Cancel pending file and TCP operations without double-close.
+- [x] Cancel pending file and TCP operations without double-close for
+      frame-registered adapter resources.
 - [ ] Wake suspended tasks when operations fail or cancel.
-- [ ] Reclaim buffers and descriptors after disconnect.
-- [ ] Drain or cancel outstanding operations deterministically at shutdown.
+- [ ] Reclaim buffers and descriptors after disconnect; native disconnect
+      completion is not yet connected to the task frame.
+- [x] Drain or cancel frame-registered outstanding operations deterministically
+      at shutdown.
 
-**Acceptance:** No pending operation survives its owning task or server shutdown.
+**Acceptance:** No frame-registered operation survives its owning task or
+executor shutdown. The full server-shutdown acceptance remains open until
+native file/TCP adapters provide operation registration and wake sources.
 
-**Verification:** Run leak checks, sanitizer tests, cancellation races, and
-forced-shutdown cases.
+**Verification:** `runtime/tests/task_io_cleanup_sanitizer.c` covers real file
+and TCP descriptors under cancellation, failure, and forced executor shutdown
+with ASAN/UBSAN. Native disconnect races and scheduler-wide wakeup remain
+deferred.
 
 **Dependencies:** IO2, IO3, S5.
 
