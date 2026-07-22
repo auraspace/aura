@@ -1,0 +1,104 @@
+# Workstream 09: Registry, Publish, and Self-update
+
+Owner: Tooling + Release. Scope: 8 tasks.
+
+## U1. Package/archive contract
+
+**Objective:** Define a verifiable artifact exchanged with registries and users.
+**Checklist:**
+
+- [ ] Define identity, version, manifest, source inclusion, target naming, and
+      archive layout.
+- [ ] Define checksum, signature, metadata, and reproducibility rules.
+- [ ] Define compatibility and rejection behavior.
+      **Acceptance:** The same package input produces the same verified archive.
+      **Verification:** Compare repeated archives and malformed metadata cases.
+      **Dependencies:** C1–C3, P1–P8.
+
+## U2. Registry client
+
+**Objective:** Consume and publish registry data through a stable protocol.
+**Checklist:**
+
+- [ ] Support configuration, authentication, fetch, upload, timeout, and retry.
+- [ ] Map HTTP status, transport, auth, and validation failures to stable errors.
+- [ ] Keep offline fixtures separate from network-required tests.
+      **Acceptance:** Registry operations are deterministic against a local fixture
+      service and safe against malformed responses.
+      **Verification:** Test success, auth failure, timeout, malformed data, and retry.
+      **Dependencies:** U1, C3.
+
+## U3. Dependency resolution
+
+**Objective:** Resolve registry dependencies without violating lock/checksum rules.
+**Checklist:**
+
+- [ ] Resolve versions and transitive dependencies deterministically.
+- [ ] Validate lockfile, source identity, checksum, and cache state.
+- [ ] Report conflicts, missing packages, cycles, and tampering clearly.
+      **Acceptance:** A locked graph resolves identically online and from warm cache.
+      **Verification:** Run conflict, missing, checksum, cycle, and offline cases.
+      **Dependencies:** U2, P3–P4.
+
+## U4. Publish dry-run
+
+**Objective:** Validate and preview publishing without network mutation.
+**Checklist:**
+
+- [ ] Validate manifest, version, package contents, and dependencies.
+- [ ] Produce archive/checksum/signature preview.
+- [ ] Show all errors before any upload operation.
+      **Acceptance:** Dry-run never mutates registry state.
+      **Verification:** Compare preview with actual package and block invalid inputs.
+      **Dependencies:** U1, U2.
+
+## U5. Publish upload
+
+**Objective:** Publish valid packages with safe failure behavior.
+**Checklist:**
+
+- [ ] Upload archive and metadata atomically from the registry perspective.
+- [ ] Handle version conflicts, retries, auth, and partial failures.
+- [ ] Return stable exit codes and machine-readable results.
+      **Acceptance:** A failed publish cannot leave a falsely complete release.
+      **Verification:** Run local-registry success, duplicate, timeout, and retry tests.
+      **Dependencies:** U3, U4.
+
+## U6. Update discovery
+
+**Objective:** Select a compatible update for the current installation.
+**Checklist:**
+
+- [ ] Discover versions and filter by platform, architecture, and compatibility.
+- [ ] Verify metadata before downloading payloads.
+- [ ] Define no-update, unsupported, and revoked-version behavior.
+      **Acceptance:** The selected update is compatible and explainable.
+      **Verification:** Run version, target, metadata, and unavailable-update cases.
+      **Dependencies:** U1, U2, P6.
+
+## U7. Verified atomic self-update
+
+**Objective:** Replace the active toolchain without corrupting a working install.
+**Checklist:**
+
+- [ ] Download to isolated temporary storage.
+- [ ] Verify checksum and signature before activation.
+- [ ] Replace atomically and retain rollback information.
+- [ ] Preserve the old version after interruption or validation failure.
+      **Acceptance:** No failed update changes the active executable.
+      **Verification:** Inject download, checksum, signature, permission, and crash
+      failures.
+      **Dependencies:** U6, P7.
+
+## U8. Release integration
+
+**Objective:** Prove registry, publishing, updating, and target artifacts work
+together.
+**Checklist:**
+
+- [ ] Publish a fixture release to a local registry.
+- [ ] Install, verify, update, rollback, and execute it on Linux/macOS.
+- [ ] Record checksums, versions, target, host, and outcome.
+      **Acceptance:** The release workflow is reproducible from a clean installation.
+      **Verification:** Run the full release acceptance stage.
+      **Dependencies:** U5, U7, P8.
