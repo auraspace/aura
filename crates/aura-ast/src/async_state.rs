@@ -37,7 +37,15 @@ fn collect_stmt(stmt: &Stmt, next: &mut u32, points: &mut Vec<AsyncSuspensionPoi
         Stmt::ForIn(f) => { collect_expr(&f.iterable, next, points); collect_block(&f.body, next, points); }
         Stmt::Break(_) | Stmt::Continue(_) => {}
         Stmt::Match(m) => { collect_expr(&m.scrutinee, next, points); for arm in &m.arms { collect_block(&arm.body, next, points); } }
-        Stmt::Try(t) => { collect_block(&t.try_block, next, points); if let Some(c) = &t.catch { collect_block(&c.body, next, points); } if let Some(b) = &t.finally { collect_block(b, next, points); } }
+        Stmt::Try(t) => {
+            collect_block(&t.try_block, next, points);
+            if let Some(c) = &t.catch {
+                collect_block(&c.body, next, points);
+            }
+            if let Some(b) = &t.finally {
+                collect_block(b, next, points);
+            }
+        }
         Stmt::Throw(t) => collect_expr(&t.value, next, points),
         Stmt::Return(r) => if let Some(e) = &r.value { collect_expr(e, next, points); },
         Stmt::Expr(e) => collect_expr(e, next, points),
