@@ -21,7 +21,7 @@ This RFC specifies Aura’s **static type system**: nominal class/interface type
 
 It assumes the surface from **RFC-001** and leaves runtime representation details to **RFC-004** / **RFC-006**.
 
-**Toolchain today (2026-07-22, C20):** nominal classes/interfaces/`struct`/`enum`, monomorphized generics + bounds, local null flow + `!!` / `?:` / `?.`, type-argument inference, fun types/`Ty::Fun`, lambdas with value and reference captures, generic HOFs, nested generic substitution in codegen, MVP shared mutable `var` captures for class/Array/Fun, and read-only collection snapshots/iterators. C21a selects **borrow/ref** as the next ownership track; no borrow syntax or checking is shipped yet. Not yet: inheritance hierarchy, full overloading, structural typing, `Array<Interface>`, live collection views, mutation-through-entry, or a complete lifetime/ownership contract for captured Array views.
+**Toolchain today (2026-07-22, C21i):** nominal classes/interfaces/`struct`/`enum`, monomorphized generics + bounds, local null flow + `!!` / `?:` / `?.`, type-argument inference, fun types/`Ty::Fun`, lambdas with value and reference captures, scoped non-owning `ref T` with lexical escape checks, borrow-safe Array field returns, generic HOFs, nested generic substitution in codegen, MVP shared mutable `var` captures for class/Array/Fun, read-only collection snapshots/iterators, formatter/structured diagnostics/test reports, and Result-based std.io wrappers. Not yet: inheritance hierarchy, full overloading, structural typing, mutable/nullable/nested refs, `Array<Interface>`, live collection views, mutation-through-entry, or a complete ownership contract for escaping captured Array views.
 
 ## 2. Motivation
 
@@ -56,7 +56,7 @@ Type rules gate compiler architecture, stdlib signatures, and reflection reifica
 - Gradual typing / `any` as a production default (may have `dyn` later—not v1).
 - Higher-kinded types in v1.
 - Structural typing as the default (optional structural records later).
-- General ownership/borrow types as the default model; a scoped non-owning `ref` MVP is planned for C21.
+- General ownership/borrow types as the default model; C21 ships only a scoped non-owning `ref` MVP.
 
 ## 5. Prior art & alternatives
 

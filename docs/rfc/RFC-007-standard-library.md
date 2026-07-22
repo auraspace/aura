@@ -21,7 +21,7 @@ This RFC outlines the **Aura standard library** for servers and CLIs: prelude, c
 
 Implementation is primarily **Aura**, with thin runtime/FFI bridges where required.
 
-**Toolchain today (2026-07-22, S2/C20):** repo packages `std/io` (console, file, process, stdin, and exit), `std/assert`, and `std/collections` (Map/Set, generic `HashMap<K,V>`/`HashSet<T>`, Iterable, generic map/filter/fold, join, hash-collection snapshots/HOFs, read-only snapshot iterators, and `HashMapEntry` snapshots with direct `for-in`). Package builds auto-prelude `std.io` and resolve `std.*` path deps. Strict file I/O throws `String`; soft read/write APIs return nullable/bool results. Live iterators/views, mutation-through-entry, networking, JSON, logging, crypto, synchronization, and async I/O remain deferred.
+**Toolchain today (2026-07-22, S2/C21i):** repo packages `std/io` (console, file, process, stdin, exit, and non-throwing `readFileResult`/`writeFileResult`), `std/assert`, and `std/collections` (Map/Set, generic `HashMap<K,V>`/`HashSet<T>`, Iterable, generic map/filter/fold, join, hash-collection snapshots/HOFs, read-only snapshot iterators, and `HashMapEntry` snapshots with direct `for-in`). Package builds auto-prelude `std.io` and resolve `std.*` path deps. Strict file I/O still throws `String`; Result wrappers provide structured failures. Live iterators/views, mutation-through-entry, networking, JSON, logging, crypto, synchronization, and async I/O remain deferred.
 
 ## 2. Motivation
 

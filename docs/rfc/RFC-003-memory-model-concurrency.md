@@ -21,7 +21,7 @@ This RFC defines Aura’s **memory and concurrency model**: tracing GC, referenc
 
 Runtime implementation details (scheduler, collector algorithm) are expanded in **RFC-006**; this document is the language-level contract.
 
-**Toolchain today (2026-07-22, S2/C20):** class instances are GC heap references, `struct` values remain by-value, and execution is single-threaded. The runtime has a stop-the-world mark/sweep collector with registered roots and deep scans, plus ownership handling for Array/String values and captured environments. C20c–e add MVP shared pointer boxes for mutable class, Array, and nested Fun captures; C20g adds read-only collection snapshots. Class payloads are rooted and nested Fun environments retain/release. C21a selects a future scoped, non-owning `ref` track to close the captured-Array and field-return lifetime gap; the runtime does not yet implement it. Tasks, channels, `async`/`await`, a race detector, and concurrent GC are **not** implemented and remain deferred.
+**Toolchain today (2026-07-22, S2/C21i):** class instances are GC heap references, `struct` values remain by-value, and execution is single-threaded. The runtime has a stop-the-world mark/sweep collector with registered roots and deep scans, plus ownership handling for Array/String values and captured environments. C20c–e add MVP shared pointer boxes for mutable class, Array, and nested Fun captures; C20g adds read-only collection snapshots. C21b–e add sema-checked, non-owning scoped refs and borrow-safe Array field returns without a new runtime ownership ABI. Class payloads are rooted and nested Fun environments retain/release. Tasks, channels, `async`/`await`, a race detector, and concurrent GC are **not** implemented and remain deferred.
 
 ## 2. Motivation
 

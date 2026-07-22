@@ -15,7 +15,7 @@ Living plan for docs, language specs, and the Rust toolchain. RFCs remain the de
 | RFC static site (`site/`)   | Implemented; Cloudflare Pages → **https://aura.fadosoft.com**                                                |
 | RFC-000 … RFC-013           | **All Accepted** — open questions resolved or Deferred (2026-07-16)                                          |
 | Language MVP                | RFC-001 §6.0 + post-C1; generic iface mono (C8c); Iterable (C8d); async/macros deferred                      |
-| Compiler                    | **C0–C20** closed; **C21a** selects scoped borrow/ref as the next track; live ownership deferred             |
+| Compiler                    | **C0–C21j** closed; scoped `ref T`, borrow-safe Array fields, and collection checks shipped; live ownership deferred |
 | Runtime / packages / stdlib | GC + String Array free; Map/Set/HashMap/HashMapStr; snapshot iterators; path+registry lock; std.io + process |
 | Distribution contract       | **S2 complete:** Linux amd64, macOS arm64, macOS amd64; Windows amd64 deferred                               |
 | Release metadata            | **0.1.0-alpha published**; subsequent release work tracks changes after `v0.1.0-alpha`                       |
@@ -243,6 +243,24 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C20i**  | Collection mutation-through-entry                                  | **Deferred** — read-only snapshots avoid unsafe aliases                     |
 | **C20j**  | Close C20 documentation/status                                     | **Done** — C21a selects borrow/ref; async/tasks and release remain deferred |
 | **C21a**  | Select post-C20 direction: scoped borrow/ref MVP                   | **Done** — syntax/runtime boundary frozen; async/tasks deferred             |
+| **C21b**  | Add borrow/ref type representation                                 | **Done** — scoped `ref T` parser/sema model                                  |
+| **C21c**  | Check local borrow lifetimes and escapes                            | **Done** — return, closure, and longer-lived assignment escapes rejected    |
+| **C21d**  | Make Array field returns borrow-safe                                | **Done** — borrow-source tracking and non-owning lowering                   |
+| **C21e**  | Integrate borrow rules with collection iteration                    | **Done** — deterministic snapshot iteration remains the stable API          |
+| **C21f**  | Add `aura fmt` MVP                                                  | **Done** — deterministic check/write formatter                              |
+| **C21g**  | Add machine-readable diagnostics                                    | **Done** — opt-in structured JSON diagnostics                               |
+| **C21h**  | Add test filtering and structured reports                            | **Done** — filter plus JSON report output                                   |
+| **C21i**  | Add `Result` wrappers for std.io failures                            | **Done** — non-throwing read/write wrappers                                 |
+| **C21j**  | Close C21 documentation/status                                      | **Done** — deferred work recorded; release not requested                    |
+| **C21b**  | Add scoped `ref T` type representation                             | **Done** — parser/sema representation and invalid-form diagnostics          |
+| **C21c**  | Check local borrow lifetimes and escapes                            | **Done** — lexical escape checks for returns, closures, and assignments     |
+| **C21d**  | Make Array field returns borrow-safe                               | **Done** — sema source tracking and non-moving codegen                      |
+| **C21e**  | Integrate borrow rules with collection iteration                    | **Done** — scoped snapshot iteration checks and corpus coverage             |
+| **C21f**  | Add `aura fmt` MVP                                                  | **Done** — deterministic formatter with check/write modes                  |
+| **C21g**  | Add machine-readable diagnostics                                    | **Done** — structured diagnostic models and JSON serialization              |
+| **C21h**  | Add test filtering and structured reports                           | **Done** — name filters and JSON test reports                              |
+| **C21i**  | Add `Result` wrappers for std.io failures                           | **Done** — non-throwing read/write wrappers                                |
+| **C21j**  | Close C21 documentation/status                                      | **Done** — shipped surface and deferred work synchronized                  |
 
 Plans:
 
@@ -257,13 +275,13 @@ Plans:
 
 ### P3 — Expand (after hello)
 
-1. ~~Language surface through C20~~ (funs/lambdas, mutable class/Array/Fun capture MVP) → **C21 borrow/ref** for safe field returns/views; later: Array-of-iface, async/tasks
+1. ~~Language surface through C21~~ (funs/lambdas, mutable captures, scoped `ref T`, borrow-safe field returns) → later: Array-of-iface, async/tasks
 2. Runtime: ~~GC + process I/O + String Array free + Fun env RC~~ → later: channels/tasks; fix `Io.args` strdup vs free
 3. Toolchain: ~~path deps + registry K1 offline~~ → ~~**S2:** verified HTTPS + nested locked registry deps~~ → later: K1b/K2 publish
-4. Stdlib: ~~io + collections + C13 toString/case/eprint/tryWrite + C14 generic HashMap + C15 generic HashSet + C18 hash-collection HOFs + C19 accessors/entry snapshots/entry for-in + C20 snapshot iterators~~ → C21 borrow/ref enables later live iterator/entry-view APIs; entry mutation remains deferred
+4. Stdlib: ~~io + collections + C13 toString/case/eprint/tryWrite + C14 generic HashMap + C15 generic HashSet + C18 hash-collection HOFs + C19 accessors/entry snapshots/entry for-in + C20 snapshot iterators + C21i Result I/O~~ → live iterator/entry-view APIs and entry mutation remain deferred
 5. Cross targets + signed releases — ~~**S2 contract:** Linux amd64, macOS arm64/amd64~~; Windows amd64 deferred → ~~**C13s** signing note~~ → later: minisign / notarization
 
-S2 production toolchain implementation: [`docs/plans/2026-07-21-s2-production-toolchain.md`](plans/2026-07-21-s2-production-toolchain.md). Release publication remains pending.
+S2 production toolchain implementation: [`docs/plans/2026-07-21-s2-production-toolchain.md`](plans/2026-07-21-s2-production-toolchain.md). Release publication remains pending and is not requested by C21.
 
 Write Wave 2–4 RFCs **as implementation needs them**, not all up front.
 
