@@ -57,7 +57,8 @@ under sanitizers.
 
 **Checklist:**
 
-- [ ] Define handle ownership and single/multiple join behavior.
+- [x] Allow repeated join observation without resubmitting the executor-owned
+      frame; handle/frame release after observation remains open.
 - [x] Observe an executor-owned frame through the currently available ready
       queue until terminal; a genuinely pending frame remains unsupported by
       this bounded helper.
@@ -83,7 +84,8 @@ resources.
 - [x] Make join distinguish failure from cancellation through terminal poll
       states and borrowed result/error snapshots.
 - [ ] Clean captures, frames, and result storage on failure.
-- [ ] Define repeated observation of a failed task.
+- [x] Define repeated observation of a failed task as a stable terminal result;
+      failure payload/source retention and cleanup remain open.
 
 **Acceptance:** A failed task is observable deterministically with no ownership
 violation.
