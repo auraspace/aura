@@ -44,8 +44,8 @@ and the host Linux/macOS matrix are enforced by F1. Dynamic libraries use
 `-lNAME`; static libraries use `-Wl,-Bstatic -lNAME -Wl,-Bdynamic` on Linux
 and `-Wl,-force_load,libNAME.a` on macOS. Additional library search paths are
 explicit `CompileOptions::foreign_library_path` entries. Floating-point,
-callbacks, owned/transfer strings, arrays, pointers, and structured failure
-outcomes remain deferred to F3–F5.
+callbacks, pointers, and structured failure outcomes remain deferred to F4–F5;
+the bounded owned-string/primitive-array ABI is F3.
 
 **Verification:** `aura-codegen` has a local static C fixture covering Int,
 Bool, borrowed String, and Unit calls; it compiles and runs on the native host.
@@ -55,12 +55,25 @@ Bool, borrowed String, and Unit calls; it compiles and runs on the native host.
 **Objective:** Transfer structured values across the FFI boundary without leaks.
 **Checklist:**
 
-- [ ] Define encoding, layout, length, capacity, ownership, and destruction.
-- [ ] Support explicit borrow/copy/transfer operations only where contracted.
-- [ ] Root values while foreign code can access them.
+- [x] Define encoding, layout, length, capacity, ownership, and destruction.
+- [x] Support explicit borrow/copy/transfer operations only where contracted.
+- [x] Root values while foreign code can access them.
       **Acceptance:** Success and failure paths release exactly once.
       **Verification:** Run nested, empty, large, GC, and sanitizer cases.
       **Dependencies:** F2, A3.
+
+**Implementation status (F3, bounded alpha slice):** `runtime/aura_ffi.h`
+defines explicit borrowed and owned String records and array records with
+`len`, `cap`, `elem_size`, and a fixed primitive element kind. Borrow never
+allocates; copy creates independent malloc-backed storage; transfer consumes
+only malloc-compatible storage and is one-shot. Destruction is null-safe and
+idempotent. Array copy/transfer is limited to bytes, `int64_t`, and one-byte
+booleans; String-element deep-copy, arbitrary destructors, pointers, and
+callbacks remain outside this slice. `AuraFfiRootGuard` roots a GC slot only
+for a synchronous foreign-call window and never across await, task, or
+callback boundaries. The strict fixture covers nested cleanup, empty and large
+arrays, transfer, GC collection while rooted, and sanitizer-friendly
+double-destroy paths.
 
 ## F4. Foreign pointers
 

@@ -7,6 +7,50 @@
 #include <stdbool.h>
 #include <errno.h>
 #include <sys/stat.h>
+#if defined(__has_include)
+#if __has_include("aura_ffi.h")
+#include "aura_ffi.h"
+#endif
+#endif
+
+/* Generated artifacts embed this runtime as one copied C translation unit, so
+ * the optional public FFI header is not necessarily beside that copy. Keep a
+ * matching declaration fallback here; the header guard makes it harmless
+ * when a fixture includes aura_ffi.h before including this file. */
+#ifndef AURA_FFI_H
+#define AURA_FFI_H
+typedef enum AuraFfiStatus
+{
+  AURA_FFI_OK = 0,
+  AURA_FFI_INVALID = 1,
+  AURA_FFI_OOM = 2
+} AuraFfiStatus;
+typedef struct AuraFfiStringView { const char *data; uint64_t len; } AuraFfiStringView;
+typedef struct AuraFfiString { char *data; uint64_t len; } AuraFfiString;
+typedef enum AuraFfiArrayKind
+{
+  AURA_FFI_ARRAY_BYTES = 1,
+  AURA_FFI_ARRAY_INT64 = 2,
+  AURA_FFI_ARRAY_BOOL = 3
+} AuraFfiArrayKind;
+typedef struct AuraFfiArrayView
+{
+  const void *data;
+  uint64_t len;
+  uint64_t cap;
+  uint64_t elem_size;
+  AuraFfiArrayKind kind;
+} AuraFfiArrayView;
+typedef struct AuraFfiArray
+{
+  void *data;
+  uint64_t len;
+  uint64_t cap;
+  uint64_t elem_size;
+  AuraFfiArrayKind kind;
+} AuraFfiArray;
+typedef struct AuraFfiRootGuard { void **slot; int active; } AuraFfiRootGuard;
+#endif
 
 #if defined(__linux__) || defined(__APPLE__)
 #define AURA_TCP_POSIX 1
@@ -3628,6 +3672,185 @@ void aura_gc_shutdown(void)
   aura_gc_list = NULL;
   aura_gc_root_n = 0;
   aura_gc_array_root_n = 0;
+}
+
+/* ---- F3 bounded foreign String/Array ABI ---- */
+
+static int aura_ffi_array_shape_ok(uint64_t len, uint64_t cap,
+                                   uint64_t elem_size, AuraFfiArrayKind kind)
+{
+  if (len > cap || (cap != 0 && elem_size == 0))
+  {
+    return 0;
+  }
+  if (kind == AURA_FFI_ARRAY_BYTES)
+  {
+    return elem_size == 1;
+  }
+  if (kind == AURA_FFI_ARRAY_INT64)
+  {
+    return elem_size == sizeof(int64_t);
+  }
+  if (kind == AURA_FFI_ARRAY_BOOL)
+  {
+    return elem_size == sizeof(uint8_t);
+  }
+  return 0;
+}
+
+AuraFfiStatus aura_ffi_string_borrow(const char *data, uint64_t len,
+                                     AuraFfiStringView *out)
+{
+  if (out == NULL || (data == NULL && len != 0))
+  {
+    return AURA_FFI_INVALID;
+  }
+  out->data = data;
+  out->len = len;
+  return AURA_FFI_OK;
+}
+
+AuraFfiStatus aura_ffi_string_copy(AuraFfiStringView view, AuraFfiString *out)
+{
+  if (out == NULL || (view.data == NULL && view.len != 0) ||
+      view.len > (uint64_t)(SIZE_MAX - 1u))
+  {
+    return AURA_FFI_INVALID;
+  }
+  char *copy = (char *)malloc((size_t)view.len + 1u);
+  if (copy == NULL)
+  {
+    return AURA_FFI_OOM;
+  }
+  if (view.len != 0)
+  {
+    memcpy(copy, view.data, (size_t)view.len);
+  }
+  copy[view.len] = '\0';
+  out->data = copy;
+  out->len = view.len;
+  return AURA_FFI_OK;
+}
+
+AuraFfiStatus aura_ffi_string_transfer(char *data, uint64_t len,
+                                       AuraFfiString *out)
+{
+  if (out == NULL || (data == NULL && len != 0))
+  {
+    return AURA_FFI_INVALID;
+  }
+  out->data = data;
+  out->len = len;
+  return AURA_FFI_OK;
+}
+
+void aura_ffi_string_destroy(AuraFfiString *value)
+{
+  if (value == NULL)
+  {
+    return;
+  }
+  free(value->data);
+  value->data = NULL;
+  value->len = 0;
+}
+
+AuraFfiStatus aura_ffi_array_borrow(const void *data, uint64_t len,
+                                    uint64_t cap, uint64_t elem_size,
+                                    AuraFfiArrayKind kind,
+                                    AuraFfiArrayView *out)
+{
+  if (out == NULL || (data == NULL && len != 0) ||
+      !aura_ffi_array_shape_ok(len, cap, elem_size, kind))
+  {
+    return AURA_FFI_INVALID;
+  }
+  out->data = data;
+  out->len = len;
+  out->cap = cap;
+  out->elem_size = elem_size;
+  out->kind = kind;
+  return AURA_FFI_OK;
+}
+
+AuraFfiStatus aura_ffi_array_copy(AuraFfiArrayView view, AuraFfiArray *out)
+{
+  if (out == NULL || (view.data == NULL && view.len != 0) ||
+      !aura_ffi_array_shape_ok(view.len, view.len, view.elem_size, view.kind) ||
+      (view.elem_size != 0 && view.len > (uint64_t)(SIZE_MAX / view.elem_size)))
+  {
+    return AURA_FFI_INVALID;
+  }
+  size_t bytes = (size_t)view.len * (size_t)view.elem_size;
+  void *copy = bytes == 0 ? NULL : malloc(bytes);
+  if (bytes != 0 && copy == NULL)
+  {
+    return AURA_FFI_OOM;
+  }
+  if (bytes != 0)
+  {
+    memcpy(copy, view.data, bytes);
+  }
+  out->data = copy;
+  out->len = view.len;
+  out->cap = view.len;
+  out->elem_size = view.elem_size;
+  out->kind = view.kind;
+  return AURA_FFI_OK;
+}
+
+AuraFfiStatus aura_ffi_array_transfer(void *data, uint64_t len, uint64_t cap,
+                                      uint64_t elem_size, AuraFfiArrayKind kind,
+                                      AuraFfiArray *out)
+{
+  if (out == NULL || (data == NULL && len != 0) ||
+      !aura_ffi_array_shape_ok(len, cap, elem_size, kind))
+  {
+    return AURA_FFI_INVALID;
+  }
+  out->data = data;
+  out->len = len;
+  out->cap = cap;
+  out->elem_size = elem_size;
+  out->kind = kind;
+  return AURA_FFI_OK;
+}
+
+void aura_ffi_array_destroy(AuraFfiArray *value)
+{
+  if (value == NULL)
+  {
+    return;
+  }
+  free(value->data);
+  value->data = NULL;
+  value->len = 0;
+  value->cap = 0;
+  value->elem_size = 0;
+  value->kind = 0;
+}
+
+AuraFfiStatus aura_ffi_root_begin(AuraFfiRootGuard *guard, void **slot)
+{
+  if (guard == NULL || slot == NULL || guard->active)
+  {
+    return AURA_FFI_INVALID;
+  }
+  aura_gc_add_root(slot);
+  guard->slot = slot;
+  guard->active = 1;
+  return AURA_FFI_OK;
+}
+
+void aura_ffi_root_end(AuraFfiRootGuard *guard)
+{
+  if (guard == NULL || !guard->active)
+  {
+    return;
+  }
+  aura_gc_remove_root(guard->slot);
+  guard->slot = NULL;
+  guard->active = 0;
 }
 
 /* ---- C22j task-frame ABI (single-threaded MVP) ----

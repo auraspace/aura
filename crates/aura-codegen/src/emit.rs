@@ -31,6 +31,7 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("#include <string.h>\n");
     out.push_str("#include <errno.h>\n");
     out.push_str("#include <setjmp.h>\n");
+    emit_ffi_abi_declarations(&mut out);
     emit_foreign_prototypes(&mut out, checked);
     out.push_str("void aura_print(const char *s);\n");
     out.push_str("void aura_println(const char *s);\n");
@@ -504,6 +505,30 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
         out.push_str("  return 0;\n}\n");
     }
     out
+}
+
+/// F3: expose the stable allocation-only structured-value ABI to generated C.
+/// Keep this self-contained because installed builds compile generated source
+/// beside `aura_rt.c` without requiring a system include path.
+fn emit_ffi_abi_declarations(out: &mut String) {
+    out.push_str("#define AURA_FFI_ABI_VERSION 1u\n");
+    out.push_str("typedef enum { AURA_FFI_OK = 0, AURA_FFI_INVALID = 1, AURA_FFI_OOM = 2 } AuraFfiStatus;\n");
+    out.push_str("typedef struct { const char *data; uint64_t len; } AuraFfiStringView;\n");
+    out.push_str("typedef struct { char *data; uint64_t len; } AuraFfiString;\n");
+    out.push_str("typedef enum { AURA_FFI_ARRAY_BYTES = 1, AURA_FFI_ARRAY_INT64 = 2, AURA_FFI_ARRAY_BOOL = 3 } AuraFfiArrayKind;\n");
+    out.push_str("typedef struct { const void *data; uint64_t len; uint64_t cap; uint64_t elem_size; AuraFfiArrayKind kind; } AuraFfiArrayView;\n");
+    out.push_str("typedef struct { void *data; uint64_t len; uint64_t cap; uint64_t elem_size; AuraFfiArrayKind kind; } AuraFfiArray;\n");
+    out.push_str("typedef struct { void **slot; int active; } AuraFfiRootGuard;\n");
+    out.push_str("AuraFfiStatus aura_ffi_string_borrow(const char *, uint64_t, AuraFfiStringView *);\n");
+    out.push_str("AuraFfiStatus aura_ffi_string_copy(AuraFfiStringView, AuraFfiString *);\n");
+    out.push_str("AuraFfiStatus aura_ffi_string_transfer(char *, uint64_t, AuraFfiString *);\n");
+    out.push_str("void aura_ffi_string_destroy(AuraFfiString *);\n");
+    out.push_str("AuraFfiStatus aura_ffi_array_borrow(const void *, uint64_t, uint64_t, uint64_t, AuraFfiArrayKind, AuraFfiArrayView *);\n");
+    out.push_str("AuraFfiStatus aura_ffi_array_copy(AuraFfiArrayView, AuraFfiArray *);\n");
+    out.push_str("AuraFfiStatus aura_ffi_array_transfer(void *, uint64_t, uint64_t, uint64_t, AuraFfiArrayKind, AuraFfiArray *);\n");
+    out.push_str("void aura_ffi_array_destroy(AuraFfiArray *);\n");
+    out.push_str("AuraFfiStatus aura_ffi_root_begin(AuraFfiRootGuard *, void **);\n");
+    out.push_str("void aura_ffi_root_end(AuraFfiRootGuard *);\n\n");
 }
 
 /// F2: emit only the primitive C ABI surface declared by `@foreign`.
