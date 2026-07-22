@@ -32,8 +32,11 @@ lowering remains coupled to A4–A6 capture/await work.
 
 - [ ] Copy or transfer captures according to ownership rules.
 - [ ] Support Int, String, class, Array, and Fun captures.
-- [ ] Register, mark, release, and destroy captures with the frame.
-- [ ] Reject unsupported borrowed captures before execution.
+- [x] Register, mark, release, and destroy captures with the frame. The
+      bounded runtime slice roots owned capture storage, releases the root on
+      replacement or frame destruction, and invokes its destroy callback once.
+- [x] Reject unsupported borrowed captures before execution. The runtime
+      setter rejects `AURA_TASK_BORROWED` without replacing a valid capture.
 
 **Acceptance:** Captures survive await and are released exactly once.
 

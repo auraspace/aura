@@ -1781,6 +1781,10 @@ AuraTaskFrameStorage aura_task_frame_captures(const AuraTaskFrame *frame)
 
 static void aura_task_frame_storage_release(AuraTaskFrameStorage *storage)
 {
+  void *data;
+  size_t size;
+  AuraTaskResultDestroyFn destroy;
+
   if (storage == NULL)
   {
     return;
@@ -1789,11 +1793,19 @@ static void aura_task_frame_storage_release(AuraTaskFrameStorage *storage)
   {
     aura_gc_remove_root(&storage->data);
   }
-  if (storage->destroy != NULL && storage->data != NULL)
-  {
-    storage->destroy(storage->data, storage->size);
-  }
+
+  /* Clear the slot before invoking user cleanup.  Besides making the
+   * release operation idempotent, this keeps a re-entrant cleanup callback
+   * from observing a live ownership record after its root was removed. */
+  data = storage->data;
+  size = storage->size;
+  destroy = storage->destroy;
   *storage = (AuraTaskFrameStorage){NULL, 0, NULL, AURA_TASK_OWNED, 0};
+
+  if (destroy != NULL && data != NULL)
+  {
+    destroy(data, size);
+  }
 }
 
 static int aura_task_frame_storage_set(AuraTaskFrameStorage *storage,
