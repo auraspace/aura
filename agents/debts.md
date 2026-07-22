@@ -86,6 +86,21 @@ When you resolve debt, update or remove the matching entry.
 - Next step: implement H5 async integration and H6 handler/routing only after
   their dependency contracts are frozen.
 
+### HTTP hardening remains bounded native coverage (H8, 2026-07-22)
+
+- Area: HTTP hostile-input and lifecycle acceptance
+- Symptom: the hardening fixture covers oversized input, malformed framing,
+  partial-client timeout, connection limits, and forced shutdown, but does not
+  provide fuzzing, async suspension, cross-host results, or routing coverage.
+- Why deferred: those behaviors belong to the fuzz/release matrix, H5 async
+  integration, and H6 handler/routing API respectively; H4 is intentionally
+  synchronous.
+- Progress: `runtime/tests/http_hardening.c` runs the bounded checks over the
+  existing parser and connection APIs under strict ASAN/UBSAN (and LSAN when
+  supported).
+- Next step: keep the H6 routing checklist open and extend H8 with fuzz and
+  supported-host acceptance evidence after the dependent work lands.
+
 ### Async suspension GC roots and ownership (C22s, 2026-07-22)
 
 - Area: async/task runtime and codegen

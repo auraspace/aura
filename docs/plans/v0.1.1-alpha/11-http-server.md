@@ -156,12 +156,19 @@ shutdown refusal, and 500 handler mapping with a localhost loopback fixture.
 ## H8. HTTP acceptance and hardening
 
 **Objective:** Prevent common parser, resource, and lifecycle failures.
+**Implementation status:** `runtime/tests/http_hardening.c` adds a strict native
+fixture over the existing parser and synchronous H4 connection API. It proves
+413 for an oversized request line, 400 for conflicting `Content-Length` framing,
+bounded timeout and cleanup for a partial client, active-connection limits with
+three queued loopback clients, and forced shutdown with an active connection.
+This is bounded synchronous evidence only: it does not claim async suspension,
+fuzzing, cross-host release coverage, or a routing API.
 **Checklist:**
 
 - [ ] Add parser fuzz cases and bounded-resource tests.
-- [ ] Test slow clients, oversized requests, malformed framing, and concurrent
+- [x] Test slow clients, oversized requests, malformed framing, and concurrent
       clients.
-- [ ] Run sanitizer and forced-shutdown tests.
+- [x] Run sanitizer and forced-shutdown tests.
 - [ ] Record limits, known exclusions, and native-host results.
       **Acceptance:** The server cannot hang indefinitely or exceed configured limits
       under the mandatory hostile-input suite.
