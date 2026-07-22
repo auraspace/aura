@@ -173,7 +173,9 @@ impl Backend for CBackend {
         let _target = options.target;
         let _runtime_abi = options.runtime_abi;
         let _output = options.output;
-        let c_src = self.emit(checked, opts);
+        let mut emit_opts = opts;
+        emit_opts.detector = options.profile_settings.detector;
+        let c_src = self.emit(checked, emit_opts);
         let parent = out_bin
             .parent()
             .map(Path::to_path_buf)
