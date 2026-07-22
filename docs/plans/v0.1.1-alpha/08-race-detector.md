@@ -16,7 +16,9 @@ instrumentation/reporting slices.
 - [x] Define spawn, join, and cancellation edges for tracked executor events;
       await, lock, and atomic edges remain open.
 - [x] Define opt-in channel send, receive, and close edges.
-- [ ] Define deterministic ordering, suppression, and report identity.
+- [x] Define deterministic ordering, suppression, and report identity.
+      The bounded R4 report surface supplies stable sequence ordering,
+      duplicate suppression, and a deterministic identity hash.
       **Acceptance:** The model maps directly to the accepted concurrency contract.
       **Verification:** Review positive, synchronized, and intentionally racy traces.
       **Dependencies:** C1–C3, S1–S6.
