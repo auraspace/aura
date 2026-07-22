@@ -56,10 +56,11 @@ fn shift_foreign(f: &mut ForeignDecl, delta: BytePos) {
         f.target.as_mut().map(|v| &mut v.span),
         f.link.as_mut().map(|v| &mut v.span),
         f.abi.as_mut().map(|v| &mut v.span),
-    ] {
-        if let Some(span) = span {
-            *span = span.shift(delta);
-        }
+    ]
+    .into_iter()
+    .flatten()
+    {
+        *span = span.shift(delta);
     }
     f.span = f.span.shift(delta);
 }
