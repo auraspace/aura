@@ -664,6 +664,10 @@ impl Checker {
                 self.lambda_tys.insert(l.span.start, result.clone());
                 Ok(result)
             }
+            Expr::Async(async_expr) => Err(SemaError {
+                message: "async expressions are not type-checked yet".into(),
+                span: async_expr.span(),
+            }),
         }
     }
 }

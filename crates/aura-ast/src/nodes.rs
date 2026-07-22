@@ -17,6 +17,8 @@ pub struct File {
     /// C9g: `const Name: T = literal` top-level constants.
     pub consts: Vec<ConstDecl>,
     pub functions: Vec<FunDecl>,
+    /// C22: top-level `async fun` declarations.
+    pub async_functions: Vec<AsyncFunDecl>,
     pub span: Span,
 }
 
@@ -467,6 +469,8 @@ pub enum Expr {
     If(Box<IfExpr>),
     /// C10c/g: `(x: Int) => x + 1` or `(x: Int) => { … }` (non-capturing MVP).
     Lambda(LambdaExpr),
+    /// C22 task/channel operation.
+    Async(AsyncExpr),
 }
 
 /// Lambda body: expression (C10c) or block (C10g).
@@ -522,6 +526,7 @@ impl Expr {
             Expr::Group(_, s) => *s,
             Expr::If(i) => i.span,
             Expr::Lambda(l) => l.span,
+            Expr::Async(a) => a.span(),
         }
     }
 }

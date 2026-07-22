@@ -853,6 +853,8 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
                 "({{ {c_ty} __ifv; if ({cond}) {{ __ifv = ({then_v}); }} else {{ __ifv = ({else_v}); }} __ifv; }})"
             )
         }
+        // C22 plumbing: lowering is owned by the C22 codegen task.
+        Expr::Async(_) => "0".into(),
     }
 }
 

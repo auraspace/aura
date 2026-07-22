@@ -958,6 +958,7 @@ pub(crate) fn load_directory(
         type_aliases,
         consts,
         functions,
+        async_functions: Vec::new(),
         span: pkg_span,
     };
 

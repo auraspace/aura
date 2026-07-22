@@ -186,6 +186,7 @@ impl Parser {
             type_aliases,
             consts,
             functions,
+            async_functions: Vec::new(),
             span: Span::new(start, end),
         })
     }

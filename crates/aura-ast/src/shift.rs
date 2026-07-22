@@ -31,6 +31,9 @@ pub fn shift_file_spans(file: &mut File, delta: BytePos) {
     for f in &mut file.functions {
         shift_fun(f, delta);
     }
+    for f in &mut file.async_functions {
+        shift_async_fun(f, delta);
+    }
 }
 
 fn shift_type_alias(t: &mut TypeAliasDecl, delta: BytePos) {
@@ -396,5 +399,6 @@ fn shift_expr(e: &mut Expr, delta: BytePos) {
             }
             l.span = l.span.shift(delta);
         }
+        Expr::Async(a) => a.shift_spans(delta),
     }
 }

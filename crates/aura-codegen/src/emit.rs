@@ -569,6 +569,7 @@ fn walk_expr_lambdas<'a>(e: &'a Expr, out: &mut Vec<&'a LambdaExpr>) {
             walk_block_lambdas(&i.then_block, out);
             walk_block_lambdas(&i.else_block, out);
         }
+        Expr::Async(_) => {}
         Expr::Ident(_)
         | Expr::This(_)
         | Expr::Int(_)
