@@ -62,6 +62,65 @@ fn scoped_ref_allows_array_field_view_without_return_escape() {
 }
 
 #[test]
+fn scoped_ref_allows_read_only_collection_iteration_views() {
+    let file = parse_file(
+        r#"
+package t
+class Snapshot(val items: Array<Int>) {
+  fun len(): Int { return this.items.len }
+  fun get(i: Int): Int { return this.items.get(i) }
+}
+fun inspect(snapshot: Snapshot) {
+  val iterator: ref Snapshot = snapshot
+  val items: ref Array<Int> = iterator.items
+  for (item in items) {
+    val current: ref Int = item
+    if (current == 1 || current == 2) { }
+  }
+}
+fun main() {}
+"#,
+    )
+    .expect("parse");
+    check_file(&file).expect("snapshot iteration borrow should stay lexical");
+}
+
+#[test]
+fn scoped_ref_rejects_collection_iteration_escape() {
+    let returned = parse_file(
+        r#"
+package t
+class Snapshot(val items: Array<Int>) {}
+fun bad(snapshot: Snapshot): ref Array<Int> {
+  val iterator: ref Snapshot = snapshot
+  val items: ref Array<Int> = iterator.items
+  return items
+}
+fun main() {}
+"#,
+    )
+    .expect("parse");
+    let err = check_file(&returned).expect_err("iterator borrow return");
+    assert!(err.primary().message.contains("cannot be returned"));
+
+    let captured = parse_file(
+        r#"
+package t
+class Snapshot(val items: Array<Int>) {}
+fun bad(snapshot: Snapshot) {
+  val iterator: ref Snapshot = snapshot
+  val items: ref Array<Int> = iterator.items
+  val f = () => items.len
+}
+fun main() {}
+"#,
+    )
+    .expect("parse");
+    let err = check_file(&captured).expect_err("iterator borrow capture");
+    assert!(err.primary().message.contains("cannot capture borrow"));
+}
+
+#[test]
 fn scoped_ref_rejects_nullable_targets() {
     let file =
         parse_file("package t\nfun bad(x: ref String?): String { return \"x\" }\n").expect("parse");

@@ -1,0 +1,5 @@
+package = "demo.stdscopedborrowiteration"
+
+[[bin]]
+name = "app"
+path = "src"

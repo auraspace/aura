@@ -1,0 +1,23 @@
+// C21e — snapshot iterator views remain read-only and lexically scoped.
+package demo.stdscopedborrowiteration
+
+import std.collections
+
+fun main() {
+  val h: HashMap<Int, String> = HashMap<Int, String>(Array(4), Array(4), Array(4))
+  h.put(1, "one")
+  h.put(2, "two")
+
+  val keys = h.keyIterator()
+  val view: ref HashMapKeyIterator<Int> = keys
+  var count: Int = 0
+  for (key in view) {
+    val current: ref Int = key
+    if (current == 1 || current == 2) { count = count + 1 }
+  }
+  if (count == 2 && view.len() == 2) { println("scoped-snapshot-ok") }
+
+  // Collection mutation is safe because `keys` owns an immutable snapshot.
+  h.clear()
+  if (view.len() == 2) { println("snapshot-survives-mutation") }
+}
