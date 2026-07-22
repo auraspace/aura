@@ -102,6 +102,10 @@ static AuraTaskFrame *new_sender(AuraTaskChannel *channel, uint64_t value)
 
 int main(void)
 {
+  enum { TASK_BATCH_SIZE = 64 };
+  const size_t roots_before = (size_t)aura_gc_root_n;
+  const size_t array_roots_before = (size_t)aura_gc_array_root_n;
+
   for (size_t i = 0; i < 1000; i++)
   {
     AuraTaskFrame *frame = aura_task_frame_new(32, complete_task, destroy_frame);
@@ -115,18 +119,43 @@ int main(void)
   }
   assert(frame_destroyed == 1000);
   assert(result_destroyed == 1000);
+  assert((size_t)aura_gc_root_n == roots_before);
+  assert((size_t)aura_gc_array_root_n == array_roots_before);
 
   AuraTaskExecutor *executor = aura_task_executor_new();
   assert(executor != NULL);
-  for (size_t i = 0; i < 1000; i++)
+  for (size_t batch_start = 0; batch_start < 1000; batch_start += TASK_BATCH_SIZE)
   {
-    AuraTaskFrame *frame = aura_task_frame_new(0, complete_task, destroy_frame);
-    assert(frame != NULL);
-    assert(aura_task_executor_submit(executor, frame) == 1);
+    size_t batch_end = batch_start + TASK_BATCH_SIZE;
+    if (batch_end > 1000)
+    {
+      batch_end = 1000;
+    }
+    AuraTaskFrame *frames[TASK_BATCH_SIZE] = {NULL};
+    size_t batch_count = batch_end - batch_start;
+
+    for (size_t i = 0; i < batch_count; i++)
+    {
+      frames[i] = aura_task_frame_new(0, complete_task, destroy_frame);
+      assert(frames[i] != NULL);
+      assert(aura_task_executor_submit(executor, frames[i]) == 1);
+    }
+    assert(aura_task_executor_run(executor) == batch_count);
+    assert(aura_task_executor_ready_count(executor) == 0);
+    assert(aura_task_executor_task_count(executor) == batch_count);
+    assert((size_t)aura_gc_root_n == roots_before + batch_count);
+
+    for (size_t i = 0; i < batch_count; i++)
+    {
+      assert(aura_task_frame_state(frames[i]) == AURA_TASK_COMPLETE);
+      assert(aura_task_executor_release(executor, &frames[i]) == 1);
+      assert(frames[i] == NULL);
+    }
+    assert(aura_task_executor_task_count(executor) == 0);
+    assert((size_t)aura_gc_root_n == roots_before);
   }
-  assert(aura_task_executor_run(executor) == 1000);
-  assert(aura_task_executor_ready_count(executor) == 0);
-  assert(aura_task_executor_task_count(executor) == 1000);
+  assert(frame_destroyed == 2000);
+  assert(result_destroyed == 2000);
 
   for (size_t i = 0; i < 1000; i++)
   {
@@ -140,8 +169,11 @@ int main(void)
     assert(aura_task_executor_cancel(executor, sender) == 1);
     assert(aura_task_executor_run_one(executor) == 1);
     assert(aura_task_frame_state(sender) == AURA_TASK_CANCELLED);
+    assert(aura_task_executor_release(executor, &sender) == 1);
+    assert(sender == NULL);
     assert(aura_task_channel_close(channel) == 1);
     aura_task_channel_destroy(channel);
+    assert((size_t)aura_gc_root_n == roots_before);
   }
   assert(payload_destroyed == 2000);
 
@@ -158,11 +190,14 @@ int main(void)
     assert(aura_task_channel_close(channel) == 1);
     assert(aura_task_executor_run_one(executor) == 1);
     assert(aura_task_frame_state(receiver) == AURA_TASK_COMPLETE);
+    assert(aura_task_executor_release(executor, &receiver) == 1);
+    assert(receiver == NULL);
     aura_task_channel_destroy(channel);
+    assert((size_t)aura_gc_root_n == roots_before);
   }
 
   aura_task_executor_shutdown(executor);
-  assert(frame_destroyed == 2000);
-  assert(result_destroyed == 2000);
+  assert((size_t)aura_gc_root_n == roots_before);
+  assert((size_t)aura_gc_array_root_n == array_roots_before);
   return 0;
 }
