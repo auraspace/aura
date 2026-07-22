@@ -9,6 +9,13 @@ When you resolve debt, update or remove the matching entry.
 
 > **Last closed batch:** [S2](../docs/plans/2026-07-21-s2-production-toolchain.md) (2026-07-21). Residual open items below.
 
+### Async suspension GC roots and ownership (C22s, 2026-07-22)
+
+- Area: async/task runtime and codegen
+- Symptom: the C22 task frame owns opaque `data` bytes but has no GC mark hook; captured heap-class references cannot safely survive a future `await` suspension. C22o channel payloads are currently safe only because class values use a temporary GC-rooted box and `Int`/`String` values transfer their malloc ownership to the receiver.
+- Why deferred: C22l state-machine/capture lowering and the corresponding frame-root contract are not implemented; the shipped slice supports no-await tasks and empty `spawn {}` only.
+- Next step: add an explicit frame data mark/drop contract, root captured owned values across suspension, and reject borrowed C21 views at every suspension boundary before enabling non-empty async bodies.
+
 ### S3 release rehearsal external blockers
 
 - Area: production release / S3.2 + S3.6
