@@ -115,10 +115,11 @@ A6.
 
 **Checklist:**
 
-- [ ] Distinguish ready, pending, failed, and cancelled poll results.
+- [x] Distinguish ready, pending, failed, and cancelled poll results.
 - [ ] Save all values live across await.
-- [ ] Resume exactly once when the operation completes.
-- [ ] Prevent frame destruction while pending.
+- [x] Resume exactly once for non-waiting pending frames when the operation
+      completes; waiter-driven resumption remains open.
+- [x] Prevent executor-owned frame destruction while pending.
 
 **Acceptance:** Immediate and delayed completion produce the same result.
 
