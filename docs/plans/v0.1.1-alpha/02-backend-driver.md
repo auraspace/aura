@@ -11,11 +11,11 @@ backend-neutral compilation contract.
 
 **Checklist:**
 
-- [ ] Define backend, target, profile, feature, runtime ABI, output kind, and
+- [x] Define backend, target, profile, feature, runtime ABI, output kind, and
       diagnostic mode as explicit options.
-- [ ] Preserve current defaults for existing projects.
-- [ ] Reject contradictory or incomplete combinations early.
-- [ ] Make options printable for diagnostics and artifact metadata.
+- [x] Preserve current defaults for existing projects.
+- [x] Reject contradictory or incomplete combinations early.
+- [x] Make options printable for diagnostics and artifact metadata.
 
 **Acceptance:** Existing commands behave unchanged when no new option is set.
 
@@ -30,10 +30,10 @@ artifact reporting.
 
 **Checklist:**
 
-- [ ] Make frontend/sema produce one checked representation per build.
-- [ ] Define backend input/output interfaces and error translation.
-- [ ] Keep source spans and structured diagnostics across the boundary.
-- [ ] Ensure test builds and ordinary builds use the same driver path.
+- [x] Make frontend/sema produce one checked representation per build.
+- [x] Define backend input/output interfaces and error translation.
+- [x] Keep source spans and structured diagnostics across the boundary.
+- [x] Ensure test builds and ordinary builds use the same driver path.
 
 **Acceptance:** The driver can select a backend without changing frontend
 diagnostics or package loading semantics.
@@ -50,10 +50,10 @@ driver without changing language behavior.
 
 **Checklist:**
 
-- [ ] Adapt source generation to the backend interface.
-- [ ] Pass runtime, compiler, target, and profile settings explicitly.
-- [ ] Preserve test-runner and single-executable behavior.
-- [ ] Keep intermediate output available for debugging when requested.
+- [x] Adapt source generation to the backend interface.
+- [x] Pass runtime, compiler, target, and profile settings explicitly.
+- [x] Preserve test-runner and single-executable behavior.
+- [x] Keep intermediate output available for debugging when requested.
 
 **Acceptance:** The existing positive and negative corpus remains green through
 the new path.
@@ -69,10 +69,10 @@ async, and test-runner fixtures.
 
 **Checklist:**
 
-- [ ] Validate target availability, linker, runtime, profile, and backend.
-- [ ] Report supported alternatives and the failing capability.
-- [ ] Distinguish configuration errors from compiler errors.
-- [ ] Keep cross-compilation claims separate from native execution claims.
+- [x] Validate target availability, linker, runtime, profile, and backend.
+- [x] Report supported alternatives and the failing capability.
+- [x] Distinguish configuration errors from compiler errors.
+- [x] Keep cross-compilation claims separate from native execution claims.
 
 **Acceptance:** Unsupported combinations do not emit partial artifacts or invoke
 an incorrect linker.
@@ -89,10 +89,10 @@ inspectable.
 
 **Checklist:**
 
-- [ ] Record backend, target, profile, ABI, and feature identity in artifacts.
-- [ ] Preserve stable generated-output tests where output is contractual.
-- [ ] Make repeated builds produce equivalent behavior and metadata.
-- [ ] Define compatibility/debug backend behavior for future migrations.
+- [x] Record backend, target, profile, ABI, and feature identity in artifacts.
+- [x] Preserve stable generated-output tests where output is contractual.
+- [x] Make repeated builds produce equivalent behavior and metadata.
+- [x] Define compatibility/debug backend behavior for future migrations.
 
 **Acceptance:** A build can be audited to determine exactly which backend and
 runtime contract produced it.
