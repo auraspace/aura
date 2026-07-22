@@ -145,6 +145,12 @@ borrow contract and single-threaded lifetime checks are stable.
 
 ### 6.5 Async model
 
+The source forms are defined by RFC-001 §6.3.1. In this RFC, an `async fun`
+returns a task-producing computation, `spawn { ... }` schedules a new task and
+returns its handle, `join(handle)` observes completion, and `cancel(handle)`
+requests cooperative cancellation. These names are reserved and are not
+interchangeable with OS-thread APIs.
+
 ```aura
 async fun loadUser(id: Id): User { ... }
 

@@ -144,19 +144,19 @@ class Greeter(val name: String) {
 
 **Originally deferred at C0/C1 freeze** (many now shipped — see roadmap C2–C10j):
 
-| Item                                                            | Toolchain status (2026-07-20)                                                                        |
-| --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| Generics, interfaces, `struct`/`enum`/`match`                   | **Implemented** (C2–C3)                                                                              |
-| Exceptions / `throw`/`try`/`catch`/`finally`                    | **Implemented** (C3c/C3g)                                                                            |
-| Multi-file packages, `import`, path deps, `aura.lock`           | **Implemented** (C3e–C3p, C4j); lock schema v0 (C8k)                                                 |
-| `for` ranges / for-in (Array, String bytes), `break`/`continue` | **Implemented** (C3h–C3l, C3w)                                                                       |
-| Builtin `Array<T>`, null `?:` / `?.`, `if` expr                 | **Implemented** (C3j+, C4m/C4s/C4t)                                                                  |
-| String `+` / interpolation `${}` (idents), `type`/`const`, `is` | **Implemented** (C9d–C9i)                                                                            |
+| Item                                                            | Toolchain status (2026-07-20)                                                                     |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Generics, interfaces, `struct`/`enum`/`match`                   | **Implemented** (C2–C3)                                                                           |
+| Exceptions / `throw`/`try`/`catch`/`finally`                    | **Implemented** (C3c/C3g)                                                                         |
+| Multi-file packages, `import`, path deps, `aura.lock`           | **Implemented** (C3e–C3p, C4j); lock schema v0 (C8k)                                              |
+| `for` ranges / for-in (Array, String bytes), `break`/`continue` | **Implemented** (C3h–C3l, C3w)                                                                    |
+| Builtin `Array<T>`, null `?:` / `?.`, `if` expr                 | **Implemented** (C3j+, C4m/C4s/C4t)                                                               |
+| String `+` / interpolation `${}` (idents), `type`/`const`, `is` | **Implemented** (C9d–C9i)                                                                         |
 | Lambdas / fun types `(T) -> U`                                  | **Implemented** (C10c–j + C12k–m + C20c–e captures); escaping live Array ownership still deferred |
-| `async`/`await`/`spawn`                                         | **Still deferred**                                                                                   |
-| Attributes/macros, full Unicode identifiers                     | **Still deferred**                                                                                   |
-| Iterable protocol                                               | **Implemented** (C8d); generic class implements C9a                                                  |
-| Registry/semver fetch                                           | **Still deferred** (debts)                                                                           |
+| `async`/`await`/`spawn`                                         | **C22 surface contract frozen; implementation in progress**                                       |
+| Attributes/macros, full Unicode identifiers                     | **Still deferred**                                                                                |
+| Iterable protocol                                               | **Implemented** (C8d); generic class implements C9a                                               |
+| Registry/semver fetch                                           | **Still deferred** (debts)                                                                        |
 
 **Corpus:** programs under `corpus/` exercise the implemented surface above; see [`corpus/README.md`](../../corpus/README.md).
 
@@ -216,15 +216,61 @@ File        = PackageDecl Import* Decl*
 PackageDecl = "package" Path
 Import      = "import" Path ("as" Ident)?
 Decl        = ClassDecl | InterfaceDecl | EnumDecl | StructDecl
-            | FunDecl | ConstDecl | TypeAlias | Attribute* Decl
+            | FunDecl | AsyncFunDecl | ConstDecl | TypeAlias | Attribute* Decl
 
 ClassDecl   = Attr* Modifiers "class" Ident TypeParams?
               (":" TypeList)? ClassBody
 FunDecl     = Attr* Modifiers "fun" Ident TypeParams? "(" Params? ")"
               (":" Type)? BlockOrExprBody
+AsyncFunDecl = Attr* Modifiers "async" "fun" Ident TypeParams? "(" Params? ")"
+              (":" Type)? BlockOrExprBody
+AsyncExpr   = AwaitExpr | SpawnExpr | JoinExpr | CancelExpr
+AwaitExpr   = "await" Expr
+SpawnExpr   = "spawn" (Block | Expr)
+JoinExpr    = "join" "(" Expr ")"
+CancelExpr  = "cancel" "(" Expr ")"
 ```
 
 Parser strategy: **hand-written recursive descent** with Pratt parser for expressions (RFC-004).
+
+#### 6.3.1 C22 async/task syntax contract
+
+C22 reserves `async`, `await`, `spawn`, `join`, and `cancel` as keywords. `async`
+may prefix only a function declaration; `await` may occur only inside an
+`async fun`; `join` and `cancel` take exactly one task-handle expression.
+`spawn { ... }` is the canonical form. A bare `spawn` expression is accepted
+only when its operand is a callable task body, as defined by RFC-003.
+
+Valid examples:
+
+```aura
+async fun load(id: Int): User {
+  return await fetchUser(id)
+}
+
+fun main() {
+  val task = spawn { load(42) }
+  val user = join(task)
+  cancel(task)
+}
+```
+
+Invalid forms:
+
+```aura
+fun main() { await load(42) }       // await outside async fun
+async class Worker {}               // async cannot modify a class
+fun main() { join() }               // missing handle
+fun main() { cancel(a, b) }         // too many handles
+```
+
+Span behavior is part of the frontend contract. A valid node spans its whole
+operator and operand, or the complete `async fun` declaration. Invalid
+placement is anchored to the operator keyword; an invalid `async` modifier is
+anchored to `async`. Missing operands or delimiters use the zero-width
+insertion point where the token was expected. Extra operands are anchored to
+the first unexpected token, and nested operand errors retain their inner span.
+Recovery must not widen an operator span to the enclosing block.
 
 ### 6.4 Types (surface syntax)
 

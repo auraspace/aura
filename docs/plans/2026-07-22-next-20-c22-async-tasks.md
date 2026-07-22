@@ -18,7 +18,7 @@ Each task should land as one focused commit. Agents must use disjoint write sets
 
 **Description:** Synchronize RFC-003 vocabulary for async functions, tasks, handles, suspension, join, cancellation, and channels.
 
-- [ ] RFC has one vocabulary and explicit single-threaded/non-release boundaries.
+- [x] RFC has one vocabulary and explicit single-threaded/non-release boundaries.
       **Verification:** Add focused tests/checks for this task; preserve all existing regressions.
       **Dependencies:** None
       **Write set:** `docs/rfc/RFC-003-memory-model-concurrency.md; docs/roadmap.md`
@@ -28,7 +28,7 @@ Each task should land as one focused commit. Agents must use disjoint write sets
 
 **Description:** Specify grammar and examples for `async fun`, `await`, `spawn`, `join`, and cancellation.
 
-- [ ] Valid/invalid forms and parser span behavior are specified.
+- [x] Valid/invalid forms and parser span behavior are specified.
       **Verification:** Add focused tests/checks for this task; preserve all existing regressions.
       **Dependencies:** C22a
       **Write set:** `docs/rfc/; docs/plans/`
