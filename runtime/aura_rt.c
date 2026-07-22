@@ -652,6 +652,575 @@ void aura_tcp_stream_destroy(AuraTcpStream *stream)
 
 #endif
 
+/* ---- Bounded HTTP/1.1 request parser (transport-independent) ----
+ *
+ * This parser consumes one complete request from a byte buffer.  It does not
+ * read from a socket and does not retain the input buffer: every field exposed
+ * by AuraHttpRequest is heap-owned and is released by
+ * aura_http_request_destroy.  A caller can use out_consumed to leave a
+ * following keep-alive request in the input buffer.
+ */
+
+#define AURA_HTTP_MAX_REQUEST_LINE_BYTES ((size_t)8 * 1024)
+#define AURA_HTTP_MAX_HEADERS ((size_t)64)
+#define AURA_HTTP_MAX_HEADER_BYTES ((size_t)16 * 1024)
+#define AURA_HTTP_MAX_BODY_BYTES ((size_t)8 * 1024 * 1024)
+#define AURA_HTTP_MAX_TOTAL_BYTES ((size_t)16 * 1024 * 1024)
+
+typedef enum
+{
+  AURA_HTTP_PARSE_ERROR = -1,
+  AURA_HTTP_PARSE_OK = 0,
+  AURA_HTTP_PARSE_INCOMPLETE = 1,
+  AURA_HTTP_PARSE_BAD_REQUEST = 400,
+  AURA_HTTP_PARSE_METHOD_NOT_ALLOWED = 405,
+  AURA_HTTP_PARSE_PAYLOAD_TOO_LARGE = 413
+} AuraHttpParseStatus;
+
+typedef struct
+{
+  char *name;
+  char *value;
+} AuraHttpHeader;
+
+typedef struct
+{
+  char *method;
+  char *target;
+  char *version;
+  AuraHttpHeader *headers;
+  size_t header_count;
+  unsigned char *body;
+  size_t body_length;
+  size_t total_length;
+} AuraHttpRequest;
+
+static int aura_http_is_token(unsigned char c)
+{
+  if ((c >= (unsigned char)'A' && c <= (unsigned char)'Z') ||
+      (c >= (unsigned char)'a' && c <= (unsigned char)'z') ||
+      (c >= (unsigned char)'0' && c <= (unsigned char)'9'))
+  {
+    return 1;
+  }
+  switch (c)
+  {
+  case '!':
+  case '#':
+  case '$':
+  case '%':
+  case '&':
+  case '\'':
+  case '*':
+  case '+':
+  case '-':
+  case '.':
+  case '^':
+  case '_':
+  case '`':
+  case '|':
+  case '~':
+    return 1;
+  default:
+    return 0;
+  }
+}
+
+static int aura_http_ascii_equal_ci(const unsigned char *left, size_t left_len,
+                                    const char *right)
+{
+  size_t right_len = right == NULL ? 0 : strlen(right);
+  size_t i;
+  if (right == NULL || left_len != right_len)
+  {
+    return 0;
+  }
+  for (i = 0; i < left_len; i++)
+  {
+    unsigned char a = left[i];
+    unsigned char b = (unsigned char)right[i];
+    if (a >= (unsigned char)'A' && a <= (unsigned char)'Z')
+    {
+      a = (unsigned char)(a + ((unsigned char)'a' - (unsigned char)'A'));
+    }
+    if (b >= (unsigned char)'A' && b <= (unsigned char)'Z')
+    {
+      b = (unsigned char)(b + ((unsigned char)'a' - (unsigned char)'A'));
+    }
+    if (a != b)
+    {
+      return 0;
+    }
+  }
+  return 1;
+}
+
+static char *aura_http_copy_string(const unsigned char *data, size_t length)
+{
+  char *copy;
+  if (length == SIZE_MAX)
+  {
+    return NULL;
+  }
+  copy = (char *)malloc(length + 1);
+  if (copy == NULL)
+  {
+    return NULL;
+  }
+  if (length != 0)
+  {
+    memcpy(copy, data, length);
+  }
+  copy[length] = '\0';
+  return copy;
+}
+
+static unsigned char *aura_http_copy_body(const unsigned char *data, size_t length)
+{
+  unsigned char *copy;
+  if (length == 0)
+  {
+    return NULL;
+  }
+  copy = (unsigned char *)malloc(length);
+  if (copy == NULL)
+  {
+    return NULL;
+  }
+  memcpy(copy, data, length);
+  return copy;
+}
+
+void aura_http_request_destroy(AuraHttpRequest *request)
+{
+  size_t i;
+  if (request == NULL)
+  {
+    return;
+  }
+  free(request->method);
+  free(request->target);
+  free(request->version);
+  if (request->headers != NULL)
+  {
+    for (i = 0; i < request->header_count; i++)
+    {
+      free(request->headers[i].name);
+      free(request->headers[i].value);
+    }
+  }
+  free(request->headers);
+  free(request->body);
+  memset(request, 0, sizeof(*request));
+}
+
+const AuraHttpHeader *aura_http_request_find_header(const AuraHttpRequest *request,
+                                                    const char *name)
+{
+  size_t i;
+  if (request == NULL || name == NULL)
+  {
+    return NULL;
+  }
+  for (i = 0; i < request->header_count; i++)
+  {
+    if (aura_http_ascii_equal_ci((const unsigned char *)request->headers[i].name,
+                                 strlen(request->headers[i].name), name))
+    {
+      return &request->headers[i];
+    }
+  }
+  return NULL;
+}
+
+typedef enum
+{
+  AURA_HTTP_LINE_FOUND,
+  AURA_HTTP_LINE_INCOMPLETE,
+  AURA_HTTP_LINE_BAD,
+  AURA_HTTP_LINE_TOO_LARGE
+} AuraHttpLineResult;
+
+static AuraHttpLineResult aura_http_find_line(const unsigned char *data,
+                                              size_t length, size_t start,
+                                              size_t limit, size_t *out_end)
+{
+  size_t i;
+  if (start > length)
+  {
+    return AURA_HTTP_LINE_INCOMPLETE;
+  }
+  for (i = start; i < length; i++)
+  {
+    unsigned char c = data[i];
+    if (c == (unsigned char)'\n')
+    {
+      if (i == start || data[i - 1] != (unsigned char)'\r')
+      {
+        return AURA_HTTP_LINE_BAD;
+      }
+      if (i + 1 - start > limit)
+      {
+        return AURA_HTTP_LINE_TOO_LARGE;
+      }
+      *out_end = i + 1;
+      return AURA_HTTP_LINE_FOUND;
+    }
+    if (c == (unsigned char)'\r' &&
+        i + 1 < length && data[i + 1] != (unsigned char)'\n')
+    {
+      return AURA_HTTP_LINE_BAD;
+    }
+    if (i + 1 - start > limit)
+    {
+      return AURA_HTTP_LINE_TOO_LARGE;
+    }
+  }
+  return length - start > limit ? AURA_HTTP_LINE_TOO_LARGE : AURA_HTTP_LINE_INCOMPLETE;
+}
+
+static AuraHttpParseStatus aura_http_line_status(AuraHttpLineResult result)
+{
+  switch (result)
+  {
+  case AURA_HTTP_LINE_TOO_LARGE:
+    return AURA_HTTP_PARSE_PAYLOAD_TOO_LARGE;
+  case AURA_HTTP_LINE_BAD:
+    return AURA_HTTP_PARSE_BAD_REQUEST;
+  case AURA_HTTP_LINE_INCOMPLETE:
+    return AURA_HTTP_PARSE_INCOMPLETE;
+  case AURA_HTTP_LINE_FOUND:
+    return AURA_HTTP_PARSE_OK;
+  default:
+    return AURA_HTTP_PARSE_ERROR;
+  }
+}
+
+static int aura_http_header_name_equal(const unsigned char *name, size_t length,
+                                       const char *expected)
+{
+  return aura_http_ascii_equal_ci(name, length, expected);
+}
+
+static int aura_http_parse_content_length(const unsigned char *value, size_t length,
+                                          size_t *out_length)
+{
+  size_t i;
+  size_t parsed = 0;
+  if (length == 0)
+  {
+    return 0;
+  }
+  for (i = 0; i < length; i++)
+  {
+    unsigned char c = value[i];
+    size_t digit;
+    if (c < (unsigned char)'0' || c > (unsigned char)'9')
+    {
+      return 0;
+    }
+    digit = (size_t)(c - (unsigned char)'0');
+    if (parsed > (SIZE_MAX - digit) / 10)
+    {
+      return 0;
+    }
+    parsed = parsed * 10 + digit;
+  }
+  *out_length = parsed;
+  return 1;
+}
+
+static int aura_http_header_value_valid(const unsigned char *value, size_t length)
+{
+  size_t i;
+  for (i = 0; i < length; i++)
+  {
+    unsigned char c = value[i];
+    if (c == 0 || c == (unsigned char)'\r' || c == (unsigned char)'\n' ||
+        (c < 0x20 && c != (unsigned char)'\t') || c == 0x7f)
+    {
+      return 0;
+    }
+  }
+  return 1;
+}
+
+AuraHttpParseStatus aura_http_request_parse(const void *input, size_t input_length,
+                                            AuraHttpRequest *out_request,
+                                            size_t *out_consumed)
+{
+  const unsigned char *data = (const unsigned char *)input;
+  AuraHttpRequest parsed;
+  AuraHttpLineResult line_result;
+  size_t request_line_end = 0;
+  size_t request_line_length;
+  size_t first_space = SIZE_MAX;
+  size_t second_space = SIZE_MAX;
+  size_t i;
+  size_t cursor;
+  size_t header_start;
+  size_t header_end = 0;
+  size_t content_length = 0;
+  int has_content_length = 0;
+  int method_allowed = 0;
+
+  if (out_request == NULL || (input == NULL && input_length != 0))
+  {
+    return AURA_HTTP_PARSE_ERROR;
+  }
+  memset(out_request, 0, sizeof(*out_request));
+  if (out_consumed != NULL)
+  {
+    *out_consumed = 0;
+  }
+  memset(&parsed, 0, sizeof(parsed));
+
+  if (input_length == 0)
+  {
+    return AURA_HTTP_PARSE_INCOMPLETE;
+  }
+  line_result = aura_http_find_line(data, input_length, 0,
+                                    AURA_HTTP_MAX_REQUEST_LINE_BYTES,
+                                    &request_line_end);
+  if (line_result != AURA_HTTP_LINE_FOUND)
+  {
+    return aura_http_line_status(line_result);
+  }
+  request_line_length = request_line_end - 2;
+  for (i = 0; i < request_line_length; i++)
+  {
+    if (data[i] == (unsigned char)' ')
+    {
+      if (first_space == SIZE_MAX)
+      {
+        first_space = i;
+      }
+      else if (second_space == SIZE_MAX)
+      {
+        second_space = i;
+      }
+    }
+  }
+  if (first_space == SIZE_MAX || second_space == SIZE_MAX || first_space == 0 ||
+      second_space <= first_space + 1 || second_space + 1 >= request_line_length)
+  {
+    return AURA_HTTP_PARSE_BAD_REQUEST;
+  }
+  for (i = second_space + 1; i < request_line_length; i++)
+  {
+    if (data[i] == (unsigned char)' ' || data[i] == (unsigned char)'\t')
+    {
+      return AURA_HTTP_PARSE_BAD_REQUEST;
+    }
+  }
+  for (i = 0; i < first_space; i++)
+  {
+    if (!aura_http_is_token(data[i]))
+    {
+      return AURA_HTTP_PARSE_BAD_REQUEST;
+    }
+  }
+  if (data[first_space + 1] != (unsigned char)'/' ||
+      second_space - first_space - 1 == 0)
+  {
+    return AURA_HTTP_PARSE_BAD_REQUEST;
+  }
+  for (i = first_space + 1; i < second_space; i++)
+  {
+    unsigned char c = data[i];
+    if (c < 0x21 || c == 0x7f)
+    {
+      return AURA_HTTP_PARSE_BAD_REQUEST;
+    }
+  }
+  if (request_line_length - second_space - 1 != strlen("HTTP/1.1") ||
+      memcmp(data + second_space + 1, "HTTP/1.1", strlen("HTTP/1.1")) != 0)
+  {
+    return AURA_HTTP_PARSE_BAD_REQUEST;
+  }
+
+  parsed.method = aura_http_copy_string(data, first_space);
+  parsed.target = aura_http_copy_string(data + first_space + 1,
+                                        second_space - first_space - 1);
+  parsed.version = aura_http_copy_string(data + second_space + 1,
+                                         request_line_length - second_space - 1);
+  if (parsed.method == NULL || parsed.target == NULL || parsed.version == NULL)
+  {
+    aura_http_request_destroy(&parsed);
+    return AURA_HTTP_PARSE_ERROR;
+  }
+  method_allowed = strcmp(parsed.method, "GET") == 0 ||
+                   strcmp(parsed.method, "HEAD") == 0 ||
+                   strcmp(parsed.method, "POST") == 0;
+
+  parsed.headers = (AuraHttpHeader *)calloc(AURA_HTTP_MAX_HEADERS,
+                                             sizeof(*parsed.headers));
+  if (parsed.headers == NULL)
+  {
+    aura_http_request_destroy(&parsed);
+    return AURA_HTTP_PARSE_ERROR;
+  }
+  header_start = request_line_end;
+  cursor = header_start;
+  for (;;)
+  {
+    size_t line_end = 0;
+    size_t line_content_end;
+    size_t colon = SIZE_MAX;
+    size_t name_length;
+    size_t value_start;
+    size_t value_end;
+    size_t value_length;
+    line_result = aura_http_find_line(data, input_length, cursor,
+                                      AURA_HTTP_MAX_HEADER_BYTES, &line_end);
+    if (line_result != AURA_HTTP_LINE_FOUND)
+    {
+      AuraHttpParseStatus status = aura_http_line_status(line_result);
+      aura_http_request_destroy(&parsed);
+      return status;
+    }
+    if (line_end - header_start > AURA_HTTP_MAX_HEADER_BYTES)
+    {
+      aura_http_request_destroy(&parsed);
+      return AURA_HTTP_PARSE_PAYLOAD_TOO_LARGE;
+    }
+    line_content_end = line_end - 2;
+    if (line_content_end == cursor)
+    {
+      header_end = line_end;
+      break;
+    }
+    if (parsed.header_count == AURA_HTTP_MAX_HEADERS)
+    {
+      aura_http_request_destroy(&parsed);
+      return AURA_HTTP_PARSE_PAYLOAD_TOO_LARGE;
+    }
+    for (i = cursor; i < line_content_end; i++)
+    {
+      if (data[i] == (unsigned char)':')
+      {
+        colon = i;
+        break;
+      }
+    }
+    if (colon == SIZE_MAX || colon == cursor)
+    {
+      aura_http_request_destroy(&parsed);
+      return AURA_HTTP_PARSE_BAD_REQUEST;
+    }
+    name_length = colon - cursor;
+    for (i = cursor; i < colon; i++)
+    {
+      if (!aura_http_is_token(data[i]))
+      {
+        aura_http_request_destroy(&parsed);
+        return AURA_HTTP_PARSE_BAD_REQUEST;
+      }
+    }
+    value_start = colon + 1;
+    value_end = line_content_end;
+    while (value_start < value_end &&
+           (data[value_start] == (unsigned char)' ' ||
+            data[value_start] == (unsigned char)'\t'))
+    {
+      value_start++;
+    }
+    while (value_end > value_start &&
+           (data[value_end - 1] == (unsigned char)' ' ||
+            data[value_end - 1] == (unsigned char)'\t'))
+    {
+      value_end--;
+    }
+    value_length = value_end - value_start;
+    if (!aura_http_header_value_valid(data + value_start, value_length))
+    {
+      aura_http_request_destroy(&parsed);
+      return AURA_HTTP_PARSE_BAD_REQUEST;
+    }
+    if (aura_http_header_name_equal(data + cursor, name_length,
+                                    "Transfer-Encoding"))
+    {
+      aura_http_request_destroy(&parsed);
+      return AURA_HTTP_PARSE_BAD_REQUEST;
+    }
+    if (aura_http_header_name_equal(data + cursor, name_length, "Content-Length"))
+    {
+      size_t candidate = 0;
+      if (!aura_http_parse_content_length(data + value_start, value_length,
+                                          &candidate))
+      {
+        aura_http_request_destroy(&parsed);
+        return AURA_HTTP_PARSE_BAD_REQUEST;
+      }
+      if (has_content_length && candidate != content_length)
+      {
+        aura_http_request_destroy(&parsed);
+        return AURA_HTTP_PARSE_BAD_REQUEST;
+      }
+      has_content_length = 1;
+      content_length = candidate;
+    }
+    parsed.headers[parsed.header_count].name =
+        aura_http_copy_string(data + cursor, name_length);
+    parsed.headers[parsed.header_count].value =
+        aura_http_copy_string(data + value_start, value_length);
+    if (parsed.headers[parsed.header_count].name == NULL ||
+        parsed.headers[parsed.header_count].value == NULL)
+    {
+      parsed.header_count++;
+      aura_http_request_destroy(&parsed);
+      return AURA_HTTP_PARSE_ERROR;
+    }
+    parsed.header_count++;
+    cursor = line_end;
+  }
+
+  if (content_length > AURA_HTTP_MAX_BODY_BYTES ||
+      header_end > AURA_HTTP_MAX_TOTAL_BYTES - content_length)
+  {
+    aura_http_request_destroy(&parsed);
+    return AURA_HTTP_PARSE_PAYLOAD_TOO_LARGE;
+  }
+  parsed.total_length = header_end + content_length;
+  if (input_length < parsed.total_length)
+  {
+    aura_http_request_destroy(&parsed);
+    return AURA_HTTP_PARSE_INCOMPLETE;
+  }
+  parsed.body_length = content_length;
+  parsed.body = aura_http_copy_body(data + header_end, content_length);
+  if (content_length != 0 && parsed.body == NULL)
+  {
+    aura_http_request_destroy(&parsed);
+    return AURA_HTTP_PARSE_ERROR;
+  }
+  if (parsed.header_count == 0)
+  {
+    free(parsed.headers);
+    parsed.headers = NULL;
+  }
+  else
+  {
+    AuraHttpHeader *shrunk = (AuraHttpHeader *)realloc(
+        parsed.headers, parsed.header_count * sizeof(*parsed.headers));
+    if (shrunk != NULL)
+    {
+      parsed.headers = shrunk;
+    }
+  }
+  if (!method_allowed)
+  {
+    aura_http_request_destroy(&parsed);
+    return AURA_HTTP_PARSE_METHOD_NOT_ALLOWED;
+  }
+  *out_request = parsed;
+  if (out_consumed != NULL)
+  {
+    *out_consumed = parsed.total_length;
+  }
+  return AURA_HTTP_PARSE_OK;
+}
+
 /* Structured std.io wrappers use heap-owned String payloads for errors.  Keep
  * this helper separate from the throwing path: the throw path borrows the
  * static buffer above, while Result errors must survive the call boundary. */

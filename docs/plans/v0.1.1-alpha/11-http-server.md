@@ -36,12 +36,23 @@ including request bodies or credentials.
 ## H2. HTTP request parser
 
 **Objective:** Parse bounded HTTP requests safely.
+**Implementation status:** The transport-independent parser is implemented in
+`runtime/aura_rt.c` with an owning `AuraHttpRequest` result and explicit
+`OK`/`INCOMPLETE`/400/405/413/error statuses. It parses one request from a
+caller-provided byte buffer, reports the consumed boundary for a later
+keep-alive loop, copies all request fields and body, and releases them through
+`aura_http_request_destroy`. The focused native fixture
+`runtime/tests/http_parser.c` proves valid GET/POST requests, case-insensitive
+header lookup, equal and conflicting `Content-Length`, rejected transfer
+encodings, malformed/truncated input, all bounded limits, and repeated cleanup.
+This is parser-only evidence: socket reads, async suspension, server lifecycle,
+fuzzing, and slow-client behavior remain open.
 **Checklist:**
 
-- [ ] Parse request line, method, target, version, headers, content length, and
+- [x] Parse request line, method, target, version, headers, content length, and
       body according to the frozen subset.
-- [ ] Enforce header, line, body, and total-request limits.
-- [ ] Reject malformed syntax, invalid lengths, unsupported encodings, and
+- [x] Enforce header, line, body, and total-request limits.
+- [x] Reject malformed syntax, invalid lengths, unsupported encodings, and
       ambiguous framing deterministically.
       **Acceptance:** Parser never reads beyond limits or accepts conflicting framing.
       **Verification:** Run golden, negative, fuzz, truncated, oversized, and slow
