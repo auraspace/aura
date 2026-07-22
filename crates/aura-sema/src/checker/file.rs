@@ -117,6 +117,14 @@ impl Checker {
                     }
                 };
                 let ret = match &m.return_type {
+                    Some(t) if t.reference => {
+                        self.errors.push(SemaError {
+                            message: "borrow references cannot be returned from functions".into(),
+                            span: t.span,
+                        });
+                        method_ok = false;
+                        continue;
+                    }
                     Some(t) => match self.type_from_ref(t) {
                         Ok(t) => t,
                         Err(e) => {
@@ -428,10 +436,9 @@ impl Checker {
                     });
                     continue;
                 }
-                if f.mutable && f.ty.reference {
+                if f.ty.reference {
                     self.errors.push(SemaError {
-                        message: "borrow reference fields must be immutable (`val`, not `var`)"
-                            .into(),
+                        message: "borrow references cannot be stored in fields".into(),
                         span: f.ty.span,
                     });
                     continue;
@@ -480,6 +487,13 @@ impl Checker {
                     }
                 };
                 let ret = match &m.return_type {
+                    Some(t) if t.reference => {
+                        self.errors.push(SemaError {
+                            message: "borrow references cannot be returned from functions".into(),
+                            span: t.span,
+                        });
+                        continue;
+                    }
                     Some(t) => match self.type_from_ref(t) {
                         Ok(t) => t,
                         Err(err) => {
@@ -705,6 +719,14 @@ impl Checker {
                 self.note_mono_ty(p);
             }
             let ret = match &f.return_type {
+                Some(t) if t.reference => {
+                    self.errors.push(SemaError {
+                        message: "borrow references cannot be returned from functions".into(),
+                        span: t.span,
+                    });
+                    self.type_params.clear();
+                    continue;
+                }
                 Some(t) => match self.type_from_ref(t) {
                     Ok(t) => t,
                     Err(err) => {

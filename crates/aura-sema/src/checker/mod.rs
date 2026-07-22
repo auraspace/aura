@@ -22,6 +22,8 @@ pub(crate) fn is_array_primitive_elem(ty: &Ty) -> bool {
 pub(crate) struct Local {
     ty: Ty,
     mutable: bool,
+    /// Lexical frame that owns the storage referenced by this borrow-derived value.
+    borrow_source: Option<usize>,
 }
 
 pub(crate) struct Checker {
@@ -632,6 +634,7 @@ impl Checker {
                             Local {
                                 ty: f.ty.clone(),
                                 mutable: f.mutable,
+                                borrow_source: None,
                             },
                         )
                     })
@@ -643,14 +646,25 @@ impl Checker {
         }
         for p in &m.params {
             let ty = self.type_from_ref(&p.ty)?;
+            let param_frame = self.locals.len() - 1;
             if self.current_locals().contains_key(&p.name.name) {
                 return Err(SemaError {
                     message: format!("parameter `{}` shadows field or is duplicate", p.name.name),
                     span: p.name.span,
                 });
             }
-            self.current_locals_mut()
-                .insert(p.name.name.clone(), Local { ty, mutable: false });
+            self.current_locals_mut().insert(
+                p.name.name.clone(),
+                Local {
+                    ty,
+                    mutable: false,
+                    borrow_source: if p.ty.reference {
+                        Some(param_frame)
+                    } else {
+                        None
+                    },
+                },
+            );
         }
         self.check_block(&m.body, expected_ret)?;
         self.locals.pop();
@@ -661,6 +675,7 @@ impl Checker {
         self.locals.push(HashMap::new());
         for p in &f.params {
             let ty = self.type_from_ref(&p.ty)?;
+            let param_frame = self.locals.len() - 1;
             self.note_mono_ty(&ty);
             if self.current_locals().contains_key(&p.name.name) {
                 return Err(SemaError {
@@ -668,8 +683,18 @@ impl Checker {
                     span: p.name.span,
                 });
             }
-            self.current_locals_mut()
-                .insert(p.name.name.clone(), Local { ty, mutable: false });
+            self.current_locals_mut().insert(
+                p.name.name.clone(),
+                Local {
+                    ty,
+                    mutable: false,
+                    borrow_source: if p.ty.reference {
+                        Some(param_frame)
+                    } else {
+                        None
+                    },
+                },
+            );
         }
         self.note_mono_ty(expected_ret);
         self.check_block(&f.body, expected_ret)?;
@@ -697,6 +722,40 @@ impl Checker {
             }
         }
         None
+    }
+
+    pub(crate) fn borrow_source_frame(&self, expr: &aura_ast::Expr) -> Option<usize> {
+        match expr {
+            aura_ast::Expr::Ident(id) => self
+                .lookup_local_frame(&id.name)
+                .and_then(|(_, local)| local.borrow_source),
+            aura_ast::Expr::Group(inner, _) => self.borrow_source_frame(inner),
+            aura_ast::Expr::ForceUnwrap(f) => self.borrow_source_frame(&f.expr),
+            aura_ast::Expr::If(i) => {
+                fn block_source(checker: &Checker, block: &aura_ast::Block) -> Option<usize> {
+                    match block.stmts.last() {
+                        Some(aura_ast::Stmt::Expr(expr)) => checker.borrow_source_frame(expr),
+                        _ => None,
+                    }
+                }
+                block_source(self, &i.then_block)
+                    .into_iter()
+                    .chain(block_source(self, &i.else_block))
+                    .min()
+            }
+            _ => None,
+        }
+    }
+
+    pub(crate) fn borrow_initializer_frame(&self, expr: &aura_ast::Expr) -> Option<usize> {
+        match expr {
+            aura_ast::Expr::Ident(id) => self
+                .lookup_local_frame(&id.name)
+                .map(|(frame, local)| local.borrow_source.unwrap_or(frame)),
+            aura_ast::Expr::Group(inner, _) => self.borrow_initializer_frame(inner),
+            aura_ast::Expr::ForceUnwrap(f) => self.borrow_initializer_frame(&f.expr),
+            _ => None,
+        }
     }
 
     /// C10h/C12k/C12l/C13e: capturable outer `val` — Int/Bool/String, heap class (GC ptr),
@@ -753,6 +812,16 @@ impl Checker {
         };
         if frame >= base {
             return Ok(());
+        }
+        if self
+            .lookup_local_frame(name)
+            .and_then(|(_, local)| local.borrow_source)
+            .is_some()
+        {
+            return Err(SemaError {
+                message: format!("cannot capture borrow `{name}` in lambda; borrows cannot escape their lexical scope"),
+                span,
+            });
         }
         let supported = Self::lambda_capture_supported_list();
         let by_ref = if mutable {
@@ -835,8 +904,15 @@ impl Checker {
         };
         let ty = *inner.clone();
         let mutable = local.mutable;
-        self.current_locals_mut()
-            .insert(name.to_string(), Local { ty, mutable });
+        let borrow_source = local.borrow_source;
+        self.current_locals_mut().insert(
+            name.to_string(),
+            Local {
+                ty,
+                mutable,
+                borrow_source,
+            },
+        );
     }
 }
 

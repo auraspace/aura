@@ -515,6 +515,13 @@ impl Checker {
                 // C12m: assignment to outer `var` is a by-ref capture (even if not read).
                 self.note_lambda_capture(&a.name.name, frame, &target, mutable, a.name.span)?;
                 let value_ty = self.check_expr_expected(&a.value, Some(&target))?;
+                if self.borrow_source_frame(&a.value).is_some() {
+                    return Err(SemaError {
+                        message: "borrow cannot escape through assignment to an owning binding"
+                            .into(),
+                        span: a.value.span(),
+                    });
+                }
                 if !self.is_assignable(&value_ty, &target) {
                     // C5k: explicit expected/found wording for assign mismatches.
                     return Err(SemaError {
@@ -536,6 +543,7 @@ impl Checker {
                 self.locals.push(std::collections::HashMap::new());
                 for p in &l.params {
                     let ty = self.type_from_ref(&p.ty)?;
+                    let param_frame = self.locals.len() - 1;
                     if self.current_locals().contains_key(&p.name.name) {
                         self.locals.pop();
                         return Err(SemaError {
@@ -548,6 +556,11 @@ impl Checker {
                         super::Local {
                             ty: ty.clone(),
                             mutable: false,
+                            borrow_source: if p.ty.reference {
+                                Some(param_frame)
+                            } else {
+                                None
+                            },
                         },
                     );
                     param_tys.push(ty);
@@ -588,6 +601,21 @@ impl Checker {
                         return Err(e);
                     }
                 };
+                let body_borrowed = match &l.body {
+                    aura_ast::LambdaBody::Expr(body) => self.borrow_source_frame(body).is_some(),
+                    aura_ast::LambdaBody::Block(block) => block.stmts.last().is_some_and(|stmt| {
+                        matches!(stmt, aura_ast::Stmt::Expr(expr) if self.borrow_source_frame(expr).is_some())
+                    }),
+                };
+                if body_borrowed {
+                    self.lambda_capture_base = prev_base;
+                    self.lambda_captures_acc = prev_acc;
+                    self.locals.pop();
+                    return Err(SemaError {
+                        message: "borrow references cannot be returned from a closure".into(),
+                        span: l.span,
+                    });
+                }
                 let captures_map = self.lambda_captures_acc.take().unwrap_or_default();
                 self.lambda_capture_base = prev_base;
                 self.lambda_captures_acc = prev_acc;

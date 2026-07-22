@@ -12,12 +12,44 @@ fn mono_suffix() {
 }
 
 #[test]
-fn scoped_ref_types_typecheck_as_non_owning_annotations() {
+fn scoped_ref_types_allow_lexical_local_and_parameter_use() {
     let file = parse_file(
-        "package t\nfun borrow(x: ref String): ref String { return x }\nfun main() {}\n",
+        "package t\nfun borrow(x: ref String) { val y: ref String = x println(y) }\nfun main() {}\n",
     )
     .expect("parse");
     check_file(&file).expect("scoped ref type");
+}
+
+#[test]
+fn scoped_ref_rejects_returns_and_lambda_captures() {
+    let returned =
+        parse_file("package t\nfun bad(x: ref String): ref String { return x }\n").expect("parse");
+    let err = check_file(&returned).expect_err("ref return");
+    assert!(err.primary().message.contains("cannot be returned"));
+
+    let captured =
+        parse_file("package t\nfun bad(x: String) { val y: ref String = x val f = () => y }\n")
+            .expect("parse");
+    let err = check_file(&captured).expect_err("ref capture");
+    assert!(err.primary().message.contains("cannot capture borrow"));
+}
+
+#[test]
+fn scoped_ref_rejects_assignment_into_longer_lived_binding() {
+    let file = parse_file(
+        "package t\nfun bad() { var out: String = \"out\" if (true) { val x: String = \"inner\" val y: ref String = x out = y } }\n",
+    )
+    .expect("parse");
+    let err = check_file(&file).expect_err("borrow escape through assignment");
+    assert!(err.primary().message.contains("escape"));
+}
+
+#[test]
+fn scoped_ref_rejects_owning_field_storage() {
+    let file = parse_file("package t\nclass Holder(val value: ref String) {}\nfun main() {}\n")
+        .expect("parse");
+    let err = check_file(&file).expect_err("ref field");
+    assert!(err.primary().message.contains("stored in fields"));
 }
 
 #[test]

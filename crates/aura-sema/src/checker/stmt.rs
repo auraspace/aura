@@ -208,8 +208,14 @@ impl Checker {
                 }
                 let _ = fname;
                 let ty = subst_ty(fty, &subst);
-                self.current_locals_mut()
-                    .insert(bind.name.clone(), Local { ty, mutable: false });
+                self.current_locals_mut().insert(
+                    bind.name.clone(),
+                    Local {
+                        ty,
+                        mutable: false,
+                        borrow_source: None,
+                    },
+                );
             }
             for stmt in &arm.body.stmts {
                 self.check_stmt(stmt, expected_ret)?;
@@ -277,6 +283,7 @@ impl Checker {
                         Local {
                             ty: catch_ty,
                             mutable: false,
+                            borrow_source: None,
                         },
                     );
                     for stmt in &c.body.stmts {
@@ -302,6 +309,25 @@ impl Checker {
                     None => None,
                 };
                 let init_ty = self.check_expr_expected(&v.init, ann_ty.as_ref())?;
+                let borrow_source = if v.ty.as_ref().is_some_and(|t| t.reference) {
+                    Some(
+                        self.borrow_initializer_frame(&v.init)
+                            .ok_or_else(|| SemaError {
+                                message:
+                                    "borrow reference initializer must borrow a local or parameter"
+                                        .into(),
+                                span: v.init.span(),
+                            })?,
+                    )
+                } else {
+                    if self.borrow_source_frame(&v.init).is_some() {
+                        return Err(SemaError {
+                            message: "borrow cannot escape into an owning local binding".into(),
+                            span: v.init.span(),
+                        });
+                    }
+                    None
+                };
                 let ty = if let Some(ann_ty) = ann_ty {
                     if !self.is_assignable(&init_ty, &ann_ty) {
                         // C5k: expected/found for annotated var init.
@@ -343,6 +369,7 @@ impl Checker {
                     Local {
                         ty,
                         mutable: v.mutable,
+                        borrow_source,
                     },
                 );
                 Ok(())
@@ -420,6 +447,7 @@ impl Checker {
                     Local {
                         ty: Ty::Int,
                         mutable: false,
+                        borrow_source: None,
                     },
                 );
                 self.loop_depth += 1;
@@ -490,6 +518,7 @@ impl Checker {
                     Local {
                         ty: elem_ty,
                         mutable: false,
+                        borrow_source: None,
                     },
                 );
                 self.loop_depth += 1;
@@ -530,6 +559,15 @@ impl Checker {
                         Some(e) => self.check_expr_expected(e, prior.as_ref())?,
                         None => Ty::Unit,
                     };
+                    if r.value
+                        .as_ref()
+                        .is_some_and(|e| self.borrow_source_frame(e).is_some())
+                    {
+                        return Err(SemaError {
+                            message: "borrow references cannot be returned from functions".into(),
+                            span: r.span,
+                        });
+                    }
                     if let Some(Some(exp)) = self.ret_infer.clone() {
                         if !self.is_assignable(&got, &exp) {
                             return Err(SemaError {
@@ -550,6 +588,15 @@ impl Checker {
                     Some(e) => self.check_expr_expected(e, Some(expected_ret))?,
                     None => Ty::Unit,
                 };
+                if r.value
+                    .as_ref()
+                    .is_some_and(|e| self.borrow_source_frame(e).is_some())
+                {
+                    return Err(SemaError {
+                        message: "borrow references cannot be returned from functions".into(),
+                        span: r.span,
+                    });
+                }
                 if !self.is_assignable(&got, expected_ret) {
                     return Err(SemaError {
                         message: format!(
