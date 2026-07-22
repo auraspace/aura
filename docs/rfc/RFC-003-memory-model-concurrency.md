@@ -17,7 +17,7 @@
 
 ## 1. Abstract
 
-This RFC defines Aura’s **memory and concurrency model**: tracing GC, reference vs value semantics, M:N lightweight **tasks**, channels, `async`/`await`, shared-memory synchronization, happens-before rules, and the policy that **data races are bugs**—detected in development, not licensed as silent undefined behavior.
+This RFC defines Aura’s **memory and concurrency model**: tracing GC, reference vs value semantics, lightweight **tasks**, bounded channels, `async`/`await`, shared-memory synchronization, happens-before rules, and the policy that **data races are bugs**—detected in development, not licensed as silent undefined behavior. C22 freezes a deterministic single-threaded task/event-loop MVP; the broader multi-worker model remains future work.
 
 Runtime implementation details (scheduler, collector algorithm) are expanded in **RFC-006**; this document is the language-level contract.
 
@@ -86,8 +86,13 @@ Compiler lowering, stdlib sync primitives, and diagnostics all depend on a singl
 ```
 
 - **Memory:** tracing GC for class instances and boxed values.
-- **Concurrency:** many tasks multiplexed onto OS worker threads.
+- **C22 concurrency:** many cooperative tasks multiplexed by one deterministic ready queue on one OS thread. A task yields only at an `await`/runtime suspension point; no OS thread is created by `spawn`.
 - **Communication:** prefer channels & isolation; locks for shared mutability.
+
+The C22 MVP excludes OS-thread scheduling, work stealing, a blocking-I/O
+reactor, and concurrent GC. Those facilities may be added by a later RFC or
+milestone without changing the source vocabulary below. Release packaging,
+signing, notarization, and publication are also outside C22.
 
 ### 6.2 Memory management strategy
 
@@ -134,9 +139,9 @@ borrow contract and single-threaded lifetime checks are stable.
 
 ### 6.4 Threading model
 
-- **Logical concurrency unit:** **task** (green, M:N).
-- **OS threads:** worker pool inside runtime; user may spawn blocking OS threads via stdlib for rare cases (`spawnBlocking`).
-- Scheduler placement, work-stealing → RFC-006.
+- **Logical concurrency unit:** **task**, represented by a stackless frame and scheduled cooperatively.
+- **MVP execution:** one runtime executor, one ready queue, FIFO enqueue order, and no user-visible parallelism.
+- **OS threads:** unavailable to C22 `spawn`; worker pools, `spawnBlocking`, work stealing, and scheduler placement are deferred to RFC-006 follow-up work.
 
 ### 6.5 Async model
 
@@ -156,12 +161,12 @@ fun main() {
 }
 ```
 
-| Topic                  | Rule                                                                                                |
-| ---------------------- | --------------------------------------------------------------------------------------------------- |
-| Coroutines             | **Stackless** async state machines (LLVM-friendly)                                                  |
-| `await`                | Suspends task; does not block OS worker if I/O is async-aware                                       |
-| Cancellation           | Structured scopes cancel children; `CancelledError` / cooperative checks                            |
-| Structured concurrency | **Encouraged** via `taskScope` (not mandatory); global fire-and-forget `spawn` allowed but lintable |
+| Topic                  | Rule                                                                                                                     |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Coroutines             | **Stackless** async state machines (C11-backend-friendly)                                                                |
+| `await`                | Suspends the current task and returns control to the single-threaded executor; it never blocks an OS thread in the MVP   |
+| Cancellation           | Cooperative; a cancelled task observes cancellation at suspension/check points and completes with a cancellation outcome |
+| Structured concurrency | **Encouraged** via `taskScope`; global `spawn` is allowed but remains explicitly unstructured and lintable               |
 
 ### 6.6 Shared-state concurrency
 
@@ -246,13 +251,13 @@ async fun handle(conn: Conn) {
 
 ## 7. Open questions
 
-| #   | Question                              | Options                              | Owner   | Status                                                                |
-| --- | ------------------------------------- | ------------------------------------ | ------- | --------------------------------------------------------------------- |
-| 1   | GC algorithm                          | Immix / CMS / Go-like                | Runtime | **Resolved** — phased STW mark-sweep next; concurrent later (RFC-006) |
-| 2   | Structured concurrency mandatory?     | encourage                            | Lang    | **Resolved** — encourage, not require                                 |
-| 3   | Preemptive vs cooperative task switch | cooperative await + safepoint hybrid | Runtime | **Resolved** (direction); tuning open                                 |
-| 4   | String mutability                     | immutable                            | Lang    | **Resolved**                                                          |
-| 5   | `spawn` supervision defaults          | log + join surfaces error            | Lang    | **Resolved** — log + `join` surfaces error; no auto-restart           |
+| #   | Question                              | Options                              | Owner   | Status                                                                      |
+| --- | ------------------------------------- | ------------------------------------ | ------- | --------------------------------------------------------------------------- |
+| 1   | GC algorithm                          | Immix / CMS / Go-like                | Runtime | **Resolved** — phased STW mark-sweep next; concurrent later (RFC-006)       |
+| 2   | Structured concurrency mandatory?     | encourage                            | Lang    | **Resolved** — encourage, not require                                       |
+| 3   | Preemptive vs cooperative task switch | cooperative await + safepoint hybrid | Runtime | **Resolved for C22** — cooperative single-threaded MVP; preemption deferred |
+| 4   | String mutability                     | immutable                            | Lang    | **Resolved**                                                                |
+| 5   | `spawn` supervision defaults          | log + join surfaces error            | Lang    | **Resolved** — log + `join` surfaces error; no auto-restart                 |
 
 ## 8. Rationale & trade-offs
 
@@ -291,11 +296,12 @@ Go-like tasks + GC maximize concurrency productivity for servers. Stackless asyn
 
 ## Changelog
 
-| Date       | Author | Change                                                                                            |
-| ---------- | ------ | ------------------------------------------------------------------------------------------------- |
-| 2026-07-16 |        | Lock GC phased path + spawn supervision defaults                                                  |
-| 2026-07-16 |        | Status → **Accepted** — Review: GC + tasks language contract locked; algo/scheduler detail in 006 |
-| 2026-07-16 |        | Note GC MVP vs full concurrency model                                                             |
-| 2026-07-15 |        | Initial skeleton                                                                                  |
-| 2026-07-15 |        | Solid draft: GC, M:N tasks, race policy, async                                                    |
-| 2026-07-15 |        | Lock string immutability, structured concurrency encourage                                        |
+| Date       | Author | Change                                                                                                                 |
+| ---------- | ------ | ---------------------------------------------------------------------------------------------------------------------- |
+| 2026-07-16 |        | Lock GC phased path + spawn supervision defaults                                                                       |
+| 2026-07-16 |        | Status → **Accepted** — Review: GC + tasks language contract locked; algo/scheduler detail in 006                      |
+| 2026-07-16 |        | Note GC MVP vs full concurrency model                                                                                  |
+| 2026-07-15 |        | Initial skeleton                                                                                                       |
+| 2026-07-15 |        | Solid draft: GC, M:N tasks, race policy, async                                                                         |
+| 2026-07-15 |        | Lock string immutability, structured concurrency encourage                                                             |
+| 2026-07-22 |        | C22a: freeze single-threaded cooperative task vocabulary and defer OS-thread, reactor, concurrent-GC, and release work |
