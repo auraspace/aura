@@ -59,6 +59,17 @@ When you resolve debt, update or remove the matching entry.
 - Progress: no-await code generation now emits deterministic `resume_state` transitions; immediate `await` polls a ready frame and returns its completed result; repeated polling is covered by runtime fixtures; A1–A3 define the frame ABI, ownership classes, roots, and error storage.
 - Next step: lower await points with captured-local storage, implement non-empty spawn capture/drop, and define end-to-end success/failure/cancellation propagation before advertising the full C22 contract as executable.
 
+### Executor-owned non-terminal handle drop (S3, 2026-07-22)
+
+- Area: bounded task executor ownership
+- Symptom: `aura_task_executor_release` safely releases only terminal frames;
+  a ready or pending dropped handle remains executor-owned until cancellation
+  or shutdown.
+- Why deferred: releasing a live frame would race its queue/waiter links and
+  requires the cancellation and suspension lifecycle from S4/S5.
+- Next step: define live-handle drop semantics together with cancellation and
+  waiter unlinking; do not infer them from terminal release.
+
 ### S3 release rehearsal external blockers
 
 - Area: production release / S3.2 + S3.6

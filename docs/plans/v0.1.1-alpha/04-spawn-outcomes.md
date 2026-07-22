@@ -55,6 +55,12 @@ under sanitizers.
 
 **Objective:** Return successful task results through a typed join handle.
 
+**Implementation status:** Complete for the bounded single-threaded executor
+slice. A terminal frame can be released through its handle slot after
+observation; release unlinks the frame before destruction and clears the slot,
+so repeated release is a no-op. Suspended/non-terminal dropped handles remain
+executor-owned until cancellation or shutdown and are outside this S3 slice.
+
 **Checklist:**
 
 - [x] Allow repeated join observation without resubmitting the executor-owned
@@ -64,12 +70,13 @@ under sanitizers.
       this bounded helper.
 - [x] Retain the result in executor-owned frame storage and expose a borrowed
       observation snapshot; no transfer occurs during join.
-- [ ] Release frame and handle safely after observation.
+- [x] Release an executor-owned terminal frame and clear its handle through an
+      idempotent API; unlinking is tested for head, middle, and tail nodes.
 
 **Acceptance:** Immediate and delayed successful tasks produce identical results.
 
 **Verification:** Test join-before-completion, join-after-completion, repeated
-join, and dropped-handle cases.
+join, repeated release, dropped-handle, and sanitizer cases.
 
 **Dependencies:** S1, S2.
 

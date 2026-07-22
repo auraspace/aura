@@ -11,9 +11,12 @@ typedef struct
   int value;
 } JoinTask;
 
+static int result_drops;
+
 static void destroy_result(void *data, size_t size)
 {
   (void)size;
+  result_drops++;
   free(data);
 }
 
@@ -92,6 +95,35 @@ int main(void)
   assert(aura_task_executor_cancel(executor, cancelled) == 1);
   assert(aura_task_executor_join(executor, cancelled, &result, &error) == AURA_TASK_CANCELLED);
   assert(result.data == NULL && error.data == NULL);
+
+  /* The owned list is LIFO: cancelled=head, failed=middle, success=tail.
+   * Release each position and verify shutdown cannot revisit a freed node. */
+  AuraTaskFrame *failed_handle = failed;
+  AuraTaskFrame *cancelled_handle = cancelled;
+  AuraTaskFrame *success_handle = success;
+  int drops_before_release = result_drops;
+  assert(aura_task_executor_task_count(executor) == 3);
+  assert(aura_task_executor_release(executor, &failed_handle) == 1);
+  assert(failed_handle == NULL);
+  assert(result_drops == drops_before_release + 1);
+  assert(aura_task_executor_release(executor, &failed_handle) == 1);
+  assert(aura_task_executor_task_count(executor) == 2);
+  assert(aura_task_executor_release(executor, &cancelled_handle) == 1);
+  assert(cancelled_handle == NULL);
+  assert(aura_task_executor_release(executor, &success_handle) == 1);
+  assert(success_handle == NULL);
+  assert(aura_task_executor_task_count(executor) == 0);
+
+  /* Dropping a completed handle without joining still releases its result. */
+  AuraTaskFrame *dropped_handle = new_join_task(0, 123);
+  assert(aura_task_executor_submit(executor, dropped_handle) == 1);
+  assert(aura_task_executor_run(executor) == 2);
+  int drops_before_drop = result_drops;
+  assert(aura_task_executor_release(executor, &dropped_handle) == 1);
+  assert(dropped_handle == NULL);
+  assert(result_drops == drops_before_drop + 1);
+  assert(aura_task_executor_release(executor, &dropped_handle) == 1);
+  assert(aura_task_executor_task_count(executor) == 0);
 
   aura_task_executor_shutdown(executor);
   return 0;

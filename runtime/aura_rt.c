@@ -4181,8 +4181,9 @@ void aura_task_frame_destroy(AuraTaskFrame *frame)
 /* ---- C22k deterministic single-threaded executor ----
  *
  * Submission transfers frame ownership to the executor.  The executor keeps
- * terminal frames alive so generated code can read their result until
- * shutdown; aura_task_executor_shutdown destroys every submitted frame once.
+ * terminal frames alive so generated code can read their result until an
+ * explicit release or shutdown; aura_task_executor_shutdown destroys every
+ * remaining submitted frame once.
  * A poll callback returning READY is immediately queued at the FIFO tail.
  * PENDING parks the frame until aura_task_executor_wake is called.  No OS
  * threads, blocking waits, or implicit polling are used.
@@ -4444,6 +4445,55 @@ AuraTaskPollState aura_task_executor_join(AuraTaskExecutor *executor,
                                    NULL);
   }
   return frame->state;
+}
+
+/* Release an executor-owned terminal frame through its task-handle slot.
+ *
+ * The pointer-to-pointer API is intentional: releasing also clears the
+ * caller's handle, making repeated release and dropped-handle cleanup
+ * idempotent without dereferencing freed storage.  A non-terminal frame is
+ * left owned by the executor and rejected; callers must not release a frame
+ * while it can still be queued or waiting on a channel.  The owned list is
+ * singly linked, so unlink the exact node before destroying it; shutdown can
+ * then walk the remaining list without observing freed nodes.
+ */
+int aura_task_executor_release(AuraTaskExecutor *executor, AuraTaskFrame **handle)
+{
+  AuraTaskFrame *frame;
+  AuraTaskFrame **link;
+
+  if (handle == NULL || *handle == NULL)
+  {
+    return 1;
+  }
+  frame = *handle;
+  if (executor == NULL || executor->shutdown || frame->executor != executor ||
+      (frame->state != AURA_TASK_COMPLETE && frame->state != AURA_TASK_FAILED &&
+       frame->state != AURA_TASK_CANCELLED) || frame->queued ||
+      frame->waiting_channel != NULL || frame->waiting_node != NULL)
+  {
+    return 0;
+  }
+
+  link = &executor->owned_head;
+  while (*link != NULL && *link != frame)
+  {
+    link = &(*link)->owned_next;
+  }
+  if (*link == NULL)
+  {
+    return 0;
+  }
+  *link = frame->owned_next;
+  frame->owned_next = NULL;
+  frame->executor = NULL;
+  if (executor->owned_count != 0)
+  {
+    executor->owned_count--;
+  }
+  *handle = NULL;
+  aura_task_frame_destroy(frame);
+  return 1;
 }
 
 void aura_task_executor_shutdown(AuraTaskExecutor *executor)
