@@ -720,14 +720,23 @@ impl Checker {
         }
     }
 
-    /// C12m/C13f: capturable outer `var` by shared mutable box — Int/Bool/String.
+    /// C12m/C20a: capturable outer `var` by shared mutable storage. Primitive
+    /// values use boxes; heap classes, Array views, and Fun values are carried
+    /// by reference so downstream codegen can preserve mutation/identity.
     pub(crate) fn is_lambda_var_capturable_ty(&self, ty: &Ty) -> bool {
-        matches!(ty, Ty::Int | Ty::Bool | Ty::String)
+        match ty {
+            Ty::Int | Ty::Bool | Ty::String | Ty::Fun { .. } => true,
+            Ty::Class(n) | Ty::ClassApp { name: n, .. } => {
+                let simple = crate::ty::split_nominal(n).0;
+                simple == "Array" || !self.is_struct_ty(ty)
+            }
+            _ => false,
+        }
     }
 
-    /// C13h/C13e/C13f: human-readable list of currently supported lambda captures.
+    /// C13h/C13e/C13f/C20a: human-readable list of currently supported lambda captures.
     pub(crate) fn lambda_capture_supported_list() -> &'static str {
-        "`val` Int/Bool/String/class/Array (view)/Fun, `var` Int/Bool/String (by ref)"
+        "`val` Int/Bool/String/class/Array (view)/Fun, `var` Int/Bool/String/class/Array/Fun (by ref)"
     }
 
     /// C10h/C12m/C13h: if `name` resolves to an outer local of the active lambda, record a capture.
@@ -748,7 +757,7 @@ impl Checker {
         let supported = Self::lambda_capture_supported_list();
         let by_ref = if mutable {
             if !self.is_lambda_var_capturable_ty(ty) {
-                // C13h: clear reject for unsupported `var` class/Array/String/Fun, etc.
+                // C13h/C20a: reject only unsupported mutable value categories.
                 return Err(SemaError {
                     message: format!(
                         "cannot capture `var` `{name}` of type {} in lambda; supported captures: {supported}",

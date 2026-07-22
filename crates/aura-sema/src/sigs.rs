@@ -133,7 +133,8 @@ pub struct CheckedFile {
 pub struct LambdaCapture {
     pub name: String,
     pub ty: Ty,
-    /// `true`: shared mutable heap box (`var` Int/Bool/String). `false`: copy-out (`val`).
+    /// `true`: shared mutable storage (`var` primitive box, class/Array/Fun
+    /// reference). `false`: copy-out (`val`).
     pub by_ref: bool,
 }
 

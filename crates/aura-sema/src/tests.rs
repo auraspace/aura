@@ -1118,23 +1118,9 @@ fun main() {
     );
 }
 
-/// C13h: unsupported lambda captures must name the binding and list what is supported.
-fn assert_capture_reject(msg: &str, name: &str) {
-    assert!(
-        msg.contains("cannot capture")
-            && msg.contains(name)
-            && msg.contains("supported captures")
-            && msg.contains("`val`")
-            && msg.contains("`var`")
-            && msg.contains("Int")
-            && msg.contains("Bool"),
-        "expected clear capture reject listing supported forms, got: {msg}"
-    );
-}
-
 #[test]
-fn lambda_rejects_var_class_capture_clearly() {
-    // C13h: `var` class is not capturable yet.
+fn lambda_allows_var_class_capture_by_ref() {
+    // C20a: mutable class captures are represented as by-ref captures.
     let src = r#"
 package t
 class Box(val n: Int) {}
@@ -1144,18 +1130,16 @@ fun main() {
 }
 "#;
     let file = parse_file(src).expect("parse");
-    let err = check_file(&file).expect_err("var class capture");
-    let msg = &err.primary().message;
-    assert_capture_reject(msg, "b");
-    assert!(
-        msg.contains("`var`") && (msg.contains("Box") || msg.contains("class")),
-        "{msg}"
-    );
+    let checked = check_file(&file).expect("var class capture should be allowed");
+    assert!(checked.lambda_captures.values().any(|caps| {
+        caps.iter()
+            .any(|c| c.name == "b" && c.by_ref && matches!(c.ty, Ty::Class(_)))
+    }));
 }
 
 #[test]
-fn lambda_rejects_var_array_capture_clearly() {
-    // C13h: `var` Array is not capturable yet.
+fn lambda_allows_var_array_capture_by_ref() {
+    // C20a: mutable Array captures retain the view/reference contract.
     let src = r#"
 package t
 fun main() {
@@ -1164,10 +1148,14 @@ fun main() {
 }
 "#;
     let file = parse_file(src).expect("parse");
-    let err = check_file(&file).expect_err("var Array capture");
-    let msg = &err.primary().message;
-    assert_capture_reject(msg, "a");
-    assert!(msg.contains("Array"), "{msg}");
+    let checked = check_file(&file).expect("var Array capture should be allowed");
+    assert!(checked.lambda_captures.values().any(|caps| {
+        caps.iter().any(|c| {
+            c.name == "a"
+                && c.by_ref
+                && matches!(&c.ty, Ty::ClassApp { name, .. } if name == "Array")
+        })
+    }));
 }
 
 #[test]
@@ -1214,8 +1202,8 @@ fun main(): Int {
 }
 
 #[test]
-fn lambda_rejects_var_fun_capture_clearly() {
-    // C13h: `var` Fun still unsupported (only `val` Fun in C13e).
+fn lambda_allows_var_fun_capture_by_ref() {
+    // C20a: mutable Fun captures carry the nested closure reference by ref.
     let src = r#"
 package t
 fun main() {
@@ -1224,8 +1212,9 @@ fun main() {
 }
 "#;
     let file = parse_file(src).expect("parse");
-    let err = check_file(&file).expect_err("var Fun capture");
-    let msg = &err.primary().message;
-    assert_capture_reject(msg, "f");
-    assert!(msg.contains("`var`"), "{msg}");
+    let checked = check_file(&file).expect("var Fun capture should be allowed");
+    assert!(checked.lambda_captures.values().any(|caps| {
+        caps.iter()
+            .any(|c| c.name == "f" && c.by_ref && matches!(c.ty, Ty::Fun { .. }))
+    }));
 }
