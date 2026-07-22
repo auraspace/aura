@@ -901,9 +901,7 @@ fn emit_async_expr(expr: &AsyncExpr, ctx: &mut EmitCtx<'_>) -> String {
     match expr {
         AsyncExpr::Spawn(s) => {
             if !s.body.stmts.is_empty() {
-                return format!(
-                    "({{ fputs(\"aura: non-empty spawn body requires C22l state-machine lowering\\n\", stderr); abort(); (AuraTaskFrame *)NULL; }})"
-                );
+                return "({ fputs(\"aura: non-empty spawn body requires C22l state-machine lowering\\n\", stderr); abort(); (AuraTaskFrame *)NULL; })".to_string();
             }
             "({ AuraTaskFrame *__spawn = aura_task_frame_new(0, aura_task_poll_unit, NULL); if (__spawn != NULL && (__aura_task_executor == NULL || !aura_task_executor_submit(__aura_task_executor, __spawn))) { aura_task_frame_destroy(__spawn); __spawn = NULL; } __spawn; })".into()
         }
