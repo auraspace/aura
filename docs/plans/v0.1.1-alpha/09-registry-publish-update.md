@@ -83,12 +83,33 @@ explicitly deferred until the signing primitive and key policy are defined.
 
 ## U5. Publish upload
 
-**Objective:** Publish valid packages with safe failure behavior.
+**Objective:** Publish valid packages with safe failure behavior. The alpha
+contract is deliberately minimal and fixture-oriented: `POST
+/api/v1/publish` with the deterministic U1 archive as the
+`application/gzip` body and `X-Aura-Package`, `X-Aura-Version`, and
+`X-Aura-Sha256` headers. An optional `Authorization: Bearer` header follows
+the existing registry client convention. A successful response is HTTP 201
+with `{"status":"published","name":"…","version":"…","checksum":"…"}`.
+No multipart format, index mutation protocol, signing, or production registry
+compatibility is implied by this alpha endpoint.
+
+**Implementation status:** Implemented as a bounded upload after U4 validation.
+The client uses a 30-second connect/read/write timeout, retries transport and
+5xx failures at most three attempts, and caps the archive at 64 MiB and the
+receipt at 64 KiB. 4xx responses are not retried. Version conflict (409) and
+authentication (401/403) are stable rejections. Exhausted transport failures
+are `indeterminate`, because a POST may have reached the registry; the CLI
+returns exit code 3 and never claims completion. The fixture server is the
+authoritative focused test for this contract.
+
 **Checklist:**
 
-- [ ] Upload archive and metadata atomically from the registry perspective.
-- [ ] Handle version conflicts, retries, auth, and partial failures.
-- [ ] Return stable exit codes and machine-readable results.
+- [x] Upload archive and metadata in one registry request; HTTP 201 is the
+      only completion acknowledgment (server-side atomicity remains the
+      registry's responsibility).
+- [x] Handle version conflicts, retries, auth, and partial/indeterminate
+      failures without reporting a false success.
+- [x] Return stable exit codes and machine-readable JSON results.
       **Acceptance:** A failed publish cannot leave a falsely complete release.
       **Verification:** Run local-registry success, duplicate, timeout, and retry tests.
       **Dependencies:** U3, U4.

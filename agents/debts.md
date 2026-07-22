@@ -330,3 +330,9 @@ When you resolve debt, update or remove the matching entry.
   unknown/user/generic `String` returns as borrowed to avoid invalid frees. This
   can retain allocations longer than necessary. Next step: propagate explicit
   return ownership metadata through sema and call instantiations.
+
+### Registry upload production compatibility (2026-07-22)
+
+- U5 uses the frozen `/api/v1/publish` fixture contract and does not claim
+  compatibility with an external production registry. Next step: standardize
+  a signed, server-defined publish protocol before replacing this endpoint.

@@ -15,6 +15,7 @@
 use std::collections::BTreeMap;
 use std::env;
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use super::fetch::read_crate_bytes;
@@ -169,6 +170,277 @@ impl RegistryIndex {
         }
         None
     }
+}
+
+/// Minimal, explicit upload contract used by U5.
+///
+/// The endpoint is intentionally not inferred from a registry's download/index
+/// API: it is a small Aura-specific fixture contract until a production API is
+/// standardized. A successful response must be HTTP 201 with a JSON object
+/// containing `status`, `name`, `version`, and `checksum`.
+pub const PUBLISH_PATH: &str = "/api/v1/publish";
+const PUBLISH_ATTEMPTS: usize = 3;
+const MAX_PUBLISH_RESPONSE_BYTES: usize = 64 * 1024;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PublishErrorKind {
+    Auth,
+    Conflict,
+    Rejected,
+    RetryExhausted,
+    Indeterminate,
+    Protocol,
+}
+
+impl PublishErrorKind {
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::Auth => "auth",
+            Self::Conflict => "version_conflict",
+            Self::Rejected => "rejected",
+            Self::RetryExhausted => "retry_exhausted",
+            Self::Indeterminate => "indeterminate",
+            Self::Protocol => "protocol",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PublishError {
+    pub kind: PublishErrorKind,
+    pub status: Option<u16>,
+    pub attempts: usize,
+    pub message: String,
+}
+
+impl PublishError {
+    pub fn render_json(&self) -> String {
+        format!(
+            "{{\"ok\":false,\"code\":\"{}\",\"status\":{},\"attempts\":{},\"message\":{}}}",
+            self.kind.code(),
+            self.status
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "null".into()),
+            self.attempts,
+            json_string(&self.message),
+        )
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PublishReceipt {
+    pub name: String,
+    pub version: String,
+    pub checksum: String,
+    pub attempts: usize,
+}
+
+impl PublishReceipt {
+    pub fn render_json(&self) -> String {
+        format!(
+            "{{\"ok\":true,\"status\":201,\"name\":{},\"version\":{},\"checksum\":{},\"attempts\":{}}}",
+            json_string(&self.name),
+            json_string(&self.version),
+            json_string(&self.checksum),
+            self.attempts,
+        )
+    }
+}
+
+/// Upload a validated U4 preview to the frozen minimal endpoint.
+pub fn publish_upload(
+    base_url: &str,
+    token: Option<&str>,
+    preview: &super::publish::PublishPreview,
+) -> Result<PublishReceipt, PublishError> {
+    if !(base_url.starts_with("https://") || cfg!(test) && base_url.starts_with("http://")) {
+        return Err(PublishError {
+            kind: PublishErrorKind::Rejected,
+            status: None,
+            attempts: 0,
+            message: "registry URL must use HTTPS".into(),
+        });
+    }
+    if preview.archive.len() > 64 * 1024 * 1024 {
+        return Err(PublishError {
+            kind: PublishErrorKind::Rejected,
+            status: Some(413),
+            attempts: 0,
+            message: "archive exceeds the 64 MiB upload limit".into(),
+        });
+    }
+    let url = format!("{}{}", base_url.trim_end_matches('/'), PUBLISH_PATH);
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(std::time::Duration::from_secs(30))
+        .timeout_read(std::time::Duration::from_secs(30))
+        .timeout_write(std::time::Duration::from_secs(30))
+        .build();
+    let mut last = None;
+    for attempt in 1..=PUBLISH_ATTEMPTS {
+        let mut request = agent
+            .post(&url)
+            .set("Content-Type", "application/gzip")
+            .set("X-Aura-Package", &preview.package)
+            .set("X-Aura-Version", &preview.version)
+            .set("X-Aura-Sha256", &preview.checksum);
+        if let Some(token) = token.filter(|value| !value.trim().is_empty()) {
+            request = request.set("Authorization", &format!("Bearer {token}"));
+        }
+        match request.send_bytes(&preview.archive) {
+            Ok(response) => {
+                let status = response.status();
+                let mut reader = response.into_reader();
+                let body = match read_bounded(&mut reader, MAX_PUBLISH_RESPONSE_BYTES) {
+                    Ok(body) => body,
+                    Err(message) => {
+                        return Err(PublishError {
+                            kind: PublishErrorKind::Protocol,
+                            status: Some(status),
+                            attempts: attempt,
+                            message,
+                        });
+                    }
+                };
+                if status == 201 {
+                    return parse_receipt(&body, preview, attempt);
+                }
+                let kind = match status {
+                    401 | 403 => PublishErrorKind::Auth,
+                    409 => PublishErrorKind::Conflict,
+                    400 | 413 => PublishErrorKind::Rejected,
+                    500..=599 if attempt < PUBLISH_ATTEMPTS => {
+                        last = Some(format!("registry returned HTTP {status}"));
+                        continue;
+                    }
+                    500..=599 => PublishErrorKind::RetryExhausted,
+                    _ => PublishErrorKind::Protocol,
+                };
+                return Err(PublishError {
+                    kind,
+                    status: Some(status),
+                    attempts: attempt,
+                    message: format!("registry returned HTTP {status}"),
+                });
+            }
+            Err(ureq::Error::Status(status, _)) if status >= 500 && attempt < PUBLISH_ATTEMPTS => {
+                last = Some(format!("registry returned HTTP {status}"));
+            }
+            Err(ureq::Error::Status(status, _)) => {
+                let kind = match status {
+                    401 | 403 => PublishErrorKind::Auth,
+                    409 => PublishErrorKind::Conflict,
+                    400 | 413 => PublishErrorKind::Rejected,
+                    500..=599 => PublishErrorKind::RetryExhausted,
+                    _ => PublishErrorKind::Protocol,
+                };
+                return Err(PublishError {
+                    kind,
+                    status: Some(status),
+                    attempts: attempt,
+                    message: format!("registry returned HTTP {status}"),
+                });
+            }
+            Err(ureq::Error::Transport(error)) => {
+                // A POST may have reached and committed at the registry. Never
+                // turn an exhausted transport failure into a false success.
+                if attempt == PUBLISH_ATTEMPTS {
+                    return Err(PublishError {
+                        kind: PublishErrorKind::Indeterminate,
+                        status: None,
+                        attempts: attempt,
+                        message: format!("publish transport outcome is unknown: {error}"),
+                    });
+                }
+                last = Some(error.to_string());
+            }
+        }
+    }
+    Err(PublishError {
+        kind: PublishErrorKind::RetryExhausted,
+        status: None,
+        attempts: PUBLISH_ATTEMPTS,
+        message: last.unwrap_or_else(|| "registry publish retries exhausted".into()),
+    })
+}
+
+fn parse_receipt(
+    body: &[u8],
+    preview: &super::publish::PublishPreview,
+    attempts: usize,
+) -> Result<PublishReceipt, PublishError> {
+    let text = std::str::from_utf8(body).map_err(|error| PublishError {
+        kind: PublishErrorKind::Protocol,
+        status: Some(201),
+        attempts,
+        message: format!("registry response is not UTF-8: {error}"),
+    })?;
+    let value = parse_json(text).map_err(|error| PublishError {
+        kind: PublishErrorKind::Protocol,
+        status: Some(201),
+        attempts,
+        message: format!("invalid registry publish response: {error}"),
+    })?;
+    let object = value.as_object().ok_or_else(|| PublishError {
+        kind: PublishErrorKind::Protocol,
+        status: Some(201),
+        attempts,
+        message: "registry publish response must be an object".into(),
+    })?;
+    let string_field = |key: &str| {
+        object.get(key).and_then(Json::as_str).ok_or_else(|| PublishError {
+            kind: PublishErrorKind::Protocol,
+            status: Some(201),
+            attempts,
+            message: format!("registry publish response missing string `{key}`"),
+        })
+    };
+    let status = string_field("status")?;
+    let name = string_field("name")?;
+    let version = string_field("version")?;
+    let checksum = string_field("checksum")?;
+    if status != "published"
+        || name != preview.package
+        || version != preview.version
+        || normalize_checksum(checksum) != normalize_checksum(&preview.checksum)
+    {
+        return Err(PublishError {
+            kind: PublishErrorKind::Protocol,
+            status: Some(201),
+            attempts,
+            message: "registry publish receipt does not match the submitted package".into(),
+        });
+    }
+    Ok(PublishReceipt {
+        name: name.into(),
+        version: version.into(),
+        checksum: checksum.into(),
+        attempts,
+    })
+}
+
+fn normalize_checksum(value: &str) -> &str {
+    value.strip_prefix("sha256:").unwrap_or(value)
+}
+
+fn read_bounded(reader: &mut dyn Read, limit: usize) -> Result<Vec<u8>, String> {
+    let mut out = Vec::new();
+    let mut chunk = [0u8; 8192];
+    loop {
+        let count = reader
+            .read(&mut chunk)
+            .map_err(|error| format!("could not read registry response: {error}"))?;
+        if count == 0 {
+            return Ok(out);
+        }
+        if out.len().saturating_add(count) > limit {
+            return Err(format!("registry response exceeds {limit} bytes"));
+        }
+        out.extend_from_slice(&chunk[..count]);
+    }
+}
+
+fn json_string(value: &str) -> String {
+    format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
 /// Default on-disk cache: `~/.aura/registry/index` (or `USERPROFILE` on Windows).
@@ -603,8 +875,11 @@ impl<'a> Parser<'a> {
 #[cfg(test)]
 mod unit {
     use super::*;
+    use crate::package::archive::{archive_sha256, build_source_archive};
+    use crate::package::publish::PublishPreview;
     use std::io::{Read, Write};
     use std::net::TcpListener;
+    use std::sync::{Arc, Mutex};
     use std::thread;
 
     #[test]
@@ -668,5 +943,151 @@ mod unit {
         let index = RegistryIndex::open_url(&format!("http://{addr}")).unwrap();
         assert_eq!(index.config().api.as_deref(), Some("https://example.test"));
         assert_eq!(index.package_versions("tiny").unwrap()[0].vers, "0.1.0");
+    }
+
+    fn upload_preview() -> PublishPreview {
+        let archive = build_source_archive(
+            "demo.publish",
+            "1.2.3",
+            &[("aura.toml".into(), b"[package]\nname=\"demo.publish\"\n".to_vec())],
+        )
+        .unwrap();
+        PublishPreview {
+            package: "demo.publish".into(),
+            version: "1.2.3".into(),
+            archive_name: "demo.publish-1.2.3.crate".into(),
+            checksum: archive_sha256(&archive),
+            archive,
+            signature: None,
+            source_entries: vec!["aura.toml".into()],
+            dependency_count: 0,
+        }
+    }
+
+    fn upload_fixture(
+        responses: Vec<(u16, String)>,
+    ) -> (String, Arc<Mutex<Vec<Vec<u8>>>>, thread::JoinHandle<()>) {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let seen = Arc::clone(&requests);
+        let handle = thread::spawn(move || {
+            for (status, body) in responses {
+                let (mut stream, _) = listener.accept().unwrap();
+                let request = read_http_request(&mut stream);
+                seen.lock().unwrap().push(request);
+                let reason = if status == 201 { "Created" } else { "Fixture" };
+                write!(
+                    stream,
+                    "HTTP/1.1 {status} {reason}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                )
+                .unwrap();
+            }
+        });
+        (format!("http://{address}"), requests, handle)
+    }
+
+    fn read_http_request(stream: &mut std::net::TcpStream) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        let mut chunk = [0_u8; 4096];
+        let header_end;
+        loop {
+            let count = stream.read(&mut chunk).unwrap();
+            assert!(count > 0, "fixture received an incomplete request");
+            bytes.extend_from_slice(&chunk[..count]);
+            if let Some(end) = bytes.windows(4).position(|window| window == b"\r\n\r\n") {
+                header_end = end + 4;
+                break;
+            }
+            assert!(bytes.len() < 128 * 1024, "fixture request headers too large");
+        }
+        let headers = String::from_utf8_lossy(&bytes[..header_end]);
+        let length = headers
+            .lines()
+            .find_map(|line| line.strip_prefix("Content-Length: "))
+            .and_then(|value| value.trim().parse::<usize>().ok())
+            .unwrap_or(0);
+        while bytes.len() < header_end + length {
+            let count = stream.read(&mut chunk).unwrap();
+            assert!(count > 0, "fixture received an incomplete request body");
+            bytes.extend_from_slice(&chunk[..count]);
+        }
+        bytes
+    }
+
+    fn receipt(preview: &PublishPreview) -> String {
+        format!(
+            "{{\"status\":\"published\",\"name\":\"{}\",\"version\":\"{}\",\"checksum\":\"{}\"}}",
+            preview.package, preview.version, preview.checksum
+        )
+    }
+
+    #[test]
+    fn publish_fixture_sends_archive_metadata_and_bearer_auth() {
+        let preview = upload_preview();
+        let (url, requests, handle) = upload_fixture(vec![(201, receipt(&preview))]);
+        let result = publish_upload(&url, Some("fixture-token"), &preview).unwrap();
+        handle.join().unwrap();
+        assert_eq!(result.attempts, 1);
+        let seen = requests.lock().unwrap();
+        let raw = &seen[0];
+        let request = String::from_utf8_lossy(raw);
+        assert!(request.starts_with("POST /api/v1/publish HTTP/1.1"));
+        assert!(request.contains("Authorization: Bearer fixture-token"));
+        assert!(request.contains(&format!("X-Aura-Package: {}", preview.package)));
+        assert!(request.contains(&format!("X-Aura-Version: {}", preview.version)));
+        assert!(request.contains(&format!("X-Aura-Sha256: {}", preview.checksum)));
+        assert!(raw.ends_with(&preview.archive));
+    }
+
+    #[test]
+    fn publish_fixture_classifies_auth_and_version_conflict_without_retry() {
+        for (status, kind) in [(401, PublishErrorKind::Auth), (409, PublishErrorKind::Conflict)] {
+            let preview = upload_preview();
+            let (url, requests, handle) = upload_fixture(vec![(status, String::new())]);
+            let error = publish_upload(&url, None, &preview).unwrap_err();
+            handle.join().unwrap();
+            assert_eq!(error.kind, kind);
+            assert_eq!(error.attempts, 1);
+            assert_eq!(requests.lock().unwrap().len(), 1);
+        }
+    }
+
+    #[test]
+    fn publish_fixture_retries_5xx_then_confirms_once() {
+        let preview = upload_preview();
+        let (url, requests, handle) = upload_fixture(vec![
+            (503, "busy".into()),
+            (502, "busy".into()),
+            (201, receipt(&preview)),
+        ]);
+        let result = publish_upload(&url, None, &preview).unwrap();
+        handle.join().unwrap();
+        assert_eq!(result.attempts, 3);
+        assert_eq!(requests.lock().unwrap().len(), 3);
+    }
+
+    #[test]
+    fn publish_fixture_never_claims_success_for_bad_receipt() {
+        let preview = upload_preview();
+        let (url, _, handle) = upload_fixture(vec![
+            (201, "{\"status\":\"published\",\"name\":\"wrong\"}".into()),
+        ]);
+        let error = publish_upload(&url, None, &preview).unwrap_err();
+        handle.join().unwrap();
+        assert_eq!(error.kind, PublishErrorKind::Protocol);
+        assert_eq!(error.status, Some(201));
+    }
+
+    #[test]
+    fn publish_fixture_classifies_unreachable_registry_as_indeterminate() {
+        let preview = upload_preview();
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        drop(listener);
+        let error = publish_upload(&format!("http://{address}"), None, &preview).unwrap_err();
+        assert_eq!(error.kind, PublishErrorKind::Indeterminate);
+        assert_eq!(error.attempts, 3);
     }
 }

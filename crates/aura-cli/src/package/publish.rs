@@ -5,6 +5,7 @@
 
 use super::archive::{archive_sha256, build_source_archive};
 use super::lock::read_lock;
+use super::registry::{publish_upload, PublishError, PublishReceipt};
 use super::semver::{parse_req, parse_version};
 use super::toml::{parse_aura_toml, AuraToml, DepSpec};
 use aura_parser::parse_file;
@@ -112,6 +113,21 @@ pub fn publish_dry_run(path: impl AsRef<Path>) -> Result<PublishPreview, String>
         source_entries,
         dependency_count: toml.dependencies.len(),
     })
+}
+
+/// Validate locally, then perform the single bounded registry upload.
+pub fn publish_package(
+    path: impl AsRef<Path>,
+    registry_url: &str,
+    token: Option<&str>,
+) -> Result<PublishReceipt, PublishError> {
+    let preview = publish_dry_run(path).map_err(|message| PublishError {
+        kind: super::registry::PublishErrorKind::Rejected,
+        status: Some(400),
+        attempts: 0,
+        message,
+    })?;
+    publish_upload(registry_url, token, &preview)
 }
 
 fn manifest_path(path: &Path) -> Result<PathBuf, String> {
