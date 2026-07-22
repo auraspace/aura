@@ -28,10 +28,13 @@ target-specific metadata, and publish orchestration remain deferred.
 **Implementation status:** Partial. The client already reads local/offline
 fixtures and HTTPS metadata/tarballs with bounded timeouts; transient transport
 and 5xx failures now retry at most three times, while 4xx responses fail
-immediately. Authentication, upload, and stable error taxonomy remain open.
+immediately. HTTPS requests may carry an optional bearer token from
+`AURA_REGISTRY_TOKEN`; upload and stable error taxonomy remain open.
 **Checklist:**
 
-- [ ] Support configuration, authentication, fetch, upload, timeout, and retry.
+- [ ] Support configuration and upload.
+- [x] Support HTTPS fetch, bounded timeout/retry, and optional bearer
+      authentication via `AURA_REGISTRY_TOKEN`; upload remains open.
 - [ ] Map HTTP status, transport, auth, and validation failures to stable errors.
 - [x] Keep offline fixtures separate from network-required tests; local fixture
       tests and isolated HTTP mock-server tests are maintained independently.

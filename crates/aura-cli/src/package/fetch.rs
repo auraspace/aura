@@ -27,6 +27,8 @@ use tar::Archive;
 
 /// Env override for the registry cache root (`src/` lives under this).
 pub const ENV_REGISTRY_CACHE: &str = "AURA_REGISTRY_CACHE";
+/// Optional bearer token used for registry HTTP(S) requests.
+pub const ENV_REGISTRY_TOKEN: &str = "AURA_REGISTRY_TOKEN";
 
 /// Default on-disk cache: `~/.aura/registry` (or `USERPROFILE` on Windows).
 pub fn default_cache_root() -> PathBuf {
@@ -134,6 +136,13 @@ pub fn read_crate_bytes(source: &str) -> Result<Vec<u8>, String> {
 }
 
 fn read_http_bytes(url: &str) -> Result<Vec<u8>, String> {
+    let token = env::var(ENV_REGISTRY_TOKEN)
+        .ok()
+        .filter(|token| !token.trim().is_empty());
+    read_http_bytes_with_token(url, token.as_deref())
+}
+
+fn read_http_bytes_with_token(url: &str, token: Option<&str>) -> Result<Vec<u8>, String> {
     let agent = ureq::AgentBuilder::new()
         .timeout_connect(HTTP_TIMEOUT)
         .timeout_read(HTTP_TIMEOUT)
@@ -141,7 +150,14 @@ fn read_http_bytes(url: &str) -> Result<Vec<u8>, String> {
         .build();
     let mut last_error = None;
     for attempt in 0..HTTP_ATTEMPTS {
-        match agent.get(url).call() {
+        let request = if let Some(token) = token {
+            agent
+                .get(url)
+                .set("Authorization", &format!("Bearer {token}"))
+        } else {
+            agent.get(url)
+        };
+        match request.call() {
             Ok(response) => {
                 let mut bytes = Vec::new();
                 match response.into_reader().read_to_end(&mut bytes) {
@@ -557,6 +573,33 @@ mod unit {
         format!("http://{addr}/crate")
     }
 
+    fn serve_auth() -> String {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let addr = listener.local_addr().unwrap();
+        thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0; 2048];
+            let size = stream.read(&mut request).unwrap();
+            let request = String::from_utf8_lossy(&request[..size]);
+            let (status, body) = if request
+                .lines()
+                .any(|line| line == "Authorization: Bearer test-token")
+            {
+                ("200 OK", b"crate-bytes".as_slice())
+            } else {
+                ("401 Unauthorized", b"unauthorized".as_slice())
+            };
+            write!(
+                stream,
+                "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            )
+            .unwrap();
+            stream.write_all(body).unwrap();
+        });
+        format!("http://{addr}/crate")
+    }
+
     #[test]
     fn normalize_cksum_strips_prefix() {
         assert_eq!(normalize_cksum("sha256:AbCd"), "abcd");
@@ -617,6 +660,12 @@ mod unit {
     fn retries_interrupted_http_download() {
         let url = serve_retry_read();
         assert_eq!(read_crate_bytes(&url).unwrap(), b"crate-bytes");
+    }
+
+    #[test]
+    fn sends_optional_bearer_token_without_exposing_it_in_errors() {
+        let url = serve_auth();
+        assert_eq!(read_http_bytes_with_token(&url, Some("test-token")).unwrap(), b"crate-bytes");
     }
 
     #[test]
