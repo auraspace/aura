@@ -157,11 +157,11 @@ aura check --format json
 
 ## 7. Open questions
 
-| #   | Question                           | Options           | Owner | Status                                                                          |
-| --- | ---------------------------------- | ----------------- | ----- | ------------------------------------------------------------------------------- |
-| 1   | `aura pkg` namespace vs flat `add` | flat (`aura add`) | CLI   | **Resolved**                                                                    |
-| 2   | Plugin subcommands                 | later             | CLI   | **Deferred** — post-MVP                                                         |
-| 3   | Shell completion packaging         |                   | CLI   | **Resolved** — `aura completions <shell>` generates scripts (not separate pkgs) |
+| #   | Question                           | Options           | Owner | Status                                                               |
+| --- | ---------------------------------- | ----------------- | ----- | -------------------------------------------------------------------- |
+| 1   | `aura pkg` namespace vs flat `add` | flat (`aura add`) | CLI   | **Resolved**                                                         |
+| 2   | Plugin subcommands                 | later             | CLI   | **Deferred** — post-MVP                                              |
+| 3   | Shell completion packaging         |                   | CLI   | **Deferred** — no `aura completions` subcommand is currently shipped |
 
 ## 8. Rationale & trade-offs
 
@@ -198,7 +198,8 @@ Cargo-like flat verbs optimize for daily memory. Single binary matches product s
 
 | Date       | Author | Change                                                                           |
 | ---------- | ------ | -------------------------------------------------------------------------------- |
-| 2026-07-16 |        | Defer plugin cmds; lock `aura completions <shell>`                               |
+| 2026-07-22 |        | Correct shell completion status: no `aura completions` subcommand is shipped     |
+| 2026-07-16 |        | Defer plugin cmds; shell completion packaging                                    |
 | 2026-07-16 |        | Status → **Accepted** — Review: command map matches shipped check/build/run/test |
 | 2026-07-16 |        | Note shipped check/build/run/test/emit-c                                         |
 | 2026-07-15 |        | Initial skeleton                                                                 |
