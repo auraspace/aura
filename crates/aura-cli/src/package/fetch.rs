@@ -144,11 +144,15 @@ fn read_http_bytes(url: &str) -> Result<Vec<u8>, String> {
         match agent.get(url).call() {
             Ok(response) => {
                 let mut bytes = Vec::new();
-                response
-                    .into_reader()
-                    .read_to_end(&mut bytes)
-                    .map_err(|e| format!("error: read HTTPS download {url}: {e}"))?;
-                return Ok(bytes);
+                match response.into_reader().read_to_end(&mut bytes) {
+                    Ok(_) => return Ok(bytes),
+                    Err(error) if attempt + 1 < HTTP_ATTEMPTS => {
+                        last_error = Some(error.to_string());
+                    }
+                    Err(error) => {
+                        return Err(format!("error: read HTTPS download {url}: {error}"));
+                    }
+                }
             }
             Err(ureq::Error::Status(code, _)) if code >= 500 && attempt + 1 < HTTP_ATTEMPTS => {
                 last_error = Some(format!("HTTP status {code}"));
@@ -527,6 +531,32 @@ mod unit {
         format!("http://{addr}/crate")
     }
 
+    fn serve_retry_read() -> String {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let addr = listener.local_addr().unwrap();
+        thread::spawn(move || {
+            for (index, body) in [b"short".as_slice(), b"crate-bytes".as_slice()]
+                .into_iter()
+                .enumerate()
+            {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = [0; 1024];
+                let _ = stream.read(&mut request);
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    if index == 0 { 100 } else { body.len() }
+                )
+                .unwrap();
+                stream.write_all(body).unwrap();
+                if index == 1 {
+                    break;
+                }
+            }
+        });
+        format!("http://{addr}/crate")
+    }
+
     #[test]
     fn normalize_cksum_strips_prefix() {
         assert_eq!(normalize_cksum("sha256:AbCd"), "abcd");
@@ -580,6 +610,12 @@ mod unit {
     #[test]
     fn retries_transient_http_status() {
         let url = serve_retry();
+        assert_eq!(read_crate_bytes(&url).unwrap(), b"crate-bytes");
+    }
+
+    #[test]
+    fn retries_interrupted_http_download() {
+        let url = serve_retry_read();
         assert_eq!(read_crate_bytes(&url).unwrap(), b"crate-bytes");
     }
 
