@@ -33,7 +33,7 @@ triple). Calls, primitive lowering, and foreign linking remain F2 behavior.
       **Acceptance:** Primitive calls work consistently on supported hosts.
       **Verification:** Run native calls, missing-symbol, wrong-signature, and error
       fixtures on Linux/macOS.
-**Dependencies:** F1, P6–P7.
+      **Dependencies:** F1, P6–P7.
 
 **Implementation status (F2, bounded alpha slice):** Primitive C calls are
 lowered for `Int` (`int64_t`), `Bool` (`bool`), `String` (`const char *`), and
@@ -86,7 +86,7 @@ double-destroy paths.
       **Acceptance:** Invalid pointer lifetimes are rejected or reported deterministically.
       **Verification:** Run null, double-release, early-release, GC, and cancellation
       fixtures.
-**Dependencies:** F3, A3.
+      **Dependencies:** F3, A3.
 
 **Implementation status (F4, bounded alpha slice):** `runtime/aura_ffi.h`
 exposes separate non-null and nullable opaque-handle constructors. A handle
@@ -114,7 +114,7 @@ cleanup, and invalidated-handle cleanup. Callback implementation remains F5.
 - [x] Prevent callbacks from observing destroyed frames or values.
       **Acceptance:** Callback lifetime and failure behavior are documented and tested.
       **Verification:** Run callback, re-entry, cancellation, and foreign-error cases.
-**Dependencies:** F4, S1–S6.
+      **Dependencies:** F4, S1–S6.
 
 **Implementation status (F5, bounded alpha slice):** `runtime/aura_ffi.h`
 defines a synchronous callback registration whose environment is owned by the
@@ -139,15 +139,20 @@ and exception-object translation remain outside F5.
 **Objective:** Prove the extended FFI contract on supported targets.
 **Checklist:**
 
-- [ ] Add ABI mismatch, linker, ownership, callback, and sanitizer fixtures.
+- [x] Add ABI mismatch, linker, ownership, callback, and sanitizer fixtures.
   - [x] Runtime FFI ABI identity mismatch is rejected before user `main`, with
         exit status 78 and both ABI identities in stderr.
   - [x] Invalid linker flavor is surfaced as a deterministic codegen compile
         error, with the emitted C source retained for diagnosis and no output
         executable reported or left behind.
-  - [ ] Ownership, callback, and sanitizer fixtures.
+  - [x] Ownership, callback, and sanitizer fixtures.
 - [ ] Run native acceptance on Linux and macOS.
 - [ ] Verify no unowned foreign value crosses task or await boundaries.
       **Acceptance:** FFI failures are safe, diagnosed, and reproducible.
       **Verification:** Execute the FFI stage from clean checkouts and release builds.
       **Dependencies:** F1–F5, A8, P8.
+
+**Bounded evidence:** The Linux fixture set covers ABI mismatch, invalid linker,
+owned-value cleanup, opaque-handle lifetime, callback affinity/re-entry, and
+ASAN/UBSAN/LSAN paths. Native macOS acceptance and compiler-level proof that
+no unowned foreign value crosses an await/task boundary remain open.
