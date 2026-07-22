@@ -473,9 +473,7 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                 || mono_base_name(&iter_key, ctx.checked) == Some("Array")
             {
                 // for (x in arr) → index loop + Array_get (C3k).
-                let mono = if iter_key.starts_with("Array_") {
-                    iter_key.clone()
-                } else if iter_key == "Array" {
+                let mono = if iter_key == "Array" {
                     "Array_Int".into()
                 } else {
                     full_type_mono(&iter_key, ctx.checked)

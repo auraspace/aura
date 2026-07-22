@@ -26,6 +26,15 @@ fun main() {
   if (entries.len == 1 && entries.get(0).key == keys.get(0) && entries.get(0).value == values.get(0) && h.len() == 1 && h.getOr(1, "?") == "uno") {
     println("generic-int-entry-snapshot-ok")
   }
+  var entryCount: Int = 0
+  var renderedEntries: String = ""
+  for (entry in h.entries()) {
+    entryCount = entryCount + 1
+    renderedEntries = entry.key.toString() + ":" + entry.value
+  }
+  if (entryCount == 1 && renderedEntries == "1:uno") {
+    println("generic-int-entry-iteration-ok")
+  }
   val rendered = map_hash_map_values<Int, String, String>(h, (k: Int, v: String) => k.toString() + ":" + v)
   if (rendered.len == 1 && rendered.get(0) == "1:uno") {
     println("generic-int-map-values-ok")
