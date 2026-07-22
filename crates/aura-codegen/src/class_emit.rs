@@ -380,8 +380,9 @@ pub(crate) fn emit_method_mono(
         let key = type_ref_local_key_expand(&p.ty, params, args, checked);
         let mono_key = crate::expr::full_type_mono(&key, checked);
         ctx.define_local(&p.name.name, mono_key.clone());
-        // C6b: Array params own the buffer.
-        if crate::array_emit::is_array_type_key(&key) {
+        // C6b/C21d: owning Array params own the buffer; `ref Array<T>` params
+        // are header views over their caller's storage and must not free it.
+        if !p.ty.reference && crate::array_emit::is_array_type_key(&key) {
             ctx.mark_array_owner(&p.name.name);
         }
         // Fun params own capture env (caller moves).

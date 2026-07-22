@@ -284,6 +284,9 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
             // C12m/C13f: `var` Int/Bool/String that is by-ref captured → heap box local.
             let captured_by_ref =
                 v.mutable && ctx.checked.by_ref_capture_names().contains(&v.name.name);
+            // C21d: `ref Array<T>` is a scoped header view. It never owns or
+            // moves the backing buffer, even when the source is an owning local.
+            let borrow_binding = v.ty.as_ref().is_some_and(|t| t.reference);
             let needs_box =
                 captured_by_ref && (ty_name == "Int" || ty_name == "Bool" || ty_name == "String");
             let needs_ptr_box = captured_by_ref
@@ -312,6 +315,7 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                 false
             };
             if !needs_ptr_box
+                && !borrow_binding
                 && is_array_type_key(&ty_name)
                 && (is_array_ctor_expr(&v.init)
                     || (matches!(&v.init, Expr::Call(_)) && !from_array_get))
@@ -339,7 +343,7 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                 }
             }
             // C5b: move ownership on `val b = a` when `a` owns an Array buffer.
-            let moved_from = if is_array_type_key(&ty_name) {
+            let moved_from = if is_array_type_key(&ty_name) && !borrow_binding {
                 if let Expr::Ident(id) = &v.init {
                     if ctx.is_array_owner(&id.name) {
                         Some(id.name.clone())

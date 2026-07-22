@@ -558,6 +558,7 @@ pub(crate) fn c_type_ref_subst(
             name: ty.name.clone(),
             type_args: ty.type_args.clone(),
             nullable: false,
+            reference: false,
             span: ty.span,
             fun: ty.fun.clone(),
         };
