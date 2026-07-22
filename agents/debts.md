@@ -92,6 +92,17 @@ When you resolve debt, update or remove the matching entry.
   `aura publish` or alternate dependency sources.
 - Introduced: narrowed after C3p; HTTPS/nested registry work completed in S2
 
+### Publish signing and dependency resolution in dry-run (U4, 2026-07-22)
+
+- Area: package publication preview
+- Symptom: `aura publish --dry-run` previews an unsigned archive and validates
+  registry dependencies only from an existing local lock pin; it does not sign,
+  resolve, fetch, or upload.
+- Why deferred: signing keys/policy and the U5 registry upload protocol are not
+  yet defined; keeping the preview read-only prevents false release claims.
+- Next step: add a signing primitive/key policy and U5 upload orchestration,
+  then extend the preview to verify the exact publish metadata end to end.
+
 ### Array of interface elements
 
 - Area: builtin Array

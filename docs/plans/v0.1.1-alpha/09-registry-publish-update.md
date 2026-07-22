@@ -64,11 +64,19 @@ open.
 ## U4. Publish dry-run
 
 **Objective:** Validate and preview publishing without network mutation.
+**Implementation status:** Implemented as a bounded, read-only `aura publish
+--dry-run` command. It validates the release manifest/version, source entries,
+path dependencies, and locked registry dependency pins, then builds the U1
+archive in memory and previews its size/checksum. It never resolves/fetches,
+writes `aura.lock`, contacts a registry, or uploads. Release signatures remain
+explicitly deferred until the signing primitive and key policy are defined.
 **Checklist:**
 
-- [ ] Validate manifest, version, package contents, and dependencies.
-- [ ] Produce archive/checksum/signature preview.
-- [ ] Show all errors before any upload operation.
+- [x] Validate manifest, version, package contents, and dependencies.
+- [x] Produce bounded archive/checksum preview; report signature as deferred
+      rather than claiming an unsigned artifact is signed.
+- [x] Show all validation errors before any upload operation; dry-run has no
+      upload path and does not mutate registry or package state.
       **Acceptance:** Dry-run never mutates registry state.
       **Verification:** Compare preview with actual package and block invalid inputs.
       **Dependencies:** U1, U2.

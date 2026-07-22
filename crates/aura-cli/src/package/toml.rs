@@ -31,6 +31,8 @@ impl DepSpec {
 #[derive(Debug, Clone)]
 pub(crate) struct AuraToml {
     pub(crate) package_name: Option<String>,
+    /// Exact package release version from `[package]` (U4 publish validation).
+    pub(crate) package_version: Option<String>,
     pub(crate) bin_name: Option<String>,
     /// Relative path to a source file or directory (default: `src/` or package root).
     pub(crate) bin_path: Option<String>,
@@ -44,6 +46,7 @@ impl Default for AuraToml {
     fn default() -> Self {
         Self {
             package_name: None,
+            package_version: None,
             bin_name: None,
             bin_path: None,
             dependencies: HashMap::new(),
@@ -219,6 +222,11 @@ pub(crate) fn parse_aura_toml(text: &str) -> Result<AuraToml, String> {
             }
             "package" if key == "name" => {
                 out.package_name = Some(
+                    parse_toml_string(val_raw).map_err(|e| format!("line {}: {e}", lineno + 1))?,
+                );
+            }
+            "package" if key == "version" => {
+                out.package_version = Some(
                     parse_toml_string(val_raw).map_err(|e| format!("line {}: {e}", lineno + 1))?,
                 );
             }

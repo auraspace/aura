@@ -12,7 +12,7 @@ use aura_diagnostics::{
     classify_async, format_async_error, format_error_with, FormatOptions, JsonDiagnostic, Severity,
 };
 use aura_sema::{check_file, SemaError, SemaErrors};
-use package::{load_package, load_package_default, LoadedPackage};
+use package::{load_package, load_package_default, publish_dry_run, LoadedPackage};
 use std::env;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
@@ -33,6 +33,7 @@ fn main() -> ExitCode {
         "build" => cmd_build(&args),
         "run" => cmd_run(&args),
         "test" => cmd_test(&args),
+        "publish" => cmd_publish(&args),
         "fmt" => cmd_fmt(&args),
         "emit-c" => cmd_emit_c(&args),
         "new" => cmd_new(&args),
@@ -63,6 +64,7 @@ fn eprint_usage() {
            aura build [path] [-o <bin>]      Compile to native binary (C backend)\n  \
            aura run [path] [-- args...]      Build to temp and execute\n  \
            aura test [path] [--test-name <pattern>] [--format json] [-- args...]\n  \
+           aura publish --dry-run [path]    Validate and preview without upload\n  \
            aura fmt <path>                   Format an Aura source file\n  \
            aura emit-c [path]                Print generated C (debug)\n  \
            aura version                      Print CLI version\n  \
@@ -71,6 +73,37 @@ fn eprint_usage() {
          With no path, commands look for `./aura.toml`.\n\n\
          See docs/roadmap.md and RFC-001 §6.0 / RFC-005 / RFC-008 / RFC-012."
     );
+}
+
+fn cmd_publish(args: &[String]) -> ExitCode {
+    let mut dry_run = false;
+    let mut path = None;
+    for arg in args {
+        if arg == "--dry-run" {
+            dry_run = true;
+        } else if arg.starts_with('-') {
+            eprintln!("error: unknown publish option `{arg}`");
+            return ExitCode::from(2);
+        } else if path.replace(PathBuf::from(arg)).is_some() {
+            eprintln!("error: unexpected extra package argument `{arg}`");
+            return ExitCode::from(2);
+        }
+    }
+    if !dry_run {
+        eprintln!("error: only `aura publish --dry-run` is implemented; no registry upload is available");
+        return ExitCode::from(2);
+    }
+    let path = path.unwrap_or_else(|| PathBuf::from("aura.toml"));
+    match publish_dry_run(path) {
+        Ok(preview) => {
+            println!("{}", preview.render());
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("{error}");
+            ExitCode::from(1)
+        }
+    }
 }
 
 fn cmd_fmt(args: &[String]) -> ExitCode {

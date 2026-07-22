@@ -5,6 +5,7 @@ mod fetch;
 mod archive;
 mod load;
 mod lock;
+mod publish;
 mod registry;
 mod semver;
 mod toml;
@@ -23,6 +24,7 @@ pub use fetch::{
     verify_sha256, ENV_REGISTRY_CACHE,
 };
 pub use load::{load_package, load_package_default};
+pub use publish::publish_dry_run;
 #[cfg(test)]
 pub use registry::{
     default_index_path, index_root_from_env, RegistryConfig, RegistryIndex, VersionMeta,
