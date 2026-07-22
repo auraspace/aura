@@ -1,0 +1,6 @@
+[package]
+name = "demo.stdentrymutationdeferred"
+
+[[bin]]
+name = "app"
+path = "src"

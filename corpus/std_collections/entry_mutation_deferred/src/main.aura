@@ -1,0 +1,24 @@
+// C20i — entry mutation is deferred while collection views remain snapshots.
+package demo.stdentrymutationdeferred
+
+import std.collections
+
+fun main() {
+  val h: HashMap<Int, String> = HashMap<Int, String>(Array(4), Array(4), Array(4))
+  h.put(1, "one")
+  h.put(2, "two")
+
+  val entries = h.entryIterator()
+  h.put(1, "updated")
+  h.put(3, "three")
+  h.put(4, "four")
+  h.put(5, "five")
+
+  // Entry views retain their creation-time value; map mutation is explicit.
+  if (entries.len() == 2 && entries.get(0).value == "one" && h.getOr(1, "?") == "updated") {
+    println("entry-snapshot-stable")
+  }
+  if (entries.get(1).value == "two" && h.len() == 5) {
+    println("entry-mutation-deferred")
+  }
+}
