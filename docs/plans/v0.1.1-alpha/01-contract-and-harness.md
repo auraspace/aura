@@ -6,6 +6,22 @@ This workstream makes the alpha promise measurable before implementation work
 expands. The matrix is the source of truth for what is required, supported,
 deferred, or rejected.
 
+## Implementation status (2026-07-22)
+
+- **C1:** Complete — 29-row contract matrix and validator are shipped in
+  `contract-matrix.tsv` and `scripts/validate-alpha-contract.sh`.
+- **C2:** Complete — target/release policy and CI/release enforcement cover
+  Linux amd64, macOS arm64, and macOS amd64.
+- **C3:** Partial — current CLI, offline registry, JSON test report, and
+  deferred rich FFI/HTTP claims are recorded; publish/update and rich FFI
+  implementation remain owned by workstreams 09–11.
+- **C4:** Complete — `scripts/alpha-harness.sh` provides stage, fixture,
+  target, profile, offline/network, rerun, and versioned JSON report support.
+- **C5:** Partial — alpha corpus layout and golden policy are documented;
+  capability-specific fixtures will land with their owning workstreams.
+- **C6:** Complete — clean-host procedure is documented and the canonical
+  release acceptance gate is wired into CI/release workflows.
+
 ## C1. Alpha contract matrix
 
 **Objective:** Convert every mandatory alpha capability into a testable
@@ -13,14 +29,14 @@ requirement with an owner and a release status.
 
 **Checklist:**
 
-- [ ] Enumerate compiler, runtime, async, I/O, HTTP, build, package, FFI,
+- [x] Enumerate compiler, runtime, async, I/O, HTTP, build, package, FFI,
       diagnostics, and release requirements.
-- [ ] Link each requirement to the relevant accepted design decision without
+- [x] Link each requirement to the relevant accepted design decision without
       copying implementation assumptions into the contract.
-- [ ] Define `implemented`, `partial`, `blocked`, `deferred`, and `out of
-    scope` consistently.
-- [ ] Assign one workstream owner and one acceptance fixture to every gate.
-- [ ] Record which claims require native execution and which are compile-only.
+- [x] Define `implemented`, `partial`, `blocked`, `deferred`, and `out of
+  scope` consistently.
+- [x] Assign one workstream owner and one acceptance fixture to every gate.
+- [x] Record which claims require native execution and which are compile-only.
 
 **Acceptance:** No mandatory requirement is missing an owner, test, status, or
 release claim.
@@ -36,12 +52,12 @@ baseline suite with the matrix attached to the result.
 
 **Checklist:**
 
-- [ ] Confirm Linux amd64 and macOS amd64/arm64 support claims.
-- [ ] Specify compiler, linker, runtime, system-library, and permission
+- [x] Confirm Linux amd64 and macOS amd64/arm64 support claims.
+- [x] Specify compiler, linker, runtime, system-library, and permission
       requirements for each target.
-- [ ] Separate native-runtime-tested, cross-compiled, and unsupported targets.
-- [ ] Define archive naming, checksum, signature, and installation guarantees.
-- [ ] Define how a target is removed from support when acceptance fails.
+- [x] Separate native-runtime-tested, cross-compiled, and unsupported targets.
+- [x] Define archive naming, checksum, signature, and installation guarantees.
+- [x] Define how a target is removed from support when acceptance fails.
 
 **Acceptance:** A clean host can determine whether a target is supported before
 compilation begins.
@@ -58,7 +74,7 @@ integration boundaries.
 
 **Checklist:**
 
-- [ ] Specify commands, flags, exit codes, structured output, and error classes.
+- [x] Specify commands, flags, exit codes, structured output, and error classes.
 - [ ] Specify registry authentication, upload, download, checksum, and retry
       behavior.
 - [ ] Specify self-update failure and rollback behavior.
@@ -79,12 +95,12 @@ failure, checksum failure, and ABI mismatch.
 
 **Checklist:**
 
-- [ ] Add stages for frontend, backend, runtime, async, I/O, HTTP, build,
+- [x] Add stages for frontend, backend, runtime, async, I/O, HTTP, build,
       registry, FFI, sanitizer, and release acceptance.
-- [ ] Label every failure with stage, target, profile, and fixture identity.
-- [ ] Support offline stages separately from network-required stages.
-- [ ] Return stable aggregate exit codes while preserving individual failures.
-- [ ] Allow a single stage or fixture to be rerun locally.
+- [x] Label every failure with stage, target, profile, and fixture identity.
+- [x] Support offline stages separately from network-required stages.
+- [x] Return stable aggregate exit codes while preserving individual failures.
+- [x] Allow a single stage or fixture to be rerun locally.
 
 **Acceptance:** A failed run identifies the failing contract area without manual
 log archaeology.
@@ -101,11 +117,11 @@ implementation changes.
 
 **Checklist:**
 
-- [ ] Separate syntax, diagnostics, type checking, generated output, runtime,
+- [x] Separate syntax, diagnostics, type checking, generated output, runtime,
       async, I/O, HTTP, build, registry, and FFI fixtures.
 - [ ] Add positive and negative cases for every mandatory contract.
-- [ ] Record expected failures explicitly with a reason and owner.
-- [ ] Make golden updates reviewable and deterministic.
+- [x] Record expected failures explicitly with a reason and owner.
+- [x] Make golden updates reviewable and deterministic.
 
 **Acceptance:** Legacy behavior remains covered and new failures identify the
 affected subsystem.
@@ -120,11 +136,11 @@ affected subsystem.
 
 **Checklist:**
 
-- [ ] Document required tools, network access, permissions, and environment
+- [x] Document required tools, network access, permissions, and environment
       variables.
-- [ ] Re-run the existing suite outside restricted cache/network conditions.
-- [ ] Classify each failure as product, environment, flaky, or expected.
-- [ ] Store command lines, target, compiler version, and result metadata.
+- [x] Re-run the existing suite outside restricted cache/network conditions.
+- [x] Classify each failure as product, environment, flaky, or expected.
+- [x] Store command lines, target, compiler version, and result metadata.
 
 **Acceptance:** The team can distinguish a real regression from a host setup
 failure.

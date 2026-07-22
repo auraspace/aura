@@ -35,6 +35,9 @@ jobs:
       - name: Build aura CLI
         run: cargo build -p aura-cli
 
+      - name: Validate alpha contract matrix
+        run: bash scripts/validate-alpha-contract.sh
+
       - name: Check corpus (excl. diag)
         env:
           AURA_BIN: target/debug/aura
@@ -45,6 +48,11 @@ jobs:
           AURA_BIN: target/debug/aura
         run: |
           bash scripts/compiler-regression.sh
+
+      - name: Alpha harness backend stage
+        env:
+          AURA_BIN: target/debug/aura
+        run: bash scripts/alpha-harness.sh --stage backend --offline --profile test
 
       - name: Embedded runtime (no monorepo path)
         run: |
@@ -101,12 +109,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # linux-amd64 and darwin-arm64 are native builds; darwin-amd64 is
+          # cross-compiled because macos-13 Intel runners are unavailable.
           - os: ubuntu-latest
             name: linux-amd64
-            rust_target: x86_64-unknown-linux-gnu
           - os: macos-14
             name: darwin-arm64
-            rust_target: aarch64-apple-darwin
           - os: macos-14
             name: darwin-amd64
             rust_target: x86_64-apple-darwin
@@ -137,6 +145,7 @@ jobs:
           bash scripts/package-release.sh
           archive="dist/aura-${TAG_VERSION}-${{ matrix.name }}.tar.gz"
           checksum="${archive}.sha256"
+          test "$(find dist -maxdepth 1 -type f -name 'aura-*.tar.gz' | wc -l | tr -d ' ')" -eq 1
           test -f "$archive"
           test -f "$checksum"
           # Checksums list basenames; verify from the archive directory (same as package-release.sh).

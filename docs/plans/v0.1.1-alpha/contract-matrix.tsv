@@ -1,0 +1,30 @@
+id	domain	rfc	owner	fixture	execution_mode	status	release_claim	reason
+COMP-001	compiler	RFC-001	Compiler Expert	corpus/hello/main.aura	native	implemented	alpha-required	Core source compiles and runs through the shipped CLI.
+COMP-002	compiler	RFC-001	Compiler Expert	corpus/generic/id.aura	native	implemented	alpha-required	Generics are covered by the current regression matrix.
+COMP-003	compiler	RFC-008	Compiler Expert	corpus/import/app/aura.toml	compile-only	implemented	alpha-required	Package-root checking and locked imports are currently shipped.
+COMP-004	compiler	RFC-012	Compiler Expert	corpus/test/smoke.aura	native	implemented	alpha-required	The built-in test path is part of the current alpha gate.
+DIAG-001	diagnostics	RFC-012	Compiler Expert	corpus/diag/undefined.aura	compile-only	implemented	alpha-required	Pretty diagnostics and exit code 1 are regression-tested.
+DIAG-002	diagnostics	RFC-012	Compiler Expert	corpus/diag/async_await_unsupported.aura	compile-only	partial	alpha-partial	Stable async diagnostic metadata exists, but the async feature is not complete.
+DIAG-003	diagnostics	RFC-012	Compiler Expert	corpus/diag/multi_error.aura	compile-only	implemented	alpha-required	Multiple diagnostics and source context are covered.
+RUNTIME-001	runtime	RFC-006	Runtime & Integration	corpus/hello/main.aura	native	implemented	alpha-required	The embedded runtime links and executes the basic native program.
+RUNTIME-002	runtime	RFC-006	Runtime & Integration	corpus/class/gc_nested_churn.aura	native	partial	alpha-partial	GC and ownership paths have coverage, while the full RFC runtime remains incomplete.
+RUNTIME-003	runtime	RFC-006	Runtime & Integration	corpus/control/exception_payload_cleanup.aura	native	partial	alpha-partial	Exception payload cleanup is exercised; the complete runtime exception contract is not done.
+ASYNC-001	async	RFC-003	Compiler Expert	corpus/async/no_await.aura	native	partial	alpha-partial	No-await async/task behavior is shipped in the current deterministic MVP.
+ASYNC-002	async	RFC-003	Compiler Expert	corpus/async/task_lifecycle.aura	native	partial	alpha-partial	Task lifecycle coverage exists, but suspension and complete outcome propagation remain partial.
+ASYNC-003	async	RFC-003	Compiler Expert	corpus/diag/async_await_unsupported.aura	compile-only	blocked	not-claimed	Await suspension state machines are required by the broader contract but are not shipped.
+IO-001	I/O	RFC-006	Runtime & Integration	corpus/std_io/args/aura.toml	native	implemented	alpha-required	Process argument forwarding and std.io args are shipped.
+IO-002	I/O	RFC-006	Runtime & Integration	corpus/std_io/files/aura.toml	native	partial	alpha-partial	Synchronous file APIs are present; async I/O is not yet an alpha claim.
+HTTP-001	HTTP	RFC-006	Runtime & Integration	docs/plans/v0.1.1-alpha/11-http-server.md	compile-only	deferred	not-claimed	The minimal HTTP server workstream is planned but has no runnable alpha fixture.
+BUILD-001	build	RFC-008	Compiler Expert	corpus/hello/main.aura	native	implemented	alpha-required	Default output is a single executable.
+BUILD-002	build	RFC-008	Compiler Expert	scripts/package-release.sh	cross-compile	partial	alpha-partial	Packaging supports the three current Unix targets; the RFC matrix is broader.
+BUILD-003	build	RFC-008	Compiler Expert	corpus/import/app/aura.toml	compile-only	implemented	alpha-required	Package graph resolution and checking are currently exercised.
+REG-001	registry	RFC-012	Compiler Expert	corpus/import/app/aura.lock	offline	implemented	alpha-required	Locked dependency input is supported without requiring a network call.
+REG-002	registry	RFC-005	Compiler Expert	docs/plans/v0.1.1-alpha/09-registry-publish-update.md	network	deferred	not-claimed	Publish, upload authentication, retries, and self-update are not shipped.
+FFI-001	FFI	RFC-006	Runtime & Integration	docs/rfc/RFC-006-runtime.md	compile-only	partial	alpha-partial	The runtime defines a narrow C ABI boundary; broad FFI remains deferred.
+FFI-002	FFI	RFC-006	Runtime & Integration	docs/plans/v0.1.1-alpha/10-ffi.md	native	deferred	not-claimed	Extended owned values, pointers, callbacks, and ABI fixtures are not shipped.
+SAN-001	sanitizer	RFC-006	Runtime & Integration	scripts/sanitizer-smoke.sh	native	implemented	alpha-required	AddressSanitizer and UBSan smoke coverage is wired into CI.
+SAN-002	sanitizer	RFC-006	Runtime & Integration	corpus/generic/array_memory_safety.aura	native	partial	alpha-partial	Representative memory cases run under sanitizers; async/I/O/FFI coverage is incomplete.
+REL-001	release	RFC-013	Runtime & Integration	scripts/package-release.sh	native	implemented	alpha-required	Archives, deterministic metadata, and per-archive SHA-256 checksums are produced.
+REL-002	release	RFC-013	Runtime & Integration	scripts/install-smoke.sh	native	implemented	alpha-required	Local package/install and CLI smoke paths are available.
+REL-003	release	RFC-013	Runtime & Integration	.github/workflows/ci.yml	cross-compile	partial	alpha-partial	CI verifies Linux amd64 and macOS amd64/arm64 only; Linux arm64 and Windows are not claimed.
+REL-004	release	RFC-013	Runtime & Integration	.github/workflows/release.yml	native	partial	alpha-partial	Aggregate manifests and optional minisign signing exist, but signing is not mandatory.

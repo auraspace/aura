@@ -107,6 +107,7 @@ fi
 
 run_stage "native host scope" report_native_scope
 
+run_stage "alpha contract matrix" bash scripts/validate-alpha-contract.sh
 run_stage "workspace tests" cargo test --workspace
 run_stage "Clippy warnings gate" cargo clippy --workspace --all-targets -- -D warnings
 run_stage "corpus gate" bash scripts/check-corpus.sh

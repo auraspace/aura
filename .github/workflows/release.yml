@@ -22,6 +22,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # linux-amd64 and darwin-arm64 are native builds. darwin-amd64 is
+          # cross-compiled on macos-14 because macos-13 Intel runners retired.
           - os: ubuntu-latest
             name: linux-amd64
           - os: macos-14
@@ -53,6 +55,9 @@ jobs:
           TAG_VERSION: ${{ github.ref_name }}
           RUST_TARGET: ${{ matrix.rust_target }}
         run: bash scripts/package-release.sh
+
+      - name: Alpha release acceptance gate
+        run: bash scripts/release-acceptance.sh
 
       # Native artifacts only: a cross-built x86_64 binary cannot run on arm64 runners.
       - name: Smoke the packaged binary
@@ -142,11 +147,16 @@ jobs:
           # Artifacts may be nested per-job or flat depending on merge-multiple
           find artifacts -type f \( -name '*.tar.gz' -o -name '*.sha256' \) -exec cp -v {} release-assets/ \;
           ls -la release-assets
-          count="$(find release-assets -type f | wc -l | tr -d ' ')"
-          if [[ "$count" -lt 1 ]]; then
-            echo "error: no release assets found" >&2
-            exit 1
-          fi
+          version="${GITHUB_REF_NAME#v}"
+          for target in linux-amd64 darwin-arm64 darwin-amd64; do
+            archive="aura-${version}-${target}.tar.gz"
+            checksum="${archive}.sha256"
+            test -f "release-assets/$archive" || { echo "error: missing $archive" >&2; exit 1; }
+            test -f "release-assets/$checksum" || { echo "error: missing $checksum" >&2; exit 1; }
+            (cd release-assets && sha256sum --check "$checksum")
+          done
+          count="$(find release-assets -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.sha256' \) | wc -l | tr -d ' ')"
+          test "$count" -eq 6 || { echo "error: expected exactly 6 target assets, found $count" >&2; exit 1; }
 
       - name: Generate aggregate SHA256 manifest
         run: |
