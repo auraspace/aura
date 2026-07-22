@@ -97,18 +97,29 @@ cases.
 
 **Objective:** Cancel ready and suspended tasks with defined cleanup and outcome.
 
+**Implementation status:** Partial bounded runtime coverage now proves that an
+owned capture attached to an executor task is released exactly once when a
+task cancelled before its first poll or while pending is eventually destroyed
+by the executor. The current API does not publish cleanup before the
+`AURA_TASK_CANCELLED` state, and scheduler/await/I/O/handler boundary
+semantics remain open.
+
 **Checklist:**
 
 - [ ] Define cancellation request, acknowledgement, and race with completion.
 - [ ] Check cancellation at scheduler, await, I/O, and handler boundaries.
 - [ ] Run cleanup exactly once before publishing cancellation.
+- [x] Release an executor-owned capture exactly once for cancellation before
+      first poll and while pending; the test observes cleanup during executor
+      shutdown, after cancellation is published.
 - [ ] Make join and unjoined-task behavior consistent after cancellation.
 
 **Acceptance:** Cancellation cannot strand a frame, descriptor, capture, or
 channel payload.
 
-**Verification:** Test cancellation before start, while pending, during resume,
-and after completion.
+**Verification:** The runtime test covers cancellation before start and while
+pending for capture cleanup. Cleanup-before-state-publication, during-resume,
+after-completion, and descriptor/channel-payload cleanup remain unverified.
 
 **Dependencies:** S3, S4, A7.
 
