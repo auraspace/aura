@@ -114,6 +114,10 @@ pub class Set<T>(val keys: Array<T>) {
 
 pub fun set(): Set<String> { return Set<String>(Array(0)) }
 
+/// One key/value pair captured by HashMap.entries().
+pub class HashMapEntry<K, V>(val key: K, val value: V) {
+}
+
 /// Open-addressing map. state: 0 empty, 1 full, 2 tombstone.
 /// The key bound supplies both the hash operation and the equality contract.
 pub class HashMap<K : Hashable, V>(var keys: Array<K>, var vals: Array<V>, var state: Array<Int>) {
@@ -133,6 +137,17 @@ pub class HashMap<K : Hashable, V>(var keys: Array<K>, var vals: Array<V>, var s
     val out: Array<V> = Array(0)
     for (i in 0..this.state.len) {
       if (this.state.get(i) == 1) { out.push(this.vals.get(i)) }
+    }
+    return out
+  }
+
+  /// Return live key/value pairs in logical table order without mutating this map.
+  pub fun entries(): Array<HashMapEntry<K, V>> {
+    val out: Array<HashMapEntry<K, V>> = Array(0)
+    for (i in 0..this.state.len) {
+      if (this.state.get(i) == 1) {
+        out.push(HashMapEntry<K, V>(this.keys.get(i), this.vals.get(i)))
+      }
     }
     return out
   }

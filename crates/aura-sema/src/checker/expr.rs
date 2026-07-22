@@ -75,6 +75,16 @@ impl Checker {
             let ft = subst_ty(&f.ty, &map);
             self.note_mono_ty(&ft);
         }
+        // All methods of a class monomorph are emitted, so their substituted
+        // signatures must also have concrete nested monomorphs available.
+        for method in sig.methods.values() {
+            for param in &method.params {
+                let pt = subst_ty(param, &map);
+                self.note_mono_ty(&pt);
+            }
+            let rt = subst_ty(&method.ret, &map);
+            self.note_mono_ty(&rt);
+        }
         // C9a: note mono interfaces from `implements` after class type-arg subst
         // (`Box<Int>` → `Boxable<Int>`).
         for imp in &sig.implements {

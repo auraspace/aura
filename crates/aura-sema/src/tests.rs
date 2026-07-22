@@ -329,6 +329,42 @@ fun main() {
 }
 
 #[test]
+fn nested_mono_expands_generic_method_signature_types() {
+    let src = r#"
+package t
+class Entry<K, V>(val key: K, val value: V) {}
+class Table<K, V>(val key: K, val value: V) {
+  fun entries(): Array<Entry<K, V>> { return Array(0) }
+}
+fun main() {
+  val table = Table<Int, String>(1, "one")
+}
+"#;
+    let file = parse_file(src).expect("parse");
+    let checked = check_file(&file).expect("check");
+    let entry = Ty::ClassApp {
+        name: "Entry@t".into(),
+        args: vec![Ty::Int, Ty::String],
+    };
+    assert!(
+        checked
+            .mono_classes
+            .iter()
+            .any(|(n, args)| n == "Entry" && args == &[Ty::Int, Ty::String]),
+        "expected Entry<Int, String>, got {:?}",
+        checked.mono_classes
+    );
+    assert!(
+        checked
+            .mono_classes
+            .iter()
+            .any(|(n, args)| n == "Array" && args.as_slice() == std::slice::from_ref(&entry)),
+        "expected Array<Entry<Int, String>>, got {:?}",
+        checked.mono_classes
+    );
+}
+
+#[test]
 fn import_allows_pub_function() {
     use aura_ast::ImportDecl;
     let mut lib = parse_file(

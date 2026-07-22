@@ -91,6 +91,18 @@ fun main() {
   if (r.getOr("j", "?") == "v10") {
     println("getj")
   }
+  val entryKeys = r.keyArray()
+  val entryValues = r.valueArray()
+  val entries = r.entries()
+  var paired: Bool = entries.len == r.len()
+  for (i in 0..entries.len) {
+    if (entries.get(i).key != entryKeys.get(i) || entries.get(i).value != entryValues.get(i)) {
+      paired = false
+    }
+  }
+  if (paired && r.getOr("a", "?") == "v1" && r.getOr("t", "?") == "v20") {
+    println("generic-string-entry-snapshot-ok")
+  }
   val values = map_hash_map_values<String, String, String>(r, (k: String, v: String) => k + "=" + v)
   if (values.len == 20 && values.get(0).len > 2) {
     println("generic-string-map-values-ok")
