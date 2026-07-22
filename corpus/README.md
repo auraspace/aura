@@ -2,6 +2,19 @@
 
 Sample `.aura` programs for the compiler: parse/typecheck (`aura check`), native run (`aura run` / `aura build`), and `@test` (`aura test`). Layout tracks milestones through **C21** (scoped borrows, mutable captures, collection snapshots, and DX) + guide sync (see [docs/roadmap.md](../docs/roadmap.md)).
 
+## Async/task corpus (C22 MVP)
+
+The `async/` fixtures cover the deterministic, single-threaded C22 surface currently supported by the frontend and codegen: no-await async declarations (`async/no_await.aura`), empty task lifecycle operations (`async/task_lifecycle.aura`), and bounded typed channels for `Int`, `String`, and class payloads (`async/typed_channels.aura`). They do not use OS threads, network I/O, or blocking operations.
+
+The following files are intentionally expected to fail and live under `diag/`, so `scripts/check-corpus.sh` excludes them from the green corpus:
+
+- `diag/async_await_unsupported.aura` — `await` is parsed and type-checked, but suspension/state-machine codegen is deferred.
+- `diag/async_spawn_unsupported.aura` — non-empty `spawn` requires state-machine/capture lowering.
+- `diag/async_borrow_await.aura`, `diag/async_borrow_spawn.aura`, and `diag/async_borrow_channel_send.aura` — borrowed values cannot cross those async/task/channel boundaries.
+- `diag/async_borrow_task_storage.aura` — `Task<T>` cannot store a borrowed `T`.
+
+Run the green async fixtures with `bash scripts/check-corpus.sh` (or `cargo run -p aura-cli -- check corpus/async/<file>.aura`). Validate the expected-fail fixtures with `cargo run -p aura-cli -- check <path>` and confirm the diagnostic names the corresponding operation/boundary. The unsupported codegen cases are check-only until their lowering lands.
+
 ## Core fixtures
 
 | Path                                           | Intent                                                                 |

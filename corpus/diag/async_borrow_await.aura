@@ -1,0 +1,6 @@
+// C22p expected fail — a borrowed value cannot cross await.
+package demo.tasks.diag
+
+async fun bad(value: ref String): String {
+  return await value
+}

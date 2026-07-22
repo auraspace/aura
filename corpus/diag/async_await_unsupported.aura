@@ -1,0 +1,10 @@
+// C22p expected fail — await parses/type-checks but codegen is not lowered yet.
+package demo.tasks.diag
+
+async fun answer(): Int {
+  return 42
+}
+
+async fun uses_await(): Int {
+  return await answer()
+}

@@ -1,0 +1,6 @@
+// C22p expected fail — a spawned task cannot capture a borrow.
+package demo.tasks.diag
+
+async fun bad(value: ref String) {
+  spawn { value }
+}

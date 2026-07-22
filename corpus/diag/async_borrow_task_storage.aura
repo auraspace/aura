@@ -1,0 +1,4 @@
+// C22p expected fail — Task storage cannot contain a borrowed type.
+package demo.tasks.diag
+
+fun bad(task: Task<ref String>) {}

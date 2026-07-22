@@ -1,0 +1,11 @@
+// C22p — supported no-await async function.
+package demo.tasks.noawait
+
+async fun answer(): Int {
+  return 42
+}
+
+fun main() {
+  // The declaration is checked and lowered without suspension points.
+  println("async")
+}

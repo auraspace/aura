@@ -1,0 +1,10 @@
+// C22p — supported empty spawn, join, and cancel operations.
+package demo.tasks.lifecycle
+
+fun main() {
+  val joined = spawn {}
+  join(joined)
+
+  val cancelled = spawn {}
+  cancel(cancelled)
+}

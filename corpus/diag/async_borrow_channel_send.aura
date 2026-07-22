@@ -1,0 +1,6 @@
+// C22p expected fail — channel send transfers ownership across a boundary.
+package demo.tasks.diag
+
+fun bad(channel: Channel<String>, value: ref String) {
+  channel.send(value)
+}
