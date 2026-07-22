@@ -956,7 +956,13 @@ fn emit_await(a: &AwaitExpr, ctx: &mut EmitCtx<'_>) -> String {
     out.push_str("); AuraTaskPollState __await_state = ");
     out.push_str("__await == NULL ? AURA_TASK_FAILED : aura_task_frame_state(__await); ");
     out.push_str("if (__await_state == AURA_TASK_READY) __await_state = aura_task_frame_poll_once(__await); ");
-    out.push_str("if (__await_state == AURA_TASK_PENDING) { fputs(\"aura: await suspended task requires scheduler continuation\\n\", stderr); abort(); } ");
+    out.push_str("if (__await_state == AURA_TASK_PENDING && __aura_task_executor != NULL) { ");
+    out.push_str(
+        "while (__await_state == AURA_TASK_PENDING && !aura_task_frame_is_waiting(__await)) { ",
+    );
+    out.push_str("(void)aura_task_executor_wake(__aura_task_executor, __await); ");
+    out.push_str("if (aura_task_executor_run_one(__aura_task_executor) == 0) break; ");
+    out.push_str("__await_state = aura_task_frame_state(__await); } } ");
     out.push_str("if (__await_state != AURA_TASK_COMPLETE) { fputs(\"aura: awaited task failed or was cancelled\\n\", stderr); abort(); } ");
     if inner == "Unit" {
         out.push_str("(void)0; ");

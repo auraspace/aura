@@ -265,3 +265,9 @@ When you resolve debt, update or remove the matching entry.
 - Runtime executor lifecycle events now cover spawn and terminal outcomes.
   Compiler read/write instrumentation, synchronization edges, suppression, and
   stable conflict reports remain deferred to R1–R5 follow-up slices.
+
+### Async I/O suspension (2026-07-22)
+
+- Await now resumes pending frames that are not blocked on a channel/I/O waiter
+  by re-queueing them through the deterministic executor. Waiter-driven wakeup,
+  live-local hoisting, and full async I/O continuation remain deferred.

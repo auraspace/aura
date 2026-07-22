@@ -113,6 +113,7 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("void aura_task_frame_destroy(AuraTaskFrame *frame);\n");
     out.push_str("AuraTaskPollState aura_task_frame_state(const AuraTaskFrame *frame);\n");
     out.push_str("int aura_task_frame_cancel_requested(const AuraTaskFrame *frame);\n");
+    out.push_str("int aura_task_frame_is_waiting(const AuraTaskFrame *frame);\n");
     out.push_str("uint32_t aura_task_frame_resume_state(const AuraTaskFrame *frame);\n");
     out.push_str("void aura_task_frame_set_resume_state(AuraTaskFrame *frame, uint32_t state);\n");
     out.push_str("void aura_task_frame_set_result(AuraTaskFrame *frame, void *data, size_t size, AuraTaskResultDestroyFn destroy);\n");
@@ -123,8 +124,12 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
         "int aura_task_executor_submit(AuraTaskExecutor *executor, AuraTaskFrame *frame);\n",
     );
     out.push_str(
+        "int aura_task_executor_wake(AuraTaskExecutor *executor, AuraTaskFrame *frame);\n",
+    );
+    out.push_str(
         "int aura_task_executor_cancel(AuraTaskExecutor *executor, AuraTaskFrame *frame);\n",
     );
+    out.push_str("int aura_task_executor_run_one(AuraTaskExecutor *executor);\n");
     out.push_str("size_t aura_task_executor_run(AuraTaskExecutor *executor);\n");
     out.push_str("void aura_task_executor_shutdown(AuraTaskExecutor *executor);\n");
     out.push_str("static AuraTaskExecutor *__aura_task_executor = NULL;\n");

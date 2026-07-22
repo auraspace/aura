@@ -31,6 +31,7 @@ int main(void)
   assert(frame->data_size == 8);
   assert(aura_task_frame_resume_state(frame) == 0);
   assert(aura_task_frame_state(frame) == AURA_TASK_READY);
+  assert(!aura_task_frame_is_waiting(frame));
 
   int *capture = malloc(sizeof(*capture));
   int *pending = malloc(sizeof(*pending));

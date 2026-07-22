@@ -108,10 +108,10 @@ A5–A6.
 ## A5. Single await suspension
 
 **Objective:** Make one pending operation suspend and later resume correctly.
-**Implementation status:** Immediate-completion path complete. Runtime polling
-now has one shared transition API for ready, pending, failed, cancelled, and
-terminal states; generated await polls ready tasks and returns completed
-results, while pending continuation and operation wakeup remain in A6.
+**Implementation status:** Immediate-completion and non-waiting pending
+continuation paths are complete through runtime polling and executor requeue.
+Operation wakeup, live-local hoisting, and full async I/O suspension remain in
+A6.
 
 **Checklist:**
 

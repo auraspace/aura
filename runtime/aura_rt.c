@@ -1752,6 +1752,11 @@ int aura_task_frame_cancel_requested(const AuraTaskFrame *frame)
   return frame != NULL && frame->cancel_requested;
 }
 
+int aura_task_frame_is_waiting(const AuraTaskFrame *frame)
+{
+  return frame != NULL && (frame->waiting_channel != NULL || frame->waiting_node != NULL);
+}
+
 uint32_t aura_task_frame_resume_state(const AuraTaskFrame *frame)
 {
   return frame != NULL ? frame->resume_state : 0;

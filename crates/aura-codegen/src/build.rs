@@ -341,6 +341,8 @@ mod tests {
             .expect("compile immediate await");
         let generated = fs::read_to_string(&generated_c).expect("read generated await C");
         assert!(generated.contains("aura_task_frame_poll_once(__await)"));
+        assert!(generated.contains("aura_task_frame_is_waiting(__await)"));
+        assert!(generated.contains("aura_task_executor_run_one(__aura_task_executor)"));
         assert!(!generated.contains("await lowering is deferred"));
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);
