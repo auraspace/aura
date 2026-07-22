@@ -407,3 +407,11 @@ When you resolve debt, update or remove the matching entry.
 - R4 now has deterministic runtime reports and planted-race/suppression/
   synchronization fixtures; the user-facing race command, exit policy, and
   release/profile acceptance remain R5.
+
+### Race CLI bounded evidence (2026-07-22)
+
+- R5 adds `aura race` and a deterministic regression script over the bounded
+  single-threaded report fixture. The command reports detector-enabled test
+  outcomes; it does not yet stream runtime reports from arbitrary application
+  binaries or provide concurrent vector-clock diagnostics. Those remain
+  deferred until the runtime exposes a process-level report handoff.

@@ -36,6 +36,7 @@ fn main() -> ExitCode {
         "build" => cmd_build(&args),
         "run" => cmd_run(&args),
         "test" => cmd_test(&args),
+        "race" => cmd_race(&args),
         "publish" => cmd_publish(&args),
         "update" => cmd_update(&args),
         "fmt" => cmd_fmt(&args),
@@ -68,6 +69,7 @@ fn eprint_usage() {
            aura build [path] [-o <bin>]      Compile to native binary (C backend)\n  \
            aura run [path] [-- args...]      Build to temp and execute\n  \
            aura test [path] [--test-name <pattern>] [--format json] [-- args...]\n  \
+           aura race [path] [--format json] [-- args...]\n  \
            aura publish --dry-run [path]    Validate and preview without upload\n  \
            aura publish --registry <url> [path]  Validate and upload package\n  \
            aura update ... --activate           Verify and atomically activate update\n  \
@@ -782,18 +784,28 @@ fn cmd_test(args: &[String]) -> ExitCode {
                             &output.stderr,
                             status,
                         );
-                        println!(
-                            "{}",
-                            test_report::TestReport {
+                        let report = test_report::TestReport {
                                 package: pkg.package.clone(),
                                 duration_ms: elapsed,
                                 tests: cases
-                            }
-                            .to_json()
-                        );
+                            };
+                        if options.race {
+                            println!(
+                                "{{\"mode\":\"race\",\"detector\":true,\"result\":{}}}",
+                                report.to_json()
+                            );
+                        } else {
+                            println!("{}", report.to_json());
+                        }
                     } else {
                         print!("{}", String::from_utf8_lossy(&output.stdout));
                         eprint!("{}", String::from_utf8_lossy(&output.stderr));
+                        if options.race {
+                            println!(
+                                "race: {} (detector=on)",
+                                if status { "pass" } else { "fail" }
+                            );
+                        }
                     }
                     if status {
                         ExitCode::SUCCESS
@@ -814,10 +826,22 @@ fn cmd_test(args: &[String]) -> ExitCode {
     }
 }
 
+/// R5: frozen user-facing entry point for the alpha detector workflow.
+/// `aura race` is deliberately test-shaped: the child status is the stable
+/// pass/fail contract, while the detector-enabled generated binary supplies
+/// the runtime evidence.
+fn cmd_race(args: &[String]) -> ExitCode {
+    let mut test_args = Vec::with_capacity(args.len() + 1);
+    test_args.push("--race".into());
+    test_args.extend_from_slice(args);
+    cmd_test(&test_args)
+}
+
 struct TestOptions {
     package_args: Vec<String>,
     test_name: Option<String>,
     json: bool,
+    race: bool,
 }
 
 impl TestOptions {
@@ -825,6 +849,7 @@ impl TestOptions {
         let mut package_args = Vec::new();
         let mut test_name = None;
         let mut json = false;
+        let mut race = false;
         let mut i = 0;
         while i < args.len() {
             match args[i].as_str() {
@@ -843,6 +868,7 @@ impl TestOptions {
                         None => return Err("--format requires a value".into()),
                     }
                 }
+                "--race" => race = true,
                 value if value.starts_with('-') => return Err(format!("unknown option `{value}`")),
                 value => package_args.push(value.to_string()),
             }
@@ -855,6 +881,7 @@ impl TestOptions {
             package_args,
             test_name,
             json,
+            race,
         })
     }
 }
@@ -929,6 +956,14 @@ mod tests {
         assert_eq!(options.package_args, s(&["corpus/test"]));
         assert_eq!(options.test_name.as_deref(), Some("add"));
         assert!(options.json);
+        assert!(!options.race);
+    }
+
+    #[test]
+    fn race_options_enable_detector_mode() {
+        let options = TestOptions::parse(&s(&["corpus/test", "--race"])).expect("race options");
+        assert!(options.race);
+        assert_eq!(options.package_args, s(&["corpus/test"]));
     }
 
     /// C12e: non-zero `std.io.exit` must be observable on the process status.

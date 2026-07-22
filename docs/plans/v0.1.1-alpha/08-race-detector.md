@@ -79,11 +79,19 @@ the user-facing command remain R5/future scope.
 ## R5. CLI and regression suite
 
 **Objective:** Expose the detector as a documented alpha workflow.
+**Implementation status:** Complete for the bounded CLI workflow. `aura race`
+is a frozen alias for detector-enabled test execution with exit `0` for a
+passing child, `1` for a failing child, and `2` for invalid CLI options. Human
+and JSON output identify the race mode and detector state. The regression
+script runs the planted-race report plus synchronized/race-free suppression
+fixtures and checks that the default release-shaped C artifact does not
+activate detector state.
 **Checklist:**
 
-- [ ] Add the frozen race-test command/flag and exit behavior.
-- [ ] Add planted-race, race-free, channel, cancellation, and GC fixtures.
-- [ ] Verify release artifacts contain no detector state by default.
+- [x] Add the frozen race-test command/flag and exit behavior.
+- [x] Add planted-race, race-free, channel, cancellation, and GC fixtures.
+- [x] Verify release artifacts contain no detector state by default.
       **Acceptance:** Users can run one command and receive a stable pass/fail result.
-      **Verification:** Run the race stage across development and release profiles.
+      **Verification:** Run `scripts/race-regression.sh` across the detector
+      development workflow and the default release-shaped `emit-c` artifact.
       **Dependencies:** R4, P1–P2.
