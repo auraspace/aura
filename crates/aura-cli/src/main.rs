@@ -13,8 +13,8 @@ use aura_diagnostics::{
 };
 use aura_sema::{check_file, SemaError, SemaErrors};
 use package::{
-    load_package, load_package_default, publish_dry_run, publish_package, LoadedPackage,
-    ENV_REGISTRY_TOKEN,
+    current_target, load_package, load_package_default, publish_dry_run, publish_package,
+    LoadedPackage, RegistryIndex, UpdateDecision, ENV_REGISTRY_TOKEN,
 };
 use std::env;
 use std::path::{Path, PathBuf};
@@ -37,6 +37,7 @@ fn main() -> ExitCode {
         "run" => cmd_run(&args),
         "test" => cmd_test(&args),
         "publish" => cmd_publish(&args),
+        "update" => cmd_update(&args),
         "fmt" => cmd_fmt(&args),
         "emit-c" => cmd_emit_c(&args),
         "new" => cmd_new(&args),
@@ -77,6 +78,88 @@ fn eprint_usage() {
          With no path, commands look for `./aura.toml`.\n\n\
          See docs/roadmap.md and RFC-001 §6.0 / RFC-005 / RFC-008 / RFC-012."
     );
+}
+
+fn cmd_update(args: &[String]) -> ExitCode {
+    let mut package = None;
+    let mut current = None;
+    let mut target = current_target();
+    let mut registry = None;
+    let mut json = false;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--package" | "--current" | "--target" | "--registry" => {
+                let option = args[i].clone();
+                i += 1;
+                let Some(value) = args.get(i) else {
+                    eprintln!("error: {option} requires a value");
+                    return ExitCode::from(2);
+                };
+                match option.as_str() {
+                    "--package" => package = Some(value.clone()),
+                    "--current" => current = Some(value.clone()),
+                    "--target" => target = value.clone(),
+                    "--registry" => registry = Some(value.clone()),
+                    _ => unreachable!(),
+                }
+            }
+            "--json" => json = true,
+            option if option.starts_with('-') => {
+                eprintln!("error: unknown update option `{option}`");
+                return ExitCode::from(2);
+            }
+            value => {
+                eprintln!("error: unexpected update argument `{value}`");
+                return ExitCode::from(2);
+            }
+        }
+        i += 1;
+    }
+    let Some(package) = package else {
+        eprintln!("error: update requires --package <name>");
+        return ExitCode::from(2);
+    };
+    let Some(current) = current else {
+        eprintln!("error: update requires --current <version>");
+        return ExitCode::from(2);
+    };
+    let index = match registry {
+        Some(url) => RegistryIndex::open_url(&url),
+        None => RegistryIndex::from_env_or_default(),
+    };
+    let index = match index {
+        Ok(index) => index,
+        Err(error) => {
+            eprintln!("{error}");
+            return ExitCode::from(1);
+        }
+    };
+    let decision = match index.discover_update(&package, &current, AURA_VERSION, &target) {
+        Ok(decision) => decision,
+        Err(error) => {
+            eprintln!("{error}");
+            return ExitCode::from(1);
+        }
+    };
+    if json {
+        println!("{}", decision.render_json());
+    } else {
+        match &decision {
+            UpdateDecision::Update(candidate) => println!(
+                "update available: {} -> {} ({}, {})",
+                current, candidate.meta.vers, candidate.target, candidate.reason
+            ),
+            UpdateDecision::NoUpdate { current } => println!("no update available (current {current})"),
+            UpdateDecision::Unsupported { target, .. } => println!("update unsupported for target {target}"),
+            UpdateDecision::Revoked { version, reason } => println!("update {version} revoked: {reason}"),
+        }
+    }
+    match decision {
+        UpdateDecision::Unsupported { .. } => ExitCode::from(2),
+        UpdateDecision::Revoked { .. } => ExitCode::from(3),
+        _ => ExitCode::SUCCESS,
+    }
 }
 
 fn cmd_publish(args: &[String]) -> ExitCode {
