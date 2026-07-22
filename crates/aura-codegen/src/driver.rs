@@ -22,6 +22,8 @@ pub struct BuildIdentity {
     pub target: Target,
     pub profile: Profile,
     pub runtime_abi: Option<RuntimeAbi>,
+    pub runtime_abi_version: Option<u32>,
+    pub runtime_abi_identity: Option<&'static str>,
     pub output: OutputKind,
     pub features: Vec<String>,
 }
@@ -33,6 +35,8 @@ impl From<&CompileOptions> for BuildIdentity {
             target: options.target,
             profile: options.profile,
             runtime_abi: options.runtime_abi,
+            runtime_abi_version: options.runtime_abi.map(RuntimeAbi::version),
+            runtime_abi_identity: options.runtime_abi.map(RuntimeAbi::identity),
             output: options.output,
             features: options.features.iter().cloned().collect(),
         }
@@ -44,8 +48,15 @@ impl std::fmt::Display for BuildIdentity {
         let features = self.features.join(",");
         write!(
             f,
-            "backend={:?}, target={:?}, profile={:?}, runtime_abi={:?}, output={:?}, features=[{}]",
-            self.backend, self.target, self.profile, self.runtime_abi, self.output, features
+            "backend={:?}, target={:?}, profile={:?}, runtime_abi={:?}/{:?}/{:?}, output={:?}, features=[{}]",
+            self.backend,
+            self.target,
+            self.profile,
+            self.runtime_abi,
+            self.runtime_abi_version,
+            self.runtime_abi_identity,
+            self.output,
+            features
         )
     }
 }
@@ -330,9 +341,11 @@ mod tests {
 
         assert_eq!(first, second);
         assert_eq!(first.features, vec!["alpha", "zeta"]);
+        assert_eq!(first.runtime_abi_version, Some(1));
+        assert_eq!(first.runtime_abi_identity, Some(crate::runtime_abi::ID));
         assert_eq!(
             first.to_string(),
-            "backend=C, target=Native, profile=Debug, runtime_abi=Some(AuraRtC), output=Executable, features=[alpha,zeta]"
+            "backend=C, target=Native, profile=Debug, runtime_abi=Some(AuraRtC)/Some(1)/Some(\"aura-c-abi/1.0;task=1;value=1;exception=1;channel=1;gc=1;io=1;ffi=1\"), output=Executable, features=[alpha,zeta]"
         );
     }
 

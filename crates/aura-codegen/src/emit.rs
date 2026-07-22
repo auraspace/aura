@@ -77,6 +77,20 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("void aura_fun_env_free(void *env);\n");
     out.push_str("void aura_gc_collect(void);\n");
     out.push_str("void aura_gc_shutdown(void);\n");
+    out.push_str("uint32_t aura_runtime_abi_version(void);\n");
+    out.push_str(
+        "int aura_runtime_check_abi(uint32_t expected_version, const char *expected_identity);\n",
+    );
+    out.push_str("const char *aura_runtime_abi_identity(void);\n");
+    let abi_id = crate::runtime_abi::ID
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"");
+    let _ = writeln!(
+        out,
+        "#define AURA_GENERATED_ABI_VERSION {}u",
+        crate::runtime_abi::VERSION
+    );
+    let _ = writeln!(out, "#define AURA_GENERATED_ABI_ID \"{abi_id}\"");
     // C22 runtime ABI.  The definitions live in runtime/aura_rt.c; generated
     // translation units only need the stable opaque declarations below.
     out.push_str("typedef struct AuraTaskFrame AuraTaskFrame;\n");
@@ -460,6 +474,7 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
         emit_test_main(&mut out, checked);
     } else {
         out.push_str("int aura_main(void) {\n");
+        out.push_str("  if (!aura_runtime_check_abi(AURA_GENERATED_ABI_VERSION, AURA_GENERATED_ABI_ID)) return 78;\n");
         out.push_str("  __aura_task_executor = aura_task_executor_new();\n");
         if checked.ast.functions.iter().any(|f| f.name.name == "main") {
             out.push_str("  aura_fn_main();\n");
@@ -468,6 +483,42 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
         out.push_str("  return 0;\n}\n");
     }
     out
+}
+
+#[cfg(test)]
+mod abi_tests {
+    use super::emit_c_with;
+    use crate::ctx::EmitOptions;
+    use aura_ast::{File, Ident, Path, Span};
+
+    #[test]
+    fn generated_artifact_embeds_runtime_abi_identity_and_check() {
+        let span = Span::new(0, 0);
+        let file = File {
+            package: Path {
+                segments: vec![Ident {
+                    name: "demo".into(),
+                    span,
+                }],
+                span,
+            },
+            imports: vec![],
+            interfaces: vec![],
+            enums: vec![],
+            classes: vec![],
+            type_aliases: vec![],
+            consts: vec![],
+            functions: vec![],
+            async_functions: vec![],
+            span,
+        };
+        let checked = aura_sema::check_file(&file).expect("empty file checks");
+        let generated = emit_c_with(&checked, EmitOptions::default());
+        assert!(generated.contains("#define AURA_GENERATED_ABI_ID \"aura-c-abi/1.0;"));
+        assert!(generated.contains("#define AURA_GENERATED_ABI_VERSION 1u"));
+        assert!(generated
+            .contains("aura_runtime_check_abi(AURA_GENERATED_ABI_VERSION, AURA_GENERATED_ABI_ID)"));
+    }
 }
 
 fn c_async_fun_signature(f: &AsyncFunDecl, checked: &CheckedFile) -> String {
@@ -627,6 +678,7 @@ fn emit_async_body(out: &mut String, f: &AsyncFunDecl, checked: &CheckedFile, pa
 pub(crate) fn emit_test_main(out: &mut String, checked: &CheckedFile) {
     let tests: Vec<_> = checked.ast.functions.iter().filter(|f| f.is_test).collect();
     out.push_str("int aura_main(void) {\n");
+    out.push_str("  if (!aura_runtime_check_abi(AURA_GENERATED_ABI_VERSION, AURA_GENERATED_ABI_ID)) return 78;\n");
     out.push_str("  __aura_task_executor = aura_task_executor_new();\n");
     out.push_str("  int failed = 0;\n");
     out.push_str("  int ran = 0;\n");

@@ -60,7 +60,7 @@ pub(crate) fn build_from_file_with(
 
 #[cfg(test)]
 mod tests {
-    use std::process::Command;
+    use std::{fs, process::Command};
 
     use aura_ast::{
         AsyncExpr, AsyncFunDecl, Block, CallExpr, CancelExpr, ChannelCloseExpr, ChannelCreateExpr,
@@ -71,6 +71,42 @@ mod tests {
     use super::build_from_file;
     use crate::{Backend, CompileOptions, OutputKind, Profile, RuntimeAbi, Target};
 
+    fn empty_program() -> File {
+        let span = Span::new(0, 1);
+        let ident = |name: &str| Ident {
+            name: name.into(),
+            span,
+        };
+        File {
+            package: Path {
+                segments: vec![ident("demo")],
+                span,
+            },
+            imports: vec![],
+            interfaces: vec![],
+            enums: vec![],
+            classes: vec![],
+            type_aliases: vec![],
+            consts: vec![],
+            functions: vec![FunDecl {
+                is_pub: false,
+                origin_package: String::new(),
+                is_test: false,
+                name: ident("main"),
+                type_params: vec![],
+                params: vec![],
+                return_type: None,
+                body: Block {
+                    stmts: vec![],
+                    span,
+                },
+                span,
+            }],
+            async_functions: vec![],
+            span,
+        }
+    }
+
     #[test]
     fn legacy_builds_use_current_compile_defaults() {
         let options = CompileOptions::default();
@@ -80,6 +116,43 @@ mod tests {
         assert_eq!(options.profile, Profile::Debug);
         assert_eq!(options.runtime_abi, Some(RuntimeAbi::AuraRtC));
         assert_eq!(options.output, OutputKind::Executable);
+    }
+
+    #[test]
+    fn mismatched_runtime_abi_stops_before_generated_main() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-abi-mismatch-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let runtime = dir.join(format!("{stem}.runtime.c"));
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        let source = fs::read_to_string(root.join("runtime/aura_rt.c")).expect("read runtime");
+        let mismatched = source.replace(
+            "#define AURA_RT_ABI_VERSION 1u",
+            "#define AURA_RT_ABI_VERSION 2u",
+        );
+        assert_ne!(source, mismatched, "test must change runtime ABI version");
+        fs::write(&runtime, mismatched).expect("write mismatched runtime");
+
+        build_from_file(&empty_program(), &bin, &runtime).expect("compile mismatched artifact");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run mismatched artifact");
+        assert_eq!(output.status.code(), Some(78));
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("expected version 1"), "{stderr}");
+        assert!(stderr.contains("available version 2"), "{stderr}");
+        assert!(
+            output.stdout.is_empty(),
+            "user code must not run: {output:?}"
+        );
+
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(runtime);
+        let _ = fs::remove_file(generated_c);
     }
 
     #[test]

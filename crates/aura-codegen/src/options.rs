@@ -30,6 +30,20 @@ pub enum RuntimeAbi {
     AuraRtC,
 }
 
+impl RuntimeAbi {
+    pub const fn identity(self) -> &'static str {
+        match self {
+            Self::AuraRtC => crate::runtime_abi::ID,
+        }
+    }
+
+    pub const fn version(self) -> u32 {
+        match self {
+            Self::AuraRtC => crate::runtime_abi::VERSION,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputKind {
     Executable,

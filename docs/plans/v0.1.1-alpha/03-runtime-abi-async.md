@@ -9,12 +9,21 @@ channels, async I/O, HTTP, race instrumentation, and FFI.
 
 **Objective:** Detect compiler/runtime contract mismatches before execution.
 
+**Implementation status:** Complete for the shipped C runtime. The compiler
+embeds one contract identity covering task, value, exception, channel, GC, I/O,
+and FFI calls in every generated artifact. The runtime exposes the available
+identity and generated `aura_main` rejects a mismatch before creating task
+state or calling user code (exit status 78). Patch-level runtime fixes must
+preserve the identity; any layout, ownership, or calling-convention change
+must publish a new ABI identity/version. Static linking remains the default,
+so this check also protects builds that select an alternate `AURA_RUNTIME`.
+
 **Checklist:**
 
-- [ ] Version task, value, exception, channel, GC, I/O, and FFI ABI rules.
-- [ ] Embed ABI identity in generated artifacts and runtime metadata.
-- [ ] Define compatibility policy for patch and breaking changes.
-- [ ] Produce a diagnostic identifying expected and available versions.
+- [x] Version task, value, exception, channel, GC, I/O, and FFI ABI rules.
+- [x] Embed ABI identity in generated artifacts and runtime metadata.
+- [x] Define compatibility policy for patch and breaking changes.
+- [x] Produce a diagnostic identifying expected and available versions.
 
 **Acceptance:** An incompatible artifact fails before unsafe execution.
 

@@ -1471,6 +1471,34 @@ void aura_gc_shutdown(void)
  */
 
 #define AURA_RT_ABI_VERSION 1u
+#define AURA_RT_ABI_ID "aura-c-abi/1.0;task=1;value=1;exception=1;channel=1;gc=1;io=1;ffi=1"
+
+uint32_t aura_runtime_abi_version(void)
+{
+  return AURA_RT_ABI_VERSION;
+}
+
+const char *aura_runtime_abi_identity(void)
+{
+  return AURA_RT_ABI_ID;
+}
+
+int aura_runtime_check_abi(uint32_t expected_version, const char *expected_identity)
+{
+  const char *available = aura_runtime_abi_identity();
+  if (expected_version == aura_runtime_abi_version() &&
+      expected_identity != NULL && strcmp(expected_identity, available) == 0)
+  {
+    return 1;
+  }
+  fprintf(stderr,
+          "aura: runtime ABI mismatch: expected version %u identity %s, available version %u identity %s\n",
+          expected_version,
+          expected_identity ? expected_identity : "(missing)",
+          aura_runtime_abi_version(),
+          available);
+  return 0;
+}
 
 typedef struct AuraTaskFrame AuraTaskFrame;
 typedef struct AuraTaskExecutor AuraTaskExecutor;

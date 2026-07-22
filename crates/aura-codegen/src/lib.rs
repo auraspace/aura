@@ -15,6 +15,7 @@ mod expr;
 mod iface;
 mod names;
 mod options;
+mod runtime_abi;
 mod stmt;
 mod validation;
 
@@ -27,3 +28,4 @@ pub use options::{
     Backend, CompileOptions, CompileOptionsBuilder, DiagnosticMode, OptionsError, OutputKind,
     Profile, RuntimeAbi, Target,
 };
+pub use runtime_abi::{ID as RUNTIME_ABI_ID, VERSION as RUNTIME_ABI_VERSION};
