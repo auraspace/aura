@@ -1,6 +1,8 @@
 use crate::check_file;
 use crate::ty::Ty;
-use aura_ast::AsyncFunDecl;
+use aura_ast::{
+    AsyncExpr, AsyncFunDecl, Block, ChannelSendExpr, Expr, Ident, Span, SpawnExpr, Stmt,
+};
 use aura_parser::parse_file;
 
 fn promote_to_async(file: &mut aura_ast::File, index: usize) {
@@ -53,6 +55,67 @@ fn task_handle_and_channel_types_accept_owned_elements() {
     )
     .expect("parse");
     check_file(&file).expect("async semantic types");
+}
+
+#[test]
+fn async_boundaries_reject_borrowed_values() {
+    let mut await_file =
+        parse_file("package t\nfun main(x: ref String): String { return await x }\n")
+            .expect("parse");
+    promote_to_async(&mut await_file, 0);
+    let err = check_file(&await_file).expect_err("borrow across await");
+    assert!(err.primary().message.contains("boundary `await`"));
+
+    let mut spawn_file = parse_file("package t\nfun main(x: ref String) {}\n").expect("parse");
+    spawn_file.functions[0].body = Block {
+        stmts: vec![Stmt::Expr(Expr::Async(AsyncExpr::Spawn(SpawnExpr {
+            body: Block {
+                stmts: vec![Stmt::Expr(Expr::Ident(Ident {
+                    name: "x".into(),
+                    span: Span::new(20, 21),
+                }))],
+                span: Span::new(20, 21),
+            },
+            span: Span::new(10, 30),
+        })))],
+        span: Span::new(10, 30),
+    };
+    promote_to_async(&mut spawn_file, 0);
+    let err = check_file(&spawn_file).expect_err("borrow captured by spawn");
+    assert!(err.primary().message.contains("boundary `spawn`"));
+
+    let mut channel_file =
+        parse_file("package t\nfun main(channel: Channel<String>, x: ref String) {}\n")
+            .expect("parse");
+    channel_file.functions[0].body = Block {
+        stmts: vec![Stmt::Expr(Expr::Async(AsyncExpr::ChannelSend(
+            ChannelSendExpr {
+                channel: Box::new(Expr::Ident(Ident {
+                    name: "channel".into(),
+                    span: Span::new(20, 27),
+                })),
+                value: Box::new(Expr::Ident(Ident {
+                    name: "x".into(),
+                    span: Span::new(28, 29),
+                })),
+                span: Span::new(20, 29),
+            },
+        )))],
+        span: Span::new(20, 29),
+    };
+    promote_to_async(&mut channel_file, 0);
+    let err = check_file(&channel_file).expect_err("borrow sent through channel");
+    assert!(err.primary().message.contains("boundary `channel send`"));
+}
+
+#[test]
+fn task_owned_storage_rejects_nested_ref() {
+    let file = parse_file("package t\nfun use(task: Task<ref String>) {}\n").expect("parse");
+    let err = check_file(&file).expect_err("borrow in task storage");
+    assert!(err
+        .primary()
+        .message
+        .contains("borrow reference cannot be stored"));
 }
 
 #[test]

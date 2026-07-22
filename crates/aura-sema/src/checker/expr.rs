@@ -679,6 +679,7 @@ impl Checker {
                         span: a.span,
                     });
                 }
+                self.reject_async_borrow("await", a.span, &a.operand)?;
                 let operand = self.check_expr(&a.operand)?;
                 match operand {
                     Ty::Task(result) => Ok(*result),
@@ -689,6 +690,12 @@ impl Checker {
                 }
             }
             AsyncExpr::Spawn(s) => {
+                if self.async_borrow_block(&s.body).is_some() {
+                    return Err(SemaError {
+                        message: "borrow cannot cross async boundary `spawn`".into(),
+                        span: s.span,
+                    });
+                }
                 self.async_depth += 1;
                 let result = self.check_block(&s.body, &Ty::Unit);
                 self.async_depth -= 1;
@@ -728,7 +735,7 @@ impl Checker {
                         span: c.capacity.span(),
                     });
                 }
-                if c.element_type.reference {
+                if crate::checker::types::type_ref_contains_reference_for_async(&c.element_type) {
                     return Err(SemaError {
                         message: "borrow reference cannot be stored in Channel<T>".into(),
                         span: c.element_type.span,
@@ -739,6 +746,8 @@ impl Checker {
                 Ok(Ty::Channel(Box::new(element)))
             }
             AsyncExpr::ChannelSend(s) => {
+                self.reject_async_borrow("channel send", s.span, &s.channel)?;
+                self.reject_async_borrow("channel send", s.span, &s.value)?;
                 let channel = self.check_expr(&s.channel)?;
                 let value = self.check_expr(&s.value)?;
                 let Ty::Channel(element) = channel else {
@@ -763,6 +772,7 @@ impl Checker {
                 Ok(Ty::Unit)
             }
             AsyncExpr::ChannelReceive(r) => {
+                self.reject_async_borrow("channel receive", r.span, &r.channel)?;
                 let channel = self.check_expr(&r.channel)?;
                 match channel {
                     Ty::Channel(element) => Ok(Ty::Nullable(element)),
@@ -776,6 +786,7 @@ impl Checker {
                 }
             }
             AsyncExpr::ChannelClose(c) => {
+                self.reject_async_borrow("channel close", c.span, &c.channel)?;
                 let channel = self.check_expr(&c.channel)?;
                 if !matches!(channel, Ty::Channel(_)) {
                     return Err(SemaError {

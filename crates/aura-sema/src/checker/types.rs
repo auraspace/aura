@@ -20,7 +20,10 @@ impl Checker {
                     span: t.span,
                 });
             }
-            if t.type_args.iter().any(type_ref_contains_reference) {
+            if t.type_args
+                .iter()
+                .any(type_ref_contains_reference_for_async)
+            {
                 return Err(SemaError {
                     message: "nested borrow reference types are not allowed in the MVP".into(),
                     span: t.span,
@@ -29,8 +32,8 @@ impl Checker {
         }
         // C10f: function type `(T) -> U`.
         if let Some(fun) = &t.fun {
-            if fun.params.iter().any(type_ref_contains_reference)
-                || type_ref_contains_reference(&fun.ret)
+            if fun.params.iter().any(type_ref_contains_reference_for_async)
+                || type_ref_contains_reference_for_async(&fun.ret)
             {
                 return Err(SemaError {
                     message: "borrow references cannot appear in function types in the MVP".into(),
@@ -105,7 +108,7 @@ impl Checker {
                         span: t.span,
                     });
                 }
-                if t.type_args[0].reference {
+                if type_ref_contains_reference_for_async(&t.type_args[0]) {
                     return Err(SemaError {
                         message: format!("borrow reference cannot be stored in `{}`", t.name.name),
                         span: t.type_args[0].span,
@@ -384,11 +387,13 @@ impl Checker {
     }
 }
 
-fn type_ref_contains_reference(t: &TypeRef) -> bool {
+pub(crate) fn type_ref_contains_reference_for_async(t: &TypeRef) -> bool {
     t.reference
-        || t.type_args.iter().any(type_ref_contains_reference)
+        || t.type_args
+            .iter()
+            .any(type_ref_contains_reference_for_async)
         || t.fun.as_ref().is_some_and(|fun| {
-            fun.params.iter().any(type_ref_contains_reference)
-                || type_ref_contains_reference(&fun.ret)
+            fun.params.iter().any(type_ref_contains_reference_for_async)
+                || type_ref_contains_reference_for_async(&fun.ret)
         })
 }

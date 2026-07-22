@@ -807,6 +807,105 @@ impl Checker {
         }
     }
 
+    /// C22i: find a lexical borrow anywhere in an expression crossing an
+    /// async/task/channel ownership boundary.  This deliberately walks only
+    /// AST children; type-checking remains responsible for validating each
+    /// child and for identifying the exact boundary span.
+    pub(crate) fn async_borrow_source(&self, expr: &aura_ast::Expr) -> Option<usize> {
+        if let Some(frame) = self.borrow_source_frame(expr) {
+            return Some(frame);
+        }
+        match expr {
+            aura_ast::Expr::Group(inner, _) => self.async_borrow_source(inner),
+            aura_ast::Expr::ForceUnwrap(f) => self.async_borrow_source(&f.expr),
+            aura_ast::Expr::Field(f) => self.async_borrow_source(&f.object),
+            aura_ast::Expr::Assign(a) => self.async_borrow_source(&a.value),
+            aura_ast::Expr::Binary(b) => self
+                .async_borrow_source(&b.left)
+                .or_else(|| self.async_borrow_source(&b.right)),
+            aura_ast::Expr::Unary(u) => self.async_borrow_source(&u.expr),
+            aura_ast::Expr::Is(i) => self.async_borrow_source(&i.expr),
+            aura_ast::Expr::Call(c) => self
+                .async_borrow_source(&c.callee)
+                .or_else(|| c.args.iter().find_map(|a| self.async_borrow_source(a))),
+            aura_ast::Expr::If(i) => self
+                .async_borrow_source(&i.cond)
+                .or_else(|| self.async_borrow_block(&i.then_block))
+                .or_else(|| self.async_borrow_block(&i.else_block)),
+            aura_ast::Expr::Lambda(l) => match &l.body {
+                aura_ast::LambdaBody::Expr(e) => self.async_borrow_source(e),
+                aura_ast::LambdaBody::Block(b) => self.async_borrow_block(b),
+            },
+            aura_ast::Expr::Async(a) => match a {
+                aura_ast::AsyncExpr::Await(a) => self.async_borrow_source(&a.operand),
+                aura_ast::AsyncExpr::Spawn(s) => self.async_borrow_block(&s.body),
+                aura_ast::AsyncExpr::Join(j) => self.async_borrow_source(&j.handle),
+                aura_ast::AsyncExpr::Cancel(c) => self.async_borrow_source(&c.handle),
+                aura_ast::AsyncExpr::ChannelCreate(c) => self.async_borrow_source(&c.capacity),
+                aura_ast::AsyncExpr::ChannelSend(s) => self
+                    .async_borrow_source(&s.channel)
+                    .or_else(|| self.async_borrow_source(&s.value)),
+                aura_ast::AsyncExpr::ChannelReceive(r) => self.async_borrow_source(&r.channel),
+                aura_ast::AsyncExpr::ChannelClose(c) => self.async_borrow_source(&c.channel),
+            },
+            _ => None,
+        }
+    }
+
+    pub(crate) fn async_borrow_block(&self, block: &aura_ast::Block) -> Option<usize> {
+        block.stmts.iter().find_map(|stmt| match stmt {
+            aura_ast::Stmt::Var(v) => self.async_borrow_source(&v.init),
+            aura_ast::Stmt::If(i) => self
+                .async_borrow_source(&i.cond)
+                .or_else(|| self.async_borrow_block(&i.then_block))
+                .or_else(|| {
+                    i.else_block
+                        .as_ref()
+                        .and_then(|b| self.async_borrow_block(b))
+                }),
+            aura_ast::Stmt::While(w) => self
+                .async_borrow_source(&w.cond)
+                .or_else(|| self.async_borrow_block(&w.body)),
+            aura_ast::Stmt::ForRange(f) => self
+                .async_borrow_source(&f.start)
+                .or_else(|| self.async_borrow_source(&f.end))
+                .or_else(|| self.async_borrow_block(&f.body)),
+            aura_ast::Stmt::ForIn(f) => self
+                .async_borrow_source(&f.iterable)
+                .or_else(|| self.async_borrow_block(&f.body)),
+            aura_ast::Stmt::Match(m) => self
+                .async_borrow_source(&m.scrutinee)
+                .or_else(|| m.arms.iter().find_map(|a| self.async_borrow_block(&a.body))),
+            aura_ast::Stmt::Try(t) => self
+                .async_borrow_block(&t.try_block)
+                .or_else(|| {
+                    t.catch
+                        .as_ref()
+                        .and_then(|c| self.async_borrow_block(&c.body))
+                })
+                .or_else(|| t.finally.as_ref().and_then(|b| self.async_borrow_block(b))),
+            aura_ast::Stmt::Throw(t) => self.async_borrow_source(&t.value),
+            aura_ast::Stmt::Return(r) => r.value.as_ref().and_then(|e| self.async_borrow_source(e)),
+            aura_ast::Stmt::Expr(e) => self.async_borrow_source(e),
+            aura_ast::Stmt::Break(_) | aura_ast::Stmt::Continue(_) => None,
+        })
+    }
+
+    pub(crate) fn reject_async_borrow(
+        &self,
+        boundary: &str,
+        span: aura_ast::Span,
+        expr: &aura_ast::Expr,
+    ) -> Result<(), SemaError> {
+        if self.async_borrow_source(expr).is_some() {
+            return Err(SemaError {
+                message: format!("borrow cannot cross async boundary `{boundary}`"),
+                span,
+            });
+        }
+        Ok(())
+    }
+
     /// Only Array fields are implicit non-owning views. Snapshot iterator and
     /// entry fields remain ordinary owned values, so `entry.key` and
     /// `entry.value` may be copied or stored without becoming a borrow escape.
