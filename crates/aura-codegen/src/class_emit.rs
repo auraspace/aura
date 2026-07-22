@@ -338,6 +338,7 @@ pub(crate) fn emit_ctor_mono(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_method_mono(
     out: &mut String,
     c: &ClassDecl,
