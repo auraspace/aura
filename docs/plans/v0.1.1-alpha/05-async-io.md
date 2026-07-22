@@ -45,9 +45,20 @@ cases.
 
 **Objective:** Provide reliable TCP transport for client and server workloads.
 
+**Implementation status:** Partial. `runtime/aura_rt.c` now exposes an opaque,
+status-based localhost TCP listener/stream slice on POSIX targets. Bind creates
+a listening socket (including ephemeral port selection), accept/connect use
+nonblocking descriptors with an explicit millisecond poll bound, and read/write
+report byte counts plus `OK`, `PENDING`, `TIMEOUT`, `EOF`, `CLOSED`, or `ERROR`.
+Close transitions are idempotent and destroy releases the owning handle. The
+API is guarded by `AURA_TCP_POSIX` (`__linux__`/`__APPLE__`); unsupported targets
+return `AURA_TCP_UNSUPPORTED`. Async scheduler integration, address parsing,
+full partial-I/O readiness coverage, and cross-host evidence remain open.
+
 **Checklist:**
 
-- [ ] Implement bind, listen, accept, connect, read, write, and close.
+- [x] Implement bind, listen, accept, connect, read, write, and close for the
+      bounded POSIX slice.
 - [ ] Represent partial reads/writes and readiness transitions.
 - [ ] Define address parsing, port selection, reuse, and shutdown behavior.
 - [ ] Make descriptor ownership explicit across tasks and cancellation.

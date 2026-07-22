@@ -8,6 +8,19 @@
 #include <errno.h>
 #include <sys/stat.h>
 
+#if defined(__linux__) || defined(__APPLE__)
+#define AURA_TCP_POSIX 1
+#include <fcntl.h>
+#include <netinet/in.h>
+#include <poll.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#else
+#define AURA_TCP_POSIX 0
+#endif
+
 /* Forward decls for throw (defined below) */
 void aura_throw_string(const char *s);
 void aura_throw_int(int64_t v);
@@ -76,6 +89,568 @@ void aura_eprintln(const char *s)
 #define AURA_IO_MAX_FILE ((int64_t)256 * 1024 * 1024)
 
 static char aura_io_errbuf[1024];
+
+/* ---- Bounded TCP I/O (std.net, POSIX alpha slice) ----
+ *
+ * The handles below are opaque at the API boundary.  A handle owns its file
+ * descriptor until close/destroy; close transitions it to a permanently
+ * closed state, so repeated close calls are harmless.  Sockets are
+ * nonblocking.  Every operation that may wait accepts a timeout in
+ * milliseconds (zero means do not wait, and a positive value is the maximum
+ * poll interval for that operation).  The API is intentionally localhost
+ * only until address parsing and the async scheduler contract are frozen.
+ */
+
+typedef struct AuraTcpListener AuraTcpListener;
+typedef struct AuraTcpStream AuraTcpStream;
+
+typedef enum
+{
+  AURA_TCP_OK = 0,
+  AURA_TCP_PENDING = 1,
+  AURA_TCP_EOF = 2,
+  AURA_TCP_TIMEOUT = 3,
+  AURA_TCP_ERROR = -1,
+  AURA_TCP_CLOSED = -2,
+  AURA_TCP_UNSUPPORTED = -3
+} AuraTcpStatus;
+
+struct AuraTcpListener
+{
+  int fd;
+};
+
+struct AuraTcpStream
+{
+  int fd;
+};
+
+static char aura_tcp_errbuf[256] = "no error";
+
+const char *aura_tcp_last_error(void)
+{
+  return aura_tcp_errbuf;
+}
+
+#if AURA_TCP_POSIX
+
+static void aura_tcp_clear_error(void)
+{
+  snprintf(aura_tcp_errbuf, sizeof(aura_tcp_errbuf), "no error");
+}
+
+static void aura_tcp_error_errno(const char *op)
+{
+  int saved = errno;
+  const char *detail = strerror(saved);
+  if (detail == NULL)
+  {
+    detail = "unknown error";
+  }
+  snprintf(aura_tcp_errbuf, sizeof(aura_tcp_errbuf), "tcp %s failed: %s", op, detail);
+}
+
+static void aura_tcp_error_text(const char *text)
+{
+  snprintf(aura_tcp_errbuf, sizeof(aura_tcp_errbuf), "tcp %s", text ? text : "error");
+}
+
+static int aura_tcp_set_nonblocking(int fd)
+{
+  int flags = fcntl(fd, F_GETFL, 0);
+  if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0)
+  {
+    return -1;
+  }
+  return 0;
+}
+
+static void aura_tcp_disable_sigpipe(int fd)
+{
+#if defined(SO_NOSIGPIPE)
+  int enabled = 1;
+  (void)setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &enabled, sizeof(enabled));
+#else
+  (void)fd;
+#endif
+}
+
+static AuraTcpStatus aura_tcp_wait(int fd, short events, int timeout_ms)
+{
+  if (timeout_ms < 0)
+  {
+    errno = EINVAL;
+    aura_tcp_error_errno("timeout");
+    return AURA_TCP_ERROR;
+  }
+  struct pollfd descriptor = {fd, events, 0};
+  int result = poll(&descriptor, 1, timeout_ms);
+  if (result < 0)
+  {
+    aura_tcp_error_errno("poll");
+    return AURA_TCP_ERROR;
+  }
+  if (result == 0)
+  {
+    return AURA_TCP_TIMEOUT;
+  }
+  if ((descriptor.revents & (POLLERR | POLLNVAL)) != 0)
+  {
+    errno = descriptor.revents & POLLNVAL ? EBADF : EIO;
+    aura_tcp_error_errno("poll");
+    return AURA_TCP_ERROR;
+  }
+  if ((descriptor.revents & events) == 0)
+  {
+    errno = ECONNRESET;
+    aura_tcp_error_errno("poll");
+    return AURA_TCP_ERROR;
+  }
+  return AURA_TCP_OK;
+}
+
+static AuraTcpStatus aura_tcp_wait_or_pending(int fd, short events, int timeout_ms)
+{
+  AuraTcpStatus status = aura_tcp_wait(fd, events, timeout_ms);
+  return status == AURA_TCP_TIMEOUT && timeout_ms == 0 ? AURA_TCP_PENDING : status;
+}
+
+static AuraTcpStream *aura_tcp_stream_from_fd(int fd)
+{
+  AuraTcpStream *stream = (AuraTcpStream *)malloc(sizeof(*stream));
+  if (stream == NULL)
+  {
+    errno = ENOMEM;
+    aura_tcp_error_errno("allocate stream");
+    close(fd);
+    return NULL;
+  }
+  stream->fd = fd;
+  return stream;
+}
+
+AuraTcpStatus aura_tcp_listener_bind(uint16_t port, uint16_t *out_port,
+                                     AuraTcpListener **out_listener)
+{
+  aura_tcp_clear_error();
+  if (out_port == NULL || out_listener == NULL)
+  {
+    errno = EINVAL;
+    aura_tcp_error_errno("bind");
+    return AURA_TCP_ERROR;
+  }
+  *out_port = 0;
+  *out_listener = NULL;
+  int fd = socket(AF_INET, SOCK_STREAM, 0);
+  if (fd < 0)
+  {
+    aura_tcp_error_errno("socket");
+    return AURA_TCP_ERROR;
+  }
+  int reuse = 1;
+  if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) != 0)
+  {
+    aura_tcp_error_errno("reuse address");
+    close(fd);
+    return AURA_TCP_ERROR;
+  }
+  struct sockaddr_in address;
+  memset(&address, 0, sizeof(address));
+  address.sin_family = AF_INET;
+  address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  address.sin_port = htons(port);
+  if (bind(fd, (struct sockaddr *)&address, sizeof(address)) != 0)
+  {
+    aura_tcp_error_errno("bind");
+    close(fd);
+    return AURA_TCP_ERROR;
+  }
+  if (listen(fd, 16) != 0)
+  {
+    aura_tcp_error_errno("listen");
+    close(fd);
+    return AURA_TCP_ERROR;
+  }
+  if (aura_tcp_set_nonblocking(fd) != 0)
+  {
+    aura_tcp_error_errno("nonblocking listener");
+    close(fd);
+    return AURA_TCP_ERROR;
+  }
+  struct sockaddr_in bound;
+  socklen_t bound_size = (socklen_t)sizeof(bound);
+  if (getsockname(fd, (struct sockaddr *)&bound, &bound_size) != 0)
+  {
+    aura_tcp_error_errno("read bound port");
+    close(fd);
+    return AURA_TCP_ERROR;
+  }
+  AuraTcpListener *listener = (AuraTcpListener *)malloc(sizeof(*listener));
+  if (listener == NULL)
+  {
+    errno = ENOMEM;
+    aura_tcp_error_errno("allocate listener");
+    close(fd);
+    return AURA_TCP_ERROR;
+  }
+  listener->fd = fd;
+  *out_port = ntohs(bound.sin_port);
+  *out_listener = listener;
+  return AURA_TCP_OK;
+}
+
+AuraTcpStatus aura_tcp_listener_accept(AuraTcpListener *listener, int timeout_ms,
+                                       AuraTcpStream **out_stream)
+{
+  aura_tcp_clear_error();
+  if (out_stream == NULL)
+  {
+    errno = EINVAL;
+    aura_tcp_error_errno("accept");
+    return AURA_TCP_ERROR;
+  }
+  *out_stream = NULL;
+  if (listener == NULL || listener->fd < 0)
+  {
+    aura_tcp_error_text("accept on closed listener");
+    return AURA_TCP_CLOSED;
+  }
+  AuraTcpStatus waited = aura_tcp_wait_or_pending(listener->fd, POLLIN, timeout_ms);
+  if (waited != AURA_TCP_OK)
+  {
+    return waited;
+  }
+  int fd = accept(listener->fd, NULL, NULL);
+  if (fd < 0)
+  {
+    if (errno == EAGAIN || errno == EWOULDBLOCK)
+    {
+      return AURA_TCP_PENDING;
+    }
+    aura_tcp_error_errno("accept");
+    return AURA_TCP_ERROR;
+  }
+  if (aura_tcp_set_nonblocking(fd) != 0)
+  {
+    aura_tcp_error_errno("nonblocking stream");
+    close(fd);
+    return AURA_TCP_ERROR;
+  }
+  aura_tcp_disable_sigpipe(fd);
+  *out_stream = aura_tcp_stream_from_fd(fd);
+  return *out_stream == NULL ? AURA_TCP_ERROR : AURA_TCP_OK;
+}
+
+AuraTcpStatus aura_tcp_stream_connect(uint16_t port, int timeout_ms,
+                                      AuraTcpStream **out_stream)
+{
+  aura_tcp_clear_error();
+  if (out_stream == NULL)
+  {
+    errno = EINVAL;
+    aura_tcp_error_errno("connect");
+    return AURA_TCP_ERROR;
+  }
+  *out_stream = NULL;
+  if (port == 0 || timeout_ms < 0)
+  {
+    errno = EINVAL;
+    aura_tcp_error_errno("connect");
+    return AURA_TCP_ERROR;
+  }
+  int fd = socket(AF_INET, SOCK_STREAM, 0);
+  if (fd < 0)
+  {
+    aura_tcp_error_errno("socket");
+    return AURA_TCP_ERROR;
+  }
+  if (aura_tcp_set_nonblocking(fd) != 0)
+  {
+    aura_tcp_error_errno("nonblocking stream");
+    close(fd);
+    return AURA_TCP_ERROR;
+  }
+  aura_tcp_disable_sigpipe(fd);
+  struct sockaddr_in address;
+  memset(&address, 0, sizeof(address));
+  address.sin_family = AF_INET;
+  address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  address.sin_port = htons(port);
+  if (connect(fd, (struct sockaddr *)&address, sizeof(address)) != 0)
+  {
+    if (errno != EINPROGRESS && errno != EALREADY)
+    {
+      aura_tcp_error_errno("connect");
+      close(fd);
+      return AURA_TCP_ERROR;
+    }
+    AuraTcpStatus waited = aura_tcp_wait(fd, POLLOUT, timeout_ms);
+    if (waited != AURA_TCP_OK)
+    {
+      if (waited == AURA_TCP_TIMEOUT)
+      {
+        aura_tcp_error_text("connect timed out");
+      }
+      close(fd);
+      return waited;
+    }
+    int connect_error = 0;
+    socklen_t error_size = (socklen_t)sizeof(connect_error);
+    if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &connect_error, &error_size) != 0)
+    {
+      aura_tcp_error_errno("connect status");
+      close(fd);
+      return AURA_TCP_ERROR;
+    }
+    if (connect_error != 0)
+    {
+      errno = connect_error;
+      aura_tcp_error_errno("connect");
+      close(fd);
+      return AURA_TCP_ERROR;
+    }
+  }
+  *out_stream = aura_tcp_stream_from_fd(fd);
+  return *out_stream == NULL ? AURA_TCP_ERROR : AURA_TCP_OK;
+}
+
+AuraTcpStatus aura_tcp_stream_read(AuraTcpStream *stream, void *buffer, size_t capacity,
+                                   size_t *out_bytes, int timeout_ms)
+{
+  aura_tcp_clear_error();
+  if (out_bytes == NULL || (buffer == NULL && capacity != 0) || timeout_ms < 0)
+  {
+    errno = EINVAL;
+    aura_tcp_error_errno("read");
+    return AURA_TCP_ERROR;
+  }
+  *out_bytes = 0;
+  if (stream == NULL || stream->fd < 0)
+  {
+    aura_tcp_error_text("read on closed stream");
+    return AURA_TCP_CLOSED;
+  }
+  if (capacity == 0)
+  {
+    return AURA_TCP_OK;
+  }
+  AuraTcpStatus waited = aura_tcp_wait_or_pending(stream->fd, POLLIN, timeout_ms);
+  if (waited != AURA_TCP_OK)
+  {
+    return waited;
+  }
+  ssize_t count = recv(stream->fd, buffer, capacity, 0);
+  if (count > 0)
+  {
+    *out_bytes = (size_t)count;
+    return AURA_TCP_OK;
+  }
+  if (count == 0)
+  {
+    return AURA_TCP_EOF;
+  }
+  if (errno == EAGAIN || errno == EWOULDBLOCK)
+  {
+    return AURA_TCP_PENDING;
+  }
+  aura_tcp_error_errno("read");
+  return AURA_TCP_ERROR;
+}
+
+AuraTcpStatus aura_tcp_stream_write(AuraTcpStream *stream, const void *buffer, size_t capacity,
+                                    size_t *out_bytes, int timeout_ms)
+{
+  aura_tcp_clear_error();
+  if (out_bytes == NULL || (buffer == NULL && capacity != 0) || timeout_ms < 0)
+  {
+    errno = EINVAL;
+    aura_tcp_error_errno("write");
+    return AURA_TCP_ERROR;
+  }
+  *out_bytes = 0;
+  if (stream == NULL || stream->fd < 0)
+  {
+    aura_tcp_error_text("write on closed stream");
+    return AURA_TCP_CLOSED;
+  }
+  if (capacity == 0)
+  {
+    return AURA_TCP_OK;
+  }
+  AuraTcpStatus waited = aura_tcp_wait_or_pending(stream->fd, POLLOUT, timeout_ms);
+  if (waited != AURA_TCP_OK)
+  {
+    return waited;
+  }
+  int flags = 0;
+#if defined(MSG_NOSIGNAL)
+  flags |= MSG_NOSIGNAL;
+#endif
+  ssize_t count = send(stream->fd, buffer, capacity, flags);
+  if (count >= 0)
+  {
+    *out_bytes = (size_t)count;
+    return AURA_TCP_OK;
+  }
+  if (errno == EAGAIN || errno == EWOULDBLOCK)
+  {
+    return AURA_TCP_PENDING;
+  }
+  aura_tcp_error_errno("write");
+  return AURA_TCP_ERROR;
+}
+
+int aura_tcp_listener_close(AuraTcpListener *listener)
+{
+  if (listener == NULL || listener->fd < 0)
+  {
+    return 0;
+  }
+  int fd = listener->fd;
+  listener->fd = -1;
+  if (close(fd) != 0)
+  {
+    aura_tcp_error_errno("close listener");
+  }
+  return 1;
+}
+
+void aura_tcp_listener_destroy(AuraTcpListener *listener)
+{
+  if (listener == NULL)
+  {
+    return;
+  }
+  (void)aura_tcp_listener_close(listener);
+  free(listener);
+}
+
+int aura_tcp_stream_close(AuraTcpStream *stream)
+{
+  if (stream == NULL || stream->fd < 0)
+  {
+    return 0;
+  }
+  int fd = stream->fd;
+  stream->fd = -1;
+  if (close(fd) != 0)
+  {
+    aura_tcp_error_errno("close stream");
+  }
+  return 1;
+}
+
+void aura_tcp_stream_destroy(AuraTcpStream *stream)
+{
+  if (stream == NULL)
+  {
+    return;
+  }
+  (void)aura_tcp_stream_close(stream);
+  free(stream);
+}
+
+#else
+
+AuraTcpStatus aura_tcp_listener_bind(uint16_t port, uint16_t *out_port,
+                                     AuraTcpListener **out_listener)
+{
+  (void)port;
+  if (out_port != NULL)
+  {
+    *out_port = 0;
+  }
+  if (out_listener != NULL)
+  {
+    *out_listener = NULL;
+  }
+  (void)out_port;
+  (void)out_listener;
+  snprintf(aura_tcp_errbuf, sizeof(aura_tcp_errbuf), "tcp unsupported on this target");
+  return AURA_TCP_UNSUPPORTED;
+}
+
+AuraTcpStatus aura_tcp_listener_accept(AuraTcpListener *listener, int timeout_ms,
+                                       AuraTcpStream **out_stream)
+{
+  (void)listener;
+  (void)timeout_ms;
+  if (out_stream != NULL)
+  {
+    *out_stream = NULL;
+  }
+  (void)out_stream;
+  snprintf(aura_tcp_errbuf, sizeof(aura_tcp_errbuf), "tcp unsupported on this target");
+  return AURA_TCP_UNSUPPORTED;
+}
+
+AuraTcpStatus aura_tcp_stream_connect(uint16_t port, int timeout_ms,
+                                      AuraTcpStream **out_stream)
+{
+  (void)port;
+  (void)timeout_ms;
+  if (out_stream != NULL)
+  {
+    *out_stream = NULL;
+  }
+  (void)out_stream;
+  snprintf(aura_tcp_errbuf, sizeof(aura_tcp_errbuf), "tcp unsupported on this target");
+  return AURA_TCP_UNSUPPORTED;
+}
+
+AuraTcpStatus aura_tcp_stream_read(AuraTcpStream *stream, void *buffer, size_t capacity,
+                                   size_t *out_bytes, int timeout_ms)
+{
+  (void)stream;
+  (void)buffer;
+  (void)capacity;
+  (void)timeout_ms;
+  if (out_bytes != NULL)
+  {
+    *out_bytes = 0;
+  }
+  snprintf(aura_tcp_errbuf, sizeof(aura_tcp_errbuf), "tcp unsupported on this target");
+  return AURA_TCP_UNSUPPORTED;
+}
+
+AuraTcpStatus aura_tcp_stream_write(AuraTcpStream *stream, const void *buffer, size_t capacity,
+                                    size_t *out_bytes, int timeout_ms)
+{
+  (void)stream;
+  (void)buffer;
+  (void)capacity;
+  (void)timeout_ms;
+  if (out_bytes != NULL)
+  {
+    *out_bytes = 0;
+  }
+  snprintf(aura_tcp_errbuf, sizeof(aura_tcp_errbuf), "tcp unsupported on this target");
+  return AURA_TCP_UNSUPPORTED;
+}
+
+int aura_tcp_listener_close(AuraTcpListener *listener)
+{
+  (void)listener;
+  return 0;
+}
+
+void aura_tcp_listener_destroy(AuraTcpListener *listener)
+{
+  free(listener);
+}
+
+int aura_tcp_stream_close(AuraTcpStream *stream)
+{
+  (void)stream;
+  return 0;
+}
+
+void aura_tcp_stream_destroy(AuraTcpStream *stream)
+{
+  free(stream);
+}
+
+#endif
 
 /* Structured std.io wrappers use heap-owned String payloads for errors.  Keep
  * this helper separate from the throwing path: the throw path borrows the
