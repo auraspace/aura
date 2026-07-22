@@ -1671,6 +1671,7 @@ typedef struct
 struct AuraTaskFrame
 {
   uint32_t abi_version;
+  uint64_t task_id;
   AuraTaskPollFn poll;
   AuraTaskFrameDestroyFn destroy;
   void *data;
@@ -1693,6 +1694,8 @@ struct AuraTaskFrame
   AuraTaskChannel *waiting_channel;
   void *waiting_node;
 };
+
+static uint64_t aura_task_next_id = 1;
 
 AuraTaskFrame *aura_task_frame_new(size_t data_size,
                                    AuraTaskPollFn poll,
@@ -1717,6 +1720,7 @@ AuraTaskFrame *aura_task_frame_new(size_t data_size,
     }
   }
   frame->abi_version = AURA_RT_ABI_VERSION;
+  frame->task_id = aura_task_next_id++;
   frame->poll = poll;
   frame->destroy = destroy;
   frame->data_size = data_size;
@@ -1728,6 +1732,11 @@ AuraTaskFrame *aura_task_frame_new(size_t data_size,
 void *aura_task_frame_data(AuraTaskFrame *frame)
 {
   return frame != NULL ? frame->data : NULL;
+}
+
+uint64_t aura_task_frame_task_id(const AuraTaskFrame *frame)
+{
+  return frame != NULL ? frame->task_id : 0;
 }
 
 AuraTaskPollState aura_task_frame_state(const AuraTaskFrame *frame)

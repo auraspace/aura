@@ -27,6 +27,7 @@ int main(void)
 {
   AuraTaskFrame *frame = aura_task_frame_new(8, poll_twice, NULL);
   assert(frame != NULL);
+  assert(aura_task_frame_task_id(frame) != 0);
   assert(frame->data_size == 8);
   assert(aura_task_frame_resume_state(frame) == 0);
   assert(aura_task_frame_state(frame) == AURA_TASK_READY);
@@ -56,6 +57,7 @@ int main(void)
 
   AuraTaskExecutor *executor = aura_task_executor_new();
   frame = aura_task_frame_new(0, poll_twice, NULL);
+  assert(aura_task_frame_task_id(frame) != 0);
   assert(aura_task_executor_submit(executor, frame) == 1);
   assert(aura_task_executor_run_one(executor) == 1);
   assert(aura_task_frame_state(frame) == AURA_TASK_PENDING);
