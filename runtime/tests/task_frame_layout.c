@@ -58,6 +58,12 @@ int main(void)
   AuraTaskExecutor *executor = aura_task_executor_new();
   frame = aura_task_frame_new(0, poll_twice, NULL);
   assert(aura_task_frame_task_id(frame) != 0);
+  assert(aura_task_frame_poll_once(frame) == AURA_TASK_PENDING);
+  assert(aura_task_frame_resume_state(frame) == 1);
+  assert(aura_task_frame_poll_once(frame) == AURA_TASK_COMPLETE);
+  assert(aura_task_frame_poll_once(frame) == AURA_TASK_COMPLETE);
+
+  frame = aura_task_frame_new(0, poll_twice, NULL);
   assert(aura_task_executor_submit(executor, frame) == 1);
   assert(aura_task_executor_run_one(executor) == 1);
   assert(aura_task_frame_state(frame) == AURA_TASK_PENDING);

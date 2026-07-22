@@ -2004,6 +2004,31 @@ struct AuraTaskExecutor
 int aura_task_executor_wake(AuraTaskExecutor *executor, AuraTaskFrame *frame);
 static void aura_task_channel_cancel_wait(AuraTaskFrame *frame);
 
+AuraTaskPollState aura_task_frame_poll_once(AuraTaskFrame *frame)
+{
+  if (frame == NULL || frame->poll == NULL)
+  {
+    return AURA_TASK_FAILED;
+  }
+  if (frame->state == AURA_TASK_COMPLETE || frame->state == AURA_TASK_FAILED ||
+      frame->state == AURA_TASK_CANCELLED)
+  {
+    return frame->state;
+  }
+  if (frame->cancel_requested)
+  {
+    frame->state = AURA_TASK_CANCELLED;
+    return frame->state;
+  }
+  AuraTaskPollState state = frame->poll(frame);
+  if (state < AURA_TASK_READY || state > AURA_TASK_CANCELLED)
+  {
+    state = AURA_TASK_FAILED;
+  }
+  frame->state = state;
+  return state;
+}
+
 AuraTaskExecutor *aura_task_executor_new(void)
 {
   return (AuraTaskExecutor *)calloc(1, sizeof(AuraTaskExecutor));
@@ -2099,13 +2124,7 @@ int aura_task_executor_run_one(AuraTaskExecutor *executor)
   frame->queued = 0;
   executor->ready_count--;
 
-  if (frame->cancel_requested)
-  {
-    frame->state = AURA_TASK_CANCELLED;
-    return 1;
-  }
-
-  AuraTaskPollState state = frame->poll(frame);
+  AuraTaskPollState state = aura_task_frame_poll_once(frame);
   if (state == AURA_TASK_READY)
   {
     aura_task_executor_wake(executor, frame);
