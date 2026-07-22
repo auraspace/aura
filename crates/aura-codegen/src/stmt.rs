@@ -282,6 +282,26 @@ fn is_array_ctor_expr(e: &Expr) -> bool {
     }
 }
 
+fn string_call_owns_result(e: &Expr, ctx: &EmitCtx<'_>) -> bool {
+    let Expr::Call(call) = e else {
+        return false;
+    };
+    match call.callee.as_ref() {
+        Expr::Ident(id) => matches!(id.name.as_str(), "readFile" | "tryReadFile"),
+        Expr::Field(field) => {
+            let receiver = resolve_type_name(&field.object, ctx).unwrap_or_default();
+            (receiver.starts_with("Array_String") && field.field.name == "get")
+                || (receiver == "Int" && field.field.name == "toString")
+                || (receiver == "String"
+                    && matches!(
+                        field.field.name.as_str(),
+                        "substring" | "trim" | "trimStart" | "trimEnd" | "toLower"
+                    ))
+        }
+        _ => false,
+    }
+}
+
 pub(crate) fn pad(n: usize) -> String {
     "  ".repeat(n)
 }
@@ -315,7 +335,10 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
             if needs_box || needs_ptr_box {
                 ctx.mark_box_owner(&v.name.name);
             }
-            if ty_name == "String" && matches!(&v.init, Expr::Call(_) | Expr::Binary(_)) {
+            if ty_name == "String"
+                && (matches!(&v.init, Expr::Binary(_))
+                    || string_call_owns_result(&v.init, ctx))
+            {
                 ctx.mark_string_owner(&v.name.name);
             }
             if ty_name.starts_with("Channel_")
