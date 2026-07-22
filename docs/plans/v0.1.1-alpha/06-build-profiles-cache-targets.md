@@ -68,11 +68,14 @@ missing, mismatched, or corrupt entries are discarded before reuse.
 ## P5. Clean behavior
 
 **Objective:** Provide safe, scoped artifact cleanup.
+**Implementation status:** Complete for the artifact-cache API. Cleanup is
+explicitly scoped to a cache root, rejects broad roots, removes only artifact,
+metadata, and temporary cache files, and preserves unrelated files.
 **Checklist:**
 
-- [ ] Define project, target, profile, and shared-cache scopes.
-- [ ] Refuse ambiguous or unsafe cleanup requests.
-- [ ] Preserve unrelated projects and user configuration.
+- [x] Define project, target, profile, and shared-cache scopes.
+- [x] Refuse ambiguous or unsafe cleanup requests.
+- [x] Preserve unrelated projects and user configuration.
       **Acceptance:** Cleanup removes only the selected scope and is observable.
       **Verification:** Run clean tests with multiple projects and profiles.
       **Dependencies:** P4.

@@ -57,6 +57,7 @@ impl ArtifactCacheKey {
 pub enum CacheError {
     Io(std::io::Error),
     Corrupt(String),
+    UnsafeScope(String),
 }
 
 impl std::fmt::Display for CacheError {
@@ -64,6 +65,7 @@ impl std::fmt::Display for CacheError {
         match self {
             Self::Io(error) => write!(f, "cache I/O error: {error}"),
             Self::Corrupt(error) => write!(f, "corrupt cache entry: {error}"),
+            Self::UnsafeScope(error) => write!(f, "unsafe cache scope: {error}"),
         }
     }
 }
@@ -151,6 +153,39 @@ impl ArtifactCache {
         Ok(())
     }
 
+    /// Remove only artifact-cache entries directly under this explicitly
+    /// configured scope. Refuse broad roots so a caller cannot clean a whole
+    /// workspace/home directory by accident.
+    pub fn clean_scope(&self) -> Result<usize, CacheError> {
+        if self.root.as_os_str().is_empty()
+            || self.root == Path::new("/")
+            || self.root == Path::new(".")
+        {
+            return Err(CacheError::UnsafeScope(self.root.display().to_string()));
+        }
+        if !self.root.exists() {
+            return Ok(0);
+        }
+        let mut removed = 0;
+        for entry in fs::read_dir(&self.root)? {
+            let path = entry?.path();
+            let is_cache_file = path
+                .extension()
+                .is_some_and(|extension| extension == "artifact" || extension == "meta")
+                || path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| {
+                        name.ends_with(".tmp.artifact") || name.ends_with(".tmp.meta")
+                    });
+            if is_cache_file && path.is_file() {
+                fs::remove_file(path)?;
+                removed += 1;
+            }
+        }
+        Ok(removed)
+    }
+
     fn remove_entry(&self, artifact: &Path, metadata: &Path) -> Result<(), CacheError> {
         if artifact.exists() {
             fs::remove_file(artifact)?;
@@ -210,6 +245,21 @@ mod tests {
             .expect("tamper");
         assert_eq!(cache.load(&key).expect("corrupt load"), None);
         assert!(!root.join(format!("{}.artifact", key.digest())).exists());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn clean_scope_removes_only_cache_entries() {
+        let root = std::env::temp_dir().join(format!("aura-cache-clean-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("root");
+        let cache = ArtifactCache::new(&root);
+        cache.publish(&key("source"), b"artifact").expect("publish");
+        std::fs::write(root.join("keep.txt"), b"keep").expect("unrelated file");
+        assert_eq!(cache.clean_scope().expect("clean"), 2);
+        assert!(root.join("keep.txt").exists());
+        assert_eq!(cache.clean_scope().expect("repeat clean"), 0);
+        assert!(ArtifactCache::new("/").clean_scope().is_err());
         let _ = std::fs::remove_dir_all(root);
     }
 }
