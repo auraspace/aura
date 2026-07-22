@@ -62,11 +62,16 @@ collector only; conflict suppression and stable reports are R4.
 ## R4. Stable race reports
 
 **Objective:** Produce actionable and reproducible conflict reports.
+**Implementation status:** Complete for the bounded single-threaded alpha
+report surface. The runtime identifies conflicting task/source/stack accesses,
+suppresses duplicate identities, recognizes join/lock/channel hand-offs, and
+renders stable human and JSON output. Concurrent vector-clock refinement and
+the user-facing command remain R5/future scope.
 **Checklist:**
 
-- [ ] Report both conflicting accesses and their task/stack/source identities.
-- [ ] Explain the missing synchronization edge.
-- [ ] Define stable formatting and machine-readable output.
+- [x] Report both conflicting accesses and their task/stack/source identities.
+- [x] Explain the missing synchronization edge.
+- [x] Define stable formatting and machine-readable output.
       **Acceptance:** A planted race identifies both sides without false ambiguity.
       **Verification:** Repeat positive, negative, and suppression fixtures.
       **Dependencies:** R2, R3.

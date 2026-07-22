@@ -401,3 +401,9 @@ When you resolve debt, update or remove the matching entry.
   trampolines, cancellation resumption, and exception-object translation remain
   deferred to cross-host acceptance work; next step is to extend the ABI only
   after scheduler and target descriptors define those semantics.
+
+### Race report command integration (2026-07-22)
+
+- R4 now has deterministic runtime reports and planted-race/suppression/
+  synchronization fixtures; the user-facing race command, exit policy, and
+  release/profile acceptance remain R5.
