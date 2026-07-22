@@ -21,7 +21,7 @@ This RFC outlines the **Aura standard library** for servers and CLIs: prelude, c
 
 Implementation is primarily **Aura**, with thin runtime/FFI bridges where required.
 
-**Toolchain today (2026-07-22, S2/C19):** repo packages `std/io` (console, file, process, stdin, and exit), `std/assert`, and `std/collections` (Map/Set, generic `HashMap<K,V>`/`HashSet<T>`, Iterable, generic map/filter/fold, join, hash-collection snapshots/HOFs, and `HashMapEntry` snapshots with direct `for-in`). Package builds auto-prelude `std.io` and resolve `std.*` path deps. Strict file I/O throws `String`; soft read/write APIs return nullable/bool results. Full `Result` wrappers, networking, JSON, logging, crypto, synchronization, and async I/O remain deferred.
+**Toolchain today (2026-07-22, S2/C20):** repo packages `std/io` (console, file, process, stdin, and exit), `std/assert`, and `std/collections` (Map/Set, generic `HashMap<K,V>`/`HashSet<T>`, Iterable, generic map/filter/fold, join, hash-collection snapshots/HOFs, read-only snapshot iterators, and `HashMapEntry` snapshots with direct `for-in`). Package builds auto-prelude `std.io` and resolve `std.*` path deps. Strict file I/O throws `String`; soft read/write APIs return nullable/bool results. Live iterators/views, mutation-through-entry, networking, JSON, logging, crypto, synchronization, and async I/O remain deferred.
 
 ## 2. Motivation
 
@@ -235,8 +235,9 @@ Go-like pragmatic breadth without framework lock-in. Async-first net matches run
 - Full API reference site
 - Capability-based FS/net permissions (sandbox)
 - SIMD / performance utilities
-- Live collection iterators and mutable entry views, pending borrow/lifetime
-  rules and compiler/runtime support
+- Live collection iterators and mutable entry views remain deferred: C20 ships
+  deterministic read-only snapshots, while borrow/lifetime rules and
+  compiler/runtime support for live aliases are not yet available.
 
 ## 10. Security & safety considerations
 

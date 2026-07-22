@@ -25,13 +25,13 @@ Aura is **spec-first**: RFCs lock design; the compiler and runtime land vertical
 | RFC             | Title                      | RFC status | In code (approx.)       | Notes                                                                                                         |
 | --------------- | -------------------------- | ---------- | ----------------------- | ------------------------------------------------------------------------------------------------------------- |
 | [000](/rfc/000) | Vision & design principles | Accepted   | **Shipped (docs)**      | Product north star                                                                                            |
-| [001](/rfc/001) | Language specification     | Accepted   | **Partial → broad MVP** | Through **C13t**: classes, packages, lambdas + Fun/`var` String captures, String tools; async/macros not full |
+| [001](/rfc/001) | Language specification     | Accepted   | **Partial → broad MVP** | Through **C20**: classes, packages, mutable captures, collection snapshots; async/macros/live ownership not full |
 | [002](/rfc/002) | Type system                | Accepted   | **Partial**             | Null flow, generics, bounds, Result, fun types; deeper rules ongoing                                          |
 | [003](/rfc/003) | Memory & concurrency       | Accepted   | **Partial**             | GC mark/sweep + class heap; tasks/channels limited                                                            |
 | [004](/rfc/004) | Compiler architecture      | Accepted   | **Partial**             | Rust toolchain + **C backend** default; LLVM later                                                            |
 | [005](/rfc/005) | Package manager            | Accepted   | **Partial**             | Path deps + **C13** registry K1 offline (index/semver/fetch/lock); no live HTTPS / publish                    |
 | [006](/rfc/006) | Runtime                    | Accepted   | **Partial**             | `aura_rt.c`, GC, exceptions, String Array free, file I/O, Fun env RC, argv/stdin/exit                         |
-| [007](/rfc/007) | Standard library           | Accepted   | **Partial**             | `std.io` (+ eprint/tryWriteFile) / `assert` / Map·Set·HashMap<K,V> + Hashable + HOF + `Int.toString` / case   |
+| [007](/rfc/007) | Standard library           | Accepted   | **Partial**             | `std.io` / `assert` / Map·Set·HashMap<K,V> + Hashable + HOF + deterministic collection snapshots             |
 | [008](/rfc/008) | Build system               | Accepted   | **Partial**             | `aura.toml` package build/run/test                                                                            |
 | [009](/rfc/009) | Reflection / metadata      | Accepted   | **Deferred / limited**  | Not a day-one teach path                                                                                      |
 | [010](/rfc/010) | Plugins / macros           | Accepted   | **Deferred / limited**  | Not required for hello                                                                                        |
@@ -41,7 +41,7 @@ Aura is **spec-first**: RFCs lock design; the compiler and runtime land vertical
 
 ## Compiler milestone band
 
-Public README and repo `docs/roadmap.md` track **C0 → C13t** batch closed (dogfood, Fun/`var` String captures, registry K1 offline).
+Public README and repo `docs/roadmap.md` track **C0 → C20** batch closed (mutable captures and collection snapshot APIs; C21 remains pending).
 
 | Band   | User-visible outcome                                                                                                                      |
 | ------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
@@ -55,10 +55,11 @@ Public README and repo `docs/roadmap.md` track **C0 → C13t** batch closed (dog
 | C11a–e | file I/O, Fun env free, `aura new`, substring, notes dogfood, **install/embed runtime**, 0.1 freeze                                       |
 | C12a–t | **Done:** argv/stdin/exit, String tools, class·Array·var captures, HashMapStr, HOF str, tryReadFile, `examples/wc`, guide, install DX     |
 | C13a–t | **Done:** method-on-temp, `Int.toString`, String array free, Fun/`var` String capture, registry K1 offline, eprint/tryWrite, signing note |
+| C20c–i | **Done/deferred:** mutable class/Array/Fun captures, snapshot iterator contract and fixtures; `Array<Interface>` and entry mutation deferred |
 
 **Shipped:** tag `v0.1.0-alpha` + multi-OS tarballs ([release notes](https://github.com/auraspace/aura/blob/main/docs/releases/0.1.0-alpha.md)); C12 + **C13** batches closed.
 
-**Next:** live registry HTTPS + nested deps; user-defined generic HOF codegen; residual [debts](https://github.com/auraspace/aura/blob/main/agents/debts.md).
+**Next:** C21 pending; live registry HTTPS + nested deps, borrow/live views, and residual [debts](https://github.com/auraspace/aura/blob/main/agents/debts.md).
 
 Exact bullet lists live in the root [README](https://github.com/auraspace/aura) and repo [`docs/roadmap.md`](https://github.com/auraspace/aura/blob/main/docs/roadmap.md).
 

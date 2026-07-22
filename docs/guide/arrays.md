@@ -85,7 +85,7 @@ fun demo_str(xs: Array<String>): Array<String> {
 
 Corpus: `fun/lambda_hof.aura`, `std_collections/hof`, `std_collections/hof_str`, `std_collections/join`.
 
-**Capture limits:** lambdas may close over outer `val` of `Int` / `Bool` / `String` / class / Array (C10h/C12k/C12l) and outer `var` of `Int` / `Bool` by shared mutable box (C12m). Array captures store a non-owning header view (same idea as field bind): the outer binding still owns the buffer — freeing or moving that owner while the Fun is live is undefined. Nested Fun capture and `var` String/class/Array are deferred ([debts](https://github.com/auraspace/aura/blob/main/agents/debts.md)).
+**Capture limits:** lambdas may close over outer `val` of `Int` / `Bool` / `String` / class / Array and outer `var` of scalar, String, class, Array, or Fun values through shared mutable storage (C20c–e). Mutable class payloads are GC-rooted and nested Fun environments retain/release correctly in the MVP. Captured Array storage is still not borrow-checked; owner movement, escaping live views, and mutation invalidation remain undefined and deferred ([debts](https://github.com/auraspace/aura/blob/main/agents/debts.md)).
 
 Array parameters **own** the buffer (move at call site). Use `clone()` if you need the same array after a call that takes it.
 

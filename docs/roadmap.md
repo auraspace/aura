@@ -15,8 +15,8 @@ Living plan for docs, language specs, and the Rust toolchain. RFCs remain the de
 | RFC static site (`site/`)   | Implemented; Cloudflare Pages → **https://aura.fadosoft.com**                               |
 | RFC-000 … RFC-013           | **All Accepted** — open questions resolved or Deferred (2026-07-16)                         |
 | Language MVP                | RFC-001 §6.0 + post-C1; generic iface mono (C8c); Iterable (C8d); async/macros deferred     |
-| Compiler                    | **C0–C20e** capture slice closed (mutable class/Array/Fun captures; Array caveats deferred) |
-| Runtime / packages / stdlib | GC + String Array free; Map/Set/HashMap/HashMapStr; path+registry lock; std.io + process    |
+| Compiler                    | **C0–C20** closed: mutable captures plus collection snapshot contract/fixtures; live ownership deferred |
+| Runtime / packages / stdlib | GC + String Array free; Map/Set/HashMap/HashMapStr; snapshot iterators; path+registry lock; std.io + process |
 | Distribution contract       | **S2 complete:** Linux amd64, macOS arm64, macOS amd64; Windows amd64 deferred              |
 | Release metadata            | **0.1.0-alpha published**; subsequent release work tracks changes after `v0.1.0-alpha`      |
 
@@ -237,6 +237,11 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C20c**  | Mutable `var` class capture (shared box + GC root)                 | **Done** — MVP; ownership caveats remain         |
 | **C20d**  | Mutable `var` Array capture (shared box + captured Array payload)  | **Done** — MVP; live view/borrow safety deferred |
 | **C20e**  | Mutable `var` Fun capture (shared box + nested env retention)      | **Done** — MVP; full ownership contract deferred |
+| **C20f**  | Collection iterator and entry-view contract                       | **Done** — snapshots are the stable MVP; live views deferred |
+| **C20g**  | Read-only collection iterator snapshots                            | **Done** — deterministic snapshot fixtures                         |
+| **C20h**  | `Array<Interface>` layout spike                                   | **Deferred** — boxed layout recommended for a future batch           |
+| **C20i**  | Collection mutation-through-entry                                 | **Deferred** — read-only snapshots avoid unsafe aliases              |
+| **C20j**  | Close C20 documentation/status                                     | **Done** — C21 and release remain pending/deferred                   |
 
 Plans:
 
@@ -251,10 +256,10 @@ Plans:
 
 ### P3 — Expand (after hello)
 
-1. ~~Language surface through C20e~~ (funs/lambdas, mutable class/Array/Fun capture MVP) → later: true borrow, Array-of-iface, safe live Array views
+1. ~~Language surface through C20~~ (funs/lambdas, mutable class/Array/Fun capture MVP) → later: true borrow, Array-of-iface, safe live Array views
 2. Runtime: ~~GC + process I/O + String Array free + Fun env RC~~ → later: channels/tasks; fix `Io.args` strdup vs free
 3. Toolchain: ~~path deps + registry K1 offline~~ → ~~**S2:** verified HTTPS + nested locked registry deps~~ → later: K1b/K2 publish
-4. Stdlib: ~~io + collections + C13 toString/case/eprint/tryWrite + C14 generic HashMap + C15 generic HashSet + C18 hash-collection HOFs + C19 accessors/entry snapshots/entry for-in~~ → later: live iterator/entry-view APIs and entry mutation
+4. Stdlib: ~~io + collections + C13 toString/case/eprint/tryWrite + C14 generic HashMap + C15 generic HashSet + C18 hash-collection HOFs + C19 accessors/entry snapshots/entry for-in + C20 snapshot iterators~~ → later: live iterator/entry-view APIs and entry mutation
 5. Cross targets + signed releases — ~~**S2 contract:** Linux amd64, macOS arm64/amd64~~; Windows amd64 deferred → ~~**C13s** signing note~~ → later: minisign / notarization
 
 S2 production toolchain implementation: [`docs/plans/2026-07-21-s2-production-toolchain.md`](plans/2026-07-21-s2-production-toolchain.md). Release publication remains pending.

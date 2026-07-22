@@ -71,10 +71,10 @@ When you resolve debt, update or remove the matching entry.
 
 - Area: stdlib / RFC-007
 - Symptom: no live iterator/entry view or mutation-through-entry API; `Map`/`Set` remain linear alternatives.
-- Why deferred: C19 deliberately exposes stable array snapshots rather than a borrowed or mutable iterator representation.
-- Progress: C9b auto-resize; C12n String→String; C12o String HOF; **C14** generic `HashMap<K,V>`; **C15** generic `HashSet<T>`; **C16** generic `map`/`filter`/`fold`; **C17** user-defined class HOF coverage; **C18** hash snapshots/HOFs; **C19a** `containsValue`/`containsAll`; **C19b** `HashMapEntry<K,V>` `entries()` snapshots; **C19c** direct entry `for-in`. Compiler prerequisites **C19x** generic constructor substitution and **C19y** nested generic return/local substitution are resolved.
+- Why deferred: C20 defines and ships deterministic read-only snapshots; borrowed/live aliases need lifetime checking and mutation invalidation rules.
+- Progress: C9b auto-resize; C12n String→String; C12o String HOF; **C14** generic `HashMap<K,V>`; **C15** generic `HashSet<T>`; **C16** generic `map`/`filter`/`fold`; **C17** user-defined class HOF coverage; **C18** hash snapshots/HOFs; **C19a–d** accessors/entry snapshots/entry `for-in`; **C20f–g** snapshot contract and read-only iterator snapshots; **C20i** explicitly defers mutation-through-entry. Compiler prerequisites **C19x** generic constructor substitution and **C19y** nested generic return/local substitution are resolved.
 - Limitation: `entries()` is a fresh shallow structural snapshot in logical table order. It preserves key/value pairing and never mutates the source map, but it is not live and entries cannot mutate the map.
-- Next step: add iterator objects, entry views, or mutation APIs only when their ownership/borrow contract is designed.
+- Next step: borrow/lifetime design before any live iterator, entry view, or mutation API.
 - Note: C14/C15 resolved the generic hash-collection residual; C19 resolved the nested generic codegen blockers exposed by entry snapshots.
 - Introduced: narrowed after C8i; resize C9b; String→String C12n; String HOF C12o
 

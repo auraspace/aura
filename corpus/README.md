@@ -1,6 +1,6 @@
 # Aura corpus
 
-Sample `.aura` programs for the compiler: parse/typecheck (`aura check`), native run (`aura run` / `aura build`), and `@test` (`aura test`). Layout tracks milestones through **C13t** (dogfood / captures / registry K1 offline) + guide sync (see [docs/roadmap.md](../docs/roadmap.md)).
+Sample `.aura` programs for the compiler: parse/typecheck (`aura check`), native run (`aura run` / `aura build`), and `@test` (`aura test`). Layout tracks milestones through **C20** (mutable captures and collection snapshots; C21 pending) + guide sync (see [docs/roadmap.md](../docs/roadmap.md)).
 
 ## Core fixtures
 
@@ -112,9 +112,10 @@ Sample `.aura` programs for the compiler: parse/typecheck (`aura check`), native
 | `std_io/app`                          | Explicit `import std.io` + `println` (C3z)                                                                   |
 | `std_io/prelude`                      | Auto-prelude `std.io` without import (C4g)                                                                   |
 | `std_io/files`                        | `readFile` / `writeFile` / `appendFile` / `fileExists` / `fileSize` (C11a)                                   |
-| `std_collections/hashmap_int`         | Generic `HashMap<Int,String>` accessors, snapshots, `HashMapEntry` `for-in`, and map-entry HOF (C18/C19)     |
-| `std_collections/hashmap_str`         | Generic `HashMap<String,String>` accessors, paired entry snapshots, direct entry `for-in`, and HOF (C18/C19) |
-| `std_collections/hashset_int`         | Generic `HashSet<Int>` snapshots, `containsAll`, and filter/map HOFs; String map (C18/C19)                   |
+| `std_collections/hashmap_int`         | Generic `HashMap<Int,String>` accessors, snapshots, snapshot iterators, `HashMapEntry` `for-in`, and HOF (C18–C20) |
+| `std_collections/hashmap_str`         | Generic `HashMap<String,String>` accessors, paired snapshots/iterators, direct entry `for-in`, and HOF (C18–C20) |
+| `std_collections/hashset_int`         | Generic `HashSet<Int>` snapshots/iterators, `containsAll`, and filter/map HOFs (C18–C20)                    |
+| `std_collections/snapshot_iterator`   | Deterministic read-only collection snapshots across mutation/rehash/clear (C20g)                           |
 | `std_io/try_read_file`                | `tryReadFile(path): String?` null on missing/error; keep throwing `readFile` (C12p)                          |
 | `std_io/args`                         | `std.io.args(): Array<String>` process argv (C12b); optional `aura run … -- hello` (C12c)                    |
 | `std_io/stdin`                        | `readLine(): String?` + `readAllStdin()` (C12d); smoke EOF without pipe; `printf … \| aura run …`            |
