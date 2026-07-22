@@ -60,8 +60,9 @@ Details and residual trade-offs are expanded in individual RFCs. Locked cross-cu
 | RFC-011 | Testing Framework          | 20–40 pages  | Toolchain  | Accepted | [RFC-011](RFC-011-testing-framework.md)        |
 | RFC-012 | CLI                        | 20–30 pages  | Toolchain  | Accepted | [RFC-012](RFC-012-cli.md)                      |
 | RFC-013 | Binary Distribution        | 20–30 pages  | Toolchain  | Accepted | [RFC-013](RFC-013-binary-distribution.md)      |
+| RFC-014 | Language Server            | 30–50 pages  | Toolchain  | Draft    | [RFC-014](RFC-014-language-server.md)          |
 
-**Total estimate (core):** ~475–810 pages.
+**Total estimate (core):** ~505–860 pages.
 
 ### Implementation pulse (2026-07-22)
 
@@ -77,22 +78,23 @@ Living execution status is [docs/roadmap.md](../roadmap.md) (compiler **C0–C19
 
 ## Synopsis (one glance per RFC)
 
-| RFC         | Synopsis                                                                                                               |
-| ----------- | ---------------------------------------------------------------------------------------------------------------------- |
-| **RFC-000** | Vision, principles, non-goals: compiled Aura, single-file ship, core-only scope, toolchain in Rust.                    |
-| **RFC-001** | Surface syntax and core language semantics: lexical rules, grammar, declarations, expressions, modules, visibility.    |
-| **RFC-002** | Static type system: kinds, nullability/errors, generics, traits/interfaces, inference, assignability, soundness goals. |
-| **RFC-003** | Memory strategy, sharing rules, async/tasks, concurrency primitives, and data-race policy for single-binary programs.  |
-| **RFC-004** | Compiler pipeline implemented in **Rust**: parse → typecheck → IR → native codegen, incremental build, diagnostics.    |
-| **RFC-005** | Packages: manifest, lockfile, resolver, **GitHub-backed registry**, workspaces, publish — reproducible deps.           |
-| **RFC-006** | Runtime support linked into the final binary: scheduler, I/O, alloc (and GC if chosen), panic, FFI as required.        |
-| **RFC-007** | Standard library for servers and CLIs: collections, I/O, net, JSON, log, sync, crypto baseline — no app framework.     |
-| **RFC-008** | Build graph and profiles: targets, features, caching, cross-compile — produces one deployable artifact by default.     |
-| **RFC-009** | Attributes/annotations and metadata retention for language tooling, derives, and optional runtime type info.           |
-| **RFC-010** | Hygienic/declarative macros, procedural derives, and sandboxed compiler plugins (Rust-hosted where appropriate).       |
-| **RFC-011** | Built-in testing: discovery, assertions, async tests, integration layout, coverage hooks.                              |
-| **RFC-012** | Unified `aura` CLI (Rust): new/build/run/test/check/fmt/pkg — one entrypoint for daily workflow.                       |
-| **RFC-013** | How toolchain and apps are released: platform matrix, installers, signing, self-update, single-file app packaging.     |
+| RFC         | Synopsis                                                                                                                        |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| **RFC-000** | Vision, principles, non-goals: compiled Aura, single-file ship, core-only scope, toolchain in Rust.                             |
+| **RFC-001** | Surface syntax and core language semantics: lexical rules, grammar, declarations, expressions, modules, visibility.             |
+| **RFC-002** | Static type system: kinds, nullability/errors, generics, traits/interfaces, inference, assignability, soundness goals.          |
+| **RFC-003** | Memory strategy, sharing rules, async/tasks, concurrency primitives, and data-race policy for single-binary programs.           |
+| **RFC-004** | Compiler pipeline implemented in **Rust**: parse → typecheck → IR → native codegen, incremental build, diagnostics.             |
+| **RFC-005** | Packages: manifest, lockfile, resolver, **GitHub-backed registry**, workspaces, publish — reproducible deps.                    |
+| **RFC-006** | Runtime support linked into the final binary: scheduler, I/O, alloc (and GC if chosen), panic, FFI as required.                 |
+| **RFC-007** | Standard library for servers and CLIs: collections, I/O, net, JSON, log, sync, crypto baseline — no app framework.              |
+| **RFC-008** | Build graph and profiles: targets, features, caching, cross-compile — produces one deployable artifact by default.              |
+| **RFC-009** | Attributes/annotations and metadata retention for language tooling, derives, and optional runtime type info.                    |
+| **RFC-010** | Hygienic/declarative macros, procedural derives, and sandboxed compiler plugins (Rust-hosted where appropriate).                |
+| **RFC-011** | Built-in testing: discovery, assertions, async tests, integration layout, coverage hooks.                                       |
+| **RFC-012** | Unified `aura` CLI (Rust): new/build/run/test/check/fmt/pkg — one entrypoint for daily workflow.                                |
+| **RFC-013** | How toolchain and apps are released: platform matrix, installers, signing, self-update, single-file app packaging.              |
+| **RFC-014** | Editor integration via LSP: shared compiler analysis, workspace snapshots, diagnostics, navigation, completion, and safe edits. |
 
 ## Implementation stack (core)
 
@@ -133,7 +135,8 @@ RFC-000  Vision
    ├─► RFC-005  Package Manager
    ├─► RFC-011  Testing
    ├─► RFC-012  CLI (Rust)  ◄── RFC-005,008,011,013
-   └─► RFC-013  Binary Distribution
+   ├─► RFC-013  Binary Distribution
+   └─► RFC-014  Language Server  ◄── RFC-004,008,012
 ```
 
 ## Recommended writing order (waves)
@@ -144,7 +147,7 @@ RFC-000  Vision
 | 1    | RFC-001, 002, 003           | Language core                                                  |
 | 2    | RFC-009, 010, 004, 006      | Metadata + macros + Rust compiler + runtime                    |
 | 3    | RFC-005, 007, 008, 012, 013 | Packages, stdlib, build, CLI, distribution                     |
-| 4    | RFC-011                     | Testing integrated with toolchain                              |
+| 4    | RFC-011, RFC-014            | Testing and editor integration integrated with toolchain       |
 
 ## Status legend
 

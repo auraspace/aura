@@ -19,7 +19,8 @@ docs/
 │   ├── TEMPLATE.md    ← required template for every new RFC
 │   ├── RFC-000-….md
 │   ├── …
-│   └── RFC-013-….md
+│   ├── RFC-013-….md
+│   └── RFC-014-….md
 └── plans/             ← engineering batch plans
 ```
 
