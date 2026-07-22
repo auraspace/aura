@@ -177,10 +177,19 @@ backend-specific details.
 
 **Checklist:**
 
-- [ ] Exercise pending frames during forced GC.
-- [ ] Exercise cancellation, repeated polling, dropped handles, and failures.
-- [ ] Run memory and undefined-behavior sanitizers where supported.
+- [x] Exercise pending frames during forced GC.
+- [x] Exercise cancellation, repeated polling, dropped handles, and failures.
+- [x] Run memory and undefined-behavior sanitizers where supported.
 - [ ] Record reproducible seeds and minimized failures.
+
+**Bounded evidence (2026-07-22):**
+`runtime/tests/task_frame_sanitizer.c` covers a pending frame retaining a GC
+capture across `aura_gc_collect`, repeated direct polling, executor
+cancellation, a dropped pending handle cleaned by executor shutdown, and a
+failed frame whose error payload is observed and released. This is a C ABI
+fixture for the existing single-threaded frame/executor APIs; it does not claim
+full async state-machine lowering or delayed wakeup support. The fixture is
+run with ASAN/UBSAN and, when supported by the host toolchain, LSAN.
 
 **Acceptance:** No use-after-free, double-drop, invalid root, or leaked frame is
 present in the mandatory suite.

@@ -7,6 +7,21 @@ When you resolve debt, update or remove the matching entry.
 
 ## Open
 
+### A8 sanitizer fixture is bounded to the current frame ABI (2026-07-22)
+
+- Area: runtime async ABI sanitizer coverage
+- Symptom: the new sanitizer fixture proves root retention and cleanup for
+  pending, cancellation, repeated polling, dropped-handle, and failure paths,
+  but cannot exercise compiler-generated live-local hoisting or a delayed
+  asynchronous wakeup.
+- Why deferred: A4–A7 still define only bounded state metadata and the
+  single-threaded executor contract; full suspension lowering and wake sources
+  are not present in the runtime API.
+- Progress: `runtime/tests/task_frame_sanitizer.c` runs the supported paths
+  under ASAN/UBSAN, with an LSAN attempt when the host supports leak detection.
+- Next step: extend the sanitizer matrix after typed frame roots, resume edges,
+  and async wakeup semantics are implemented.
+
 ### File I/O has no scheduler suspension yet (IO2, 2026-07-22)
 
 - Area: runtime file operations
