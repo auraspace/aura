@@ -1,0 +1,39 @@
+// C20g — read-only HashMap/HashSet snapshot iterators.
+package demo.stdsnapshotiterator
+
+import std.collections
+
+fun main() {
+  val h: HashMap<Int, String> = HashMap<Int, String>(Array(4), Array(4), Array(4))
+  h.put(1, "one")
+  h.put(2, "two")
+  val keys = h.keyIterator()
+  val entries = h.entryIterator()
+
+  // Insert and rehash after creation: snapshots keep their original length/data.
+  h.put(3, "three")
+  h.put(4, "four")
+  h.put(5, "five")
+  if (keys.len() == 2 && entries.len() == 2) { println("map-stable") }
+
+  var keyCount: Int = 0
+  var entryCount: Int = 0
+  for (k in keys) { if (k == 1 || k == 2) { keyCount = keyCount + 1 } }
+  for (entry in entries) {
+    if ((entry.key == 1 && entry.value == "one") || (entry.key == 2 && entry.value == "two")) {
+      entryCount = entryCount + 1
+    }
+  }
+  if (keyCount == 2 && entryCount == 2) { println("map-iterated") }
+
+  val s: HashSet<Int> = HashSet<Int>(HashMap<Int, Bool>(Array(4), Array(4), Array(4)))
+  s.add(7)
+  s.add(8)
+  val items = s.iterator()
+  s.remove(7)
+  s.clear()
+  if (items.len() == 2) { println("set-stable") }
+  var itemCount: Int = 0
+  for (item in items) { if (item == 7 || item == 8) { itemCount = itemCount + 1 } }
+  if (itemCount == 2) { println("set-iterated") }
+}

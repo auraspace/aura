@@ -118,10 +118,38 @@ pub fun set(): Set<String> { return Set<String>(Array(0)) }
 pub class HashMapEntry<K, V>(val key: K, val value: V) {
 }
 
+/// Read-only snapshot iterator over HashMap keys.
+pub class HashMapKeyIterator<K>(val items: Array<K>) {
+  pub fun len(): Int { return this.items.len }
+  pub fun get(i: Int): K { return this.items.get(i) }
+}
+
+/// Read-only snapshot iterator over HashMap entries.
+pub class HashMapEntryIterator<K, V>(val items: Array<HashMapEntry<K, V>>) {
+  pub fun len(): Int { return this.items.len }
+  pub fun get(i: Int): HashMapEntry<K, V> { return this.items.get(i) }
+}
+
+/// Read-only snapshot iterator over HashSet keys.
+pub class HashSetIterator<T>(val items: Array<T>) {
+  pub fun len(): Int { return this.items.len }
+  pub fun get(i: Int): T { return this.items.get(i) }
+}
+
 /// Open-addressing map. state: 0 empty, 1 full, 2 tombstone.
 /// The key bound supplies both the hash operation and the equality contract.
 pub class HashMap<K : Hashable, V>(var keys: Array<K>, var vals: Array<V>, var state: Array<Int>) {
   pub fun capacity(): Int { return this.keys.len }
+
+  /// Snapshot iterator. Later map mutation does not affect this iterator.
+  pub fun keyIterator(): HashMapKeyIterator<K> {
+    return HashMapKeyIterator<K>(this.keyArray())
+  }
+
+  /// Snapshot iterator. Later map mutation does not affect this iterator.
+  pub fun entryIterator(): HashMapEntryIterator<K, V> {
+    return HashMapEntryIterator<K, V>(this.entries())
+  }
 
   /// Return live keys in logical table order, excluding empty/tombstone slots.
   pub fun keyArray(): Array<K> {
@@ -348,6 +376,11 @@ pub class HashSet<T : Hashable>(var table: HashMap<T, Bool>) {
   pub fun capacity(): Int { return this.table.capacity() }
   pub fun len(): Int { return this.table.len() }
   pub fun isEmpty(): Bool { return this.table.isEmpty() }
+
+  /// Snapshot iterator. Later set mutation does not affect this iterator.
+  pub fun iterator(): HashSetIterator<T> {
+    return HashSetIterator<T>(this.toArray())
+  }
 
   /// Return live keys in logical table order.
   pub fun toArray(): Array<T> { return this.table.keyArray() }
