@@ -362,6 +362,13 @@ When you resolve debt, update or remove the matching entry.
   manifests do not yet expose foreign library search paths; the next step is
   F5 failure mapping plus a target-aware package linker configuration.
 
+### F3 structured FFI values remain bounded (2026-07-22)
+
+- The F3 ABI supports only malloc-backed String values and primitive byte,
+  `int64_t`, and one-byte boolean arrays. String-element deep copy, arbitrary
+  element destructors, pointers, callbacks, and foreign failure mapping remain
+  deferred to F4/F5; the root guard is synchronous-only by contract.
+
 ### F3 structured foreign values (2026-07-22)
 
 - F3 freezes an allocation-only C surface for borrowed/copied/transferred
