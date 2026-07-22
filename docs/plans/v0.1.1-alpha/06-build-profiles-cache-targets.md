@@ -126,8 +126,10 @@ artifact. Cross-host macOS evidence and clean-checkout/cache-warm evidence
 still require the supported hosts and release acceptance environment.
 **Checklist:**
 
-- [ ] Run repeated cold and warm builds for each profile and target.
-- [ ] Compare checksums, metadata, and runtime behavior.
+- [x] Run repeated cold and warm builds for each profile on the supported
+      native host target; other targets require their native hosts.
+- [x] Compare artifact bytes/checksums, `BuildIdentity` metadata, and runtime
+      behavior for the native matrix.
 - [x] Record native versus compile-only results.
       **Acceptance:** Release claims are backed by repeatable evidence.
       **Verification:** Execute the matrix from clean checkouts on supported hosts.
