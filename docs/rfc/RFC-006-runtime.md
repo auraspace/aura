@@ -19,7 +19,7 @@
 
 This RFC specifies the **Aura runtime** linked into application binaries: tracing **GC**, **M:N task scheduler**, async I/O reactor, exception personality support, panic/abort paths, timers, and **C ABI FFI** bridges. The runtime is shipped as libraries produced by the Rust toolchain and linked by `aura build`, not installed as a separate end-user package.
 
-**Toolchain today (2026-07-16):** C runtime stub [`runtime/aura_rt.c`](../../runtime/aura_rt.c) linked by the C backend — println, exception frames (`throw`/`catch` object payloads), Array helpers, and **GC MVP** (`aura_gc_alloc` + free-all on exit). No M:N scheduler, channels, async I/O, or full concurrent GC yet.
+**Toolchain today (2026-07-22, S2/C19):** embedded C runtime [`runtime/aura_rt.c`](../../runtime/aura_rt.c) linked by the C backend — console/file/process I/O, exception frames with object payloads, Array/String ownership helpers, and a stop-the-world mark/sweep GC with registered roots, deep object scanning, Array/class-field marking, and shutdown cleanup. No M:N scheduler, channels, `async` I/O, concurrent GC, or broad C FFI surface yet.
 
 ## 2. Motivation
 

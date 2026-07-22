@@ -63,17 +63,17 @@ Details and residual trade-offs are expanded in individual RFCs. Locked cross-cu
 
 **Total estimate (core):** ~475–810 pages.
 
-### Implementation pulse (2026-07-20)
+### Implementation pulse (2026-07-22)
 
-Living execution status is [docs/roadmap.md](../roadmap.md) (compiler **C0–C10j**). RFCs stay design docs; each has a short **Toolchain today** note where relevant.
+Living execution status is [docs/roadmap.md](../roadmap.md) (compiler **C0–C19d**, plus **S2** release/toolchain work). RFCs stay design docs; each has a short **Toolchain today** note where relevant.
 
-| Layer            | Shipped (subset)                                                              | Still deferred                    |
-| ---------------- | ----------------------------------------------------------------------------- | --------------------------------- |
-| Language / types | classes, iface, generics, struct/enum, null ops, Array, packages, lambdas MVP | async, richer captures, macros    |
-| Compiler         | C backend + `aura check/build/run/test`                                       | LLVM, incremental                 |
-| Runtime          | println, exceptions, Array, GC mark/sweep                                     | tasks, channels, concurrent GC    |
-| Packages / CLI   | path deps + lock schema v0, core subcommands                                  | registry fetch, fmt, publish      |
-| Stdlib / test    | `std.io` / `assert` / collections + Int HOF, `@test`                          | generic HashMap, net, async tests |
+| Layer            | Shipped (subset)                                                                                   | Still deferred                   |
+| ---------------- | -------------------------------------------------------------------------------------------------- | -------------------------------- |
+| Language / types | classes, iface, generics, struct/enum, null ops, Array, packages, lambdas MVP, generic collections | async, richer captures, macros   |
+| Compiler         | C backend + `aura check/build/run/test`, diagnostics, C19 generic substitution                     | LLVM, incremental                |
+| Runtime          | embedded runtime, println/I/O, exceptions, Array ownership, GC mark/sweep                          | tasks, channels, concurrent GC   |
+| Packages / CLI   | path + locked registry deps, core subcommands, release tooling                                     | publish, fmt, workspaces         |
+| Stdlib / test    | `std.io` / `assert` / generic collections + HOFs, `@test`                                          | net, JSON, async tests, coverage |
 
 ## Synopsis (one glance per RFC)
 
