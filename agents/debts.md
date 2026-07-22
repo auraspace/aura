@@ -9,6 +9,18 @@ When you resolve debt, update or remove the matching entry.
 
 > **Last closed batch:** [S2](../docs/plans/2026-07-21-s2-production-toolchain.md) (2026-07-21). Residual open items below.
 
+### HTTP H3 remains transport-independent (2026-07-22)
+
+- Area: runtime HTTP response builder
+- Exclusion: H3 does not write sockets, run request/response loops, derive
+  keep-alive from parsed requests, emit server diagnostics, or provide chunked
+  framing, compression, HTTP/2, or TLS.
+- Progress: bounded owned response state, strict header/status validation,
+  deterministic HTTP/1.1 serialization, and stable 400/405/413/500 JSON error
+  bodies are implemented and covered by `runtime/tests/http_response.c`.
+- Next step: H4+ must define lifecycle and diagnostic integration before this
+  builder is used by a server; the builder defaults to `Connection: close`.
+
 ### Async suspension GC roots and ownership (C22s, 2026-07-22)
 
 - Area: async/task runtime and codegen

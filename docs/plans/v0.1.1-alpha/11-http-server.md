@@ -62,14 +62,26 @@ fuzzing, and slow-client behavior remain open.
 ## H3. HTTP response builder
 
 **Objective:** Serialize correct and bounded responses.
+**Implementation status:** `runtime/aura_rt.c` now provides a transport-independent
+`AuraHttpResponse` builder. It owns copied headers and body bytes, validates final
+HTTP/1.1 status codes, token/header syntax, duplicate names, reserved framing
+headers, response body limits, and no-body statuses. Serialization is deterministic:
+caller headers retain insertion order, followed by generated `Content-Length` and
+`Connection` headers. The default connection policy is `close`; callers may opt
+into `keep-alive` explicitly. `aura_http_response_set_error` emits a bounded,
+stable JSON error code for the contract's 400/405/413/500 responses and forces
+connection close. `runtime/tests/http_response.c` covers text/binary/empty/error
+responses, exact serialization goldens, repeated serialization, invalid headers,
+status/body combinations, size limits, and caller-buffer sizing.
 **Checklist:**
 
-- [ ] Support status, headers, content length, body, and connection semantics.
-- [ ] Define automatic versus explicit headers and invalid combinations.
-- [ ] Support empty, text, binary, and error responses.
+- [x] Support status, headers, content length, body, and connection semantics.
+- [x] Define automatic versus explicit headers and invalid combinations.
+- [x] Support empty, text, binary, and error responses.
       **Acceptance:** Serialized responses are deterministic and parseable by standard
       clients.
-      **Verification:** Run serialization goldens and round-trip tests.
+      **Verification:** Run `runtime/tests/http_response.c` with strict C warnings;
+      exact serialization goldens and repeated-serialization checks pass.
       **Dependencies:** H1.
 
 ## H4. Connection lifecycle
