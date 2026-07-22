@@ -1,0 +1,6 @@
+[package]
+name = "demo.stdio.result_wrappers"
+
+[[bin]]
+name = "result_wrappers"
+path = "src"

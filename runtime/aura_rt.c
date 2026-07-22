@@ -77,6 +77,37 @@ void aura_eprintln(const char *s)
 
 static char aura_io_errbuf[1024];
 
+/* Structured std.io wrappers use heap-owned String payloads for errors.  Keep
+ * this helper separate from the throwing path: the throw path borrows the
+ * static buffer above, while Result errors must survive the call boundary. */
+char *aura_io_owned_error(const char *op, const char *path)
+{
+  const char *safe_op = op ? op : "io";
+  const char *safe_path = path ? path : "(null)";
+  const char *err = strerror(errno);
+  if (err == NULL)
+  {
+    err = "unknown error";
+  }
+  int needed = snprintf(NULL, 0, "io %s failed: %s: %s", safe_op, safe_path, err);
+  if (needed < 0)
+  {
+    return NULL;
+  }
+  char *message = (char *)malloc((size_t)needed + 1);
+  if (message == NULL)
+  {
+    return NULL;
+  }
+  snprintf(message, (size_t)needed + 1, "io %s failed: %s: %s", safe_op, safe_path, err);
+  return message;
+}
+
+void aura_io_owned_error_free(char *message)
+{
+  free(message);
+}
+
 static void aura_io_throw(const char *op, const char *path)
 {
   const char *p = path ? path : "(null)";

@@ -1,6 +1,13 @@
 // std.io — console + file I/O (runtime intrinsics).
-// Errors throw String messages (see RFC-007 I/O notes; Result wrappers later).
+
 package std.io
+
+/// Non-throwing result used by the structured file wrappers below.
+/// Error strings are owned Aura Strings; callers may retain or return them.
+enum Result<T, E> {
+  case Ok(value: T)
+  case Err(error: E)
+}
 
 /// Process argument vector as `Array<String>`.
 /// `args()[0]` is the program name (`argv[0]`); user flags start at index 1.
@@ -78,6 +85,28 @@ pub fun writeFile(path: String, content: String) {
 pub fun tryWriteFile(path: String, content: String): Bool {
   // Body replaced by codegen with aura_try_write_file(path, content).
   return false
+}
+
+/// Non-throwing read with an explicit owned error payload.
+/// `Ok` contains the same owned String as `tryReadFile`; `Err` contains a
+/// fresh String describing the failed operation. Existing readFile and
+/// tryReadFile behavior is unchanged.
+pub fun readFileResult(path: String): Result<String, String> {
+  val content = tryReadFile(path)
+  if (content == null) {
+    return Err("readFile failed: " + path)
+  }
+  return Ok(content!!)
+}
+
+/// Non-throwing write with an explicit owned error payload.
+/// `Ok(true)` indicates that the file was fully written and closed; `Err`
+/// contains a fresh String describing the failed operation.
+pub fun writeFileResult(path: String, content: String): Result<Bool, String> {
+  if (tryWriteFile(path, content)) {
+    return Ok(true)
+  }
+  return Err("writeFile failed: " + path)
 }
 
 /// Append `content` to `path`, creating the file if needed.

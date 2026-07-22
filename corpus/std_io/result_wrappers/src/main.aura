@@ -1,0 +1,35 @@
+// C21i — structured, non-throwing std.io Result wrappers.
+package demo.stdio.result_wrappers
+
+import std.io as Io
+
+fun main() {
+  val path = "target/aura/std_io_result_wrappers_test.txt"
+  val missing = "target/aura/std_io_result_wrappers_missing_xyz.txt"
+
+  val write = Io.writeFileResult(path, "hello")
+  match (write) {
+    case Ok(ok) => { assert(ok) }
+    case Err(error) => { assert(false) }
+  }
+
+  val read = Io.readFileResult(path)
+  match (read) {
+    case Ok(value) => { assert_eq(value, "hello") }
+    case Err(error) => { assert(false) }
+  }
+
+  val failed = Io.readFileResult(missing)
+  match (failed) {
+    case Ok(value) => { assert(false) }
+    case Err(error) => { assert(error.contains("readFile failed")) }
+  }
+
+  val writeFailed = Io.writeFileResult("", "x")
+  match (writeFailed) {
+    case Ok(ok) => { assert(false) }
+    case Err(error) => { assert(error.contains("writeFile failed")) }
+  }
+
+  Io.println("result wrappers ok")
+}
