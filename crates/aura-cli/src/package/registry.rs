@@ -1241,9 +1241,13 @@ impl<'a> Parser<'a> {
 mod unit {
     use super::*;
     use crate::package::archive::{archive_sha256, build_source_archive};
+    use crate::package::fetch::{install_from_bytes, read_crate_bytes, sha256_hex};
     use crate::package::publish::PublishPreview;
+    use aura_codegen::build_from_file;
+    use aura_parser::parse_file;
     use std::io::{Read, Write};
     use std::net::TcpListener;
+    use std::process::Command;
     use std::sync::{Arc, Mutex};
     use std::thread;
 
@@ -1709,5 +1713,166 @@ mod unit {
         assert!(error.contains("not a regular file"));
         assert!(active.is_dir());
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn u8_local_registry_release_acceptance_publishes_installs_updates_rolls_back_and_runs() {
+        let root = activation_root("release-acceptance");
+        let package = root.join("package");
+        let registry = root.join("registry");
+        let cache = root.join("cache");
+        let index = registry.clone();
+        fs::create_dir_all(package.join("src")).unwrap();
+        fs::create_dir_all(index.join("crates")).unwrap();
+        fs::create_dir_all(index.join("packages/release.fixture")).unwrap();
+        fs::write(
+            package.join("aura.toml"),
+            "[package]\nname = \"release.fixture\"\nversion = \"1.0.0\"\n",
+        )
+        .unwrap();
+        fs::write(
+            package.join("src/main.aura"),
+            "package release_fixture\nfun main() {\n  println(\"release-v1\")\n}\n",
+        )
+        .unwrap();
+
+        // U5: publish the deterministic source archive to a local HTTP fixture.
+        let preview = crate::package::publish_dry_run(&package).unwrap();
+        let published_path = index.join("crates/release.fixture-1.0.0.crate");
+        let (url, requests, server) = release_upload_fixture(published_path.clone(), &preview);
+        let receipt = publish_upload(&url, Some("u8-fixture-token"), &preview).unwrap();
+        server.join().unwrap();
+        assert_eq!(receipt.version, "1.0.0");
+        let request = String::from_utf8_lossy(&requests.lock().unwrap()[0]).to_string();
+        assert!(request.contains("Authorization: Bearer u8-fixture-token"));
+        assert!(request.contains("X-Aura-Sha256: "));
+
+        // U3/U5: install the exact bytes acknowledged by the registry and verify
+        // the archive checksum before extracting it into the isolated cache.
+        let published = read_crate_bytes(&published_path.display().to_string()).unwrap();
+        let published_meta = VersionMeta {
+            name: "release.fixture".into(),
+            vers: "1.0.0".into(),
+            cksum: preview.checksum.clone(),
+            yanked: false,
+            repository: None,
+            targets: Some(vec!["linux-amd64".into()]),
+            min_aura: None,
+            max_aura: None,
+            revoked: false,
+            revoke_reason: None,
+        };
+        assert_eq!(sha256_hex(&published), preview.checksum);
+        let installed = install_from_bytes(&published_meta, &published, Some(&cache)).unwrap();
+        assert!(installed.join("aura.toml").is_file());
+        assert!(installed.join("src/main.aura").is_file());
+
+        // Build two native fixture artifacts. The active v1 is replaced by U7's
+        // verified v2 payload, then restored from the retained rollback copy.
+        let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .unwrap();
+        let old_source = parse_file(
+            "package release_fixture\nfun main() {\n  println(\"release-v1\")\n}\n",
+        )
+        .unwrap();
+        let new_source = parse_file(
+            "package release_fixture\nfun main() {\n  println(\"release-v2\")\n}\n",
+        )
+        .unwrap();
+        let old_binary = root.join("release-v1");
+        let new_binary = root.join("release-v2");
+        build_from_file(&old_source, &old_binary, &workspace.join("runtime/aura_rt.c")).unwrap();
+        build_from_file(&new_source, &new_binary, &workspace.join("runtime/aura_rt.c")).unwrap();
+        let new_payload = fs::read(&new_binary).unwrap();
+        let new_checksum = sha256_hex(&new_payload);
+        let update_payload = index.join("crates/release.fixture-1.1.0.crate");
+        fs::write(&update_payload, &new_payload).unwrap();
+        fs::write(
+            index.join("packages/release.fixture/versions.json"),
+            format!(
+                "[{{\"name\":\"release.fixture\",\"vers\":\"1.1.0\",\"cksum\":\"{new_checksum}\",\"targets\":[\"linux-amd64\"],\"min_aura\":\"0.1.0\"}}]"
+            ),
+        )
+        .unwrap();
+
+        // U6: discover the compatible target; U7: verify and activate it.
+        let registry_index = RegistryIndex::open(&index).unwrap();
+        let decision = registry_index
+            .discover_update("release.fixture", "1.0.0", "0.1.0", "linux-amd64")
+            .unwrap();
+        let candidate = match decision {
+            UpdateDecision::Update(candidate) => candidate,
+            other => panic!("expected U8 update candidate, got {other:?}"),
+        };
+        let source = registry_index.update_source(&candidate).unwrap();
+        let active = root.join("active-aura");
+        fs::copy(&old_binary, &active).unwrap();
+        assert_eq!(run_fixture_binary(&active), "release-v1");
+        let activation = activate_update(&candidate, &source, &active).unwrap();
+        assert_eq!(run_fixture_binary(&active), "release-v2");
+
+        // U8 rollback acceptance: atomically restore the retained U7 rollback
+        // artifact and prove the previous release still executes.
+        let rollback_stage = root.join("active-aura.rollback-staging");
+        fs::copy(&activation.rollback, &rollback_stage).unwrap();
+        fs::rename(&rollback_stage, &active).unwrap();
+        assert_eq!(run_fixture_binary(&active), "release-v1");
+
+        let report = format!(
+            "{{\"package\":\"release.fixture\",\"published_version\":\"1.0.0\",\"published_checksum\":\"{}\",\"installed\":true,\"update_version\":\"{}\",\"update_checksum\":\"{}\",\"target\":\"linux-amd64\",\"host\":\"{}-{}\",\"outcome\":\"pass\"}}",
+            published_meta.cksum,
+            candidate.meta.vers,
+            candidate.meta.cksum,
+            std::env::consts::OS,
+            std::env::consts::ARCH,
+        );
+        if let Ok(path) = std::env::var("AURA_U8_REPORT") {
+            fs::write(path, &report).unwrap();
+        }
+        println!("u8 release acceptance: {report}");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    fn release_upload_fixture(
+        archive_path: PathBuf,
+        preview: &PublishPreview,
+    ) -> (String, FixtureRequests, thread::JoinHandle<()>) {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let seen = Arc::clone(&requests);
+        let receipt = receipt(preview);
+        let expected_archive = preview.archive.clone();
+        let handle = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let request = read_http_request(&mut stream);
+            let header_end = request
+                .windows(4)
+                .position(|window| window == b"\r\n\r\n")
+                .unwrap()
+                + 4;
+            assert_eq!(&request[header_end..], expected_archive.as_slice());
+            fs::write(archive_path, &request[header_end..]).unwrap();
+            seen.lock().unwrap().push(request);
+            write!(
+                stream,
+                "HTTP/1.1 201 Created\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{receipt}",
+                receipt.len()
+            )
+            .unwrap();
+        });
+        (format!("http://{address}"), requests, handle)
+    }
+
+    fn run_fixture_binary(path: &Path) -> String {
+        let output = Command::new(path).output().unwrap();
+        assert!(output.status.success(), "fixture failed: {output:?}");
+        String::from_utf8(output.stdout)
+            .unwrap()
+            .trim()
+            .to_string()
     }
 }

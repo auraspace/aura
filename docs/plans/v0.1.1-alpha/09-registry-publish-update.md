@@ -150,11 +150,23 @@ activation remain U7.
 
 **Objective:** Prove registry, publishing, updating, and target artifacts work
 together.
+**Implementation status:** Implemented for the native Linux acceptance target.
+The focused registry fixture publishes a deterministic U5 source archive over a
+local HTTP registry, verifies and installs the acknowledged bytes into an
+isolated cache, discovers a compatible Linux update, activates a checksum-
+verified native executable, restores the retained rollback artifact, and runs
+both release versions. The test emits a stable JSON evidence record containing
+package/version/checksum, target, host, and outcome; set `AURA_U8_REPORT` to
+persist that record. macOS native execution still requires a native host run.
 **Checklist:**
 
-- [ ] Publish a fixture release to a local registry.
-- [ ] Install, verify, update, rollback, and execute it on Linux/macOS.
-- [ ] Record checksums, versions, target, host, and outcome.
+- [x] Publish a deterministic fixture release to a local registry.
+- [x] Install and verify it, discover/activate an update, roll back, and
+      execute both artifacts on Linux.
+- [x] Record checksums, versions, target, host, and outcome in the acceptance
+      evidence JSON.
       **Acceptance:** The release workflow is reproducible from a clean installation.
-      **Verification:** Run the full release acceptance stage.
+      **Verification:** Run `cargo test -p aura-cli
+      u8_local_registry_release_acceptance -- --nocapture`; use a native macOS
+      host before making a macOS execution claim.
       **Dependencies:** U5, U7, P8.
