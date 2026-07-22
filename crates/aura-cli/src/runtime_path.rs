@@ -171,7 +171,9 @@ mod tests {
                 .unwrap()
                 .as_nanos()
         ));
+        fs::create_dir_all(&root).unwrap();
         let blocked_parent = root.join("blocked");
+        // File (not dir) so create_dir_all(primary.parent()) fails and we fall back.
         fs::write(&blocked_parent, "not a directory").unwrap();
         let primary = blocked_parent.join("aura_rt.c");
         let fallback = root.join("fallback").join("aura_rt.c");

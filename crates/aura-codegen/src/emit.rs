@@ -1043,9 +1043,9 @@ fn emit_lambda_fns(out: &mut String, checked: &CheckedFile) {
             let m = mangle_ident(&cap.name);
             if cap.by_ref {
                 let rel = match &cap.ty {
-                    Ty::Bool => "aura_box_bool_release(__e->{m});".to_string(),
-                    Ty::String => "aura_box_str_release(__e->{m});".to_string(),
-                    Ty::Int => "aura_box_i64_release(__e->{m});".to_string(),
+                    Ty::Bool => format!("aura_box_bool_release(__e->{m});"),
+                    Ty::String => format!("aura_box_str_release(__e->{m});"),
+                    Ty::Int => format!("aura_box_i64_release(__e->{m});"),
                     _ => format!("aura_box_ptr_release(__e->{m});"),
                 };
                 let _ = writeln!(out, "  {rel}");
