@@ -20,6 +20,9 @@ each change independently buildable.
 C19a safe lookup/accessors
           |
           v
+C19x generic constructor substitution
+          |
+          v
 C19b entry snapshot representation
           |
           v
@@ -54,6 +57,20 @@ collections are not mutated; Int and String corpus tests pass.
 
 Commit: `feat(collections): add hash map entry snapshots`
 
+### C19x — Generic constructor substitution prerequisite
+
+Fix the compiler/codegen path that emits a generic class constructor from a
+generic function or method body. Type parameters such as `K` and `V` must be
+substituted in the concrete monomorph before C symbols are emitted. This is a
+prerequisite discovered while probing C19b; do not add collection-specific
+workarounds.
+
+Acceptance: a minimal generic function can construct and return a generic
+class using its type parameters; existing generic class/interface and HOF
+corpora remain green; no open `K`/`V` C identifiers remain in emitted code.
+
+Commit: `fix(codegen): substitute generic class constructors`
+
 ### C19c — Iterable traversal
 
 Make the useful new snapshot/accessor type participate in the existing
@@ -79,6 +96,8 @@ Commit: `docs(collections): close C19 collection batch`
 ## Checkpoints
 
 - After C19a–C19b: compile and run all collection corpus packages.
+- After C19x: run generic class/HOF and collection corpus packages before
+  retrying C19b.
 - After C19c: run the full workspace test suite and sanitizer smoke if practical.
 - After C19d: review the complete commit series and verify a clean worktree.
 

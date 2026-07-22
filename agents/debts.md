@@ -77,6 +77,17 @@ When you resolve debt, update or remove the matching entry.
 - Note: C14/C15 resolved the generic hash-collection residual
 - Introduced: narrowed after C8i; resize C9b; String→String C12n; String HOF C12o
 
+### Generic class construction inside generic bodies
+
+- Area: compiler/codegen / generic monomorphization
+- Symptom: constructing `Generic<K,V>` from a generic function or method emits
+  an unresolved constructor symbol containing open `K`/`V` instead of the
+  concrete monomorph.
+- Why deferred: C17 only covered closed generic-class HOF call sites; C19b
+  exposed the missing constructor substitution path.
+- Next step: implement and test type-argument substitution for generic class
+  constructors in generic bodies, then remove this entry when C19x lands.
+
 ## Resolved
 
 ### C16 generic HOF compiler support (2026-07-21)
