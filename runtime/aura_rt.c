@@ -1516,7 +1516,10 @@ typedef enum
   AURA_RACE_SYNC_RELEASE = 5,
   AURA_RACE_TASK_COMPLETE = 6,
   AURA_RACE_TASK_FAILED = 7,
-  AURA_RACE_TASK_CANCELLED = 8
+  AURA_RACE_TASK_CANCELLED = 8,
+  AURA_RACE_CHANNEL_SEND = 9,
+  AURA_RACE_CHANNEL_RECEIVE = 10,
+  AURA_RACE_CHANNEL_CLOSE = 11
 } AuraRaceEventKind;
 
 typedef struct
@@ -2267,7 +2270,32 @@ struct AuraTaskChannel
   AuraTaskChannelWaiter *send_tail;
   AuraTaskChannelWaiter *receive_head;
   AuraTaskChannelWaiter *receive_tail;
+  AuraRaceTracker *race_tracker;
 };
+
+void aura_task_channel_set_race_tracker(AuraTaskChannel *channel,
+                                         AuraRaceTracker *tracker)
+{
+  if (channel != NULL)
+  {
+    channel->race_tracker = tracker;
+  }
+}
+
+static void aura_task_channel_record(AuraTaskChannel *channel,
+                                     AuraTaskFrame *frame,
+                                     AuraRaceEventKind kind)
+{
+  if (channel != NULL && channel->race_tracker != NULL)
+  {
+    (void)aura_race_tracker_record(channel->race_tracker,
+                                   frame != NULL ? frame->task_id : 0,
+                                   (uintptr_t)channel,
+                                   0,
+                                   kind,
+                                   NULL);
+  }
+}
 
 static void aura_task_channel_value_destroy(AuraTaskChannelValue *value)
 {
@@ -2405,6 +2433,7 @@ AuraTaskChannelStatus aura_task_channel_send(AuraTaskChannel *channel,
   {
     return AURA_CHANNEL_ERROR;
   }
+  aura_task_channel_record(channel, sender, AURA_RACE_CHANNEL_SEND);
   if (channel->closed)
   {
     aura_task_channel_value_destroy(&value);
@@ -2458,6 +2487,7 @@ AuraTaskChannelStatus aura_task_channel_receive(AuraTaskChannel *channel,
   {
     return AURA_CHANNEL_ERROR;
   }
+  aura_task_channel_record(channel, receiver, AURA_RACE_CHANNEL_RECEIVE);
   if (channel->count != 0)
   {
     *out = channel->values[channel->head];
@@ -2505,7 +2535,7 @@ AuraTaskChannelStatus aura_task_channel_receive(AuraTaskChannel *channel,
   return AURA_CHANNEL_PENDING;
 }
 
-int aura_task_channel_close(AuraTaskChannel *channel)
+int aura_task_channel_close_from(AuraTaskChannel *channel, AuraTaskFrame *closer)
 {
   if (channel == NULL)
   {
@@ -2515,6 +2545,7 @@ int aura_task_channel_close(AuraTaskChannel *channel)
   {
     return 0;
   }
+  aura_task_channel_record(channel, closer, AURA_RACE_CHANNEL_CLOSE);
   channel->closed = 1;
   while (channel->send_head != NULL)
   {
@@ -2538,6 +2569,11 @@ int aura_task_channel_close(AuraTaskChannel *channel)
     aura_task_channel_wake(frame);
   }
   return 1;
+}
+
+int aura_task_channel_close(AuraTaskChannel *channel)
+{
+  return aura_task_channel_close_from(channel, NULL);
 }
 
 void aura_task_channel_destroy(AuraTaskChannel *channel)

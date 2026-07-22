@@ -5,14 +5,16 @@ Owner: Runtime + Compiler. Scope: 5 tasks.
 ## R1. Event and happens-before model
 
 **Objective:** Define the minimum race semantics supported by alpha.
-**Implementation status:** Foundation complete. Events carry task, address,
-source, kind, and monotonic sequence identity; single-threaded executor order
-is the initial happens-before relation. Concurrent refinement and suppression
-policy remain in the instrumentation/reporting slices.
+**Implementation status:** Foundation complete for executor and opt-in channel
+events. Events carry task, address, source, kind, and monotonic sequence
+identity; single-threaded executor order is the initial happens-before
+relation. Concurrent refinement and suppression policy remain in the
+instrumentation/reporting slices.
 **Checklist:**
 
 - [x] Define read/write identity and source location.
-- [ ] Define spawn/join, await, channel, cancellation, lock, and atomic edges.
+- [ ] Define spawn/join, await, cancellation, lock, and atomic edges.
+- [x] Define opt-in channel send, receive, and close edges.
 - [ ] Define deterministic ordering, suppression, and report identity.
       **Acceptance:** The model maps directly to the accepted concurrency contract.
       **Verification:** Review positive, synchronized, and intentionally racy traces.
@@ -21,16 +23,18 @@ policy remain in the instrumentation/reporting slices.
 ## R2. Runtime event tracking
 
 **Objective:** Record accesses and synchronization in opt-in development mode.
-**Implementation status:** Foundation complete for the runtime tracker API and
-executor lifecycle boundaries. The tracker uses deterministic sequence numbers,
-growable storage, reset, stable indexed inspection, and an explicit opt-in
-executor attachment; spawn and terminal task events are recorded while ordinary
-executors remain uninstrumented.
+**Implementation status:** Foundation complete for the runtime tracker API,
+executor lifecycle boundaries, and explicitly attached channels. The tracker
+uses deterministic sequence numbers, growable storage, reset, stable indexed
+inspection, and explicit opt-in executor/channel attachments; spawn, terminal
+task, and channel send/receive/close events are recorded while uninstrumented
+executors and channels remain silent.
 **Checklist:**
 
 - [x] Emit events at the executor spawn boundary.
 - [x] Emit terminal completion, failure, and cancellation events.
 - [x] Preserve task identity, logical time, and source mapping.
+- [x] Emit opt-in channel send, receive, and close events with channel identity.
 - [ ] Keep tracking disabled in ordinary release mode.
       **Acceptance:** Repeated deterministic runs produce the same event sequence.
       **Verification:** Run trace fixtures with channels, cancellation, and GC.

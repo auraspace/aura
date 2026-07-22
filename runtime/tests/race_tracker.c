@@ -54,6 +54,46 @@ int main(void)
 
   aura_race_tracker_reset(tracker);
   assert(aura_race_tracker_count(tracker) == 0);
+
+  AuraTaskChannel *tracked_channel = aura_task_channel_new(1);
+  assert(tracked_channel != NULL);
+  aura_task_channel_set_race_tracker(tracked_channel, tracker);
+  AuraTaskFrame *sender = aura_task_frame_new(0, aura_task_poll_unit, NULL);
+  AuraTaskFrame *receiver = aura_task_frame_new(0, aura_task_poll_unit, NULL);
+  assert(sender != NULL && receiver != NULL);
+  uint64_t sender_id = aura_task_frame_task_id(sender);
+  uint64_t receiver_id = aura_task_frame_task_id(receiver);
+  int payload = 42;
+  AuraTaskChannelValue sent = {&payload, sizeof(payload), NULL};
+  AuraTaskChannelValue received = {NULL, 0, NULL};
+  assert(aura_task_channel_send(tracked_channel, sender, sent) == AURA_CHANNEL_OK);
+  assert(aura_task_channel_receive(tracked_channel, receiver, &received) == AURA_CHANNEL_OK);
+  assert(received.data == &payload);
+  assert(aura_task_channel_close_from(tracked_channel, receiver) == 1);
+  assert(aura_race_tracker_count(tracker) == 3);
+  assert(aura_race_tracker_event(tracker, 0)->kind == AURA_RACE_CHANNEL_SEND);
+  assert(aura_race_tracker_event(tracker, 0)->task_id == sender_id);
+  assert(aura_race_tracker_event(tracker, 1)->kind == AURA_RACE_CHANNEL_RECEIVE);
+  assert(aura_race_tracker_event(tracker, 1)->task_id == receiver_id);
+  assert(aura_race_tracker_event(tracker, 2)->kind == AURA_RACE_CHANNEL_CLOSE);
+  assert(aura_race_tracker_event(tracker, 2)->task_id == receiver_id);
+  assert(aura_race_tracker_event(tracker, 0)->address == (uintptr_t)tracked_channel);
+  assert(aura_race_tracker_event(tracker, 0)->address ==
+         aura_race_tracker_event(tracker, 1)->address);
+  assert(aura_race_tracker_event(tracker, 1)->address ==
+         aura_race_tracker_event(tracker, 2)->address);
+  aura_task_frame_destroy(sender);
+  aura_task_frame_destroy(receiver);
+  aura_task_channel_destroy(tracked_channel);
+
+  AuraTaskChannel *untracked_channel = aura_task_channel_new(1);
+  assert(untracked_channel != NULL);
+  assert(aura_task_channel_send(untracked_channel, NULL, sent) == AURA_CHANNEL_OK);
+  assert(aura_task_channel_receive(untracked_channel, NULL, &received) == AURA_CHANNEL_OK);
+  assert(aura_task_channel_close(untracked_channel) == 1);
+  assert(aura_race_tracker_count(tracker) == 3);
+  aura_task_channel_destroy(untracked_channel);
+
   aura_race_tracker_destroy(tracker);
   return 0;
 }
