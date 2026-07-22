@@ -1474,6 +1474,7 @@ void aura_gc_shutdown(void)
 
 typedef struct AuraTaskFrame AuraTaskFrame;
 typedef struct AuraTaskExecutor AuraTaskExecutor;
+typedef struct AuraTaskChannel AuraTaskChannel;
 
 typedef enum
 {
@@ -1509,6 +1510,8 @@ struct AuraTaskFrame
   AuraTaskExecutor *executor;
   AuraTaskFrame *queue_next;
   AuraTaskFrame *owned_next;
+  AuraTaskChannel *waiting_channel;
+  void *waiting_node;
 };
 
 AuraTaskFrame *aura_task_frame_new(size_t data_size,
@@ -1619,6 +1622,7 @@ struct AuraTaskExecutor
 };
 
 int aura_task_executor_wake(AuraTaskExecutor *executor, AuraTaskFrame *frame);
+static void aura_task_channel_cancel_wait(AuraTaskFrame *frame);
 
 AuraTaskExecutor *aura_task_executor_new(void)
 {
@@ -1681,6 +1685,7 @@ int aura_task_executor_cancel(AuraTaskExecutor *executor, AuraTaskFrame *frame)
     return 0;
   }
   frame->cancel_requested = 1;
+  aura_task_channel_cancel_wait(frame);
   if (!frame->queued)
   {
     aura_task_executor_wake(executor, frame);
@@ -1760,10 +1765,336 @@ void aura_task_executor_shutdown(AuraTaskExecutor *executor)
     AuraTaskFrame *next = frame->owned_next;
     frame->executor = NULL;
     frame->queued = 0;
+    aura_task_channel_cancel_wait(frame);
     aura_task_frame_destroy(frame);
     frame = next;
   }
   free(executor);
+}
+
+/* ---- C22n bounded FIFO channels (single-threaded MVP) ----
+ *
+ * A channel owns every value accepted by aura_task_channel_send.  A queued
+ * value is delivered by moving the value record to the receiver's output;
+ * after that point the receiver owns it and must invoke its destroy callback.
+ * Values rejected by a closed channel, or held by a waiting sender when the
+ * channel closes, are destroyed exactly once by the channel.  A send that
+ * returns AURA_CHANNEL_PENDING transfers ownership to the channel.
+ *
+ * Waiting frames are borrowed references.  The executor owns their lifetime;
+ * cancellation and executor shutdown unlink waiters before destroying the
+ * frame.  Wakeups are FIFO and use the frame's executor, with no OS threads.
+ */
+
+typedef void (*AuraTaskChannelValueDestroyFn)(void *data, size_t size);
+
+typedef struct
+{
+  void *data;
+  size_t size;
+  AuraTaskChannelValueDestroyFn destroy;
+} AuraTaskChannelValue;
+
+typedef enum
+{
+  AURA_CHANNEL_OK = 0,
+  AURA_CHANNEL_PENDING = 1,
+  AURA_CHANNEL_CLOSED = 2,
+  AURA_CHANNEL_ERROR = 3
+} AuraTaskChannelStatus;
+
+typedef struct AuraTaskChannelWaiter AuraTaskChannelWaiter;
+
+struct AuraTaskChannelWaiter
+{
+  AuraTaskFrame *frame;
+  AuraTaskChannelValue value;
+  AuraTaskChannelValue *out;
+  AuraTaskChannelWaiter *next;
+};
+
+struct AuraTaskChannel
+{
+  AuraTaskChannelValue *values;
+  size_t capacity;
+  size_t head;
+  size_t tail;
+  size_t count;
+  int closed;
+  AuraTaskChannelWaiter *send_head;
+  AuraTaskChannelWaiter *send_tail;
+  AuraTaskChannelWaiter *receive_head;
+  AuraTaskChannelWaiter *receive_tail;
+};
+
+static void aura_task_channel_value_destroy(AuraTaskChannelValue *value)
+{
+  if (value != NULL && value->destroy != NULL && value->data != NULL)
+  {
+    value->destroy(value->data, value->size);
+  }
+  if (value != NULL)
+  {
+    value->data = NULL;
+    value->size = 0;
+    value->destroy = NULL;
+  }
+}
+
+static void aura_task_channel_wake(AuraTaskFrame *frame)
+{
+  if (frame != NULL && frame->executor != NULL)
+  {
+    (void)aura_task_executor_wake(frame->executor, frame);
+  }
+}
+
+static void aura_task_channel_unlink(AuraTaskChannel *channel,
+                                     AuraTaskChannelWaiter *target,
+                                     int receiver)
+{
+  AuraTaskChannelWaiter **link = receiver ? &channel->receive_head : &channel->send_head;
+  AuraTaskChannelWaiter *tail = receiver ? channel->receive_tail : channel->send_tail;
+  while (*link != NULL && *link != target)
+  {
+    link = &(*link)->next;
+  }
+  if (*link == NULL)
+  {
+    return;
+  }
+  *link = target->next;
+  if (tail == target)
+  {
+    if (receiver)
+    {
+      channel->receive_tail = NULL;
+      for (AuraTaskChannelWaiter *w = channel->receive_head; w != NULL; w = w->next)
+        channel->receive_tail = w;
+    }
+    else
+    {
+      channel->send_tail = NULL;
+      for (AuraTaskChannelWaiter *w = channel->send_head; w != NULL; w = w->next)
+        channel->send_tail = w;
+    }
+  }
+  target->next = NULL;
+}
+
+static void aura_task_channel_cancel_wait(AuraTaskFrame *frame)
+{
+  if (frame == NULL || frame->waiting_channel == NULL || frame->waiting_node == NULL)
+  {
+    return;
+  }
+  AuraTaskChannel *channel = frame->waiting_channel;
+  AuraTaskChannelWaiter *waiter = (AuraTaskChannelWaiter *)frame->waiting_node;
+  int receiver = waiter->out != NULL;
+  aura_task_channel_unlink(channel, waiter, receiver);
+  if (!receiver)
+  {
+    aura_task_channel_value_destroy(&waiter->value);
+  }
+  free(waiter);
+  frame->waiting_channel = NULL;
+  frame->waiting_node = NULL;
+}
+
+AuraTaskChannel *aura_task_channel_new(size_t capacity)
+{
+  if (capacity == 0)
+  {
+    return NULL;
+  }
+  AuraTaskChannel *channel = (AuraTaskChannel *)calloc(1, sizeof(*channel));
+  if (channel == NULL)
+  {
+    return NULL;
+  }
+  channel->values = (AuraTaskChannelValue *)calloc(capacity, sizeof(*channel->values));
+  if (channel->values == NULL)
+  {
+    free(channel);
+    return NULL;
+  }
+  channel->capacity = capacity;
+  return channel;
+}
+
+size_t aura_task_channel_capacity(const AuraTaskChannel *channel)
+{
+  return channel != NULL ? channel->capacity : 0;
+}
+
+size_t aura_task_channel_count(const AuraTaskChannel *channel)
+{
+  return channel != NULL ? channel->count : 0;
+}
+
+int aura_task_channel_is_closed(const AuraTaskChannel *channel)
+{
+  return channel != NULL && channel->closed;
+}
+
+AuraTaskChannelStatus aura_task_channel_send(AuraTaskChannel *channel,
+                                              AuraTaskFrame *sender,
+                                              AuraTaskChannelValue value)
+{
+  if (channel == NULL)
+  {
+    return AURA_CHANNEL_ERROR;
+  }
+  if (channel->closed)
+  {
+    aura_task_channel_value_destroy(&value);
+    return AURA_CHANNEL_CLOSED;
+  }
+  if (channel->receive_head != NULL)
+  {
+    AuraTaskChannelWaiter *receiver = channel->receive_head;
+    aura_task_channel_unlink(channel, receiver, 1);
+    *receiver->out = value;
+    AuraTaskFrame *receiver_frame = receiver->frame;
+    receiver_frame->waiting_channel = NULL;
+    receiver_frame->waiting_node = NULL;
+    free(receiver);
+    aura_task_channel_wake(receiver_frame);
+    return AURA_CHANNEL_OK;
+  }
+  if (channel->count < channel->capacity)
+  {
+    channel->values[channel->tail] = value;
+    channel->tail = (channel->tail + 1) % channel->capacity;
+    channel->count++;
+    return AURA_CHANNEL_OK;
+  }
+  if (sender == NULL)
+  {
+    return AURA_CHANNEL_PENDING;
+  }
+  AuraTaskChannelWaiter *waiter = (AuraTaskChannelWaiter *)calloc(1, sizeof(*waiter));
+  if (waiter == NULL)
+  {
+    return AURA_CHANNEL_ERROR;
+  }
+  waiter->frame = sender;
+  waiter->value = value;
+  if (channel->send_tail == NULL)
+    channel->send_head = waiter;
+  else
+    channel->send_tail->next = waiter;
+  channel->send_tail = waiter;
+  sender->waiting_channel = channel;
+  sender->waiting_node = waiter;
+  return AURA_CHANNEL_PENDING;
+}
+
+AuraTaskChannelStatus aura_task_channel_receive(AuraTaskChannel *channel,
+                                                 AuraTaskFrame *receiver,
+                                                 AuraTaskChannelValue *out)
+{
+  if (channel == NULL || out == NULL)
+  {
+    return AURA_CHANNEL_ERROR;
+  }
+  if (channel->count != 0)
+  {
+    *out = channel->values[channel->head];
+    channel->values[channel->head] = (AuraTaskChannelValue){NULL, 0, NULL};
+    channel->head = (channel->head + 1) % channel->capacity;
+    channel->count--;
+    if (channel->send_head != NULL)
+    {
+      AuraTaskChannelWaiter *sender = channel->send_head;
+      aura_task_channel_unlink(channel, sender, 0);
+      channel->values[channel->tail] = sender->value;
+      channel->tail = (channel->tail + 1) % channel->capacity;
+      channel->count++;
+      AuraTaskFrame *sender_frame = sender->frame;
+      sender_frame->waiting_channel = NULL;
+      sender_frame->waiting_node = NULL;
+      free(sender);
+      aura_task_channel_wake(sender_frame);
+    }
+    return AURA_CHANNEL_OK;
+  }
+  if (channel->closed)
+  {
+    *out = (AuraTaskChannelValue){NULL, 0, NULL};
+    return AURA_CHANNEL_CLOSED;
+  }
+  if (receiver == NULL)
+  {
+    return AURA_CHANNEL_PENDING;
+  }
+  AuraTaskChannelWaiter *waiter = (AuraTaskChannelWaiter *)calloc(1, sizeof(*waiter));
+  if (waiter == NULL)
+  {
+    return AURA_CHANNEL_ERROR;
+  }
+  waiter->frame = receiver;
+  waiter->out = out;
+  if (channel->receive_tail == NULL)
+    channel->receive_head = waiter;
+  else
+    channel->receive_tail->next = waiter;
+  channel->receive_tail = waiter;
+  receiver->waiting_channel = channel;
+  receiver->waiting_node = waiter;
+  return AURA_CHANNEL_PENDING;
+}
+
+int aura_task_channel_close(AuraTaskChannel *channel)
+{
+  if (channel == NULL)
+  {
+    return 0;
+  }
+  if (channel->closed)
+  {
+    return 0;
+  }
+  channel->closed = 1;
+  while (channel->send_head != NULL)
+  {
+    AuraTaskChannelWaiter *waiter = channel->send_head;
+    aura_task_channel_unlink(channel, waiter, 0);
+    aura_task_channel_value_destroy(&waiter->value);
+    waiter->frame->waiting_channel = NULL;
+    waiter->frame->waiting_node = NULL;
+    AuraTaskFrame *frame = waiter->frame;
+    free(waiter);
+    aura_task_channel_wake(frame);
+  }
+  while (channel->receive_head != NULL)
+  {
+    AuraTaskChannelWaiter *waiter = channel->receive_head;
+    aura_task_channel_unlink(channel, waiter, 1);
+    waiter->frame->waiting_channel = NULL;
+    waiter->frame->waiting_node = NULL;
+    AuraTaskFrame *frame = waiter->frame;
+    free(waiter);
+    aura_task_channel_wake(frame);
+  }
+  return 1;
+}
+
+void aura_task_channel_destroy(AuraTaskChannel *channel)
+{
+  if (channel == NULL)
+  {
+    return;
+  }
+  (void)aura_task_channel_close(channel);
+  while (channel->count != 0)
+  {
+    aura_task_channel_value_destroy(&channel->values[channel->head]);
+    channel->head = (channel->head + 1) % channel->capacity;
+    channel->count--;
+  }
+  free(channel->values);
+  free(channel);
 }
 
 /* ---- Process argv (std.io.args) ----
