@@ -10,12 +10,24 @@ contract matrix explicitly adds them.
 ## H1. HTTP server contract
 
 **Objective:** Freeze behavior before parser and runtime work begins.
+**Contract (frozen subset):** HTTP/1.1 only, with origin-form request targets
+(`/path` plus optional query), `GET`, `HEAD`, and `POST` methods, case-insensitive
+header names, and no transfer compression, chunked framing, HTTP/2, or TLS in
+the alpha core. A request has at most 8 KiB request-line bytes, 64 headers,
+16 KiB aggregate header bytes, 8 MiB body bytes, and 16 MiB total bytes. The
+server closes the connection after malformed or rejected input; keep-alive is
+allowed only for successfully parsed requests. Read/write operations use a
+30-second idle timeout and shutdown stops accepting new connections before
+draining active ones. Parse failures map to 400, unsupported methods to 405,
+oversized input to 413, and handler failures to 500; each response carries a
+stable machine-readable error code and a server-side diagnostic event without
+including request bodies or credentials.
 **Checklist:**
 
-- [ ] Define HTTP version, methods, request-target forms, headers, body limits,
+- [x] Define HTTP version, methods, request-target forms, headers, body limits,
       status codes, keep-alive, shutdown, timeout, and TLS scope.
-- [ ] Define malformed-input, unsupported-method, and oversized-input behavior.
-- [ ] Define handler error mapping and observability requirements.
+- [x] Define malformed-input, unsupported-method, and oversized-input behavior.
+- [x] Define handler error mapping and observability requirements.
       **Acceptance:** Client, parser, runtime, and library work against one contract.
       **Verification:** Review contract fixtures for normal, malformed, and hostile
       requests.
