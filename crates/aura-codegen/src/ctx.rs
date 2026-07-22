@@ -148,9 +148,27 @@ impl<'a> EmitCtx<'a> {
     }
 
     pub(crate) fn mark_string_owner(&mut self, name: &str) {
+        for index in (0..self.locals.len()).rev() {
+            if self.locals[index].contains_key(name) {
+                self.string_owners[index].insert(name.to_string());
+                return;
+            }
+        }
         if let Some(scope) = self.string_owners.last_mut() {
             scope.insert(name.to_string());
         }
+    }
+
+    pub(crate) fn unmark_string_owner(&mut self, name: &str) {
+        for scope in self.string_owners.iter_mut().rev() {
+            if scope.remove(name) {
+                break;
+            }
+        }
+    }
+
+    pub(crate) fn is_string_owner(&self, name: &str) -> bool {
+        self.string_owners.iter().rev().any(|scope| scope.contains(name))
     }
 
     pub(crate) fn string_owners_all(&self) -> Vec<String> {

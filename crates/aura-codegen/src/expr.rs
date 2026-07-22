@@ -718,6 +718,27 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
                     mangle_ident(dst_name)
                 );
             }
+            // Move ownership for heap-backed String locals.  Array and Fun have
+            // analogous move paths below; without this branch `dst = src`
+            // leaves both locals pointing at the same allocation while the
+            // source is released at scope exit.
+            if dst_ty.as_deref() == Some("String") {
+                if let Expr::Ident(src) = a.value.as_ref() {
+                    if ctx.is_string_owner(&src.name) && src.name != *dst_name {
+                        let source = mangle_ident(&src.name);
+                        let free_dst = if ctx.is_string_owner(dst_name) {
+                            format!("if ({lhs} != NULL) {{ free((void *){lhs}); {lhs} = NULL; }} ")
+                        } else {
+                            String::new()
+                        };
+                        ctx.unmark_string_owner(&src.name);
+                        ctx.mark_string_owner(dst_name);
+                        return format!(
+                            "({{ {free_dst}{lhs} = {rhs}; {source} = NULL; }})"
+                        );
+                    }
+                }
+            }
             let dst_is_array = dst_ty
                 .as_deref()
                 .map(|t| t == "Array" || t.starts_with("Array_"))
