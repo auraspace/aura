@@ -141,6 +141,8 @@ pub(crate) fn emit_block(out: &mut String, block: &Block, indent: usize, ctx: &m
     emit_free_array_owners(out, indent, ctx, &ctx.array_owners_current());
     // Free Fun capture envs owned by this block.
     emit_free_fun_owners(out, indent, ctx, &ctx.fun_owners_current());
+    emit_free_string_owners(out, indent, &ctx.string_owners_current());
+    emit_destroy_channel_owners(out, indent, &ctx.channel_owners_current());
     // C12m: release by-ref boxes owned by this block (after Fun envs drop their retains).
     emit_release_box_locals(out, indent, ctx, &ctx.box_owners_current());
     ctx.pop_scope();
@@ -185,6 +187,23 @@ pub(crate) fn emit_free_fun_owners(
 ) {
     for name in owners {
         emit_free_fun_local(out, indent, name);
+    }
+}
+
+/// Free heap-allocated String values returned by runtime/codegen calls.
+pub(crate) fn emit_free_string_owners(out: &mut String, indent: usize, owners: &[String]) {
+    for name in owners {
+        let p = pad(indent);
+        let n = mangle_ident(name);
+        let _ = writeln!(out, "{p}free((void *){n}); {n} = NULL;");
+    }
+}
+
+pub(crate) fn emit_destroy_channel_owners(out: &mut String, indent: usize, owners: &[String]) {
+    for name in owners {
+        let p = pad(indent);
+        let n = mangle_ident(name);
+        let _ = writeln!(out, "{p}aura_task_channel_destroy({n}); {n} = NULL;");
     }
 }
 
@@ -295,6 +314,14 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                     || is_heap_class_mono(&ty_name, ctx.checked));
             if needs_box || needs_ptr_box {
                 ctx.mark_box_owner(&v.name.name);
+            }
+            if ty_name == "String" && matches!(&v.init, Expr::Call(_) | Expr::Binary(_)) {
+                ctx.mark_string_owner(&v.name.name);
+            }
+            if ty_name.starts_with("Channel_")
+                && matches!(&v.init, Expr::Async(AsyncExpr::ChannelCreate(_)))
+            {
+                ctx.mark_channel_owner(&v.name.name);
             }
             // C3t: locals from `Array(...)` own the heap buffer.
             // C6d: call/return results that are Array also transfer ownership to the binding.
@@ -734,6 +761,8 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                     emit_remove_gc_roots(out, indent, &ctx.gc_roots_all());
                     emit_free_array_owners(out, indent, ctx, &ctx.array_owners_all());
                     emit_free_fun_owners(out, indent, ctx, &ctx.fun_owners_all());
+                    emit_free_string_owners(out, indent, &ctx.string_owners_all());
+                    emit_destroy_channel_owners(out, indent, &ctx.channel_owners_all());
                     emit_release_box_locals(out, indent, ctx, &ctx.box_owners_all());
                     let _ = writeln!(out, "{p}return;");
                 }
@@ -748,6 +777,10 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                         Expr::Ident(id) if is_fun_type_key(&ret_key) => Some(id.name.as_str()),
                         _ => None,
                     };
+                    let skip_string = match e {
+                        Expr::Ident(id) if ret_key == "String" => Some(id.name.as_str()),
+                        _ => None,
+                    };
                     let owners: Vec<String> = ctx
                         .array_owners_all()
                         .into_iter()
@@ -758,12 +791,19 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                         .into_iter()
                         .filter(|n| skip_fun != Some(n.as_str()))
                         .collect();
+                    let string_owners: Vec<String> = ctx
+                        .string_owners_all()
+                        .into_iter()
+                        .filter(|n| skip_string != Some(n.as_str()))
+                        .collect();
                     if ret_key == "Unit" {
                         let _ = writeln!(out, "{p}{};", emit_expr(e, ctx));
                         emit_remove_array_gc_roots(out, indent, &ctx.array_gc_roots_all());
                         emit_remove_gc_roots(out, indent, &ctx.gc_roots_all());
                         emit_free_array_owners(out, indent, ctx, &owners);
                         emit_free_fun_owners(out, indent, ctx, &fun_owners);
+                        emit_free_string_owners(out, indent, &string_owners);
+                        emit_destroy_channel_owners(out, indent, &ctx.channel_owners_all());
                         emit_release_box_locals(out, indent, ctx, &ctx.box_owners_all());
                         let _ = writeln!(out, "{p}return;");
                     } else {
@@ -794,6 +834,8 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                         emit_remove_gc_roots(out, indent, &ctx.gc_roots_all());
                         emit_free_array_owners(out, indent, ctx, &owners);
                         emit_free_fun_owners(out, indent, ctx, &fun_owners);
+                        emit_free_string_owners(out, indent, &string_owners);
+                        emit_destroy_channel_owners(out, indent, &ctx.channel_owners_all());
                         emit_release_box_locals(out, indent, ctx, &ctx.box_owners_all());
                         let _ = writeln!(out, "{p}return {tmp};");
                     }

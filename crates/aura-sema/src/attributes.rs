@@ -268,15 +268,18 @@ fn validate_arguments(attribute: &Attribute, spec: &AttributeSpec, errors: &mut 
                 );
             }
         }
-        "bench" | "inline" | "noinline" | "cold" | "throws" | "unsafe" | "reflect" | "notNull" => {
-            if !attribute.args.is_empty() {
-                invalid(
-                    format!("`@{}` does not accept arguments", spec.name),
-                    attribute.span,
-                    errors,
-                );
-            }
-        }
+        "bench"
+        | "inline"
+        | "noinline"
+        | "cold"
+        | "throws"
+        | "unsafe"
+        | "reflect"
+        | "notNull" if !attribute.args.is_empty() => invalid(
+            format!("`@{}` does not accept arguments", spec.name),
+            attribute.span,
+            errors,
+        ),
         _ => {}
     }
 }

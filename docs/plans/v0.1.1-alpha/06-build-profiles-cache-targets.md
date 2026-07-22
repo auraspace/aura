@@ -103,11 +103,15 @@ system-library probing, and explicit cross-compilation targets remain open.
 ## P7. Single executable linking
 
 **Objective:** Produce a self-contained executable for each supported target.
+**Implementation status:** Complete for the supported native C target. The
+driver links generated C together with `runtime/aura_rt.c`, applies normalized
+profile optimization/debug/LTO/detector settings and an optional linker, and
+the release profile is covered by a native run smoke test.
 **Checklist:**
 
-- [ ] Embed required runtime and standard components.
-- [ ] Apply profile and target linker settings.
-- [ ] Preserve symbols/debug data according to profile.
+- [x] Embed required runtime and standard components.
+- [x] Apply profile and target linker settings.
+- [x] Preserve symbols/debug data according to profile.
       **Acceptance:** Installed output runs without a separate runtime installation.
       **Verification:** Build, archive, install, and execute smoke fixtures.
       **Dependencies:** P2, P6, A1.

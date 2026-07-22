@@ -68,8 +68,10 @@ mod tests {
         JoinExpr, Path, ReturnStmt, Span, SpawnExpr, Stmt, TypeRef,
     };
 
-    use super::build_from_file;
-    use crate::{Backend, CompileOptions, OutputKind, Profile, RuntimeAbi, Target};
+    use super::{build_from_file, build_from_file_with};
+    use crate::{
+        Backend, CompileOptions, DiagnosticMode, OutputKind, Profile, RuntimeAbi, Target,
+    };
 
     fn empty_program() -> File {
         let span = Span::new(0, 1);
@@ -117,6 +119,41 @@ mod tests {
         assert_eq!(options.profile, Profile::Debug);
         assert_eq!(options.runtime_abi, Some(RuntimeAbi::AuraRtC));
         assert_eq!(options.output, OutputKind::Executable);
+    }
+
+    #[test]
+    fn release_build_embeds_runtime_and_runs_as_single_executable() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-release-link-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        let options = CompileOptions::builder()
+            .backend(Backend::C)
+            .target(Target::Native)
+            .profile(Profile::Release)
+            .runtime_abi(RuntimeAbi::AuraRtC)
+            .output(OutputKind::Executable)
+            .diagnostics(DiagnosticMode::Human)
+            .build()
+            .expect("complete release options");
+
+        build_from_file_with(
+            &empty_program(),
+            &bin,
+            &root.join("runtime/aura_rt.c"),
+            options,
+            crate::ctx::EmitOptions::default(),
+        )
+        .expect("link release executable with embedded runtime");
+        let output = Command::new(&bin).output().expect("run release executable");
+        assert!(output.status.success(), "release executable failed: {output:?}");
+
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
     }
 
     #[test]

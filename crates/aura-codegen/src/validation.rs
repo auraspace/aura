@@ -3,13 +3,12 @@
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 
-use crate::options::{Backend, CompileOptions, OutputKind, Profile, RuntimeAbi, Target};
+use crate::options::{Backend, CompileOptions, OutputKind, RuntimeAbi, Target};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ValidationError {
     UnsupportedBackend,
     UnsupportedTarget,
-    UnsupportedProfile,
     MissingRuntimeAbi,
     UnsupportedRuntimeAbi,
     EmptyCompiler,
@@ -26,7 +25,6 @@ impl std::fmt::Display for ValidationError {
         match self {
             Self::UnsupportedBackend => write!(f, "only the C backend is supported"),
             Self::UnsupportedTarget => write!(f, "only the native target is supported"),
-            Self::UnsupportedProfile => write!(f, "only the Debug profile is supported"),
             Self::MissingRuntimeAbi => {
                 write!(f, "AuraRtC runtime ABI is required for executable output")
             }
@@ -75,10 +73,6 @@ pub(crate) fn validate_build(
         return Err(ValidationError::UnsupportedTarget);
     }
     validate_native_host()?;
-    if options.profile != Profile::Debug {
-        return Err(ValidationError::UnsupportedProfile);
-    }
-
     if options.output == OutputKind::Executable {
         if options.runtime_abi.is_none() {
             return Err(ValidationError::MissingRuntimeAbi);
@@ -134,7 +128,7 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     use super::{validate_build, ValidationError};
-    use crate::options::{CompileOptions, OptionsError};
+    use crate::options::{CompileOptions, OptionsError, Profile, ProfileSettings};
 
     static NEXT_PATH: AtomicU64 = AtomicU64::new(0);
 
@@ -152,6 +146,19 @@ mod tests {
     fn successful_defaults_are_valid_without_invoking_cc() {
         let runtime = readable_runtime();
         assert!(validate_build(&CompileOptions::default(), "cc", &runtime).is_ok());
+        fs::remove_file(runtime).expect("remove test runtime");
+    }
+
+    #[test]
+    fn normalized_release_profile_is_valid_without_invoking_cc() {
+        let runtime = readable_runtime();
+        let options = CompileOptions {
+            profile: Profile::Release,
+            profile_settings: ProfileSettings::for_profile(Profile::Release),
+            ..CompileOptions::default()
+        };
+
+        assert!(validate_build(&options, "cc", &runtime).is_ok());
         fs::remove_file(runtime).expect("remove test runtime");
     }
 
@@ -180,8 +187,10 @@ mod tests {
 
     #[test]
     fn invalid_runtime_is_rejected_before_any_backend_work() {
-        let mut options = CompileOptions::default();
-        options.runtime_abi = None;
+        let options = CompileOptions {
+            runtime_abi: None,
+            ..CompileOptions::default()
+        };
         let runtime = readable_runtime();
 
         assert_eq!(

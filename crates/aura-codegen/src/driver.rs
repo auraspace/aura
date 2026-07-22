@@ -312,8 +312,10 @@ mod tests {
         let driver = Driver::new(FailingBackend {
             compile_calls: Rc::clone(&compile_calls),
         });
-        let mut options = CompileOptions::default();
-        options.runtime_abi = None;
+        let options = CompileOptions {
+            runtime_abi: None,
+            ..CompileOptions::default()
+        };
 
         let error = driver
             .build(

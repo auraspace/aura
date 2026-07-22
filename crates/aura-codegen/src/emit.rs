@@ -497,6 +497,7 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod abi_tests {
     use super::emit_c_with;
     use crate::ctx::EmitOptions;
@@ -706,6 +707,7 @@ fn emit_async_fun_no_await(out: &mut String, f: &AsyncFunDecl, checked: &Checked
         let n = mangle_ident(&p.name.name);
         let _ = writeln!(out, "  data->{n} = {n};");
     }
+    out.push_str("  if (__aura_task_executor != NULL && !aura_task_executor_submit(__aura_task_executor, frame)) { aura_task_frame_destroy(frame); return NULL; }\n");
     out.push_str("  return frame;\n}\n");
 }
 
@@ -722,6 +724,8 @@ fn emit_async_body(out: &mut String, f: &AsyncFunDecl, checked: &CheckedFile, pa
         locals: vec![HashMap::new()],
         array_owners: vec![std::collections::HashSet::new()],
         fun_owners: vec![std::collections::HashSet::new()],
+        string_owners: vec![std::collections::HashSet::new()],
+        channel_owners: vec![std::collections::HashSet::new()],
         box_locals: vec![std::collections::HashSet::new()],
         box_owners: vec![std::collections::HashSet::new()],
         gc_roots: vec![std::collections::HashSet::new()],
@@ -1226,6 +1230,8 @@ fn emit_lambda_fns(out: &mut String, checked: &CheckedFile) {
             locals: vec![HashMap::new()],
             array_owners: vec![std::collections::HashSet::new()],
             fun_owners: vec![std::collections::HashSet::new()],
+            string_owners: vec![std::collections::HashSet::new()],
+            channel_owners: vec![std::collections::HashSet::new()],
             box_locals: vec![std::collections::HashSet::new()],
             box_owners: vec![std::collections::HashSet::new()],
             gc_roots: vec![std::collections::HashSet::new()],
@@ -1411,6 +1417,8 @@ pub(crate) fn emit_fun(out: &mut String, f: &FunDecl, checked: &CheckedFile, arg
         locals: vec![HashMap::new()],
         array_owners: vec![std::collections::HashSet::new()],
         fun_owners: vec![std::collections::HashSet::new()],
+        string_owners: vec![std::collections::HashSet::new()],
+        channel_owners: vec![std::collections::HashSet::new()],
         box_locals: vec![std::collections::HashSet::new()],
         box_owners: vec![std::collections::HashSet::new()],
         gc_roots: vec![std::collections::HashSet::new()],
