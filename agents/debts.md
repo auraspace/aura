@@ -86,6 +86,17 @@ When you resolve debt, update or remove the matching entry.
   constructors. Corpus `generic/constructor_subst.aura` covers both a generic
   function and a generic-class method returning concrete `Pair` monomorphs.
 
+### Nested generic return/local type substitution (C19y, 2026-07-22)
+
+- Area: compiler/codegen / generic monomorphization
+- Symptom: `Array<Generic<K,V>>` or a generic entry type in a generic function
+  can still emit an open `Generic_K_V` type in a return signature or local C
+  declaration.
+- Why deferred: C19x fixed constructor symbols only; nested type emission is a
+  separate substitution path exposed by the C19b entry-snapshot prototype.
+- Next step: substitute nested generic types consistently before C signatures
+  and type keys are emitted, then remove this entry when C19y lands.
+
 ### C16 generic HOF compiler support (2026-07-21)
 
 - Resolved: sema accepts generic function parameters such as `(T) -> R`; codegen skips open generic `Fun<T, R>` typedefs and emits only concrete monomorphs, allowing generic `map`/`filter`/`fold` implementations to compile.

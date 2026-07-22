@@ -23,6 +23,9 @@ C19a safe lookup/accessors
 C19x generic constructor substitution
           |
           v
+C19y nested generic type substitution
+          |
+          v
 C19b entry snapshot representation
           |
           v
@@ -56,6 +59,19 @@ Acceptance: entries preserve key/value pairing and logical table order; source
 collections are not mutated; Int and String corpus tests pass.
 
 Commit: `feat(collections): add hash map entry snapshots`
+
+### C19y — Nested generic type substitution prerequisite
+
+Extend monomorphization/codegen so generic local, field, array-element, and
+return types are substituted before C signatures and type keys are emitted.
+This is the second prerequisite exposed by C19b; keep it general and do not
+special-case `HashMapEntry`.
+
+Acceptance: a generic function can return/use `Array<Generic<K,V>>` without
+open `K`/`V` C symbols; existing generic class, interface, HOF, and collection
+corpora remain green.
+
+Commit: `fix(codegen): substitute nested generic types`
 
 ### C19x — Generic constructor substitution prerequisite
 
