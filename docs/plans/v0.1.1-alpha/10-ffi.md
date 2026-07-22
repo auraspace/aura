@@ -147,7 +147,9 @@ and exception-object translation remain outside F5.
         executable reported or left behind.
   - [x] Ownership, callback, and sanitizer fixtures.
 - [ ] Run native acceptance on Linux and macOS.
-- [ ] Verify no unowned foreign value crosses task or await boundaries.
+- [x] Verify no unowned opaque foreign handle crosses task, await, channel,
+      or callback boundaries; general foreign values remain bounded to the
+      synchronous FFI contract.
       **Acceptance:** FFI failures are safe, diagnosed, and reproducible.
       **Verification:** Execute the FFI stage from clean checkouts and release builds.
       **Dependencies:** F1–F5, A8, P8.
