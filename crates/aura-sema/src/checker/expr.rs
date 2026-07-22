@@ -664,10 +664,130 @@ impl Checker {
                 self.lambda_tys.insert(l.span.start, result.clone());
                 Ok(result)
             }
-            Expr::Async(async_expr) => Err(SemaError {
-                message: "async expressions are not type-checked yet".into(),
-                span: async_expr.span(),
-            }),
+            Expr::Async(async_expr) => self.check_async_expr(async_expr),
+        }
+    }
+
+    fn check_async_expr(&mut self, expr: &aura_ast::AsyncExpr) -> Result<Ty, SemaError> {
+        use aura_ast::AsyncExpr;
+
+        match expr {
+            AsyncExpr::Await(a) => {
+                if !self.in_async_context() {
+                    return Err(SemaError {
+                        message: "`await` is only valid inside an async function or task".into(),
+                        span: a.span,
+                    });
+                }
+                let operand = self.check_expr(&a.operand)?;
+                match operand {
+                    Ty::Task(result) => Ok(*result),
+                    other => Err(SemaError {
+                        message: format!("`await` requires Task<T>, got {}", other.display()),
+                        span: a.span,
+                    }),
+                }
+            }
+            AsyncExpr::Spawn(s) => {
+                self.async_depth += 1;
+                let result = self.check_block(&s.body, &Ty::Unit);
+                self.async_depth -= 1;
+                result.map(|_| Ty::TaskHandle(Box::new(Ty::Unit)))
+            }
+            AsyncExpr::Join(j) => {
+                let handle = self.check_expr(&j.handle)?;
+                match handle {
+                    Ty::TaskHandle(result) => Ok(*result),
+                    other => Err(SemaError {
+                        message: format!("`join` requires TaskHandle<T>, got {}", other.display()),
+                        span: j.span,
+                    }),
+                }
+            }
+            AsyncExpr::Cancel(c) => {
+                let handle = self.check_expr(&c.handle)?;
+                if !matches!(handle, Ty::TaskHandle(_)) {
+                    return Err(SemaError {
+                        message: format!(
+                            "`cancel` requires TaskHandle<T>, got {}",
+                            handle.display()
+                        ),
+                        span: c.span,
+                    });
+                }
+                Ok(Ty::Unit)
+            }
+            AsyncExpr::ChannelCreate(c) => {
+                let capacity = self.check_expr(&c.capacity)?;
+                if capacity != Ty::Int {
+                    return Err(SemaError {
+                        message: format!(
+                            "channel capacity must be Int, got {}",
+                            capacity.display()
+                        ),
+                        span: c.capacity.span(),
+                    });
+                }
+                if c.element_type.reference {
+                    return Err(SemaError {
+                        message: "borrow reference cannot be stored in Channel<T>".into(),
+                        span: c.element_type.span,
+                    });
+                }
+                let element = self.type_from_ref(&c.element_type)?;
+                self.note_mono_ty(&element);
+                Ok(Ty::Channel(Box::new(element)))
+            }
+            AsyncExpr::ChannelSend(s) => {
+                let channel = self.check_expr(&s.channel)?;
+                let value = self.check_expr(&s.value)?;
+                let Ty::Channel(element) = channel else {
+                    return Err(SemaError {
+                        message: format!(
+                            "channel send requires Channel<T>, got {}",
+                            channel.display()
+                        ),
+                        span: s.span,
+                    });
+                };
+                if !self.is_assignable(&value, &element) {
+                    return Err(SemaError {
+                        message: format!(
+                            "channel send value mismatch: expected {}, got {}",
+                            element.display(),
+                            value.display()
+                        ),
+                        span: s.value.span(),
+                    });
+                }
+                Ok(Ty::Unit)
+            }
+            AsyncExpr::ChannelReceive(r) => {
+                let channel = self.check_expr(&r.channel)?;
+                match channel {
+                    Ty::Channel(element) => Ok(Ty::Nullable(element)),
+                    other => Err(SemaError {
+                        message: format!(
+                            "channel receive requires Channel<T>, got {}",
+                            other.display()
+                        ),
+                        span: r.span,
+                    }),
+                }
+            }
+            AsyncExpr::ChannelClose(c) => {
+                let channel = self.check_expr(&c.channel)?;
+                if !matches!(channel, Ty::Channel(_)) {
+                    return Err(SemaError {
+                        message: format!(
+                            "channel close requires Channel<T>, got {}",
+                            channel.display()
+                        ),
+                        span: c.span,
+                    });
+                }
+                Ok(Ty::Unit)
+            }
         }
     }
 }

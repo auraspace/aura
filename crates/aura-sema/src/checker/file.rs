@@ -281,6 +281,92 @@ impl Checker {
             self.type_params.clear();
         }
 
+        // C22h: async declarations are callable like ordinary functions, but
+        // their call result is a Task<T>; the body itself returns T.
+        for f in &file.async_functions {
+            let pkg = decl_package(&f.origin_package, &file_pkg).to_string();
+            self.current_package = pkg.clone();
+            if self
+                .functions
+                .get(&f.name.name)
+                .is_some_and(|existing| existing.iter().any(|s| s.package == pkg))
+            {
+                self.errors.push(SemaError {
+                    message: format!("duplicate function `{}` in package `{pkg}`", f.name.name),
+                    span: f.name.span,
+                });
+                continue;
+            }
+            if let Err(err) = self.bind_type_params(&f.type_params) {
+                self.errors.push(err);
+                self.type_params.clear();
+                continue;
+            }
+            let params = match f
+                .params
+                .iter()
+                .map(|p| self.type_from_ref(&p.ty))
+                .collect::<Result<Vec<_>, _>>()
+            {
+                Ok(params) => params,
+                Err(err) => {
+                    self.errors.push(err);
+                    self.type_params.clear();
+                    continue;
+                }
+            };
+            let result_ty = match &f.return_type {
+                Some(t) if t.reference => {
+                    self.errors.push(SemaError {
+                        message: "borrow references cannot be returned from async functions".into(),
+                        span: t.span,
+                    });
+                    self.type_params.clear();
+                    continue;
+                }
+                Some(t) => match self.type_from_ref(t) {
+                    Ok(ty) => ty,
+                    Err(err) => {
+                        self.errors.push(err);
+                        self.type_params.clear();
+                        continue;
+                    }
+                },
+                None => Ty::Unit,
+            };
+            let task_ty = Ty::Task(Box::new(result_ty.clone()));
+            self.note_mono_ty(&task_ty);
+            self.functions
+                .entry(f.name.name.clone())
+                .or_default()
+                .push(FunSig {
+                    name: f.name.name.clone(),
+                    is_pub: f.is_pub,
+                    package: pkg,
+                    is_test: f.is_test,
+                    type_params: f.type_params.iter().map(|p| p.name.name.clone()).collect(),
+                    bounds: Self::bounds_map_from_params(&f.type_params),
+                    params,
+                    ret: task_ty,
+                    span: f.span,
+                });
+            self.type_params.clear();
+        }
+
+        for f in &file.async_functions {
+            let pkg = decl_package(&f.origin_package, &file_pkg).to_string();
+            let Some(sig) = self.fun_in_package(&f.name.name, &pkg).cloned() else {
+                continue;
+            };
+            self.current_package = pkg;
+            if let Ty::Task(result_ty) = sig.ret {
+                if let Err(err) = self.check_async_fun(f, &result_ty) {
+                    self.errors.push(err);
+                }
+            }
+            self.type_params.clear();
+        }
+
         for c in &file.classes {
             let pkg = decl_package(&c.origin_package, &file_pkg).to_string();
             if self

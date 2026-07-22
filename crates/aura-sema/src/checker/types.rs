@@ -85,6 +85,39 @@ impl Checker {
             "Int" => Ty::Int,
             "Bool" => Ty::Bool,
             "String" => Ty::String,
+            "Task" | "TaskHandle" | "Channel" => {
+                if qualified_pkg.is_some() {
+                    return Err(SemaError {
+                        message: format!(
+                            "async type `{}` cannot be package-qualified",
+                            t.name.name
+                        ),
+                        span: t.span,
+                    });
+                }
+                if type_args.len() != 1 {
+                    return Err(SemaError {
+                        message: format!(
+                            "type `{}` expects exactly one type argument, got {}",
+                            t.name.name,
+                            type_args.len()
+                        ),
+                        span: t.span,
+                    });
+                }
+                if t.type_args[0].reference {
+                    return Err(SemaError {
+                        message: format!("borrow reference cannot be stored in `{}`", t.name.name),
+                        span: t.type_args[0].span,
+                    });
+                }
+                let inner = Box::new(type_args.into_iter().next().unwrap());
+                match t.name.name.as_str() {
+                    "Task" => Ty::Task(inner),
+                    "TaskHandle" => Ty::TaskHandle(inner),
+                    _ => Ty::Channel(inner),
+                }
+            }
             // C9f: type alias expansion (non-generic).
             other if self.type_aliases.contains_key(other) && qualified_pkg.is_none() => {
                 if !type_args.is_empty() {

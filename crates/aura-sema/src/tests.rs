@@ -1,6 +1,22 @@
 use crate::check_file;
 use crate::ty::Ty;
+use aura_ast::AsyncFunDecl;
 use aura_parser::parse_file;
+
+fn promote_to_async(file: &mut aura_ast::File, index: usize) {
+    let f = file.functions.remove(index);
+    file.async_functions.push(AsyncFunDecl {
+        is_pub: f.is_pub,
+        origin_package: f.origin_package,
+        is_test: f.is_test,
+        name: f.name,
+        type_params: f.type_params,
+        params: f.params,
+        return_type: f.return_type,
+        body: f.body,
+        span: f.span,
+    });
+}
 
 #[test]
 fn mono_suffix() {
@@ -9,6 +25,34 @@ fn mono_suffix() {
         args: vec![Ty::String],
     };
     assert_eq!(t.mono_suffix(), "Box_String");
+}
+
+#[test]
+fn async_call_is_task_and_await_recovers_result() {
+    let mut file = parse_file(
+        "package t\nfun worker(): Int { return 7 }\nfun main(): Int { return await worker() }\n",
+    )
+    .expect("parse");
+    promote_to_async(&mut file, 1);
+    promote_to_async(&mut file, 0);
+    check_file(&file).expect("async call and await");
+}
+
+#[test]
+fn await_rejects_non_task_operand() {
+    let mut file = parse_file("package t\nfun main(): Int { return await 1 }\n").expect("parse");
+    promote_to_async(&mut file, 0);
+    let err = check_file(&file).expect_err("awaiting an Int");
+    assert!(err.primary().message.contains("requires Task<T>"));
+}
+
+#[test]
+fn task_handle_and_channel_types_accept_owned_elements() {
+    let file = parse_file(
+        "package t\nfun use(task: Task<Int>, handle: TaskHandle<String>, channel: Channel<Int>) {}\n",
+    )
+    .expect("parse");
+    check_file(&file).expect("async semantic types");
 }
 
 #[test]

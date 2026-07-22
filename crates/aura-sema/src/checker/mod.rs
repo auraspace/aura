@@ -70,6 +70,8 @@ pub(crate) struct Checker {
     lambda_captures_acc: Option<HashMap<String, (Ty, bool)>>,
     /// C10g: when Some, infer lambda block return type (inner = found so far).
     ret_infer: Option<Option<Ty>>,
+    /// C22: true while checking an async function or spawned task body.
+    async_depth: usize,
     /// C6h: statement/body errors collected without aborting the whole file.
     pub(crate) errors: Vec<SemaError>,
 }
@@ -261,6 +263,7 @@ impl Checker {
             lambda_captures_acc: None,
             ret_infer: None,
             errors: Vec::new(),
+            async_depth: 0,
         }
     }
 
@@ -701,6 +704,49 @@ impl Checker {
         self.check_block(&f.body, expected_ret)?;
         self.locals.pop();
         Ok(())
+    }
+
+    pub(crate) fn check_async_fun(
+        &mut self,
+        f: &aura_ast::AsyncFunDecl,
+        expected_ret: &Ty,
+    ) -> Result<(), SemaError> {
+        self.locals.push(HashMap::new());
+        self.async_depth += 1;
+        let result = (|| {
+            for p in &f.params {
+                let ty = self.type_from_ref(&p.ty)?;
+                let param_frame = self.locals.len() - 1;
+                self.note_mono_ty(&ty);
+                if self.current_locals().contains_key(&p.name.name) {
+                    return Err(SemaError {
+                        message: format!("duplicate parameter `{}`", p.name.name),
+                        span: p.name.span,
+                    });
+                }
+                self.current_locals_mut().insert(
+                    p.name.name.clone(),
+                    Local {
+                        ty,
+                        mutable: false,
+                        borrow_source: if p.ty.reference {
+                            Some(param_frame)
+                        } else {
+                            None
+                        },
+                    },
+                );
+            }
+            self.note_mono_ty(expected_ret);
+            self.check_block(&f.body, expected_ret)
+        })();
+        self.async_depth -= 1;
+        self.locals.pop();
+        result
+    }
+
+    pub(crate) fn in_async_context(&self) -> bool {
+        self.async_depth != 0
     }
 
     pub(crate) fn current_locals(&self) -> &HashMap<String, Local> {

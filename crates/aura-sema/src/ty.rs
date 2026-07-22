@@ -66,6 +66,12 @@ pub enum Ty {
         params: Vec<Ty>,
         ret: Box<Ty>,
     },
+    /// C22: result of invoking an async function; it must be awaited.
+    Task(Box<Ty>),
+    /// C22: owned handle returned by spawning an async task body.
+    TaskHandle(Box<Ty>),
+    /// C22: bounded FIFO channel carrying owned values.
+    Channel(Box<Ty>),
 }
 
 impl Ty {
@@ -128,6 +134,9 @@ impl Ty {
                     .join(", ");
                 format!("({ps}) -> {}", ret.display())
             }
+            Ty::Task(inner) => format!("Task<{}>", inner.display()),
+            Ty::TaskHandle(inner) => format!("TaskHandle<{}>", inner.display()),
+            Ty::Channel(inner) => format!("Channel<{}>", inner.display()),
         }
     }
 
@@ -174,6 +183,9 @@ impl Ty {
                     format!("Fun_{ps}__{}", ret.mono_suffix())
                 }
             }
+            Ty::Task(inner) => format!("Task_{}", inner.mono_suffix()),
+            Ty::TaskHandle(inner) => format!("TaskHandle_{}", inner.mono_suffix()),
+            Ty::Channel(inner) => format!("Channel_{}", inner.mono_suffix()),
         }
     }
 
@@ -193,6 +205,7 @@ impl Ty {
             | Ty::EnumApp { args, .. }
             | Ty::InterfaceApp { args, .. } => args.iter().any(|a| a.is_open()),
             Ty::Fun { params, ret } => params.iter().any(|p| p.is_open()) || ret.is_open(),
+            Ty::Task(inner) | Ty::TaskHandle(inner) | Ty::Channel(inner) => inner.is_open(),
             _ => false,
         }
     }
