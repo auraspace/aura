@@ -2209,6 +2209,69 @@ size_t aura_task_executor_run(AuraTaskExecutor *executor)
   return polled;
 }
 
+/* Observe a frame owned by this executor. Joining an unsubmitted frame
+ * submits it exactly once; joining an already-owned frame only observes it.
+ * Result and error snapshots are borrowed from executor-owned frame storage.
+ * A PENDING result is explicit: no wake source is available to this bounded
+ * single-threaded helper, so it does not pretend to support delayed awaits. */
+AuraTaskPollState aura_task_executor_join(AuraTaskExecutor *executor,
+                                          AuraTaskFrame *frame,
+                                          AuraTaskResult *out_result,
+                                          AuraTaskResult *out_error)
+{
+  if (out_result != NULL)
+  {
+    *out_result = (AuraTaskResult){NULL, 0};
+  }
+  if (out_error != NULL)
+  {
+    *out_error = (AuraTaskResult){NULL, 0};
+  }
+  if (executor == NULL || frame == NULL || executor->shutdown)
+  {
+    return AURA_TASK_FAILED;
+  }
+  if (frame->executor == NULL && frame->state != AURA_TASK_COMPLETE &&
+      frame->state != AURA_TASK_FAILED && frame->state != AURA_TASK_CANCELLED)
+  {
+    if (!aura_task_executor_submit(executor, frame))
+    {
+      return AURA_TASK_FAILED;
+    }
+  }
+  else if (frame->executor != NULL && frame->executor != executor)
+  {
+    return AURA_TASK_FAILED;
+  }
+
+  while (frame->state == AURA_TASK_READY &&
+         aura_task_executor_run_one(executor) != 0)
+  {
+    /* Only advance the executor; ownership remains with it. */
+  }
+
+  if (out_result != NULL)
+  {
+    *out_result = frame->result;
+  }
+  if (out_error != NULL)
+  {
+    *out_error = frame->error;
+  }
+  if (executor->race_tracker != NULL &&
+      (frame->state == AURA_TASK_COMPLETE || frame->state == AURA_TASK_FAILED ||
+       frame->state == AURA_TASK_CANCELLED))
+  {
+    (void)aura_race_tracker_record(executor->race_tracker,
+                                   frame->task_id,
+                                   0,
+                                   0,
+                                   AURA_RACE_TASK_JOIN,
+                                   NULL);
+  }
+  return frame->state;
+}
+
 void aura_task_executor_shutdown(AuraTaskExecutor *executor)
 {
   if (executor == NULL || executor->shutdown)

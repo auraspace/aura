@@ -547,6 +547,11 @@ mod tests {
         let bin = dir.join(format!("aura-c22m-{}", std::process::id()));
         let runtime = root.join("runtime/aura_rt.c");
         build_from_file(&file, &bin, &runtime).expect("compile generated C22m");
+        let generated = std::fs::read_to_string(dir.join(format!("aura-c22m-{}.aura.c", std::process::id())))
+            .expect("read generated join C");
+        assert!(generated.contains("aura_task_executor_join(__aura_task_executor"));
+        assert!(generated.contains("joined task failed"));
+        assert!(generated.contains("__join_state != AURA_TASK_COMPLETE && __join_state != AURA_TASK_CANCELLED"));
         let status = Command::new(&bin).status().expect("run generated binary");
         assert!(status.success());
         let _ = std::fs::remove_file(&bin);

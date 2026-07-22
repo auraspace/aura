@@ -129,6 +129,9 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str(
         "int aura_task_executor_cancel(AuraTaskExecutor *executor, AuraTaskFrame *frame);\n",
     );
+    out.push_str(
+        "AuraTaskPollState aura_task_executor_join(AuraTaskExecutor *executor, AuraTaskFrame *frame, AuraTaskResult *out_result, AuraTaskResult *out_error);\n",
+    );
     out.push_str("int aura_task_executor_run_one(AuraTaskExecutor *executor);\n");
     out.push_str("size_t aura_task_executor_run(AuraTaskExecutor *executor);\n");
     out.push_str("void aura_task_executor_shutdown(AuraTaskExecutor *executor);\n");

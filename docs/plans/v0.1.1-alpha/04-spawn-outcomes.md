@@ -52,8 +52,11 @@ under sanitizers.
 **Checklist:**
 
 - [ ] Define handle ownership and single/multiple join behavior.
-- [ ] Suspend the joiner until the task reaches a terminal state.
-- [ ] Transfer or retain the result according to ABI rules.
+- [x] Observe an executor-owned frame through the currently available ready
+      queue until terminal; a genuinely pending frame remains unsupported by
+      this bounded helper.
+- [x] Retain the result in executor-owned frame storage and expose a borrowed
+      observation snapshot; no transfer occurs during join.
 - [ ] Release frame and handle safely after observation.
 
 **Acceptance:** Immediate and delayed successful tasks produce identical results.
