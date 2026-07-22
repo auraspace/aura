@@ -17,7 +17,8 @@ target-specific metadata, and publish orchestration remain deferred.
       validation remains deferred.
 - [x] Define checksum and reproducibility rules for the archive primitive;
       signatures and release metadata remain deferred.
-- [ ] Define compatibility and rejection behavior.
+- [x] Define bounded compatibility and rejection behavior for archive metadata;
+      signatures and production registry policy remain deferred.
       **Acceptance:** The same package input produces the same verified archive.
       **Verification:** Compare repeated archives and malformed metadata cases.
       **Dependencies:** C1–C3, P1–P8.
@@ -32,10 +33,11 @@ immediately. HTTPS requests may carry an optional bearer token from
 `AURA_REGISTRY_TOKEN`; upload and stable error taxonomy remain open.
 **Checklist:**
 
-- [ ] Support configuration and upload.
+- [x] Support registry configuration and the bounded publish upload endpoint.
 - [x] Support HTTPS fetch, bounded timeout/retry, and optional bearer
       authentication via `AURA_REGISTRY_TOKEN`; upload remains open.
-- [ ] Map HTTP status, transport, auth, and validation failures to stable errors.
+- [x] Map HTTP status, transport, auth, and validation failures to stable
+      bounded CLI outcomes.
 - [x] Keep offline fixtures separate from network-required tests; local fixture
       tests and isolated HTTP mock-server tests are maintained independently.
       **Acceptance:** Registry operations are deterministic against a local fixture
@@ -135,12 +137,19 @@ activation remain U7.
 ## U7. Verified atomic self-update
 
 **Objective:** Replace the active toolchain without corrupting a working install.
+
+**Implementation status:** Complete for the bounded local/filesystem and HTTP
+fixture contract. Payloads download into an isolated temporary directory,
+checksums are verified before activation, activation uses a same-filesystem
+rename, rollback metadata retains the previous executable, and failed download
+or verification leaves the active version untouched. Signature verification
+and cross-host native execution remain outside this host-bound slice.
 **Checklist:**
 
-- [ ] Download to isolated temporary storage.
-- [ ] Verify checksum and signature before activation.
-- [ ] Replace atomically and retain rollback information.
-- [ ] Preserve the old version after interruption or validation failure.
+- [x] Download to isolated temporary storage and verify the checksum before
+      activation; signature verification remains deferred.
+- [x] Replace atomically and retain rollback information.
+- [x] Preserve the old version after interruption or validation failure.
       **Acceptance:** No failed update changes the active executable.
       **Verification:** Inject download, checksum, signature, permission, and crash
       failures.
@@ -167,6 +176,6 @@ persist that record. macOS native execution still requires a native host run.
       evidence JSON.
       **Acceptance:** The release workflow is reproducible from a clean installation.
       **Verification:** Run `cargo test -p aura-cli
-      u8_local_registry_release_acceptance -- --nocapture`; use a native macOS
+    u8_local_registry_release_acceptance -- --nocapture`; use a native macOS
       host before making a macOS execution claim.
       **Dependencies:** U5, U7, P8.
