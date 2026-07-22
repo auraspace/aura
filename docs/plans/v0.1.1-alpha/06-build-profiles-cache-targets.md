@@ -83,11 +83,19 @@ metadata, and temporary cache files, and preserves unrelated files.
 ## P6. Target capability validation
 
 **Objective:** Validate supported Linux/macOS builds before compilation.
+**Implementation status:** Partial. Preflight now rejects native builds outside
+the alpha release matrix (`linux-x86_64`, `macos-aarch64`, and
+`macos-x86_64`) before frontend emission or artifact creation, and reports the
+host plus supported alternatives. Runtime, backend, profile, linker-value, and
+runtime-source checks are already part of the same validation boundary; sysroot,
+system-library probing, and explicit cross-compilation targets remain open.
 **Checklist:**
 
-- [ ] Check target, linker, sysroot, runtime, system libraries, and backend.
-- [ ] Distinguish native execution from cross-compilation.
-- [ ] Report unsupported targets and supported alternatives.
+- [x] Check target, linker, runtime, and backend; sysroot/system-library
+      probing remains open.
+- [x] Distinguish native execution from cross-compilation at the target
+      boundary; explicit cross targets remain unsupported until modeled.
+- [x] Report unsupported native hosts and supported alternatives.
       **Acceptance:** Unsupported targets fail before partial artifacts are emitted.
       **Verification:** Run preflight on supported and deliberately incomplete hosts.
       **Dependencies:** B4, C2.

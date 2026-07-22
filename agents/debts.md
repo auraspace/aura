@@ -252,3 +252,10 @@ When you resolve debt, update or remove the matching entry.
 ### `for-in` has no Iterable protocol (duck only) (2026-07-20)
 
 - Resolved in C6c (partial): `for-in` on interface with `len(): Int` + `get(Int): E`; duck class path kept. Generic Iterable: C8d.
+
+### Alpha target capability probing (2026-07-22)
+
+- P6 now rejects native builds outside the published Linux/macOS target matrix
+  and reports supported alternatives. Explicit cross targets, sysroot
+  discovery, and system-library/linker probing remain deferred until target
+  descriptors are modeled in `CompileOptions`.

@@ -15,6 +15,10 @@ pub(crate) enum ValidationError {
     EmptyCompiler,
     RuntimePathMissing(PathBuf),
     RuntimePathUnreadable(PathBuf),
+    UnsupportedHostTarget {
+        host: String,
+        alternatives: &'static str,
+    },
 }
 
 impl std::fmt::Display for ValidationError {
@@ -43,6 +47,10 @@ impl std::fmt::Display for ValidationError {
                     path.display()
                 )
             }
+            Self::UnsupportedHostTarget { host, alternatives } => write!(
+                f,
+                "native target is unavailable on host `{host}`; supported alternatives: {alternatives}"
+            ),
         }
     }
 }
@@ -66,6 +74,7 @@ pub(crate) fn validate_build(
     if options.target != Target::Native {
         return Err(ValidationError::UnsupportedTarget);
     }
+    validate_native_host()?;
     if options.profile != Profile::Debug {
         return Err(ValidationError::UnsupportedProfile);
     }
@@ -97,6 +106,25 @@ pub(crate) fn validate_build(
     }
 
     Ok(())
+}
+
+/// The alpha's `Native` target is intentionally narrower than “any platform
+/// on which a C compiler happens to run”. Keep the supported release matrix in
+/// one place so a build cannot be advertised as native on an untested host.
+fn validate_native_host() -> Result<(), ValidationError> {
+    let host = format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH);
+    let supported = matches!(
+        (std::env::consts::OS, std::env::consts::ARCH),
+        ("linux", "x86_64") | ("macos", "aarch64") | ("macos", "x86_64")
+    );
+    if supported {
+        Ok(())
+    } else {
+        Err(ValidationError::UnsupportedHostTarget {
+            host,
+            alternatives: "linux-x86_64, macos-aarch64, macos-x86_64",
+        })
+    }
 }
 
 #[cfg(test)]
@@ -184,6 +212,21 @@ mod tests {
         assert_eq!(
             validate_build(&CompileOptions::default(), "cc", &runtime),
             Err(ValidationError::RuntimePathMissing(runtime))
+        );
+    }
+
+    #[test]
+    fn native_host_validation_matches_the_alpha_release_matrix() {
+        let result = super::validate_native_host();
+        let host = format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH);
+        let supported = matches!(
+            (std::env::consts::OS, std::env::consts::ARCH),
+            ("linux", "x86_64") | ("macos", "aarch64") | ("macos", "x86_64")
+        );
+        assert_eq!(
+            result.is_ok(),
+            supported,
+            "unexpected host validation for {host}"
         );
     }
 }
