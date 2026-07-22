@@ -83,7 +83,8 @@ resources.
 - [ ] Store failure payload and source location in the terminal outcome.
 - [x] Make join distinguish failure from cancellation through terminal poll
       states and borrowed result/error snapshots.
-- [ ] Clean captures, frames, and result storage on failure.
+- [x] Release an owned capture exactly once when a failed frame is destroyed;
+      complete failure payload/source/frame cleanup remains open.
 - [x] Define repeated observation of a failed task as a stable terminal result;
       failure payload/source retention and cleanup remain open.
 

@@ -21,6 +21,12 @@ static void destroy_frame(AuraTaskFrame *frame)
   frame_destroys++;
 }
 
+static void destroy_error(void *data, size_t size)
+{
+  assert(size == sizeof(int));
+  free(data);
+}
+
 static AuraTaskPollState poll_capture(AuraTaskFrame *frame)
 {
   poll_calls++;
@@ -34,6 +40,15 @@ static AuraTaskPollState poll_pending_capture(AuraTaskFrame *frame)
   poll_calls++;
   assert(aura_task_frame_captures(frame).data != NULL);
   return AURA_TASK_PENDING;
+}
+
+static AuraTaskPollState poll_failed_capture(AuraTaskFrame *frame)
+{
+  int *error = (int *)malloc(sizeof(*error));
+  assert(error != NULL);
+  *error = 17;
+  aura_task_frame_set_error(frame, error, sizeof(*error), destroy_error);
+  return AURA_TASK_FAILED;
 }
 
 static AuraTaskFrame *new_owned_capture(AuraTaskPollFn poll, int value)
@@ -121,6 +136,17 @@ int main(void)
   assert(poll_calls == 1);
   assert(capture_drops == 0);
   aura_task_executor_shutdown(executor);
+  assert(capture_drops == 1);
+  assert(frame_destroys == 1);
+
+  /* A failed frame also retains its owned capture until frame destruction. */
+  capture_drops = 0;
+  frame_destroys = 0;
+  AuraTaskFrame *failed = new_owned_capture(poll_failed_capture, 42);
+  assert(aura_task_frame_poll_once(failed) == AURA_TASK_FAILED);
+  assert(aura_task_frame_state(failed) == AURA_TASK_FAILED);
+  assert(capture_drops == 0);
+  aura_task_frame_destroy(failed);
   assert(capture_drops == 1);
   assert(frame_destroys == 1);
   return 0;
