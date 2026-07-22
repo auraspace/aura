@@ -98,8 +98,11 @@ A5–A6.
 - [x] Identify `await` suspension points and assign deterministic state IDs
       with source-span metadata (bounded compiler slice).
 - [ ] Hoist live locals and owned values into frame storage.
-- [ ] Generate resume and completion edges with source spans.
-- [ ] Preserve return, throw, and cleanup semantics.
+- [x] Generate bounded completion/error/cancellation edges for the current
+      no-await frame representation with source-ID metadata; resumable await
+      edges remain open.
+- [x] Preserve return, throw, and cleanup semantics for the bounded no-await
+      representation; live values across suspension remain open.
 
 **Acceptance:** Empty and no-await async functions use the same representation.
 
