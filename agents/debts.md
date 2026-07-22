@@ -21,7 +21,7 @@ When you resolve debt, update or remove the matching entry.
 
 - Area: async/task codegen and runtime outcomes
 - Symptom: `await` parses and type-checks but has no lowered suspension state machine; only empty `spawn {}` bodies execute; task failure propagation is not complete.
-- Progress: no-await code generation now emits deterministic `resume_state` transitions and repeated polling is covered by runtime fixtures; A1–A3 define the frame ABI, ownership classes, roots, and error storage.
+- Progress: no-await code generation now emits deterministic `resume_state` transitions; immediate `await` polls a ready frame and returns its completed result; repeated polling is covered by runtime fixtures; A1–A3 define the frame ABI, ownership classes, roots, and error storage.
 - Next step: lower await points with captured-local storage, implement non-empty spawn capture/drop, and define end-to-end success/failure/cancellation propagation before advertising the full C22 contract as executable.
 
 ### S3 release rehearsal external blockers

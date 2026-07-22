@@ -932,9 +932,7 @@ fn emit_async_expr(expr: &AsyncExpr, ctx: &mut EmitCtx<'_>) -> String {
                 "({{ AuraTaskFrame *__cancel = ({handle}); if (__cancel != NULL && __aura_task_executor != NULL) (void)aura_task_executor_cancel(__aura_task_executor, __cancel); }})"
             )
         }
-        AsyncExpr::Await(_) => {
-            "({ fputs(\"aura: await lowering is deferred until C22l state-machine support\\n\", stderr); abort(); (int64_t)0; })".into()
-        }
+        AsyncExpr::Await(a) => emit_await(a, ctx),
         AsyncExpr::ChannelCreate(c) => {
             let capacity = emit_expr(&c.capacity, ctx);
             format!("aura_task_channel_new((size_t)({capacity}))")
@@ -946,6 +944,30 @@ fn emit_async_expr(expr: &AsyncExpr, ctx: &mut EmitCtx<'_>) -> String {
             format!("({{ (void)aura_task_channel_close({channel}); (void)0; }})")
         }
     }
+}
+
+fn emit_await(a: &AwaitExpr, ctx: &mut EmitCtx<'_>) -> String {
+    let task = emit_expr(&a.operand, ctx);
+    let inner = async_inner_key(&a.operand, ctx);
+    let cty = crate::stmt::local_key_to_c(&inner, ctx.checked);
+    let mut out = String::new();
+    out.push_str("({ AuraTaskFrame *__await = (");
+    out.push_str(&task);
+    out.push_str("); AuraTaskPollState __await_state = ");
+    out.push_str("__await == NULL ? AURA_TASK_FAILED : aura_task_frame_state(__await); ");
+    out.push_str("if (__await_state == AURA_TASK_READY) __await_state = aura_task_frame_poll_once(__await); ");
+    out.push_str("if (__await_state == AURA_TASK_PENDING) { fputs(\"aura: await suspended task requires scheduler continuation\\n\", stderr); abort(); } ");
+    out.push_str("if (__await_state != AURA_TASK_COMPLETE) { fputs(\"aura: awaited task failed or was cancelled\\n\", stderr); abort(); } ");
+    if inner == "Unit" {
+        out.push_str("(void)0; ");
+    } else {
+        out.push_str(&format!("{cty} __await_value = ({cty}){{0}}; "));
+        out.push_str(&format!(
+            "AuraTaskResult __await_result = aura_task_frame_result(__await); if (__await_result.data != NULL) __await_value = *(({cty} *)__await_result.data); __await_value; "
+        ));
+    }
+    out.push_str("})");
+    out
 }
 
 fn channel_payload_kind(key: &str, ctx: &EmitCtx<'_>) -> Option<&'static str> {

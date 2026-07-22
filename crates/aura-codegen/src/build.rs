@@ -63,9 +63,9 @@ mod tests {
     use std::{fs, process::Command};
 
     use aura_ast::{
-        AsyncExpr, AsyncFunDecl, Block, CallExpr, CancelExpr, ChannelCloseExpr, ChannelCreateExpr,
-        ChannelReceiveExpr, ChannelSendExpr, Expr, File, FunDecl, Ident, IntLit, JoinExpr, Path,
-        ReturnStmt, Span, SpawnExpr, Stmt, TypeRef,
+        AsyncExpr, AsyncFunDecl, AwaitExpr, Block, CallExpr, CancelExpr, ChannelCloseExpr,
+        ChannelCreateExpr, ChannelReceiveExpr, ChannelSendExpr, Expr, File, FunDecl, Ident, IntLit,
+        JoinExpr, Path, ReturnStmt, Span, SpawnExpr, Stmt, TypeRef,
     };
 
     use super::build_from_file;
@@ -241,6 +241,109 @@ mod tests {
         assert!(status.success());
         let _ = std::fs::remove_file(&bin);
         let _ = std::fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn compiles_immediate_await_through_frame_polling() {
+        let span = Span::new(0, 1);
+        let ident = |name: &str| Ident {
+            name: name.into(),
+            span,
+        };
+        let int_ty = || TypeRef {
+            qualifier: None,
+            name: ident("Int"),
+            type_args: vec![],
+            nullable: false,
+            reference: false,
+            span,
+            fun: None,
+        };
+        let worker = AsyncFunDecl {
+            is_pub: false,
+            origin_package: String::new(),
+            attributes: vec![],
+            is_test: false,
+            name: ident("worker"),
+            type_params: vec![],
+            params: vec![],
+            return_type: Some(int_ty()),
+            body: Block {
+                stmts: vec![Stmt::Return(ReturnStmt {
+                    value: Some(Expr::Int(IntLit { value: 7, span })),
+                    span,
+                })],
+                span,
+            },
+            span,
+        };
+        let wrapper = AsyncFunDecl {
+            is_pub: false,
+            origin_package: String::new(),
+            attributes: vec![],
+            is_test: false,
+            name: ident("wrapper"),
+            type_params: vec![],
+            params: vec![],
+            return_type: None,
+            body: Block {
+                stmts: vec![Stmt::Expr(Expr::Async(AsyncExpr::Await(AwaitExpr {
+                    operand: Box::new(Expr::Call(CallExpr {
+                        callee: Box::new(Expr::Ident(ident("worker"))),
+                        type_args: vec![],
+                        args: vec![],
+                        span,
+                    })),
+                    span,
+                })))],
+                span,
+            },
+            span,
+        };
+        let main = FunDecl {
+            is_pub: false,
+            origin_package: String::new(),
+            attributes: vec![],
+            is_test: false,
+            name: ident("main"),
+            type_params: vec![],
+            params: vec![],
+            return_type: None,
+            body: Block {
+                stmts: vec![],
+                span,
+            },
+            span,
+        };
+        let file = File {
+            package: Path {
+                segments: vec![ident("demo")],
+                span,
+            },
+            imports: vec![],
+            interfaces: vec![],
+            enums: vec![],
+            classes: vec![],
+            type_aliases: vec![],
+            consts: vec![],
+            functions: vec![main],
+            async_functions: vec![worker, wrapper],
+            span,
+        };
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let bin = dir.join(format!("aura-await-{}", std::process::id()));
+        let generated_c = dir.join(format!("aura-await-{}.aura.c", std::process::id()));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile immediate await");
+        let generated = fs::read_to_string(&generated_c).expect("read generated await C");
+        assert!(generated.contains("aura_task_frame_poll_once(__await)"));
+        assert!(!generated.contains("await lowering is deferred"));
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
     }
 
     #[test]
