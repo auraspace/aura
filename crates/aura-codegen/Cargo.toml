@@ -8,3 +8,4 @@ description = "Aura C backend codegen for C1 hello binaries"
 [dependencies]
 aura-ast.workspace = true
 aura-sema.workspace = true
+sha2 = "0.10"

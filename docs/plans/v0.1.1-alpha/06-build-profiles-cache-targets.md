@@ -37,12 +37,15 @@ Release defaults keep detector instrumentation disabled.
 ## P3. Cache key schema
 
 **Objective:** Prevent stale artifact reuse.
+**Implementation status:** Complete for the codegen artifact cache. Keys include
+compiler/backend/ABI/target/profile/features/source/imports/lockfile/toolchain
+inputs, use length-delimited canonical serialization, and are SHA-256 hashed.
 **Checklist:**
 
-- [ ] Include compiler, backend, ABI, target, profile, features, source,
+- [x] Include compiler, backend, ABI, target, profile, features, source,
       imports, lockfile, and relevant toolchain inputs.
-- [ ] Define normalized serialization and hash algorithm.
-- [ ] Identify which changes invalidate which stages.
+- [x] Define normalized serialization and hash algorithm.
+- [x] Identify which changes invalidate which stages.
       **Acceptance:** Every relevant input change invalidates the correct artifact.
       **Verification:** Mutate one input at a time and inspect cache traces.
       **Dependencies:** P1, B5, A1.
@@ -50,11 +53,14 @@ Release defaults keep detector instrumentation disabled.
 ## P4. Cache storage
 
 **Objective:** Make cache writes deterministic and recoverable.
+**Implementation status:** Complete for the standalone artifact cache API.
+Entries publish artifact and metadata through temporary files and renames;
+missing, mismatched, or corrupt entries are discarded before reuse.
 **Checklist:**
 
-- [ ] Use atomic publication and safe concurrent writers.
-- [ ] Validate checksums and metadata before reuse.
-- [ ] Discard partial or corrupt entries automatically.
+- [x] Use atomic publication and safe concurrent writers.
+- [x] Validate checksums and metadata before reuse.
+- [x] Discard partial or corrupt entries automatically.
       **Acceptance:** Interrupted or concurrent builds never publish unusable entries.
       **Verification:** Run interrupted-write, corruption, and parallel-build tests.
       **Dependencies:** P3.
