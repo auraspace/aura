@@ -21,7 +21,7 @@ This RFC specifies Aura’s **static type system**: nominal class/interface type
 
 It assumes the surface from **RFC-001** and leaves runtime representation details to **RFC-004** / **RFC-006**.
 
-**Toolchain today (2026-07-22, C19):** nominal classes/interfaces/`struct`/`enum`, monomorphized generics + bounds, local null flow + `!!` / `?:` / `?.`, type-argument inference, fun types/`Ty::Fun`, lambdas with supported value and reference captures, generic HOFs, and nested generic substitution in codegen. Not yet: inheritance hierarchy, full overloading, structural typing, true borrow types, `Array<Interface>`, or `var` class/Array/Fun captures.
+**Toolchain today (2026-07-22, C20e):** nominal classes/interfaces/`struct`/`enum`, monomorphized generics + bounds, local null flow + `!!` / `?:` / `?.`, type-argument inference, fun types/`Ty::Fun`, lambdas with value and reference captures, generic HOFs, nested generic substitution in codegen, and MVP shared mutable `var` captures for class/Array/Fun. Not yet: inheritance hierarchy, full overloading, structural typing, true borrow types, `Array<Interface>`, or a complete lifetime/ownership contract for captured Array views.
 
 ## 2. Motivation
 

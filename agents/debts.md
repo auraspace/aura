@@ -26,15 +26,15 @@ When you resolve debt, update or remove the matching entry.
 ### Lambda capture limits (MVP)
 
 - Area: language / lambdas (C10h/C12k/C12l/C12m/C13e/C13f/C13g)
-- Symptom: no `var` class/Array/Fun capture (val Fun + var Int/Bool/String OK)
-- Why deferred: class/Array `var` needs richer box/GC protocol; `var` Fun still out
-- Progress: fat-pointer Fun `{env,fn}`; copy-out of prim + **class GC ptr** + **Array header view** + **Fun nest env RC**; **`var` Int/Bool/String by shared refcounted box**; env `__drop` unregisters class roots / releases boxes / nested Fun envs then free (never frees Array buffers); corpus `lambda_capture.aura`, `lambda_capture_class.aura`, `lambda_capture_array.aura`, `lambda_capture_var.aura`, `lambda_capture_fun.aura`, `lambda_capture_var_str.aura`, `lambda_env_free.aura`, **`lambda_capture_stress.aura` (C13g mixed mark/free stress — no free/mark bugs)**
+- Symptom: `var` class/Array/Fun capture has only an MVP box/lowering contract; Array views do not have borrow-checked lifetime safety (val Fun + var Int/Bool/String remain supported)
+- Why deferred: full Array ownership needs a borrow/lifetime contract; owner movement, escaping live views, and mutation invalidation are not yet specified
+- Progress: C20c–e add shared pointer boxes and codegen lowering for mutable class/Array/Fun captures; class payloads are GC-rooted, nested Fun environments retain/release, and corpus covers mutation, rebinding, escaping closures, and GC churn. Existing env `__drop` still unregisters class roots / releases boxes / nested Fun envs then frees (never frees Array buffers)
 - Note (C12l): Array capture is a non-owning `{data,len,cap}` view (like field bind). Freeing/moving the outer Array owner while Fun is still live is **undefined**
 - Note (C12m/C13f): `var` Int/Bool/String uses `aura_box_*` (refcount); String box owns heap copy (`set` frees previous); outer + each capturing env retain; multiple lambdas share mutations; escaping Fun keeps the box alive
 - Note (C13g): Fun param transfer moves env (caller must not call after pass); nested retain via capture keeps both live — stress corpus documents both
-- Next step: later `var` class/Array/Fun if needed
-- Note: C12 batch closed (C12t); C13e Fun + C13f var String + C13g stress audit shipped — residual only
-- Introduced: narrowed after C10h; env free 2026-07-20; class C12k 2026-07-21; Array view C12l 2026-07-21; var Int/Bool C12m 2026-07-21; Fun C13e 2026-07-21; var String C13f 2026-07-21; stress C13g 2026-07-21
+- Next step: define true borrow/lifetime rules for Array capture and owner movement before strengthening the MVP
+- Note: C12 batch closed (C12t); C13e Fun + C13f var String + C13g stress audit shipped; C20c–e mutable class/Array/Fun MVP shipped — residual is the Array ownership contract
+- Introduced: narrowed after C10h; env free 2026-07-20; class C12k 2026-07-21; Array view C12l 2026-07-21; var Int/Bool C12m 2026-07-21; Fun C13e 2026-07-21; var String C13f 2026-07-21; stress C13g 2026-07-21; mutable class/Array/Fun MVP C20c–e 2026-07-22
 
 ### Array field return still moves (no true borrow type)
 

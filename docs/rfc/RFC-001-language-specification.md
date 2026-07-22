@@ -68,7 +68,7 @@ Wave-1 foundation: every later RFC quotes keywords, declaration forms, and modul
 
 This subsection freezes the **subset** that the first compiler milestones must implement. Full v1 surface remains in later subsections; anything not listed here was **out of scope for C0/C1** unless an RFC amend expands this table.
 
-**Toolchain progress (2026-07-22):** the Rust compiler has shipped through **C19d** plus **S2** production-toolchain work (see [roadmap](../roadmap.md)): classes, interfaces, generics+bounds, `struct`/`enum`/`match`, exceptions, packages/`import`/`aura.lock`, `Array`/`for`/`?.`/`?:`, `if` expressions, GC mark/sweep, `std.io` (console/file/argv/stdin/exit), `assert`, generic collections and hash-map entry snapshots, first-class funs/lambdas with the supported capture forms, String tools, and registry dependency consumption. Async/tasks, macros, true borrow types, `Array<Interface>`, and richer `var` captures remain deferred. §6.0 remains the historical C0/C1 freeze; later milestones are tracked in the roadmap, not by rewriting this freeze.
+**Toolchain progress (2026-07-22):** the Rust compiler has shipped through **C20e** plus **S2** production-toolchain work (see [roadmap](../roadmap.md)): classes, interfaces, generics+bounds, `struct`/`enum`/`match`, exceptions, packages/`import`/`aura.lock`, `Array`/`for`/`?.`/`?:`, `if` expressions, GC mark/sweep, `std.io` (console/file/argv/stdin/exit), `assert`, generic collections and hash-map entry snapshots, first-class funs/lambdas with value captures and mutable `var` class/Array/Fun capture MVPs, String tools, and registry dependency consumption. Async/tasks, macros, true borrow types, `Array<Interface>`, and safe live Array views remain deferred. §6.0 remains the historical C0/C1 freeze; later milestones are tracked in the roadmap, not by rewriting this freeze.
 
 **Milestones** (aligned with RFC-004 §11 and this RFC §11):
 
@@ -144,19 +144,19 @@ class Greeter(val name: String) {
 
 **Originally deferred at C0/C1 freeze** (many now shipped — see roadmap C2–C10j):
 
-| Item                                                            | Toolchain status (2026-07-20)                                                          |
-| --------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| Generics, interfaces, `struct`/`enum`/`match`                   | **Implemented** (C2–C3)                                                                |
-| Exceptions / `throw`/`try`/`catch`/`finally`                    | **Implemented** (C3c/C3g)                                                              |
-| Multi-file packages, `import`, path deps, `aura.lock`           | **Implemented** (C3e–C3p, C4j); lock schema v0 (C8k)                                   |
-| `for` ranges / for-in (Array, String bytes), `break`/`continue` | **Implemented** (C3h–C3l, C3w)                                                         |
-| Builtin `Array<T>`, null `?:` / `?.`, `if` expr                 | **Implemented** (C3j+, C4m/C4s/C4t)                                                    |
-| String `+` / interpolation `${}` (idents), `type`/`const`, `is` | **Implemented** (C9d–C9i)                                                              |
-| Lambdas / fun types `(T) -> U`                                  | **Implemented** (C10c–j + C12k–m captures); nested Fun / non-prim `var` still deferred |
-| `async`/`await`/`spawn`                                         | **Still deferred**                                                                     |
-| Attributes/macros, full Unicode identifiers                     | **Still deferred**                                                                     |
-| Iterable protocol                                               | **Implemented** (C8d); generic class implements C9a                                    |
-| Registry/semver fetch                                           | **Still deferred** (debts)                                                             |
+| Item                                                            | Toolchain status (2026-07-20)                                                                        |
+| --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Generics, interfaces, `struct`/`enum`/`match`                   | **Implemented** (C2–C3)                                                                              |
+| Exceptions / `throw`/`try`/`catch`/`finally`                    | **Implemented** (C3c/C3g)                                                                            |
+| Multi-file packages, `import`, path deps, `aura.lock`           | **Implemented** (C3e–C3p, C4j); lock schema v0 (C8k)                                                 |
+| `for` ranges / for-in (Array, String bytes), `break`/`continue` | **Implemented** (C3h–C3l, C3w)                                                                       |
+| Builtin `Array<T>`, null `?:` / `?.`, `if` expr                 | **Implemented** (C3j+, C4m/C4s/C4t)                                                                  |
+| String `+` / interpolation `${}` (idents), `type`/`const`, `is` | **Implemented** (C9d–C9i)                                                                            |
+| Lambdas / fun types `(T) -> U`                                  | **Implemented** (C10c–j + C12k–m + C20c–e captures); true borrow/live Array ownership still deferred |
+| `async`/`await`/`spawn`                                         | **Still deferred**                                                                                   |
+| Attributes/macros, full Unicode identifiers                     | **Still deferred**                                                                                   |
+| Iterable protocol                                               | **Implemented** (C8d); generic class implements C9a                                                  |
+| Registry/semver fetch                                           | **Still deferred** (debts)                                                                           |
 
 **Corpus:** programs under `corpus/` exercise the implemented surface above; see [`corpus/README.md`](../../corpus/README.md).
 
@@ -416,7 +416,7 @@ val u = s!!   // assert non-null; panic/throw if null
 - Parameters are **references to GC objects** for class types; **by-value** for primitives and structs (details RFC-003).
 - `this` receiver for instance methods; `super` for parent.
 - First-class functions and lambdas: **`(x: Int) => x + 1`** or block body `(x: Int) => { ... }`.
-- Closures: capture `val` by value/shared immutability; capture `var` by reference (shared mutable box). Exact lowering in RFC-004.
+- Closures: capture `val` by value/shared immutability; capture `var` through shared mutable storage. C20c–e cover class, Array, and nested Fun MVP lowering; Array owner movement and live-view safety still require a borrow contract. Exact lowering is tracked in RFC-004/toolchain notes.
 - Generators/iterators: `Iterable` / `Iterator` protocols in stdlib; `yield` **not required v1**.
 
 ### 6.8 Modules & compilation units
