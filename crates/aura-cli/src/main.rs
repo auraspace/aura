@@ -1,5 +1,6 @@
 //! Aura CLI — check / build / run / test / new / emit-c with pretty diagnostics.
 
+mod formatter;
 mod package;
 mod runtime_path;
 mod scaffold;
@@ -28,6 +29,7 @@ fn main() -> ExitCode {
         "build" => cmd_build(&args),
         "run" => cmd_run(&args),
         "test" => cmd_test(&args),
+        "fmt" => cmd_fmt(&args),
         "emit-c" => cmd_emit_c(&args),
         "new" => cmd_new(&args),
         "init" => cmd_init(&args),
@@ -57,6 +59,7 @@ fn eprint_usage() {
            aura build [path] [-o <bin>]      Compile to native binary (C backend)\n  \
            aura run [path] [-- args...]      Build to temp and execute\n  \
            aura test [path] [-- args...]     Run @test functions (package-wide)\n  \
+           aura fmt <path>                   Format an Aura source file\n  \
            aura emit-c [path]                Print generated C (debug)\n  \
            aura version                      Print CLI version\n  \
            aura help\n\n\
@@ -64,6 +67,34 @@ fn eprint_usage() {
          With no path, commands look for `./aura.toml`.\n\n\
          See docs/roadmap.md and RFC-001 §6.0 / RFC-005 / RFC-008 / RFC-012."
     );
+}
+
+fn cmd_fmt(args: &[String]) -> ExitCode {
+    if args.len() != 1 {
+        eprintln!("error: usage: aura fmt <path>");
+        return ExitCode::from(2);
+    }
+    let path = Path::new(&args[0]);
+    let source = match std::fs::read_to_string(path) {
+        Ok(source) => source,
+        Err(error) => {
+            eprintln!("error: cannot read {}: {error}", path.display());
+            return ExitCode::from(1);
+        }
+    };
+    match formatter::format_source(&source) {
+        Ok(formatted) => match std::fs::write(path, formatted) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("error: cannot write {}: {error}", path.display());
+                ExitCode::from(1)
+            }
+        },
+        Err(error) => {
+            eprintln!("error: cannot format {}: {error}", path.display());
+            ExitCode::from(1)
+        }
+    }
 }
 
 fn cmd_new(args: &[String]) -> ExitCode {

@@ -1,0 +1,5 @@
+package fmt.basic
+
+fun main() {
+    val answer: Int = 42
+}
