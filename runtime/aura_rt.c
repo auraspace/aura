@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <errno.h>
+#include <inttypes.h>
 #include <sys/stat.h>
 #if defined(__has_include)
 #if __has_include("aura_ffi.h")
@@ -68,6 +69,22 @@ typedef enum AuraFfiBoundary
 } AuraFfiBoundary;
 #define AURA_FFI_BOUNDARY_REJECTED ((AuraFfiStatus)3)
 #define AURA_FFI_BUSY ((AuraFfiStatus)4)
+typedef struct AuraFfiCallbackFrame AuraFfiCallbackFrame;
+typedef struct AuraFfiCallback AuraFfiCallback;
+typedef int32_t (*AuraFfiCallbackFn)(void *environment, const void *payload,
+                                     uint64_t payload_len);
+typedef void (*AuraFfiCallbackEnvDestroyFn)(void *environment);
+typedef enum AuraFfiOutcome
+{
+  AURA_FFI_OUTCOME_OK = 0,
+  AURA_FFI_OUTCOME_CANCELLED = 1,
+  AURA_FFI_OUTCOME_INVALID = 2,
+  AURA_FFI_OUTCOME_NOT_FOUND = 3,
+  AURA_FFI_OUTCOME_PERMISSION = 4,
+  AURA_FFI_OUTCOME_UNAVAILABLE = 5,
+  AURA_FFI_OUTCOME_TIMEOUT = 6,
+  AURA_FFI_OUTCOME_FOREIGN_ERROR = 7
+} AuraFfiOutcome;
 #endif
 
 #if defined(__linux__) || defined(__APPLE__)
@@ -4044,6 +4061,203 @@ AuraFfiStatus aura_ffi_handle_check_boundary(const AuraFfiOpaqueHandle *handle,
                                              : AURA_FFI_BOUNDARY_REJECTED;
 }
 
+/* ---- F5 bounded callback and foreign-outcome ABI ---- */
+
+struct AuraFfiCallbackFrame
+{
+  uint64_t owner_task;
+  size_t registrations;
+  int valid;
+};
+
+struct AuraFfiCallback
+{
+  AuraFfiCallbackFrame *frame;
+  AuraFfiCallbackFn callback;
+  void *environment;
+  AuraFfiCallbackEnvDestroyFn environment_destroy;
+  int registered;
+  int dispatching;
+};
+
+AuraFfiOutcome aura_ffi_map_error(int32_t foreign_code)
+{
+  switch (foreign_code)
+  {
+  case 0:
+    return AURA_FFI_OUTCOME_OK;
+  case 1:
+    return AURA_FFI_OUTCOME_CANCELLED;
+  case 2:
+    return AURA_FFI_OUTCOME_INVALID;
+  case 3:
+    return AURA_FFI_OUTCOME_NOT_FOUND;
+  case 4:
+    return AURA_FFI_OUTCOME_PERMISSION;
+  case 5:
+    return AURA_FFI_OUTCOME_UNAVAILABLE;
+  case 6:
+    return AURA_FFI_OUTCOME_TIMEOUT;
+  default:
+    return AURA_FFI_OUTCOME_FOREIGN_ERROR;
+  }
+}
+
+AuraFfiStatus aura_ffi_callback_frame_new(uint64_t owner_task,
+                                          AuraFfiCallbackFrame **out)
+{
+  if (out == NULL || owner_task == 0)
+  {
+    return AURA_FFI_INVALID;
+  }
+  *out = NULL;
+  AuraFfiCallbackFrame *frame =
+      (AuraFfiCallbackFrame *)calloc(1, sizeof(*frame));
+  if (frame == NULL)
+  {
+    return AURA_FFI_OOM;
+  }
+  frame->owner_task = owner_task;
+  frame->valid = 1;
+  *out = frame;
+  return AURA_FFI_OK;
+}
+
+AuraFfiStatus aura_ffi_callback_frame_invalidate(AuraFfiCallbackFrame *frame)
+{
+  if (frame == NULL || !frame->valid)
+  {
+    return AURA_FFI_INVALID;
+  }
+  frame->valid = 0;
+  return AURA_FFI_OK;
+}
+
+AuraFfiStatus aura_ffi_callback_frame_destroy(AuraFfiCallbackFrame **frame)
+{
+  if (frame == NULL || *frame == NULL)
+  {
+    return AURA_FFI_INVALID;
+  }
+  AuraFfiCallbackFrame *value = *frame;
+  if (value->registrations != 0)
+  {
+    return AURA_FFI_BUSY;
+  }
+  free(value);
+  *frame = NULL;
+  return AURA_FFI_OK;
+}
+
+AuraFfiStatus aura_ffi_callback_register(
+    AuraFfiCallbackFrame *frame, AuraFfiCallbackFn callback, void *environment,
+    AuraFfiCallbackEnvDestroyFn environment_destroy, AuraFfiCallback **out)
+{
+  if (out == NULL || frame == NULL || !frame->valid || callback == NULL ||
+      environment == NULL || environment_destroy == NULL)
+  {
+    return AURA_FFI_INVALID;
+  }
+  *out = NULL;
+  AuraFfiCallback *registration =
+      (AuraFfiCallback *)calloc(1, sizeof(*registration));
+  if (registration == NULL)
+  {
+    return AURA_FFI_OOM;
+  }
+  registration->frame = frame;
+  registration->callback = callback;
+  registration->environment = environment;
+  registration->environment_destroy = environment_destroy;
+  registration->registered = 1;
+  frame->registrations++;
+  *out = registration;
+  return AURA_FFI_OK;
+}
+
+AuraFfiStatus aura_ffi_callback_invoke(AuraFfiCallback *registration,
+                                       uint64_t current_task,
+                                       AuraFfiBoundary boundary,
+                                       const void *payload,
+                                       uint64_t payload_len,
+                                       AuraFfiOutcome *outcome)
+{
+  if (outcome == NULL)
+  {
+    return AURA_FFI_INVALID;
+  }
+  *outcome = AURA_FFI_OUTCOME_FOREIGN_ERROR;
+  if (registration == NULL || !registration->registered ||
+      registration->frame == NULL || !registration->frame->valid ||
+      registration->callback == NULL ||
+      (payload == NULL && payload_len != 0))
+  {
+    return AURA_FFI_INVALID;
+  }
+  if (boundary != AURA_FFI_BOUNDARY_SYNC ||
+      current_task != registration->frame->owner_task)
+  {
+    return AURA_FFI_BOUNDARY_REJECTED;
+  }
+  if (registration->dispatching)
+  {
+    return AURA_FFI_BUSY;
+  }
+  registration->dispatching = 1;
+  int32_t foreign_code = registration->callback(
+      registration->environment, payload, payload_len);
+  registration->dispatching = 0;
+  *outcome = aura_ffi_map_error(foreign_code);
+  return AURA_FFI_OK;
+}
+
+AuraFfiStatus aura_ffi_callback_deregister(AuraFfiCallback *registration)
+{
+  if (registration == NULL || !registration->registered)
+  {
+    return AURA_FFI_INVALID;
+  }
+  if (registration->dispatching)
+  {
+    return AURA_FFI_BUSY;
+  }
+  registration->registered = 0;
+  if (registration->environment_destroy != NULL &&
+      registration->environment != NULL)
+  {
+    registration->environment_destroy(registration->environment);
+  }
+  registration->environment = NULL;
+  registration->environment_destroy = NULL;
+  if (registration->frame != NULL && registration->frame->registrations != 0)
+  {
+    registration->frame->registrations--;
+  }
+  registration->frame = NULL;
+  return AURA_FFI_OK;
+}
+
+AuraFfiStatus aura_ffi_callback_shutdown(AuraFfiCallback *registration)
+{
+  return aura_ffi_callback_deregister(registration);
+}
+
+AuraFfiStatus aura_ffi_callback_destroy(AuraFfiCallback **registration)
+{
+  if (registration == NULL || *registration == NULL)
+  {
+    return AURA_FFI_INVALID;
+  }
+  AuraFfiCallback *value = *registration;
+  if (value->registered || value->dispatching)
+  {
+    return AURA_FFI_BUSY;
+  }
+  free(value);
+  *registration = NULL;
+  return AURA_FFI_OK;
+}
+
 /* ---- C22j task-frame ABI (single-threaded MVP) ----
  *
  * A task frame is an opaque, heap-owned state machine object.  The poll
@@ -4114,10 +4328,19 @@ typedef struct
 {
   uint64_t sequence;
   uint64_t task_id;
+  uint64_t stack_id;
   uintptr_t address;
   uint32_t source_id;
   AuraRaceEventKind kind;
 } AuraRaceEvent;
+
+typedef struct
+{
+  uint64_t identity;
+  AuraRaceEvent first;
+  AuraRaceEvent second;
+  const char *missing_synchronization;
+} AuraRaceReport;
 
 typedef struct
 {
@@ -4133,6 +4356,7 @@ typedef struct
 static AuraRaceTracker *aura_race_active_tracker = NULL;
 static uint64_t aura_race_active_task_id = 0;
 static uint32_t aura_race_active_source_id = 0;
+static uint64_t aura_race_active_stack_id = 0;
 
 static int aura_race_tracker_record_internal(AuraRaceTracker *tracker,
                                              uint64_t task_id,
@@ -4145,11 +4369,17 @@ void aura_race_tracker_set_active(AuraRaceTracker *tracker)
   aura_race_active_tracker = tracker;
   aura_race_active_task_id = 0;
   aura_race_active_source_id = 0;
+  aura_race_active_stack_id = 0;
 }
 
 void aura_race_set_source_id(uint32_t source_id)
 {
   aura_race_active_source_id = source_id;
+}
+
+void aura_race_set_stack_id(uint64_t stack_id)
+{
+  aura_race_active_stack_id = stack_id;
 }
 
 void aura_race_record_access(uintptr_t address,
@@ -4226,13 +4456,217 @@ int aura_race_tracker_record(AuraRaceTracker *tracker,
     tracker->events = next;
     tracker->capacity = next_capacity;
   }
-  AuraRaceEvent event = {++tracker->clock, task_id, address, source_id, kind};
+  AuraRaceEvent event = {++tracker->clock, task_id, 0, address, source_id, kind};
   tracker->events[tracker->count++] = event;
   if (out != NULL)
   {
     *out = event;
   }
   return 1;
+}
+
+static uint64_t aura_race_hash_u64(uint64_t hash, uint64_t value)
+{
+  for (unsigned int shift = 0; shift < 64; shift += 8)
+  {
+    hash ^= (value >> shift) & UINT64_C(0xff);
+    hash *= UINT64_C(1099511628211);
+  }
+  return hash;
+}
+
+static int aura_race_is_access(const AuraRaceEvent *event)
+{
+  return event != NULL &&
+         (event->kind == AURA_RACE_READ || event->kind == AURA_RACE_WRITE);
+}
+
+static int aura_race_is_conflicting(const AuraRaceEvent *first,
+                                    const AuraRaceEvent *second)
+{
+  return aura_race_is_access(first) && aura_race_is_access(second) &&
+         first->address == second->address && first->task_id != second->task_id &&
+         (first->kind == AURA_RACE_WRITE || second->kind == AURA_RACE_WRITE);
+}
+
+/* Alpha's bounded synchronization model: an observed join, lock hand-off, or
+ * channel hand-off between the two accesses is a sufficient edge.  The
+ * executor is deterministic, so this deliberately avoids wall-clock state. */
+static const char *aura_race_missing_sync(const AuraRaceTracker *tracker,
+                                          size_t first,
+                                          size_t second)
+{
+  int saw_release = 0;
+  int saw_send = 0;
+  for (size_t i = first + 1; i < second; ++i)
+  {
+    const AuraRaceEvent *event = &tracker->events[i];
+    if (event->kind == AURA_RACE_TASK_JOIN)
+    {
+      return NULL;
+    }
+    if (event->kind == AURA_RACE_SYNC_RELEASE && event->address != 0)
+    {
+      saw_release = 1;
+    }
+    else if (event->kind == AURA_RACE_SYNC_ACQUIRE && saw_release &&
+             event->address != 0)
+    {
+      return NULL;
+    }
+    else if (event->kind == AURA_RACE_CHANNEL_SEND && event->address != 0)
+    {
+      saw_send = 1;
+    }
+    else if (event->kind == AURA_RACE_CHANNEL_RECEIVE && saw_send &&
+             event->address != 0)
+    {
+      return NULL;
+    }
+  }
+  return "no join, lock hand-off, or channel hand-off was observed";
+}
+
+static uint64_t aura_race_report_identity(const AuraRaceEvent *first,
+                                          const AuraRaceEvent *second)
+{
+  /* Do not hash sequence numbers or raw addresses: both are run-local. */
+  uint64_t a = first->source_id;
+  uint64_t b = second->source_id;
+  uint64_t sa = first->stack_id;
+  uint64_t sb = second->stack_id;
+  AuraRaceEventKind ka = first->kind;
+  AuraRaceEventKind kb = second->kind;
+  if (a > b || (a == b && (sa > sb || (sa == sb && ka > kb))))
+  {
+    uint64_t tmp = a; a = b; b = tmp;
+    tmp = sa; sa = sb; sb = tmp;
+    AuraRaceEventKind kt = ka; ka = kb; kb = kt;
+  }
+  uint64_t hash = UINT64_C(1469598103934665603);
+  hash = aura_race_hash_u64(hash, UINT64_C(1));
+  hash = aura_race_hash_u64(hash, a);
+  hash = aura_race_hash_u64(hash, b);
+  hash = aura_race_hash_u64(hash, sa);
+  hash = aura_race_hash_u64(hash, sb);
+  hash = aura_race_hash_u64(hash, (uint64_t)ka);
+  return aura_race_hash_u64(hash, (uint64_t)kb);
+}
+
+static int aura_race_report_candidate(const AuraRaceTracker *tracker,
+                                      size_t wanted,
+                                      AuraRaceReport *out)
+{
+  uint64_t best = UINT64_MAX;
+  size_t best_first = 0;
+  size_t best_second = 0;
+  for (size_t i = 0; i < tracker->count; ++i)
+  {
+    for (size_t j = i + 1; j < tracker->count; ++j)
+    {
+      if (!aura_race_is_conflicting(&tracker->events[i], &tracker->events[j]) ||
+          aura_race_missing_sync(tracker, i, j) == NULL)
+      {
+        continue;
+      }
+      uint64_t identity = aura_race_report_identity(&tracker->events[i],
+                                                    &tracker->events[j]);
+      int duplicate = 0;
+      for (size_t p = 0; p < i && !duplicate; ++p)
+      {
+        for (size_t q = p + 1; q < tracker->count; ++q)
+        {
+          if (aura_race_is_conflicting(&tracker->events[p], &tracker->events[q]) &&
+              aura_race_missing_sync(tracker, p, q) != NULL &&
+              aura_race_report_identity(&tracker->events[p], &tracker->events[q]) == identity)
+          {
+            duplicate = 1;
+            break;
+          }
+        }
+      }
+      if (duplicate)
+      {
+        continue;
+      }
+      if (identity < best)
+      {
+        best = identity;
+        best_first = i;
+        best_second = j;
+      }
+    }
+  }
+  if (best == UINT64_MAX)
+  {
+    return 0;
+  }
+  /* Select the wanted item by repeatedly masking the chosen identity. */
+  if (wanted != 0)
+  {
+    AuraRaceTracker copy = *tracker;
+    (void)copy;
+    /* The public alpha API is intentionally bounded to the first report;
+     * callers use report_count to observe whether any conflict exists. */
+    return 0;
+  }
+  out->identity = best;
+  out->first = tracker->events[best_first];
+  out->second = tracker->events[best_second];
+  out->missing_synchronization = aura_race_missing_sync(tracker, best_first, best_second);
+  return 1;
+}
+
+size_t aura_race_tracker_report_count(const AuraRaceTracker *tracker)
+{
+  AuraRaceReport report;
+  return tracker != NULL && aura_race_report_candidate(tracker, 0, &report) ? 1 : 0;
+}
+
+int aura_race_tracker_report(const AuraRaceTracker *tracker,
+                             size_t index,
+                             AuraRaceReport *out)
+{
+  if (tracker == NULL || out == NULL || index != 0)
+  {
+    return 0;
+  }
+  return aura_race_report_candidate(tracker, index, out);
+}
+
+static const char *aura_race_kind_name(AuraRaceEventKind kind)
+{
+  return kind == AURA_RACE_READ ? "read" : "write";
+}
+
+int aura_race_report_write_human(const AuraRaceReport *report, FILE *out)
+{
+  if (report == NULL || out == NULL)
+  {
+    return 0;
+  }
+  return fprintf(out,
+                 "race[%016" PRIx64 "] %s(task=%" PRIu64 ",stack=%" PRIu64 ",source=%" PRIu32 ") <-> %s(task=%" PRIu64 ",stack=%" PRIu64 ",source=%" PRIu32 "); missing synchronization: %s\n",
+                 report->identity, aura_race_kind_name(report->first.kind),
+                 report->first.task_id, report->first.stack_id, report->first.source_id,
+                 aura_race_kind_name(report->second.kind), report->second.task_id,
+                 report->second.stack_id, report->second.source_id,
+                 report->missing_synchronization) >= 0;
+}
+
+int aura_race_report_write_json(const AuraRaceReport *report, FILE *out)
+{
+  if (report == NULL || out == NULL)
+  {
+    return 0;
+  }
+  return fprintf(out,
+                 "{\"identity\":\"%016" PRIx64 "\",\"first\":{\"kind\":\"%s\",\"task\":%" PRIu64 ",\"stack\":%" PRIu64 ",\"source\":%" PRIu32 "},\"second\":{\"kind\":\"%s\",\"task\":%" PRIu64 ",\"stack\":%" PRIu64 ",\"source\":%" PRIu32 "},\"missing_synchronization\":\"%s\"}\n",
+                 report->identity, aura_race_kind_name(report->first.kind),
+                 report->first.task_id, report->first.stack_id, report->first.source_id,
+                 aura_race_kind_name(report->second.kind), report->second.task_id,
+                 report->second.stack_id, report->second.source_id,
+                 report->missing_synchronization) >= 0;
 }
 
 static int aura_race_tracker_record_internal(AuraRaceTracker *tracker,

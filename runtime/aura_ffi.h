@@ -8,7 +8,8 @@
  * layouts.  A foreign function may borrow a view for the duration of a call,
  * copy a view into an Aura-owned value, or transfer a malloc-compatible buffer
  * exactly once.  No callback, arbitrary element destructor, or raw pointer
- * dereference is part of this ABI (callbacks belong to F5).
+ * dereference is part of this ABI.  The callback surface below is a separate,
+ * synchronous F5 contract and never borrows an environment past deregistration.
  */
 #include <stddef.h>
 #include <stdint.h>
@@ -141,5 +142,50 @@ AuraFfiStatus aura_ffi_handle_destroy(AuraFfiOpaqueHandle **handle);
  * ABI.  Task, await, channel, and callback crossings are rejected. */
 AuraFfiStatus aura_ffi_handle_check_boundary(const AuraFfiOpaqueHandle *handle,
                                              AuraFfiBoundary boundary);
+
+/* F5 bounded callback ABI.  A registration owns `environment` and invokes its
+ * destructor exactly once, at deregistration or shutdown.  A callback is
+ * synchronous, single-thread-affine, and may not cross task/await/channel
+ * boundaries.  The frame is retained by the registration, so destroying the
+ * caller's frame while registered is rejected rather than leaving a dangling
+ * callback target. */
+typedef struct AuraFfiCallbackFrame AuraFfiCallbackFrame;
+typedef struct AuraFfiCallback AuraFfiCallback;
+typedef int32_t (*AuraFfiCallbackFn)(void *environment, const void *payload,
+                                     uint64_t payload_len);
+typedef void (*AuraFfiCallbackEnvDestroyFn)(void *environment);
+
+typedef enum AuraFfiOutcome {
+  AURA_FFI_OUTCOME_OK = 0,
+  AURA_FFI_OUTCOME_CANCELLED = 1,
+  AURA_FFI_OUTCOME_INVALID = 2,
+  AURA_FFI_OUTCOME_NOT_FOUND = 3,
+  AURA_FFI_OUTCOME_PERMISSION = 4,
+  AURA_FFI_OUTCOME_UNAVAILABLE = 5,
+  AURA_FFI_OUTCOME_TIMEOUT = 6,
+  AURA_FFI_OUTCOME_FOREIGN_ERROR = 7
+} AuraFfiOutcome;
+
+/* Foreign callbacks return these bounded error codes; unknown values map to
+ * AURA_FFI_OUTCOME_FOREIGN_ERROR and are never treated as success. */
+AuraFfiOutcome aura_ffi_map_error(int32_t foreign_code);
+
+AuraFfiStatus aura_ffi_callback_frame_new(uint64_t owner_task,
+                                          AuraFfiCallbackFrame **out);
+AuraFfiStatus aura_ffi_callback_frame_invalidate(AuraFfiCallbackFrame *frame);
+AuraFfiStatus aura_ffi_callback_frame_destroy(AuraFfiCallbackFrame **frame);
+
+AuraFfiStatus aura_ffi_callback_register(
+    AuraFfiCallbackFrame *frame, AuraFfiCallbackFn callback, void *environment,
+    AuraFfiCallbackEnvDestroyFn environment_destroy, AuraFfiCallback **out);
+AuraFfiStatus aura_ffi_callback_invoke(AuraFfiCallback *callback,
+                                       uint64_t current_task,
+                                       AuraFfiBoundary boundary,
+                                       const void *payload,
+                                       uint64_t payload_len,
+                                       AuraFfiOutcome *outcome);
+AuraFfiStatus aura_ffi_callback_deregister(AuraFfiCallback *callback);
+AuraFfiStatus aura_ffi_callback_shutdown(AuraFfiCallback *callback);
+AuraFfiStatus aura_ffi_callback_destroy(AuraFfiCallback **callback);
 
 #endif

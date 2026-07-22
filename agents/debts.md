@@ -385,3 +385,12 @@ When you resolve debt, update or remove the matching entry.
   rejected. Aura-level pointer types and automatic handle rooting across an
   asynchronous boundary remain deferred; callbacks and foreign error mapping
   belong to F5.
+
+### F5 callback portability (2026-07-22)
+
+- F5 provides a single-threaded synchronous callback ABI with explicit
+  environment ownership, frame retention, affinity checks, and bounded integer
+  error mapping. Concurrent foreign-thread delivery, host-specific callback
+  trampolines, cancellation resumption, and exception-object translation remain
+  deferred to cross-host acceptance work; next step is to extend the ABI only
+  after scheduler and target descriptors define those semantics.

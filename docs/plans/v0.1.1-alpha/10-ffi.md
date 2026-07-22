@@ -109,12 +109,30 @@ cleanup, and invalidated-handle cleanup. Callback implementation remains F5.
 **Objective:** Make foreign callbacks and failures safe across execution models.
 **Checklist:**
 
-- [ ] Define callback ownership, thread/task affinity, and shutdown behavior.
-- [ ] Map foreign error codes/exceptions into Aura outcomes.
-- [ ] Prevent callbacks from observing destroyed frames or values.
+- [x] Define callback ownership, thread/task affinity, and shutdown behavior.
+- [x] Map foreign error codes/exceptions into Aura outcomes.
+- [x] Prevent callbacks from observing destroyed frames or values.
       **Acceptance:** Callback lifetime and failure behavior are documented and tested.
       **Verification:** Run callback, re-entry, cancellation, and foreign-error cases.
-      **Dependencies:** F4, S1–S6.
+**Dependencies:** F4, S1–S6.
+
+**Implementation status (F5, bounded alpha slice):** `runtime/aura_ffi.h`
+defines a synchronous callback registration whose environment is owned by the
+registration and destroyed exactly once by deregistration or shutdown. Each
+registration retains an explicit owner frame and task id; delivery from a
+different task, or through await/channel/callback boundaries, is rejected.
+Re-entry while a callback is dispatching returns `AURA_FFI_BUSY`. Frame
+invalidation rejects later delivery, and frame destruction is refused while a
+registration still retains it, preventing a destroyed callback frame from
+being observed. Foreign return codes 0–6 map to documented Aura outcomes;
+unknown codes map to `FOREIGN_ERROR`.
+
+**Verification:** `runtime/tests/ffi_callbacks.c` is compiled with strict C11
+warnings and exercises environment lifetime, task/await affinity rejection,
+re-entry, frame invalidation/destruction prevention, idempotent shutdown, and
+foreign timeout/unknown-error mapping. This is a single-threaded bounded
+runtime fixture; cross-host callback acceptance, concurrent callback delivery,
+and exception-object translation remain outside F5.
 
 ## F6. FFI acceptance and sanitizers
 
