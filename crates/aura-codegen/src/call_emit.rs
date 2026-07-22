@@ -120,7 +120,15 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
             if is_alias {
                 let name = &fe.field.name;
                 let inst = ctx.checked.call_instantiations.get(&c.span.start);
-                let targs: Vec<Ty> = inst.map(|i| i.type_args.clone()).unwrap_or_default();
+                let subst = aura_sema::type_subst_map(&ctx.type_params, &ctx.type_args);
+                let targs: Vec<Ty> = inst
+                    .map(|i| {
+                        i.type_args
+                            .iter()
+                            .map(|t| aura_sema::subst_ty(t, &subst))
+                            .collect()
+                    })
+                    .unwrap_or_default();
                 let pkg = inst.map(|i| i.package.as_str()).unwrap_or("");
                 let args = c
                     .args
@@ -668,7 +676,11 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                 .find(|x| x.name.name == id.name)
             {
                 let targs: Vec<Ty> = if let Some(inst) = inst {
-                    inst.type_args.clone()
+                    let subst = aura_sema::type_subst_map(&ctx.type_params, &ctx.type_args);
+                    inst.type_args
+                        .iter()
+                        .map(|t| aura_sema::subst_ty(t, &subst))
+                        .collect()
                 } else {
                     c.type_args
                         .iter()

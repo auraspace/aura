@@ -1,0 +1,26 @@
+// C19x — generic function and generic-class method constructors substitute open params.
+package demo.generic.constructor_subst
+
+class Pair<K, V>(val key: K, val value: V) {
+}
+
+fun pair<K, V>(key: K, value: V): Pair<K, V> {
+  return Pair<K, V>(key, value)
+}
+
+class Duplicator<T>(val value: T) {
+  fun duplicate(): Pair<T, T> {
+    return Pair<T, T>(this.value, this.value)
+  }
+}
+
+fun main() {
+  val text: Pair<Int, String> = pair<Int, String>(7, "seven")
+  assert_eq(text.key, 7)
+  assert_eq(text.value, "seven")
+
+  val ints: Pair<Int, Int> = Duplicator<Int>(9).duplicate()
+  assert_eq(ints.key, 9)
+  assert_eq(ints.value, 9)
+  println("generic-constructor-subst-ok")
+}
