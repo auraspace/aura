@@ -2,6 +2,9 @@
 
 use aura_ast::{BytePos, Span};
 
+pub mod json;
+pub use json::{JsonDiagnostic, JsonSpan, Severity};
+
 /// 1-based line and column (column counts UTF-8 bytes on the line, like rustc for ASCII).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LineCol {
