@@ -1999,6 +1999,7 @@ struct AuraTaskExecutor
   size_t ready_count;
   size_t owned_count;
   int shutdown;
+  AuraRaceTracker *race_tracker;
 };
 
 int aura_task_executor_wake(AuraTaskExecutor *executor, AuraTaskFrame *frame);
@@ -2034,6 +2035,15 @@ AuraTaskExecutor *aura_task_executor_new(void)
   return (AuraTaskExecutor *)calloc(1, sizeof(AuraTaskExecutor));
 }
 
+void aura_task_executor_set_race_tracker(AuraTaskExecutor *executor,
+                                         AuraRaceTracker *tracker)
+{
+  if (executor != NULL && !executor->shutdown)
+  {
+    executor->race_tracker = tracker;
+  }
+}
+
 static void aura_task_executor_push_owned(AuraTaskExecutor *executor,
                                            AuraTaskFrame *frame)
 {
@@ -2050,6 +2060,15 @@ int aura_task_executor_submit(AuraTaskExecutor *executor, AuraTaskFrame *frame)
     return 0;
   }
   aura_task_executor_push_owned(executor, frame);
+  if (executor->race_tracker != NULL)
+  {
+    (void)aura_race_tracker_record(executor->race_tracker,
+                                   frame->task_id,
+                                   0,
+                                   0,
+                                   AURA_RACE_TASK_SPAWN,
+                                   NULL);
+  }
   frame->state = AURA_TASK_READY;
   return aura_task_executor_wake(executor, frame);
 }

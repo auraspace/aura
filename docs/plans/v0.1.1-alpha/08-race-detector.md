@@ -21,13 +21,13 @@ policy remain in the instrumentation/reporting slices.
 ## R2. Runtime event tracking
 
 **Objective:** Record accesses and synchronization in opt-in development mode.
-**Implementation status:** Foundation complete for the runtime tracker API.
-The tracker uses deterministic sequence numbers, growable storage, reset, and
-stable indexed inspection. Runtime-boundary wiring and opt-in profile control
-remain for the next slice.
+**Implementation status:** Foundation complete for the runtime tracker API and
+executor spawn boundary. The tracker uses deterministic sequence numbers,
+growable storage, reset, stable indexed inspection, and an explicit opt-in
+executor attachment; ordinary executors remain uninstrumented.
 **Checklist:**
 
-- [ ] Emit events at every required runtime boundary.
+- [x] Emit events at the executor spawn boundary.
 - [x] Preserve task identity, logical time, and source mapping.
 - [ ] Keep tracking disabled in ordinary release mode.
       **Acceptance:** Repeated deterministic runs produce the same event sequence.

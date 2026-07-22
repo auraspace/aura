@@ -21,6 +21,15 @@ int main(void)
   assert(aura_race_tracker_event(tracker, 1)->source_id == 8);
   assert(aura_race_tracker_event(tracker, 2) == NULL);
 
+  AuraTaskExecutor *executor = aura_task_executor_new();
+  AuraTaskFrame *frame = aura_task_frame_new(0, aura_task_poll_unit, NULL);
+  aura_task_executor_set_race_tracker(executor, tracker);
+  aura_race_tracker_reset(tracker);
+  assert(aura_task_executor_submit(executor, frame));
+  assert(aura_race_tracker_count(tracker) == 1);
+  assert(aura_race_tracker_event(tracker, 0)->kind == AURA_RACE_TASK_SPAWN);
+  aura_task_executor_shutdown(executor);
+
   aura_race_tracker_reset(tracker);
   assert(aura_race_tracker_count(tracker) == 0);
   aura_race_tracker_destroy(tracker);

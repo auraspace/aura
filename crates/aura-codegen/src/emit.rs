@@ -96,6 +96,7 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("typedef struct AuraTaskFrame AuraTaskFrame;\n");
     out.push_str("typedef struct AuraTaskExecutor AuraTaskExecutor;\n");
     out.push_str("typedef struct AuraTaskChannel AuraTaskChannel;\n");
+    out.push_str("typedef struct AuraRaceTracker AuraRaceTracker;\n");
     out.push_str("typedef void (*AuraTaskChannelValueDestroyFn)(void *data, size_t size);\n");
     out.push_str("typedef struct { void *data; size_t size; AuraTaskChannelValueDestroyFn destroy; } AuraTaskChannelValue;\n");
     out.push_str("typedef enum { AURA_CHANNEL_OK = 0, AURA_CHANNEL_PENDING = 1, AURA_CHANNEL_CLOSED = 2, AURA_CHANNEL_ERROR = 3 } AuraTaskChannelStatus;\n");
@@ -117,6 +118,7 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("void aura_task_frame_set_result(AuraTaskFrame *frame, void *data, size_t size, AuraTaskResultDestroyFn destroy);\n");
     out.push_str("AuraTaskResult aura_task_frame_result(const AuraTaskFrame *frame);\n");
     out.push_str("AuraTaskExecutor *aura_task_executor_new(void);\n");
+    out.push_str("void aura_task_executor_set_race_tracker(AuraTaskExecutor *executor, AuraRaceTracker *tracker);\n");
     out.push_str(
         "int aura_task_executor_submit(AuraTaskExecutor *executor, AuraTaskFrame *frame);\n",
     );
