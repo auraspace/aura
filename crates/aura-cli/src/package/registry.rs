@@ -964,9 +964,11 @@ mod unit {
         }
     }
 
+    type FixtureRequests = Arc<Mutex<Vec<Vec<u8>>>>;
+
     fn upload_fixture(
         responses: Vec<(u16, String)>,
-    ) -> (String, Arc<Mutex<Vec<Vec<u8>>>>, thread::JoinHandle<()>) {
+    ) -> (String, FixtureRequests, thread::JoinHandle<()>) {
         let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
         let address = listener.local_addr().unwrap();
         let requests = Arc::new(Mutex::new(Vec::new()));
