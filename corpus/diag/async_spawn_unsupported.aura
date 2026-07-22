@@ -2,6 +2,6 @@
 package demo.tasks.diag
 
 fun main() {
-  val task = spawn { println("later") }
+  val task = spawn { val later = 1 }
   cancel(task)
 }

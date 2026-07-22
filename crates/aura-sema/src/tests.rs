@@ -314,6 +314,15 @@ fn async_boundaries_reject_borrowed_values() {
 }
 
 #[test]
+fn bounded_non_empty_spawn_body_is_semantically_valid() {
+    let file = parse_file(
+        "package t\nfun main() { val task = spawn { println(\"once\") return } join(task) }\n",
+    )
+    .expect("parse bounded spawn");
+    check_file(&file).expect("capture-free effect-only spawn should typecheck");
+}
+
+#[test]
 fn task_owned_storage_rejects_nested_ref() {
     let file = parse_file("package t\nfun use(task: Task<ref String>) {}\n").expect("parse");
     let err = check_file(&file).expect_err("borrow in task storage");

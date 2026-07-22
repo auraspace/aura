@@ -68,7 +68,7 @@ mod tests {
         JoinExpr, Path, ReturnStmt, Span, SpawnExpr, Stmt, TypeRef,
     };
 
-    use super::{build_from_file, build_from_file_with};
+    use super::{build_from_file, build_from_file_with, emit_c_from_ast};
     use crate::{
         Backend, CompileOptions, DiagnosticMode, OutputKind, Profile, RuntimeAbi, Target,
     };
@@ -556,6 +556,41 @@ mod tests {
         assert!(status.success());
         let _ = std::fs::remove_file(&bin);
         let _ = std::fs::remove_file(dir.join(format!("aura-c22m-{}.aura.c", std::process::id())));
+    }
+
+    #[test]
+    fn builds_and_runs_bounded_non_empty_spawn_once() {
+        let file = aura_parser::parse_file(
+            "package demo\nfun main() { val task = spawn { println(\"bounded spawn\") } join(task) }\n",
+        )
+        .expect("parse bounded spawn");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-bounded-spawn-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile bounded non-empty spawn");
+        let generated = fs::read_to_string(&generated_c).expect("read generated bounded spawn C");
+        assert!(generated.contains("aura_spawn_poll_"));
+        let output = Command::new(&bin).output().expect("run bounded spawn");
+        assert!(output.status.success());
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "bounded spawn\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn unsupported_spawn_body_keeps_stable_failure_path() {
+        let file = aura_parser::parse_file(
+            "package demo\nfun main() { val task = spawn { val later = 1 } cancel(task) }\n",
+        )
+        .expect("parse unsupported spawn");
+        let generated = emit_c_from_ast(&file).expect("emit unsupported spawn path");
+        assert!(generated.contains("non-empty spawn body requires C22l state-machine lowering"));
     }
 
     #[test]

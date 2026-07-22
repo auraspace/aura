@@ -5,22 +5,28 @@ Owner: Runtime + Compiler. Scope: 6 tasks.
 ## S1. Spawn frame creation
 
 **Objective:** Execute non-empty spawned bodies as first-class task frames.
-**Implementation status:** Foundation complete for the shipped empty-body spawn
-slice. Every frame receives a monotonic task identity and initial state; the
-deterministic executor schedules each submitted frame once. Non-empty body
-lowering remains coupled to A4–A6 capture/await work.
+**Implementation status:** Partial lowering now covers empty and bounded
+capture-free non-empty bodies made of effect-only calls with literal arguments
+or an explicit unit return. Every frame receives a monotonic task identity and
+initial state; unsupported capture/await/live-local bodies remain coupled to
+A4–A6 and retain the explicit diagnostic/abort path.
 
 **Checklist:**
 
-- [x] Create an owned frame with stable task identity and initial state.
-- [x] Schedule the body exactly once under the deterministic executor.
+- [x] Create an owned frame with stable task identity and initial state for the
+      shipped empty and bounded capture-free non-empty subset.
+- [x] Schedule the supported body exactly once under the deterministic
+      executor; captures, awaits, and live locals remain unsupported.
 - [x] Define immediate completion and abandoned-task behavior.
 - [x] Expose spawn and terminal lifecycle events for diagnostics and race
       instrumentation.
+- [x] Lower the proven capture-free effect-only subset to a real one-shot poll
+      frame and verify native execution plus join completion.
 
 **Acceptance:** A spawned body runs once and reaches a terminal state.
 
-**Verification:** Run empty, non-empty, nested, and repeatedly scheduled cases.
+**Verification:** Run empty and bounded effect-only non-empty cases natively;
+nested, capture, await, and repeatedly scheduled lowering remain unverified.
 
 **Dependencies:** A1–A7.
 

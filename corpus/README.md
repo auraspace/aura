@@ -9,7 +9,9 @@ The `async/` fixtures cover the deterministic, single-threaded C22 surface curre
 The following files are intentionally expected to fail and live under `diag/`, so `scripts/check-corpus.sh` excludes them from the green corpus:
 
 - `diag/async_await_unsupported.aura` — `await` is parsed and type-checked, but suspension/state-machine codegen is deferred.
-- `diag/async_spawn_unsupported.aura` — non-empty `spawn` requires state-machine/capture lowering; empty `spawn {}` is the only implemented spawn body.
+- `diag/async_spawn_unsupported.aura` — non-empty `spawn` with locals still
+  requires state-machine/capture lowering; the bounded effect-only subset is
+  covered by native codegen tests.
 - `diag/async_borrow_await.aura`, `diag/async_borrow_spawn.aura`, and `diag/async_borrow_channel_send.aura` — borrowed values cannot cross those async/task/channel boundaries.
 - `diag/async_borrow_task_storage.aura` — `Task<T>` cannot store a borrowed `T`.
 

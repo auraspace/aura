@@ -10,7 +10,7 @@ use crate::array_emit::{emit_array_mono, is_array_mono};
 use crate::class_emit::*;
 use crate::ctx::{EmitCtx, EmitOptions};
 use crate::enum_emit::*;
-use crate::expr::full_type_mono;
+use crate::expr::{bounded_spawn_body, bounded_spawn_poll_name, emit_expr, full_type_mono};
 use crate::iface::*;
 use crate::names::*;
 use crate::stmt::{emit_block, emit_return_fallback};
@@ -417,6 +417,11 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
         }
     }
     out.push('\n');
+
+    // C22l: emit the bounded, capture-free spawn pollers after all ordinary
+    // declarations are visible. Unsupported bodies keep the explicit abort
+    // path in expression emission.
+    emit_bounded_spawn_pollers(&mut out, checked);
 
     // Definitions
     for c in &checked.ast.classes {
@@ -825,6 +830,162 @@ pub(crate) fn build_lambda_ids(checked: &CheckedFile) -> HashMap<u32, usize> {
         .enumerate()
         .map(|(i, s)| (s, i))
         .collect()
+}
+
+fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile) {
+    let mut spawns = Vec::new();
+    for f in &checked.ast.functions {
+        collect_spawns_block(&f.body, &mut spawns);
+    }
+    for f in &checked.ast.async_functions {
+        collect_spawns_block(&f.body, &mut spawns);
+    }
+    for c in &checked.ast.classes {
+        for m in &c.methods {
+            collect_spawns_block(&m.body, &mut spawns);
+        }
+    }
+    for c in &checked.ast.consts {
+        collect_spawns_expr(&c.value, &mut spawns);
+    }
+
+    let mut emitted = std::collections::HashSet::new();
+    for spawn in spawns {
+        if spawn.body.stmts.is_empty()
+            || !bounded_spawn_body(&spawn.body)
+            || !emitted.insert(spawn.span.start)
+        {
+            continue;
+        }
+        let poll = bounded_spawn_poll_name(spawn.span);
+        let _ = writeln!(out, "static AuraTaskPollState {poll}(AuraTaskFrame *frame) {{");
+        out.push_str("  if (aura_task_frame_cancel_requested(frame)) return AURA_TASK_CANCELLED;\n");
+        out.push_str("  if (aura_task_frame_resume_state(frame) != 0) return AURA_TASK_COMPLETE;\n");
+        out.push_str("  aura_task_frame_set_resume_state(frame, 1);\n");
+        let mut ctx = EmitCtx {
+            checked,
+            method_class: None,
+            type_params: Vec::new(),
+            type_args: Vec::new(),
+            locals: vec![HashMap::new()],
+            array_owners: vec![std::collections::HashSet::new()],
+            fun_owners: vec![std::collections::HashSet::new()],
+            string_owners: vec![std::collections::HashSet::new()],
+            channel_owners: vec![std::collections::HashSet::new()],
+            box_locals: vec![std::collections::HashSet::new()],
+            box_owners: vec![std::collections::HashSet::new()],
+            gc_roots: vec![std::collections::HashSet::new()],
+            array_gc_roots: vec![std::collections::HashSet::new()],
+            return_key: Some("Unit".into()),
+            lambda_ids: build_lambda_ids(checked),
+        };
+        for stmt in &spawn.body.stmts {
+            if let Stmt::Expr(expr) = stmt {
+                let code = emit_expr(expr, &mut ctx);
+                let _ = writeln!(out, "  {code};");
+            }
+        }
+        out.push_str("  return AURA_TASK_COMPLETE;\n}\n\n");
+    }
+}
+
+fn collect_spawns_block<'a>(block: &'a Block, out: &mut Vec<&'a SpawnExpr>) {
+    for stmt in &block.stmts {
+        match stmt {
+            Stmt::Var(v) => collect_spawns_expr(&v.init, out),
+            Stmt::If(i) => {
+                collect_spawns_expr(&i.cond, out);
+                collect_spawns_block(&i.then_block, out);
+                if let Some(b) = &i.else_block {
+                    collect_spawns_block(b, out);
+                }
+            }
+            Stmt::While(w) => {
+                collect_spawns_expr(&w.cond, out);
+                collect_spawns_block(&w.body, out);
+            }
+            Stmt::ForRange(f) => {
+                collect_spawns_expr(&f.start, out);
+                collect_spawns_expr(&f.end, out);
+                collect_spawns_block(&f.body, out);
+            }
+            Stmt::ForIn(f) => {
+                collect_spawns_expr(&f.iterable, out);
+                collect_spawns_block(&f.body, out);
+            }
+            Stmt::Match(m) => {
+                collect_spawns_expr(&m.scrutinee, out);
+                for arm in &m.arms {
+                    collect_spawns_block(&arm.body, out);
+                }
+            }
+            Stmt::Try(t) => {
+                collect_spawns_block(&t.try_block, out);
+                if let Some(c) = &t.catch {
+                    collect_spawns_block(&c.body, out);
+                }
+                if let Some(f) = &t.finally {
+                    collect_spawns_block(f, out);
+                }
+            }
+            Stmt::Throw(t) => collect_spawns_expr(&t.value, out),
+            Stmt::Return(r) => {
+                if let Some(e) = &r.value {
+                    collect_spawns_expr(e, out);
+                }
+            }
+            Stmt::Expr(e) => collect_spawns_expr(e, out),
+            Stmt::Break(_) | Stmt::Continue(_) => {}
+        }
+    }
+}
+
+fn collect_spawns_expr<'a>(expr: &'a Expr, out: &mut Vec<&'a SpawnExpr>) {
+    match expr {
+        Expr::Call(c) => {
+            collect_spawns_expr(&c.callee, out);
+            for arg in &c.args {
+                collect_spawns_expr(arg, out);
+            }
+        }
+        Expr::Field(f) => collect_spawns_expr(&f.object, out),
+        Expr::Assign(a) => collect_spawns_expr(&a.value, out),
+        Expr::Binary(b) => {
+            collect_spawns_expr(&b.left, out);
+            collect_spawns_expr(&b.right, out);
+        }
+        Expr::Unary(u) => collect_spawns_expr(&u.expr, out),
+        Expr::ForceUnwrap(f) => collect_spawns_expr(&f.expr, out),
+        Expr::Is(i) => collect_spawns_expr(&i.expr, out),
+        Expr::Group(e, _) => collect_spawns_expr(e, out),
+        Expr::If(i) => {
+            collect_spawns_expr(&i.cond, out);
+            collect_spawns_block(&i.then_block, out);
+            collect_spawns_block(&i.else_block, out);
+        }
+        Expr::Lambda(l) => match &l.body {
+            LambdaBody::Expr(e) => collect_spawns_expr(e, out),
+            LambdaBody::Block(b) => collect_spawns_block(b, out),
+        },
+        Expr::Async(a) => match a {
+            AsyncExpr::Spawn(s) => {
+                out.push(s);
+                collect_spawns_block(&s.body, out);
+            }
+            AsyncExpr::Await(a) => collect_spawns_expr(&a.operand, out),
+            AsyncExpr::Join(j) => collect_spawns_expr(&j.handle, out),
+            AsyncExpr::Cancel(c) => collect_spawns_expr(&c.handle, out),
+            AsyncExpr::ChannelCreate(c) => collect_spawns_expr(&c.capacity, out),
+            AsyncExpr::ChannelSend(c) => {
+                collect_spawns_expr(&c.channel, out);
+                collect_spawns_expr(&c.value, out);
+            }
+            AsyncExpr::ChannelReceive(c) => collect_spawns_expr(&c.channel, out),
+            AsyncExpr::ChannelClose(c) => collect_spawns_expr(&c.channel, out),
+        },
+        Expr::Ident(_) | Expr::This(_) | Expr::Int(_) | Expr::Bool(_) | Expr::String(_)
+        | Expr::Null(_) => {}
+    }
 }
 
 /// Collect LambdaExpr nodes from the AST (for body emission).

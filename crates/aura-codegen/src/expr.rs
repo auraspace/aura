@@ -380,6 +380,42 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
     }
 }
 
+/// Bounded C22l lowering: a spawn body may contain only calls with literal
+/// arguments and an optional unit return.  Such a body has no locals, captures,
+/// suspension points, or ownership to preserve across polls.
+pub(crate) fn bounded_spawn_body(body: &Block) -> bool {
+    let mut returned = false;
+    for stmt in &body.stmts {
+        if returned {
+            return false;
+        }
+        match stmt {
+            Stmt::Expr(Expr::Call(call))
+                if matches!(call.callee.as_ref(), Expr::Ident(_))
+                    && call.args.iter().all(bounded_spawn_value) => {}
+            Stmt::Return(ret) if ret.value.is_none() => returned = true,
+            _ => return false,
+        }
+    }
+    true
+}
+
+fn bounded_spawn_value(expr: &Expr) -> bool {
+    match expr {
+        Expr::Int(_) | Expr::Bool(_) | Expr::String(_) | Expr::Null(_) => true,
+        Expr::Group(inner, _) => bounded_spawn_value(inner),
+        Expr::Unary(unary) => bounded_spawn_value(&unary.expr),
+        Expr::Binary(binary) => {
+            bounded_spawn_value(&binary.left) && bounded_spawn_value(&binary.right)
+        }
+        _ => false,
+    }
+}
+
+pub(crate) fn bounded_spawn_poll_name(span: Span) -> String {
+    format!("aura_spawn_poll_{}", span.start)
+}
+
 pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
     match expr {
         Expr::Ident(i) => {
@@ -900,10 +936,14 @@ fn async_inner_key(expr: &Expr, ctx: &EmitCtx<'_>) -> String {
 fn emit_async_expr(expr: &AsyncExpr, ctx: &mut EmitCtx<'_>) -> String {
     match expr {
         AsyncExpr::Spawn(s) => {
-            if !s.body.stmts.is_empty() {
+            if s.body.stmts.is_empty() {
+                return "({ AuraTaskFrame *__spawn = aura_task_frame_new(0, aura_task_poll_unit, NULL); if (__spawn != NULL && (__aura_task_executor == NULL || !aura_task_executor_submit(__aura_task_executor, __spawn))) { aura_task_frame_destroy(__spawn); __spawn = NULL; } __spawn; })".into();
+            }
+            if !bounded_spawn_body(&s.body) {
                 return "({ fputs(\"aura: non-empty spawn body requires C22l state-machine lowering\\n\", stderr); abort(); (AuraTaskFrame *)NULL; })".to_string();
             }
-            "({ AuraTaskFrame *__spawn = aura_task_frame_new(0, aura_task_poll_unit, NULL); if (__spawn != NULL && (__aura_task_executor == NULL || !aura_task_executor_submit(__aura_task_executor, __spawn))) { aura_task_frame_destroy(__spawn); __spawn = NULL; } __spawn; })".into()
+            let poll = bounded_spawn_poll_name(s.span);
+            format!("({{ AuraTaskFrame *__spawn = aura_task_frame_new(0, {poll}, NULL); if (__spawn != NULL && (__aura_task_executor == NULL || !aura_task_executor_submit(__aura_task_executor, __spawn))) {{ aura_task_frame_destroy(__spawn); __spawn = NULL; }} __spawn; }})")
         }
         AsyncExpr::Join(j) => {
             let handle = emit_expr(&j.handle, ctx);
