@@ -88,8 +88,8 @@ mod tests {
     use std::process::Command;
 
     use aura_ast::{
-        AsyncFunDecl, Block, CallExpr, Expr, File, FunDecl, Ident, IntLit, Path, ReturnStmt, Span,
-        Stmt, TypeRef,
+        AsyncExpr, AsyncFunDecl, Block, CallExpr, CancelExpr, Expr, File, FunDecl, Ident, IntLit,
+        JoinExpr, Path, ReturnStmt, Span, SpawnExpr, Stmt, TypeRef,
     };
 
     use super::build_from_file;
@@ -173,5 +173,111 @@ mod tests {
         assert!(status.success());
         let _ = std::fs::remove_file(&bin);
         let _ = std::fs::remove_file(dir.join(format!("aura-c22l-{}.aura.c", std::process::id())));
+    }
+
+    #[test]
+    fn builds_and_runs_spawn_join_cancel() {
+        let span = Span::new(0, 1);
+        let ident = |name: &str| Ident {
+            name: name.into(),
+            span,
+        };
+        let unit_ty = || TypeRef {
+            qualifier: None,
+            name: ident("Unit"),
+            type_args: vec![],
+            nullable: false,
+            reference: false,
+            span,
+            fun: None,
+        };
+        let handle_ty = || TypeRef {
+            qualifier: None,
+            name: ident("TaskHandle"),
+            type_args: vec![unit_ty()],
+            nullable: false,
+            reference: false,
+            span,
+            fun: None,
+        };
+        let spawn = || {
+            Expr::Async(AsyncExpr::Spawn(SpawnExpr {
+                body: Block {
+                    stmts: vec![],
+                    span,
+                },
+                span,
+            }))
+        };
+        let h1 = ident("h1");
+        let h2 = ident("h2");
+        let main_fun = FunDecl {
+            is_pub: false,
+            origin_package: String::new(),
+            is_test: false,
+            name: ident("main"),
+            type_params: vec![],
+            params: vec![],
+            return_type: None,
+            body: Block {
+                stmts: vec![
+                    Stmt::Var(aura_ast::VarStmt {
+                        mutable: false,
+                        name: h1.clone(),
+                        ty: Some(handle_ty()),
+                        init: spawn(),
+                        span,
+                    }),
+                    Stmt::Expr(Expr::Async(AsyncExpr::Join(JoinExpr {
+                        handle: Box::new(Expr::Ident(h1)),
+                        span,
+                    }))),
+                    Stmt::Var(aura_ast::VarStmt {
+                        mutable: false,
+                        name: h2.clone(),
+                        ty: Some(handle_ty()),
+                        init: spawn(),
+                        span,
+                    }),
+                    Stmt::Expr(Expr::Async(AsyncExpr::Cancel(CancelExpr {
+                        handle: Box::new(Expr::Ident(h2.clone())),
+                        span,
+                    }))),
+                    Stmt::Expr(Expr::Async(AsyncExpr::Join(JoinExpr {
+                        handle: Box::new(Expr::Ident(h2)),
+                        span,
+                    }))),
+                ],
+                span,
+            },
+            span,
+        };
+        let file = File {
+            package: Path {
+                segments: vec![ident("demo")],
+                span,
+            },
+            imports: vec![],
+            interfaces: vec![],
+            enums: vec![],
+            classes: vec![],
+            type_aliases: vec![],
+            consts: vec![],
+            functions: vec![main_fun],
+            async_functions: vec![],
+            span,
+        };
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let bin = dir.join(format!("aura-c22m-{}", std::process::id()));
+        let runtime = root.join("runtime/aura_rt.c");
+        build_from_file(&file, &bin, &runtime).expect("compile generated C22m");
+        let status = Command::new(&bin).status().expect("run generated binary");
+        assert!(status.success());
+        let _ = std::fs::remove_file(&bin);
+        let _ = std::fs::remove_file(dir.join(format!("aura-c22m-{}.aura.c", std::process::id())));
     }
 }

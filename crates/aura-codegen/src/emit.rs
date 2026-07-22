@@ -87,8 +87,10 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("typedef AuraTaskPollState (*AuraTaskPollFn)(AuraTaskFrame *frame);\n");
     out.push_str("typedef void (*AuraTaskFrameDestroyFn)(AuraTaskFrame *frame);\n");
     out.push_str("typedef void (*AuraTaskResultDestroyFn)(void *data, size_t size);\n");
+    out.push_str("AuraTaskPollState aura_task_poll_unit(AuraTaskFrame *frame);\n");
     out.push_str("AuraTaskFrame *aura_task_frame_new(size_t data_size, AuraTaskPollFn poll, AuraTaskFrameDestroyFn destroy);\n");
     out.push_str("void *aura_task_frame_data(AuraTaskFrame *frame);\n");
+    out.push_str("void aura_task_frame_destroy(AuraTaskFrame *frame);\n");
     out.push_str("AuraTaskPollState aura_task_frame_state(const AuraTaskFrame *frame);\n");
     out.push_str("int aura_task_frame_cancel_requested(const AuraTaskFrame *frame);\n");
     out.push_str("void aura_task_frame_set_result(AuraTaskFrame *frame, void *data, size_t size, AuraTaskResultDestroyFn destroy);\n");
@@ -102,6 +104,7 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     );
     out.push_str("size_t aura_task_executor_run(AuraTaskExecutor *executor);\n");
     out.push_str("void aura_task_executor_shutdown(AuraTaskExecutor *executor);\n");
+    out.push_str("static AuraTaskExecutor *__aura_task_executor = NULL;\n");
     out.push_str("AuraTaskChannel *aura_task_channel_new(size_t capacity);\n");
     out.push_str("int aura_task_channel_close(AuraTaskChannel *channel);\n");
     out.push_str("void aura_task_channel_destroy(AuraTaskChannel *channel);\n");
@@ -450,9 +453,11 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
         emit_test_main(&mut out, checked);
     } else {
         out.push_str("int aura_main(void) {\n");
+        out.push_str("  __aura_task_executor = aura_task_executor_new();\n");
         if checked.ast.functions.iter().any(|f| f.name.name == "main") {
             out.push_str("  aura_fn_main();\n");
         }
+        out.push_str("  aura_task_executor_shutdown(__aura_task_executor);\n");
         out.push_str("  return 0;\n}\n");
     }
     out
@@ -615,10 +620,12 @@ fn emit_async_body(out: &mut String, f: &AsyncFunDecl, checked: &CheckedFile, pa
 pub(crate) fn emit_test_main(out: &mut String, checked: &CheckedFile) {
     let tests: Vec<_> = checked.ast.functions.iter().filter(|f| f.is_test).collect();
     out.push_str("int aura_main(void) {\n");
+    out.push_str("  __aura_task_executor = aura_task_executor_new();\n");
     out.push_str("  int failed = 0;\n");
     out.push_str("  int ran = 0;\n");
     if tests.is_empty() {
         out.push_str("  puts(\"no tests\");\n");
+        out.push_str("  aura_task_executor_shutdown(__aura_task_executor);\n");
         out.push_str("  return 0;\n}\n");
         return;
     }
@@ -647,6 +654,7 @@ pub(crate) fn emit_test_main(out: &mut String, checked: &CheckedFile) {
         out.push_str("  }\n");
     }
     out.push_str("  printf(\"%d passed, %d failed\\n\", ran - failed, failed);\n");
+    out.push_str("  aura_task_executor_shutdown(__aura_task_executor);\n");
     out.push_str("  return failed ? 1 : 0;\n}\n");
 }
 

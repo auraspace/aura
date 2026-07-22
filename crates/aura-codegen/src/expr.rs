@@ -356,6 +356,10 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
             Some(Stmt::Expr(e)) => infer_type_name(e, ctx),
             _ => "Int".into(),
         },
+        Expr::Async(AsyncExpr::Spawn(_)) => "TaskHandle_Unit".into(),
+        Expr::Async(AsyncExpr::Join(j)) => async_inner_key_for_infer(&j.handle, ctx),
+        Expr::Async(AsyncExpr::Cancel(_)) => "Unit".into(),
+        Expr::Async(AsyncExpr::Await(a)) => async_inner_key_for_infer(&a.operand, ctx),
         _ => "Int".into(),
     }
 }
@@ -854,7 +858,66 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
             )
         }
         // C22 plumbing: lowering is owned by the C22 codegen task.
-        Expr::Async(_) => "0".into(),
+        Expr::Async(async_expr) => emit_async_expr(async_expr, ctx),
+    }
+}
+
+fn task_inner_key(key: &str) -> Option<&str> {
+    key.strip_prefix("TaskHandle_")
+        .or_else(|| key.strip_prefix("Task_"))
+}
+
+fn async_inner_key_for_infer(expr: &Expr, ctx: &EmitCtx<'_>) -> String {
+    let key = infer_type_name(expr, ctx);
+    task_inner_key(&key).unwrap_or("Unit").to_string()
+}
+
+fn async_inner_key(expr: &Expr, ctx: &EmitCtx<'_>) -> String {
+    let key = infer_type_name(expr, ctx);
+    task_inner_key(&key).unwrap_or("Unit").to_string()
+}
+
+fn emit_async_expr(expr: &AsyncExpr, ctx: &mut EmitCtx<'_>) -> String {
+    match expr {
+        AsyncExpr::Spawn(s) => {
+            if !s.body.stmts.is_empty() {
+                return format!(
+                    "({{ fputs(\"aura: non-empty spawn body requires C22l state-machine lowering\\n\", stderr); abort(); (AuraTaskFrame *)NULL; }})"
+                );
+            }
+            "({ AuraTaskFrame *__spawn = aura_task_frame_new(0, aura_task_poll_unit, NULL); if (__spawn != NULL && (__aura_task_executor == NULL || !aura_task_executor_submit(__aura_task_executor, __spawn))) { aura_task_frame_destroy(__spawn); __spawn = NULL; } __spawn; })".into()
+        }
+        AsyncExpr::Join(j) => {
+            let handle = emit_expr(&j.handle, ctx);
+            let inner = async_inner_key(&j.handle, ctx);
+            let cty = crate::stmt::local_key_to_c(&inner, ctx.checked);
+            let mut out = String::new();
+            out.push_str("({ AuraTaskFrame *__join = (");
+            out.push_str(&handle);
+            out.push_str("); if (__join != NULL && __aura_task_executor != NULL) { ");
+            out.push_str("(void)aura_task_executor_submit(__aura_task_executor, __join); ");
+            out.push_str("while (aura_task_frame_state(__join) == AURA_TASK_READY) (void)aura_task_executor_run(__aura_task_executor); ");
+            if inner == "Unit" {
+                out.push_str("(void)0; ");
+            } else {
+                out.push_str("AuraTaskResult __result = aura_task_frame_result(__join); ");
+                out.push_str(&format!(
+                    "(__result.data != NULL ? *(({cty} *)__result.data) : ({cty}){{0}}); "
+                ));
+            }
+            out.push_str("}})");
+            out
+        }
+        AsyncExpr::Cancel(c) => {
+            let handle = emit_expr(&c.handle, ctx);
+            format!(
+                "({{ AuraTaskFrame *__cancel = ({handle}); if (__cancel != NULL && __aura_task_executor != NULL) (void)aura_task_executor_cancel(__aura_task_executor, __cancel); }})"
+            )
+        }
+        AsyncExpr::Await(_) => {
+            "({ fputs(\"aura: await lowering is deferred until C22l state-machine support\\n\", stderr); abort(); (int64_t)0; })".into()
+        }
+        _ => "({ fputs(\"aura: async channel lowering is deferred until C22o\\n\", stderr); abort(); (int64_t)0; })".into(),
     }
 }
 

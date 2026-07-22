@@ -1489,6 +1489,14 @@ typedef void (*AuraTaskResultDestroyFn)(void *data, size_t size);
 typedef AuraTaskPollState (*AuraTaskPollFn)(AuraTaskFrame *frame);
 typedef void (*AuraTaskFrameDestroyFn)(AuraTaskFrame *frame);
 
+/* C22m: callback used for the currently supported `spawn {}` unit slice.
+ * Non-empty spawned bodies still require the C22l suspension/capture lowering. */
+AuraTaskPollState aura_task_poll_unit(AuraTaskFrame *frame)
+{
+  (void)frame;
+  return AURA_TASK_COMPLETE;
+}
+
 typedef struct
 {
   void *data;
