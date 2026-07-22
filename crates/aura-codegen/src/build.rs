@@ -231,12 +231,16 @@ mod tests {
             .expect("workspace root");
         let dir = std::env::temp_dir();
         let bin = dir.join(format!("aura-c22l-{}", std::process::id()));
+        let generated_c = dir.join(format!("aura-c22l-{}.aura.c", std::process::id()));
         let runtime = root.join("runtime/aura_rt.c");
         build_from_file(&file, &bin, &runtime).expect("compile generated async C");
+        let generated = std::fs::read_to_string(&generated_c).expect("read generated async C");
+        assert!(generated.contains("switch (aura_task_frame_resume_state(frame))"));
+        assert!(generated.contains("aura_task_frame_set_resume_state(frame, 1)"));
         let status = Command::new(&bin).status().expect("run generated binary");
         assert!(status.success());
         let _ = std::fs::remove_file(&bin);
-        let _ = std::fs::remove_file(dir.join(format!("aura-c22l-{}.aura.c", std::process::id())));
+        let _ = std::fs::remove_file(generated_c);
     }
 
     #[test]

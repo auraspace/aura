@@ -14,13 +14,14 @@ When you resolve debt, update or remove the matching entry.
 - Area: async/task runtime and codegen
 - Symptom: the C22 task frame owns opaque `data` bytes but has no GC mark hook; captured heap-class references cannot safely survive a future `await` suspension. C22o channel payloads are currently safe only because class values use a temporary GC-rooted box and `Int`/`String` values transfer their malloc ownership to the receiver.
 - Why deferred: C22l state-machine/capture lowering and the corresponding frame-root contract are not implemented; the shipped slice supports no-await tasks and empty `spawn {}` only.
-- Next step: add an explicit frame data mark/drop contract, root captured owned values across suspension, and reject borrowed C21 views at every suspension boundary before enabling non-empty async bodies.
+- Progress: frame captures, pending operations, results, and errors now have explicit ownership metadata, GC root registration, borrowed-value rejection, and exactly-once release. The compiler already rejects borrowed values crossing await/spawn/channel boundaries.
+- Next step: add an explicit frame-data mark/drop contract for typed locals/captures and enable non-empty async bodies after A4–A6 state lowering.
 
 ### Async lowering and task outcome gaps (C22t, 2026-07-22)
 
 - Area: async/task codegen and runtime outcomes
 - Symptom: `await` parses and type-checks but has no lowered suspension state machine; only empty `spawn {}` bodies execute; task failure propagation is not complete.
-- Why deferred: C22l/C22m landed the no-await task-frame and empty-lifecycle slices, but framing locals/captures across suspension and a stable failed-task result ABI still need implementation and ownership tests.
+- Progress: no-await code generation now emits deterministic `resume_state` transitions and repeated polling is covered by runtime fixtures; A1–A3 define the frame ABI, ownership classes, roots, and error storage.
 - Next step: lower await points with captured-local storage, implement non-empty spawn capture/drop, and define end-to-end success/failure/cancellation propagation before advertising the full C22 contract as executable.
 
 ### S3 release rehearsal external blockers

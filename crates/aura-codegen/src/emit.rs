@@ -110,6 +110,8 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("void aura_task_frame_destroy(AuraTaskFrame *frame);\n");
     out.push_str("AuraTaskPollState aura_task_frame_state(const AuraTaskFrame *frame);\n");
     out.push_str("int aura_task_frame_cancel_requested(const AuraTaskFrame *frame);\n");
+    out.push_str("uint32_t aura_task_frame_resume_state(const AuraTaskFrame *frame);\n");
+    out.push_str("void aura_task_frame_set_resume_state(AuraTaskFrame *frame, uint32_t state);\n");
     out.push_str("void aura_task_frame_set_result(AuraTaskFrame *frame, void *data, size_t size, AuraTaskResultDestroyFn destroy);\n");
     out.push_str("AuraTaskResult aura_task_frame_result(const AuraTaskFrame *frame);\n");
     out.push_str("AuraTaskExecutor *aura_task_executor_new(void);\n");
@@ -558,7 +560,6 @@ fn emit_async_fun_no_await(out: &mut String, f: &AsyncFunDecl, checked: &Checked
     let ret = c_type_from_opt(&f.return_type, checked, &params, &[]);
 
     let _ = writeln!(out, "typedef struct {data_ty} {{");
-    out.push_str("  uint32_t state;\n");
     for p in &f.params {
         let _ = writeln!(
             out,
@@ -606,8 +607,12 @@ fn emit_async_fun_no_await(out: &mut String, f: &AsyncFunDecl, checked: &Checked
         "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame);"
     );
     out.push_str("  if (aura_task_frame_cancel_requested(frame)) return AURA_TASK_CANCELLED;\n");
-    out.push_str("  if (data->state != 0) return AURA_TASK_COMPLETE;\n");
-    out.push_str("  data->state = 1;\n");
+    out.push_str("  switch (aura_task_frame_resume_state(frame)) {\n");
+    out.push_str("    case 0: break;\n");
+    out.push_str("    case 1: return AURA_TASK_COMPLETE;\n");
+    out.push_str("    default: return AURA_TASK_FAILED;\n");
+    out.push_str("  }\n");
+    out.push_str("  aura_task_frame_set_resume_state(frame, 1);\n");
     let args = f
         .params
         .iter()

@@ -87,6 +87,11 @@ forced GC.
 **Objective:** Lower async functions into explicit states instead of relying on
 backend-specific control flow.
 
+**Implementation status:** In progress. All generated no-await async frames now
+use the runtime `resume_state` machine with deterministic ready/completed/error
+transitions. Await suspension-point discovery and live-local hoisting remain in
+A5–A6.
+
 **Checklist:**
 
 - [ ] Identify suspension points and assign deterministic state IDs.
