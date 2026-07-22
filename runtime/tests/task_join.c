@@ -83,6 +83,9 @@ int main(void)
   assert(aura_task_executor_join(executor, failed, &result, &error) == AURA_TASK_FAILED);
   assert(result.data == NULL);
   assert(error.data != NULL && *(int *)error.data == 99);
+  assert(aura_task_executor_join(executor, failed, &result, &error) == AURA_TASK_FAILED);
+  assert(result.data == NULL);
+  assert(error.data != NULL && *(int *)error.data == 99);
 
   AuraTaskFrame *cancelled = new_join_task(2, 0);
   assert(aura_task_executor_submit(executor, cancelled) == 1);

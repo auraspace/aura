@@ -74,7 +74,8 @@ resources.
 **Checklist:**
 
 - [ ] Store failure payload and source location in the terminal outcome.
-- [ ] Make join distinguish failure from cancellation.
+- [x] Make join distinguish failure from cancellation through terminal poll
+      states and borrowed result/error snapshots.
 - [ ] Clean captures, frames, and result storage on failure.
 - [ ] Define repeated observation of a failed task.
 
