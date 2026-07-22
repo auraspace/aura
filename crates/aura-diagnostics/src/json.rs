@@ -4,6 +4,72 @@ use aura_ast::Span;
 
 use crate::offset_to_line_col;
 
+/// Stable diagnostic metadata for the C22 async/task surface.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AsyncDiagnostic {
+    pub code: &'static str,
+    pub operation: &'static str,
+    pub notes: &'static [&'static str],
+}
+
+/// Classify existing semantic-error wording without coupling diagnostics to sema internals.
+pub fn classify_async(message: &str) -> Option<AsyncDiagnostic> {
+    let lower = message.to_ascii_lowercase();
+    let operation = if lower.contains("await") {
+        "await"
+    } else if lower.contains("spawn") {
+        "spawn"
+    } else if lower.contains("join") {
+        "join"
+    } else if lower.contains("cancel") {
+        "cancel"
+    } else if lower.contains("send") {
+        "channel.send"
+    } else if lower.contains("receive") || lower.contains("recv") {
+        "channel.receive"
+    } else if lower.contains("close") {
+        "channel.close"
+    } else if lower.contains("channel") {
+        "channel"
+    } else {
+        "task"
+    };
+
+    if lower.contains("borrow") || lower.contains("reference") || lower.contains("borrowed") {
+        return Some(AsyncDiagnostic {
+            code: "E-BORROW-ASYNC-ESCAPE",
+            operation,
+            notes: &["owned values may cross async suspension and task/channel boundaries"],
+        });
+    }
+    if lower.contains("cancel") || lower.contains("cancellation") {
+        return Some(AsyncDiagnostic {
+            code: "E-ASYNC-CANCEL",
+            operation: "cancel",
+            notes: &["cancellation is observed at the next task scheduling boundary"],
+        });
+    }
+    if lower.contains("channel") || lower.contains("send") || lower.contains("receive") {
+        return Some(AsyncDiagnostic {
+            code: "E-ASYNC-CHANNEL-STATE",
+            operation,
+            notes: &["a channel must be open and used with its declared element type"],
+        });
+    }
+    if lower.contains("task")
+        || lower.contains("handle")
+        || lower.contains("join")
+        || lower.contains("spawn")
+    {
+        return Some(AsyncDiagnostic {
+            code: "E-ASYNC-TASK-OP",
+            operation,
+            notes: &["task operations require a compatible Task<T> or task handle"],
+        });
+    }
+    None
+}
+
 /// Severity of a structured diagnostic.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Severity {
@@ -59,6 +125,7 @@ pub struct JsonDiagnostic {
     pub message: String,
     pub notes: Vec<String>,
     pub code: Option<String>,
+    pub operation: Option<String>,
 }
 
 impl JsonDiagnostic {
@@ -76,6 +143,7 @@ impl JsonDiagnostic {
             message: message.into(),
             notes: Vec::new(),
             code: None,
+            operation: None,
         }
     }
 
@@ -90,6 +158,19 @@ impl JsonDiagnostic {
 
     pub fn with_code(mut self, code: impl Into<String>) -> Self {
         self.code = Some(code.into());
+        self
+    }
+
+    pub fn with_operation(mut self, operation: impl Into<String>) -> Self {
+        self.operation = Some(operation.into());
+        self
+    }
+
+    pub fn with_async_metadata(mut self, metadata: &AsyncDiagnostic) -> Self {
+        self.code = Some(metadata.code.into());
+        self.operation = Some(metadata.operation.into());
+        self.notes
+            .extend(metadata.notes.iter().map(|note| (*note).into()));
         self
     }
 
@@ -122,6 +203,10 @@ impl JsonDiagnostic {
         if let Some(code) = &self.code {
             out.push_str(",\"code\":");
             push_json_string(&mut out, code);
+        }
+        if let Some(operation) = &self.operation {
+            out.push_str(",\"operation\":");
+            push_json_string(&mut out, operation);
         }
         out.push('}');
         out
@@ -168,7 +253,30 @@ mod tests {
 
     #[test]
     fn omits_unavailable_code() {
-        let diagnostic = JsonDiagnostic::new("x.aura", "x", Severity::Error, "oops", Span::new(0, 1));
-        assert_eq!(diagnostic.to_json(), r#"{"path":"x.aura","span":{"start":0,"end":1,"start_line":1,"start_column":1,"end_line":1,"end_column":2},"severity":"error","message":"oops","notes":[]}"#);
+        let diagnostic =
+            JsonDiagnostic::new("x.aura", "x", Severity::Error, "oops", Span::new(0, 1));
+        assert_eq!(
+            diagnostic.to_json(),
+            r#"{"path":"x.aura","span":{"start":0,"end":1,"start_line":1,"start_column":1,"end_line":1,"end_column":2},"severity":"error","message":"oops","notes":[]}"#
+        );
+    }
+
+    #[test]
+    fn async_metadata_is_stable_and_keeps_span() {
+        let src = "async fun f() { await x }";
+        let metadata = classify_async("borrowed value may not cross await").unwrap();
+        let diagnostic = JsonDiagnostic::new(
+            "x.aura",
+            src,
+            Severity::Error,
+            "bad await",
+            Span::new(16, 21),
+        )
+        .with_async_metadata(&metadata);
+        let json = diagnostic.to_json();
+        assert!(json.contains("\"code\":\"E-BORROW-ASYNC-ESCAPE\""));
+        assert!(json.contains("\"operation\":\"await\""));
+        assert!(json.contains("\"start\":16,\"end\":21"));
+        assert!(json.contains("owned values may cross"));
     }
 }

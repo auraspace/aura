@@ -3,7 +3,7 @@
 use aura_ast::{BytePos, Span};
 
 pub mod json;
-pub use json::{JsonDiagnostic, JsonSpan, Severity};
+pub use json::{classify_async, AsyncDiagnostic, JsonDiagnostic, JsonSpan, Severity};
 
 /// 1-based line and column (column counts UTF-8 bytes on the line, like rustc for ASCII).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -125,6 +125,31 @@ pub fn format_error_with(
     out
 }
 
+/// Pretty diagnostic with stable async code, operation label, and notes.
+pub fn format_async_error(
+    path: &str,
+    src: &str,
+    message: &str,
+    span: Span,
+    metadata: &AsyncDiagnostic,
+) -> String {
+    let out = format_error_with(
+        path,
+        src,
+        &format!("[{}] {} ({})", metadata.code, message, metadata.operation),
+        span,
+        &FormatOptions {
+            notes: &metadata
+                .notes
+                .iter()
+                .map(|n| (*n).to_string())
+                .collect::<Vec<_>>(),
+            context_before: true,
+        },
+    );
+    out
+}
+
 /// Pull type-mismatch `expected X, found Y` from a message when present.
 fn parse_expected_found(message: &str) -> Option<(String, String)> {
     // Only for type-mismatch wording (sema C5k / init / lambda), not parser "expected `(`".
@@ -243,5 +268,22 @@ mod tests {
             },
         );
         assert!(msg.contains("= help: try something else"), "{msg}");
+    }
+
+    #[test]
+    fn async_pretty_includes_code_operation_note_and_span() {
+        let src = "async fun f() { await x }\n";
+        let metadata = classify_async("borrowed value may not cross await").unwrap();
+        let output = format_async_error(
+            "x.aura",
+            src,
+            "borrowed value",
+            Span::new(16, 21),
+            &metadata,
+        );
+        assert!(output.contains("E-BORROW-ASYNC-ESCAPE"));
+        assert!(output.contains("await"));
+        assert!(output.contains("owned values may cross"));
+        assert!(output.contains("--> x.aura:1:"));
     }
 }

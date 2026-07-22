@@ -8,7 +8,9 @@ mod std_path;
 mod test_report;
 
 use aura_codegen::{build_from_file, build_tests_from_file, emit_c_from_ast};
-use aura_diagnostics::{format_error_with, FormatOptions};
+use aura_diagnostics::{
+    classify_async, format_async_error, format_error_with, FormatOptions, JsonDiagnostic, Severity,
+};
 use aura_sema::{check_file, SemaError, SemaErrors};
 use package::{load_package, load_package_default, LoadedPackage};
 use std::env;
@@ -192,6 +194,9 @@ fn split_pass_through(args: &[String]) -> (&[String], &[String]) {
 fn diag_sema(pkg: &LoadedPackage, e: &SemaError) -> String {
     let (path, src, span) = pkg.locate(e.span);
     // C10b: one line of context above the error; auto expected/found notes.
+    if let Some(metadata) = classify_async(&e.message) {
+        return format_async_error(&path, src, &e.message, span, &metadata);
+    }
     format_error_with(
         &path,
         src,
@@ -204,6 +209,15 @@ fn diag_sema(pkg: &LoadedPackage, e: &SemaError) -> String {
     )
 }
 
+fn diag_sema_json(pkg: &LoadedPackage, e: &SemaError) -> JsonDiagnostic {
+    let (path, src, span) = pkg.locate(e.span);
+    let diagnostic = JsonDiagnostic::new(path, src, Severity::Error, &e.message, span);
+    match classify_async(&e.message) {
+        Some(metadata) => diagnostic.with_async_metadata(&metadata),
+        None => diagnostic,
+    }
+}
+
 fn diag_sema_errors(pkg: &LoadedPackage, es: SemaErrors) -> String {
     es.errors
         .iter()
@@ -213,7 +227,14 @@ fn diag_sema_errors(pkg: &LoadedPackage, es: SemaErrors) -> String {
 }
 
 fn cmd_check(args: &[String]) -> ExitCode {
-    match resolve_package(args).and_then(check_package) {
+    let (json, package_args) = match parse_check_options(args) {
+        Ok(value) => value,
+        Err(msg) => {
+            eprintln!("error: {msg}");
+            return ExitCode::from(2);
+        }
+    };
+    match resolve_package(&package_args).and_then(|pkg| check_package_mode(pkg, json)) {
         Ok(summary) => {
             println!("{summary}");
             ExitCode::SUCCESS
@@ -223,6 +244,31 @@ fn cmd_check(args: &[String]) -> ExitCode {
             ExitCode::from(1)
         }
     }
+}
+
+fn parse_check_options(args: &[String]) -> Result<(bool, Vec<String>), String> {
+    let mut json = false;
+    let mut package_args = Vec::new();
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--format" => {
+                i += 1;
+                match args.get(i).map(String::as_str) {
+                    Some("json") => json = true,
+                    Some(value) => return Err(format!("unsupported check format `{value}`")),
+                    None => return Err("--format requires a value".into()),
+                }
+            }
+            value if value.starts_with('-') => return Err(format!("unknown option `{value}`")),
+            value => package_args.push(value.to_string()),
+        }
+        i += 1;
+    }
+    if package_args.len() > 1 {
+        return Err("unexpected extra package argument".into());
+    }
+    Ok((json, package_args))
 }
 
 fn check_package(pkg: LoadedPackage) -> Result<String, String> {
@@ -317,6 +363,21 @@ fn check_package(pkg: LoadedPackage) -> Result<String, String> {
         ));
     }
     Ok(lines.join("\n"))
+}
+
+fn check_package_mode(pkg: LoadedPackage, json: bool) -> Result<String, String> {
+    match check_file(&pkg.ast) {
+        Ok(_) => check_package(pkg),
+        Err(errors) if json => {
+            let diagnostics = errors
+                .errors
+                .iter()
+                .map(|e| diag_sema_json(&pkg, e).to_json())
+                .collect::<Vec<_>>();
+            Err(format!("{{\"diagnostics\":[{}]}}", diagnostics.join(",")))
+        }
+        Err(errors) => Err(diag_sema_errors(&pkg, errors)),
+    }
 }
 
 fn cmd_emit_c(args: &[String]) -> ExitCode {
@@ -616,6 +677,14 @@ mod tests {
         let (cli, prog) = split_pass_through(&args);
         assert_eq!(cli, &args[..]);
         assert!(prog.is_empty());
+    }
+
+    #[test]
+    fn check_options_accept_json_and_one_path() {
+        assert_eq!(
+            super::parse_check_options(&s(&["--format", "json", "x"])).unwrap(),
+            (true, s(&["x"]))
+        );
     }
 
     #[test]

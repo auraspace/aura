@@ -104,7 +104,15 @@ All toolchain RFCs need a user-facing contract.
 | 2    | CLI usage error                        |
 | >2   | Reserved (signals-related)             |
 
-`--format json` on `check`/`test` where supported for tooling.
+`--format json` on `check`/`test` where supported for tooling. Check diagnostics use
+stable `code` values, preserve byte and line/column `span` data, and include an
+`operation` field for async/task errors (`await`, `spawn`, `join`, `cancel`, or
+channel operations). Pretty diagnostics show the same code and operation label.
+
+Async diagnostic codes are stable: `E-BORROW-ASYNC-ESCAPE` for values crossing an
+async/task/channel boundary, `E-ASYNC-TASK-OP` for invalid task operations,
+`E-ASYNC-CANCEL` for invalid cancellation state, and `E-ASYNC-CHANNEL-STATE` for
+invalid channel state or element operations. Each code includes an actionable note.
 
 ### 6.4 Configuration
 
