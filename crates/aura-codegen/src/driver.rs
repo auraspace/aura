@@ -11,7 +11,8 @@ use crate::ctx::EmitOptions;
 use crate::emit::emit_c_with;
 use crate::error::CodegenError;
 use crate::options::{
-    Backend as BackendKind, CompileOptions, OutputKind, Profile, RuntimeAbi, Target,
+    Backend as BackendKind, CompileOptions, Lto, OutputKind, Profile, ProfileSettings, RuntimeAbi,
+    Target,
 };
 use crate::validation::{compiler_command, validate_build};
 
@@ -21,6 +22,7 @@ pub struct BuildIdentity {
     pub backend: BackendKind,
     pub target: Target,
     pub profile: Profile,
+    pub profile_settings: ProfileSettings,
     pub runtime_abi: Option<RuntimeAbi>,
     pub runtime_abi_version: Option<u32>,
     pub runtime_abi_identity: Option<&'static str>,
@@ -34,6 +36,7 @@ impl From<&CompileOptions> for BuildIdentity {
             backend: options.backend,
             target: options.target,
             profile: options.profile,
+            profile_settings: options.profile_settings.clone(),
             runtime_abi: options.runtime_abi,
             runtime_abi_version: options.runtime_abi.map(RuntimeAbi::version),
             runtime_abi_identity: options.runtime_abi.map(RuntimeAbi::identity),
@@ -48,10 +51,11 @@ impl std::fmt::Display for BuildIdentity {
         let features = self.features.join(",");
         write!(
             f,
-            "backend={:?}, target={:?}, profile={:?}, runtime_abi={:?}/{:?}/{:?}, output={:?}, features=[{}]",
+            "backend={:?}, target={:?}, profile={:?}, settings={:?}, runtime_abi={:?}/{:?}/{:?}, output={:?}, features=[{}]",
             self.backend,
             self.target,
             self.profile,
+            self.profile_settings,
             self.runtime_abi,
             self.runtime_abi_version,
             self.runtime_abi_identity,
@@ -185,9 +189,23 @@ impl Backend for CBackend {
         ));
         fs::write(&c_path, c_src).map_err(|e| CodegenError::Io(e.to_string()))?;
 
-        let status = Command::new(&compiler)
-            .arg(format!("-{}", options.profile.optimization_level()))
-            .arg("-std=c11")
+        let mut command = Command::new(&compiler);
+        command
+            .arg(format!("-{}", options.profile_settings.optimization.flag()))
+            .arg("-std=c11");
+        if options.profile_settings.debug {
+            command.arg("-g");
+        }
+        if options.profile_settings.lto != Lto::Off {
+            command.arg("-flto");
+        }
+        if options.profile_settings.detector {
+            command.arg("-fsanitize=address,undefined");
+        }
+        if let Some(linker) = &options.profile_settings.linker {
+            command.arg(format!("-fuse-ld={linker}"));
+        }
+        let status = command
             .arg(&c_path)
             .arg(runtime_c)
             .arg("-o")
@@ -345,7 +363,7 @@ mod tests {
         assert_eq!(first.runtime_abi_identity, Some(crate::runtime_abi::ID));
         assert_eq!(
             first.to_string(),
-            "backend=C, target=Native, profile=Debug, runtime_abi=Some(AuraRtC)/Some(1)/Some(\"aura-c-abi/1.0;task=1;value=1;exception=1;channel=1;gc=1;io=1;ffi=1\"), output=Executable, features=[alpha,zeta]"
+            "backend=C, target=Native, profile=Debug, settings=ProfileSettings { optimization: O0, debug: true, lto: Off, detector: true, panic: Unwind, backend: C, linker: None }, runtime_abi=Some(AuraRtC)/Some(1)/Some(\"aura-c-abi/1.0;task=1;value=1;exception=1;channel=1;gc=1;io=1;ffi=1\"), output=Executable, features=[alpha,zeta]"
         );
     }
 

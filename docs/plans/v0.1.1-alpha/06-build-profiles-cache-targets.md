@@ -20,11 +20,15 @@ profiles/conflicting aliases, and preserve minimal manifest compatibility.
 ## P2. Profile behavior
 
 **Objective:** Make profile selection affect compilation predictably.
+**Implementation status:** Complete for the C backend. Normalized profile
+settings now control optimization, debug info, LTO, sanitizer detector flags,
+and linker selection; effective settings are retained in `BuildIdentity`.
+Release defaults keep detector instrumentation disabled.
 **Checklist:**
 
-- [ ] Apply optimization, debug information, LTO, detector, and exception policy.
-- [ ] Record effective settings in artifact metadata.
-- [ ] Keep release detector-free by default.
+- [x] Apply optimization, debug information, LTO, detector, and exception policy.
+- [x] Record effective settings in artifact metadata.
+- [x] Keep release detector-free by default.
       **Acceptance:** Equivalent source built under each profile has explainable
       differences and stable behavior.
       **Verification:** Compare flags, metadata, size, and runtime behavior.
