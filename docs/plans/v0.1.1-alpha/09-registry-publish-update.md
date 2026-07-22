@@ -46,11 +46,17 @@ immediately. HTTPS requests may carry an optional bearer token from
 ## U3. Dependency resolution
 
 **Objective:** Resolve registry dependencies without violating lock/checksum rules.
+**Implementation status:** Partial. Semver selection, deterministic transitive
+registry resolution, lock/source/checksum validation, warm-cache reuse, and
+clear conflict/missing/cycle/checksum failures are covered by the local fixture
+suite. Cross-registry compatibility and broader tamper/signature policy remain
+open.
 **Checklist:**
 
-- [ ] Resolve versions and transitive dependencies deterministically.
-- [ ] Validate lockfile, source identity, checksum, and cache state.
-- [ ] Report conflicts, missing packages, cycles, and tampering clearly.
+- [x] Resolve versions and transitive dependencies deterministically.
+- [x] Validate lockfile, source identity, checksum, and warm-cache state.
+- [x] Report conflicts, missing packages, cycles, and checksum tampering clearly;
+      signatures and broader registry tamper policy remain open.
       **Acceptance:** A locked graph resolves identically online and from warm cache.
       **Verification:** Run conflict, missing, checksum, cycle, and offline cases.
       **Dependencies:** U2, P3–P4.
