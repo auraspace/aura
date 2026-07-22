@@ -293,6 +293,55 @@ mod tests {
     }
 
     #[test]
+    fn invalid_linker_option_surfaces_before_false_executable() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-ffi-linker-failure-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        let runtime = root.join("runtime/aura_rt.c");
+        let _ = fs::remove_file(&bin);
+        let _ = fs::remove_file(&generated_c);
+
+        // Keep the existing C backend/linker boundary, but request a linker
+        // flavor that cannot exist. The driver must return a compile error and
+        // must not report an Artifact for a path that was never linked.
+        let mut options = CompileOptions::default();
+        options.profile_settings.linker = Some(format!(
+            "aura-missing-linker-{}",
+            std::process::id()
+        ));
+        let error = build_from_file_with(
+            &empty_program(),
+            &bin,
+            &runtime,
+            options,
+            crate::ctx::EmitOptions::default(),
+        )
+        .expect_err("missing linker must fail the build");
+
+        match error {
+            crate::error::CodegenError::Compile(message) => {
+                assert!(message.contains("failed with status"), "{message}");
+                assert!(message.contains(&generated_c.display().to_string()), "{message}");
+            }
+            other => panic!("expected deterministic linker compile error, got {other:?}"),
+        }
+        assert!(
+            !bin.exists(),
+            "failed linker must not leave a false executable at {}",
+            bin.display()
+        );
+        assert!(generated_c.exists(), "the emitted C is the diagnostic source");
+
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_no_await_async_function() {
         let span = Span::new(0, 1);
         let ident = |name: &str| Ident {
