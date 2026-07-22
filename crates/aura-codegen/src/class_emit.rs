@@ -174,7 +174,7 @@ fn emit_class_gc_hooks(
     }
 }
 
-pub(crate) fn emit_class_defs(out: &mut String, checked: &CheckedFile, c: &ClassDecl, args: &[Ty]) {
+pub(crate) fn emit_class_defs(out: &mut String, checked: &CheckedFile, c: &ClassDecl, args: &[Ty], detector: bool) {
     let params: Vec<String> = c.type_params.iter().map(|p| p.name.name.clone()).collect();
     let pkg = class_decl_package(c, checked);
     let mono = type_mono(&pkg, &c.name.name, args);
@@ -182,7 +182,7 @@ pub(crate) fn emit_class_defs(out: &mut String, checked: &CheckedFile, c: &Class
     emit_ctor_mono(out, c, checked, &params, args, &mono);
     out.push('\n');
     for m in &c.methods {
-        emit_method_mono(out, c, m, checked, &params, args, &mono);
+        emit_method_mono(out, c, m, checked, &params, args, &mono, detector);
         out.push('\n');
     }
     // C9a: emit upcasts for this class monomorph's implements.
@@ -346,6 +346,7 @@ pub(crate) fn emit_method_mono(
     params: &[String],
     args: &[Ty],
     mono: &str,
+    detector: bool,
 ) {
     let _ = writeln!(
         out,
@@ -358,6 +359,7 @@ pub(crate) fn emit_method_mono(
         .map(|t| type_ref_local_key_expand(t, params, args, checked));
     let mut ctx = EmitCtx {
         checked,
+        detector,
         method_class: Some(mono),
         type_params: params.to_vec(),
         type_args: args.to_vec(),

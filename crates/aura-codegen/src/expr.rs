@@ -434,6 +434,26 @@ pub(crate) fn bounded_spawn_poll_name(span: Span) -> String {
     format!("aura_spawn_poll_{}", span.start)
 }
 
+fn race_read(value: String, lvalue: String, span: Span, ctx: &EmitCtx<'_>) -> String {
+    if !ctx.detector {
+        return value;
+    }
+    format!(
+        "({{ aura_race_record_access((uintptr_t)&({lvalue}), UINT32_C({}), AURA_RACE_READ); {value}; }})",
+        span.start
+    )
+}
+
+pub(crate) fn race_write(code: String, lvalue: &str, span: Span, ctx: &EmitCtx<'_>) -> String {
+    if !ctx.detector {
+        return code;
+    }
+    format!(
+        "({{ aura_race_record_access((uintptr_t)&({lvalue}), UINT32_C({}), AURA_RACE_WRITE); {code}; }})",
+        span.start
+    )
+}
+
 pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
     match expr {
         Expr::Ident(i) => {
@@ -442,7 +462,8 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
                 let base = mono_base_name(class, ctx.checked).unwrap_or(class);
                 if let Some(cl) = ctx.checked.ast.classes.iter().find(|c| c.name.name == base) {
                     if cl.fields.iter().any(|f| f.name.name == i.name) {
-                        return format!("this->{}", mangle_ident(&i.name));
+                        let field = format!("this->{}", mangle_ident(&i.name));
+                        return race_read(field.clone(), field, i.span, ctx);
                     }
                 }
             }
@@ -476,7 +497,11 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
                 }
                 return format!("({m})->value");
             }
-            mangle_ident(&i.name)
+            let value = mangle_ident(&i.name);
+            if ctx.lookup_local(&i.name).is_some() {
+                return race_read(value.clone(), value, i.span, ctx);
+            }
+            value
         }
         Expr::This(_) => "(*this)".into(),
         Expr::Int(n) => format!("INT64_C({})", n.value),
@@ -853,7 +878,7 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
                     }
                 }
             }
-            format!("({lhs} = {rhs})")
+            race_write(format!("({lhs} = {rhs})"), &lhs, a.span, ctx)
         }
         Expr::Field(f) => {
             let obj = emit_expr(&f.object, ctx);
@@ -976,13 +1001,15 @@ fn emit_async_expr(expr: &AsyncExpr, ctx: &mut EmitCtx<'_>) -> String {
     match expr {
         AsyncExpr::Spawn(s) => {
             if s.body.stmts.is_empty() {
-                return "({ AuraTaskFrame *__spawn = aura_task_frame_new(0, aura_task_poll_unit, NULL); if (__spawn != NULL && (__aura_task_executor == NULL || !aura_task_executor_submit(__aura_task_executor, __spawn))) { aura_task_frame_destroy(__spawn); __spawn = NULL; } __spawn; })".into();
+                let source = s.span.start;
+                return format!("({{ AuraTaskFrame *__spawn = aura_task_frame_new(0, aura_task_poll_unit, NULL); if (__spawn != NULL) aura_task_frame_set_race_source_id(__spawn, UINT32_C({source})); if (__spawn != NULL && (__aura_task_executor == NULL || !aura_task_executor_submit(__aura_task_executor, __spawn))) {{ aura_task_frame_destroy(__spawn); __spawn = NULL; }} __spawn; }})");
             }
             if !bounded_spawn_body(&s.body) {
                 return "({ fputs(\"aura: non-empty spawn body requires C22l state-machine lowering\\n\", stderr); abort(); (AuraTaskFrame *)NULL; })".to_string();
             }
             let poll = bounded_spawn_poll_name(s.span);
-            format!("({{ AuraTaskFrame *__spawn = aura_task_frame_new(0, {poll}, NULL); if (__spawn != NULL && (__aura_task_executor == NULL || !aura_task_executor_submit(__aura_task_executor, __spawn))) {{ aura_task_frame_destroy(__spawn); __spawn = NULL; }} __spawn; }})")
+            let source = s.span.start;
+            format!("({{ AuraTaskFrame *__spawn = aura_task_frame_new(0, {poll}, NULL); if (__spawn != NULL) aura_task_frame_set_race_source_id(__spawn, UINT32_C({source})); if (__spawn != NULL && (__aura_task_executor == NULL || !aura_task_executor_submit(__aura_task_executor, __spawn))) {{ aura_task_frame_destroy(__spawn); __spawn = NULL; }} __spawn; }})")
         }
         AsyncExpr::Join(j) => {
             let handle = emit_expr(&j.handle, ctx);
@@ -991,7 +1018,7 @@ fn emit_async_expr(expr: &AsyncExpr, ctx: &mut EmitCtx<'_>) -> String {
             let mut out = String::new();
             out.push_str("({ AuraTaskFrame *__join = (");
             out.push_str(&handle);
-            out.push_str("); AuraTaskResult __join_result = {NULL, 0}; AuraTaskResult __join_error = {NULL, 0}; AuraTaskPollState __join_state = aura_task_executor_join(__aura_task_executor, __join, &__join_result, &__join_error); ");
+            out.push_str(&format!("); AuraTaskResult __join_result = {{NULL, 0}}; AuraTaskResult __join_error = {{NULL, 0}}; aura_race_set_source_id(UINT32_C({})); AuraTaskPollState __join_state = aura_task_executor_join(__aura_task_executor, __join, &__join_result, &__join_error); aura_race_set_source_id(0); ", j.span.start));
             out.push_str("if (__join_state == AURA_TASK_FAILED) { fputs(\"aura: joined task failed\\n\", stderr); abort(); } ");
             out.push_str("if (__join_state != AURA_TASK_COMPLETE && __join_state != AURA_TASK_CANCELLED) { fputs(\"aura: joined task is pending\\n\", stderr); abort(); } ");
             if inner == "Unit" {
@@ -1019,7 +1046,7 @@ fn emit_async_expr(expr: &AsyncExpr, ctx: &mut EmitCtx<'_>) -> String {
         AsyncExpr::ChannelReceive(r) => emit_channel_receive(r, ctx),
         AsyncExpr::ChannelClose(c) => {
             let channel = emit_expr(&c.channel, ctx);
-            format!("({{ (void)aura_task_channel_close({channel}); (void)0; }})")
+            format!("({{ aura_race_set_source_id(UINT32_C({})); (void)aura_task_channel_close({channel}); aura_race_set_source_id(0); (void)0; }})", c.span.start)
         }
     }
 }
@@ -1031,7 +1058,7 @@ fn emit_await(a: &AwaitExpr, ctx: &mut EmitCtx<'_>) -> String {
     let mut out = String::new();
     out.push_str("({ AuraTaskFrame *__await = (");
     out.push_str(&task);
-    out.push_str("); AuraTaskPollState __await_state = ");
+    out.push_str(&format!("); aura_race_set_source_id(UINT32_C({})); AuraTaskPollState __await_state = ", a.span.start));
     out.push_str("__await == NULL ? AURA_TASK_FAILED : aura_task_frame_state(__await); ");
     out.push_str("if (__await_state == AURA_TASK_READY) __await_state = aura_task_frame_poll_once(__await); ");
     out.push_str("if (__await_state == AURA_TASK_PENDING && __aura_task_executor != NULL) { ");
@@ -1042,6 +1069,7 @@ fn emit_await(a: &AwaitExpr, ctx: &mut EmitCtx<'_>) -> String {
     out.push_str("if (aura_task_executor_run_one(__aura_task_executor) == 0) break; ");
     out.push_str("__await_state = aura_task_frame_state(__await); } } ");
     out.push_str("if (__await_state != AURA_TASK_COMPLETE) { fputs(\"aura: awaited task failed or was cancelled\\n\", stderr); abort(); } ");
+    out.push_str("aura_race_set_source_id(0); ");
     if inner == "Unit" {
         out.push_str("(void)0; ");
     } else {
@@ -1081,7 +1109,7 @@ fn emit_channel_send(s: &ChannelSendExpr, ctx: &mut EmitCtx<'_>) -> String {
         "class" => (format!("void *__obj = (void *)({value}); void **__p = (void **)malloc(sizeof(*__p)); if (__p == NULL) abort(); *__p = __obj; aura_gc_add_root(__p);"), "aura_task_channel_value_destroy_class"),
         _ => unreachable!(),
     };
-    format!("({{ {alloc} AuraTaskChannelValue __v = {{ __p, sizeof(*__p), {destroy} }}; AuraTaskChannelStatus __s = aura_task_channel_send({channel}, NULL, __v); if (__s == AURA_CHANNEL_PENDING || __s == AURA_CHANNEL_ERROR) {destroy}(__v.data, __v.size); (void)__s; (void)0; }})")
+    format!("({{ {alloc} AuraTaskChannelValue __v = {{ __p, sizeof(*__p), {destroy} }}; aura_race_set_source_id(UINT32_C({})); AuraTaskChannelStatus __s = aura_task_channel_send({channel}, NULL, __v); aura_race_set_source_id(0); if (__s == AURA_CHANNEL_PENDING || __s == AURA_CHANNEL_ERROR) {destroy}(__v.data, __v.size); (void)__s; (void)0; }})", s.span.start)
 }
 
 fn emit_channel_receive(r: &ChannelReceiveExpr, ctx: &mut EmitCtx<'_>) -> String {
@@ -1098,9 +1126,9 @@ fn emit_channel_receive(r: &ChannelReceiveExpr, ctx: &mut EmitCtx<'_>) -> String
         "aura_task_channel_value_destroy_free"
     };
     match kind {
-        "int" => format!("({{ aura_opt_i64 __r = {{ false, 0 }}; AuraTaskChannelValue __v = {{0}}; if (aura_task_channel_receive({channel}, NULL, &__v) == AURA_CHANNEL_OK) {{ __r = (aura_opt_i64){{ true, *((int64_t *)__v.data) }}; {destroy}(__v.data, __v.size); }} __r; }})"),
-        "free" => format!("({{ const char *__r = NULL; AuraTaskChannelValue __v = {{0}}; if (aura_task_channel_receive({channel}, NULL, &__v) == AURA_CHANNEL_OK) {{ __r = (const char *)__v.data; __v.data = NULL; {destroy}(__v.data, __v.size); }} __r; }})"),
-        "class" => format!("({{ void *__r = NULL; AuraTaskChannelValue __v = {{0}}; if (aura_task_channel_receive({channel}, NULL, &__v) == AURA_CHANNEL_OK) {{ __r = *((void **)__v.data); {destroy}(__v.data, __v.size); }} __r; }})"),
+        "int" => format!("({{ aura_opt_i64 __r = {{ false, 0 }}; AuraTaskChannelValue __v = {{0}}; aura_race_set_source_id(UINT32_C({})); if (aura_task_channel_receive({channel}, NULL, &__v) == AURA_CHANNEL_OK) {{ __r = (aura_opt_i64){{ true, *((int64_t *)__v.data) }}; {destroy}(__v.data, __v.size); }} aura_race_set_source_id(0); __r; }})", r.span.start),
+        "free" => format!("({{ const char *__r = NULL; AuraTaskChannelValue __v = {{0}}; aura_race_set_source_id(UINT32_C({})); if (aura_task_channel_receive({channel}, NULL, &__v) == AURA_CHANNEL_OK) {{ __r = (const char *)__v.data; __v.data = NULL; {destroy}(__v.data, __v.size); }} aura_race_set_source_id(0); __r; }})", r.span.start),
+        "class" => format!("({{ void *__r = NULL; AuraTaskChannelValue __v = {{0}}; aura_race_set_source_id(UINT32_C({})); if (aura_task_channel_receive({channel}, NULL, &__v) == AURA_CHANNEL_OK) {{ __r = *((void **)__v.data); {destroy}(__v.data, __v.size); }} aura_race_set_source_id(0); __r; }})", r.span.start),
         _ => unreachable!(),
     }
 }

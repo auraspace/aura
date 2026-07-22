@@ -14,7 +14,7 @@ pub fn emit_c_from_ast(file: &File) -> Result<String, CodegenError> {
 }
 
 pub fn emit_c_tests_from_ast(file: &File) -> Result<String, CodegenError> {
-    Driver::new(CBackend).emit(file, EmitOptions { test: true })
+    Driver::new(CBackend).emit(file, EmitOptions { test: true, ..Default::default() })
 }
 
 /// Typecheck + emit C + compile with the system C compiler (`CC` or `cc`).
@@ -42,7 +42,7 @@ pub fn build_tests_from_file(
         out_bin,
         runtime_c,
         CompileOptions::default(),
-        EmitOptions { test: true },
+        EmitOptions { test: true, ..Default::default() },
     )
 }
 

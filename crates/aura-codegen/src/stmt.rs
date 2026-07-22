@@ -475,6 +475,13 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
             } else {
                 let _ = writeln!(out, "{p}{ty} {dst} = {init};");
             }
+            if ctx.detector {
+                let _ = writeln!(
+                    out,
+                    "{p}aura_race_record_access((uintptr_t)&({dst}), UINT32_C({}), AURA_RACE_WRITE);",
+                    v.span.start
+                );
+            }
             if let Some(src) = moved_from {
                 let src_m = mangle_ident(&src);
                 // Zero source so later free of src is a no-op; dst is the sole owner.

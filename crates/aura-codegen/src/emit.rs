@@ -99,6 +99,12 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("typedef struct AuraTaskExecutor AuraTaskExecutor;\n");
     out.push_str("typedef struct AuraTaskChannel AuraTaskChannel;\n");
     out.push_str("typedef struct AuraRaceTracker AuraRaceTracker;\n");
+    out.push_str("AuraRaceTracker *aura_race_tracker_new(void);\n");
+    out.push_str("void aura_race_tracker_destroy(AuraRaceTracker *tracker);\n");
+    out.push_str("void aura_race_tracker_set_active(AuraRaceTracker *tracker);\n");
+    out.push_str("void aura_race_set_source_id(uint32_t source_id);\n");
+    out.push_str("void aura_race_record_access(uintptr_t address, uint32_t source_id, AuraRaceEventKind kind);\n");
+    out.push_str("typedef enum { AURA_RACE_READ = 0, AURA_RACE_WRITE = 1, AURA_RACE_TASK_SPAWN = 2, AURA_RACE_TASK_JOIN = 3, AURA_RACE_SYNC_ACQUIRE = 4, AURA_RACE_SYNC_RELEASE = 5, AURA_RACE_TASK_COMPLETE = 6, AURA_RACE_TASK_FAILED = 7, AURA_RACE_TASK_CANCELLED = 8, AURA_RACE_CHANNEL_SEND = 9, AURA_RACE_CHANNEL_RECEIVE = 10, AURA_RACE_CHANNEL_CLOSE = 11 } AuraRaceEventKind;\n");
     out.push_str("typedef void (*AuraTaskChannelValueDestroyFn)(void *data, size_t size);\n");
     out.push_str("typedef struct { void *data; size_t size; AuraTaskChannelValueDestroyFn destroy; } AuraTaskChannelValue;\n");
     out.push_str("typedef enum { AURA_CHANNEL_OK = 0, AURA_CHANNEL_PENDING = 1, AURA_CHANNEL_CLOSED = 2, AURA_CHANNEL_ERROR = 3 } AuraTaskChannelStatus;\n");
@@ -111,6 +117,7 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("AuraTaskFrame *aura_task_frame_new(size_t data_size, AuraTaskPollFn poll, AuraTaskFrameDestroyFn destroy);\n");
     out.push_str("void *aura_task_frame_data(AuraTaskFrame *frame);\n");
     out.push_str("uint64_t aura_task_frame_task_id(const AuraTaskFrame *frame);\n");
+    out.push_str("void aura_task_frame_set_race_source_id(AuraTaskFrame *frame, uint32_t source_id);\n");
     out.push_str("AuraTaskPollState aura_task_frame_poll_once(AuraTaskFrame *frame);\n");
     out.push_str("void aura_task_frame_destroy(AuraTaskFrame *frame);\n");
     out.push_str("AuraTaskPollState aura_task_frame_state(const AuraTaskFrame *frame);\n");
@@ -139,6 +146,7 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("size_t aura_task_executor_run(AuraTaskExecutor *executor);\n");
     out.push_str("void aura_task_executor_shutdown(AuraTaskExecutor *executor);\n");
     out.push_str("static AuraTaskExecutor *__aura_task_executor = NULL;\n");
+    out.push_str("static AuraRaceTracker *__aura_race_tracker = NULL;\n");
     out.push_str("AuraTaskChannel *aura_task_channel_new(size_t capacity);\n");
     out.push_str("AuraTaskChannelStatus aura_task_channel_send(AuraTaskChannel *channel, AuraTaskFrame *sender, AuraTaskChannelValue value);\n");
     out.push_str("AuraTaskChannelStatus aura_task_channel_receive(AuraTaskChannel *channel, AuraTaskFrame *receiver, AuraTaskChannelValue *out);\n");
@@ -424,12 +432,12 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     // C22l: emit the bounded, capture-free spawn pollers after all ordinary
     // declarations are visible. Unsupported bodies keep the explicit abort
     // path in expression emission.
-    emit_bounded_spawn_pollers(&mut out, checked);
+    emit_bounded_spawn_pollers(&mut out, checked, opts.detector);
 
     // Definitions
     for c in &checked.ast.classes {
         if c.type_params.is_empty() {
-            emit_class_defs(&mut out, checked, c, &[]);
+            emit_class_defs(&mut out, checked, c, &[], opts.detector);
         }
     }
     for (name, args) in &checked.mono_classes {
@@ -437,7 +445,7 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
             continue;
         }
         if let Some(c) = checked.ast.classes.iter().find(|c| c.name.name == *name) {
-            emit_class_defs(&mut out, checked, c, args);
+            emit_class_defs(&mut out, checked, c, args, opts.detector);
         }
     }
 
@@ -470,38 +478,46 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     }
 
     // C10e: non-capturing lambdas as static C functions (typedefs already emitted).
-    emit_lambda_fns(&mut out, checked);
+    emit_lambda_fns(&mut out, checked, opts.detector);
 
     for f in &checked.ast.functions {
         if f.type_params.is_empty() {
-            emit_fun(&mut out, f, checked, &[]);
+            emit_fun(&mut out, f, checked, &[], opts.detector);
             out.push('\n');
         }
     }
     for (name, args) in &checked.mono_funs {
         if let Some(f) = checked.ast.functions.iter().find(|f| f.name.name == *name) {
-            emit_fun(&mut out, f, checked, args);
+            emit_fun(&mut out, f, checked, args, opts.detector);
             out.push('\n');
         }
     }
 
     for f in &checked.ast.async_functions {
         if f.type_params.is_empty() {
-            emit_async_fun_no_await(&mut out, f, checked);
+            emit_async_fun_no_await(&mut out, f, checked, opts.detector);
             out.push('\n');
         }
     }
 
     if opts.test {
-        emit_test_main(&mut out, checked);
+        emit_test_main(&mut out, checked, opts.detector);
     } else {
         out.push_str("int aura_main(void) {\n");
         out.push_str("  if (!aura_runtime_check_abi(AURA_GENERATED_ABI_VERSION, AURA_GENERATED_ABI_ID)) return 78;\n");
         out.push_str("  __aura_task_executor = aura_task_executor_new();\n");
+        if opts.detector {
+            out.push_str("  __aura_race_tracker = aura_race_tracker_new();\n");
+            out.push_str("  aura_race_tracker_set_active(__aura_race_tracker);\n");
+            out.push_str("  aura_task_executor_set_race_tracker(__aura_task_executor, __aura_race_tracker);\n");
+        }
         if checked.ast.functions.iter().any(|f| f.name.name == "main") {
             out.push_str("  aura_fn_main();\n");
         }
         out.push_str("  aura_task_executor_shutdown(__aura_task_executor);\n");
+        if opts.detector {
+            out.push_str("  aura_race_tracker_destroy(__aura_race_tracker);\n");
+        }
         out.push_str("  return 0;\n}\n");
     }
     out
@@ -671,6 +687,27 @@ mod abi_tests {
         assert!(generated.contains("x="));
         assert!(generated.contains("label="));
     }
+
+    #[test]
+    fn detector_profile_instruments_reads_and_writes_with_source_ids() {
+        let file = parse_file(
+            "package demo\nfun main() {\n  var counter = 0\n  counter = counter + 1\n  println(counter.toString())\n}\n",
+        )
+        .expect("instrumentation fixture parses");
+        let checked = aura_sema::check_file(&file).expect("instrumentation fixture checks");
+        let plain = emit_c_with(&checked, EmitOptions::default());
+        let instrumented = emit_c_with(
+            &checked,
+            EmitOptions {
+                detector: true,
+                ..Default::default()
+            },
+        );
+        assert!(!plain.contains("aura_race_record_access((uintptr_t)&"));
+        assert!(instrumented.contains("AURA_RACE_READ"));
+        assert!(instrumented.contains("AURA_RACE_WRITE"));
+        assert!(instrumented.contains("UINT32_C("));
+    }
 }
 
 fn c_async_fun_signature(f: &AsyncFunDecl, checked: &CheckedFile) -> String {
@@ -699,7 +736,7 @@ fn c_async_fun_signature(f: &AsyncFunDecl, checked: &CheckedFile) -> String {
 
 /// C22l slice 1: lower an async function with no suspension points to a task
 /// frame whose first poll executes an ordinary helper body exactly once.
-fn emit_async_fun_no_await(out: &mut String, f: &AsyncFunDecl, checked: &CheckedFile) {
+fn emit_async_fun_no_await(out: &mut String, f: &AsyncFunDecl, checked: &CheckedFile, detector: bool) {
     let params: Vec<String> = f.type_params.iter().map(|p| p.name.name.clone()).collect();
     let pkg = async_fun_decl_package(f, checked);
     let base = format!("{}_{}", mangle_package(&pkg), mangle_ident(&f.name.name));
@@ -740,7 +777,7 @@ fn emit_async_fun_no_await(out: &mut String, f: &AsyncFunDecl, checked: &Checked
             body_params.join(", ")
         }
     );
-    emit_async_body(out, f, checked, &params);
+    emit_async_body(out, f, checked, &params, detector);
     out.push_str("}\n\n");
 
     let _ = writeln!(
@@ -801,13 +838,14 @@ fn emit_async_fun_no_await(out: &mut String, f: &AsyncFunDecl, checked: &Checked
     out.push_str("  return frame;\n}\n");
 }
 
-fn emit_async_body(out: &mut String, f: &AsyncFunDecl, checked: &CheckedFile, params: &[String]) {
+fn emit_async_body(out: &mut String, f: &AsyncFunDecl, checked: &CheckedFile, params: &[String], detector: bool) {
     let ret_key = f
         .return_type
         .as_ref()
         .map(|t| type_ref_local_key_expand(t, params, &[], checked));
     let mut ctx = EmitCtx {
         checked,
+        detector,
         method_class: None,
         type_params: params.to_vec(),
         type_args: Vec::new(),
@@ -833,16 +871,24 @@ fn emit_async_body(out: &mut String, f: &AsyncFunDecl, checked: &CheckedFile, pa
     emit_return_fallback(out, &f.return_type, checked, params, &[]);
 }
 
-pub(crate) fn emit_test_main(out: &mut String, checked: &CheckedFile) {
+pub(crate) fn emit_test_main(out: &mut String, checked: &CheckedFile, detector: bool) {
     let tests: Vec<_> = checked.ast.functions.iter().filter(|f| f.is_test).collect();
     out.push_str("int aura_main(void) {\n");
     out.push_str("  if (!aura_runtime_check_abi(AURA_GENERATED_ABI_VERSION, AURA_GENERATED_ABI_ID)) return 78;\n");
     out.push_str("  __aura_task_executor = aura_task_executor_new();\n");
+    if detector {
+        out.push_str("  __aura_race_tracker = aura_race_tracker_new();\n");
+        out.push_str("  aura_race_tracker_set_active(__aura_race_tracker);\n");
+        out.push_str("  aura_task_executor_set_race_tracker(__aura_task_executor, __aura_race_tracker);\n");
+    }
     out.push_str("  int failed = 0;\n");
     out.push_str("  int ran = 0;\n");
     if tests.is_empty() {
         out.push_str("  puts(\"no tests\");\n");
         out.push_str("  aura_task_executor_shutdown(__aura_task_executor);\n");
+        if detector {
+            out.push_str("  aura_race_tracker_destroy(__aura_race_tracker);\n");
+        }
         out.push_str("  return 0;\n}\n");
         return;
     }
@@ -872,6 +918,9 @@ pub(crate) fn emit_test_main(out: &mut String, checked: &CheckedFile) {
     }
     out.push_str("  printf(\"%d passed, %d failed\\n\", ran - failed, failed);\n");
     out.push_str("  aura_task_executor_shutdown(__aura_task_executor);\n");
+    if detector {
+        out.push_str("  aura_race_tracker_destroy(__aura_race_tracker);\n");
+    }
     out.push_str("  return failed ? 1 : 0;\n}\n");
 }
 
@@ -886,7 +935,7 @@ pub(crate) fn build_lambda_ids(checked: &CheckedFile) -> HashMap<u32, usize> {
         .collect()
 }
 
-fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile) {
+fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile, detector: bool) {
     let mut spawns = Vec::new();
     for f in &checked.ast.functions {
         collect_spawns_block(&f.body, &mut spawns);
@@ -918,6 +967,7 @@ fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile) {
         out.push_str("  aura_task_frame_set_resume_state(frame, 1);\n");
         let mut ctx = EmitCtx {
             checked,
+            detector,
             method_class: None,
             type_params: Vec::new(),
             type_args: Vec::new(),
@@ -1344,7 +1394,7 @@ fn emit_capture_drop_helpers(out: &mut String, checked: &CheckedFile) {
     }
 }
 
-fn emit_lambda_fns(out: &mut String, checked: &CheckedFile) {
+fn emit_lambda_fns(out: &mut String, checked: &CheckedFile, detector: bool) {
     if checked.lambda_tys.is_empty() {
         return;
     }
@@ -1470,6 +1520,7 @@ fn emit_lambda_fns(out: &mut String, checked: &CheckedFile) {
         let ret_key = Some(ret.mono_suffix());
         let mut ctx = EmitCtx {
             checked,
+            detector,
             method_class: None,
             type_params: Vec::new(),
             type_args: Vec::new(),
@@ -1532,7 +1583,7 @@ fn emit_lambda_fns(out: &mut String, checked: &CheckedFile) {
     }
 }
 
-pub(crate) fn emit_fun(out: &mut String, f: &FunDecl, checked: &CheckedFile, args: &[Ty]) {
+pub(crate) fn emit_fun(out: &mut String, f: &FunDecl, checked: &CheckedFile, args: &[Ty], detector: bool) {
     let params: Vec<String> = f.type_params.iter().map(|p| p.name.name.clone()).collect();
     let _ = writeln!(out, "{} {{", c_fun_signature(f, checked, args));
     let pkg = fun_decl_package(f, checked);
@@ -1657,6 +1708,7 @@ pub(crate) fn emit_fun(out: &mut String, f: &FunDecl, checked: &CheckedFile, arg
         .map(|t| type_ref_local_key_expand(t, &params, args, checked));
     let mut ctx = EmitCtx {
         checked,
+        detector,
         method_class: None,
         type_params: params.clone(),
         type_args: args.to_vec(),

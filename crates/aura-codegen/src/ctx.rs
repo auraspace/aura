@@ -6,6 +6,8 @@ use aura_sema::{CheckedFile, Ty};
 
 pub(crate) struct EmitCtx<'a> {
     pub(crate) checked: &'a CheckedFile,
+    /// Emit race accesses/synchronization hooks for the selected profile.
+    pub(crate) detector: bool,
     /// Mono class key for `this` (e.g. `Box_String` or `User`).
     pub(crate) method_class: Option<&'a str>,
     pub(crate) type_params: Vec<String>,
@@ -328,4 +330,6 @@ impl<'a> EmitCtx<'a> {
 pub struct EmitOptions {
     /// When true, `aura_main` runs `@test` functions instead of `main`.
     pub test: bool,
+    /// Opt-in compiler instrumentation for the race detector profile.
+    pub detector: bool,
 }
