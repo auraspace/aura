@@ -814,6 +814,15 @@ pub(crate) fn local_key_to_c(key: &str, checked: &CheckedFile) -> String {
         "Unit" => "void".into(),
         "Opt_Int" => "aura_opt_i64".into(),
         "Opt_Bool" => "aura_opt_bool".into(),
+        // C22: all task/handle/channel monomorphs use opaque runtime pointers.
+        n if n == "Task"
+            || n.starts_with("Task_")
+            || n == "TaskHandle"
+            || n.starts_with("TaskHandle_") =>
+        {
+            "AuraTaskFrame *".into()
+        }
+        n if n == "Channel" || n.starts_with("Channel_") => "AuraTaskChannel *".into(),
         // C10e: function-type mono keys → typedef name.
         n if is_fun_type_key(n) => c_fun_typedef(n),
         n if checked

@@ -383,6 +383,9 @@ pub(crate) fn ty_to_c(t: &Ty) -> String {
         Ty::InterfaceApp { name, args } => c_iface_type(&mono_key(name, args)),
         Ty::TypeParam(_) => "/* unbound T */ int64_t".into(),
         Ty::Fun { .. } => c_fun_typedef(&t.mono_suffix()),
+        // C22: task frames and channels are opaque runtime-owned pointers.
+        Ty::Task(_) | Ty::TaskHandle(_) => "AuraTaskFrame *".into(),
+        Ty::Channel(_) => "AuraTaskChannel *".into(),
     }
 }
 
@@ -425,6 +428,9 @@ pub(crate) fn ty_to_c_local(t: &Ty, checked: &CheckedFile) -> String {
         },
         Ty::Interface(n) => c_iface_type(&nominal_mono_base(n)),
         Ty::InterfaceApp { name, args } => c_iface_type(&mono_key(name, args)),
+        // C22: async values are represented by opaque runtime handles.
+        Ty::Task(_) | Ty::TaskHandle(_) => "AuraTaskFrame *".into(),
+        Ty::Channel(_) => "AuraTaskChannel *".into(),
         Ty::Enum(n) => c_enum_type(&nominal_mono_base(n)),
         Ty::EnumApp { name, args } => c_enum_type(&mono_key(name, args)),
         other => ty_to_c(other),
@@ -483,6 +489,9 @@ fn type_ref_to_ty_subst(ty: &TypeRef, checked: &CheckedFile, params: &[String], 
         "Bool" => Ty::Bool,
         "String" => Ty::String,
         "Unit" => Ty::Unit,
+        "Task" => Ty::Task(Box::new(type_args.into_iter().next().unwrap_or(Ty::Unit))),
+        "TaskHandle" => Ty::TaskHandle(Box::new(type_args.into_iter().next().unwrap_or(Ty::Unit))),
+        "Channel" => Ty::Channel(Box::new(type_args.into_iter().next().unwrap_or(Ty::Unit))),
         "Array" => Ty::ClassApp {
             name: "Array".into(),
             args: type_args,
@@ -594,6 +603,8 @@ pub(crate) fn c_type_ref_subst(
             "Bool" => "bool".into(),
             "String" => "const char *".into(),
             "Unit" => "void".into(),
+            "Task" | "TaskHandle" => "AuraTaskFrame *".into(),
+            "Channel" => "AuraTaskChannel *".into(),
             name if checked.ast.interfaces.iter().any(|i| i.name.name == name) => {
                 let imono = iface_mono_from_key(name, checked);
                 c_iface_type(&imono)
@@ -610,6 +621,13 @@ pub(crate) fn c_type_ref_subst(
         }
     } else {
         let pkg = resolve_type_ref_package(ty, checked);
+        // C22 async types are runtime handles, not user classes.
+        if matches!(ty.name.name.as_str(), "Task" | "TaskHandle") {
+            return "AuraTaskFrame *".into();
+        }
+        if ty.name.name == "Channel" {
+            return "AuraTaskChannel *".into();
+        }
         // C8c: generic interface type refs → mono iface C type.
         if checked
             .ast
@@ -804,6 +822,9 @@ pub(crate) fn c_type_from_ty(ty: &Ty, checked: &CheckedFile) -> String {
         }
         Ty::Enum(_) | Ty::EnumApp { .. } => c_enum_type(&ty.mono_suffix()),
         Ty::Interface(_) | Ty::InterfaceApp { .. } => c_iface_type(&ty.mono_suffix()),
+        // C22 runtime-owned opaque handles.
+        Ty::Task(_) | Ty::TaskHandle(_) => "AuraTaskFrame *".into(),
+        Ty::Channel(_) => "AuraTaskChannel *".into(),
         Ty::TypeParam(n) => n.clone(),
     }
 }
