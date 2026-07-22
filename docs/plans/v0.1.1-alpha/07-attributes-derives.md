@@ -56,16 +56,18 @@ while retaining the legacy boolean for compatibility.
 generate a checked `equals(other): Bool` method for class/struct declarations
 whose fields are primitive, `String`, nullable primitive/String, or class
 references. Duplicate methods and unsupported field types have stable
-`AURA-M4-*` diagnostics. Nested value types, generic type parameters, and
-enums remain deferred to the broader derive contract.
+`AURA-M4-*` diagnostics. Nested class-reference fields are supported; nested
+value types, generic type parameters, and enums remain deferred to the broader
+derive contract.
 **Checklist:**
 
 - [x] Support the implemented class/struct subset.
 - [x] Handle primitive and nullable primitive/String fields in the implemented
-  subset.
-- [ ] Handle nested and generic fields.
+      subset.
+- [x] Handle nested class-reference fields; nested value and generic fields
+      remain deferred.
 - [x] Respect visibility and unsupported-field diagnostics; generic visibility
-  semantics remain deferred with nested/generic support.
+      semantics remain deferred with nested/generic support.
       **Acceptance:** Generated members pass normal checking and code generation.
       **Verification:** Run positive/negative derive corpus and output checks.
       **Dependencies:** M3.
@@ -108,11 +110,11 @@ members use `AURA-M6-DUPLICATE`.
 **Checklist:**
 
 - [x] Define declaration-order field rendering and the `Type(field=value, ...)`
-  representation for supported types.
+      representation for supported types.
 - [x] Diagnose nested, nullable, generic, Bool, and other unsupported fields
-  with stable errors; broader rendering remains deferred.
+      with stable errors; broader rendering remains deferred.
 - [x] Attribute duplicate errors to the derive declaration and unsupported
-  field errors to the offending field.
+      field errors to the offending field.
       **Acceptance (implemented subset):** Generated debug methods are checked,
       public, deterministic, and source-aware. Runtime output, golden fixtures,
       and broader field coverage remain deferred.

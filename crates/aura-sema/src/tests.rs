@@ -120,12 +120,35 @@ fn equals_derive_generates_checked_method_for_supported_fields() {
         .expect("generated equals");
     assert!(equals.is_pub);
     assert_eq!(equals.params[0].name.name, "other");
-    assert!(equals.return_type.as_ref().is_some_and(|ty| ty.name.name == "Bool"));
+    assert!(equals
+        .return_type
+        .as_ref()
+        .is_some_and(|ty| ty.name.name == "Bool"));
+}
+
+#[test]
+fn equals_derive_accepts_nested_class_fields() {
+    let file = parse_file(
+        "package t\nclass Child(val id: Int) {}\n@derive(Equals) class Parent(val child: Child) {}\n",
+    )
+    .expect("nested derive syntax");
+    let checked = check_file(&file).expect("nested class equality should typecheck");
+    let parent = checked
+        .ast
+        .classes
+        .iter()
+        .find(|class| class.name.name == "Parent")
+        .expect("Parent");
+    assert!(parent
+        .methods
+        .iter()
+        .any(|method| method.name.name == "equals"));
 }
 
 #[test]
 fn equals_derive_empty_type_returns_true() {
-    let file = parse_file("package t\n@derive(Equals) struct Marker() {}\n").expect("derive syntax");
+    let file =
+        parse_file("package t\n@derive(Equals) struct Marker() {}\n").expect("derive syntax");
     let checked = check_file(&file).expect("empty generated equals should typecheck");
     let marker = checked
         .ast
@@ -138,7 +161,9 @@ fn equals_derive_empty_type_returns_true() {
         .iter()
         .find(|method| method.name.name == "equals")
         .expect("generated equals");
-    assert!(matches!(equals.body.stmts.first(), Some(Stmt::Return(return_stmt)) if matches!(return_stmt.value, Some(Expr::Bool(_)))));
+    assert!(
+        matches!(equals.body.stmts.first(), Some(Stmt::Return(return_stmt)) if matches!(return_stmt.value, Some(Expr::Bool(_))))
+    );
 }
 
 #[test]
@@ -167,10 +192,9 @@ fn equals_derive_reports_unsupported_generic_field() {
 
 #[test]
 fn hash_code_derive_generates_checked_method_for_int_and_string() {
-    let file = parse_file(
-        "package t\n@derive(HashCode) struct Key(val id: Int, val name: String) {}\n",
-    )
-    .expect("derive syntax");
+    let file =
+        parse_file("package t\n@derive(HashCode) struct Key(val id: Int, val name: String) {}\n")
+            .expect("derive syntax");
     let checked = check_file(&file).expect("generated hashCode method should typecheck");
     let key = checked
         .ast
@@ -185,16 +209,18 @@ fn hash_code_derive_generates_checked_method_for_int_and_string() {
         .expect("generated hashCode");
     assert!(hash.is_pub);
     assert!(hash.params.is_empty());
-    assert_eq!(hash.return_type.as_ref().map(|ty| ty.name.name.as_str()), Some("Int"));
+    assert_eq!(
+        hash.return_type.as_ref().map(|ty| ty.name.name.as_str()),
+        Some("Int")
+    );
     assert!(matches!(hash.body.stmts.first(), Some(Stmt::Return(_))));
 }
 
 #[test]
 fn hash_code_derive_reports_unsupported_and_duplicate_fields() {
-    let unsupported = parse_file(
-        "package t\n@derive(Hash) struct Bad(val ok: Bool, val maybe: Int?) {}\n",
-    )
-    .expect("derive syntax");
+    let unsupported =
+        parse_file("package t\n@derive(Hash) struct Bad(val ok: Bool, val maybe: Int?) {}\n")
+            .expect("derive syntax");
     let errors = check_file(&unsupported).expect_err("unsupported hash fields must be diagnosed");
     assert_eq!(
         errors
@@ -218,10 +244,9 @@ fn hash_code_derive_reports_unsupported_and_duplicate_fields() {
 
 #[test]
 fn debug_derive_generates_deterministic_public_to_string() {
-    let file = parse_file(
-        "package t\n@derive(Debug) class Point(val x: Int, val label: String) {}\n",
-    )
-    .expect("derive syntax");
+    let file =
+        parse_file("package t\n@derive(Debug) class Point(val x: Int, val label: String) {}\n")
+            .expect("derive syntax");
     let checked = check_file(&file).expect("debug derive should typecheck");
     let method = checked.ast.classes[0]
         .methods
@@ -230,24 +255,26 @@ fn debug_derive_generates_deterministic_public_to_string() {
         .expect("generated toString");
     assert!(method.is_pub);
     assert!(method.params.is_empty());
-    assert_eq!(method.return_type.as_ref().map(|ty| ty.name.name.as_str()), Some("String"));
+    assert_eq!(
+        method.return_type.as_ref().map(|ty| ty.name.name.as_str()),
+        Some("String")
+    );
     assert!(matches!(method.body.stmts.first(), Some(Stmt::Return(_))));
 }
 
 #[test]
 fn debug_string_derive_uses_debug_string_and_reports_unsupported_fields() {
-    let file = parse_file("package t\n@derive(DebugString) struct Marker() {}\n")
-        .expect("derive syntax");
+    let file =
+        parse_file("package t\n@derive(DebugString) struct Marker() {}\n").expect("derive syntax");
     let checked = check_file(&file).expect("debugString derive should typecheck");
     assert!(checked.ast.classes[0]
         .methods
         .iter()
         .any(|method| method.name.name == "debugString"));
 
-    let unsupported = parse_file(
-        "package t\n@derive(Debug) class Bad(val ok: Bool, val maybe: Int?) {}\n",
-    )
-    .expect("derive syntax");
+    let unsupported =
+        parse_file("package t\n@derive(Debug) class Bad(val ok: Bool, val maybe: Int?) {}\n")
+            .expect("derive syntax");
     let errors = check_file(&unsupported).expect_err("unsupported debug fields must be diagnosed");
     assert_eq!(
         errors
