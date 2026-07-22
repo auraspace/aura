@@ -7,6 +7,67 @@ use super::Parser;
 use crate::error::ParseError;
 
 impl Parser {
+    /// F1: `extern "C" fun name(...): T` has no Aura body. Link and target
+    /// metadata is carried by one explicit `@foreign(...)` attribute.
+    pub(crate) fn parse_foreign_fun(
+        &mut self,
+        attributes: &[Attribute],
+    ) -> Result<ForeignDecl, ParseError> {
+        let start = self.peek().span.start;
+        self.expect(TokenKind::Extern, "`extern`")?;
+        let convention_token = self.bump();
+        let convention = match convention_token.kind {
+            TokenKind::String(name) if name == "C" => ForeignCallingConvention::C,
+            TokenKind::String(name) => ForeignCallingConvention::Other {
+                name,
+                span: convention_token.span,
+            },
+            other => {
+                return Err(ParseError {
+                    message: format!("expected calling-convention string after `extern`, found {other:?}"),
+                    span: convention_token.span,
+                });
+            }
+        };
+        self.expect(TokenKind::Fun, "`fun` after foreign calling convention")?;
+        let name = self.expect_ident()?;
+        self.expect(TokenKind::LParen, "`(`")?;
+        let mut params = Vec::new();
+        if !matches!(self.peek().kind, TokenKind::RParen) {
+            loop {
+                params.push(self.parse_param()?);
+                if matches!(self.peek().kind, TokenKind::Comma) {
+                    self.bump();
+                    continue;
+                }
+                break;
+            }
+        }
+        self.expect(TokenKind::RParen, "`)`")?;
+        let return_type = if matches!(self.peek().kind, TokenKind::Colon) {
+            self.bump();
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
+        let end = return_type.as_ref().map_or(name.span.end, |t| t.span.end);
+        let (library, target, link, abi) = foreign_metadata(attributes);
+        Ok(ForeignDecl {
+            is_pub: false,
+            origin_package: String::new(),
+            attributes: Vec::new(),
+            name,
+            params,
+            return_type,
+            convention,
+            library,
+            target,
+            link,
+            abi,
+            span: Span::new(start, end),
+        })
+    }
+
     pub(crate) fn parse_enum(&mut self) -> Result<EnumDecl, ParseError> {
         let start = self.peek().span.start;
         self.expect(TokenKind::Enum, "`enum`")?;
@@ -611,4 +672,59 @@ impl Parser {
         self.expect(TokenKind::Gt, "`>`")?;
         Ok(args)
     }
+}
+
+fn foreign_metadata(
+    attributes: &[Attribute],
+) -> (
+    Option<ForeignLibrary>,
+    Option<ForeignTarget>,
+    Option<ForeignLink>,
+    Option<ForeignAbi>,
+) {
+    let Some(attribute) = attributes.iter().find(|a| a.name.name == "foreign") else {
+        return (None, None, None, None);
+    };
+    let args = &attribute.args;
+    let mut library = None;
+    let mut target = None;
+    let mut link = None;
+    let mut abi_version = None;
+    let mut abi_identity = None;
+    let mut abi_span = attribute.span;
+    for arg in args {
+        let AttributeArg::Named { name, value, .. } = arg else { continue };
+        match (name.name.as_str(), value) {
+            ("library", AttributeValue::String { value, span }) => {
+                library = Some(ForeignLibrary { name: value.clone(), span: *span });
+            }
+            ("target", AttributeValue::String { value, span }) => {
+                target = Some(ForeignTarget { triple: value.clone(), span: *span });
+            }
+            ("link", AttributeValue::String { value, span }) => {
+                let kind = match value.as_str() {
+                    "dynamic" => Some(ForeignLinkKind::Dynamic),
+                    "static" => Some(ForeignLinkKind::Static),
+                    _ => None,
+                };
+                if let Some(kind) = kind {
+                    link = Some(ForeignLink { kind, span: *span });
+                }
+            }
+            ("abi", AttributeValue::Int { value, span }) if *value >= 0 => {
+                abi_version = u32::try_from(*value).ok();
+                abi_span = *span;
+            }
+            ("abi_id", AttributeValue::String { value, span }) => {
+                abi_identity = Some(value.clone());
+                abi_span = *span;
+            }
+            _ => {}
+        }
+    }
+    let abi = match (abi_version, abi_identity) {
+        (Some(version), Some(identity)) => Some(ForeignAbi { version, identity, span: abi_span }),
+        _ => None,
+    };
+    (library, target, link, abi)
 }

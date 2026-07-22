@@ -822,6 +822,11 @@ fn stamp_origin(ast: &mut File, package: &str) {
             f.origin_package = package.to_string();
         }
     }
+    for f in &mut ast.foreign_functions {
+        if f.origin_package.is_empty() {
+            f.origin_package = package.to_string();
+        }
+    }
 }
 
 pub(crate) fn load_directory(
@@ -849,6 +854,7 @@ pub(crate) fn load_directory(
     let mut enums = Vec::new();
     let mut classes = Vec::new();
     let mut functions = Vec::new();
+    let mut foreign_functions = Vec::new();
     let mut seen_types: Vec<(String, String, String)> = Vec::new(); // kind, name, path
     let mut seen_funs: Vec<(String, String)> = Vec::new(); // name, path
 
@@ -907,6 +913,9 @@ pub(crate) fn load_directory(
         for f in &ast.functions {
             check_dup_fun(&mut seen_funs, &f.name.name, path)?;
         }
+        for f in &ast.foreign_functions {
+            check_dup_fun(&mut seen_funs, &f.name.name, path)?;
+        }
 
         imports.extend(ast.imports);
         interfaces.extend(ast.interfaces);
@@ -915,6 +924,7 @@ pub(crate) fn load_directory(
         type_aliases.extend(ast.type_aliases);
         consts.extend(ast.consts);
         functions.extend(ast.functions);
+        foreign_functions.extend(ast.foreign_functions);
 
         sources.push(SourceEntry {
             path: path.clone(),
@@ -958,6 +968,7 @@ pub(crate) fn load_directory(
         type_aliases,
         consts,
         functions,
+        foreign_functions,
         async_functions: Vec::new(),
         span: pkg_span,
     };

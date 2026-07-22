@@ -26,7 +26,7 @@ impl Target {
             Self::Field => "fields",
             Self::EnumVariant => "enum variants",
             Self::TypeAlias => "type aliases",
-            Self::Const => "constants",
+        Self::Const => "constants",
         }
     }
 }
@@ -143,6 +143,13 @@ const REGISTRY: &[AttributeSpec] = &[
         repeatable: false,
         conflicts: NO_CONFLICTS,
     },
+    AttributeSpec {
+        name: "foreign",
+        targets: FUNCTION,
+        retention: "Binary",
+        repeatable: false,
+        conflicts: NO_CONFLICTS,
+    },
 ];
 
 fn spec(name: &str) -> Option<&'static AttributeSpec> {
@@ -254,6 +261,26 @@ fn validate_arguments(attribute: &Attribute, spec: &AttributeSpec, errors: &mut 
                 );
             }
         }
+        "foreign" => {
+            for arg in &attribute.args {
+                let valid = matches!(
+                    arg,
+                    AttributeArg::Named { name, value, .. }
+                        if (name.name == "library" && is_string(value))
+                            || (name.name == "target" && is_string(value))
+                            || (name.name == "link" && is_string(value))
+                            || (name.name == "abi" && matches!(value, AttributeValue::Int { .. }))
+                            || (name.name == "abi_id" && is_string(value))
+                );
+                if !valid {
+                    invalid(
+                        "`@foreign` accepts named library/target/link/abi/abi_id metadata".into(),
+                        arg.span(),
+                        errors,
+                    );
+                }
+            }
+        }
         "repr" => {
             if attribute.args.len() != 1
                 || !matches!(
@@ -339,6 +366,12 @@ pub(crate) fn validate_file(file: &File) -> Vec<SemaError> {
         validate_attributes(&constant.attributes, Target::Const, &mut errors);
     }
     for function in &file.functions {
+        validate_attributes(&function.attributes, Target::Function, &mut errors);
+        for parameter in &function.params {
+            validate_attributes(&parameter.attributes, Target::Parameter, &mut errors);
+        }
+    }
+    for function in &file.foreign_functions {
         validate_attributes(&function.attributes, Target::Function, &mut errors);
         for parameter in &function.params {
             validate_attributes(&parameter.attributes, Target::Parameter, &mut errors);

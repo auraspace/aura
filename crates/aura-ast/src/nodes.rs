@@ -17,6 +17,9 @@ pub struct File {
     /// C9g: `const Name: T = literal` top-level constants.
     pub consts: Vec<ConstDecl>,
     pub functions: Vec<FunDecl>,
+    /// F1: declarations for symbols supplied by an external library. These
+    /// are validated by sema; calls and lowering remain an F2 concern.
+    pub foreign_functions: Vec<ForeignDecl>,
     /// C22: top-level `async fun` declarations.
     pub async_functions: Vec<AsyncFunDecl>,
     pub span: Span,
@@ -258,6 +261,63 @@ pub struct FunDecl {
     pub params: Vec<Param>,
     pub return_type: Option<TypeRef>,
     pub body: Block,
+    pub span: Span,
+}
+
+/// `@foreign(...) extern "C" fun name(...): T`.
+///
+/// The metadata is explicit and normalized at parse time, while the original
+/// attributes are retained for diagnostics and future tooling.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ForeignDecl {
+    pub is_pub: bool,
+    pub origin_package: String,
+    pub attributes: Vec<Attribute>,
+    pub name: Ident,
+    pub params: Vec<Param>,
+    pub return_type: Option<TypeRef>,
+    pub convention: ForeignCallingConvention,
+    pub library: Option<ForeignLibrary>,
+    pub target: Option<ForeignTarget>,
+    pub link: Option<ForeignLink>,
+    pub abi: Option<ForeignAbi>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ForeignCallingConvention {
+    C,
+    Other { name: String, span: Span },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ForeignLibrary {
+    pub name: String,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ForeignTarget {
+    pub triple: String,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ForeignLink {
+    pub kind: ForeignLinkKind,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ForeignLinkKind {
+    Dynamic,
+    Static,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ForeignAbi {
+    pub version: u32,
+    pub identity: String,
     pub span: Span,
 }
 

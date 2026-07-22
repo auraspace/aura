@@ -20,6 +20,8 @@ pub enum TokenKind {
     Enum,
     Interface,
     Fun,
+    /// F1: declaration of a symbol supplied by a foreign library.
+    Extern,
     /// C9f: `type Name = T`
     Type,
     /// C9g: `const Name: T = literal`
@@ -450,6 +452,7 @@ impl<'a> Lexer<'a> {
             "enum" => TokenKind::Enum,
             "interface" => TokenKind::Interface,
             "fun" => TokenKind::Fun,
+            "extern" => TokenKind::Extern,
             "type" => TokenKind::Type,
             "const" => TokenKind::Const,
             "val" => TokenKind::Val,

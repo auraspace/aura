@@ -31,9 +31,37 @@ pub fn shift_file_spans(file: &mut File, delta: BytePos) {
     for f in &mut file.functions {
         shift_fun(f, delta);
     }
+    for f in &mut file.foreign_functions {
+        shift_foreign(f, delta);
+    }
     for f in &mut file.async_functions {
         shift_async_fun(f, delta);
     }
+}
+
+fn shift_foreign(f: &mut ForeignDecl, delta: BytePos) {
+    shift_attributes(&mut f.attributes, delta);
+    shift_ident(&mut f.name, delta);
+    for p in &mut f.params {
+        shift_param(p, delta);
+    }
+    if let Some(t) = &mut f.return_type {
+        shift_type_ref(t, delta);
+    }
+    if let ForeignCallingConvention::Other { span, .. } = &mut f.convention {
+        *span = span.shift(delta);
+    }
+    for span in [
+        f.library.as_mut().map(|v| &mut v.span),
+        f.target.as_mut().map(|v| &mut v.span),
+        f.link.as_mut().map(|v| &mut v.span),
+        f.abi.as_mut().map(|v| &mut v.span),
+    ] {
+        if let Some(span) = span {
+            *span = span.shift(delta);
+        }
+    }
+    f.span = f.span.shift(delta);
 }
 
 fn shift_type_alias(t: &mut TypeAliasDecl, delta: BytePos) {

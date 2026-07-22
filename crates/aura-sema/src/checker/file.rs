@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use aura_ast::{decl_package, File, NominalKind};
+use aura_ast::{decl_package, File, ForeignCallingConvention, ForeignDecl, NominalKind};
 
 use super::Checker;
 use crate::error::SemaError;
@@ -9,6 +9,98 @@ use crate::ty::Ty;
 use crate::util::{subst_ty, type_subst_map};
 
 impl Checker {
+    fn validate_foreign_decl(&mut self, foreign: &ForeignDecl) {
+        if !matches!(foreign.convention, ForeignCallingConvention::C) {
+            let name = match &foreign.convention {
+                ForeignCallingConvention::C => "C".to_string(),
+                ForeignCallingConvention::Other { name, .. } => name.clone(),
+            };
+            self.errors.push(SemaError {
+                message: format!("[AURA-F1-CONVENTION] unsupported foreign calling convention `{name}`; only `C` is supported"),
+                span: foreign.name.span,
+            });
+        }
+        let Some(library) = &foreign.library else {
+            self.errors.push(SemaError {
+                message: "[AURA-F1-LIBRARY] foreign declaration requires `library = \"...\"`".into(),
+                span: foreign.span,
+            });
+            return;
+        };
+        if library.name.is_empty() || library.name.starts_with('-') || library.name.contains('/') || library.name.contains('\\') {
+            self.errors.push(SemaError {
+                message: format!("[AURA-F1-LIBRARY] invalid foreign library `{}`; use a plain library name", library.name),
+                span: library.span,
+            });
+        }
+        let Some(target) = &foreign.target else {
+            self.errors.push(SemaError {
+                message: "[AURA-F1-TARGET] foreign declaration requires `target = \"native\"` or a supported host triple".into(),
+                span: foreign.span,
+            });
+            return;
+        };
+        let host = match (std::env::consts::OS, std::env::consts::ARCH) {
+            ("linux", "x86_64") => "linux-x86_64",
+            ("macos", "x86_64") => "macos-x86_64",
+            ("macos", "aarch64") => "macos-aarch64",
+            _ => "unsupported-host",
+        };
+        let supported = ["native", "linux-x86_64", "macos-x86_64", "macos-aarch64"];
+        if !supported.contains(&target.triple.as_str()) {
+            self.errors.push(SemaError {
+                message: format!("[AURA-F1-TARGET] unsupported foreign target `{}`", target.triple),
+                span: target.span,
+            });
+        } else if target.triple != "native" && target.triple != host {
+            self.errors.push(SemaError {
+                message: format!("[AURA-F1-TARGET] foreign target `{}` does not match host `{host}`; cross-target linking is not supported", target.triple),
+                span: target.span,
+            });
+        }
+        if foreign.link.is_none() {
+            self.errors.push(SemaError {
+                message: "[AURA-F1-LINK] foreign declaration requires `link = \"dynamic\"` or `\"static\"`".into(),
+                span: foreign.span,
+            });
+        }
+        let Some(abi) = &foreign.abi else {
+            self.errors.push(SemaError {
+                message: "[AURA-F1-ABI] foreign declaration requires `abi = 1, abi_id = \"c\"`".into(),
+                span: foreign.span,
+            });
+            return;
+        };
+        if abi.version != 1 || abi.identity != "c" {
+            self.errors.push(SemaError {
+                message: format!("[AURA-F1-ABI] unsupported foreign ABI `{}` version {}; only `c` version 1 is supported", abi.identity, abi.version),
+                span: abi.span,
+            });
+        }
+        self.type_params.clear();
+        let params = foreign.params.iter().map(|p| self.type_from_ref(&p.ty)).collect::<Result<Vec<_>, _>>();
+        let ret = foreign.return_type.as_ref().map_or(Ok(Ty::Unit), |t| self.type_from_ref(t));
+        let supported_ty = |ty: &Ty| matches!(ty, Ty::Int | Ty::Bool | Ty::String | Ty::Unit);
+        if let Ok(params) = params {
+            if params.iter().any(|ty| !supported_ty(ty)) {
+                self.errors.push(SemaError { message: "[AURA-F1-TYPE] only Int, Bool, String, and Unit are supported at the FFI boundary".into(), span: foreign.span });
+            }
+        } else {
+            self.errors.push(SemaError { message: "[AURA-F1-TYPE] foreign parameter type is not supported".into(), span: foreign.span });
+        }
+        if let Ok(ret) = ret {
+            if !supported_ty(&ret) {
+                self.errors.push(SemaError { message: "[AURA-F1-TYPE] foreign return type must be Int, Bool, String, or Unit".into(), span: foreign.span });
+            }
+        } else {
+            self.errors.push(SemaError { message: "[AURA-F1-TYPE] foreign return type is not supported".into(), span: foreign.span });
+        }
+        if foreign.params.iter().any(|p| p.ty.reference) || foreign.return_type.as_ref().is_some_and(|t| t.reference) {
+            self.errors.push(SemaError { message: "[AURA-F1-TYPE] foreign declarations cannot use Aura borrow references".into(), span: foreign.span });
+        }
+        self.type_params.clear();
+    }
+
     /// C7g: declaration-phase errors are collected into `self.errors` and later
     /// decls/bodies still run when safe (mirror C6h body multi-error).
     pub(crate) fn check_file(&mut self, file: &File) -> Result<CheckedFile, SemaError> {
@@ -365,6 +457,27 @@ impl Checker {
                 }
             }
             self.type_params.clear();
+        }
+
+        // F1: validate foreign declarations after ordinary signatures are
+        // known, but before any body/codegen consumer can use the file.
+        let mut foreign_names = HashSet::new();
+        for foreign in &file.foreign_functions {
+            let pkg = decl_package(&foreign.origin_package, &file_pkg).to_string();
+            self.current_package = pkg.clone();
+            if !foreign_names.insert(foreign.name.name.clone())
+                || self
+                    .functions
+                    .get(&foreign.name.name)
+                    .is_some_and(|items| items.iter().any(|sig| sig.package == pkg))
+            {
+                self.errors.push(SemaError {
+                    message: format!("duplicate foreign function `{}` in package `{pkg}`", foreign.name.name),
+                    span: foreign.name.span,
+                });
+                continue;
+            }
+            self.validate_foreign_decl(foreign);
         }
 
         for c in &file.classes {

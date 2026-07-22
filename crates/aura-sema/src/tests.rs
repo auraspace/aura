@@ -31,6 +31,39 @@ fn mono_suffix() {
 }
 
 #[test]
+fn foreign_declaration_accepts_alpha_c_contract() {
+    let file = parse_file(
+        "package demo\n@foreign(library = \"m\", target = \"native\", link = \"dynamic\", abi = 1, abi_id = \"c\")\nextern \"C\" fun native_abs(value: Int): Int\n",
+    )
+    .expect("parse");
+    check_file(&file).expect("valid F1 declaration");
+}
+
+#[test]
+fn foreign_declaration_rejects_target_before_codegen() {
+    let file = parse_file(
+        "package demo\n@foreign(library = \"m\", target = \"windows-x86_64\", link = \"dynamic\", abi = 1, abi_id = \"c\")\nextern \"C\" fun native_abs(value: Int): Int\n",
+    )
+    .expect("parse");
+    let error = check_file(&file).expect_err("unsupported target");
+    assert!(error.to_string().contains("AURA-F1-TARGET"));
+    assert!(error.to_string().contains("windows-x86_64"));
+}
+
+#[test]
+fn foreign_declaration_rejects_non_c_abi_and_borrow_types() {
+    let file = parse_file(
+        "package demo\n@foreign(library = \"m\", target = \"native\", link = \"dynamic\", abi = 2, abi_id = \"rust\")\nextern \"Rust\" fun native_abs(value: ref String): Unit\n",
+    )
+    .expect("parse");
+    let error = check_file(&file).expect_err("unsupported ABI");
+    let message = error.to_string();
+    assert!(message.contains("AURA-F1-CONVENTION"));
+    assert!(message.contains("AURA-F1-ABI"));
+    assert!(message.contains("AURA-F1-TYPE"));
+}
+
+#[test]
 fn async_call_is_task_and_await_recovers_result() {
     let mut file = parse_file(
         "package t\nfun worker(): Int { return 7 }\nfun main(): Int { return await worker() }\n",

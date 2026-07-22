@@ -7,13 +7,20 @@ Owner: Compiler + Runtime. Scope: 6 tasks.
 **Objective:** Represent foreign symbols and ABI requirements safely.
 **Checklist:**
 
-- [ ] Define foreign functions, libraries, calling conventions, target guards,
-      link settings, and ABI metadata.
-- [ ] Validate declarations before code generation.
-- [ ] Preserve source spans and actionable errors.
+- [x] Define foreign functions, libraries, calling conventions, target guards,
+      link settings, and ABI metadata for `@foreign(...) extern "C" fun ...`.
+- [x] Validate declarations before code generation.
+- [x] Preserve source spans and actionable errors.
       **Acceptance:** Invalid declarations fail without attempting unsafe linking.
       **Verification:** Run parser, sema, target, and ABI validation fixtures.
       **Dependencies:** A1–A3, B1–B5.
+
+**Implementation status (F1):** Complete for the alpha declaration boundary.
+Foreign declarations are represented in the AST and package loader, accept only
+the C calling convention, require an explicit library/target/link/ABI
+descriptor, and are rejected by sema before code generation. The compiler's
+actual native matrix is enforced (`native`, or the matching Linux/macOS host
+triple). Calls, primitive lowering, and foreign linking remain F2 behavior.
 
 ## F2. Primitive calls
 

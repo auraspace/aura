@@ -9,12 +9,27 @@ package main
 fun main() {
   println("Hello, Aura")
 }
+
 "#;
     let file = parse_file(src).expect("parse");
     assert_eq!(file.package.segments[0].name, "main");
     assert_eq!(file.functions.len(), 1);
     assert_eq!(file.functions[0].name.name, "main");
     assert_eq!(file.functions[0].body.stmts.len(), 1);
+}
+
+#[test]
+fn parses_explicit_foreign_declaration_metadata() {
+    let file = parse_file(
+        "package demo\n@foreign(library = \"m\", target = \"native\", link = \"dynamic\", abi = 1, abi_id = \"c\")\nextern \"C\" fun native_abs(value: Int): Int\n",
+    )
+    .expect("foreign declaration parses");
+    let foreign = &file.foreign_functions[0];
+    assert_eq!(foreign.name.name, "native_abs");
+    assert!(matches!(foreign.convention, ForeignCallingConvention::C));
+    assert_eq!(foreign.library.as_ref().unwrap().name, "m");
+    assert_eq!(foreign.target.as_ref().unwrap().triple, "native");
+    assert_eq!(foreign.abi.as_ref().unwrap().identity, "c");
 }
 
 #[test]

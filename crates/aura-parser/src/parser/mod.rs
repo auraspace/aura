@@ -76,6 +76,7 @@ impl Parser {
             imports.push(self.parse_import()?);
         }
         let mut functions = Vec::new();
+        let mut foreign_functions = Vec::new();
         let mut async_functions = Vec::new();
         let mut classes = Vec::new();
         let mut interfaces = Vec::new();
@@ -187,6 +188,18 @@ impl Parser {
                     }
                     functions.push(f);
                 }
+                TokenKind::Extern => {
+                    if is_test {
+                        return Err(ParseError {
+                            message: "`@test` only applies to Aura functions".into(),
+                            span: self.peek().span,
+                        });
+                    }
+                    let mut f = self.parse_foreign_fun(&attributes)?;
+                    f.is_pub = is_pub;
+                    f.attributes = attributes;
+                    foreign_functions.push(f);
+                }
                 TokenKind::Async => {
                     let mut f = self.parse_async_fun()?;
                     f.is_pub = is_pub;
@@ -203,7 +216,7 @@ impl Parser {
                 _ => {
                     return Err(ParseError {
                         message: format!(
-                            "expected `type`, `const`, `interface`, `enum`, `class`, `struct`, or `fun`, found {:?}",
+                            "expected `type`, `const`, `interface`, `enum`, `class`, `struct`, `fun`, or `extern`, found {:?}",
                             self.peek().kind
                         ),
                         span: self.peek().span,
@@ -221,6 +234,7 @@ impl Parser {
             type_aliases,
             consts,
             functions,
+            foreign_functions,
             async_functions,
             span: Span::new(start, end),
         })

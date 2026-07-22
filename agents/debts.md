@@ -7,6 +7,14 @@ When you resolve debt, update or remove the matching entry.
 
 ## Open
 
+### Foreign symbol lowering deferred to F2 (2026-07-22)
+
+- F1 validates and preserves explicit foreign declarations, but does not add
+  foreign symbols to the callable Aura signature table or emit/link them.
+- This is intentional: primitive call ABI lowering, ownership, and missing
+  symbol behavior belong to F2+ and must not be inferred from declaration
+  syntax alone.
+
 > **Last closed batch:** [S2](../docs/plans/2026-07-21-s2-production-toolchain.md) (2026-07-21). Residual open items below.
 
 ### HTTP H3 remains transport-independent (2026-07-22)
