@@ -259,3 +259,9 @@ When you resolve debt, update or remove the matching entry.
   and reports supported alternatives. Explicit cross targets, sysroot
   discovery, and system-library/linker probing remain deferred until target
   descriptors are modeled in `CompileOptions`.
+
+### Alpha race instrumentation (2026-07-22)
+
+- Runtime executor lifecycle events now cover spawn and terminal outcomes.
+  Compiler read/write instrumentation, synchronization edges, suppression, and
+  stable conflict reports remain deferred to R1–R5 follow-up slices.

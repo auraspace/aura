@@ -15,7 +15,8 @@ lowering remains coupled to A4–A6 capture/await work.
 - [x] Create an owned frame with stable task identity and initial state.
 - [x] Schedule the body exactly once under the deterministic executor.
 - [x] Define immediate completion and abandoned-task behavior.
-- [ ] Expose lifecycle events for diagnostics and race instrumentation.
+- [x] Expose spawn and terminal lifecycle events for diagnostics and race
+      instrumentation.
 
 **Acceptance:** A spawned body runs once and reaches a terminal state.
 

@@ -1513,7 +1513,10 @@ typedef enum
   AURA_RACE_TASK_SPAWN = 2,
   AURA_RACE_TASK_JOIN = 3,
   AURA_RACE_SYNC_ACQUIRE = 4,
-  AURA_RACE_SYNC_RELEASE = 5
+  AURA_RACE_SYNC_RELEASE = 5,
+  AURA_RACE_TASK_COMPLETE = 6,
+  AURA_RACE_TASK_FAILED = 7,
+  AURA_RACE_TASK_CANCELLED = 8
 } AuraRaceEventKind;
 
 typedef struct
@@ -2156,6 +2159,22 @@ int aura_task_executor_run_one(AuraTaskExecutor *executor)
   else
   {
     frame->state = AURA_TASK_FAILED;
+  }
+  if (executor->race_tracker != NULL &&
+      (state == AURA_TASK_COMPLETE || state == AURA_TASK_FAILED ||
+       state == AURA_TASK_CANCELLED))
+  {
+    AuraRaceEventKind kind = AURA_RACE_TASK_COMPLETE;
+    if (state == AURA_TASK_FAILED)
+    {
+      kind = AURA_RACE_TASK_FAILED;
+    }
+    else if (state == AURA_TASK_CANCELLED)
+    {
+      kind = AURA_RACE_TASK_CANCELLED;
+    }
+    (void)aura_race_tracker_record(
+        executor->race_tracker, frame->task_id, 0, 0, kind, NULL);
   }
   return 1;
 }

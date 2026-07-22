@@ -3,6 +3,12 @@
 #define AURA_RUNTIME_NO_MAIN
 #include "../../runtime/aura_rt.c"
 
+static AuraTaskPollState fail_poll(AuraTaskFrame *frame)
+{
+  (void)frame;
+  return AURA_TASK_FAILED;
+}
+
 int main(void)
 {
   AuraRaceTracker *tracker = aura_race_tracker_new();
@@ -28,6 +34,22 @@ int main(void)
   assert(aura_task_executor_submit(executor, frame));
   assert(aura_race_tracker_count(tracker) == 1);
   assert(aura_race_tracker_event(tracker, 0)->kind == AURA_RACE_TASK_SPAWN);
+  assert(aura_task_executor_run_one(executor));
+  assert(aura_race_tracker_count(tracker) == 2);
+  assert(aura_race_tracker_event(tracker, 1)->kind == AURA_RACE_TASK_COMPLETE);
+  assert(aura_race_happens_before(aura_race_tracker_event(tracker, 0),
+                                  aura_race_tracker_event(tracker, 1)));
+
+  frame = aura_task_frame_new(0, fail_poll, NULL);
+  assert(aura_task_executor_submit(executor, frame));
+  assert(aura_task_executor_run_one(executor));
+  assert(aura_race_tracker_event(tracker, 3)->kind == AURA_RACE_TASK_FAILED);
+
+  frame = aura_task_frame_new(0, aura_task_poll_unit, NULL);
+  assert(aura_task_executor_submit(executor, frame));
+  assert(aura_task_executor_cancel(executor, frame));
+  assert(aura_task_executor_run_one(executor));
+  assert(aura_race_tracker_event(tracker, 5)->kind == AURA_RACE_TASK_CANCELLED);
   aura_task_executor_shutdown(executor);
 
   aura_race_tracker_reset(tracker);

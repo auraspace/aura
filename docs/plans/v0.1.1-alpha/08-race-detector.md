@@ -22,12 +22,14 @@ policy remain in the instrumentation/reporting slices.
 
 **Objective:** Record accesses and synchronization in opt-in development mode.
 **Implementation status:** Foundation complete for the runtime tracker API and
-executor spawn boundary. The tracker uses deterministic sequence numbers,
+executor lifecycle boundaries. The tracker uses deterministic sequence numbers,
 growable storage, reset, stable indexed inspection, and an explicit opt-in
-executor attachment; ordinary executors remain uninstrumented.
+executor attachment; spawn and terminal task events are recorded while ordinary
+executors remain uninstrumented.
 **Checklist:**
 
 - [x] Emit events at the executor spawn boundary.
+- [x] Emit terminal completion, failure, and cancellation events.
 - [x] Preserve task identity, logical time, and source mapping.
 - [ ] Keep tracking disabled in ordinary release mode.
       **Acceptance:** Repeated deterministic runs produce the same event sequence.
