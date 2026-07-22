@@ -52,11 +52,18 @@ while retaining the legacy boolean for compatibility.
 ## M4. Equals derive
 
 **Objective:** Generate type-checked equality implementations.
+**Implementation status:** Partial. `@derive(Equals)` and the legacy `Eq` alias
+generate a checked `equals(other): Bool` method for class/struct declarations
+whose fields are primitive, `String`, nullable primitive/String, or class
+references. Duplicate methods and unsupported field types have stable
+`AURA-M4-*` diagnostics. Nested value types, generic type parameters, and
+enums remain deferred to the broader derive contract.
 **Checklist:**
 
-- [ ] Support the contract-defined class/struct/enum subset.
+- [x] Support the implemented class/struct subset.
 - [ ] Handle primitive, nested, generic, and nullable fields.
-- [ ] Respect visibility, generics, and unsupported-field diagnostics.
+- [x] Respect visibility and unsupported-field diagnostics; generic visibility
+  semantics remain deferred with nested/generic support.
       **Acceptance:** Generated members pass normal checking and code generation.
       **Verification:** Run positive/negative derive corpus and output checks.
       **Dependencies:** M3.

@@ -2,6 +2,7 @@
 
 mod attributes;
 mod checker;
+mod derive;
 mod error;
 mod sigs;
 mod ty;
@@ -24,9 +25,11 @@ use checker::Checker;
 /// C6h/C7g: body- and declaration-level errors are collected so multiple
 /// issues can be reported in one `aura check` run when processing can continue.
 pub fn check_file(file: &File) -> Result<CheckedFile, SemaErrors> {
+    let mut expanded = file.clone();
     let mut c = Checker::new();
-    c.errors.extend(attributes::validate_file(file));
-    match c.check_file(file) {
+    c.errors.extend(derive::expand_equals(&mut expanded));
+    c.errors.extend(attributes::validate_file(&expanded));
+    match c.check_file(&expanded) {
         Ok(checked) => {
             if c.errors.is_empty() {
                 Ok(checked)

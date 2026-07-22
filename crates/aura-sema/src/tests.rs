@@ -68,6 +68,71 @@ fn attributes_validate_known_sites_and_arguments() {
 }
 
 #[test]
+fn equals_derive_generates_checked_method_for_supported_fields() {
+    let file = parse_file(
+        "package t\n@derive(Equals) struct Point(val x: Int, val label: String?, val ok: Bool) {}\n",
+    )
+    .expect("derive syntax");
+    let checked = check_file(&file).expect("generated equals method should typecheck");
+    let point = checked
+        .ast
+        .classes
+        .iter()
+        .find(|class| class.name.name == "Point")
+        .expect("Point");
+    let equals = point
+        .methods
+        .iter()
+        .find(|method| method.name.name == "equals")
+        .expect("generated equals");
+    assert!(equals.is_pub);
+    assert_eq!(equals.params[0].name.name, "other");
+    assert!(equals.return_type.as_ref().is_some_and(|ty| ty.name.name == "Bool"));
+}
+
+#[test]
+fn equals_derive_empty_type_returns_true() {
+    let file = parse_file("package t\n@derive(Equals) struct Marker() {}\n").expect("derive syntax");
+    let checked = check_file(&file).expect("empty generated equals should typecheck");
+    let marker = checked
+        .ast
+        .classes
+        .iter()
+        .find(|class| class.name.name == "Marker")
+        .expect("Marker");
+    let equals = marker
+        .methods
+        .iter()
+        .find(|method| method.name.name == "equals")
+        .expect("generated equals");
+    assert!(matches!(equals.body.stmts.first(), Some(Stmt::Return(return_stmt)) if matches!(return_stmt.value, Some(Expr::Bool(_)))));
+}
+
+#[test]
+fn equals_derive_preserves_eq_alias_and_rejects_duplicate() {
+    let file = parse_file(
+        "package t\n@derive(Eq) class Box(val value: Int) { fun equals(other: Box): Bool { return true } }\n",
+    )
+    .expect("derive syntax");
+    let errors = check_file(&file).expect_err("duplicate equals must be diagnosed");
+    assert!(errors
+        .errors
+        .iter()
+        .any(|error| error.message.contains("AURA-M4-DUPLICATE")));
+}
+
+#[test]
+fn equals_derive_reports_unsupported_generic_field() {
+    let file = parse_file("package t\n@derive(Equals) class Box<T>(val value: T) {}\n")
+        .expect("derive syntax");
+    let errors = check_file(&file).expect_err("generic equality requires a supported bound");
+    assert!(errors
+        .errors
+        .iter()
+        .any(|error| error.message.contains("AURA-M4-UNSUPPORTED")));
+}
+
+#[test]
 fn attributes_report_unknown_target_duplicate_and_conflict() {
     let file = parse_file(
         "package t\n@unknown fun main() {}\n@inline @noinline fun other() {}\n@inline class Wrong() {}\n",
