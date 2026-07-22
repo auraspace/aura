@@ -405,6 +405,61 @@ impl Parser {
         })
     }
 
+    /// C22f: `async fun name(...): T { ... }`.
+    pub(crate) fn parse_async_fun(&mut self) -> Result<AsyncFunDecl, ParseError> {
+        let start = self.peek().span.start;
+        self.expect(TokenKind::Async, "`async`")?;
+        self.expect(TokenKind::Fun, "`fun` after `async`")?;
+        let name = self.expect_ident()?;
+        let mut type_params = self.parse_type_params_opt()?;
+        self.expect(TokenKind::LParen, "`(`")?;
+        let mut params = Vec::new();
+        if !matches!(self.peek().kind, TokenKind::RParen) {
+            loop {
+                params.push(self.parse_param()?);
+                if matches!(self.peek().kind, TokenKind::Comma) {
+                    self.bump();
+                    continue;
+                }
+                break;
+            }
+        }
+        self.expect(TokenKind::RParen, "`)`")?;
+        let return_type = if matches!(self.peek().kind, TokenKind::Colon) {
+            self.bump();
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
+        self.apply_where_clause(&mut type_params)?;
+        let body = if matches!(self.peek().kind, TokenKind::Eq) {
+            self.bump();
+            let expr = self.parse_expr(0)?;
+            let end = expr.span().end;
+            Block {
+                stmts: vec![Stmt::Return(ReturnStmt {
+                    value: Some(expr),
+                    span: Span::new(start, end),
+                })],
+                span: Span::new(start, end),
+            }
+        } else {
+            self.parse_block()?
+        };
+        let end = body.span.end;
+        Ok(AsyncFunDecl {
+            is_pub: false,
+            origin_package: String::new(),
+            is_test: false,
+            name,
+            type_params,
+            params,
+            return_type,
+            body,
+            span: Span::new(start, end),
+        })
+    }
+
     pub(crate) fn parse_param(&mut self) -> Result<Param, ParseError> {
         let name = self.expect_ident()?;
         let start = name.span.start;

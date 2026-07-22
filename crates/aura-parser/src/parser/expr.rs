@@ -128,6 +128,15 @@ impl Parser {
 
     pub(crate) fn parse_prefix(&mut self) -> Result<Expr, ParseError> {
         match &self.peek().kind {
+            TokenKind::Await => {
+                let start = self.bump().span.start;
+                let operand = self.parse_expr(prefix_binding_power())?;
+                let span = Span::new(start, operand.span().end);
+                Ok(Expr::Async(AsyncExpr::Await(AwaitExpr {
+                    operand: Box::new(operand),
+                    span,
+                })))
+            }
             TokenKind::Minus => {
                 let start = self.peek().span.start;
                 self.bump();

@@ -65,6 +65,7 @@ impl Parser {
             imports.push(self.parse_import()?);
         }
         let mut functions = Vec::new();
+        let mut async_functions = Vec::new();
         let mut classes = Vec::new();
         let mut interfaces = Vec::new();
         let mut enums = Vec::new();
@@ -165,6 +166,18 @@ impl Parser {
                     }
                     functions.push(f);
                 }
+                TokenKind::Async => {
+                    let mut f = self.parse_async_fun()?;
+                    f.is_pub = is_pub;
+                    f.is_test = is_test;
+                    if is_test {
+                        return Err(ParseError {
+                            message: "`@test` functions must not be async".into(),
+                            span: f.name.span,
+                        });
+                    }
+                    async_functions.push(f);
+                }
                 _ => {
                     return Err(ParseError {
                         message: format!(
@@ -186,7 +199,7 @@ impl Parser {
             type_aliases,
             consts,
             functions,
-            async_functions: Vec::new(),
+            async_functions,
             span: Span::new(start, end),
         })
     }

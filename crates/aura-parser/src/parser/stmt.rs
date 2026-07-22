@@ -306,7 +306,8 @@ impl Parser {
             | TokenKind::This
             | TokenKind::LParen
             | TokenKind::Minus
-            | TokenKind::Bang => Some(self.parse_expr(0)?),
+            | TokenKind::Bang
+            | TokenKind::Await => Some(self.parse_expr(0)?),
             _ => None,
         };
         let end = value.as_ref().map(|e| e.span().end).unwrap_or(tok.span.end);

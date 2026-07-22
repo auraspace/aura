@@ -212,6 +212,7 @@ package main
 fun adds() {
   assert_eq(1, 1)
 }
+
 "#;
     let file = parse_file(src).expect("parse");
     assert!(file.functions[0].is_test);
@@ -441,6 +442,7 @@ fun main() {
     continue
   }
 }
+
 "#;
     let file = parse_file(src).expect("parse");
     let body = &file.functions[0].body.stmts[0];
@@ -451,4 +453,32 @@ fun main() {
         }
         other => panic!("expected while, got {other:?}"),
     }
+}
+
+#[test]
+fn parses_async_function_and_await() {
+    let file =
+        parse_file("package demo\nasync fun load(id: Int): User { return await fetch(id) }\n")
+            .expect("parse");
+    assert_eq!(file.async_functions.len(), 1);
+    let fun = &file.async_functions[0];
+    assert_eq!(fun.name.name, "load");
+    assert_eq!(fun.params.len(), 1);
+    match &fun.body.stmts[0] {
+        Stmt::Return(ReturnStmt {
+            value: Some(Expr::Async(AsyncExpr::Await(await_expr))),
+            ..
+        }) => {
+            assert!(matches!(await_expr.operand.as_ref(), Expr::Call(_)));
+            assert_eq!(await_expr.span, Span::new(52, 67));
+        }
+        other => panic!("expected await return, got {other:?}"),
+    }
+}
+
+#[test]
+fn rejects_async_without_fun() {
+    let err = parse_file("package demo\nasync class Worker {}\n").expect_err("invalid async");
+    assert!(err.message.contains("`fun` after `async`"));
+    assert_eq!(err.span.start, 19);
 }
