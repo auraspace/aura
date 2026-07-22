@@ -101,8 +101,9 @@ int main(void)
   assert(frame_destroys == 1);
   assert(aura_gc_root_n == roots_before);
 
-  /* Cancellation before the first poll must still release the capture once
-   * when the executor eventually drops its owned frame. */
+  /* Cancellation before the first poll releases the capture before the
+   * terminal outcome is observable; frame destruction only releases the
+   * remaining frame-owned storage. */
   capture_drops = 0;
   frame_destroys = 0;
   poll_calls = 0;
@@ -114,7 +115,7 @@ int main(void)
   assert(aura_task_executor_run_one(executor) == 1);
   assert(aura_task_frame_state(cancelled_before_poll) == AURA_TASK_CANCELLED);
   assert(poll_calls == 0);
-  assert(capture_drops == 0);
+  assert(capture_drops == 1);
   aura_task_executor_shutdown(executor);
   assert(capture_drops == 1);
   assert(frame_destroys == 1);
@@ -134,7 +135,7 @@ int main(void)
   assert(aura_task_executor_run_one(executor) == 1);
   assert(aura_task_frame_state(cancelled_pending) == AURA_TASK_CANCELLED);
   assert(poll_calls == 1);
-  assert(capture_drops == 0);
+  assert(capture_drops == 1);
   aura_task_executor_shutdown(executor);
   assert(capture_drops == 1);
   assert(frame_destroys == 1);

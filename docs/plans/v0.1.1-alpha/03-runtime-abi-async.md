@@ -159,15 +159,31 @@ composable by callers.
 
 **Checklist:**
 
-- [ ] Define successful values and failure payload representation.
+- [x] Define successful values and failure payload representation for the
+      bounded frame ABI.
 - [ ] Preserve exception source spans through suspension.
-- [ ] Run cleanup before publishing an outcome.
+- [x] Run cleanup before publishing an outcome in the bounded executor ABI.
 - [ ] Define an exception during cancellation.
 
 **Acceptance:** Consumers distinguish success, failure, and cancellation without
 backend-specific details.
 
 **Verification:** Execute outcome fixtures through direct await and task join.
+
+**Bounded evidence (2026-07-22):**
+`runtime/tests/task_outcomes.c` drives the existing single-threaded frame
+ABI through direct polling and `aura_task_executor_join`. It distinguishes an
+owned integer result, an owned error payload with a stable numeric source ID,
+and cancellation. The fixture records that success/error cleanup runs before
+join publishes the borrowed outcome, while runtime cancellation releases
+pending/capture ownership before returning `AURA_TASK_CANCELLED` and never
+invokes the poll callback. This is a bounded C ABI result; it does not claim
+compiler suspension, source file/line spans, or nested exception chains.
+
+**Status note:** The bounded successful-value/failure-payload and
+cleanup-before-outcome items are complete. Source-span preservation and an
+exception raised during cancellation remain open until typed compiler outcome
+lowering exists.
 
 **Dependencies:** A6.
 

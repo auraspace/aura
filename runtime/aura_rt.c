@@ -5328,6 +5328,12 @@ AuraTaskPollState aura_task_frame_poll_once(AuraTaskFrame *frame)
   }
   if (frame->cancel_requested)
   {
+    /* Cancellation publishes a terminal outcome only after operation and
+     * capture ownership has been released.  The frame itself remains
+     * executor-owned until join/release, so its terminal metadata is still
+     * observable without keeping cancelled work alive. */
+    aura_task_frame_storage_release(&frame->pending);
+    aura_task_frame_storage_release(&frame->captures);
     frame->state = AURA_TASK_CANCELLED;
     return frame->state;
   }

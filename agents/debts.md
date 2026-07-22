@@ -7,6 +7,20 @@ When you resolve debt, update or remove the matching entry.
 
 ## Open
 
+### A7 remains a bounded task-outcome ABI (2026-07-22)
+
+- Area: async exception outcomes
+- Symptom: the runtime now exposes and tests success, failure, and cancellation
+  ordering with numeric source identity, but has no compiler-generated
+  suspension propagation, file/line source spans, or nested exception chains.
+- Why deferred: those representations require typed async lowering and a
+  defined cancellation-throw policy; the C frame ABI must not imply either.
+- Progress: `runtime/tests/task_outcomes.c` proves owned payload cleanup before
+  join observation and deterministic cancellation cleanup under the existing
+  executor.
+- Next step: extend the typed outcome ABI after A6 suspension lowering defines
+  source-span and nested-failure ownership.
+
 ### Unjoined task failures are bounded runtime diagnostics (S6, 2026-07-22)
 
 - Area: task outcome policy
