@@ -82,11 +82,13 @@ full partial-I/O readiness coverage, and cross-host evidence remain open.
 
 - [x] Implement bind, listen, accept, connect, read, write, and close for the
       bounded POSIX slice.
-- [ ] Represent partial reads/writes and readiness transitions.
+- [x] Represent partial reads/writes and readiness transitions for the bounded
+      POSIX stream API.
 - [x] Define ephemeral port selection, address reuse, and deterministic close/
       shutdown behavior for the bounded slice; general address parsing remains
       open.
-- [ ] Make descriptor ownership explicit across tasks and cancellation.
+- [x] Make listener/stream descriptor ownership explicit through idempotent
+      close/destroy; task/cancellation transfer remains open.
 
 **Acceptance:** Loopback client/server exchange data without blocking or losing
 bytes.
