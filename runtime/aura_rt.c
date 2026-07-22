@@ -1807,7 +1807,7 @@ AuraHttpResponseStatus aura_http_response_set_error(AuraHttpResponse *response,
   int needed;
   AuraHttpResponseStatus result;
   if (response == NULL || error_code == NULL || error_code[0] == '\0' ||
-      (status_code != 400 && status_code != 405 && status_code != 413 &&
+      (status_code != 400 && status_code != 404 && status_code != 405 && status_code != 413 &&
        status_code != 500))
   {
     return AURA_HTTP_RESPONSE_INVALID;
@@ -2013,6 +2013,59 @@ typedef struct
 typedef AuraHttpHandlerResult (*AuraHttpHandler)(const AuraHttpRequest *request,
                                                   AuraHttpResponse *response,
                                                   void *user_data);
+
+typedef struct
+{
+  const char *method;
+  const char *path;
+  AuraHttpHandler handler;
+  void *user_data;
+} AuraHttpRoute;
+
+/* Bounded synchronous route dispatch. The request and response remain owned
+ * by the connection loop; handlers may only borrow them during this call and
+ * may not suspend or transfer them across an async boundary. */
+AuraHttpHandlerResult aura_http_dispatch_routes(const AuraHttpRequest *request,
+                                                AuraHttpResponse *response,
+                                                const AuraHttpRoute *routes,
+                                                size_t route_count)
+{
+  int path_seen = 0;
+  size_t i;
+  if (request == NULL || response == NULL || routes == NULL ||
+      request->method == NULL || request->target == NULL)
+  {
+    return AURA_HTTP_HANDLER_ERROR;
+  }
+  for (i = 0; i < route_count; i++)
+  {
+    if (routes[i].path == NULL || routes[i].method == NULL ||
+        routes[i].handler == NULL || strcmp(routes[i].path, request->target) != 0)
+    {
+      continue;
+    }
+    path_seen = 1;
+    if (strcmp(routes[i].method, request->method) != 0)
+    {
+      continue;
+    }
+    AuraHttpHandlerResult result =
+        routes[i].handler(request, response, routes[i].user_data);
+    if (result == AURA_HTTP_HANDLER_ERROR)
+    {
+      (void)aura_http_response_set_error(response, 500, "handler_failure");
+      return AURA_HTTP_HANDLER_CLOSE;
+    }
+    return result;
+  }
+  if (aura_http_response_set_error(response, path_seen ? 405 : 404,
+                                   path_seen ? "method_not_allowed" :
+                                               "not_found") != AURA_HTTP_RESPONSE_OK)
+  {
+    return AURA_HTTP_HANDLER_ERROR;
+  }
+  return AURA_HTTP_HANDLER_CLOSE;
+}
 
 struct AuraHttpConnection
 {

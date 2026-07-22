@@ -127,12 +127,22 @@ shutdown refusal, and 500 handler mapping with a localhost loopback fixture.
 ## H6. Handler and routing API
 
 **Objective:** Expose a minimal typed application interface.
+
+**Implementation status:** Bounded synchronous routing is implemented by
+`aura_http_dispatch_routes`: exact method/path entries borrow the request and
+response only during the callback, return 404 for an unknown path, 405 for a
+method mismatch, and map handler failure to 500. The route callback cannot
+suspend, transfer buffers, spawn tasks, or perform async I/O; those behaviors
+remain H5 work.
 **Checklist:**
 
-- [ ] Define handler input/output types and lifecycle ownership.
-- [ ] Implement method/path dispatch and documented parameter behavior.
-- [ ] Return correct 404, 405, and handler-failure responses.
-- [ ] Define whether handlers may spawn tasks or perform async I/O.
+- [x] Define handler input/output types and lifecycle ownership for the bounded
+      synchronous callback.
+- [x] Implement exact method/path dispatch; parameters are part of the exact
+      target string in this slice.
+- [x] Return correct 404, 405, and handler-failure responses.
+- [x] Define that bounded handlers may not suspend, spawn tasks, or perform
+      async I/O; async handler behavior remains deferred to H5.
       **Acceptance:** A user can define a route without depending on internal socket or
       parser details.
       **Verification:** Run static routes, parameters if contracted, method mismatch,

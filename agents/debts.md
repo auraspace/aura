@@ -7,6 +7,18 @@ When you resolve debt, update or remove the matching entry.
 
 ## Open
 
+### H6 routing is synchronous and exact-match only (2026-07-22)
+
+- Area: HTTP handler API
+- Symptom: `aura_http_dispatch_routes` now supports exact method/path matching
+  and deterministic 404/405/500 responses, but it does not suspend, spawn, or
+  retain request/response buffers across an await.
+- Why deferred: those lifetimes depend on H5 async integration and the A5/A6
+  frame ownership contract.
+- Progress: `runtime/tests/http_routes.c` covers route success, method mismatch,
+  not-found, handler failure, and borrowed callback ownership.
+- Next step: adapt the route table to async handler frames after H5 is complete.
+
 ### IO5 network backpressure remains deferred (2026-07-22)
 
 - Area: async I/O/channel bridge
