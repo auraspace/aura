@@ -51,7 +51,7 @@ a listening socket (including ephemeral port selection), accept/connect use
 nonblocking descriptors with an explicit millisecond poll bound, and read/write
 report byte counts plus `OK`, `PENDING`, `TIMEOUT`, `EOF`, `CLOSED`, or `ERROR`.
 Close transitions are idempotent and destroy releases the owning handle. The
-API is guarded by `AURA_TCP_POSIX` (`__linux__`/`__APPLE__`); unsupported targets
+API is guarded by `AURA_TCP_POSIX` (`__unix__`/`__APPLE__`); unsupported targets
 return `AURA_TCP_UNSUPPORTED`. Async scheduler integration, address parsing,
 full partial-I/O readiness coverage, and cross-host evidence remain open.
 
@@ -60,7 +60,9 @@ full partial-I/O readiness coverage, and cross-host evidence remain open.
 - [x] Implement bind, listen, accept, connect, read, write, and close for the
       bounded POSIX slice.
 - [ ] Represent partial reads/writes and readiness transitions.
-- [ ] Define address parsing, port selection, reuse, and shutdown behavior.
+- [x] Define ephemeral port selection, address reuse, and deterministic close/
+      shutdown behavior for the bounded slice; general address parsing remains
+      open.
 - [ ] Make descriptor ownership explicit across tasks and cancellation.
 
 **Acceptance:** Loopback client/server exchange data without blocking or losing
