@@ -21,7 +21,7 @@ This RFC defines Aura’s **memory and concurrency model**: tracing GC, referenc
 
 Runtime implementation details (scheduler, collector algorithm) are expanded in **RFC-006**; this document is the language-level contract.
 
-**Toolchain today (2026-07-22, S2/C20):** class instances are GC heap references, `struct` values remain by-value, and execution is single-threaded. The runtime has a stop-the-world mark/sweep collector with registered roots and deep scans, plus ownership handling for Array/String values and captured environments. C20c–e add MVP shared pointer boxes for mutable class, Array, and nested Fun captures; C20g adds read-only collection snapshots. Class payloads are rooted and nested Fun environments retain/release. The captured Array representation is not a borrow and does not yet guarantee safety across owner movement or escaping live views. Tasks, channels, `async`/`await`, a race detector, and concurrent GC are **not** implemented — declared design only until later milestones.
+**Toolchain today (2026-07-22, S2/C20):** class instances are GC heap references, `struct` values remain by-value, and execution is single-threaded. The runtime has a stop-the-world mark/sweep collector with registered roots and deep scans, plus ownership handling for Array/String values and captured environments. C20c–e add MVP shared pointer boxes for mutable class, Array, and nested Fun captures; C20g adds read-only collection snapshots. Class payloads are rooted and nested Fun environments retain/release. C21a selects a future scoped, non-owning `ref` track to close the captured-Array and field-return lifetime gap; the runtime does not yet implement it. Tasks, channels, `async`/`await`, a race detector, and concurrent GC are **not** implemented and remain deferred.
 
 ## 2. Motivation
 
@@ -54,7 +54,7 @@ Compiler lowering, stdlib sync primitives, and diagnostics all depend on a singl
 
 - Full CUDA/GPU model in v1.
 - Distributed actor cluster protocol (library later).
-- Borrow checker / ownership as the primary model.
+- Rust-style ownership as the primary model; C21 may add only a scoped, non-owning `ref` capability.
 - Hard real-time GC guarantees in v1.
 
 ## 5. Prior art & alternatives
@@ -91,13 +91,13 @@ Compiler lowering, stdlib sync primitives, and diagnostics all depend on a singl
 
 ### 6.2 Memory management strategy
 
-| Option                   | v1                         |
-| ------------------------ | -------------------------- |
-| Tracing GC               | **Yes — default**          |
-| RC/ARC primary           | No                         |
-| Ownership/borrow primary | No                         |
-| Hybrid arenas            | Optional later for buffers |
-| Regions                  | Future                     |
+| Option                   | v1                            |
+| ------------------------ | ----------------------------- |
+| Tracing GC               | **Yes — default**             |
+| RC/ARC primary           | No                            |
+| Ownership/borrow primary | No — scoped `ref` is additive |
+| Hybrid arenas            | Optional later for buffers    |
+| Regions                  | Future                        |
 
 **Decision:** Tracing GC. Phased algorithm (RFC-006): free-all MVP (shipped) → precise **stop-the-world mark-sweep** next → concurrent collector later.
 
@@ -105,6 +105,20 @@ Safe Aura guarantees:
 
 - No use-after-free / double-free for GC-managed objects.
 - Finalizers: discouraged; prefer explicit `Close`/`using` patterns (stdlib).
+
+### 6.2.1 C21 ref MVP boundary
+
+The selected C21 direction is a checked, non-owning borrow for short-lived
+access to an existing owner. It does not change GC ownership: the owner keeps
+the object or Array buffer alive, while sema rejects a `ref T` that would
+outlive the owner's lexical scope. The first consumers are safe Array field
+returns and read-only collection views.
+
+The MVP has no mutable borrow, heap-stored reference, nullable/nested `ref`,
+closure/task escape, pinning, or concurrent sharing. Codegen may represent a
+valid borrow as a temporary pointer/view; no new runtime retain/release ABI is
+required. Async/tasks is explicitly outside this track and deferred until the
+borrow contract and single-threaded lifetime checks are stable.
 
 ### 6.3 Value semantics & references
 

@@ -21,7 +21,7 @@ This RFC specifies Aura’s **static type system**: nominal class/interface type
 
 It assumes the surface from **RFC-001** and leaves runtime representation details to **RFC-004** / **RFC-006**.
 
-**Toolchain today (2026-07-22, C20):** nominal classes/interfaces/`struct`/`enum`, monomorphized generics + bounds, local null flow + `!!` / `?:` / `?.`, type-argument inference, fun types/`Ty::Fun`, lambdas with value and reference captures, generic HOFs, nested generic substitution in codegen, MVP shared mutable `var` captures for class/Array/Fun, and read-only collection snapshots/iterators. Not yet: inheritance hierarchy, full overloading, structural typing, true borrow types, `Array<Interface>`, live collection views, mutation-through-entry, or a complete lifetime/ownership contract for captured Array views.
+**Toolchain today (2026-07-22, C20):** nominal classes/interfaces/`struct`/`enum`, monomorphized generics + bounds, local null flow + `!!` / `?:` / `?.`, type-argument inference, fun types/`Ty::Fun`, lambdas with value and reference captures, generic HOFs, nested generic substitution in codegen, MVP shared mutable `var` captures for class/Array/Fun, and read-only collection snapshots/iterators. C21a selects **borrow/ref** as the next ownership track; no borrow syntax or checking is shipped yet. Not yet: inheritance hierarchy, full overloading, structural typing, `Array<Interface>`, live collection views, mutation-through-entry, or a complete lifetime/ownership contract for captured Array views.
 
 ## 2. Motivation
 
@@ -56,7 +56,7 @@ Type rules gate compiler architecture, stdlib signatures, and reflection reifica
 - Gradual typing / `any` as a production default (may have `dyn` later—not v1).
 - Higher-kinded types in v1.
 - Structural typing as the default (optional structural records later).
-- Ownership/borrow types (GC language).
+- General ownership/borrow types as the default model; a scoped non-owning `ref` MVP is planned for C21.
 
 ## 5. Prior art & alternatives
 
@@ -148,6 +148,35 @@ enum Result<T, E> {
 | Arrays                | **Invariant** (no Java-style covariant arrays) |
 
 **Boxing:** primitives convert to/from wrapper types only where defined (**minimal implicit**; prefer explicit conversions).
+
+### 6.5.1 C21 borrow/ref direction (selected)
+
+C21 adopts a deliberately small, non-owning reference track to make Array field
+returns and collection views explicit. The proposed MVP surface is:
+
+```aura
+fun first(items: Array<Int>): Int {
+  val item: ref Int = ref items.get(0)
+  return item
+}
+```
+
+`ref T` is an ephemeral, non-null borrow of an existing `T`; `ref mut T` is the
+future spelling for an explicitly mutable borrow and is not enabled by the
+MVP. A borrow may be created only from an addressable local, parameter, or
+field, may be used within the owner's lexical scope, and is never an owning
+value. `clone()` or an explicit owning move remains the escape hatch when a
+value must outlive its owner.
+
+Runtime impact is limited to borrow-aware sema metadata and codegen of a
+non-owning pointer/view whose use is bounded by a checked lifetime. The GC
+remains responsible for owning objects; the MVP adds no reference counting,
+pinning, scheduler, or collector changes.
+
+MVP non-goals are mutable borrows, borrow storage in heap objects, nullable or
+nested references, references escaping through returns/closures/tasks, and
+mutation-through-entry. These are separate design decisions, not implicit
+permissions granted by `ref`.
 
 ### 6.5 Generics
 
