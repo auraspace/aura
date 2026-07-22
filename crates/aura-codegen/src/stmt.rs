@@ -189,11 +189,21 @@ pub(crate) fn emit_free_fun_owners(
 }
 
 /// C12m/C13f: release a refcounted by-ref capture box (Int/Bool/String).
-pub(crate) fn emit_release_box_local(out: &mut String, indent: usize, name: &str, ty_key: &str) {
+pub(crate) fn emit_release_box_local(
+    out: &mut String,
+    indent: usize,
+    name: &str,
+    ty_key: &str,
+    ptr_box: bool,
+) {
     let p = pad(indent);
     let n = mangle_ident(name);
-    let rel = box_release_fn(ty_key);
-    let _ = writeln!(out, "{p}{rel}({n}); {n} = NULL;");
+    if is_array_type_key(ty_key) || is_fun_type_key(ty_key) || ptr_box {
+        let _ = writeln!(out, "{p}aura_box_ptr_release({n}); {n} = NULL;");
+    } else {
+        let rel = box_release_fn(ty_key);
+        let _ = writeln!(out, "{p}{rel}({n}); {n} = NULL;");
+    }
 }
 
 pub(crate) fn emit_release_box_locals(
@@ -204,7 +214,7 @@ pub(crate) fn emit_release_box_locals(
 ) {
     for name in names {
         let ty = ctx.lookup_local(name).unwrap_or("Int");
-        emit_release_box_local(out, indent, name, ty);
+        emit_release_box_local(out, indent, name, ty, is_heap_class_mono(ty, ctx.checked));
     }
 }
 
@@ -272,10 +282,15 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
             // Store package mono key so method dispatch picks the right C symbol (C3v).
             ctx.define_local(&v.name.name, full_type_mono(&ty_name, ctx.checked));
             // C12m/C13f: `var` Int/Bool/String that is by-ref captured → heap box local.
-            let needs_box = v.mutable
-                && (ty_name == "Int" || ty_name == "Bool" || ty_name == "String")
-                && ctx.checked.by_ref_capture_names().contains(&v.name.name);
-            if needs_box {
+            let captured_by_ref =
+                v.mutable && ctx.checked.by_ref_capture_names().contains(&v.name.name);
+            let needs_box =
+                captured_by_ref && (ty_name == "Int" || ty_name == "Bool" || ty_name == "String");
+            let needs_ptr_box = captured_by_ref
+                && (is_array_type_key(&ty_name)
+                    || is_fun_type_key(&ty_name)
+                    || is_heap_class_mono(&ty_name, ctx.checked));
+            if needs_box || needs_ptr_box {
                 ctx.mark_box_owner(&v.name.name);
             }
             // C3t: locals from `Array(...)` own the heap buffer.
@@ -296,14 +311,15 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
             } else {
                 false
             };
-            if is_array_type_key(&ty_name)
+            if !needs_ptr_box
+                && is_array_type_key(&ty_name)
                 && (is_array_ctor_expr(&v.init)
                     || (matches!(&v.init, Expr::Call(_)) && !from_array_get))
             {
                 ctx.mark_array_owner(&v.name.name);
             }
             // Fun: capturing lambda, call result, or move from owner → own env.
-            if is_fun_type_key(&ty_name) {
+            if !needs_ptr_box && is_fun_type_key(&ty_name) {
                 match &v.init {
                     Expr::Lambda(l) => {
                         let has_caps = ctx
@@ -365,6 +381,43 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                     _ => ("aura_box_i64 *", "aura_box_i64_new"),
                 };
                 let _ = writeln!(out, "{p}{box_ty} {dst} = {new_fn}({init});");
+            } else if needs_ptr_box {
+                let payload = format!("{dst}__capture_value");
+                let (payload_ty, drop, init_payload) = if is_array_type_key(&ty_name) {
+                    let root = if crate::array_emit::is_array_of_heap_class(&ty_name, ctx.checked) {
+                        format!(
+                            " aura_gc_add_array_root((void **)&{payload}->data, &{payload}->len);"
+                        )
+                    } else {
+                        String::new()
+                    };
+                    (
+                        ty.clone(),
+                        format!("aura_capture_drop_{ty_name}"),
+                        format!("*{payload} = {init};{root}"),
+                    )
+                } else if is_fun_type_key(&ty_name) {
+                    (
+                        ty.clone(),
+                        "aura_capture_drop_fun".into(),
+                        format!("*{payload} = {init};"),
+                    )
+                } else {
+                    (
+                        "aura_capture_obj_payload".into(),
+                        "aura_capture_drop_obj".into(),
+                        format!("{payload}->value = (void *)({init}); aura_gc_add_root(&{payload}->value);"),
+                    )
+                };
+                let _ = writeln!(
+                    out,
+                    "{p}{payload_ty} *{payload} = ({payload_ty} *)malloc(sizeof({payload_ty}));"
+                );
+                let _ = writeln!(out, "{p}{init_payload}");
+                let _ = writeln!(
+                    out,
+                    "{p}aura_box_ptr *{dst} = aura_box_ptr_new({payload}, {drop});"
+                );
             } else {
                 let _ = writeln!(out, "{p}{ty} {dst} = {init};");
             }
@@ -384,7 +437,7 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
             }
             // C5g: heap-class locals are GC roots until scope exit.
             let mono = full_type_mono(&ty_name, ctx.checked);
-            if is_heap_class_mono(&mono, ctx.checked) {
+            if is_heap_class_mono(&mono, ctx.checked) && !needs_ptr_box {
                 ctx.mark_gc_root(&v.name.name);
                 let _ = writeln!(out, "{p}aura_gc_add_root((void **)&{dst});");
             }

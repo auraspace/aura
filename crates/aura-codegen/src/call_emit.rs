@@ -631,7 +631,15 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
             // C10e/h: call through a local function-value (fat pointer).
             if let Some(key) = ctx.lookup_local(&id.name) {
                 if is_fun_type_key(key) {
-                    let f = mangle_ident(&id.name);
+                    let f = if ctx.is_box_local(&id.name) {
+                        format!(
+                            "(*({} *)aura_box_ptr_get({}))",
+                            c_fun_typedef(key),
+                            mangle_ident(&id.name)
+                        )
+                    } else {
+                        mangle_ident(&id.name)
+                    };
                     let mut parts = vec![format!("{f}.env")];
                     for a in &c.args {
                         parts.push(emit_expr(a, ctx));

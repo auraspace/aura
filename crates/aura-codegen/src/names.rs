@@ -746,13 +746,18 @@ pub(crate) fn is_fun_capture_ty(ty: &Ty) -> bool {
     matches!(ty, Ty::Fun { .. })
 }
 
+pub(crate) fn is_array_capture_ty(ty: &Ty) -> bool {
+    matches!(ty, Ty::ClassApp { name, .. } if aura_sema::split_nominal(name).0 == "Array")
+}
+
 /// C type of a lambda env field (C12m/C13f: by-ref → shared box pointer).
 pub(crate) fn c_capture_field_type(ty: &Ty, by_ref: bool, checked: &CheckedFile) -> String {
     if by_ref {
         match ty {
             Ty::Bool => "aura_box_bool *".into(),
             Ty::String => "aura_box_str *".into(),
-            _ => "aura_box_i64 *".into(),
+            Ty::Int => "aura_box_i64 *".into(),
+            _ => "aura_box_ptr *".into(),
         }
     } else {
         c_type_from_ty(ty, checked)

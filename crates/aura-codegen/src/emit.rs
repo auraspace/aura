@@ -94,6 +94,15 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("void aura_box_str_release(aura_box_str *b);\n");
     out.push_str("const char *aura_box_str_set(aura_box_str *b, const char *v);\n");
     out.push_str("const char *aura_box_str_get(aura_box_str *b);\n");
+    out.push_str("typedef void (*aura_box_ptr_drop_fn)(void *value);\n");
+    out.push_str("typedef struct aura_box_ptr { void *value; int32_t refs; aura_box_ptr_drop_fn drop; } aura_box_ptr;\n");
+    out.push_str("aura_box_ptr *aura_box_ptr_new(void *value, aura_box_ptr_drop_fn drop);\n");
+    out.push_str("void aura_box_ptr_retain(aura_box_ptr *b);\n");
+    out.push_str("void aura_box_ptr_release(aura_box_ptr *b);\n");
+    out.push_str("void *aura_box_ptr_get(const aura_box_ptr *b);\n");
+    out.push_str(
+        "void *aura_box_ptr_set(aura_box_ptr *b, void *value, aura_box_ptr_drop_fn drop);\n",
+    );
     out.push_str("int aura_main(void);\n\n");
     // C7a: tagged optional primitives (Int? / Bool?).
     out.push_str("typedef struct { _Bool has; int64_t value; } aura_opt_i64;\n");
@@ -706,6 +715,59 @@ fn emit_fun_typedefs(out: &mut String, checked: &CheckedFile) {
     }
 }
 
+fn emit_capture_drop_helpers(out: &mut String, checked: &CheckedFile) {
+    let mut array_keys = std::collections::BTreeSet::new();
+    let mut has_fun = false;
+    let mut has_obj = false;
+    for captures in checked.lambda_captures.values() {
+        for cap in captures {
+            if !cap.by_ref {
+                continue;
+            }
+            if is_array_capture_ty(&cap.ty) {
+                array_keys.insert(cap.ty.mono_suffix());
+            } else if is_fun_capture_ty(&cap.ty) {
+                has_fun = true;
+            } else if is_heap_class_capture_ty(&cap.ty, checked) {
+                has_obj = true;
+            }
+        }
+    }
+    for key in array_keys {
+        let c_ty = c_type_from_ty(
+            &checked
+                .lambda_captures
+                .values()
+                .flatten()
+                .find(|c| c.by_ref && c.ty.mono_suffix() == key)
+                .expect("array capture key must have a capture")
+                .ty,
+            checked,
+        );
+        let _ = writeln!(out, "static void aura_capture_drop_{key}(void *value) {{");
+        let _ = writeln!(out, "  {c_ty} *__a = ({c_ty} *)value;");
+        if crate::array_emit::is_array_of_heap_class(&key, checked) {
+            out.push_str("  aura_gc_remove_array_root((void **)&__a->data);\n");
+        }
+        crate::array_emit::emit_array_contents_free(out, 2, "(*__a)", &key);
+        out.push_str("  free(__a);\n}\n\n");
+    }
+    if has_fun {
+        out.push_str("typedef struct { void *env; void *fn; } aura_capture_fun_payload;\n");
+        out.push_str("static void aura_capture_drop_fun(void *value) {\n");
+        out.push_str("  aura_capture_fun_payload *__f = (aura_capture_fun_payload *)value;\n");
+        out.push_str("  aura_fun_env_free(__f->env);\n");
+        out.push_str("  free(__f);\n}\n\n");
+    }
+    if has_obj {
+        out.push_str("typedef struct { void *value; } aura_capture_obj_payload;\n");
+        out.push_str("static void aura_capture_drop_obj(void *value) {\n");
+        out.push_str("  aura_capture_obj_payload *__o = (aura_capture_obj_payload *)value;\n");
+        out.push_str("  aura_gc_remove_root(&__o->value);\n");
+        out.push_str("  free(__o);\n}\n\n");
+    }
+}
+
 fn emit_lambda_fns(out: &mut String, checked: &CheckedFile) {
     if checked.lambda_tys.is_empty() {
         return;
@@ -713,6 +775,30 @@ fn emit_lambda_fns(out: &mut String, checked: &CheckedFile) {
     let ids = build_lambda_ids(checked);
     let mut lambdas = collect_lambdas(&checked.ast);
     lambdas.sort_by_key(|l| l.span.start);
+    for lam in &lambdas {
+        let Some(&id) = ids.get(&lam.span.start) else {
+            continue;
+        };
+        let Some(Ty::Fun { params, ret }) = checked.lambda_tys.get(&lam.span.start) else {
+            continue;
+        };
+        let ret_c = if matches!(ret.as_ref(), Ty::Unit) {
+            "void".to_string()
+        } else {
+            c_type_from_ty(ret, checked)
+        };
+        let mut parts = vec!["void *env".to_string()];
+        for p in params {
+            parts.push(c_type_from_ty(p, checked));
+        }
+        let _ = writeln!(
+            out,
+            "static {ret_c} aura_lambda_{id}({});",
+            parts.join(", ")
+        );
+    }
+    out.push('\n');
+    emit_capture_drop_helpers(out, checked);
 
     // C10h/C12k/C12l/C12m/C13e: env structs for capturing lambdas (stable field order from sema).
     // Header: `__drop` + `__refs` (refcount for shared nested Fun envs / multi-owner free).
@@ -747,11 +833,12 @@ fn emit_lambda_fns(out: &mut String, checked: &CheckedFile) {
             let m = mangle_ident(&cap.name);
             if cap.by_ref {
                 let rel = match &cap.ty {
-                    Ty::Bool => "aura_box_bool_release",
-                    Ty::String => "aura_box_str_release",
-                    _ => "aura_box_i64_release",
+                    Ty::Bool => "aura_box_bool_release(__e->{m});".to_string(),
+                    Ty::String => "aura_box_str_release(__e->{m});".to_string(),
+                    Ty::Int => "aura_box_i64_release(__e->{m});".to_string(),
+                    _ => format!("aura_box_ptr_release(__e->{m});"),
                 };
-                let _ = writeln!(out, "  {rel}(__e->{m});");
+                let _ = writeln!(out, "  {rel}");
             } else if is_fun_capture_ty(&cap.ty) {
                 // C13e: release retained nested env (no-op when env is NULL).
                 let _ = writeln!(out, "  aura_fun_env_free(__e->{m}.env);");

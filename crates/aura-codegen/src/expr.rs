@@ -5,6 +5,7 @@ use std::fmt::Write as _;
 use aura_ast::*;
 use aura_sema::{nominal_key, CheckedFile, Ty};
 
+use crate::array_emit::is_array_type_key;
 use crate::call_emit::emit_call;
 use crate::ctx::EmitCtx;
 use crate::names::*;
@@ -385,8 +386,19 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
             // String: snapshot (heap copy) so later set does not invalidate escaped pointers.
             if ctx.is_box_local(&i.name) {
                 let m = mangle_ident(&i.name);
-                if ctx.lookup_local(&i.name) == Some("String") {
+                let key = ctx.lookup_local(&i.name).unwrap_or("Int");
+                if key == "String" {
                     return format!("aura_box_str_get({m})");
+                }
+                if is_array_type_key(key) || is_fun_type_key(key) {
+                    let cty = crate::stmt::local_key_to_c(key, ctx.checked);
+                    return format!("(*({cty} *)aura_box_ptr_get({m}))");
+                }
+                if is_heap_class_mono(key, ctx.checked) {
+                    return format!(
+                        "((({})((aura_capture_obj_payload *)aura_box_ptr_get({m}))->value))",
+                        crate::stmt::local_key_to_c(key, ctx.checked)
+                    );
                 }
                 return format!("({m})->value");
             }
@@ -591,7 +603,21 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
                 format!("this->{}", mangle_ident(&a.name.name))
             } else if ctx.is_box_local(&a.name.name) {
                 // C12m: assign through shared mutable box.
-                format!("({})->value", mangle_ident(&a.name.name))
+                let key = ctx.lookup_local(&a.name.name).unwrap_or("Int");
+                if is_array_type_key(key) || is_fun_type_key(key) {
+                    let cty = crate::stmt::local_key_to_c(key, ctx.checked);
+                    format!(
+                        "(*({cty} *)aura_box_ptr_get({}))",
+                        mangle_ident(&a.name.name)
+                    )
+                } else if is_heap_class_mono(key, ctx.checked) {
+                    format!(
+                        "(((aura_capture_obj_payload *)aura_box_ptr_get({}))->value)",
+                        mangle_ident(&a.name.name)
+                    )
+                } else {
+                    format!("({})->value", mangle_ident(&a.name.name))
+                }
             } else {
                 mangle_ident(&a.name.name)
             };
@@ -606,6 +632,35 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
             if ctx.is_box_local(dst_name) && dst_ty.as_deref() == Some("String") {
                 let box_ptr = mangle_ident(dst_name);
                 return format!("aura_box_str_set({box_ptr}, {rhs})");
+            }
+            if ctx.is_box_local(dst_name)
+                && dst_ty.as_deref().is_some_and(|k| {
+                    is_array_type_key(k) || is_fun_type_key(k) || is_heap_class_mono(k, ctx.checked)
+                })
+            {
+                let key = dst_ty.as_deref().unwrap_or("Int");
+                let cty = crate::stmt::local_key_to_c(key, ctx.checked);
+                let payload = format!("__capture_set_{}", a.span.start);
+                let drop = if is_array_type_key(key) {
+                    format!("aura_capture_drop_{key}")
+                } else if is_fun_type_key(key) {
+                    "aura_capture_drop_fun".into()
+                } else {
+                    "aura_capture_drop_obj".into()
+                };
+                if is_heap_class_mono(key, ctx.checked) {
+                    return format!(
+                        "({{ aura_capture_obj_payload *__p = (aura_capture_obj_payload *)malloc(sizeof(aura_capture_obj_payload)); __p->value = (void *)({rhs}); aura_gc_add_root(&__p->value); aura_box_ptr_set({}, __p, {drop}); ({})((aura_capture_obj_payload *)aura_box_ptr_get({}))->value; }})",
+                        mangle_ident(dst_name),
+                        crate::stmt::local_key_to_c(key, ctx.checked),
+                        mangle_ident(dst_name)
+                    );
+                }
+                return format!(
+                    "({{ {cty} *{payload} = ({cty} *)malloc(sizeof({cty})); *{payload} = {rhs}; aura_box_ptr_set({}, {payload}, {drop}); *({cty} *)aura_box_ptr_get({}); }})",
+                    mangle_ident(dst_name),
+                    mangle_ident(dst_name)
+                );
             }
             let dst_is_array = dst_ty
                 .as_deref()
@@ -763,8 +818,15 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
                     // Capture from enclosing scope local of the same name.
                     let _ = writeln!(fill, "  __e->{m} = {m};");
                     if cap.by_ref {
-                        let ret = crate::names::box_retain_fn(&cap.ty.mono_suffix());
-                        let _ = writeln!(fill, "  {ret}(__e->{m});");
+                        if crate::names::is_array_capture_ty(&cap.ty)
+                            || crate::names::is_fun_capture_ty(&cap.ty)
+                            || crate::names::is_heap_class_capture_ty(&cap.ty, ctx.checked)
+                        {
+                            let _ = writeln!(fill, "  aura_box_ptr_retain(__e->{m});");
+                        } else {
+                            let ret = crate::names::box_retain_fn(&cap.ty.mono_suffix());
+                            let _ = writeln!(fill, "  {ret}(__e->{m});");
+                        }
                     } else if crate::names::is_fun_capture_ty(&cap.ty) {
                         let _ = writeln!(fill, "  aura_fun_env_retain(__e->{m}.env);");
                     } else if crate::names::is_heap_class_capture_ty(&cap.ty, ctx.checked) {
