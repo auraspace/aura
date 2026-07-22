@@ -184,6 +184,62 @@ fn hash_code_derive_reports_unsupported_and_duplicate_fields() {
 }
 
 #[test]
+fn debug_derive_generates_deterministic_public_to_string() {
+    let file = parse_file(
+        "package t\n@derive(Debug) class Point(val x: Int, val label: String) {}\n",
+    )
+    .expect("derive syntax");
+    let checked = check_file(&file).expect("debug derive should typecheck");
+    let method = checked.ast.classes[0]
+        .methods
+        .iter()
+        .find(|method| method.name.name == "toString")
+        .expect("generated toString");
+    assert!(method.is_pub);
+    assert!(method.params.is_empty());
+    assert_eq!(method.return_type.as_ref().map(|ty| ty.name.name.as_str()), Some("String"));
+    assert!(matches!(method.body.stmts.first(), Some(Stmt::Return(_))));
+}
+
+#[test]
+fn debug_string_derive_uses_debug_string_and_reports_unsupported_fields() {
+    let file = parse_file("package t\n@derive(DebugString) struct Marker() {}\n")
+        .expect("derive syntax");
+    let checked = check_file(&file).expect("debugString derive should typecheck");
+    assert!(checked.ast.classes[0]
+        .methods
+        .iter()
+        .any(|method| method.name.name == "debugString"));
+
+    let unsupported = parse_file(
+        "package t\n@derive(Debug) class Bad(val ok: Bool, val maybe: Int?) {}\n",
+    )
+    .expect("derive syntax");
+    let errors = check_file(&unsupported).expect_err("unsupported debug fields must be diagnosed");
+    assert_eq!(
+        errors
+            .errors
+            .iter()
+            .filter(|error| error.message.contains("AURA-M6-UNSUPPORTED"))
+            .count(),
+        2
+    );
+}
+
+#[test]
+fn debug_derive_reports_duplicate_to_string() {
+    let file = parse_file(
+        "package t\n@derive(Debug) class Point(val x: Int) { fun toString(): String { return \"x\" } }\n",
+    )
+    .expect("derive syntax");
+    let errors = check_file(&file).expect_err("duplicate toString must be diagnosed");
+    assert!(errors
+        .errors
+        .iter()
+        .any(|error| error.message.contains("AURA-M6-DUPLICATE")));
+}
+
+#[test]
 fn attributes_report_unknown_target_duplicate_and_conflict() {
     let file = parse_file(
         "package t\n@unknown fun main() {}\n@inline @noinline fun other() {}\n@inline class Wrong() {}\n",

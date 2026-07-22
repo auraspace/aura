@@ -96,11 +96,24 @@ nested, generic, reference, and nullable fields are explicitly deferred.
 ## M6. Debug derive
 
 **Objective:** Generate useful debug representations.
+**Implementation status:** Partial. `@derive(Debug)` generates a public
+`toString(): String`, while `@derive(DebugString)` generates a public
+`debugString(): String`. The deterministic MVP format is
+`Type(field=value, ...)`, in declaration order, for non-null `Int` and
+`String` fields. Nested, nullable, generic, Bool, and other fields are
+diagnosed with stable `AURA-M6-UNSUPPORTED` errors; duplicate generated
+members use `AURA-M6-DUPLICATE`.
 **Checklist:**
 
-- [ ] Define field ordering and representation for supported types.
-- [ ] Handle nested, nullable, generic, and unsupported fields.
-- [ ] Attribute errors to the derive declaration and offending field.
-      **Acceptance:** Generated debug output is deterministic and source-aware.
-      **Verification:** Run runtime output, golden, and diagnostic fixtures.
+- [x] Define declaration-order field rendering and the `Type(field=value, ...)`
+  representation for supported types.
+- [x] Diagnose nested, nullable, generic, Bool, and other unsupported fields
+  with stable errors; broader rendering remains deferred.
+- [x] Attribute duplicate errors to the derive declaration and unsupported
+  field errors to the offending field.
+      **Acceptance (implemented subset):** Generated debug methods are checked,
+      public, deterministic, and source-aware. Runtime output, golden fixtures,
+      and broader field coverage remain deferred.
+      **Verification:** Focused sema and C emission tests pass; runtime output
+      and golden corpus coverage remain deferred.
       **Dependencies:** M3, M4.

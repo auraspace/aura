@@ -595,6 +595,20 @@ mod abi_tests {
         assert!(generated.contains("aura_hash_string("));
         assert!(generated.contains("INT64_C(31)"));
     }
+
+    #[test]
+    fn debug_derive_reaches_c_codegen_with_deterministic_string_parts() {
+        let file = parse_file(
+            "package demo\n@derive(Debug) class Point(val x: Int, val label: String) {}\n",
+        )
+        .expect("parse derive input");
+        let checked = aura_sema::check_file(&file).expect("Debug derive should typecheck");
+        let generated = emit_c_with(&checked, EmitOptions::default());
+        assert!(generated.contains("toString"));
+        assert!(generated.contains("aura_i64_to_string"));
+        assert!(generated.contains("x="));
+        assert!(generated.contains("label="));
+    }
 }
 
 fn c_async_fun_signature(f: &AsyncFunDecl, checked: &CheckedFile) -> String {
