@@ -88,8 +88,9 @@ mod tests {
     use std::process::Command;
 
     use aura_ast::{
-        AsyncExpr, AsyncFunDecl, Block, CallExpr, CancelExpr, Expr, File, FunDecl, Ident, IntLit,
-        JoinExpr, Path, ReturnStmt, Span, SpawnExpr, Stmt, TypeRef,
+        AsyncExpr, AsyncFunDecl, Block, CallExpr, CancelExpr, ChannelCloseExpr, ChannelCreateExpr,
+        ChannelReceiveExpr, ChannelSendExpr, Expr, File, FunDecl, Ident, IntLit, JoinExpr, Path,
+        ReturnStmt, Span, SpawnExpr, Stmt, TypeRef,
     };
 
     use super::build_from_file;
@@ -279,5 +280,165 @@ mod tests {
         assert!(status.success());
         let _ = std::fs::remove_file(&bin);
         let _ = std::fs::remove_file(dir.join(format!("aura-c22m-{}.aura.c", std::process::id())));
+    }
+
+    #[test]
+    fn builds_and_runs_typed_int_channel_fifo_capacity_and_close() {
+        let span = Span::new(0, 1);
+        let ident = |name: &str| Ident {
+            name: name.into(),
+            span,
+        };
+        let int_ty = || TypeRef {
+            qualifier: None,
+            name: ident("Int"),
+            type_args: vec![],
+            nullable: false,
+            reference: false,
+            span,
+            fun: None,
+        };
+        let opt_int_ty = || TypeRef {
+            nullable: true,
+            ..int_ty()
+        };
+        let channel_ty = || TypeRef {
+            qualifier: None,
+            name: ident("Channel"),
+            type_args: vec![int_ty()],
+            nullable: false,
+            reference: false,
+            span,
+            fun: None,
+        };
+        let ch = ident("ch");
+        let recv = || {
+            Expr::Async(AsyncExpr::ChannelReceive(ChannelReceiveExpr {
+                channel: Box::new(Expr::Ident(ch.clone())),
+                span,
+            }))
+        };
+        let send = |n| {
+            Expr::Async(AsyncExpr::ChannelSend(ChannelSendExpr {
+                channel: Box::new(Expr::Ident(ch.clone())),
+                value: Box::new(Expr::Int(IntLit { value: n, span })),
+                span,
+            }))
+        };
+        let assert_eq = |left, right| {
+            Expr::Call(CallExpr {
+                callee: Box::new(Expr::Ident(ident("assert_eq"))),
+                type_args: vec![],
+                args: vec![left, Expr::Int(IntLit { value: right, span })],
+                span,
+            })
+        };
+        let main_fun = FunDecl {
+            is_pub: false,
+            origin_package: String::new(),
+            is_test: false,
+            name: ident("main"),
+            type_params: vec![],
+            params: vec![],
+            return_type: None,
+            body: Block {
+                stmts: vec![
+                    Stmt::Var(aura_ast::VarStmt {
+                        mutable: false,
+                        name: ch.clone(),
+                        ty: Some(channel_ty()),
+                        init: Expr::Async(AsyncExpr::ChannelCreate(ChannelCreateExpr {
+                            element_type: int_ty(),
+                            capacity: Box::new(Expr::Int(IntLit { value: 1, span })),
+                            span,
+                        })),
+                        span,
+                    }),
+                    Stmt::Expr(send(10)),
+                    // Receive before the second send: with capacity one this proves FIFO
+                    // and makes the second send exercise the freed slot.
+                    Stmt::Var(aura_ast::VarStmt {
+                        mutable: false,
+                        name: ident("first"),
+                        ty: Some(opt_int_ty()),
+                        init: recv(),
+                        span,
+                    }),
+                    Stmt::Expr(assert_eq(
+                        Expr::ForceUnwrap(aura_ast::ForceUnwrapExpr {
+                            expr: Box::new(Expr::Ident(ident("first"))),
+                            span,
+                        }),
+                        10,
+                    )),
+                    Stmt::Expr(send(20)),
+                    Stmt::Var(aura_ast::VarStmt {
+                        mutable: false,
+                        name: ident("second"),
+                        ty: Some(opt_int_ty()),
+                        init: recv(),
+                        span,
+                    }),
+                    Stmt::Expr(assert_eq(
+                        Expr::ForceUnwrap(aura_ast::ForceUnwrapExpr {
+                            expr: Box::new(Expr::Ident(ident("second"))),
+                            span,
+                        }),
+                        20,
+                    )),
+                    Stmt::Expr(Expr::Async(AsyncExpr::ChannelClose(ChannelCloseExpr {
+                        channel: Box::new(Expr::Ident(ch.clone())),
+                        span,
+                    }))),
+                    Stmt::Var(aura_ast::VarStmt {
+                        mutable: false,
+                        name: ident("closed"),
+                        ty: Some(opt_int_ty()),
+                        init: recv(),
+                        span,
+                    }),
+                    Stmt::Expr(assert_eq(
+                        Expr::Binary(aura_ast::BinaryExpr {
+                            op: aura_ast::BinOp::Coalesce,
+                            left: Box::new(Expr::Ident(ident("closed"))),
+                            right: Box::new(Expr::Int(IntLit { value: 0, span })),
+                            span,
+                        }),
+                        0,
+                    )),
+                ],
+                span,
+            },
+            span,
+        };
+        let file = File {
+            package: Path {
+                segments: vec![ident("demo")],
+                span,
+            },
+            imports: vec![],
+            interfaces: vec![],
+            enums: vec![],
+            classes: vec![],
+            type_aliases: vec![],
+            consts: vec![],
+            functions: vec![main_fun],
+            async_functions: vec![],
+            span,
+        };
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let bin = dir.join(format!("aura-c22o-{}", std::process::id()));
+        let runtime = root.join("runtime/aura_rt.c");
+        build_from_file(&file, &bin, &runtime).expect("compile generated C22o");
+        let status = Command::new(&bin)
+            .status()
+            .expect("run generated C22o binary");
+        assert!(status.success());
+        let _ = std::fs::remove_file(&bin);
+        let _ = std::fs::remove_file(dir.join(format!("aura-c22o-{}.aura.c", std::process::id())));
     }
 }

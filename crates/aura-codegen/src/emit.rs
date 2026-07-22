@@ -82,6 +82,9 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("typedef struct AuraTaskFrame AuraTaskFrame;\n");
     out.push_str("typedef struct AuraTaskExecutor AuraTaskExecutor;\n");
     out.push_str("typedef struct AuraTaskChannel AuraTaskChannel;\n");
+    out.push_str("typedef void (*AuraTaskChannelValueDestroyFn)(void *data, size_t size);\n");
+    out.push_str("typedef struct { void *data; size_t size; AuraTaskChannelValueDestroyFn destroy; } AuraTaskChannelValue;\n");
+    out.push_str("typedef enum { AURA_CHANNEL_OK = 0, AURA_CHANNEL_PENDING = 1, AURA_CHANNEL_CLOSED = 2, AURA_CHANNEL_ERROR = 3 } AuraTaskChannelStatus;\n");
     out.push_str("typedef enum { AURA_TASK_READY = 0, AURA_TASK_PENDING = 1, AURA_TASK_COMPLETE = 2, AURA_TASK_FAILED = 3, AURA_TASK_CANCELLED = 4 } AuraTaskPollState;\n");
     out.push_str("typedef struct { void *data; size_t size; } AuraTaskResult;\n");
     out.push_str("typedef AuraTaskPollState (*AuraTaskPollFn)(AuraTaskFrame *frame);\n");
@@ -106,8 +109,12 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("void aura_task_executor_shutdown(AuraTaskExecutor *executor);\n");
     out.push_str("static AuraTaskExecutor *__aura_task_executor = NULL;\n");
     out.push_str("AuraTaskChannel *aura_task_channel_new(size_t capacity);\n");
+    out.push_str("AuraTaskChannelStatus aura_task_channel_send(AuraTaskChannel *channel, AuraTaskFrame *sender, AuraTaskChannelValue value);\n");
+    out.push_str("AuraTaskChannelStatus aura_task_channel_receive(AuraTaskChannel *channel, AuraTaskFrame *receiver, AuraTaskChannelValue *out);\n");
     out.push_str("int aura_task_channel_close(AuraTaskChannel *channel);\n");
     out.push_str("void aura_task_channel_destroy(AuraTaskChannel *channel);\n");
+    out.push_str("void aura_task_channel_value_destroy_free(void *data, size_t size);\n");
+    out.push_str("void aura_task_channel_value_destroy_class(void *data, size_t size);\n");
     // C12m/C13f: shared mutable boxes for var Int/Bool/String captures.
     out.push_str("typedef struct aura_box_i64 { int64_t value; int32_t refs; } aura_box_i64;\n");
     out.push_str("typedef struct aura_box_bool { _Bool value; int32_t refs; } aura_box_bool;\n");

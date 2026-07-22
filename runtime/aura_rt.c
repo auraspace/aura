@@ -1849,6 +1849,24 @@ static void aura_task_channel_value_destroy(AuraTaskChannelValue *value)
   }
 }
 
+/* C22o glue: generated send/receive expressions use these stable callbacks.
+ * The class form also releases the temporary GC root held by the payload box. */
+void aura_task_channel_value_destroy_free(void *data, size_t size)
+{
+  (void)size;
+  free(data);
+}
+
+void aura_task_channel_value_destroy_class(void *data, size_t size)
+{
+  (void)size;
+  if (data != NULL)
+  {
+    aura_gc_remove_root((void **)data);
+    free(data);
+  }
+}
+
 static void aura_task_channel_wake(AuraTaskFrame *frame)
 {
   if (frame != NULL && frame->executor != NULL)

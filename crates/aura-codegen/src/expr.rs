@@ -360,6 +360,22 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
         Expr::Async(AsyncExpr::Join(j)) => async_inner_key_for_infer(&j.handle, ctx),
         Expr::Async(AsyncExpr::Cancel(_)) => "Unit".into(),
         Expr::Async(AsyncExpr::Await(a)) => async_inner_key_for_infer(&a.operand, ctx),
+        Expr::Async(AsyncExpr::ChannelCreate(c)) => {
+            format!("Channel_{}", type_ref_local_key(&c.element_type, &[], &[]))
+        }
+        Expr::Async(AsyncExpr::ChannelSend(_)) | Expr::Async(AsyncExpr::ChannelClose(_)) => {
+            "Unit".into()
+        }
+        Expr::Async(AsyncExpr::ChannelReceive(r)) => {
+            let channel = resolve_type_name(&r.channel, ctx)
+                .unwrap_or_else(|| infer_type_name(&r.channel, ctx));
+            let inner = channel_inner_key(&channel).unwrap_or("Unit");
+            if inner == "Int" {
+                "Opt_Int".into()
+            } else {
+                inner.to_string()
+            }
+        }
         _ => "Int".into(),
     }
 }
@@ -867,6 +883,10 @@ fn task_inner_key(key: &str) -> Option<&str> {
         .or_else(|| key.strip_prefix("Task_"))
 }
 
+fn channel_inner_key(key: &str) -> Option<&str> {
+    key.strip_prefix("Channel_")
+}
+
 fn async_inner_key_for_infer(expr: &Expr, ctx: &EmitCtx<'_>) -> String {
     let key = infer_type_name(expr, ctx);
     task_inner_key(&key).unwrap_or("Unit").to_string()
@@ -917,7 +937,67 @@ fn emit_async_expr(expr: &AsyncExpr, ctx: &mut EmitCtx<'_>) -> String {
         AsyncExpr::Await(_) => {
             "({ fputs(\"aura: await lowering is deferred until C22l state-machine support\\n\", stderr); abort(); (int64_t)0; })".into()
         }
-        _ => "({ fputs(\"aura: async channel lowering is deferred until C22o\\n\", stderr); abort(); (int64_t)0; })".into(),
+        AsyncExpr::ChannelCreate(c) => {
+            let capacity = emit_expr(&c.capacity, ctx);
+            format!("aura_task_channel_new((size_t)({capacity}))")
+        }
+        AsyncExpr::ChannelSend(s) => emit_channel_send(s, ctx),
+        AsyncExpr::ChannelReceive(r) => emit_channel_receive(r, ctx),
+        AsyncExpr::ChannelClose(c) => {
+            let channel = emit_expr(&c.channel, ctx);
+            format!("({{ (void)aura_task_channel_close({channel}); (void)0; }})")
+        }
+    }
+}
+
+fn channel_payload_kind(key: &str, ctx: &EmitCtx<'_>) -> Option<&'static str> {
+    if key == "Int" {
+        Some("int")
+    } else if key == "String" {
+        Some("free")
+    } else if is_heap_class_mono(key, ctx.checked) {
+        Some("class")
+    } else {
+        None
+    }
+}
+
+fn emit_channel_send(s: &ChannelSendExpr, ctx: &mut EmitCtx<'_>) -> String {
+    let channel = emit_expr(&s.channel, ctx);
+    let value = emit_expr(&s.value, ctx);
+    let channel_key =
+        resolve_type_name(&s.channel, ctx).unwrap_or_else(|| infer_type_name(&s.channel, ctx));
+    let inner = channel_inner_key(&channel_key).unwrap_or("Unit");
+    let Some(kind) = channel_payload_kind(inner, ctx) else {
+        return "({ fputs(\"aura: Channel payload type is unsupported by C22o\\n\", stderr); abort(); (void)0; })".into();
+    };
+    let (alloc, destroy) = match kind {
+        "int" => (format!("int64_t *__p = (int64_t *)malloc(sizeof(*__p)); if (__p == NULL) abort(); *__p = (int64_t)({value});"), "aura_task_channel_value_destroy_free"),
+        "free" => (format!("const char *__s = ({value}); size_t __n = __s == NULL ? 0 : strlen(__s); char *__p = (char *)malloc(__n + 1); if (__p == NULL) abort(); if (__n != 0) memcpy(__p, __s, __n); __p[__n] = '\\0';"), "aura_task_channel_value_destroy_free"),
+        "class" => (format!("void *__obj = (void *)({value}); void **__p = (void **)malloc(sizeof(*__p)); if (__p == NULL) abort(); *__p = __obj; aura_gc_add_root(__p);"), "aura_task_channel_value_destroy_class"),
+        _ => unreachable!(),
+    };
+    format!("({{ {alloc} AuraTaskChannelValue __v = {{ __p, sizeof(*__p), {destroy} }}; AuraTaskChannelStatus __s = aura_task_channel_send({channel}, NULL, __v); if (__s == AURA_CHANNEL_PENDING || __s == AURA_CHANNEL_ERROR) {destroy}(__v.data, __v.size); (void)__s; (void)0; }})")
+}
+
+fn emit_channel_receive(r: &ChannelReceiveExpr, ctx: &mut EmitCtx<'_>) -> String {
+    let channel = emit_expr(&r.channel, ctx);
+    let channel_key =
+        resolve_type_name(&r.channel, ctx).unwrap_or_else(|| infer_type_name(&r.channel, ctx));
+    let inner = channel_inner_key(&channel_key).unwrap_or("Unit");
+    let Some(kind) = channel_payload_kind(inner, ctx) else {
+        return "({ fputs(\"aura: Channel payload type is unsupported by C22o\\n\", stderr); abort(); (void *)0; })".into();
+    };
+    let destroy = if kind == "class" {
+        "aura_task_channel_value_destroy_class"
+    } else {
+        "aura_task_channel_value_destroy_free"
+    };
+    match kind {
+        "int" => format!("({{ aura_opt_i64 __r = {{ false, 0 }}; AuraTaskChannelValue __v = {{0}}; if (aura_task_channel_receive({channel}, NULL, &__v) == AURA_CHANNEL_OK) {{ __r = (aura_opt_i64){{ true, *((int64_t *)__v.data) }}; {destroy}(__v.data, __v.size); }} __r; }})"),
+        "free" => format!("({{ const char *__r = NULL; AuraTaskChannelValue __v = {{0}}; if (aura_task_channel_receive({channel}, NULL, &__v) == AURA_CHANNEL_OK) {{ __r = (const char *)__v.data; __v.data = NULL; {destroy}(__v.data, __v.size); }} __r; }})"),
+        "class" => format!("({{ void *__r = NULL; AuraTaskChannelValue __v = {{0}}; if (aura_task_channel_receive({channel}, NULL, &__v) == AURA_CHANNEL_OK) {{ __r = *((void **)__v.data); {destroy}(__v.data, __v.size); }} __r; }})"),
+        _ => unreachable!(),
     }
 }
 
