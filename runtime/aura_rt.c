@@ -989,6 +989,84 @@ void aura_fun_env_free(void *env)
   }
 }
 
+/* C20b: generic shared pointer box for future mutable class/Array/Fun
+ * captures.  The box owns only the callback contract supplied by its caller;
+ * it does not infer whether value is GC-managed, an Array header, or a Fun
+ * environment.  This keeps the ABI additive and lets codegen select the
+ * appropriate drop policy when those capture forms are enabled. */
+typedef void (*aura_box_ptr_drop_fn)(void *value);
+
+typedef struct aura_box_ptr
+{
+  void *value;
+  int32_t refs;
+  aura_box_ptr_drop_fn drop;
+} aura_box_ptr;
+
+aura_box_ptr *aura_box_ptr_new(void *value, aura_box_ptr_drop_fn drop)
+{
+  aura_box_ptr *b = (aura_box_ptr *)malloc(sizeof(aura_box_ptr));
+  if (b == NULL)
+  {
+    fprintf(stderr, "aura: out of memory (box ptr)\n");
+    exit(1);
+  }
+  b->value = value;
+  b->refs = 1;
+  b->drop = drop;
+  return b;
+}
+
+void aura_box_ptr_retain(aura_box_ptr *b)
+{
+  if (b != NULL)
+  {
+    b->refs++;
+  }
+}
+
+void aura_box_ptr_release(aura_box_ptr *b)
+{
+  if (b == NULL)
+  {
+    return;
+  }
+  b->refs--;
+  if (b->refs <= 0)
+  {
+    if (b->drop != NULL && b->value != NULL)
+    {
+      b->drop(b->value);
+    }
+    free(b);
+  }
+}
+
+void *aura_box_ptr_get(const aura_box_ptr *b)
+{
+  return b == NULL ? NULL : b->value;
+}
+
+void *aura_box_ptr_set(aura_box_ptr *b, void *value,
+                      aura_box_ptr_drop_fn drop)
+{
+  if (b == NULL)
+  {
+    return NULL;
+  }
+  if (b->value == value && b->drop == drop)
+  {
+    return b->value;
+  }
+  if (b->drop != NULL && b->value != NULL)
+  {
+    b->drop(b->value);
+  }
+  b->value = value;
+  b->drop = drop;
+  return b->value;
+}
+
 /* C12m: shared mutable boxes for `var` Int/Bool lambda captures (refcounted). */
 typedef struct aura_box_i64
 {
