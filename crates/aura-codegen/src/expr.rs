@@ -498,7 +498,8 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
                 return format!("({m})->value");
             }
             let value = mangle_ident(&i.name);
-            if ctx.lookup_local(&i.name).is_some() {
+            let local_type = ctx.lookup_local(&i.name);
+            if local_type.is_some_and(|key| !key.starts_with("Array_")) {
                 return race_read(value.clone(), value, i.span, ctx);
             }
             value

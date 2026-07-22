@@ -99,12 +99,12 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("typedef struct AuraTaskExecutor AuraTaskExecutor;\n");
     out.push_str("typedef struct AuraTaskChannel AuraTaskChannel;\n");
     out.push_str("typedef struct AuraRaceTracker AuraRaceTracker;\n");
+    out.push_str("typedef enum { AURA_RACE_READ = 0, AURA_RACE_WRITE = 1, AURA_RACE_TASK_SPAWN = 2, AURA_RACE_TASK_JOIN = 3, AURA_RACE_SYNC_ACQUIRE = 4, AURA_RACE_SYNC_RELEASE = 5, AURA_RACE_TASK_COMPLETE = 6, AURA_RACE_TASK_FAILED = 7, AURA_RACE_TASK_CANCELLED = 8, AURA_RACE_CHANNEL_SEND = 9, AURA_RACE_CHANNEL_RECEIVE = 10, AURA_RACE_CHANNEL_CLOSE = 11 } AuraRaceEventKind;\n");
     out.push_str("AuraRaceTracker *aura_race_tracker_new(void);\n");
     out.push_str("void aura_race_tracker_destroy(AuraRaceTracker *tracker);\n");
     out.push_str("void aura_race_tracker_set_active(AuraRaceTracker *tracker);\n");
     out.push_str("void aura_race_set_source_id(uint32_t source_id);\n");
     out.push_str("void aura_race_record_access(uintptr_t address, uint32_t source_id, AuraRaceEventKind kind);\n");
-    out.push_str("typedef enum { AURA_RACE_READ = 0, AURA_RACE_WRITE = 1, AURA_RACE_TASK_SPAWN = 2, AURA_RACE_TASK_JOIN = 3, AURA_RACE_SYNC_ACQUIRE = 4, AURA_RACE_SYNC_RELEASE = 5, AURA_RACE_TASK_COMPLETE = 6, AURA_RACE_TASK_FAILED = 7, AURA_RACE_TASK_CANCELLED = 8, AURA_RACE_CHANNEL_SEND = 9, AURA_RACE_CHANNEL_RECEIVE = 10, AURA_RACE_CHANNEL_CLOSE = 11 } AuraRaceEventKind;\n");
     out.push_str("typedef void (*AuraTaskChannelValueDestroyFn)(void *data, size_t size);\n");
     out.push_str("typedef struct { void *data; size_t size; AuraTaskChannelValueDestroyFn destroy; } AuraTaskChannelValue;\n");
     out.push_str("typedef enum { AURA_CHANNEL_OK = 0, AURA_CHANNEL_PENDING = 1, AURA_CHANNEL_CLOSED = 2, AURA_CHANNEL_ERROR = 3 } AuraTaskChannelStatus;\n");
