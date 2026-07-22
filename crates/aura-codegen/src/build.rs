@@ -82,3 +82,96 @@ pub(crate) fn build_from_file_with(
 
     Ok(out_bin.to_path_buf())
 }
+
+#[cfg(test)]
+mod tests {
+    use std::process::Command;
+
+    use aura_ast::{
+        AsyncFunDecl, Block, CallExpr, Expr, File, FunDecl, Ident, IntLit, Path, ReturnStmt, Span,
+        Stmt, TypeRef,
+    };
+
+    use super::build_from_file;
+
+    #[test]
+    fn builds_and_runs_no_await_async_function() {
+        let span = Span::new(0, 1);
+        let ident = |name: &str| Ident {
+            name: name.into(),
+            span,
+        };
+        let int_ty = || TypeRef {
+            qualifier: None,
+            name: ident("Int"),
+            type_args: vec![],
+            nullable: false,
+            reference: false,
+            span,
+            fun: None,
+        };
+        let async_fun = AsyncFunDecl {
+            is_pub: false,
+            origin_package: String::new(),
+            is_test: false,
+            name: ident("answer"),
+            type_params: vec![],
+            params: vec![],
+            return_type: Some(int_ty()),
+            body: Block {
+                stmts: vec![Stmt::Return(ReturnStmt {
+                    value: Some(Expr::Int(IntLit { value: 42, span })),
+                    span,
+                })],
+                span,
+            },
+            span,
+        };
+        let main_fun = FunDecl {
+            is_pub: false,
+            origin_package: String::new(),
+            is_test: false,
+            name: ident("main"),
+            type_params: vec![],
+            params: vec![],
+            return_type: None,
+            body: Block {
+                stmts: vec![Stmt::Expr(Expr::Call(CallExpr {
+                    callee: Box::new(Expr::Ident(ident("answer"))),
+                    type_args: vec![],
+                    args: vec![],
+                    span,
+                }))],
+                span,
+            },
+            span,
+        };
+        let file = File {
+            package: Path {
+                segments: vec![ident("demo")],
+                span,
+            },
+            imports: vec![],
+            interfaces: vec![],
+            enums: vec![],
+            classes: vec![],
+            type_aliases: vec![],
+            consts: vec![],
+            functions: vec![main_fun],
+            async_functions: vec![async_fun],
+            span,
+        };
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let bin = dir.join(format!("aura-c22l-{}", std::process::id()));
+        let runtime = root.join("runtime/aura_rt.c");
+        build_from_file(&file, &bin, &runtime).expect("compile generated async C");
+        let status = Command::new(&bin).status().expect("run generated binary");
+        assert!(status.success());
+        let _ = std::fs::remove_file(&bin);
+        let _ = std::fs::remove_file(dir.join(format!("aura-c22l-{}.aura.c", std::process::id())));
+    }
+}

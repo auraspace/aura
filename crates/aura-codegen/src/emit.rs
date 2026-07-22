@@ -90,6 +90,7 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("AuraTaskFrame *aura_task_frame_new(size_t data_size, AuraTaskPollFn poll, AuraTaskFrameDestroyFn destroy);\n");
     out.push_str("void *aura_task_frame_data(AuraTaskFrame *frame);\n");
     out.push_str("AuraTaskPollState aura_task_frame_state(const AuraTaskFrame *frame);\n");
+    out.push_str("int aura_task_frame_cancel_requested(const AuraTaskFrame *frame);\n");
     out.push_str("void aura_task_frame_set_result(AuraTaskFrame *frame, void *data, size_t size, AuraTaskResultDestroyFn destroy);\n");
     out.push_str("AuraTaskResult aura_task_frame_result(const AuraTaskFrame *frame);\n");
     out.push_str("AuraTaskExecutor *aura_task_executor_new(void);\n");
@@ -372,6 +373,11 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
             let _ = writeln!(out, "{};", c_fun_signature(f, checked, args));
         }
     }
+    for f in &checked.ast.async_functions {
+        if f.type_params.is_empty() {
+            let _ = writeln!(out, "{};", c_async_fun_signature(f, checked));
+        }
+    }
     out.push('\n');
 
     // Definitions
@@ -433,6 +439,13 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
         }
     }
 
+    for f in &checked.ast.async_functions {
+        if f.type_params.is_empty() {
+            emit_async_fun_no_await(&mut out, f, checked);
+            out.push('\n');
+        }
+    }
+
     if opts.test {
         emit_test_main(&mut out, checked);
     } else {
@@ -443,6 +456,160 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
         out.push_str("  return 0;\n}\n");
     }
     out
+}
+
+fn c_async_fun_signature(f: &AsyncFunDecl, checked: &CheckedFile) -> String {
+    let params: Vec<String> = f.type_params.iter().map(|p| p.name.name.clone()).collect();
+    let ps = if f.params.is_empty() {
+        "void".into()
+    } else {
+        f.params
+            .iter()
+            .map(|p| {
+                format!(
+                    "{} {}",
+                    c_type_ref_subst(&p.ty, checked, &params, &[]),
+                    mangle_ident(&p.name.name)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let pkg = async_fun_decl_package(f, checked);
+    format!(
+        "AuraTaskFrame * {}({ps})",
+        c_fun_name(&pkg, &f.name.name, &[])
+    )
+}
+
+/// C22l slice 1: lower an async function with no suspension points to a task
+/// frame whose first poll executes an ordinary helper body exactly once.
+fn emit_async_fun_no_await(out: &mut String, f: &AsyncFunDecl, checked: &CheckedFile) {
+    let params: Vec<String> = f.type_params.iter().map(|p| p.name.name.clone()).collect();
+    let pkg = async_fun_decl_package(f, checked);
+    let base = format!("{}_{}", mangle_package(&pkg), mangle_ident(&f.name.name));
+    let data_ty = format!("aura_async_data_{base}");
+    let body_fn = format!("aura_async_body_{base}");
+    let poll_fn = format!("aura_async_poll_{base}");
+    let destroy_result = format!("aura_async_result_destroy_{base}");
+    let ret = c_type_from_opt(&f.return_type, checked, &params, &[]);
+
+    let _ = writeln!(out, "typedef struct {data_ty} {{");
+    out.push_str("  uint32_t state;\n");
+    for p in &f.params {
+        let _ = writeln!(
+            out,
+            "  {} {};",
+            c_type_ref_subst(&p.ty, checked, &params, &[]),
+            mangle_ident(&p.name.name)
+        );
+    }
+    let _ = writeln!(out, "}} {data_ty};\n");
+
+    let body_params = f
+        .params
+        .iter()
+        .map(|p| {
+            format!(
+                "{} {}",
+                c_type_ref_subst(&p.ty, checked, &params, &[]),
+                mangle_ident(&p.name.name)
+            )
+        })
+        .collect::<Vec<_>>();
+    let _ = writeln!(
+        out,
+        "static {ret} {body_fn}({}) {{",
+        if body_params.is_empty() {
+            "void".into()
+        } else {
+            body_params.join(", ")
+        }
+    );
+    emit_async_body(out, f, checked, &params);
+    out.push_str("}\n\n");
+
+    let _ = writeln!(
+        out,
+        "static void {destroy_result}(void *data, size_t size) {{"
+    );
+    out.push_str("  (void)size;\n  free(data);\n}\n\n");
+    let _ = writeln!(
+        out,
+        "static AuraTaskPollState {poll_fn}(AuraTaskFrame *frame) {{"
+    );
+    let _ = writeln!(
+        out,
+        "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame);"
+    );
+    out.push_str("  if (aura_task_frame_cancel_requested(frame)) return AURA_TASK_CANCELLED;\n");
+    out.push_str("  if (data->state != 0) return AURA_TASK_COMPLETE;\n");
+    out.push_str("  data->state = 1;\n");
+    let args = f
+        .params
+        .iter()
+        .map(|p| format!("data->{}", mangle_ident(&p.name.name)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    if ret == "void" {
+        let _ = writeln!(out, "  {body_fn}({args});");
+        out.push_str("  aura_task_frame_set_result(frame, NULL, 0, NULL);\n");
+    } else {
+        let _ = writeln!(out, "  {ret} *result = ({ret} *)malloc(sizeof(*result));");
+        out.push_str("  if (result == NULL) return AURA_TASK_FAILED;\n");
+        let _ = writeln!(out, "  *result = {body_fn}({args});");
+        let _ = writeln!(
+            out,
+            "  aura_task_frame_set_result(frame, result, sizeof(*result), {destroy_result});"
+        );
+    }
+    out.push_str("  return AURA_TASK_COMPLETE;\n}\n\n");
+
+    let _ = writeln!(out, "{} {{", c_async_fun_signature(f, checked));
+    let _ = writeln!(
+        out,
+        "  AuraTaskFrame *frame = aura_task_frame_new(sizeof({data_ty}), {poll_fn}, NULL);"
+    );
+    out.push_str("  if (frame == NULL) return NULL;\n");
+    let _ = writeln!(
+        out,
+        "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame);"
+    );
+    for p in &f.params {
+        let n = mangle_ident(&p.name.name);
+        let _ = writeln!(out, "  data->{n} = {n};");
+    }
+    out.push_str("  return frame;\n}\n");
+}
+
+fn emit_async_body(out: &mut String, f: &AsyncFunDecl, checked: &CheckedFile, params: &[String]) {
+    let ret_key = f
+        .return_type
+        .as_ref()
+        .map(|t| type_ref_local_key_expand(t, params, &[], checked));
+    let mut ctx = EmitCtx {
+        checked,
+        method_class: None,
+        type_params: params.to_vec(),
+        type_args: Vec::new(),
+        locals: vec![HashMap::new()],
+        array_owners: vec![std::collections::HashSet::new()],
+        fun_owners: vec![std::collections::HashSet::new()],
+        box_locals: vec![std::collections::HashSet::new()],
+        box_owners: vec![std::collections::HashSet::new()],
+        gc_roots: vec![std::collections::HashSet::new()],
+        array_gc_roots: vec![std::collections::HashSet::new()],
+        return_key: ret_key,
+        lambda_ids: build_lambda_ids(checked),
+    };
+    for p in &f.params {
+        let key = type_ref_local_key_expand(&p.ty, params, &[], checked);
+        ctx.define_local(&p.name.name, full_type_mono(&key, checked));
+    }
+    emit_block(out, &f.body, 1, &mut ctx);
+    crate::stmt::emit_free_fun_owners(out, 1, &ctx, &ctx.fun_owners_all());
+    crate::stmt::emit_release_box_locals(out, 1, &ctx, &ctx.box_owners_all());
+    emit_return_fallback(out, &f.return_type, checked, params, &[]);
 }
 
 pub(crate) fn emit_test_main(out: &mut String, checked: &CheckedFile) {

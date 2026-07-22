@@ -292,6 +292,15 @@ pub(crate) fn fun_decl_package(f: &FunDecl, checked: &CheckedFile) -> String {
     }
 }
 
+/// Package of an async function declaration (C22l).
+pub(crate) fn async_fun_decl_package(f: &AsyncFunDecl, checked: &CheckedFile) -> String {
+    if f.origin_package.is_empty() {
+        checked.package.clone()
+    } else {
+        f.origin_package.clone()
+    }
+}
+
 pub(crate) fn c_ctor_name(mono: &str) -> String {
     format!("aura_new_{mono}")
 }
