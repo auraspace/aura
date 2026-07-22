@@ -35,11 +35,15 @@ stable `AURA-M2-*` diagnostics with source spans.
 ## M3. Metadata integration
 
 **Objective:** Carry accepted metadata into tooling and code generation.
+**Implementation status:** Complete for source-retained metadata. Accepted
+attributes survive parser, semantic checking, and the checked AST consumed by
+codegen/tooling; `@test` discovery is derived from the shared attribute list
+while retaining the legacy boolean for compatibility.
 **Checklist:**
 
-- [ ] Preserve metadata through checking and lowering.
-- [ ] Define compile-time versus emitted metadata retention.
-- [ ] Migrate test discovery to the shared attribute mechanism.
+- [x] Preserve metadata through checking and lowering.
+- [x] Define compile-time versus emitted metadata retention.
+- [x] Migrate test discovery to the shared attribute mechanism.
       **Acceptance:** Existing test discovery remains compatible and metadata is
       available to intended consumers.
       **Verification:** Run discovery regression and metadata golden tests.

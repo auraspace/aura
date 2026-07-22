@@ -491,7 +491,9 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
 mod abi_tests {
     use super::emit_c_with;
     use crate::ctx::EmitOptions;
-    use aura_ast::{File, Ident, Path, Span};
+    use aura_ast::{
+        Attribute, AttributeArg, AttributeValue, Block, File, FunDecl, Ident, Path, Span,
+    };
 
     #[test]
     fn generated_artifact_embeds_runtime_abi_identity_and_check() {
@@ -520,6 +522,54 @@ mod abi_tests {
         assert!(generated.contains("#define AURA_GENERATED_ABI_VERSION 1u"));
         assert!(generated
             .contains("aura_runtime_check_abi(AURA_GENERATED_ABI_VERSION, AURA_GENERATED_ABI_ID)"));
+    }
+    #[test]
+    fn checked_file_retains_attribute_metadata_for_consumers() {
+        let span = Span::new(0, 1);
+        let ident = |name: &str| Ident {
+            name: name.into(),
+            span,
+        };
+        let file = File {
+            package: Path {
+                segments: vec![ident("demo")],
+                span,
+            },
+            imports: vec![],
+            interfaces: vec![],
+            enums: vec![],
+            classes: vec![],
+            type_aliases: vec![],
+            consts: vec![],
+            functions: vec![FunDecl {
+                is_pub: false,
+                origin_package: "demo".into(),
+                attributes: vec![Attribute {
+                    name: ident("deprecated"),
+                    args: vec![AttributeArg::Positional(AttributeValue::String {
+                        value: "use newer".into(),
+                        span,
+                    })],
+                    span,
+                }],
+                is_test: false,
+                name: ident("main"),
+                type_params: vec![],
+                params: vec![],
+                return_type: None,
+                body: Block {
+                    stmts: vec![],
+                    span,
+                },
+                span,
+            }],
+            async_functions: vec![],
+            span,
+        };
+        let checked = aura_sema::check_file(&file).expect("check attribute");
+        let attribute = &checked.ast.functions[0].attributes[0];
+        assert_eq!(attribute.name.name, "deprecated");
+        assert_eq!(attribute.args.len(), 1);
     }
 }
 
