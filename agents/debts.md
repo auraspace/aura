@@ -277,3 +277,10 @@ When you resolve debt, update or remove the matching entry.
 - U1 now provides a deterministic gzip/tar archive primitive and SHA-256 helper,
   but no `publish`/dry-run CLI command consumes it yet. Next step: wire manifest
   and dependency validation plus upload preview/orchestration before claiming U4.
+
+### String-return ownership metadata (2026-07-22)
+
+- Codegen now frees only known allocating `String` call results and treats
+  unknown/user/generic `String` returns as borrowed to avoid invalid frees. This
+  can retain allocations longer than necessary. Next step: propagate explicit
+  return ownership metadata through sema and call instantiations.
