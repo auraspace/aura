@@ -32,6 +32,7 @@ name = "aura-codegen"
 version = "0.1.0-alpha"
 dependencies = [
  "aura-ast",
+ "aura-parser",
  "aura-sema",
  "sha2",
 ]

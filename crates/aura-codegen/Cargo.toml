@@ -9,3 +9,6 @@ description = "Aura C backend codegen for C1 hello binaries"
 aura-ast.workspace = true
 aura-sema.workspace = true
 sha2 = "0.10"
+
+[dev-dependencies]
+aura-parser.workspace = true

@@ -504,6 +504,7 @@ mod abi_tests {
     use aura_ast::{
         Attribute, AttributeArg, AttributeValue, Block, File, FunDecl, Ident, Path, Span,
     };
+    use aura_parser::parse_file;
 
     #[test]
     fn generated_artifact_embeds_runtime_abi_identity_and_check() {
@@ -580,6 +581,19 @@ mod abi_tests {
         let attribute = &checked.ast.functions[0].attributes[0];
         assert_eq!(attribute.name.name, "deprecated");
         assert_eq!(attribute.args.len(), 1);
+    }
+
+    #[test]
+    fn hash_code_derive_reaches_c_codegen_with_builtin_hash_calls() {
+        let file = parse_file(
+            "package demo\n@derive(HashCode) class Key(val id: Int, val name: String) {}\n",
+        )
+        .expect("parse derive input");
+        let checked = aura_sema::check_file(&file).expect("hashCode derive should typecheck");
+        let generated = emit_c_with(&checked, EmitOptions::default());
+        assert!(generated.contains("hashCode"));
+        assert!(generated.contains("aura_hash_string("));
+        assert!(generated.contains("INT64_C(31)"));
     }
 }
 

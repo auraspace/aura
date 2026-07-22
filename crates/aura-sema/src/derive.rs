@@ -1,13 +1,14 @@
 //! Expansion for source-level derives.
 
 use aura_ast::{
-    Attribute, AttributeArg, AttributeValue, BinOp, Block, ClassDecl, Expr, FieldExpr, FunDecl,
-    Ident, NominalKind, Param, ReturnStmt, Span, Stmt, TypeRef,
+    Attribute, AttributeArg, AttributeValue, BinOp, Block, CallExpr, ClassDecl, Expr, FieldExpr,
+    FunDecl, Ident, IntLit, NominalKind, Param, ReturnStmt, Span, Stmt, TypeRef,
 };
 
 use crate::error::SemaError;
 
 const EQUALS: &str = "equals";
+const HASH_CODE: &str = "hashCode";
 
 fn error(code: &str, message: String, span: Span) -> SemaError {
     SemaError {
@@ -24,6 +25,22 @@ fn has_equals_derive(attributes: &[Attribute]) -> Option<Span> {
         attribute.args.iter().find_map(|arg| match arg {
             AttributeArg::Positional(AttributeValue::Ident(name))
                 if name.name == "Equals" || name.name == "Eq" =>
+            {
+                Some(attribute.span)
+            }
+            _ => None,
+        })
+    })
+}
+
+fn has_hash_derive(attributes: &[Attribute]) -> Option<Span> {
+    attributes.iter().find_map(|attribute| {
+        if attribute.name.name != "derive" {
+            return None;
+        }
+        attribute.args.iter().find_map(|arg| match arg {
+            AttributeArg::Positional(AttributeValue::Ident(name))
+                if name.name == "HashCode" || name.name == "Hash" =>
             {
                 Some(attribute.span)
             }
@@ -100,6 +117,50 @@ fn equality_body(class: &ClassDecl, span: Span) -> Block {
     }
 }
 
+fn hash_call(object: Expr, field: &aura_ast::FieldDecl, span: Span) -> Expr {
+    Expr::Call(CallExpr {
+        callee: Box::new(Expr::Field(FieldExpr {
+            object: Box::new(field_access(object, field, span)),
+            field: Ident {
+                name: "hash".into(),
+                span,
+            },
+            safe: false,
+            span,
+        })),
+        type_args: Vec::new(),
+        args: Vec::new(),
+        span,
+    })
+}
+
+fn hash_body(class: &ClassDecl, span: Span) -> Block {
+    let value = class.fields.iter().fold(
+        Expr::Int(IntLit { value: 17, span }),
+        |seed, field| {
+            let multiplied = Expr::Binary(aura_ast::BinaryExpr {
+                op: BinOp::Mul,
+                left: Box::new(seed),
+                right: Box::new(Expr::Int(IntLit { value: 31, span })),
+                span,
+            });
+            Expr::Binary(aura_ast::BinaryExpr {
+                op: BinOp::Add,
+                left: Box::new(multiplied),
+                right: Box::new(hash_call(Expr::This(span), field, span)),
+                span,
+            })
+        },
+    );
+    Block {
+        stmts: vec![Stmt::Return(ReturnStmt {
+            value: Some(value),
+            span,
+        })],
+        span,
+    }
+}
+
 fn supports_field(field: &aura_ast::FieldDecl, classes: &[ClassDecl]) -> bool {
     fn supported(ty: &TypeRef, classes: &[ClassDecl]) -> bool {
         if ty.reference || ty.fun.is_some() || !ty.type_args.is_empty() {
@@ -116,6 +177,14 @@ fn supports_field(field: &aura_ast::FieldDecl, classes: &[ClassDecl]) -> bool {
             })
     }
     supported(&field.ty, classes)
+}
+
+fn supports_hash_field(field: &aura_ast::FieldDecl) -> bool {
+    !field.ty.reference
+        && field.ty.fun.is_none()
+        && field.ty.type_args.is_empty()
+        && !field.ty.nullable
+        && matches!(field.ty.name.name.as_str(), "Int" | "String")
 }
 
 /// Expand supported `@derive(Equals)` declarations and return stable M4 errors.
@@ -176,6 +245,71 @@ pub(crate) fn expand_equals(file: &mut aura_ast::File) -> Vec<SemaError> {
                 fun: None,
             }),
             body: equality_body(class, derive_span),
+            span: derive_span,
+        });
+    }
+    errors
+}
+
+/// Expand the conservative MVP `@derive(HashCode)` implementation.
+pub(crate) fn expand_hash(file: &mut aura_ast::File) -> Vec<SemaError> {
+    let mut errors = Vec::new();
+    for class in &mut file.classes {
+        let Some(derive_span) = has_hash_derive(&class.attributes) else {
+            continue;
+        };
+        if class.methods.iter().any(|method| method.name.name == HASH_CODE) {
+            errors.push(error(
+                "AURA-M5-DUPLICATE",
+                format!(
+                    "cannot derive `HashCode` for `{}`: method `hashCode` already exists",
+                    class.name.name
+                ),
+                derive_span,
+            ));
+            continue;
+        }
+        let mut unsupported = false;
+        for field in &class.fields {
+            if !supports_hash_field(field) {
+                unsupported = true;
+                errors.push(error(
+                    "AURA-M5-UNSUPPORTED",
+                    format!(
+                        "cannot derive `HashCode` for `{}`: field `{}` has unsupported type `{}`",
+                        class.name.name, field.name.name, field.ty.name.name
+                    ),
+                    field.span,
+                ));
+            }
+        }
+        if unsupported {
+            continue;
+        }
+        class.methods.push(FunDecl {
+            is_pub: true,
+            origin_package: class.origin_package.clone(),
+            attributes: Vec::new(),
+            is_test: false,
+            name: Ident {
+                name: HASH_CODE.into(),
+                span: derive_span,
+            },
+            type_params: Vec::new(),
+            params: Vec::new(),
+            return_type: Some(TypeRef {
+                qualifier: None,
+                name: Ident {
+                    name: "Int".into(),
+                    span: derive_span,
+                },
+                type_args: Vec::new(),
+                nullable: false,
+                reference: false,
+                span: derive_span,
+                fun: None,
+            }),
+            body: hash_body(class, derive_span),
             span: derive_span,
         });
     }

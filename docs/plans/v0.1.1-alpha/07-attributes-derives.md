@@ -71,13 +71,26 @@ enums remain deferred to the broader derive contract.
 ## M5. Hash derive
 
 **Objective:** Generate deterministic hash implementations.
+**Implementation status:** Partial. `@derive(HashCode)` (with the compatible
+`Hash` alias) generates a public `hashCode(): Int` method for class/struct
+declarations whose fields are non-null `Int` or `String`. The implementation
+uses a fixed `17 * 31 + field.hash()` fold, preserving the derive span on the
+synthetic member and field spans on `AURA-M5-*` diagnostics. Bool, class,
+nested, generic, reference, and nullable fields are explicitly deferred.
 **Checklist:**
 
-- [ ] Match equality field semantics and supported types.
-- [ ] Define nullable, nested, and generic hashing behavior.
-- [ ] Preserve source attribution for generated members.
-      **Acceptance:** Hash output is stable and consistent with equality.
-      **Verification:** Run collision, determinism, generic, and invalid-field cases.
+- [x] Implement the deterministic non-null `Int`/`String` field subset and
+      reject unsupported field types with stable diagnostics.
+- [x] Define nullable, nested, and generic hashing behavior as diagnosed and
+      deferred until the corresponding derive/type contracts are available.
+- [x] Preserve derive source attribution on generated members and offending
+      field attribution on diagnostics.
+      **Acceptance (implemented subset):** Hash output is deterministic for the
+      supported `Int`/`String` fields; full equality-field parity remains
+      deferred until the broader field contracts are implemented.
+      **Verification:** Focused sema invalid-field/duplicate tests and a
+      codegen emission test pass. Collision, generic, and broader determinism
+      corpus coverage remain deferred.
       **Dependencies:** M4.
 
 ## M6. Debug derive

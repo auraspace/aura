@@ -28,6 +28,7 @@ pub fn check_file(file: &File) -> Result<CheckedFile, SemaErrors> {
     let mut expanded = file.clone();
     let mut c = Checker::new();
     c.errors.extend(derive::expand_equals(&mut expanded));
+    c.errors.extend(derive::expand_hash(&mut expanded));
     c.errors.extend(attributes::validate_file(&expanded));
     match c.check_file(&expanded) {
         Ok(checked) => {

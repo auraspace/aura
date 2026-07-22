@@ -133,6 +133,57 @@ fn equals_derive_reports_unsupported_generic_field() {
 }
 
 #[test]
+fn hash_code_derive_generates_checked_method_for_int_and_string() {
+    let file = parse_file(
+        "package t\n@derive(HashCode) struct Key(val id: Int, val name: String) {}\n",
+    )
+    .expect("derive syntax");
+    let checked = check_file(&file).expect("generated hashCode method should typecheck");
+    let key = checked
+        .ast
+        .classes
+        .iter()
+        .find(|class| class.name.name == "Key")
+        .expect("Key");
+    let hash = key
+        .methods
+        .iter()
+        .find(|method| method.name.name == "hashCode")
+        .expect("generated hashCode");
+    assert!(hash.is_pub);
+    assert!(hash.params.is_empty());
+    assert_eq!(hash.return_type.as_ref().map(|ty| ty.name.name.as_str()), Some("Int"));
+    assert!(matches!(hash.body.stmts.first(), Some(Stmt::Return(_))));
+}
+
+#[test]
+fn hash_code_derive_reports_unsupported_and_duplicate_fields() {
+    let unsupported = parse_file(
+        "package t\n@derive(Hash) struct Bad(val ok: Bool, val maybe: Int?) {}\n",
+    )
+    .expect("derive syntax");
+    let errors = check_file(&unsupported).expect_err("unsupported hash fields must be diagnosed");
+    assert_eq!(
+        errors
+            .errors
+            .iter()
+            .filter(|error| error.message.contains("AURA-M5-UNSUPPORTED"))
+            .count(),
+        2
+    );
+
+    let duplicate = parse_file(
+        "package t\n@derive(HashCode) class Key(val id: Int) { fun hashCode(): Int { return 1 } }\n",
+    )
+    .expect("derive syntax");
+    let errors = check_file(&duplicate).expect_err("duplicate hashCode must be diagnosed");
+    assert!(errors
+        .errors
+        .iter()
+        .any(|error| error.message.contains("AURA-M5-DUPLICATE")));
+}
+
+#[test]
 fn attributes_report_unknown_target_duplicate_and_conflict() {
     let file = parse_file(
         "package t\n@unknown fun main() {}\n@inline @noinline fun other() {}\n@inline class Wrong() {}\n",
