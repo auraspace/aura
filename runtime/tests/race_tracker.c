@@ -64,6 +64,24 @@ int main(void)
   assert(aura_race_tracker_count(tracker) == 0);
   aura_task_executor_shutdown(ordinary_executor);
 
+  AuraTaskExecutor *join_executor = aura_task_executor_new();
+  AuraTaskFrame *joined_frame =
+      aura_task_frame_new(0, aura_task_poll_unit, NULL);
+  assert(join_executor != NULL && joined_frame != NULL);
+  aura_task_executor_set_race_tracker(join_executor, tracker);
+  assert(aura_task_executor_submit(join_executor, joined_frame));
+  assert(aura_task_executor_run_one(join_executor));
+  AuraTaskResult join_result = {NULL, 0};
+  AuraTaskResult join_error = {NULL, 0};
+  assert(aura_task_executor_join(join_executor, joined_frame, &join_result,
+                                 &join_error) == AURA_TASK_COMPLETE);
+  assert(aura_race_tracker_count(tracker) == 3);
+  assert(aura_race_tracker_event(tracker, 0)->kind == AURA_RACE_TASK_SPAWN);
+  assert(aura_race_tracker_event(tracker, 1)->kind == AURA_RACE_TASK_COMPLETE);
+  assert(aura_race_tracker_event(tracker, 2)->kind == AURA_RACE_TASK_JOIN);
+  aura_task_executor_shutdown(join_executor);
+
+  aura_race_tracker_reset(tracker);
   AuraTaskChannel *tracked_channel = aura_task_channel_new(1);
   assert(tracked_channel != NULL);
   aura_task_channel_set_race_tracker(tracked_channel, tracker);

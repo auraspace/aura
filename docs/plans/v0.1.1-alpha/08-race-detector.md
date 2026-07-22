@@ -13,7 +13,8 @@ instrumentation/reporting slices.
 **Checklist:**
 
 - [x] Define read/write identity and source location.
-- [ ] Define spawn/join, await, cancellation, lock, and atomic edges.
+- [x] Define spawn, join, and cancellation edges for tracked executor events;
+      await, lock, and atomic edges remain open.
 - [x] Define opt-in channel send, receive, and close edges.
 - [ ] Define deterministic ordering, suppression, and report identity.
       **Acceptance:** The model maps directly to the accepted concurrency contract.
