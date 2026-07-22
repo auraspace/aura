@@ -110,8 +110,11 @@ A5–A6.
 **Objective:** Make one pending operation suspend and later resume correctly.
 **Implementation status:** Immediate-completion and non-waiting pending
 continuation paths are complete through runtime polling and executor requeue.
-Operation wakeup, live-local hoisting, and full async I/O suspension remain in
-A6.
+The bounded codegen test for one `await` with an `Int` and a `String` used after
+the await confirms only the current boundary: the input task is retained in
+frame data, while those locals remain in the ordinary helper and are not
+hoisted. Operation wakeup, live-local hoisting, and full async I/O suspension
+remain open.
 
 **Checklist:**
 

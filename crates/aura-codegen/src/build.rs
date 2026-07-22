@@ -485,6 +485,35 @@ mod tests {
     }
 
     #[test]
+    fn records_live_int_and_string_across_await_are_not_hoisted_yet() {
+        let file = aura_parser::parse_file(
+            r#"package demo
+async fun preserve(task: Task<Int>): Int {
+  val before: Int = 40
+  val label: String = "live" + "!"
+  val observed: Int = await task
+  return before + observed + label.len
+}
+fun main() {}
+"#,
+        )
+        .expect("parse single-await live-local fixture");
+        let generated = emit_c_from_ast(&file).expect("emit single-await live-local fixture");
+
+        // The known boundary is intentional: the await-containing body is
+        // still emitted as one helper. Only the input task is in frame data;
+        // locals used after await are not yet hoisted into that frame.
+        assert!(generated.contains(
+            "typedef struct aura_async_data_demo_preserve {\n  AuraTaskFrame * task;\n} aura_async_data_demo_preserve;\n"
+        ));
+        assert!(generated.contains("static int64_t aura_async_body_demo_preserve(AuraTaskFrame * task)"));
+        assert!(generated.contains("int64_t before = INT64_C(40);"));
+        assert!(generated.contains("const char * label ="));
+        assert!(generated.contains("AuraTaskResult __await_result"));
+        assert!(generated.contains("__await_value = *((int64_t *)__await_result.data)"));
+    }
+
+    #[test]
     fn builds_and_runs_spawn_join_cancel() {
         let span = Span::new(0, 1);
         let ident = |name: &str| Ident {
