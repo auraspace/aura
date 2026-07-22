@@ -72,14 +72,46 @@ known unsupported target.
 **Objective:** Freeze user-visible behavior for commands and external
 integration boundaries.
 
+**Contract:** Public registry reads use HTTPS and immutable version metadata;
+private reads and publish use `GITHUB_TOKEN`/`gh` credentials. Every downloaded
+archive is verified against its declared SHA-256 before extraction or cache
+publication, and transient transport failures retry with bounded backoff.
+Authentication, HTTP status, transport, checksum, and manifest failures have
+distinct stable error classes. `aura publish --dry-run` performs all manifest,
+version, contents, and dependency checks without network mutation; a real
+publish uploads the archive and index metadata only after those checks pass.
+
+Self-update downloads to isolated temporary storage, verifies checksum and
+signature before activation, atomically replaces the active version, and keeps
+the previous version as rollback state. Any interrupted download, failed
+verification, or failed activation leaves the previous version active.
+
+The supported FFI contract is limited to target-guarded C declarations with
+`Int`, `Bool`, `String` handle, and `Unit` values. Strings are borrowed for the
+duration of a call unless an explicit copy/transfer operation is requested;
+foreign pointers are opaque, nullable, pinned values and must be explicitly
+released. Callbacks retain their environment until deregistration and cannot
+cross task/await boundaries in the alpha contract. ABI mismatches are hard
+errors before linking.
+
+The HTTP surface is explicitly deferred from the alpha executable claim. The
+reserved future command is `aura http serve <package-or-example>`; no HTTP
+server, socket API, routing behavior, or implicit network permission is
+available until workstream 11 supplies its parser, limits, lifecycle, and
+native acceptance fixtures.
+
+These rules make success, invalid input, network failure, checksum failure,
+rollback failure, and ABI mismatch independently testable without inventing
+behavior during implementation.
+
 **Checklist:**
 
 - [x] Specify commands, flags, exit codes, structured output, and error classes.
-- [ ] Specify registry authentication, upload, download, checksum, and retry
+- [x] Specify registry authentication, upload, download, checksum, and retry
       behavior.
-- [ ] Specify self-update failure and rollback behavior.
-- [ ] Specify supported FFI types, ownership, callbacks, and ABI errors.
-- [ ] Specify HTTP server commands/examples and explicit non-goals.
+- [x] Specify self-update failure and rollback behavior.
+- [x] Specify supported FFI types, ownership, callbacks, and ABI errors.
+- [x] Specify HTTP server commands/examples and explicit non-goals.
 
 **Acceptance:** CLI and integration tests can be written without inventing
 behavior during implementation.
