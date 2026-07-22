@@ -4909,6 +4909,17 @@ typedef struct
 
 typedef struct
 {
+  uint64_t task_id;
+  uint32_t source_id;
+  AuraTaskPollState state;
+  AuraTaskResult error;
+} AuraTaskFailureDiagnostic;
+
+typedef void (*AuraTaskFailureHookFn)(
+    const AuraTaskFailureDiagnostic *diagnostic, void *context);
+
+typedef struct
+{
   void *data;
   size_t size;
   AuraTaskResultDestroyFn destroy;
@@ -4937,6 +4948,8 @@ struct AuraTaskFrame
   uint32_t resume_state;
   AuraTaskPollState state;
   int cancel_requested;
+  int join_observed;
+  int failure_reported;
   int queued;
   AuraTaskExecutor *executor;
   AuraTaskFrame *queue_next;
@@ -5295,6 +5308,8 @@ struct AuraTaskExecutor
   size_t owned_count;
   int shutdown;
   AuraRaceTracker *race_tracker;
+  AuraTaskFailureHookFn failure_hook;
+  void *failure_hook_context;
 };
 
 int aura_task_executor_wake(AuraTaskExecutor *executor, AuraTaskFrame *frame);
@@ -5338,6 +5353,57 @@ void aura_task_executor_set_race_tracker(AuraTaskExecutor *executor,
     executor->race_tracker = tracker;
     aura_race_tracker_set_active(tracker);
   }
+}
+
+static void aura_task_default_failure_hook(
+    const AuraTaskFailureDiagnostic *diagnostic, void *context)
+{
+  (void)context;
+  if (diagnostic == NULL)
+  {
+    return;
+  }
+  fprintf(stderr,
+          "aura task failure: task=%" PRIu64 " source=%" PRIu32
+          " error_size=%zu\n",
+          diagnostic->task_id, diagnostic->source_id, diagnostic->error.size);
+}
+
+/* Install the destination for failures that reach terminal state without a
+ * successful join.  The diagnostic and its error bytes are borrowed only for
+ * the duration of the callback.  Passing NULL restores the deterministic
+ * stderr logger, so an unjoined failure is never silently discarded. */
+void aura_task_executor_set_failure_hook(AuraTaskExecutor *executor,
+                                          AuraTaskFailureHookFn hook,
+                                          void *context)
+{
+  if (executor == NULL || executor->shutdown)
+  {
+    return;
+  }
+  executor->failure_hook = hook != NULL ? hook : aura_task_default_failure_hook;
+  executor->failure_hook_context = context;
+}
+
+static void aura_task_executor_report_unjoined_failure(AuraTaskExecutor *executor,
+                                                       AuraTaskFrame *frame)
+{
+  AuraTaskFailureDiagnostic diagnostic;
+  AuraTaskFailureHookFn hook;
+
+  if (executor == NULL || frame == NULL || frame->state != AURA_TASK_FAILED ||
+      frame->join_observed || frame->failure_reported)
+  {
+    return;
+  }
+  frame->failure_reported = 1;
+  diagnostic.task_id = frame->task_id;
+  diagnostic.source_id = frame->error_source_id;
+  diagnostic.state = frame->state;
+  diagnostic.error = frame->error;
+  hook = executor->failure_hook != NULL ? executor->failure_hook
+                                        : aura_task_default_failure_hook;
+  hook(&diagnostic, executor->failure_hook_context);
 }
 
 static void aura_task_executor_push_owned(AuraTaskExecutor *executor,
@@ -5537,6 +5603,10 @@ AuraTaskPollState aura_task_executor_join(AuraTaskExecutor *executor,
   {
     *out_error = frame->error;
   }
+  if (frame->state == AURA_TASK_FAILED)
+  {
+    frame->join_observed = 1;
+  }
   if (executor->race_tracker != NULL &&
       (frame->state == AURA_TASK_COMPLETE || frame->state == AURA_TASK_FAILED ||
        frame->state == AURA_TASK_CANCELLED))
@@ -5596,6 +5666,7 @@ int aura_task_executor_release(AuraTaskExecutor *executor, AuraTaskFrame **handl
     executor->owned_count--;
   }
   *handle = NULL;
+  aura_task_executor_report_unjoined_failure(executor, frame);
   aura_task_frame_destroy(frame);
   return 1;
 }
@@ -5614,6 +5685,7 @@ void aura_task_executor_shutdown(AuraTaskExecutor *executor)
     frame->executor = NULL;
     frame->queued = 0;
     aura_task_channel_cancel_wait(frame);
+    aura_task_executor_report_unjoined_failure(executor, frame);
     aura_task_frame_destroy(frame);
     frame = next;
   }

@@ -146,16 +146,25 @@ after-completion, and descriptor/channel-payload cleanup remain unverified.
 
 **Objective:** Implement the explicit policy for failures not observed by join.
 
+**Implementation status:** Bounded runtime policy complete. A failed terminal
+frame released without a failed join, or reclaimed during executor shutdown,
+invokes a borrowed diagnostic hook exactly once. The default hook logs task and
+source identity plus error size to stderr; callers may install a deterministic
+structured hook. Joined failures suppress the unjoined report, while
+cancellation is never reported as failure.
+
 **Checklist:**
 
-- [ ] Choose and document logging, retention, propagation, or process-failure
-      behavior according to the contract matrix.
-- [ ] Preserve identity and source context for diagnosis.
-- [ ] Prevent silent loss of failure payloads.
-- [ ] Define shutdown and cancellation behavior.
+- [x] Choose and document bounded logging/retention behavior: default stderr
+      logging or a borrowed callback hook.
+- [x] Preserve task identity and source context for diagnosis.
+- [x] Prevent silent loss of unjoined failure payloads.
+- [x] Define shutdown behavior and keep cancellation out of failure reports.
 
 **Acceptance:** Unjoined failure behavior is deterministic and release-tested.
 
-**Verification:** Run isolated, nested, shutdown, and multiple-failure cases.
+**Verification:** `runtime/tests/task_unjoined_failure.c` covers isolated
+release, joined suppression, multiple shutdown failures, and cancellation.
+Nested compiler-generated failure payloads remain deferred with A6/A7.
 
 **Dependencies:** S4, S5, C3.

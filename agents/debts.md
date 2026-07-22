@@ -7,6 +7,18 @@ When you resolve debt, update or remove the matching entry.
 
 ## Open
 
+### Unjoined task failures are bounded runtime diagnostics (S6, 2026-07-22)
+
+- Area: task outcome policy
+- Symptom: unjoined terminal failures now report through a borrowed hook or
+  default stderr logger, but compiler-generated nested failure chains and
+  process-level aggregation are not yet defined.
+- Why deferred: those payloads depend on A6/A7 outcome representation and the
+  release diagnostics contract.
+- Progress: task/source identity, failure bytes, joined suppression, shutdown
+  reporting, and cancellation exclusion are covered by the focused fixture.
+- Next step: connect the hook to typed async outcomes and release telemetry.
+
 ### A8 sanitizer fixture is bounded to the current frame ABI (2026-07-22)
 
 - Area: runtime async ABI sanitizer coverage
