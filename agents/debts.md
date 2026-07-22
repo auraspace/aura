@@ -21,6 +21,18 @@ When you resolve debt, update or remove the matching entry.
 - Next step: extend the typed outcome ABI after A6 suspension lowering defines
   source-span and nested-failure ownership.
 
+### Task churn fixture reaches the bounded GC-root table (2026-07-22)
+
+- Area: runtime stress fixture
+- Symptom: `runtime/tests/task_churn.c` retains 1000 completed frames while
+  allocating another 1000 channel frames and exhausts the runtime's fixed
+  1024-entry root table under the strict standalone sanitizer build.
+- Why deferred: this is a pre-existing stress-fixture/cardinality mismatch,
+  not an A7 outcome failure; increasing the table or releasing terminal
+  handles changes the separate executor stress contract.
+- Next step: revise the churn fixture to release terminal handles in bounded
+  batches, or make GC-root capacity configurable, before using it as a gate.
+
 ### Unjoined task failures are bounded runtime diagnostics (S6, 2026-07-22)
 
 - Area: task outcome policy
