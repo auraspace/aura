@@ -50,6 +50,24 @@ i = i + 1
   }
   return i
 }
+
+#[test]
+fn parses_scoped_ref_type() {
+    let file = parse_file(
+        "package demo\nfun borrow(x: ref String): ref String { return x }\n",
+    )
+    .expect("parse");
+    let param = &file.functions[0].params[0].ty;
+    assert!(param.reference);
+    assert_eq!(param.name.name, "String");
+    assert!(file.functions[0].return_type.as_ref().unwrap().reference);
+}
+
+#[test]
+fn rejects_nested_ref_syntax() {
+    let err = parse_file("package demo\nfun bad(x: ref ref String) {}\n").expect_err("nested ref");
+    assert!(err.message.contains("nested `ref`"));
+}
 "#;
     let file = parse_file(src).expect("parse");
     assert_eq!(file.functions[0].body.stmts.len(), 4);

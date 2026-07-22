@@ -196,7 +196,7 @@ pub struct Param {
     pub span: Span,
 }
 
-/// `Box<String>?` / `Math.Point` — optional package alias qualifier (C3u), name, type args, `?`.
+/// `Box<String>?` / `Math.Point` / `ref T` — optional package alias qualifier (C3u), name, type args, `?`.
 /// C10f: function types use `fun: Some(...)` with placeholder `name` (`fn`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeRef {
@@ -205,6 +205,10 @@ pub struct TypeRef {
     pub name: Ident,
     pub type_args: Vec<TypeRef>,
     pub nullable: bool,
+    /// C21b: scoped, non-owning reference marker. The semantic checker owns
+    /// validation; code generation continues to see the underlying type until
+    /// borrow lowering is implemented.
+    pub reference: bool,
     pub span: Span,
     /// C10f: `(Int, Bool) -> String` function type payload.
     pub fun: Option<Box<FunTypeRef>>,

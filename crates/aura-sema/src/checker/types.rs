@@ -5,8 +5,38 @@ use crate::error::SemaError;
 use crate::ty::{nominal_key, Ty};
 impl Checker {
     pub(crate) fn type_from_ref(&self, t: &TypeRef) -> Result<Ty, SemaError> {
+        if t.reference {
+            if t.nullable {
+                return Err(SemaError {
+                    message: "borrow reference types must be non-null (`ref T`, not `ref T?`)"
+                        .into(),
+                    span: t.span,
+                });
+            }
+            if t.fun.is_some() {
+                return Err(SemaError {
+                    message: "borrow references to function types are not allowed in the MVP"
+                        .into(),
+                    span: t.span,
+                });
+            }
+            if t.type_args.iter().any(type_ref_contains_reference) {
+                return Err(SemaError {
+                    message: "nested borrow reference types are not allowed in the MVP".into(),
+                    span: t.span,
+                });
+            }
+        }
         // C10f: function type `(T) -> U`.
         if let Some(fun) = &t.fun {
+            if fun.params.iter().any(type_ref_contains_reference)
+                || type_ref_contains_reference(&fun.ret)
+            {
+                return Err(SemaError {
+                    message: "borrow references cannot appear in function types in the MVP".into(),
+                    span: t.span,
+                });
+            }
             let params = fun
                 .params
                 .iter()
@@ -319,4 +349,13 @@ impl Checker {
             _ => false,
         }
     }
+}
+
+fn type_ref_contains_reference(t: &TypeRef) -> bool {
+    t.reference
+        || t.type_args.iter().any(type_ref_contains_reference)
+        || t.fun.as_ref().is_some_and(|fun| {
+            fun.params.iter().any(type_ref_contains_reference)
+                || type_ref_contains_reference(&fun.ret)
+        })
 }

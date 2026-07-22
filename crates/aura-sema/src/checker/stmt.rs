@@ -290,6 +290,13 @@ impl Checker {
                 Ok(())
             }
             Stmt::Var(v) => {
+                if v.mutable && v.ty.as_ref().is_some_and(|t| t.reference) {
+                    return Err(SemaError {
+                        message: "borrow reference bindings must be immutable (`val`, not `var`)"
+                            .into(),
+                        span: v.ty.as_ref().unwrap().span,
+                    });
+                }
                 let ann_ty = match &v.ty {
                     Some(t) => Some(self.type_from_ref(t)?),
                     None => None,

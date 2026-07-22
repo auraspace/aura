@@ -428,6 +428,14 @@ impl Checker {
                     });
                     continue;
                 }
+                if f.mutable && f.ty.reference {
+                    self.errors.push(SemaError {
+                        message: "borrow reference fields must be immutable (`val`, not `var`)"
+                            .into(),
+                        span: f.ty.span,
+                    });
+                    continue;
+                }
                 let ty = match self.type_from_ref(&f.ty) {
                     Ok(t) => t,
                     Err(err) => {

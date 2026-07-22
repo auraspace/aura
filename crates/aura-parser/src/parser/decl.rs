@@ -419,6 +419,21 @@ impl Parser {
     }
 
     pub(crate) fn parse_type(&mut self) -> Result<TypeRef, ParseError> {
+        // C21b: `ref T` is intentionally parsed as a marker on the underlying
+        // type so the existing compiler representation remains compatible.
+        if matches!(&self.peek().kind, TokenKind::Ident(name) if name == "ref") {
+            let start = self.bump().span.start;
+            let mut ty = self.parse_type()?;
+            if ty.reference {
+                return Err(ParseError {
+                    message: "nested `ref` types are not allowed in the MVP".into(),
+                    span: Span::new(start, ty.span.end),
+                });
+            }
+            ty.reference = true;
+            ty.span = Span::new(start, ty.span.end);
+            return Ok(ty);
+        }
         // C10f: function type `(T, U) -> R` / `() -> R`.
         if matches!(self.peek().kind, TokenKind::LParen) {
             return self.parse_fun_type();
@@ -452,6 +467,7 @@ impl Parser {
             name,
             type_args,
             nullable,
+            reference: false,
             span: Span::new(start, end),
             fun: None,
         })
@@ -493,6 +509,7 @@ impl Parser {
             },
             type_args: Vec::new(),
             nullable,
+            reference: false,
             span: Span::new(start, end),
             fun: Some(Box::new(FunTypeRef { params, ret })),
         })

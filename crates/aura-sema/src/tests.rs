@@ -12,6 +12,38 @@ fn mono_suffix() {
 }
 
 #[test]
+fn scoped_ref_types_typecheck_as_non_owning_annotations() {
+    let file = parse_file(
+        "package t\nfun borrow(x: ref String): ref String { return x }\nfun main() {}\n",
+    )
+    .expect("parse");
+    check_file(&file).expect("scoped ref type");
+}
+
+#[test]
+fn scoped_ref_rejects_nullable_targets() {
+    let file =
+        parse_file("package t\nfun bad(x: ref String?): String { return \"x\" }\n").expect("parse");
+    let err = check_file(&file).expect_err("nullable ref");
+    assert!(err.primary().message.contains("must be non-null"));
+}
+
+#[test]
+fn scoped_ref_rejects_mutable_bindings_and_function_targets() {
+    let mutable =
+        parse_file("package t\nfun bad(x: String) { var y: ref String = x }\nfun main() {}\n")
+            .expect("parse");
+    let err = check_file(&mutable).expect_err("mutable ref binding");
+    assert!(err.primary().message.contains("must be immutable"));
+
+    let function =
+        parse_file("package t\nfun bad(x: ref (Int) -> Int): Int { return 0 }\nfun main() {}\n")
+            .expect("parse");
+    let err = check_file(&function).expect_err("function ref");
+    assert!(err.primary().message.contains("function types"));
+}
+
+#[test]
 fn try_catch_typechecks() {
     let src = r#"
 package t
