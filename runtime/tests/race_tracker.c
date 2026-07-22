@@ -55,6 +55,15 @@ int main(void)
   aura_race_tracker_reset(tracker);
   assert(aura_race_tracker_count(tracker) == 0);
 
+  AuraTaskExecutor *ordinary_executor = aura_task_executor_new();
+  AuraTaskFrame *ordinary_frame =
+      aura_task_frame_new(0, aura_task_poll_unit, NULL);
+  assert(ordinary_executor != NULL && ordinary_frame != NULL);
+  assert(aura_task_executor_submit(ordinary_executor, ordinary_frame));
+  assert(aura_task_executor_run_one(ordinary_executor));
+  assert(aura_race_tracker_count(tracker) == 0);
+  aura_task_executor_shutdown(ordinary_executor);
+
   AuraTaskChannel *tracked_channel = aura_task_channel_new(1);
   assert(tracked_channel != NULL);
   aura_task_channel_set_race_tracker(tracked_channel, tracker);

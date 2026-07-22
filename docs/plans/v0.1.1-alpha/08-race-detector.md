@@ -35,7 +35,8 @@ executors and channels remain silent.
 - [x] Emit terminal completion, failure, and cancellation events.
 - [x] Preserve task identity, logical time, and source mapping.
 - [x] Emit opt-in channel send, receive, and close events with channel identity.
-- [ ] Keep tracking disabled in ordinary release mode.
+- [x] Keep tracking disabled in ordinary release mode; an executor without an
+      attached tracker emits no events.
       **Acceptance:** Repeated deterministic runs produce the same event sequence.
       **Verification:** Run trace fixtures with channels, cancellation, and GC.
       **Dependencies:** R1, A1–A8.
