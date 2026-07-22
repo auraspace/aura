@@ -205,9 +205,33 @@ impl Backend for CBackend {
         if let Some(linker) = &options.profile_settings.linker {
             command.arg(format!("-fuse-ld={linker}"));
         }
+        for path in &options.foreign_library_paths {
+            command.arg("-L").arg(path);
+        }
+        let mut foreign_link_args = Vec::new();
+        for foreign in &checked.ast.foreign_functions {
+            let (Some(link), Some(library)) = (&foreign.link, &foreign.library) else {
+                continue;
+            };
+            match link.kind {
+                aura_ast::ForeignLinkKind::Dynamic => {
+                    foreign_link_args.push(format!("-l{}", library.name));
+                }
+                aura_ast::ForeignLinkKind::Static if cfg!(target_os = "linux") => {
+                    foreign_link_args.push("-Wl,-Bstatic".into());
+                    foreign_link_args.push(format!("-l{}", library.name));
+                    foreign_link_args.push("-Wl,-Bdynamic".into());
+                }
+                aura_ast::ForeignLinkKind::Static if cfg!(target_os = "macos") => {
+                    foreign_link_args.push(format!("-Wl,-force_load,lib{}.a", library.name));
+                }
+                aura_ast::ForeignLinkKind::Static => {}
+            }
+        }
         let status = command
             .arg(&c_path)
             .arg(runtime_c)
+            .args(&foreign_link_args)
             .arg("-o")
             .arg(out_bin)
             .status()
@@ -254,6 +278,7 @@ mod tests {
             type_aliases: vec![],
             consts: vec![],
             functions: vec![],
+            foreign_functions: vec![],
             async_functions: vec![],
             span,
         }

@@ -27,13 +27,28 @@ triple). Calls, primitive lowering, and foreign linking remain F2 behavior.
 **Objective:** Call foreign functions with supported primitive values.
 **Checklist:**
 
-- [ ] Define integer, boolean, floating, string-handle, and void conventions.
-- [ ] Generate target-aware declarations and linking behavior.
+- [x] Define integer, boolean, string-handle, and void conventions.
+- [x] Generate target-aware declarations and linking behavior.
 - [ ] Map foreign failures to documented Aura outcomes.
       **Acceptance:** Primitive calls work consistently on supported hosts.
       **Verification:** Run native calls, missing-symbol, wrong-signature, and error
       fixtures on Linux/macOS.
-      **Dependencies:** F1, P6–P7.
+**Dependencies:** F1, P6–P7.
+
+**Implementation status (F2, bounded alpha slice):** Primitive C calls are
+lowered for `Int` (`int64_t`), `Bool` (`bool`), `String` (`const char *`), and
+`Unit` (`void`). String arguments and results are borrowed handles for the
+duration of the call; codegen never frees a foreign String result. Foreign
+symbols are emitted verbatim with an `extern` prototype. `target = "native"`
+and the host Linux/macOS matrix are enforced by F1. Dynamic libraries use
+`-lNAME`; static libraries use `-Wl,-Bstatic -lNAME -Wl,-Bdynamic` on Linux
+and `-Wl,-force_load,libNAME.a` on macOS. Additional library search paths are
+explicit `CompileOptions::foreign_library_path` entries. Floating-point,
+callbacks, owned/transfer strings, arrays, pointers, and structured failure
+outcomes remain deferred to F3–F5.
+
+**Verification:** `aura-codegen` has a local static C fixture covering Int,
+Bool, borrowed String, and Unit calls; it compiles and runs on the native host.
 
 ## F3. Owned strings and arrays
 

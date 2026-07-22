@@ -336,3 +336,11 @@ When you resolve debt, update or remove the matching entry.
 - U5 uses the frozen `/api/v1/publish` fixture contract and does not claim
   compatibility with an external production registry. Next step: standardize
   a signed, server-defined publish protocol before replacing this endpoint.
+
+### F2 foreign failure and search-path integration (2026-07-22)
+
+- Primitive foreign calls now lower and link against explicit C libraries on
+  the native Linux/macOS matrix. Missing symbols are still reported by the C
+  linker rather than mapped to an Aura Result/error outcome, and package
+  manifests do not yet expose foreign library search paths; the next step is
+  F5 failure mapping plus a target-aware package linker configuration.

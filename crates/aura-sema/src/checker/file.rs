@@ -150,6 +150,11 @@ impl Checker {
                 .entry(decl_package(&f.origin_package, &file_pkg).to_string())
                 .or_default();
         }
+        for f in &file.foreign_functions {
+            self.package_imports
+                .entry(decl_package(&f.origin_package, &file_pkg).to_string())
+                .or_default();
+        }
 
         for i in &file.interfaces {
             let pkg = decl_package(&i.origin_package, &file_pkg).to_string();
@@ -457,27 +462,6 @@ impl Checker {
                 }
             }
             self.type_params.clear();
-        }
-
-        // F1: validate foreign declarations after ordinary signatures are
-        // known, but before any body/codegen consumer can use the file.
-        let mut foreign_names = HashSet::new();
-        for foreign in &file.foreign_functions {
-            let pkg = decl_package(&foreign.origin_package, &file_pkg).to_string();
-            self.current_package = pkg.clone();
-            if !foreign_names.insert(foreign.name.name.clone())
-                || self
-                    .functions
-                    .get(&foreign.name.name)
-                    .is_some_and(|items| items.iter().any(|sig| sig.package == pkg))
-            {
-                self.errors.push(SemaError {
-                    message: format!("duplicate foreign function `{}` in package `{pkg}`", foreign.name.name),
-                    span: foreign.name.span,
-                });
-                continue;
-            }
-            self.validate_foreign_decl(foreign);
         }
 
         for c in &file.classes {
@@ -954,6 +938,62 @@ impl Checker {
             self.type_params.clear();
         }
 
+        // F2: foreign declarations are ordinary callable signatures, but have
+        // no Aura body. Register them before checking any function body.
+        let mut foreign_names = HashSet::new();
+        for foreign in &file.foreign_functions {
+            let pkg = decl_package(&foreign.origin_package, &file_pkg).to_string();
+            self.current_package = pkg.clone();
+            if !foreign_names.insert(foreign.name.name.clone())
+                || self
+                    .functions
+                    .get(&foreign.name.name)
+                    .is_some_and(|items| items.iter().any(|sig| sig.package == pkg))
+            {
+                self.errors.push(SemaError {
+                    message: format!("duplicate foreign function `{}` in package `{pkg}`", foreign.name.name),
+                    span: foreign.name.span,
+                });
+                continue;
+            }
+            self.validate_foreign_decl(foreign);
+            self.type_params.clear();
+            let params = match foreign
+                .params
+                .iter()
+                .map(|p| self.type_from_ref(&p.ty))
+                .collect::<Result<Vec<_>, _>>()
+            {
+                Ok(params) => params,
+                Err(_) => continue,
+            };
+            let ret = match foreign.return_type.as_ref() {
+                Some(ty) => match self.type_from_ref(ty) {
+                    Ok(ret) => ret,
+                    Err(_) => continue,
+                },
+                None => Ty::Unit,
+            };
+            for ty in &params {
+                self.note_mono_ty(ty);
+            }
+            self.note_mono_ty(&ret);
+            self.functions
+                .entry(foreign.name.name.clone())
+                .or_default()
+                .push(FunSig {
+                    name: foreign.name.name.clone(),
+                    is_pub: foreign.is_pub,
+                    package: pkg,
+                    is_test: false,
+                    type_params: Vec::new(),
+                    bounds: HashMap::new(),
+                    params,
+                    ret,
+                    span: foreign.span,
+                });
+        }
+
         for c in &file.classes {
             let pkg = decl_package(&c.origin_package, &file_pkg).to_string();
             let Some(csig) = self.class_in_package(&c.name.name, &pkg).cloned() else {
@@ -1000,7 +1040,7 @@ impl Checker {
 
         let package = file_pkg;
 
-        let functions = file
+        let mut functions: Vec<FunSig> = file
             .functions
             .iter()
             .filter_map(|f| {
@@ -1008,6 +1048,12 @@ impl Checker {
                 self.fun_in_package(&f.name.name, &pkg).cloned()
             })
             .collect();
+        for foreign in &file.foreign_functions {
+            let pkg = decl_package(&foreign.origin_package, &package).to_string();
+            if let Some(sig) = self.fun_in_package(&foreign.name.name, &pkg).cloned() {
+                functions.push(sig);
+            }
+        }
         let classes = file
             .classes
             .iter()

@@ -73,6 +73,7 @@ mod tests {
         Backend, CompileOptions, DiagnosticMode, OutputKind, Profile, RuntimeAbi, Target,
     };
     use crate::driver::{CBackend, Driver};
+    use aura_parser::parse_file;
 
     fn empty_program() -> File {
         let span = Span::new(0, 1);
@@ -106,6 +107,7 @@ mod tests {
                 },
                 span,
             }],
+            foreign_functions: vec![],
             async_functions: vec![],
             span,
         }
@@ -342,6 +344,85 @@ mod tests {
     }
 
     #[test]
+    fn native_ffi_primitive_fixture_calls_and_static_links() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir().join(format!("aura-ffi-primitives-{}", std::process::id()));
+        fs::create_dir_all(&dir).expect("create fixture directory");
+        let object = dir.join("ffi_primitives.o");
+        let archive = dir.join("libaura_ffi_primitives.a");
+        let bin = dir.join("program");
+        let generated_c = dir.join("program.aura.c");
+        let fixture = root.join("crates/aura-codegen/fixtures/ffi_primitives.c");
+
+        let compile_fixture = Command::new("cc")
+            .args(["-std=c11", "-Wall", "-Wextra", "-Werror", "-c"])
+            .arg(&fixture)
+            .arg("-o")
+            .arg(&object)
+            .status()
+            .expect("spawn fixture compiler");
+        assert!(compile_fixture.success(), "fixture compile failed");
+        let archive_status = Command::new("ar")
+            .args(["rcs"])
+            .arg(&archive)
+            .arg(&object)
+            .status()
+            .expect("spawn archive tool");
+        assert!(archive_status.success(), "fixture archive failed");
+
+        let source = r#"package demo
+@foreign(library = "aura_ffi_primitives", target = "native", link = "static", abi = 1, abi_id = "c")
+extern "C" fun aura_ffi_add(value: Int): Int
+@foreign(library = "aura_ffi_primitives", target = "native", link = "static", abi = 1, abi_id = "c")
+extern "C" fun aura_ffi_enabled(): Bool
+@foreign(library = "aura_ffi_primitives", target = "native", link = "static", abi = 1, abi_id = "c")
+extern "C" fun aura_ffi_label(): String
+@foreign(library = "aura_ffi_primitives", target = "native", link = "static", abi = 1, abi_id = "c")
+extern "C" fun aura_ffi_touch(value: String): Unit
+fun main() {
+  val sum = aura_ffi_add(41)
+  println(sum.toString())
+  if (aura_ffi_enabled()) { println(aura_ffi_label()) }
+  aura_ffi_touch("borrowed")
+}
+"#;
+        let file = parse_file(source).expect("parse F2 fixture");
+        let options = CompileOptions::builder()
+            .backend(Backend::C)
+            .target(Target::Native)
+            .profile(Profile::Release)
+            .runtime_abi(RuntimeAbi::AuraRtC)
+            .output(OutputKind::Executable)
+            .diagnostics(DiagnosticMode::Human)
+            .foreign_library_path(&dir)
+            .build()
+            .expect("complete F2 options");
+        build_from_file_with(
+            &file,
+            &bin,
+            &root.join("runtime/aura_rt.c"),
+            options,
+            crate::ctx::EmitOptions::default(),
+        )
+        .expect("link F2 fixture");
+        let generated = fs::read_to_string(&generated_c).expect("read generated F2 C");
+        assert!(generated.contains("extern int64_t aura_ffi_add(int64_t);"));
+        assert!(generated.contains("aura_ffi_add(INT64_C(41))"));
+        assert!(!generated.contains("aura_fn_aura_ffi_add"));
+        let output = Command::new(&bin).output().expect("run F2 fixture");
+        assert!(output.status.success(), "F2 fixture failed: {output:?}");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "42\nffi-borrowed\n");
+
+        for path in [bin, generated_c, object, archive] {
+            let _ = fs::remove_file(path);
+        }
+        let _ = fs::remove_dir(&dir);
+    }
+
+    #[test]
     fn builds_and_runs_no_await_async_function() {
         let span = Span::new(0, 1);
         let ident = |name: &str| Ident {
@@ -407,6 +488,7 @@ mod tests {
             type_aliases: vec![],
             consts: vec![],
             functions: vec![main_fun],
+            foreign_functions: vec![],
             async_functions: vec![async_fun],
             span,
         };
@@ -512,6 +594,7 @@ mod tests {
             type_aliases: vec![],
             consts: vec![],
             functions: vec![main],
+            foreign_functions: vec![],
             async_functions: vec![worker, wrapper],
             span,
         };
@@ -652,6 +735,7 @@ fun main() {}
             type_aliases: vec![],
             consts: vec![],
             functions: vec![main_fun],
+            foreign_functions: vec![],
             async_functions: vec![],
             span,
         };
@@ -883,6 +967,7 @@ fun main() {
             type_aliases: vec![],
             consts: vec![],
             functions: vec![main_fun],
+            foreign_functions: vec![],
             async_functions: vec![],
             span,
         };

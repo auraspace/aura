@@ -31,6 +31,7 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("#include <string.h>\n");
     out.push_str("#include <errno.h>\n");
     out.push_str("#include <setjmp.h>\n");
+    emit_foreign_prototypes(&mut out, checked);
     out.push_str("void aura_print(const char *s);\n");
     out.push_str("void aura_println(const char *s);\n");
     out.push_str("void aura_eprint(const char *s);\n");
@@ -504,6 +505,31 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out
 }
 
+/// F2: emit only the primitive C ABI surface declared by `@foreign`.
+/// String is intentionally represented as a borrowed `const char *` handle.
+fn emit_foreign_prototypes(out: &mut String, checked: &CheckedFile) {
+    for foreign in &checked.ast.foreign_functions {
+        let ret = crate::names::c_type_from_opt(
+            &foreign.return_type,
+            checked,
+            &[],
+            &[],
+        );
+        let params = foreign
+            .params
+            .iter()
+            .map(|param| {
+                crate::names::c_type_ref_subst(&param.ty, checked, &[], &[])
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        let _ = writeln!(out, "extern {ret} {}({params});", foreign.name.name);
+    }
+    if !checked.ast.foreign_functions.is_empty() {
+        out.push('\n');
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::items_after_test_module)]
 mod abi_tests {
@@ -532,6 +558,7 @@ mod abi_tests {
             type_aliases: vec![],
             consts: vec![],
             functions: vec![],
+            foreign_functions: vec![],
             async_functions: vec![],
             span,
         };
@@ -582,6 +609,7 @@ mod abi_tests {
                 },
                 span,
             }],
+            foreign_functions: vec![],
             async_functions: vec![],
             span,
         };

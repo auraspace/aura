@@ -1,6 +1,7 @@
 //! Backend-neutral compilation choices.
 
 use std::collections::BTreeSet;
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Backend {
@@ -189,6 +190,9 @@ pub struct CompileOptions {
     pub runtime_abi: Option<RuntimeAbi>,
     pub output: OutputKind,
     pub diagnostics: DiagnosticMode,
+    /// Additional search paths used by F2 foreign libraries (`-L`/`-Wl,-rpath`).
+    /// Package tooling may leave this empty and use the host toolchain paths.
+    pub foreign_library_paths: Vec<PathBuf>,
 }
 
 impl Default for CompileOptions {
@@ -202,6 +206,7 @@ impl Default for CompileOptions {
             runtime_abi: Some(RuntimeAbi::AuraRtC),
             output: OutputKind::Executable,
             diagnostics: DiagnosticMode::Human,
+            foreign_library_paths: Vec::new(),
         }
     }
 }
@@ -278,6 +283,7 @@ pub struct CompileOptionsBuilder {
     runtime_abi: Option<RuntimeAbi>,
     output: Option<OutputKind>,
     diagnostics: Option<DiagnosticMode>,
+    foreign_library_paths: Vec<PathBuf>,
 }
 
 impl CompileOptionsBuilder {
@@ -321,6 +327,11 @@ impl CompileOptionsBuilder {
         self
     }
 
+    pub fn foreign_library_path(mut self, path: impl Into<PathBuf>) -> Self {
+        self.foreign_library_paths.push(path.into());
+        self
+    }
+
     pub fn build(self) -> Result<CompileOptions, OptionsError> {
         let backend = self.backend.ok_or(OptionsError::MissingBackend)?;
         let target = self.target.ok_or(OptionsError::MissingTarget)?;
@@ -336,6 +347,7 @@ impl CompileOptionsBuilder {
             runtime_abi: self.runtime_abi,
             output: self.output.ok_or(OptionsError::MissingOutput)?,
             diagnostics: self.diagnostics.ok_or(OptionsError::MissingDiagnostics)?,
+            foreign_library_paths: self.foreign_library_paths,
         };
         options.validate()?;
         Ok(options)

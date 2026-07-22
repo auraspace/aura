@@ -39,6 +39,16 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
                     }
                     return "Unit".into();
                 }
+                if let Some(f) = ctx.checked.ast.foreign_functions.iter().find(|f| {
+                    f.name.name == inst.name
+                        && (inst.package.is_empty()
+                            || foreign_decl_package(f, ctx.checked) == inst.package)
+                }) {
+                    if let Some(rt) = &f.return_type {
+                        return type_ref_local_key(rt, &[], &inst.type_args);
+                    }
+                    return "Unit".into();
+                }
                 // Fall through to other match arms when decl not found.
                 if let Expr::Ident(id) = c.callee.as_ref() {
                     if let Some(f) = ctx
@@ -377,6 +387,14 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
             }
         }
         _ => "Int".into(),
+    }
+}
+
+fn foreign_decl_package(foreign: &ForeignDecl, checked: &CheckedFile) -> String {
+    if foreign.origin_package.is_empty() {
+        checked.package.clone()
+    } else {
+        foreign.origin_package.clone()
     }
 }
 

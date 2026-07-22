@@ -172,6 +172,11 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                     }
                     return format!("{}({args})", c_ctor_name(&mono));
                 }
+                if let Some(foreign) = ctx.checked.ast.foreign_functions.iter().find(|f| {
+                    f.name.name == *name && foreign_decl_package(f, ctx.checked) == pkg
+                }) {
+                    return emit_foreign_call(foreign, c, ctx);
+                }
                 return format!("{}({args})", c_fun_name(pkg, name, &targs));
             }
         }
@@ -821,6 +826,12 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                     .collect()
             };
             let pkg = inst.map(|i| i.package.as_str()).unwrap_or("");
+            if let Some(foreign) = ctx.checked.ast.foreign_functions.iter().find(|f| {
+                f.name.name == id.name
+                    && (pkg.is_empty() || foreign_decl_package(f, ctx.checked) == pkg)
+            }) {
+                return emit_foreign_call(foreign, c, ctx);
+            }
             if let Some(f) = ctx.checked.ast.functions.iter().find(|f| {
                 f.name.name == id.name
                     && (pkg.is_empty() || fun_decl_package(f, ctx.checked) == pkg)
@@ -862,5 +873,34 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
             let args = parts.join(", ");
             format!("({callee}).fn({args})")
         }
+    }
+}
+
+/// F2: foreign calls use the declared C symbol verbatim. String arguments are
+/// borrowed `const char *` handles; a foreign String result is also borrowed,
+/// so it is deliberately not added to codegen ownership tracking.
+fn emit_foreign_call(
+    foreign: &ForeignDecl,
+    call: &CallExpr,
+    ctx: &mut EmitCtx<'_>,
+) -> String {
+    let args = call
+        .args
+        .iter()
+        .zip(foreign.params.iter())
+        .map(|(arg, param)| {
+            let expected = type_ref_local_key(&param.ty, &[], &[]);
+            coerce_expr(arg, &expected, ctx)
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("{}({args})", foreign.name.name)
+}
+
+fn foreign_decl_package(foreign: &ForeignDecl, checked: &aura_sema::CheckedFile) -> String {
+    if foreign.origin_package.is_empty() {
+        checked.package.clone()
+    } else {
+        foreign.origin_package.clone()
     }
 }
