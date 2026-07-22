@@ -61,7 +61,9 @@ enums remain deferred to the broader derive contract.
 **Checklist:**
 
 - [x] Support the implemented class/struct subset.
-- [ ] Handle primitive, nested, generic, and nullable fields.
+- [x] Handle primitive and nullable primitive/String fields in the implemented
+  subset.
+- [ ] Handle nested and generic fields.
 - [x] Respect visibility and unsupported-field diagnostics; generic visibility
   semantics remain deferred with nested/generic support.
       **Acceptance:** Generated members pass normal checking and code generation.
