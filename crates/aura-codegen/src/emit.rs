@@ -748,6 +748,17 @@ fn emit_async_fun_no_await(out: &mut String, f: &AsyncFunDecl, checked: &Checked
     let destroy_result = format!("aura_async_result_destroy_{base}");
     let ret = c_type_from_opt(&f.return_type, checked, &params, &[]);
 
+    for point in f.suspension_points() {
+        let kind = match point.kind {
+            AsyncSuspensionKind::Await => "await",
+        };
+        let _ = writeln!(
+            out,
+            "/* aura async suspension state={} kind={} span={}:{} */",
+            point.state_id, kind, point.span.start, point.span.end
+        );
+    }
+
     let _ = writeln!(out, "typedef struct {data_ty} {{");
     for p in &f.params {
         let _ = writeln!(

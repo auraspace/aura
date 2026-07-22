@@ -3,8 +3,10 @@
 mod nodes;
 mod shift;
 mod span;
+mod async_state;
 
 pub use nodes::*;
+pub use async_state::{AsyncSuspensionKind, AsyncSuspensionPoint};
 pub use shift::shift_file_spans;
 pub use span::{BytePos, Span};
 
@@ -84,5 +86,34 @@ mod tests {
         assert_eq!(decl.name.span, Span::new(11, 15));
         assert_eq!(decl.body.span, Span::new(16, 18));
         assert_eq!(decl.span, Span::new(5, 18));
+    }
+
+    #[test]
+    fn async_suspension_points_are_lexical_and_deterministic() {
+        let span = Span::new(0, 1);
+        let ident = |name: &str| Ident { name: name.into(), span };
+        let await_expr = |start| {
+            Expr::Async(AsyncExpr::Await(AwaitExpr {
+                operand: Box::new(Expr::Ident(Ident { name: "task".into(), span })),
+                span: Span::new(start, start + 10),
+            }))
+        };
+        let decl = AsyncFunDecl {
+            is_pub: false, origin_package: String::new(), attributes: vec![], is_test: false,
+            name: ident("run"), type_params: vec![], params: vec![], return_type: None,
+            body: Block { stmts: vec![
+                Stmt::Expr(await_expr(10)),
+                Stmt::If(IfStmt {
+                    cond: Expr::Bool(BoolLit { value: true, span }),
+                    then_block: Block { stmts: vec![Stmt::Expr(await_expr(30))], span },
+                    else_block: None, span,
+                }),
+            ], span },
+            span,
+        };
+        assert_eq!(decl.suspension_points(), vec![
+            AsyncSuspensionPoint { state_id: 1, kind: AsyncSuspensionKind::Await, span: Span::new(10, 20) },
+            AsyncSuspensionPoint { state_id: 2, kind: AsyncSuspensionKind::Await, span: Span::new(30, 40) },
+        ]);
     }
 }

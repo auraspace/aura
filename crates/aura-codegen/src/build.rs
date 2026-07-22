@@ -643,6 +643,7 @@ fun main() {}
         assert!(generated.contains("const char * label ="));
         assert!(generated.contains("AuraTaskResult __await_result"));
         assert!(generated.contains("__await_value = *((int64_t *)__await_result.data)"));
+        assert!(generated.contains("aura async suspension state=1 kind=await"));
     }
 
     #[test]

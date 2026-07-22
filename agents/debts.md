@@ -445,3 +445,9 @@ When you resolve debt, update or remove the matching entry.
   outcomes; it does not yet stream runtime reports from arbitrary application
   binaries or provide concurrent vector-clock diagnostics. Those remain
   deferred until the runtime exposes a process-level report handoff.
+
+### A4 async lowering boundary (2026-07-22)
+
+- The compiler now exposes deterministic `await` suspension-point IDs and
+  source-span metadata, but does not hoist live locals or generate executable
+  resume edges. Those require the A5/A6 frame and runtime dependencies.
