@@ -626,6 +626,11 @@ mod unit {
             cksum: "sha256:aa".into(),
             yanked: false,
             repository: Some("auraspace/hello".into()),
+            targets: None,
+            min_aura: None,
+            max_aura: None,
+            revoked: false,
+            revoke_reason: None,
         };
         let url = expand_dl_template(
             "https://github.com/{owner}/{repo}/releases/download/v{version}/{name}-{vers}.crate",

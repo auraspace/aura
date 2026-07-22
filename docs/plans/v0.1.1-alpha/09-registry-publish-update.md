@@ -117,11 +117,17 @@ authoritative focused test for this contract.
 ## U6. Update discovery
 
 **Objective:** Select a compatible update for the current installation.
+
+**Implementation status:** Complete for metadata-only discovery. The registry
+index selects the highest newer non-yanked release whose checksum, target, and
+Aura toolchain bounds validate; revoked, unsupported, and no-update outcomes
+are stable and explainable. Payload download, signature verification, and
+activation remain U7.
 **Checklist:**
 
-- [ ] Discover versions and filter by platform, architecture, and compatibility.
-- [ ] Verify metadata before downloading payloads.
-- [ ] Define no-update, unsupported, and revoked-version behavior.
+- [x] Discover versions and filter by platform, architecture, and compatibility.
+- [x] Verify metadata before downloading payloads.
+- [x] Define no-update, unsupported, and revoked-version behavior.
       **Acceptance:** The selected update is compatible and explainable.
       **Verification:** Run version, target, metadata, and unavailable-update cases.
       **Dependencies:** U1, U2, P6.

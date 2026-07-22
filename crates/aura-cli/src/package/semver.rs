@@ -445,6 +445,11 @@ mod unit {
             cksum: "sha256:bb".into(),
             yanked: false,
             repository: None,
+            targets: None,
+            min_aura: None,
+            max_aura: None,
+            revoked: false,
+            revoke_reason: None,
         };
         let pin = lock_pin_from_meta(&meta);
         assert_eq!(pin.source, "registry");

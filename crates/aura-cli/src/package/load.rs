@@ -294,6 +294,11 @@ impl RegistryResolver {
                     cksum: pin.checksum.clone(),
                     yanked: false,
                     repository: None,
+                    targets: None,
+                    min_aura: None,
+                    max_aura: None,
+                    revoked: false,
+                    revoke_reason: None,
                 },
                 pin.clone(),
             ));
@@ -362,6 +367,11 @@ fn try_use_lock_pin(
         cksum: cksum.to_string(),
         yanked: false,
         repository: None,
+        targets: None,
+        min_aura: None,
+        max_aura: None,
+        revoked: false,
+        revoke_reason: None,
     };
     let pin = RegistryLockPin {
         version: ver.to_string(),

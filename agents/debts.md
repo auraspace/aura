@@ -348,6 +348,12 @@ When you resolve debt, update or remove the matching entry.
   compatibility with an external production registry. Next step: standardize
   a signed, server-defined publish protocol before replacing this endpoint.
 
+### Registry update activation deferred (U6, 2026-07-22)
+
+- U6 performs metadata-only compatibility discovery and never downloads or
+  activates a candidate. Signature verification, atomic replacement, rollback,
+  and executable handoff remain U7 by dependency design.
+
 ### F2 foreign failure and search-path integration (2026-07-22)
 
 - Primitive foreign calls now lower and link against explicit C libraries on
@@ -355,3 +361,11 @@ When you resolve debt, update or remove the matching entry.
   linker rather than mapped to an Aura Result/error outcome, and package
   manifests do not yet expose foreign library search paths; the next step is
   F5 failure mapping plus a target-aware package linker configuration.
+
+### F3 structured foreign values (2026-07-22)
+
+- F3 freezes an allocation-only C surface for borrowed/copied/transferred
+  strings and primitive arrays, with synchronous GC root guards. String-element
+  arrays, arbitrary destructors, pointers, callbacks, and async retention are
+  intentionally deferred to F4/F5; extend the declaration model only after
+  those lifetimes have a complete contract.

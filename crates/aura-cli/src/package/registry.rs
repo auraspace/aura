@@ -19,6 +19,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use super::fetch::read_crate_bytes;
+use super::semver::parse_version;
 
 /// Env override for the index root (fixture or cache). Preferred in tests.
 pub const ENV_REGISTRY_INDEX: &str = "AURA_REGISTRY_INDEX";
@@ -44,6 +45,120 @@ pub struct VersionMeta {
     pub yanked: bool,
     /// `owner/repo` used to fill the download template.
     pub repository: Option<String>,
+    /// Canonical targets which may consume this release (for example
+    /// `linux-amd64` or `darwin-arm64`).  `None` means legacy metadata and is
+    /// not eligible for U6 update discovery.
+    pub targets: Option<Vec<String>>,
+    /// Optional Aura toolchain compatibility bounds, inclusive.
+    pub min_aura: Option<String>,
+    pub max_aura: Option<String>,
+    /// A revoked release must never be selected, even when it is newer.
+    pub revoked: bool,
+    pub revoke_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpdateCandidate {
+    pub meta: VersionMeta,
+    pub target: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UpdateDecision {
+    Update(UpdateCandidate),
+    NoUpdate { current: String },
+    Unsupported { current: String, target: String },
+    Revoked { version: String, reason: String },
+}
+
+impl UpdateDecision {
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::Update(_) => "update_available",
+            Self::NoUpdate { .. } => "no_update",
+            Self::Unsupported { .. } => "unsupported",
+            Self::Revoked { .. } => "revoked",
+        }
+    }
+
+    pub fn render_json(&self) -> String {
+        match self {
+            Self::Update(candidate) => format!(
+                "{{\"ok\":true,\"code\":\"update_available\",\"version\":{},\"target\":{},\"checksum\":{},\"reason\":{}}}",
+                json_string(&candidate.meta.vers),
+                json_string(&candidate.target),
+                json_string(&candidate.meta.cksum),
+                json_string(&candidate.reason),
+            ),
+            Self::NoUpdate { current } => format!(
+                "{{\"ok\":true,\"code\":\"no_update\",\"current\":{}}}",
+                json_string(current)
+            ),
+            Self::Unsupported { current, target } => format!(
+                "{{\"ok\":false,\"code\":\"unsupported\",\"current\":{},\"target\":{}}}",
+                json_string(current),
+                json_string(target),
+            ),
+            Self::Revoked { version, reason } => format!(
+                "{{\"ok\":false,\"code\":\"revoked\",\"version\":{},\"reason\":{}}}",
+                json_string(version),
+                json_string(reason),
+            ),
+        }
+    }
+}
+
+fn validate_update_metadata(meta: &VersionMeta) -> Result<(), String> {
+    let checksum = super::fetch::normalize_cksum(&meta.cksum);
+    if checksum.len() != 64 || !checksum.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(format!("error: registry metadata for `{}-{}` has invalid sha256 checksum", meta.name, meta.vers));
+    }
+    if meta.targets.as_ref().is_none_or(Vec::is_empty) {
+        return Err(format!("error: registry metadata for `{}-{}` has no target list", meta.name, meta.vers));
+    }
+    if let Some(min) = &meta.min_aura {
+        parse_version(min).map_err(|e| format!("error: invalid min_aura `{min}`: {e}"))?;
+    }
+    if let Some(max) = &meta.max_aura {
+        parse_version(max).map_err(|e| format!("error: invalid max_aura `{max}`: {e}"))?;
+    }
+    Ok(())
+}
+
+fn target_matches(targets: Option<&[String]>, target: &str) -> bool {
+    targets.is_some_and(|items| items.iter().any(|item| {
+        item.eq_ignore_ascii_case(target)
+            || (item.eq_ignore_ascii_case("linux-x86_64") && target == "linux-amd64")
+            || (item.eq_ignore_ascii_case("darwin-x86_64") && target == "darwin-amd64")
+    }))
+}
+
+fn toolchain_matches(meta: &VersionMeta, toolchain: &super::semver::Version) -> Result<bool, String> {
+    if let Some(min) = &meta.min_aura {
+        if *toolchain < parse_version(min).map_err(|e| format!("error: invalid min_aura `{min}`: {e}"))? {
+            return Ok(false);
+        }
+    }
+    if let Some(max) = &meta.max_aura {
+        if *toolchain > parse_version(max).map_err(|e| format!("error: invalid max_aura `{max}`: {e}"))? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+pub fn current_target() -> String {
+    let os = match std::env::consts::OS {
+        "macos" => "darwin",
+        other => other,
+    };
+    let arch = match std::env::consts::ARCH {
+        "x86_64" => "amd64",
+        "aarch64" => "arm64",
+        other => other,
+    };
+    format!("{os}-{arch}")
 }
 
 /// Local registry index root (fixture directory or cache).
@@ -146,6 +261,62 @@ impl RegistryIndex {
         };
         parse_versions_json(&text)
             .map_err(|e| format!("error: registry metadata for `{name}`: {e}"))
+    }
+
+    /// Select the highest newer release whose metadata is valid, target
+    /// compatible, and compatible with the running Aura toolchain.  This is a
+    /// metadata-only operation: it does not resolve a download URL or fetch a
+    /// payload, leaving activation explicitly to U7.
+    pub fn discover_update(
+        &self,
+        name: &str,
+        current_version: &str,
+        aura_version: &str,
+        target: &str,
+    ) -> Result<UpdateDecision, String> {
+        let current = parse_version(current_version)
+            .map_err(|e| format!("error: current version `{current_version}`: {e}"))?;
+        let toolchain = parse_version(aura_version)
+            .map_err(|e| format!("error: Aura version `{aura_version}`: {e}"))?;
+        let mut versions = self.package_versions(name)?;
+        versions.sort_by(|a, b| {
+            parse_version(&b.vers)
+                .ok()
+                .cmp(&parse_version(&a.vers).ok())
+        });
+        let mut saw_unsupported = false;
+        let mut revoked = None;
+        for meta in versions {
+            if meta.name != name {
+                return Err(format!("error: registry metadata name mismatch: expected `{name}`, got `{}`", meta.name));
+            }
+            let version = parse_version(&meta.vers)
+                .map_err(|e| format!("error: registry metadata version `{}`: {e}", meta.vers))?;
+            if version <= current || meta.yanked {
+                continue;
+            }
+            validate_update_metadata(&meta)?;
+            if meta.revoked {
+                revoked = Some((meta.vers.clone(), meta.revoke_reason.clone().unwrap_or_else(|| "registry revoked this release".into())));
+                continue;
+            }
+            if !target_matches(meta.targets.as_deref(), target) || !toolchain_matches(&meta, &toolchain)? {
+                saw_unsupported = true;
+                continue;
+            }
+            return Ok(UpdateDecision::Update(UpdateCandidate {
+                reason: format!("{} is newer and compatible with {target}", meta.vers),
+                meta,
+                target: target.into(),
+            }));
+        }
+        if let Some((version, reason)) = revoked {
+            return Ok(UpdateDecision::Revoked { version, reason });
+        }
+        if saw_unsupported {
+            return Ok(UpdateDecision::Unsupported { current: current_version.into(), target: target.into() });
+        }
+        Ok(UpdateDecision::NoUpdate { current: current_version.into() })
     }
 
     /// Metadata for an exact version pin.
@@ -591,12 +762,44 @@ fn version_meta_from_object(v: &Json) -> Result<VersionMeta, String> {
         .get("repository")
         .and_then(Json::as_str)
         .map(str::to_string);
+    let targets = obj
+        .get("targets")
+        .and_then(Json::as_array)
+        .map(|items| items.iter().filter_map(Json::as_str).map(str::to_string).collect());
+    let targets = targets.or_else(|| {
+        obj.get("target")
+            .and_then(Json::as_str)
+            .map(|target| vec![target.to_string()])
+    });
+    let min_aura = obj
+        .get("min_aura")
+        .or_else(|| obj.get("min_toolchain"))
+        .and_then(Json::as_str)
+        .map(str::to_string);
+    let max_aura = obj
+        .get("max_aura")
+        .or_else(|| obj.get("max_toolchain"))
+        .and_then(Json::as_str)
+        .map(str::to_string);
+    let revoked = obj
+        .get("revoked")
+        .and_then(Json::as_bool)
+        .unwrap_or(false);
+    let revoke_reason = obj
+        .get("revoke_reason")
+        .and_then(Json::as_str)
+        .map(str::to_string);
     Ok(VersionMeta {
         name,
         vers,
         cksum,
         yanked,
         repository,
+        targets,
+        min_aura,
+        max_aura,
+        revoked,
+        revoke_reason,
     })
 }
 
@@ -914,6 +1117,71 @@ mod unit {
         assert_eq!(v[0].name, "y");
     }
 
+    fn update_index(contents: &str) -> (RegistryIndex, PathBuf) {
+        let root = std::env::temp_dir().join(format!(
+            "aura-update-index-{}-{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ));
+        let package_dir = root.join("packages").join("demo");
+        fs::create_dir_all(&package_dir).unwrap();
+        fs::write(package_dir.join("versions.json"), contents).unwrap();
+        let index = RegistryIndex::open(&root).unwrap();
+        (index, root)
+    }
+
+    #[test]
+    fn discover_update_selects_compatible_newest_and_renders_reason() {
+        let checksum = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        let (index, root) = update_index(&format!(
+            "[{{\"name\":\"demo\",\"vers\":\"1.0.0\",\"cksum\":\"{checksum}\"}},{{\"name\":\"demo\",\"vers\":\"1.1.0\",\"cksum\":\"{checksum}\",\"targets\":[\"linux-amd64\"],\"min_aura\":\"0.1.0\"}},{{\"name\":\"demo\",\"vers\":\"1.2.0\",\"cksum\":\"{checksum}\",\"targets\":[\"linux-amd64\"],\"max_aura\":\"0.2.0\"}}]"
+        ));
+        let decision = index
+            .discover_update("demo", "1.0.0", "0.1.0", "linux-amd64")
+            .unwrap();
+        match &decision {
+            UpdateDecision::Update(candidate) => {
+                assert_eq!(candidate.meta.vers, "1.2.0");
+                assert_eq!(candidate.target, "linux-amd64");
+            }
+            other => panic!("expected update, got {other:?}"),
+        }
+        assert_eq!(decision.code(), "update_available");
+        assert!(decision.render_json().contains("1.2.0"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn discover_update_reports_unsupported_revoked_and_bad_metadata() {
+        let checksum = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        let (index, root) = update_index(&format!(
+            "[{{\"name\":\"demo\",\"vers\":\"2.0.0\",\"cksum\":\"{checksum}\",\"targets\":[\"darwin-arm64\"]}}]"
+        ));
+        assert!(matches!(
+            index.discover_update("demo", "1.0.0", "0.1.0", "linux-amd64").unwrap(),
+            UpdateDecision::Unsupported { .. }
+        ));
+        fs::remove_dir_all(root).unwrap();
+
+        let (index, root) = update_index(&format!(
+            "[{{\"name\":\"demo\",\"vers\":\"2.0.0\",\"cksum\":\"{checksum}\",\"targets\":[\"linux-amd64\"],\"revoked\":true,\"revoke_reason\":\"security\"}}]"
+        ));
+        assert!(matches!(
+            index.discover_update("demo", "1.0.0", "0.1.0", "linux-amd64").unwrap(),
+            UpdateDecision::Revoked { .. }
+        ));
+        fs::remove_dir_all(root).unwrap();
+
+        let (index, root) = update_index(
+            r#"[{"name":"demo","vers":"2.0.0","cksum":"bad","targets":["linux-amd64"]}]"#,
+        );
+        let error = index
+            .discover_update("demo", "1.0.0", "0.1.0", "linux-amd64")
+            .unwrap_err();
+        assert!(error.contains("invalid sha256 checksum"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn open_remote_index_fetches_metadata() {
         let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
@@ -1091,5 +1359,71 @@ mod unit {
         let error = publish_upload(&format!("http://{address}"), None, &preview).unwrap_err();
         assert_eq!(error.kind, PublishErrorKind::Indeterminate);
         assert_eq!(error.attempts, 3);
+    }
+
+    fn update_fixture(label: &str, versions: &str) -> RegistryIndex {
+        let root = std::env::temp_dir().join(format!(
+            "aura-u6-{label}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join("packages/demo")).unwrap();
+        std::fs::write(root.join("packages/demo/versions.json"), versions).unwrap();
+        RegistryIndex::open(root).unwrap()
+    }
+
+    #[test]
+    fn u6_selects_highest_compatible_target_without_fetching() {
+        let index = update_fixture(
+            "select",
+            r#"[
+              {"name":"demo","vers":"1.1.0","cksum":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","yanked":false,"targets":["linux-amd64"],"min_aura":"0.1.0"},
+              {"name":"demo","vers":"1.2.0","cksum":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","yanked":false,"targets":["darwin-arm64"]},
+              {"name":"demo","vers":"1.0.0","cksum":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","yanked":false,"targets":["linux-amd64"]}
+            ]"#,
+        );
+        let decision = index.discover_update("demo", "1.0.0", "0.1.1", "linux-amd64").unwrap();
+        match decision {
+            UpdateDecision::Update(candidate) => assert_eq!(candidate.meta.vers, "1.1.0"),
+            other => panic!("expected update, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn u6_classifies_no_update_and_unsupported() {
+        let index = update_fixture(
+            "classify",
+            r#"[
+              {"name":"demo","vers":"1.1.0","cksum":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","yanked":false,"targets":["darwin-arm64"]}
+            ]"#,
+        );
+        assert!(matches!(
+            index.discover_update("demo", "1.1.0", "0.1.1", "linux-amd64").unwrap(),
+            UpdateDecision::NoUpdate { .. }
+        ));
+        assert!(matches!(
+            index.discover_update("demo", "1.0.0", "0.1.1", "linux-amd64").unwrap(),
+            UpdateDecision::Unsupported { .. }
+        ));
+    }
+
+    #[test]
+    fn u6_classifies_revoked_and_rejects_bad_metadata() {
+        let index = update_fixture(
+            "revoked",
+            r#"[{"name":"demo","vers":"1.1.0","cksum":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","yanked":false,"targets":["linux-amd64"],"revoked":true,"revoke_reason":"compromised"}]"#,
+        );
+        assert!(matches!(
+            index.discover_update("demo", "1.0.0", "0.1.1", "linux-amd64").unwrap(),
+            UpdateDecision::Revoked { version, .. } if version == "1.1.0"
+        ));
+        let bad = update_fixture(
+            "bad",
+            r#"[{"name":"demo","vers":"1.1.0","cksum":"bad","yanked":false,"targets":["linux-amd64"]}]"#,
+        );
+        assert!(bad.discover_update("demo", "1.0.0", "0.1.1", "linux-amd64").is_err());
     }
 }
