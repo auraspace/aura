@@ -1,14 +1,15 @@
-// C7c — returning / binding an Array field moves the buffer out of the object
+// C21 — Array field borrows are explicit; clone preserves owning behavior
 package demo.generic
 
 class Holder(val items: Array<Int>) {
-  fun take(): Array<Int> {
-    return this.items
+  fun cloneItems(): Array<Int> {
+    // An owning result requires an explicit copy.
+    return this.items.clone()
   }
 
-  fun bare(): Array<Int> {
-    // bare field name in method body
-    return items
+  fun cloneBareItems(): Array<Int> {
+    // Bare field access also needs an explicit owning copy.
+    return items.clone()
   }
 
   fun len(): Int {
@@ -22,10 +23,10 @@ fun main() {
   a.set(1, 20)
   val h = Holder(a)
 
-  val b = h.take()
-  // field emptied; caller owns buffer
-  if (h.len() == 0) {
-    println("empty")
+  val b = h.cloneItems()
+  // clone leaves the field owner intact
+  if (h.len() == 2) {
+    println("kept")
   }
   if (b.len == 2) {
     println("b2")
@@ -34,11 +35,11 @@ fun main() {
     println("ok")
   }
 
-  // C8j: binding from field is a non-owning view (field keeps buffer)
+  // C21: binding from a field is a non-owning lexical view.
   val c: Array<Int> = Array(1)
   c.set(0, 99)
   val h2 = Holder(c)
-  val d = h2.items
+  val d: ref Array<Int> = h2.items
   if (h2.len() == 1) {
     println("h2k")
   }
@@ -46,19 +47,19 @@ fun main() {
     println("d99")
   }
 
-  // bare field return
+  // A second explicit clone covers the bare-field spelling.
   val e: Array<Int> = Array(1)
   e.set(0, 7)
   val h3 = Holder(e)
-  val f = h3.bare()
-  if (h3.len() == 0) {
-    println("h3e")
+  val f = h3.cloneBareItems()
+  if (h3.len() == 1) {
+    println("h3k")
   }
   if (f.get(0) == 7) {
     println("f7")
   }
 
-  // GC must not free moved buffers (no double-free)
+  // GC must not invalidate either the clones or the lexical view.
   gc_collect()
   if (b.get(1) == 20) {
     println("alive")
