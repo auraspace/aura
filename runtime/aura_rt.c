@@ -1531,6 +1531,13 @@ typedef struct
   size_t size;
 } AuraTaskResult;
 
+typedef struct
+{
+  void *data;
+  size_t size;
+  AuraTaskResultDestroyFn destroy;
+} AuraTaskFrameStorage;
+
 struct AuraTaskFrame
 {
   uint32_t abi_version;
@@ -1540,6 +1547,11 @@ struct AuraTaskFrame
   size_t data_size;
   AuraTaskResult result;
   AuraTaskResultDestroyFn result_destroy;
+  AuraTaskFrameStorage captures;
+  AuraTaskFrameStorage pending;
+  AuraTaskResult error;
+  AuraTaskResultDestroyFn error_destroy;
+  uint32_t resume_state;
   AuraTaskPollState state;
   int cancel_requested;
   int queued;
@@ -1576,6 +1588,7 @@ AuraTaskFrame *aura_task_frame_new(size_t data_size,
   frame->poll = poll;
   frame->destroy = destroy;
   frame->data_size = data_size;
+  frame->resume_state = 0;
   frame->state = AURA_TASK_READY;
   return frame;
 }
@@ -1593,6 +1606,94 @@ AuraTaskPollState aura_task_frame_state(const AuraTaskFrame *frame)
 int aura_task_frame_cancel_requested(const AuraTaskFrame *frame)
 {
   return frame != NULL && frame->cancel_requested;
+}
+
+uint32_t aura_task_frame_resume_state(const AuraTaskFrame *frame)
+{
+  return frame != NULL ? frame->resume_state : 0;
+}
+
+void aura_task_frame_set_resume_state(AuraTaskFrame *frame, uint32_t state)
+{
+  if (frame != NULL)
+  {
+    frame->resume_state = state;
+  }
+}
+
+AuraTaskFrameStorage aura_task_frame_captures(const AuraTaskFrame *frame)
+{
+  AuraTaskFrameStorage empty = {NULL, 0, NULL};
+  return frame != NULL ? frame->captures : empty;
+}
+
+void aura_task_frame_set_captures(AuraTaskFrame *frame,
+                                  void *data,
+                                  size_t size,
+                                  AuraTaskResultDestroyFn destroy)
+{
+  if (frame == NULL)
+  {
+    return;
+  }
+  if (frame->captures.destroy != NULL && frame->captures.data != NULL)
+  {
+    frame->captures.destroy(frame->captures.data, frame->captures.size);
+  }
+  frame->captures = (AuraTaskFrameStorage){data, size, destroy};
+}
+
+AuraTaskFrameStorage aura_task_frame_pending(const AuraTaskFrame *frame)
+{
+  AuraTaskFrameStorage empty = {NULL, 0, NULL};
+  return frame != NULL ? frame->pending : empty;
+}
+
+void aura_task_frame_set_pending(AuraTaskFrame *frame,
+                                 void *data,
+                                 size_t size,
+                                 AuraTaskResultDestroyFn destroy)
+{
+  if (frame == NULL)
+  {
+    return;
+  }
+  if (frame->pending.destroy != NULL && frame->pending.data != NULL)
+  {
+    frame->pending.destroy(frame->pending.data, frame->pending.size);
+  }
+  frame->pending = (AuraTaskFrameStorage){data, size, destroy};
+  if (data != NULL)
+  {
+    frame->state = AURA_TASK_PENDING;
+  }
+}
+
+AuraTaskResult aura_task_frame_error(const AuraTaskFrame *frame)
+{
+  AuraTaskResult empty = {NULL, 0};
+  return frame != NULL ? frame->error : empty;
+}
+
+void aura_task_frame_set_error(AuraTaskFrame *frame,
+                               void *data,
+                               size_t size,
+                               AuraTaskResultDestroyFn destroy)
+{
+  if (frame == NULL)
+  {
+    return;
+  }
+  if (frame->error_destroy != NULL && frame->error.data != NULL)
+  {
+    frame->error_destroy(frame->error.data, frame->error.size);
+  }
+  frame->error = (AuraTaskResult){data, size};
+  frame->error_destroy = destroy;
+  if (data != NULL)
+  {
+    frame->state = AURA_TASK_FAILED;
+  }
 }
 
 void aura_task_frame_set_result(AuraTaskFrame *frame,
@@ -1632,6 +1733,18 @@ void aura_task_frame_destroy(AuraTaskFrame *frame)
   if (frame->result_destroy != NULL && frame->result.data != NULL)
   {
     frame->result_destroy(frame->result.data, frame->result.size);
+  }
+  if (frame->captures.destroy != NULL && frame->captures.data != NULL)
+  {
+    frame->captures.destroy(frame->captures.data, frame->captures.size);
+  }
+  if (frame->pending.destroy != NULL && frame->pending.data != NULL)
+  {
+    frame->pending.destroy(frame->pending.data, frame->pending.size);
+  }
+  if (frame->error_destroy != NULL && frame->error.data != NULL)
+  {
+    frame->error_destroy(frame->error.data, frame->error.size);
   }
   free(frame->data);
   free(frame);

@@ -36,13 +36,19 @@ so this check also protects builds that select an alternate `AURA_RUNTIME`.
 **Objective:** Define the complete state retained while an async operation is
 suspended.
 
+**Implementation status:** Complete for the C runtime frame ABI. Frames retain
+locals, captures, pending operation, resume state, result, error, cancellation,
+and terminal state. Every owned storage slot is released exactly once during
+replacement or frame destruction; the deterministic executor covers immediate,
+pending, repeated-poll, and completion transitions.
+
 **Checklist:**
 
-- [ ] Represent state, resume location, pending operation, captures, locals,
+- [x] Represent state, resume location, pending operation, captures, locals,
       result, error, cancellation, and completion state.
-- [ ] Define initialization, polling, completion, and destruction transitions.
-- [ ] Make frame layout inspectable in compiler/runtime tests.
-- [ ] Define immediate completion and repeated polling behavior.
+- [x] Define initialization, polling, completion, and destruction transitions.
+- [x] Make frame layout inspectable in compiler/runtime tests.
+- [x] Define immediate completion and repeated polling behavior.
 
 **Acceptance:** Every legal async path has a defined frame state and lifecycle.
 
