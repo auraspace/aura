@@ -1,0 +1,33 @@
+// C20 Lane D: mutable Array capture supports mutation and owner rebinding.
+package demo.lambda_cap_var_array
+
+fun makeAppender(seed: Int): () -> Int {
+  var xs: Array<Int> = Array(0)
+  xs.push(seed)
+  return () => {
+    xs.push(xs.len)
+    return xs.len
+  }
+}
+
+fun main(): Int {
+  var xs: Array<Int> = Array(0)
+  xs.push(10)
+  val append = (n: Int) => {
+    xs.push(n)
+    return xs.len
+  }
+
+  val first = append(20)
+  xs = Array(0)
+  val second = append(30)
+  val current = xs.get(0)
+
+  val escaped = makeAppender(4)
+  gc_collect()
+  val third = escaped()
+  gc_collect()
+  val fourth = escaped()
+
+  return first + second + current + third + fourth
+}

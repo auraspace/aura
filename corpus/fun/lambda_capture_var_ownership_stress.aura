@@ -1,0 +1,35 @@
+// C20 Lane D: repeated mutable class/Array/Fun captures under GC churn.
+package demo.lambda_cap_var_ownership_stress
+
+class Box(var value: Int) {
+  fun add(n: Int): Int {
+    value = value + n
+    return value
+  }
+}
+
+fun makeMixed(seed: Int): () -> Int {
+  var box: Box = Box(seed)
+  var xs: Array<Int> = Array(0)
+  xs.push(seed)
+  var f: () -> Int = () => box.value + xs.len
+
+  return () => {
+    box.add(1)
+    xs.push(box.value)
+    f = () => box.value + xs.len
+    return f()
+  }
+}
+
+fun main(): Int {
+  var total = 0
+  for (i in 0..40) {
+    val mixed = makeMixed(i)
+    gc_collect()
+    total = total + mixed()
+    gc_collect()
+  }
+
+  return total
+}

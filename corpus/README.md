@@ -4,49 +4,53 @@ Sample `.aura` programs for the compiler: parse/typecheck (`aura check`), native
 
 ## Core fixtures
 
-| Path                              | Intent                                                                 |
-| --------------------------------- | ---------------------------------------------------------------------- |
-| `hello/main.aura`                 | Package + `fun main` + call + string                                   |
-| `control/if_while.aura`           | Params, types, `if`/`while`, locals                                    |
-| `control/else_if.aura`            | `else if` chaining (C4l)                                               |
-| `types/nullable.aura`             | `T?`, flow `!= null` / `== null`, `!!`                                 |
-| `types/opt_prim.aura`             | `Int?` / `Bool?` tagged optional C emit (C7a)                          |
-| `types/coalesce.aura`             | Null coalesce `?:` (C4m)                                               |
-| `expr/arith.aura`                 | Arithmetic, comparisons, `&&`                                          |
-| `expr/unary.aura`                 | `!` and negation                                                       |
-| `expr/string_eq.aura`             | String content equality (C4e)                                          |
-| `expr/string_len.aura`            | `String.len` byte length (C4p)                                         |
-| `expr/string_substring.aura`      | `String.substring(start, end)` exclusive (C11d)                        |
-| `expr/string_indexof.aura`        | `String.indexOf(sub)` byte index / −1 / empty→0 (C12f)                 |
-| `expr/string_split.aura`          | `String.split(sep)` → `Array<String>` (C12g)                           |
-| `expr/string_trim.aura`           | `String.trim` / `trimStart` / `trimEnd` ASCII whitespace (C12h)        |
-| `expr/string_toint.aura`          | `String.toInt(): Int?` decimal parse / null on bad/overflow (C12i)     |
-| `expr/method_temp.aura`           | Method on `Array.get` temp / chains (C13b)                             |
-| `expr/int_tostring.aura`          | `Int.toString` + String↔Int `+` / interp (C13c)                        |
-| `expr/string_case.aura`           | `String.toLower` / `toUpper` ASCII (C13m)                              |
-| `generic/array_string_free.aura`  | Free owned String elems on Array drop (C13d)                           |
-| `expr/if_expr.aura`               | `if` as expression (C4t)                                               |
-| `fun/multi.aura`                  | Multiple top-level functions                                           |
-| `fun/nested_calls.aura`           | Nested calls                                                           |
-| `fun/expr_body.aura`              | Expression-body functions `fun f(): T = expr` (C9e)                    |
-| `fun/lambda_basic.aura`           | Non-capturing lambda + call through fun value (C10c–e)                 |
-| `fun/lambda_zero.aura`            | Zero-arg lambda `() => …`                                              |
-| `fun/lambda_fun_type.aura`        | Fun type annotation `(T) -> U` (C10f)                                  |
-| `fun/lambda_param.aura`           | Fun-typed parameter                                                    |
-| `fun/lambda_block.aura`           | Lambda block body `(x) => { … }` (C10g)                                |
-| `fun/lambda_capture.aura`         | Capture outer `val` Int (C10h MVP; Bool/String also OK)                |
-| `fun/lambda_capture_class.aura`   | Capture outer `val` class (GC ptr + env roots; C12k)                   |
-| `fun/lambda_capture_array.aura`   | Capture outer `val` Array (non-owning header view; C12l)               |
-| `fun/lambda_capture_var.aura`     | Capture outer `var` Int/Bool by shared mutable box (C12m)              |
-| `fun/lambda_capture_fun.aura`     | Capture outer `val` Fun (nested env RC; C13e)                          |
-| `fun/lambda_capture_var_str.aura` | Capture outer `var` String by RC box (C13f)                            |
-| `fun/lambda_capture_stress.aura`  | Mixed capture stress mark/free audit (C13g)                            |
-| `fun/lambda_env_free.aura`        | Fun env free: move / return / param / loop (C11b)                      |
-| `fun/lambda_hof.aura`             | Local map/filter/fold with fun values + capture (C10i)                 |
-| `pkg/dotted.aura`                 | Dotted package path                                                    |
-| `edge/empty_main.aura`            | Empty function body                                                    |
-| `edge/comments.aura`              | Line and block comments                                                |
-| `diag/undefined.aura`             | **Expected fail** — diagnostics smoke (excluded from green run corpus) |
+| Path                                           | Intent                                                                 |
+| ---------------------------------------------- | ---------------------------------------------------------------------- |
+| `hello/main.aura`                              | Package + `fun main` + call + string                                   |
+| `control/if_while.aura`                        | Params, types, `if`/`while`, locals                                    |
+| `control/else_if.aura`                         | `else if` chaining (C4l)                                               |
+| `types/nullable.aura`                          | `T?`, flow `!= null` / `== null`, `!!`                                 |
+| `types/opt_prim.aura`                          | `Int?` / `Bool?` tagged optional C emit (C7a)                          |
+| `types/coalesce.aura`                          | Null coalesce `?:` (C4m)                                               |
+| `expr/arith.aura`                              | Arithmetic, comparisons, `&&`                                          |
+| `expr/unary.aura`                              | `!` and negation                                                       |
+| `expr/string_eq.aura`                          | String content equality (C4e)                                          |
+| `expr/string_len.aura`                         | `String.len` byte length (C4p)                                         |
+| `expr/string_substring.aura`                   | `String.substring(start, end)` exclusive (C11d)                        |
+| `expr/string_indexof.aura`                     | `String.indexOf(sub)` byte index / −1 / empty→0 (C12f)                 |
+| `expr/string_split.aura`                       | `String.split(sep)` → `Array<String>` (C12g)                           |
+| `expr/string_trim.aura`                        | `String.trim` / `trimStart` / `trimEnd` ASCII whitespace (C12h)        |
+| `expr/string_toint.aura`                       | `String.toInt(): Int?` decimal parse / null on bad/overflow (C12i)     |
+| `expr/method_temp.aura`                        | Method on `Array.get` temp / chains (C13b)                             |
+| `expr/int_tostring.aura`                       | `Int.toString` + String↔Int `+` / interp (C13c)                        |
+| `expr/string_case.aura`                        | `String.toLower` / `toUpper` ASCII (C13m)                              |
+| `generic/array_string_free.aura`               | Free owned String elems on Array drop (C13d)                           |
+| `expr/if_expr.aura`                            | `if` as expression (C4t)                                               |
+| `fun/multi.aura`                               | Multiple top-level functions                                           |
+| `fun/nested_calls.aura`                        | Nested calls                                                           |
+| `fun/expr_body.aura`                           | Expression-body functions `fun f(): T = expr` (C9e)                    |
+| `fun/lambda_basic.aura`                        | Non-capturing lambda + call through fun value (C10c–e)                 |
+| `fun/lambda_zero.aura`                         | Zero-arg lambda `() => …`                                              |
+| `fun/lambda_fun_type.aura`                     | Fun type annotation `(T) -> U` (C10f)                                  |
+| `fun/lambda_param.aura`                        | Fun-typed parameter                                                    |
+| `fun/lambda_block.aura`                        | Lambda block body `(x) => { … }` (C10g)                                |
+| `fun/lambda_capture.aura`                      | Capture outer `val` Int (C10h MVP; Bool/String also OK)                |
+| `fun/lambda_capture_class.aura`                | Capture outer `val` class (GC ptr + env roots; C12k)                   |
+| `fun/lambda_capture_array.aura`                | Capture outer `val` Array (non-owning header view; C12l)               |
+| `fun/lambda_capture_var.aura`                  | Capture outer `var` Int/Bool by shared mutable box (C12m)              |
+| `fun/lambda_capture_var_class.aura`            | Mutable class capture: field mutation, rebinding, and escape (C20)     |
+| `fun/lambda_capture_var_array.aura`            | Mutable Array capture: push, rebinding, and escape (C20)               |
+| `fun/lambda_capture_var_fun.aura`              | Mutable Fun capture: delegate call and rebinding (C20)                 |
+| `fun/lambda_capture_var_ownership_stress.aura` | Mixed mutable capture GC churn (C20)                                   |
+| `fun/lambda_capture_fun.aura`                  | Capture outer `val` Fun (nested env RC; C13e)                          |
+| `fun/lambda_capture_var_str.aura`              | Capture outer `var` String by RC box (C13f)                            |
+| `fun/lambda_capture_stress.aura`               | Mixed capture stress mark/free audit (C13g)                            |
+| `fun/lambda_env_free.aura`                     | Fun env free: move / return / param / loop (C11b)                      |
+| `fun/lambda_hof.aura`                          | Local map/filter/fold with fun values + capture (C10i)                 |
+| `pkg/dotted.aura`                              | Dotted package path                                                    |
+| `edge/empty_main.aura`                         | Empty function body                                                    |
+| `edge/comments.aura`                           | Line and block comments                                                |
+| `diag/undefined.aura`                          | **Expected fail** — diagnostics smoke (excluded from green run corpus) |
 
 ## Classes, interfaces, values
 
@@ -154,6 +158,10 @@ cargo run -p aura-cli -- run corpus/expr/string_toint.aura
 cargo run -p aura-cli -- run corpus/fun/lambda_capture_class.aura
 cargo run -p aura-cli -- run corpus/fun/lambda_capture_array.aura
 cargo run -p aura-cli -- run corpus/fun/lambda_capture_var.aura
+cargo run -p aura-cli -- run corpus/fun/lambda_capture_var_class.aura
+cargo run -p aura-cli -- run corpus/fun/lambda_capture_var_array.aura
+cargo run -p aura-cli -- run corpus/fun/lambda_capture_var_fun.aura
+cargo run -p aura-cli -- run corpus/fun/lambda_capture_var_ownership_stress.aura
 cargo run -p aura-cli -- run corpus/std_collections/join
 cargo run -p aura-cli -- run corpus/std_collections/hashmap_str
 cargo run -p aura-cli -- run corpus/std_collections/hof_str

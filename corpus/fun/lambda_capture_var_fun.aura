@@ -1,0 +1,22 @@
+// C20 Lane D: mutable Fun capture supports calling and rebinding the delegate.
+package demo.lambda_cap_var_fun
+
+fun makeDelegate(seed: Int): () -> Int {
+  var f: () -> Int = () => seed
+  return () => f()
+}
+
+fun main(): Int {
+  var f: (Int) -> Int = (n: Int) => n + 1
+  val call = (n: Int) => f(n)
+
+  val first = call(4)
+  f = (n: Int) => n * 2
+  val second = call(4)
+
+  val escaped = makeDelegate(9)
+  gc_collect()
+  val third = escaped()
+
+  return first + second + third
+}

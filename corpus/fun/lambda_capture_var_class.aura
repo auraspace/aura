@@ -1,0 +1,36 @@
+// C20 Lane D: mutable class capture supports field mutation and rebinding.
+package demo.lambda_cap_var_class
+
+class Box(var value: Int) {
+  fun add(n: Int): Int {
+    value = value + n
+    return value
+  }
+}
+
+fun makeCounter(seed: Int): () -> Int {
+  var box: Box = Box(seed)
+  return () => {
+    box.add(1)
+    return box.value
+  }
+}
+
+fun main(): Int {
+  var box: Box = Box(10)
+  val update = (n: Int) => {
+    return box.add(n)
+  }
+
+  val first = update(2)
+  box = Box(40)
+  val second = update(3)
+
+  val escaped = makeCounter(7)
+  gc_collect()
+  val third = escaped()
+  gc_collect()
+  val fourth = escaped()
+
+  return first + second + third + fourth
+}
