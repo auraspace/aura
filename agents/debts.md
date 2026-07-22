@@ -7,6 +7,19 @@ When you resolve debt, update or remove the matching entry.
 
 ## Open
 
+### IO5 network backpressure remains deferred (2026-07-22)
+
+- Area: async I/O/channel bridge
+- Symptom: bounded channels now suspend/wake producers and consumers with FIFO
+  ownership and deterministic close/cancel cleanup, but TCP/file completion is
+  not connected to this bridge.
+- Why deferred: IO3/IO6 still lack scheduler-integrated network operations and
+  cross-platform async wake sources.
+- Progress: `runtime/tests/task_channel.c` covers full/empty, ordering,
+  cancellation, close, and payload destruction.
+- Next step: connect readiness/completion events to the existing channel waiter
+  contract after async I/O suspension is implemented.
+
 ### A7 remains a bounded task-outcome ABI (2026-07-22)
 
 - Area: async exception outcomes

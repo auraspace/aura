@@ -118,17 +118,26 @@ forced-shutdown cases.
 
 **Objective:** Connect I/O completion to bounded channels safely.
 
+**Implementation status:** Bounded executor/channel bridge complete. The
+capacity-limited channel wakes pending consumers when a producer sends and
+wakes pending producers when a consumer removes a value. FIFO payload order,
+owned-value destruction, cancellation, and close behavior are covered by
+`runtime/tests/task_channel.c`; network completion and scheduler-wide
+backpressure remain open.
+
 **Checklist:**
 
-- [ ] Suspend producers when buffers/channels are full.
-- [ ] Suspend consumers when no data is available.
-- [ ] Preserve ordering and payload ownership.
-- [ ] Define close, cancellation, and peer-failure propagation.
+- [x] Suspend producers when bounded channels are full.
+- [x] Suspend consumers when bounded channels have no data.
+- [x] Preserve FIFO ordering and payload ownership.
+- [x] Define bounded close and cancellation propagation; peer-failure and
+      network-operation propagation remain open.
 
 **Acceptance:** Backpressure never loses, duplicates, or leaks a message.
 
-**Verification:** Run producer/consumer, slow-peer, full/empty, close, and GC
-under-load cases.
+**Verification:** `runtime/tests/task_channel.c` runs producer/consumer,
+full/empty, FIFO, close, cancellation, and cleanup cases under the runtime
+fixture. Slow-peer and network completion remain deferred to IO3/IO6.
 
 **Dependencies:** IO3, S1–S6.
 
