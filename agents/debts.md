@@ -29,6 +29,21 @@ When you resolve debt, update or remove the matching entry.
 - Next step: H4+ must define lifecycle and diagnostic integration before this
   builder is used by a server; the builder defaults to `Connection: close`.
 
+### HTTP H4 remains synchronous and callback-only (2026-07-22)
+
+- Area: runtime HTTP connection lifecycle
+- Symptom: H4 provides a bounded blocking request/response loop and an opaque
+  callback, but does not suspend tasks, route methods/paths, or serve multiple
+  connections concurrently.
+- Why deferred: async suspension and ownership across awaits belong to H5;
+  handler/routing API belongs to H6. The callback intentionally avoids making
+  either contract implicit.
+- Progress: TCP partial reads/writes, idle/read/write timeouts, peer close,
+  keep-alive, request limits, active-connection limits, and graceful listener
+  shutdown are covered by `runtime/tests/http_connection.c`.
+- Next step: implement H5 async integration and H6 handler/routing only after
+  their dependency contracts are frozen.
+
 ### Async suspension GC roots and ownership (C22s, 2026-07-22)
 
 - Area: async/task runtime and codegen

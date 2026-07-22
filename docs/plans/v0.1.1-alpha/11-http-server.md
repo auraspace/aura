@@ -87,11 +87,25 @@ status/body combinations, size limits, and caller-buffer sizing.
 ## H4. Connection lifecycle
 
 **Objective:** Serve one or more requests safely over a TCP connection.
+**Implementation status:** `runtime/aura_rt.c` now provides opaque
+`AuraHttpServer` and `AuraHttpConnection` helpers over the bounded TCP slice.
+The server enforces a configured active-connection limit, stops accepting on
+graceful shutdown, and reports active connections so callers can drain before
+destroying the server. A connection owns its stream and runs a bounded,
+synchronous request/response loop: partial reads are accumulated up to H2's
+total-request limit, parsed requests are handed to an application-neutral
+callback, responses use H3 serialization and partial writes, and malformed,
+unsupported, oversized, timeout, EOF, and handler-failure paths close
+deterministically. HTTP/1.1 keep-alive is retained only when both request and
+response policy allow it; request count and all I/O waits are bounded.
+`runtime/tests/http_connection.c` covers single-request close, two-request
+keep-alive, request limits, timeout, peer disconnect, connection limits,
+shutdown refusal, and 500 handler mapping with a localhost loopback fixture.
 **Checklist:**
 
-- [ ] Implement accept, request/response loop, keep-alive, and close behavior.
-- [ ] Add read/write timeouts and client-disconnect handling.
-- [ ] Define connection limits and graceful shutdown.
+- [x] Implement accept, request/response loop, keep-alive, and close behavior.
+- [x] Add read/write timeouts and client-disconnect handling.
+- [x] Define connection limits and graceful shutdown.
       **Acceptance:** Single-request and persistent connections terminate predictably.
       **Verification:** Run one-request, multi-request, timeout, disconnect, and
       shutdown cases.
