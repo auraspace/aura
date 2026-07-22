@@ -5,9 +5,13 @@ Owner: Runtime + Compiler. Scope: 5 tasks.
 ## R1. Event and happens-before model
 
 **Objective:** Define the minimum race semantics supported by alpha.
+**Implementation status:** Foundation complete. Events carry task, address,
+source, kind, and monotonic sequence identity; single-threaded executor order
+is the initial happens-before relation. Concurrent refinement and suppression
+policy remain in the instrumentation/reporting slices.
 **Checklist:**
 
-- [ ] Define read/write identity and source location.
+- [x] Define read/write identity and source location.
 - [ ] Define spawn/join, await, channel, cancellation, lock, and atomic edges.
 - [ ] Define deterministic ordering, suppression, and report identity.
       **Acceptance:** The model maps directly to the accepted concurrency contract.
@@ -17,10 +21,14 @@ Owner: Runtime + Compiler. Scope: 5 tasks.
 ## R2. Runtime event tracking
 
 **Objective:** Record accesses and synchronization in opt-in development mode.
+**Implementation status:** Foundation complete for the runtime tracker API.
+The tracker uses deterministic sequence numbers, growable storage, reset, and
+stable indexed inspection. Runtime-boundary wiring and opt-in profile control
+remain for the next slice.
 **Checklist:**
 
 - [ ] Emit events at every required runtime boundary.
-- [ ] Preserve task identity, logical time, and source mapping.
+- [x] Preserve task identity, logical time, and source mapping.
 - [ ] Keep tracking disabled in ordinary release mode.
       **Acceptance:** Repeated deterministic runs produce the same event sequence.
       **Verification:** Run trace fixtures with channels, cancellation, and GC.

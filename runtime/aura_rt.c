@@ -1500,6 +1500,125 @@ int aura_runtime_check_abi(uint32_t expected_version, const char *expected_ident
   return 0;
 }
 
+/* ---- R1/R2 deterministic race event model ----
+ *
+ * The current executor is single-threaded, so this tracker records the total
+ * order that a future concurrent detector will refine into vector clocks.
+ * Every event carries task, address, and source identity for stable reports.
+ */
+typedef enum
+{
+  AURA_RACE_READ = 0,
+  AURA_RACE_WRITE = 1,
+  AURA_RACE_TASK_SPAWN = 2,
+  AURA_RACE_TASK_JOIN = 3,
+  AURA_RACE_SYNC_ACQUIRE = 4,
+  AURA_RACE_SYNC_RELEASE = 5
+} AuraRaceEventKind;
+
+typedef struct
+{
+  uint64_t sequence;
+  uint64_t task_id;
+  uintptr_t address;
+  uint32_t source_id;
+  AuraRaceEventKind kind;
+} AuraRaceEvent;
+
+typedef struct
+{
+  AuraRaceEvent *events;
+  size_t count;
+  size_t capacity;
+  uint64_t clock;
+} AuraRaceTracker;
+
+AuraRaceTracker *aura_race_tracker_new(void)
+{
+  AuraRaceTracker *tracker = (AuraRaceTracker *)calloc(1, sizeof(*tracker));
+  if (tracker == NULL)
+  {
+    return NULL;
+  }
+  tracker->capacity = 16;
+  tracker->events = (AuraRaceEvent *)calloc(tracker->capacity, sizeof(*tracker->events));
+  if (tracker->events == NULL)
+  {
+    free(tracker);
+    return NULL;
+  }
+  return tracker;
+}
+
+void aura_race_tracker_destroy(AuraRaceTracker *tracker)
+{
+  if (tracker != NULL)
+  {
+    free(tracker->events);
+    free(tracker);
+  }
+}
+
+void aura_race_tracker_reset(AuraRaceTracker *tracker)
+{
+  if (tracker != NULL)
+  {
+    tracker->count = 0;
+    tracker->clock = 0;
+  }
+}
+
+int aura_race_tracker_record(AuraRaceTracker *tracker,
+                             uint64_t task_id,
+                             uintptr_t address,
+                             uint32_t source_id,
+                             AuraRaceEventKind kind,
+                             AuraRaceEvent *out)
+{
+  if (tracker == NULL)
+  {
+    return 0;
+  }
+  if (tracker->count == tracker->capacity)
+  {
+    size_t next_capacity = tracker->capacity * 2;
+    AuraRaceEvent *next = (AuraRaceEvent *)realloc(
+        tracker->events, next_capacity * sizeof(*tracker->events));
+    if (next == NULL)
+    {
+      return 0;
+    }
+    tracker->events = next;
+    tracker->capacity = next_capacity;
+  }
+  AuraRaceEvent event = {++tracker->clock, task_id, address, source_id, kind};
+  tracker->events[tracker->count++] = event;
+  if (out != NULL)
+  {
+    *out = event;
+  }
+  return 1;
+}
+
+size_t aura_race_tracker_count(const AuraRaceTracker *tracker)
+{
+  return tracker != NULL ? tracker->count : 0;
+}
+
+const AuraRaceEvent *aura_race_tracker_event(const AuraRaceTracker *tracker, size_t index)
+{
+  if (tracker == NULL || index >= tracker->count)
+  {
+    return NULL;
+  }
+  return &tracker->events[index];
+}
+
+int aura_race_happens_before(const AuraRaceEvent *before, const AuraRaceEvent *after)
+{
+  return before != NULL && after != NULL && before->sequence < after->sequence;
+}
+
 typedef struct AuraTaskFrame AuraTaskFrame;
 typedef struct AuraTaskExecutor AuraTaskExecutor;
 typedef struct AuraTaskChannel AuraTaskChannel;
