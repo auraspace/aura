@@ -53,6 +53,15 @@ fn scoped_ref_rejects_owning_field_storage() {
 }
 
 #[test]
+fn scoped_ref_allows_array_field_view_without_return_escape() {
+    let file = parse_file(
+        "package t\nclass Holder(val items: Array<Int>) {\n  fun view() { val xs: ref Array<Int> = this.items val n: Int = xs.len }\n}\nfun main() {}\n",
+    )
+    .expect("parse");
+    check_file(&file).expect("Array field borrow view");
+}
+
+#[test]
 fn scoped_ref_rejects_nullable_targets() {
     let file =
         parse_file("package t\nfun bad(x: ref String?): String { return \"x\" }\n").expect("parse");

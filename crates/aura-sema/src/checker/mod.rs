@@ -731,6 +731,16 @@ impl Checker {
                 .and_then(|(_, local)| local.borrow_source),
             aura_ast::Expr::Group(inner, _) => self.borrow_source_frame(inner),
             aura_ast::Expr::ForceUnwrap(f) => self.borrow_source_frame(&f.expr),
+            // A field view borrows from its receiver.  Restrict this propagation
+            // to receivers whose lexical lifetime we can name; temporaries and
+            // calls must not become borrow sources.
+            aura_ast::Expr::Field(f) if !f.safe && f.field.name != "len" => match f.object.as_ref()
+            {
+                aura_ast::Expr::This(_) => self.locals.len().checked_sub(1),
+                _ => self
+                    .borrow_source_frame(f.object.as_ref())
+                    .or_else(|| self.lookup_local_frame_for_owner(f.object.as_ref())),
+            },
             aura_ast::Expr::If(i) => {
                 fn block_source(checker: &Checker, block: &aura_ast::Block) -> Option<usize> {
                     match block.stmts.last() {
@@ -747,6 +757,14 @@ impl Checker {
         }
     }
 
+    fn lookup_local_frame_for_owner(&self, expr: &aura_ast::Expr) -> Option<usize> {
+        match expr {
+            aura_ast::Expr::Ident(id) => self.lookup_local_frame(&id.name).map(|(frame, _)| frame),
+            aura_ast::Expr::Group(inner, _) => self.lookup_local_frame_for_owner(inner),
+            _ => None,
+        }
+    }
+
     pub(crate) fn borrow_initializer_frame(&self, expr: &aura_ast::Expr) -> Option<usize> {
         match expr {
             aura_ast::Expr::Ident(id) => self
@@ -754,6 +772,13 @@ impl Checker {
                 .map(|(frame, local)| local.borrow_source.unwrap_or(frame)),
             aura_ast::Expr::Group(inner, _) => self.borrow_initializer_frame(inner),
             aura_ast::Expr::ForceUnwrap(f) => self.borrow_initializer_frame(&f.expr),
+            aura_ast::Expr::Field(f) if !f.safe && f.field.name != "len" => match f.object.as_ref()
+            {
+                aura_ast::Expr::This(_) => self.locals.len().checked_sub(1),
+                _ => self
+                    .borrow_source_frame(f.object.as_ref())
+                    .or_else(|| self.lookup_local_frame_for_owner(f.object.as_ref())),
+            },
             _ => None,
         }
     }
