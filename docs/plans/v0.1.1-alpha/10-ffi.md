@@ -71,6 +71,11 @@ Owner: Compiler + Runtime. Scope: 6 tasks.
 **Checklist:**
 
 - [ ] Add ABI mismatch, linker, ownership, callback, and sanitizer fixtures.
+
+  Proven slice: the generated executable rejects a runtime whose FFI ABI
+  component differs, before user `main` runs, with deterministic exit status 78
+  and both ABI identities in stderr. Linker, ownership, callback, and sanitizer
+  fixtures remain open.
 - [ ] Run native acceptance on Linux and macOS.
 - [ ] Verify no unowned foreign value crosses task or await boundaries.
       **Acceptance:** FFI failures are safe, diagnosed, and reproducible.
