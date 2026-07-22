@@ -1456,6 +1456,143 @@ void aura_gc_shutdown(void)
   aura_gc_array_root_n = 0;
 }
 
+/* ---- C22j task-frame ABI (single-threaded MVP) ----
+ *
+ * A task frame is an opaque, heap-owned state machine object.  The poll
+ * callback owns the state transition; it may retain frame_data across a
+ * pending return.  A frame owns its result payload and invokes result_destroy
+ * exactly once when the frame is destroyed.  The optional frame_destroy hook
+ * runs before frame_data is freed and is the place for state-machine-specific
+ * cleanup.  The context pointer is borrowed by the runtime and is never
+ * freed.
+ *
+ * This ABI deliberately has no scheduler or channel dependency.  C22k adds
+ * the executor that drives these callbacks.
+ */
+
+#define AURA_RT_ABI_VERSION 1u
+
+typedef struct AuraTaskFrame AuraTaskFrame;
+
+typedef enum
+{
+  AURA_TASK_READY = 0,
+  AURA_TASK_PENDING = 1,
+  AURA_TASK_COMPLETE = 2,
+  AURA_TASK_FAILED = 3,
+  AURA_TASK_CANCELLED = 4
+} AuraTaskPollState;
+
+typedef void (*AuraTaskResultDestroyFn)(void *data, size_t size);
+typedef AuraTaskPollState (*AuraTaskPollFn)(AuraTaskFrame *frame);
+typedef void (*AuraTaskFrameDestroyFn)(AuraTaskFrame *frame);
+
+typedef struct
+{
+  void *data;
+  size_t size;
+} AuraTaskResult;
+
+struct AuraTaskFrame
+{
+  uint32_t abi_version;
+  AuraTaskPollFn poll;
+  AuraTaskFrameDestroyFn destroy;
+  void *data;
+  size_t data_size;
+  AuraTaskResult result;
+  AuraTaskResultDestroyFn result_destroy;
+  AuraTaskPollState state;
+  int cancel_requested;
+};
+
+AuraTaskFrame *aura_task_frame_new(size_t data_size,
+                                   AuraTaskPollFn poll,
+                                   AuraTaskFrameDestroyFn destroy)
+{
+  if (poll == NULL)
+  {
+    return NULL;
+  }
+  AuraTaskFrame *frame = (AuraTaskFrame *)calloc(1, sizeof(*frame));
+  if (frame == NULL)
+  {
+    return NULL;
+  }
+  if (data_size != 0)
+  {
+    frame->data = calloc(1, data_size);
+    if (frame->data == NULL)
+    {
+      free(frame);
+      return NULL;
+    }
+  }
+  frame->abi_version = AURA_RT_ABI_VERSION;
+  frame->poll = poll;
+  frame->destroy = destroy;
+  frame->data_size = data_size;
+  frame->state = AURA_TASK_READY;
+  return frame;
+}
+
+void *aura_task_frame_data(AuraTaskFrame *frame)
+{
+  return frame != NULL ? frame->data : NULL;
+}
+
+AuraTaskPollState aura_task_frame_state(const AuraTaskFrame *frame)
+{
+  return frame != NULL ? frame->state : AURA_TASK_FAILED;
+}
+
+int aura_task_frame_cancel_requested(const AuraTaskFrame *frame)
+{
+  return frame != NULL && frame->cancel_requested;
+}
+
+void aura_task_frame_set_result(AuraTaskFrame *frame,
+                                void *data,
+                                size_t size,
+                                AuraTaskResultDestroyFn destroy)
+{
+  if (frame == NULL)
+  {
+    return;
+  }
+  if (frame->result_destroy != NULL && frame->result.data != NULL)
+  {
+    frame->result_destroy(frame->result.data, frame->result.size);
+  }
+  frame->result.data = data;
+  frame->result.size = size;
+  frame->result_destroy = destroy;
+}
+
+AuraTaskResult aura_task_frame_result(const AuraTaskFrame *frame)
+{
+  AuraTaskResult empty = {NULL, 0};
+  return frame != NULL ? frame->result : empty;
+}
+
+void aura_task_frame_destroy(AuraTaskFrame *frame)
+{
+  if (frame == NULL)
+  {
+    return;
+  }
+  if (frame->destroy != NULL)
+  {
+    frame->destroy(frame);
+  }
+  if (frame->result_destroy != NULL && frame->result.data != NULL)
+  {
+    frame->result_destroy(frame->result.data, frame->result.size);
+  }
+  free(frame->data);
+  free(frame);
+}
+
 /* ---- Process argv (std.io.args) ----
  * Stashed from C main before aura_main so user programs keep fun main().
  * Each returned string is an owned copy because Array<String> frees its
@@ -1508,6 +1645,7 @@ void aura_exit(int64_t code)
 /* Provided by generated code */
 int aura_main(void);
 
+#ifndef AURA_RUNTIME_NO_MAIN
 int main(int argc, char **argv)
 {
   aura_set_args(argc, argv);
@@ -1515,3 +1653,4 @@ int main(int argc, char **argv)
   aura_gc_shutdown();
   return rc;
 }
+#endif
