@@ -48,7 +48,7 @@ Each task should land as one focused commit. Agents must use disjoint write sets
 
 **Description:** Extend C21 rules to reject `ref T` across await, spawn, send, receive, or task-owned storage.
 
-- [ ] Diagnostics identify the boundary causing every borrow escape.
+- [x] Diagnostics identify the boundary causing every borrow escape.
       **Verification:** Add focused tests/checks for this task; preserve all existing regressions.
       **Dependencies:** C22b, C22c
       **Write set:** `docs/rfc/RFC-002-type-system.md; docs/rfc/RFC-003-memory-model-concurrency.md`

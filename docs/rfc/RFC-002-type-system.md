@@ -178,6 +178,29 @@ nested references, references escaping through returns/closures/tasks, and
 mutation-through-entry. These are separate design decisions, not implicit
 permissions granted by `ref`.
 
+#### 6.5.2 C22 suspension and task borrow barriers
+
+The C21 lifetime rule extends to every operation that can retain a value beyond
+the current synchronous expression. A `ref T` must be rejected when it would:
+
+| Boundary           | Required result                                                                                                     |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| `await`            | The borrow cannot be live across suspension; clone or materialize an owned `T` before `await`.                      |
+| `spawn` capture    | A spawned body cannot capture a `ref T`; capture an owner or an owned clone.                                        |
+| channel send       | A `ref T` cannot be sent or stored as a channel payload.                                                            |
+| channel receive    | A borrow derived from a received payload cannot be retained across the receive boundary; bind an owned value first. |
+| task-owned storage | A task frame, handle, result, or closure environment cannot contain a `ref T`.                                      |
+
+These checks are structural, not data-flow guesses: an operation's operand and
+the boundary token are both available to diagnostics. An owned value that is
+created before the boundary is valid, subject to ordinary type checking.
+
+The stable diagnostic family is `E-BORROW-ASYNC-ESCAPE`. Its message is
+`borrowed value cannot cross {operation} boundary`, where `{operation}` is one
+of `await`, `spawn`, `send`, `receive`, or `task storage`. The primary span is
+the borrowed expression; the diagnostic includes a secondary boundary span and
+the note `use an owned value (for example, clone()) before this boundary`.
+
 ### 6.5 Generics
 
 ```aura

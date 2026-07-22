@@ -122,8 +122,25 @@ returns and read-only collection views.
 The MVP has no mutable borrow, heap-stored reference, nullable/nested `ref`,
 closure/task escape, pinning, or concurrent sharing. Codegen may represent a
 valid borrow as a temporary pointer/view; no new runtime retain/release ABI is
-required. Async/tasks is explicitly outside this track and deferred until the
-borrow contract and single-threaded lifetime checks are stable.
+required. Async/tasks were outside the C21 implementation track; C22 now adds
+explicit single-threaded lifetime barriers without changing this ownership ABI.
+
+#### 6.2.2 C22 async borrow barriers
+
+C22 removes that deferral at the contract level while preserving the same
+non-owning lifetime model: `ref T` is synchronous-only. The sema must reject a
+borrow at `await`, a spawned-task capture, channel `send`, channel `receive`,
+or task-owned storage. A task frame, `Task<T>`/`TaskHandle<T>` result, closure
+environment, and queued channel payload are all task-owned storage for this
+rule. `receive` may produce an owned `T`; only a borrow retained across that
+operation is invalid.
+
+All such errors use `E-BORROW-ASYNC-ESCAPE` with the operation-specific message
+`borrowed value cannot cross {operation} boundary`, a primary span on the
+borrowed expression, a secondary span on the boundary token, and the note
+`use an owned value (for example, clone()) before this boundary`. This wording
+is shared with RFC-002 so pretty and structured diagnostics identify the same
+operation and source locations.
 
 ### 6.3 Value semantics & references
 
