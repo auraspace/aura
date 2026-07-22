@@ -526,6 +526,25 @@ fn parses_task_and_channel_operations() {
 }
 
 #[test]
+fn allows_join_as_function_and_qualified_name() {
+    let file = parse_file(
+        "package demo\nimport std.join\npub fun join(value: String): String { return value }\nfun call(parts: Array<String>, sep: String): String { return join(parts, sep) }\n",
+    )
+    .expect("join remains usable as an identifier in declarations and paths");
+
+    assert_eq!(file.imports[0].path.segments[1].name, "join");
+    assert_eq!(file.functions[0].name.name, "join");
+    assert!(file.functions[0].is_pub);
+    assert!(matches!(
+        file.functions[1].body.stmts[0],
+        Stmt::Return(ReturnStmt {
+            value: Some(Expr::Call(_)),
+            ..
+        })
+    ));
+}
+
+#[test]
 fn rejects_malformed_task_and_channel_operations() {
     for (src, expected) in [
         (

@@ -139,8 +139,8 @@ impl Parser {
                 })))
             }
             TokenKind::Spawn => self.parse_spawn(),
-            TokenKind::Join => self.parse_join_or_cancel(false),
-            TokenKind::Cancel => self.parse_join_or_cancel(true),
+            TokenKind::Join => self.parse_join_or_call(),
+            TokenKind::Cancel => self.parse_cancel(),
             TokenKind::Minus => {
                 let start = self.peek().span.start;
                 self.bump();
@@ -279,24 +279,49 @@ impl Parser {
         })))
     }
 
-    /// C22g: `join(handle)` and `cancel(handle)` each take exactly one operand.
-    fn parse_join_or_cancel(&mut self, cancel: bool) -> Result<Expr, ParseError> {
+    /// C22g: `join(handle)` takes one operand. Calls with multiple operands
+    /// remain ordinary function calls so legacy APIs such as
+    /// `std.collections.join(parts, sep)` continue to parse.
+    fn parse_join_or_call(&mut self) -> Result<Expr, ParseError> {
+        let start = self.bump().span.start;
+        let name = Ident {
+            name: "join".into(),
+            span: Span::new(start, self.tokens[self.idx - 1].span.end),
+        };
+        if !matches!(self.peek().kind, TokenKind::LParen) {
+            return Ok(Expr::Ident(name));
+        }
+        let call = self.parse_call(Expr::Ident(name), Vec::new())?;
+        let Expr::Call(call) = call else {
+            unreachable!("parse_call always returns Expr::Call");
+        };
+        if call.args.len() == 1 {
+            let span = call.span;
+            return Ok(Expr::Async(AsyncExpr::Join(JoinExpr {
+                handle: Box::new(call.args.into_iter().next().unwrap()),
+                span,
+            })));
+        }
+        if call.args.is_empty() {
+            return Err(ParseError {
+                message: "expected expression for `join` handle".into(),
+                span: call.span,
+            });
+        }
+        Ok(Expr::Call(call))
+    }
+
+    /// C22g: `cancel(handle)` takes exactly one operand.
+    fn parse_cancel(&mut self) -> Result<Expr, ParseError> {
         let start = self.bump().span.start;
         self.expect(TokenKind::LParen, "`(` after async operation")?;
         let handle = self.parse_expr(0)?;
         let end = self.expect(TokenKind::RParen, "`)`")?.span.end;
         let span = Span::new(start, end);
-        if cancel {
-            Ok(Expr::Async(AsyncExpr::Cancel(CancelExpr {
-                handle: Box::new(handle),
-                span,
-            })))
-        } else {
-            Ok(Expr::Async(AsyncExpr::Join(JoinExpr {
-                handle: Box::new(handle),
-                span,
-            })))
-        }
+        Ok(Expr::Async(AsyncExpr::Cancel(CancelExpr {
+            handle: Box::new(handle),
+            span,
+        })))
     }
 
     fn lower_async_call(&mut self, expr: Expr) -> Result<Expr, ParseError> {

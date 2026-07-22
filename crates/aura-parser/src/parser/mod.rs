@@ -49,6 +49,17 @@ impl Parser {
                 self.bump();
                 Ok(Ident { name, span })
             }
+            // `join` is also an async operation keyword. In declaration and
+            // path positions it is unambiguous as an identifier; expression
+            // parsing still handles `join(...)` through `parse_prefix`.
+            TokenKind::Join => {
+                let span = self.peek().span;
+                self.bump();
+                Ok(Ident {
+                    name: "join".into(),
+                    span,
+                })
+            }
             _ => Err(ParseError {
                 message: format!("expected identifier, found {:?}", self.peek().kind),
                 span: self.peek().span,
