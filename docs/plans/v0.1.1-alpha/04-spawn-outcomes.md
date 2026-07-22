@@ -116,29 +116,39 @@ deferred with the async state-machine work.
 
 **Objective:** Cancel ready and suspended tasks with defined cleanup and outcome.
 
-**Implementation status:** Partial bounded runtime coverage now proves that an
-owned capture attached to an executor task is released exactly once when a
-task cancelled before its first poll or while pending is eventually destroyed
-by the executor. The current API does not publish cleanup before the
-`AURA_TASK_CANCELLED` state, and scheduler/await/I/O/handler boundary
+**Implementation status:** The bounded single-threaded executor now defines
+cancellation as a request/acknowledgement pair. `cancel()` accepts a request
+only for a non-terminal executor-owned frame; the next scheduler poll
+acknowledges it as `AURA_TASK_CANCELLED` after releasing pending work and
+captures. If completion is published first, the terminal completion wins and
+the request is rejected. Joined and unjoined cancelled frames use the same
+terminal state and cleanup path; scheduler/await/I/O/handler boundary
 semantics remain open.
 
 **Checklist:**
 
-- [ ] Define cancellation request, acknowledgement, and race with completion.
+- [x] Define cancellation request, acknowledgement, and race with completion
+      for ready and pending frames: request acceptance is observable through
+      `aura_task_frame_cancel_requested`, acknowledgement through the terminal
+      state, and completion wins when published first.
 - [ ] Check cancellation at scheduler, await, I/O, and handler boundaries.
-- [ ] Run cleanup exactly once before publishing cancellation.
+- [x] Run pending-operation and capture cleanup exactly once before publishing
+      `AURA_TASK_CANCELLED` in the bounded executor.
 - [x] Release an executor-owned capture exactly once for cancellation before
       first poll and while pending; the test observes cleanup during executor
       shutdown, after cancellation is published.
-- [ ] Make join and unjoined-task behavior consistent after cancellation.
+- [x] Make join and unjoined-task behavior consistent after cancellation: both
+      retain the same terminal state, exclude the failure hook, and release
+      owned storage exactly once.
 
 **Acceptance:** Cancellation cannot strand a frame, descriptor, capture, or
 channel payload.
 
-**Verification:** The runtime test covers cancellation before start and while
-pending for capture cleanup. Cleanup-before-state-publication, during-resume,
-after-completion, and descriptor/channel-payload cleanup remain unverified.
+**Verification:** `runtime/tests/task_cancellation.c` covers request versus
+acknowledgement, ready and pending frames, completion-before-cancel ordering,
+joined and unjoined cancellation, repeated requests, and cleanup-before-state
+publication under ASAN/UBSAN. During-resume, descriptor/channel-payload
+cleanup, and cancellation at await/I/O/handler boundaries remain unverified.
 
 **Dependencies:** S3, S4, A7.
 

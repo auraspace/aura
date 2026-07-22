@@ -48,6 +48,21 @@ When you resolve debt, update or remove the matching entry.
 - Next step: extend the sanitizer matrix after typed frame roots, resume edges,
   and async wakeup semantics are implemented.
 
+### S5 cancellation boundaries remain bounded (2026-07-22)
+
+- Area: spawn cancellation and executor outcomes
+- Symptom: request/acknowledgement ordering and joined/unjoined cleanup are
+  defined for the current single-threaded ready/pending frame API, but await,
+  I/O, handler, and concurrent completion boundaries are not implemented.
+- Why deferred: those boundaries require the async suspension state machine and
+  external wake sources; the bounded executor has one deterministic scheduler
+  linearization point.
+- Progress: `runtime/tests/task_cancellation.c` proves request acceptance,
+  cancellation acknowledgement after cleanup, completion-wins ordering, and
+  identical joined/unjoined cancellation outcomes under ASAN/UBSAN.
+- Next step: extend cancellation checks to generated suspension, file/network
+  operations, and handler frames once their wake/capture ownership exists.
+
 ### File I/O has no scheduler suspension yet (IO2, 2026-07-22)
 
 - Area: runtime file operations
