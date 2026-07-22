@@ -5,6 +5,7 @@ mod package;
 mod runtime_path;
 mod scaffold;
 mod std_path;
+mod test_report;
 
 use aura_codegen::{build_from_file, build_tests_from_file, emit_c_from_ast};
 use aura_diagnostics::{format_error_with, FormatOptions};
@@ -13,6 +14,7 @@ use package::{load_package, load_package_default, LoadedPackage};
 use std::env;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
+use std::time::Instant;
 
 const AURA_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -58,7 +60,7 @@ fn eprint_usage() {
            aura check [path]                 Parse + typecheck (.aura | dir | aura.toml)\n  \
            aura build [path] [-o <bin>]      Compile to native binary (C backend)\n  \
            aura run [path] [-- args...]      Build to temp and execute\n  \
-           aura test [path] [-- args...]     Run @test functions (package-wide)\n  \
+           aura test [path] [--test-name <pattern>] [--format json] [-- args...]\n  \
            aura fmt <path>                   Format an Aura source file\n  \
            aura emit-c [path]                Print generated C (debug)\n  \
            aura version                      Print CLI version\n  \
@@ -436,8 +438,15 @@ fn cmd_run(args: &[String]) -> ExitCode {
 }
 
 fn cmd_test(args: &[String]) -> ExitCode {
-    // Same `--` split as `aura run` so @test code can read process args if needed.
-    let (cli_args, program_args) = split_pass_through(args);
+    let (raw_cli_args, program_args) = split_pass_through(args);
+    let options = match TestOptions::parse(raw_cli_args) {
+        Ok(options) => options,
+        Err(msg) => {
+            eprintln!("error: {msg}");
+            return ExitCode::from(2);
+        }
+    };
+    let cli_args = &options.package_args;
     let pkg = match resolve_package(cli_args) {
         Ok(p) => p,
         Err(msg) => {
@@ -445,8 +454,29 @@ fn cmd_test(args: &[String]) -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    let n_tests = pkg.ast.functions.iter().filter(|f| f.is_test).count();
+    let all_tests: Vec<String> = pkg
+        .ast
+        .functions
+        .iter()
+        .filter(|f| f.is_test)
+        .map(|f| f.name.name.clone())
+        .collect();
+    let selected: Vec<String> = all_tests
+        .iter()
+        .filter(|name| {
+            options
+                .test_name
+                .as_ref()
+                .map(|p| name.contains(p))
+                .unwrap_or(true)
+        })
+        .cloned()
+        .collect();
+    let n_tests = selected.len();
     if n_tests == 0 {
+        if options.test_name.is_some() {
+            eprintln!("error: no @test functions match the requested name");
+        }
         eprintln!(
             "error: no @test functions found in package `{}` ({} file(s))",
             pkg.package,
@@ -454,13 +484,51 @@ fn cmd_test(args: &[String]) -> ExitCode {
         );
         return ExitCode::from(1);
     }
+    let mut test_pkg = pkg.clone();
+    if options.test_name.is_some() {
+        for function in &mut test_pkg.ast.functions {
+            if function.is_test && !selected.iter().any(|name| name == &function.name.name) {
+                function.is_test = false;
+            }
+        }
+    }
     let out = PathBuf::from(format!("target/aura/test-{}", pkg.bin_name));
-    match build_test_package(&pkg, &out) {
+    let started = Instant::now();
+    match build_test_package(&test_pkg, &out) {
         Ok(bin) => {
-            let status = Command::new(&bin).args(program_args).status();
-            match status {
-                Ok(s) if s.success() => ExitCode::SUCCESS,
-                Ok(s) => ExitCode::from(s.code().unwrap_or(1) as u8),
+            let output = Command::new(&bin).args(program_args).output();
+            match output {
+                Ok(output) => {
+                    let elapsed = started.elapsed().as_millis();
+                    let status = output.status.success();
+                    if options.json {
+                        let cases = test_report::cases_from_output(
+                            &pkg.package,
+                            &all_tests,
+                            &selected,
+                            &output.stdout,
+                            &output.stderr,
+                            status,
+                        );
+                        println!(
+                            "{}",
+                            test_report::TestReport {
+                                package: pkg.package.clone(),
+                                duration_ms: elapsed,
+                                tests: cases
+                            }
+                            .to_json()
+                        );
+                    } else {
+                        print!("{}", String::from_utf8_lossy(&output.stdout));
+                        eprint!("{}", String::from_utf8_lossy(&output.stderr));
+                    }
+                    if status {
+                        ExitCode::SUCCESS
+                    } else {
+                        ExitCode::from(output.status.code().unwrap_or(1) as u8)
+                    }
+                }
                 Err(e) => {
                     eprintln!("error: failed to execute {}: {e}", bin.display());
                     ExitCode::from(1)
@@ -474,6 +542,51 @@ fn cmd_test(args: &[String]) -> ExitCode {
     }
 }
 
+struct TestOptions {
+    package_args: Vec<String>,
+    test_name: Option<String>,
+    json: bool,
+}
+
+impl TestOptions {
+    fn parse(args: &[String]) -> Result<Self, String> {
+        let mut package_args = Vec::new();
+        let mut test_name = None;
+        let mut json = false;
+        let mut i = 0;
+        while i < args.len() {
+            match args[i].as_str() {
+                "--test-name" | "--filter" => {
+                    i += 1;
+                    let value = args.get(i).ok_or("--test-name requires a pattern")?;
+                    test_name = Some(value.clone());
+                }
+                "--format" | "--report" => {
+                    i += 1;
+                    match args.get(i).map(String::as_str) {
+                        Some("json") => json = true,
+                        Some(value) => {
+                            return Err(format!("unsupported test report format `{value}`"))
+                        }
+                        None => return Err("--format requires a value".into()),
+                    }
+                }
+                value if value.starts_with('-') => return Err(format!("unknown option `{value}`")),
+                value => package_args.push(value.to_string()),
+            }
+            i += 1;
+        }
+        if package_args.len() > 1 {
+            return Err("unexpected extra package argument".into());
+        }
+        Ok(Self {
+            package_args,
+            test_name,
+            json,
+        })
+    }
+}
+
 fn build_test_package(pkg: &LoadedPackage, out: &Path) -> Result<PathBuf, String> {
     let rt = runtime_c_path()?;
     build_tests_from_file(&pkg.ast, out, &rt).map_err(|e| match e {
@@ -484,7 +597,7 @@ fn build_test_package(pkg: &LoadedPackage, out: &Path) -> Result<PathBuf, String
 
 #[cfg(test)]
 mod tests {
-    use super::{build_package, split_pass_through};
+    use super::{build_package, split_pass_through, TestOptions};
     use crate::package::load_package;
     use std::path::PathBuf;
     use std::process::Command;
@@ -527,6 +640,15 @@ mod tests {
         let (cli, prog) = split_pass_through(&args);
         assert_eq!(cli, &s(&["pkg"])[..]);
         assert!(prog.is_empty());
+    }
+
+    #[test]
+    fn test_options_keep_package_and_filter_separate() {
+        let args = s(&["corpus/test", "--test-name", "add", "--format", "json"]);
+        let options = TestOptions::parse(&args).expect("parse test options");
+        assert_eq!(options.package_args, s(&["corpus/test"]));
+        assert_eq!(options.test_name.as_deref(), Some("add"));
+        assert!(options.json);
     }
 
     /// C12e: non-zero `std.io.exit` must be observable on the process status.

@@ -1,0 +1,16 @@
+// C21h corpus — deterministic test-name filtering.
+package demo.test_filter
+
+@test
+fun alpha_filter() {
+  assert_eq(1, 1)
+}
+
+@test
+fun beta_filter() {
+  assert_eq(2, 2)
+}
+
+fun main() {
+  println("not run under aura test")
+}
