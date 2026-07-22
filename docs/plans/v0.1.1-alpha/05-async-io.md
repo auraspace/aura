@@ -10,12 +10,23 @@ second blocking execution model.
 
 **Objective:** Define the minimum filesystem and TCP API needed by alpha.
 
+**Contract (bounded transport slice):** TCP handles are opaque, own one
+descriptor, and transition from open to closed exactly once; `destroy` releases
+the handle and repeated `close` is harmless. Operations are nonblocking and
+return `OK`, `PENDING`, `TIMEOUT`, `EOF`, `ERROR`, `CLOSED`, or
+`UNSUPPORTED`; positive timeout values bound one readiness wait in milliseconds.
+Buffers are borrowed only for the duration of a call and byte counts are
+returned explicitly. The current capability is localhost TCP on POSIX targets
+(`__unix__`/`__APPLE__`); scheduler suspension, task cancellation wakeups, and
+filesystem async operations are not part of this slice yet.
 **Checklist:**
 
-- [ ] Define handles, readiness, pending, EOF, error, and close states.
-- [ ] Define blocking behavior, scheduler interaction, cancellation, and timeouts.
-- [ ] Define Linux/macOS capability differences.
-- [ ] Define ownership and GC rules for descriptors and buffers.
+- [x] Define handles, readiness, pending, EOF, error, and close states.
+- [x] Define nonblocking behavior and bounded readiness timeouts; scheduler
+      interaction and cancellation remain open.
+- [x] Define POSIX capability differences and unsupported-target behavior.
+- [x] Define handle and borrowed-buffer ownership for the bounded runtime API;
+      GC/task crossing rules remain open.
 
 **Acceptance:** Runtime and library implementers share one API contract.
 
