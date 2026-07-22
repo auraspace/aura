@@ -14,11 +14,12 @@
 
 use std::collections::BTreeMap;
 use std::env;
-use std::fs;
-use std::io::Read;
+use std::fs::{self, OpenOptions};
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 use super::fetch::read_crate_bytes;
+use super::fetch::{read_crate_bytes_bounded, verify_sha256, MAX_ARTIFACT_BYTES};
 use super::semver::parse_version;
 
 /// Env override for the index root (fixture or cache). Preferred in tests.
@@ -319,6 +320,17 @@ impl RegistryIndex {
         Ok(UpdateDecision::NoUpdate { current: current_version.into() })
     }
 
+    /// Resolve the payload source for a previously validated U6 candidate.
+    /// Keeping this separate from discovery makes it impossible for metadata
+    /// inspection to perform a download accidentally.
+    pub fn update_source(&self, candidate: &UpdateCandidate) -> Result<String, String> {
+        super::fetch::crate_source_for_meta(
+            &self.root,
+            self.config.dl.as_deref(),
+            &candidate.meta,
+        )
+    }
+
     /// Metadata for an exact version pin.
     #[cfg(test)]
     pub fn get_version_meta(&self, name: &str, version: &str) -> Result<VersionMeta, String> {
@@ -341,6 +353,156 @@ impl RegistryIndex {
         }
         None
     }
+}
+
+/// U7's deliberately bounded activation contract. The payload is an Aura
+/// executable, not a source archive; its checksum is verified before the
+/// active path is touched. Signature verification is reported as deferred
+/// because the alpha metadata has no real signing primitive or key policy.
+pub const UPDATE_SIGNATURE_STATUS: &str = "deferred";
+const UPDATE_STATE_SUFFIX: &str = ".aura-update-state";
+const UPDATE_TEMP_SUFFIX: &str = ".aura-update-staging";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpdateActivation {
+    pub version: String,
+    pub checksum: String,
+    pub signature: &'static str,
+    pub executable: PathBuf,
+    pub rollback: PathBuf,
+    pub state: PathBuf,
+}
+
+impl UpdateActivation {
+    pub fn render_json(&self) -> String {
+        format!(
+            "{{\"ok\":true,\"code\":\"activated\",\"version\":{},\"checksum\":{},\"signature\":{},\"executable\":{},\"rollback\":{}}}",
+            json_string(&self.version),
+            json_string(&self.checksum),
+            json_string(self.signature),
+            json_string(&self.executable.display().to_string()),
+            json_string(&self.rollback.display().to_string()),
+        )
+    }
+}
+
+/// Download, verify, stage, and atomically activate a candidate executable.
+/// Every fallible operation before the final rename leaves `active` untouched;
+/// if the rename fails, the staged file and newly-created rollback copy are
+/// removed while the old executable remains active.
+pub fn activate_update(
+    candidate: &UpdateCandidate,
+    source: &str,
+    active: impl AsRef<Path>,
+) -> Result<UpdateActivation, String> {
+    let active = active.as_ref();
+    let active_meta = fs::symlink_metadata(active)
+        .map_err(|error| format!("error: cannot inspect active executable {}: {error}", active.display()))?;
+    if !active_meta.file_type().is_file() {
+        return Err(format!("error: active executable is not a regular file: {}", active.display()));
+    }
+    let parent = active.parent().unwrap_or_else(|| Path::new("."));
+    let file_name = active
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| format!("error: active executable has no valid file name: {}", active.display()))?;
+    let nonce = update_nonce();
+    let staging = parent.join(format!(".{file_name}{UPDATE_TEMP_SUFFIX}-{nonce}"));
+    let rollback = parent.join(format!(".{file_name}.aura-rollback-{nonce}"));
+    let state = parent.join(format!(".{file_name}{UPDATE_STATE_SUFFIX}"));
+
+    let bytes = match read_crate_bytes_bounded(source, MAX_ARTIFACT_BYTES) {
+        Ok(bytes) => bytes,
+        Err(error) => return Err(format!("error: update download failed: {error}")),
+    };
+    verify_sha256(&bytes, &candidate.meta.cksum)
+        .map_err(|error| format!("error: update verification failed: {error}"))?;
+
+    let mut staged = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&staging)
+        .map_err(|error| format!("error: create update staging file {}: {error}", staging.display()))?;
+    if let Err(error) = staged.write_all(&bytes).and_then(|_| staged.sync_all()) {
+        let _ = fs::remove_file(&staging);
+        return Err(format!("error: write update staging file {}: {error}", staging.display()));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Err(error) = fs::set_permissions(&staging, fs::Permissions::from_mode(active_meta.permissions().mode())) {
+            let _ = fs::remove_file(&staging);
+            return Err(format!("error: preserve executable permissions: {error}"));
+        }
+    }
+    drop(staged);
+
+    if let Err(error) = fs::copy(active, &rollback) {
+        let _ = fs::remove_file(&staging);
+        return Err(format!("error: retain rollback executable {}: {error}", rollback.display()));
+    }
+    if let Err(error) = sync_file(&rollback) {
+        let _ = fs::remove_file(&staging);
+        let _ = fs::remove_file(&rollback);
+        return Err(format!("error: sync rollback executable {}: {error}", rollback.display()));
+    }
+
+    let state_contents = format!(
+        "version={}\nchecksum={}\nactive={}\nrollback={}\nsignature={}\n",
+        candidate.meta.vers,
+        super::fetch::normalize_cksum(&candidate.meta.cksum),
+        active.display(),
+        rollback.display(),
+        UPDATE_SIGNATURE_STATUS,
+    );
+    if let Err(error) = write_atomic_state(&state, &state_contents, &nonce) {
+        let _ = fs::remove_file(&staging);
+        let _ = fs::remove_file(&rollback);
+        return Err(error);
+    }
+
+    if let Err(error) = fs::rename(&staging, active) {
+        let _ = fs::remove_file(&staging);
+        let _ = fs::remove_file(&rollback);
+        let _ = fs::remove_file(&state);
+        return Err(format!("error: atomic update activation failed: {error}"));
+    }
+    Ok(UpdateActivation {
+        version: candidate.meta.vers.clone(),
+        checksum: super::fetch::normalize_cksum(&candidate.meta.cksum),
+        signature: UPDATE_SIGNATURE_STATUS,
+        executable: active.to_path_buf(),
+        rollback,
+        state,
+    })
+}
+
+fn update_nonce() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0)
+        ^ u128::from(std::process::id())
+}
+
+fn sync_file(path: &Path) -> Result<(), String> {
+    fs::File::open(path)
+        .and_then(|file| file.sync_all())
+        .map_err(|error| format!("error: sync {}: {error}", path.display()))
+}
+
+fn write_atomic_state(path: &Path, contents: &str, nonce: &u128) -> Result<(), String> {
+    let tmp = path.with_file_name(format!("{}.tmp-{nonce}", path.file_name().unwrap().to_string_lossy()));
+    let result = (|| {
+        let mut file = OpenOptions::new().write(true).create_new(true).open(&tmp)
+            .map_err(|error| format!("error: create update state {}: {error}", tmp.display()))?;
+        file.write_all(contents.as_bytes()).and_then(|_| file.sync_all())
+            .map_err(|error| format!("error: write update state {}: {error}", tmp.display()))?;
+        fs::rename(&tmp, path)
+            .map_err(|error| format!("error: publish update state {}: {error}", path.display()))
+    })();
+    if result.is_err() { let _ = fs::remove_file(&tmp); }
+    result
 }
 
 /// Minimal, explicit upload contract used by U5.
@@ -1425,5 +1587,127 @@ mod unit {
             r#"[{"name":"demo","vers":"1.1.0","cksum":"bad","yanked":false,"targets":["linux-amd64"]}]"#,
         );
         assert!(bad.discover_update("demo", "1.0.0", "0.1.1", "linux-amd64").is_err());
+    }
+
+    fn activation_candidate(payload: &[u8], checksum: Option<&str>) -> UpdateCandidate {
+        UpdateCandidate {
+            meta: VersionMeta {
+                name: "aura".into(),
+                vers: "0.2.0".into(),
+                cksum: checksum
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| super::super::fetch::sha256_hex(payload)),
+                yanked: false,
+                repository: None,
+                targets: Some(vec!["linux-amd64".into()]),
+                min_aura: None,
+                max_aura: None,
+                revoked: false,
+                revoke_reason: None,
+            },
+            target: "linux-amd64".into(),
+            reason: "fixture update".into(),
+        }
+    }
+
+    fn activation_root(label: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "aura-u7-{label}-{}-{}",
+            std::process::id(),
+            update_nonce()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    #[test]
+    fn u7_filesystem_activation_is_verified_atomic_and_rollbackable() {
+        let root = activation_root("filesystem");
+        let active = root.join("aura");
+        let payload = b"new-aura-binary";
+        let source = root.join("download");
+        fs::write(&active, b"old-aura-binary").unwrap();
+        fs::write(&source, payload).unwrap();
+        let candidate = activation_candidate(payload, None);
+
+        let result = activate_update(&candidate, &source.display().to_string(), &active).unwrap();
+        assert_eq!(fs::read(&active).unwrap(), payload);
+        assert_eq!(fs::read(&result.rollback).unwrap(), b"old-aura-binary");
+        let state = fs::read_to_string(&result.state).unwrap();
+        assert!(state.contains("signature=deferred"));
+        assert!(state.contains("version=0.2.0"));
+        assert!(!root.join(".aura.aura-update-staging").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn u7_checksum_and_download_failures_leave_active_untouched() {
+        let root = activation_root("failure");
+        let active = root.join("aura");
+        fs::write(&active, b"old-aura-binary").unwrap();
+        let bad_source = root.join("bad-download");
+        fs::write(&bad_source, b"tampered").unwrap();
+        let bad_checksum = "0000000000000000000000000000000000000000000000000000000000000000";
+        let candidate = activation_candidate(b"expected", Some(bad_checksum));
+
+        let error = activate_update(&candidate, &bad_source.display().to_string(), &active).unwrap_err();
+        assert!(error.contains("verification failed"));
+        assert_eq!(fs::read(&active).unwrap(), b"old-aura-binary");
+        assert!(!root.join(".aura.aura-update-state").exists());
+
+        let error = activate_update(&candidate, &root.join("missing").display().to_string(), &active)
+            .unwrap_err();
+        assert!(error.contains("download failed"));
+        assert_eq!(fs::read(&active).unwrap(), b"old-aura-binary");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn u7_http_fixture_downloads_before_activation() {
+        let root = activation_root("http");
+        let active = root.join("aura");
+        let payload = b"http-aura-binary";
+        fs::write(&active, b"old-aura-binary").unwrap();
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let expected = payload.to_vec();
+        let handle = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0_u8; 4096];
+            let _ = stream.read(&mut request).unwrap();
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                expected.len()
+            )
+            .unwrap();
+            stream.write_all(&expected).unwrap();
+        });
+        let candidate = activation_candidate(payload, None);
+        let result = activate_update(
+            &candidate,
+            &format!("http://{address}/aura"),
+            &active,
+        )
+        .unwrap();
+        handle.join().unwrap();
+        assert_eq!(fs::read(&active).unwrap(), payload);
+        assert!(result.rollback.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn u7_rejects_non_file_active_path_without_mutation() {
+        let root = activation_root("permission");
+        let active = root.join("active-directory");
+        fs::create_dir(&active).unwrap();
+        let payload = b"new-aura-binary";
+        let source = root.join("download");
+        fs::write(&source, payload).unwrap();
+        let candidate = activation_candidate(payload, None);
+        let error = activate_update(&candidate, &source.display().to_string(), &active).unwrap_err();
+        assert!(error.contains("not a regular file"));
+        assert!(active.is_dir());
+        fs::remove_dir_all(root).unwrap();
     }
 }

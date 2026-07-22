@@ -13,7 +13,7 @@ use aura_diagnostics::{
 };
 use aura_sema::{check_file, SemaError, SemaErrors};
 use package::{
-    current_target, load_package, load_package_default, publish_dry_run, publish_package,
+    activate_update, current_target, load_package, load_package_default, publish_dry_run, publish_package,
     LoadedPackage, RegistryIndex, UpdateDecision, ENV_REGISTRY_TOKEN,
 };
 use std::env;
@@ -70,6 +70,7 @@ fn eprint_usage() {
            aura test [path] [--test-name <pattern>] [--format json] [-- args...]\n  \
            aura publish --dry-run [path]    Validate and preview without upload\n  \
            aura publish --registry <url> [path]  Validate and upload package\n  \
+           aura update ... --activate           Verify and atomically activate update\n  \
            aura fmt <path>                   Format an Aura source file\n  \
            aura emit-c [path]                Print generated C (debug)\n  \
            aura version                      Print CLI version\n  \
@@ -86,10 +87,12 @@ fn cmd_update(args: &[String]) -> ExitCode {
     let mut target = current_target();
     let mut registry = None;
     let mut json = false;
+    let mut activate = false;
+    let mut executable = None;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
-            "--package" | "--current" | "--target" | "--registry" => {
+            "--package" | "--current" | "--target" | "--registry" | "--executable" => {
                 let option = args[i].clone();
                 i += 1;
                 let Some(value) = args.get(i) else {
@@ -101,10 +104,12 @@ fn cmd_update(args: &[String]) -> ExitCode {
                     "--current" => current = Some(value.clone()),
                     "--target" => target = value.clone(),
                     "--registry" => registry = Some(value.clone()),
+                    "--executable" => executable = Some(PathBuf::from(value)),
                     _ => unreachable!(),
                 }
             }
             "--json" => json = true,
+            "--activate" => activate = true,
             option if option.starts_with('-') => {
                 eprintln!("error: unknown update option `{option}`");
                 return ExitCode::from(2);
@@ -142,6 +147,50 @@ fn cmd_update(args: &[String]) -> ExitCode {
             return ExitCode::from(1);
         }
     };
+    if activate {
+        let UpdateDecision::Update(candidate) = decision else {
+            eprintln!("error: --activate requires a compatible update candidate");
+            return ExitCode::from(1);
+        };
+        let active = match executable {
+            Some(path) => path,
+            None => match env::current_exe() {
+                Ok(path) => path,
+                Err(error) => {
+                    eprintln!("error: cannot locate active executable: {error}");
+                    return ExitCode::from(1);
+                }
+            },
+        };
+        let source = match index.update_source(&candidate) {
+            Ok(source) => source,
+            Err(error) => {
+                eprintln!("{error}");
+                return ExitCode::from(1);
+            }
+        };
+        return match activate_update(&candidate, &source, &active) {
+            Ok(result) => {
+                if json {
+                    println!("{}", result.render_json());
+                } else {
+                    println!(
+                        "[activated] {} -> {} (checksum {}, signature {}, rollback {})",
+                        current,
+                        result.version,
+                        result.checksum,
+                        result.signature,
+                        result.rollback.display()
+                    );
+                }
+                ExitCode::SUCCESS
+            }
+            Err(error) => {
+                eprintln!("{error}");
+                ExitCode::from(1)
+            }
+        };
+    }
     if json {
         println!("{}", decision.render_json());
     } else {

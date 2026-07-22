@@ -124,25 +124,40 @@ pub fn expand_dl_template(template: &str, meta: &VersionMeta) -> Result<String, 
 
 const HTTP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 const HTTP_ATTEMPTS: usize = 3;
+/// Maximum artifact size accepted by the bounded registry downloader.
+pub const MAX_ARTIFACT_BYTES: usize = 64 * 1024 * 1024;
 
 /// Read crate bytes from a local path, `file://`, or HTTP(S) URL.
 pub fn read_crate_bytes(source: &str) -> Result<Vec<u8>, String> {
+    read_crate_bytes_bounded(source, MAX_ARTIFACT_BYTES)
+}
+
+/// Read an artifact while enforcing a hard byte limit before it reaches the
+/// caller. This is used by self-update as well as package downloads so a
+/// malformed endpoint cannot grow an unbounded allocation.
+pub fn read_crate_bytes_bounded(source: &str, limit: usize) -> Result<Vec<u8>, String> {
     let source = source.trim();
     if source.starts_with("http://") || source.starts_with("https://") {
-        return read_http_bytes(source);
+        return read_http_bytes(source, limit);
     }
     let path = resolve_local_source(source)?;
+    let size = fs::metadata(&path)
+        .map_err(|e| format!("error: read crate {}: {e}", path.display()))?
+        .len();
+    if size > limit as u64 {
+        return Err(format!("error: artifact exceeds {limit} bytes: {}", path.display()));
+    }
     fs::read(&path).map_err(|e| format!("error: read crate {}: {e}", path.display()))
 }
 
-fn read_http_bytes(url: &str) -> Result<Vec<u8>, String> {
+fn read_http_bytes(url: &str, limit: usize) -> Result<Vec<u8>, String> {
     let token = env::var(ENV_REGISTRY_TOKEN)
         .ok()
         .filter(|token| !token.trim().is_empty());
-    read_http_bytes_with_token(url, token.as_deref())
+    read_http_bytes_with_token(url, token.as_deref(), limit)
 }
 
-fn read_http_bytes_with_token(url: &str, token: Option<&str>) -> Result<Vec<u8>, String> {
+fn read_http_bytes_with_token(url: &str, token: Option<&str>, limit: usize) -> Result<Vec<u8>, String> {
     let agent = ureq::AgentBuilder::new()
         .timeout_connect(HTTP_TIMEOUT)
         .timeout_read(HTTP_TIMEOUT)
@@ -159,9 +174,9 @@ fn read_http_bytes_with_token(url: &str, token: Option<&str>) -> Result<Vec<u8>,
         };
         match request.call() {
             Ok(response) => {
-                let mut bytes = Vec::new();
-                match response.into_reader().read_to_end(&mut bytes) {
-                    Ok(_) => return Ok(bytes),
+                let mut reader = response.into_reader();
+                match read_limited(&mut reader, limit) {
+                    Ok(bytes) => return Ok(bytes),
                     Err(error) if attempt + 1 < HTTP_ATTEMPTS => {
                         last_error = Some(error.to_string());
                     }
@@ -183,6 +198,23 @@ fn read_http_bytes_with_token(url: &str, token: Option<&str>) -> Result<Vec<u8>,
         "error: HTTPS download {url} failed after {HTTP_ATTEMPTS} attempts: {}",
         last_error.unwrap_or_else(|| "unknown transport error".into())
     ))
+}
+
+fn read_limited(reader: &mut dyn Read, limit: usize) -> Result<Vec<u8>, String> {
+    let mut bytes = Vec::new();
+    let mut chunk = [0_u8; 8192];
+    loop {
+        let count = reader
+            .read(&mut chunk)
+            .map_err(|error| format!("could not read artifact: {error}"))?;
+        if count == 0 {
+            return Ok(bytes);
+        }
+        if bytes.len().saturating_add(count) > limit {
+            return Err(format!("error: artifact exceeds {limit} bytes"));
+        }
+        bytes.extend_from_slice(&chunk[..count]);
+    }
 }
 
 fn resolve_local_source(source: &str) -> Result<PathBuf, String> {
