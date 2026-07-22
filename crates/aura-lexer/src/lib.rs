@@ -49,6 +49,16 @@ pub enum TokenKind {
     Where,
     /// C9i: `x is Type` type test.
     Is,
+    /// C22: asynchronous function declaration.
+    Async,
+    /// C22: suspend the current task until an operation completes.
+    Await,
+    /// C22: create and schedule a task.
+    Spawn,
+    /// C22: wait for a task handle's result.
+    Join,
+    /// C22: request cooperative cancellation of a task.
+    Cancel,
 
     Ident(String),
     Int(i64),
@@ -135,6 +145,11 @@ impl TokenKind {
                 | TokenKind::This
                 | TokenKind::Where
                 | TokenKind::Is
+                | TokenKind::Async
+                | TokenKind::Await
+                | TokenKind::Spawn
+                | TokenKind::Join
+                | TokenKind::Cancel
         )
     }
 }
@@ -456,6 +471,11 @@ impl<'a> Lexer<'a> {
             "this" => TokenKind::This,
             "where" => TokenKind::Where,
             "is" => TokenKind::Is,
+            "async" => TokenKind::Async,
+            "await" => TokenKind::Await,
+            "spawn" => TokenKind::Spawn,
+            "join" => TokenKind::Join,
+            "cancel" => TokenKind::Cancel,
             _ => TokenKind::Ident(text.to_string()),
         };
         Ok(Token {
@@ -519,5 +539,19 @@ fun main() {
         assert!(tokens.iter().any(|t| t.kind == TokenKind::Ne));
         assert!(tokens.iter().any(|t| t.kind == TokenKind::AndAnd));
         assert!(tokens.iter().any(|t| t.kind == TokenKind::OrOr));
+    }
+
+    #[test]
+    fn lexes_async_keywords_with_spans() {
+        let tokens = lex("async fun load() { await spawn join cancel }").expect("lex");
+        let kinds: Vec<_> = tokens.iter().map(|token| &token.kind).collect();
+        assert!(matches!(kinds[0], TokenKind::Async));
+        assert!(matches!(kinds[1], TokenKind::Fun));
+        assert!(matches!(kinds[6], TokenKind::Await));
+        assert!(matches!(kinds[7], TokenKind::Spawn));
+        assert!(matches!(kinds[8], TokenKind::Join));
+        assert!(matches!(kinds[9], TokenKind::Cancel));
+        assert_eq!(tokens[0].span, Span::new(0, 5));
+        assert_eq!(tokens[6].span, Span::new(19, 24));
     }
 }

@@ -180,6 +180,103 @@ pub struct FunDecl {
     pub span: Span,
 }
 
+/// C22 async function declaration.
+///
+/// This node is intentionally additive. The parser integration belongs to C22f;
+/// keeping the node separate here lets existing AST consumers remain exhaustive
+/// and compiling while the async surface is introduced incrementally.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AsyncFunDecl {
+    pub is_pub: bool,
+    pub origin_package: String,
+    pub is_test: bool,
+    pub name: Ident,
+    pub type_params: Vec<TypeParam>,
+    pub params: Vec<Param>,
+    pub return_type: Option<TypeRef>,
+    pub body: Block,
+    pub span: Span,
+}
+
+/// C22 task and channel operations. Each operation carries the complete source
+/// span so parser/sema diagnostics can point at the operation boundary.
+#[derive(Debug, Clone, PartialEq)]
+pub enum AsyncExpr {
+    Await(AwaitExpr),
+    Spawn(SpawnExpr),
+    Join(JoinExpr),
+    Cancel(CancelExpr),
+    ChannelCreate(ChannelCreateExpr),
+    ChannelSend(ChannelSendExpr),
+    ChannelReceive(ChannelReceiveExpr),
+    ChannelClose(ChannelCloseExpr),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AwaitExpr {
+    pub operand: Box<Expr>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SpawnExpr {
+    pub body: Block,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct JoinExpr {
+    pub handle: Box<Expr>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CancelExpr {
+    pub handle: Box<Expr>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ChannelCreateExpr {
+    pub element_type: TypeRef,
+    pub capacity: Box<Expr>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ChannelSendExpr {
+    pub channel: Box<Expr>,
+    pub value: Box<Expr>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ChannelReceiveExpr {
+    pub channel: Box<Expr>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ChannelCloseExpr {
+    pub channel: Box<Expr>,
+    pub span: Span,
+}
+
+impl AsyncExpr {
+    pub fn span(&self) -> Span {
+        match self {
+            Self::Await(expr) => expr.span,
+            Self::Spawn(expr) => expr.span,
+            Self::Join(expr) => expr.span,
+            Self::Cancel(expr) => expr.span,
+            Self::ChannelCreate(expr) => expr.span,
+            Self::ChannelSend(expr) => expr.span,
+            Self::ChannelReceive(expr) => expr.span,
+            Self::ChannelClose(expr) => expr.span,
+        }
+    }
+}
+
 /// Resolve declaring package for a top-level item.
 pub fn decl_package<'a>(origin: &'a str, file_package: &'a str) -> &'a str {
     if origin.is_empty() {

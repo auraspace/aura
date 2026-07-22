@@ -167,6 +167,70 @@ fn shift_fun(f: &mut FunDecl, delta: BytePos) {
     f.span = f.span.shift(delta);
 }
 
+impl AsyncFunDecl {
+    /// Shift all source locations in this async declaration.
+    pub fn shift_spans(&mut self, delta: BytePos) {
+        shift_async_fun(self, delta);
+    }
+}
+
+fn shift_async_fun(f: &mut AsyncFunDecl, delta: BytePos) {
+    shift_ident(&mut f.name, delta);
+    for tp in &mut f.type_params {
+        shift_type_param(tp, delta);
+    }
+    for p in &mut f.params {
+        shift_param(p, delta);
+    }
+    if let Some(rt) = &mut f.return_type {
+        shift_type_ref(rt, delta);
+    }
+    shift_block(&mut f.body, delta);
+    f.span = f.span.shift(delta);
+}
+
+impl AsyncExpr {
+    /// Shift all source locations in this async/task operation.
+    pub fn shift_spans(&mut self, delta: BytePos) {
+        match self {
+            AsyncExpr::Await(a) => {
+                shift_expr(&mut a.operand, delta);
+                a.span = a.span.shift(delta);
+            }
+            AsyncExpr::Spawn(s) => {
+                shift_block(&mut s.body, delta);
+                s.span = s.span.shift(delta);
+            }
+            AsyncExpr::Join(j) => {
+                shift_expr(&mut j.handle, delta);
+                j.span = j.span.shift(delta);
+            }
+            AsyncExpr::Cancel(c) => {
+                shift_expr(&mut c.handle, delta);
+                c.span = c.span.shift(delta);
+            }
+            AsyncExpr::ChannelCreate(c) => {
+                shift_type_ref(&mut c.element_type, delta);
+                shift_expr(&mut c.capacity, delta);
+                c.span = c.span.shift(delta);
+            }
+            AsyncExpr::ChannelSend(s) => {
+                shift_expr(&mut s.channel, delta);
+                shift_expr(&mut s.value, delta);
+                s.span = s.span.shift(delta);
+            }
+            AsyncExpr::ChannelReceive(r) => {
+                shift_expr(&mut r.channel, delta);
+                r.span = r.span.shift(delta);
+            }
+            AsyncExpr::ChannelClose(c) => {
+                shift_expr(&mut c.channel, delta);
+                c.span = c.span.shift(delta);
+            }
+        }
+    }
+}
+
 fn shift_block(b: &mut Block, delta: BytePos) {
     for s in &mut b.stmts {
         shift_stmt(s, delta);
