@@ -38,7 +38,7 @@ Each task should land as one focused commit. Agents must use disjoint write sets
 
 **Description:** Freeze task-result/handle behavior, bounded channels, ordering, close, failure, and cancellation outcomes.
 
-- [ ] Ownership crossing task/channel boundaries and FIFO/capacity rules are explicit.
+- [x] Ownership crossing task/channel boundaries and FIFO/capacity rules are explicit.
       **Verification:** Add focused tests/checks for this task; preserve all existing regressions.
       **Dependencies:** C22a
       **Write set:** `docs/rfc/RFC-003-memory-model-concurrency.md; docs/rfc/RFC-007-standard-library.md`

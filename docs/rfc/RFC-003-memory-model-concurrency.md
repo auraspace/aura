@@ -174,6 +174,25 @@ fun main() {
 | Cancellation           | Cooperative; a cancelled task observes cancellation at suspension/check points and completes with a cancellation outcome |
 | Structured concurrency | **Encouraged** via `taskScope`; global `spawn` is allowed but remains explicitly unstructured and lintable               |
 
+#### 6.5.1 Task and handle contract
+
+For C22, calling an `async fun` creates a lazy `Task<T>` computation. `spawn`
+registers that computation with the single-threaded executor and returns a
+GC-managed `TaskHandle<T>`. A handle may be retained, passed, and joined more
+than once; every join after completion observes the cached outcome.
+
+| Operation        | Contract                                                                                                                                             |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `spawn(task)`    | Enqueue the task exactly once and return its handle; enqueue order is FIFO.                                                                          |
+| `join(handle)`   | Cooperatively suspend until completion, then return `Ok(T)`, `Err(TaskError.Failed(error))`, or `Err(TaskError.Cancelled)`.                          |
+| `cancel(handle)` | Idempotently request cancellation; the task observes it at an await/check point. It does not forcibly interrupt synchronous code.                    |
+| task failure     | Captured by the task and surfaced by `join`; it does not terminate the executor or implicitly close unrelated channels.                              |
+| completed handle | Retains only the result/error state required for future joins; destruction is exactly once and may be triggered by GC after handles are unreachable. |
+
+`Task<T>` and `TaskHandle<T>` are distinct: the former is a computation, the
+latter is the scheduled identity used by `join` and `cancel`. C22 has no
+preemptive cancellation, OS-thread affinity, or implicit auto-restart.
+
 ### 6.6 Shared-state concurrency
 
 **Primitives (stdlib):**
@@ -188,6 +207,22 @@ fun main() {
 **Default style:** share-memory-by-communicating when practical; locks when needed.
 
 There is **no** borrow-based `Send`/`Sync` enforcement. Documentation and optional attributes may mark thread-hostile types. Race detector covers misuse.
+
+#### 6.6.1 Bounded channel contract (C22)
+
+`Channel<T>(capacity)` is a single-producer/multi-producer-safe-by-contract
+message queue for the MVP executor, with `capacity` strictly greater than zero.
+The queue is FIFO for successfully sent values. `send(value)` suspends the
+current task while the queue is full; `receive()` suspends while it is empty.
+Waiting senders and receivers are resumed in FIFO wait-queue order.
+
+`close()` is idempotent. After close, no new value can be sent. Receivers drain
+already queued values in FIFO order and then receive `Closed`; a sender that
+observes a closed channel receives `Closed` and its payload is destroyed or
+released according to normal GC/value rules. Cancellation removes a waiting
+operation without reordering other waiters. A channel owns or retains queued
+payloads until delivery, drain, or close cleanup; a C21 `ref T` is never a
+legal payload across this boundary.
 
 ### 6.7 Memory consistency model
 

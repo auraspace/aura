@@ -80,8 +80,8 @@ Compiler MVP needs types to lower; users need I/O and collections for non-toy pr
 | `std.http`             | **Deferred** as full client/server; ecosystem packages first. Net primitives stay in `std.net`                 |
 | `std.json`             | Parse/serialize                                                                                                |
 | `std.log`              | Structured levels                                                                                              |
-| `std.sync`             | Mutex, RwLock, Channel, Atomic, Once                                                                           |
-| `std.task`             | spawn, scope, sleep (thin over runtime)                                                                        |
+| `std.sync`             | Mutex, RwLock, bounded `Channel<T>`, Atomic, Once                                                              |
+| `std.task`             | `Task<T>`, `TaskHandle<T>`, spawn, join, cancel, scope, sleep (thin over runtime)                              |
 | `std.time`             | Instant, Duration, clock                                                                                       |
 | `std.crypto`           | Hash (SHA-2), HMAC, random; TLS via well-scoped API                                                            |
 | `std.encoding`         | Base64, hex, UTF-8                                                                                             |
@@ -159,11 +159,28 @@ entry escape, and collection/element reclamation.
 ### 6.4 Concurrency surface
 
 ```aura
-val ch = Channel<Int>()
-spawn { ch.send(1) }
-val v = ch.receive()
+val ch = Channel<Int>(capacity: 2)
+val handle = spawn { ch.send(1) }
+val v = ch.receive()              // FIFO; suspends if empty
+val outcome = join(handle)        // Ok(Unit), Failed(error), or Cancelled
+cancel(handle)                    // idempotent cooperative request
+ch.close()                        // queued values drain; future sends close
 Mutex.withLock(mu) { /* ... */ }
 ```
+
+#### 6.4.1 C22 task/channel API contract
+
+`std.task` exposes the task operations from RFC-003. `async fun f(...): T`
+produces `Task<T>`; `spawn` returns `TaskHandle<T>`. `join` is repeatable and
+returns a typed task outcome. `cancel` is cooperative and has no preemptive
+or OS-thread behavior.
+
+`Channel<T>(capacity: Int)` is bounded and requires `capacity > 0`. `send`
+suspends when full, `receive` suspends when empty, and both use FIFO wait
+queues. `close` is idempotent; queued values remain observable before a final
+`Closed` outcome, while sends after close return `Closed`. Task/channel payloads
+must be owned values or GC-managed references; scoped `ref` values cannot be
+stored, sent, or retained by a task or channel.
 
 ### 6.5 I/O & net
 
@@ -224,7 +241,7 @@ fun main() {
 | 2   | List naming: List vs Vec      | `List` + growable `Vec` or single type | Stdlib | **Resolved** — single growable `List<T>`; keep builtin `Array<T>`; no `Vec` |
 | 3   | Password hash in std?         | no                                     | Stdlib | **Resolved** — ecosystem                                                    |
 | 4   | Prelude size                  | small                                  | Stdlib | **Resolved** — minimal prelude                                              |
-| 5   | Default collection traversal  | snapshot or live                        | Stdlib | **Resolved** — snapshots by default; live views require a named contract   |
+| 5   | Default collection traversal  | snapshot or live                       | Stdlib | **Resolved** — snapshots by default; live views require a named contract    |
 
 ## 8. Rationale & trade-offs
 
@@ -264,12 +281,12 @@ Go-like pragmatic breadth without framework lock-in. Async-first net matches run
 
 ## Changelog
 
-| Date       | Author | Change                                                                                |
-| ---------- | ------ | ------------------------------------------------------------------------------------- |
-| 2026-07-16 |        | Lock `List<T>` naming; Status → **Accepted**                                          |
-| 2026-07-16 |        | Status → **In Review** — Review: package map locked; most packages still sketch-level |
-| 2026-07-16 |        | Note shipped std.io / std.assert + Array MVP                                          |
+| Date       | Author | Change                                                                                        |
+| ---------- | ------ | --------------------------------------------------------------------------------------------- |
+| 2026-07-16 |        | Lock `List<T>` naming; Status → **Accepted**                                                  |
+| 2026-07-16 |        | Status → **In Review** — Review: package map locked; most packages still sketch-level         |
+| 2026-07-16 |        | Note shipped std.io / std.assert + Array MVP                                                  |
 | 2026-07-22 |        | Define snapshot/live collection view, entry lifetime, invalidation, aliasing, and GC contract |
-| 2026-07-15 |        | Initial skeleton                                                                      |
-| 2026-07-15 |        | Solid draft: package map, core-only scope                                             |
-| 2026-07-15 |        | Defer std.http; lock small prelude, no password hash                                  |
+| 2026-07-15 |        | Initial skeleton                                                                              |
+| 2026-07-15 |        | Solid draft: package map, core-only scope                                                     |
+| 2026-07-15 |        | Defer std.http; lock small prelude, no password hash                                          |
