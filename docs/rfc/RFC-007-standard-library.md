@@ -8,7 +8,7 @@
 | **Layer**    | Runtime                            |
 | **Authors**  |                                    |
 | **Created**  | 2026-07-15                         |
-| **Updated**  | 2026-07-16                         |
+| **Updated**  | 2026-07-22                         |
 | **Estimate** | 40–80 pages                        |
 | **Depends**  | RFC-001, RFC-002, RFC-003, RFC-006 |
 | **Blocks**   | RFC-011                            |
@@ -108,6 +108,54 @@ m.put("a", 1)
 - Iteration via `Iterable` interface.
 - **Naming:** one growable `List<T>` in `std.collections`; language builtin `Array<T>` stays for dense buffers. No separate `Vec` type.
 
+#### 6.3.1 Collection views and iterators
+
+Collection traversal has two explicit families: **snapshots** and **live
+views**. APIs must name which family they return; callers must not infer
+mutation or lifetime behavior from a generic `Iterable<T>` alone.
+
+- Snapshot APIs copy the logical key/value or element sequence at creation.
+  They are stable while the source is mutated, including insertion, removal,
+  clear, and hash-table rehash. Snapshot order is the source's documented
+  logical order at creation time; it is not a promise about future source
+  order.
+- Live iterators/views are opt-in and remain attached to the source. They
+  observe only mutations made after their documented position; an API must
+  specify whether an insertion before, at, or after that position is visible.
+  Until such rules are implemented and tested, collection APIs must expose
+  snapshots only.
+- A mutation that invalidates a live cursor must be detected. The permitted
+  outcomes are a typed invalidation error or a terminal iterator state;
+  silently dereferencing a stale bucket, array slot, or entry is forbidden.
+  Rehash, remove, clear, and capacity-changing insertion are invalidating
+  mutations by default.
+- An entry view is a handle to one map entry, not an owned key/value pair.
+  Its lifetime is bounded by the iterator/view borrow and it must not outlive
+  the source collection or the validity epoch of the cursor. `key` is
+  read-only. `value` may be read or assigned only through an explicitly
+  mutable entry API, and removal invalidates that entry.
+- Entry handles and live iterators must not permit aliases that can make the
+  collection representation inconsistent. Structural mutation through a live
+  entry is disallowed while that entry is borrowed; mutation APIs must either
+  require exclusive access or return an invalidation result. Snapshot entries
+  have no alias to the source and may be retained freely.
+- Snapshots retain their element values according to normal Aura value/GC
+  rules. A live view retains the source collection for the duration of its
+  handle, and entry values remain GC-visible through the source/view roots.
+  Dropping a view releases that retention; it must never free storage still
+  owned by the source collection. Public APIs must not expose raw bucket or
+  backing-array pointers.
+- `for-in` over a collection uses the collection's default traversal mode.
+  The default is snapshot traversal for mutation safety and deterministic
+  lifetime. A future live traversal must use a distinct constructor or
+  explicitly named API, with documented invalidation and ownership rules.
+
+The minimum contract for each future collection view API documents: source
+retention, element/entry lifetime, order, visibility of each mutation class,
+invalidation behavior, aliasing restrictions, and GC ownership. No API is
+considered stable until it has corpus coverage for mutation, rehash, clear,
+entry escape, and collection/element reclamation.
+
 ### 6.4 Concurrency surface
 
 ```aura
@@ -176,6 +224,7 @@ fun main() {
 | 2   | List naming: List vs Vec      | `List` + growable `Vec` or single type | Stdlib | **Resolved** — single growable `List<T>`; keep builtin `Array<T>`; no `Vec` |
 | 3   | Password hash in std?         | no                                     | Stdlib | **Resolved** — ecosystem                                                    |
 | 4   | Prelude size                  | small                                  | Stdlib | **Resolved** — minimal prelude                                              |
+| 5   | Default collection traversal  | snapshot or live                        | Stdlib | **Resolved** — snapshots by default; live views require a named contract   |
 
 ## 8. Rationale & trade-offs
 
@@ -186,6 +235,8 @@ Go-like pragmatic breadth without framework lock-in. Async-first net matches run
 - Full API reference site
 - Capability-based FS/net permissions (sandbox)
 - SIMD / performance utilities
+- Live collection iterators and mutable entry views, pending borrow/lifetime
+  rules and compiler/runtime support
 
 ## 10. Security & safety considerations
 
@@ -217,6 +268,7 @@ Go-like pragmatic breadth without framework lock-in. Async-first net matches run
 | 2026-07-16 |        | Lock `List<T>` naming; Status → **Accepted**                                          |
 | 2026-07-16 |        | Status → **In Review** — Review: package map locked; most packages still sketch-level |
 | 2026-07-16 |        | Note shipped std.io / std.assert + Array MVP                                          |
+| 2026-07-22 |        | Define snapshot/live collection view, entry lifetime, invalidation, aliasing, and GC contract |
 | 2026-07-15 |        | Initial skeleton                                                                      |
 | 2026-07-15 |        | Solid draft: package map, core-only scope                                             |
 | 2026-07-15 |        | Defer std.http; lock small prelude, no password hash                                  |
