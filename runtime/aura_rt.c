@@ -1517,6 +1517,15 @@ typedef void (*AuraTaskResultDestroyFn)(void *data, size_t size);
 typedef AuraTaskPollState (*AuraTaskPollFn)(AuraTaskFrame *frame);
 typedef void (*AuraTaskFrameDestroyFn)(AuraTaskFrame *frame);
 
+typedef enum
+{
+  AURA_TASK_OWNED = 0,
+  AURA_TASK_BORROWED = 1,
+  AURA_TASK_PINNED = 2,
+  AURA_TASK_SHARED = 3,
+  AURA_TASK_TRANSFERRED = 4
+} AuraTaskOwnership;
+
 /* C22m: callback used for the currently supported `spawn {}` unit slice.
  * Non-empty spawned bodies still require the C22l suspension/capture lowering. */
 AuraTaskPollState aura_task_poll_unit(AuraTaskFrame *frame)
@@ -1536,6 +1545,8 @@ typedef struct
   void *data;
   size_t size;
   AuraTaskResultDestroyFn destroy;
+  AuraTaskOwnership ownership;
+  int rooted;
 } AuraTaskFrameStorage;
 
 struct AuraTaskFrame
@@ -1547,10 +1558,12 @@ struct AuraTaskFrame
   size_t data_size;
   AuraTaskResult result;
   AuraTaskResultDestroyFn result_destroy;
+  int result_rooted;
   AuraTaskFrameStorage captures;
   AuraTaskFrameStorage pending;
   AuraTaskResult error;
   AuraTaskResultDestroyFn error_destroy;
+  int error_rooted;
   uint32_t resume_state;
   AuraTaskPollState state;
   int cancel_requested;
@@ -1623,8 +1636,45 @@ void aura_task_frame_set_resume_state(AuraTaskFrame *frame, uint32_t state)
 
 AuraTaskFrameStorage aura_task_frame_captures(const AuraTaskFrame *frame)
 {
-  AuraTaskFrameStorage empty = {NULL, 0, NULL};
+  AuraTaskFrameStorage empty = {NULL, 0, NULL, AURA_TASK_OWNED, 0};
   return frame != NULL ? frame->captures : empty;
+}
+
+static void aura_task_frame_storage_release(AuraTaskFrameStorage *storage)
+{
+  if (storage == NULL)
+  {
+    return;
+  }
+  if (storage->rooted)
+  {
+    aura_gc_remove_root(&storage->data);
+  }
+  if (storage->destroy != NULL && storage->data != NULL)
+  {
+    storage->destroy(storage->data, storage->size);
+  }
+  *storage = (AuraTaskFrameStorage){NULL, 0, NULL, AURA_TASK_OWNED, 0};
+}
+
+static int aura_task_frame_storage_set(AuraTaskFrameStorage *storage,
+                                       void *data,
+                                       size_t size,
+                                       AuraTaskResultDestroyFn destroy,
+                                       AuraTaskOwnership ownership)
+{
+  if (storage == NULL || ownership == AURA_TASK_BORROWED)
+  {
+    return 0;
+  }
+  aura_task_frame_storage_release(storage);
+  *storage = (AuraTaskFrameStorage){data, size, destroy, ownership, 0};
+  if (data != NULL)
+  {
+    aura_gc_add_root(&storage->data);
+    storage->rooted = 1;
+  }
+  return 1;
 }
 
 void aura_task_frame_set_captures(AuraTaskFrame *frame,
@@ -1632,20 +1682,27 @@ void aura_task_frame_set_captures(AuraTaskFrame *frame,
                                   size_t size,
                                   AuraTaskResultDestroyFn destroy)
 {
-  if (frame == NULL)
+  if (frame != NULL)
   {
-    return;
+    (void)aura_task_frame_storage_set(
+        &frame->captures, data, size, destroy, AURA_TASK_OWNED);
   }
-  if (frame->captures.destroy != NULL && frame->captures.data != NULL)
-  {
-    frame->captures.destroy(frame->captures.data, frame->captures.size);
-  }
-  frame->captures = (AuraTaskFrameStorage){data, size, destroy};
+}
+
+int aura_task_frame_set_captures_with_ownership(AuraTaskFrame *frame,
+                                                void *data,
+                                                size_t size,
+                                                AuraTaskResultDestroyFn destroy,
+                                                AuraTaskOwnership ownership)
+{
+  return frame != NULL ? aura_task_frame_storage_set(
+                             &frame->captures, data, size, destroy, ownership)
+                       : 0;
 }
 
 AuraTaskFrameStorage aura_task_frame_pending(const AuraTaskFrame *frame)
 {
-  AuraTaskFrameStorage empty = {NULL, 0, NULL};
+  AuraTaskFrameStorage empty = {NULL, 0, NULL, AURA_TASK_OWNED, 0};
   return frame != NULL ? frame->pending : empty;
 }
 
@@ -1654,19 +1711,43 @@ void aura_task_frame_set_pending(AuraTaskFrame *frame,
                                  size_t size,
                                  AuraTaskResultDestroyFn destroy)
 {
-  if (frame == NULL)
+  if (frame != NULL)
   {
-    return;
+    (void)aura_task_frame_storage_set(
+        &frame->pending, data, size, destroy, AURA_TASK_TRANSFERRED);
+    if (data != NULL)
+    {
+      frame->state = AURA_TASK_PENDING;
+    }
   }
-  if (frame->pending.destroy != NULL && frame->pending.data != NULL)
+}
+
+int aura_task_frame_set_pending_with_ownership(AuraTaskFrame *frame,
+                                               void *data,
+                                               size_t size,
+                                               AuraTaskResultDestroyFn destroy,
+                                               AuraTaskOwnership ownership)
+{
+  if (frame == NULL || !aura_task_frame_storage_set(
+                           &frame->pending, data, size, destroy, ownership))
   {
-    frame->pending.destroy(frame->pending.data, frame->pending.size);
+    return 0;
   }
-  frame->pending = (AuraTaskFrameStorage){data, size, destroy};
   if (data != NULL)
   {
     frame->state = AURA_TASK_PENDING;
   }
+  return 1;
+}
+
+AuraTaskOwnership aura_task_frame_capture_ownership(const AuraTaskFrame *frame)
+{
+  return frame != NULL ? frame->captures.ownership : AURA_TASK_BORROWED;
+}
+
+AuraTaskOwnership aura_task_frame_pending_ownership(const AuraTaskFrame *frame)
+{
+  return frame != NULL ? frame->pending.ownership : AURA_TASK_BORROWED;
 }
 
 AuraTaskResult aura_task_frame_error(const AuraTaskFrame *frame)
@@ -1688,8 +1769,18 @@ void aura_task_frame_set_error(AuraTaskFrame *frame,
   {
     frame->error_destroy(frame->error.data, frame->error.size);
   }
+  if (frame->error_rooted)
+  {
+    aura_gc_remove_root(&frame->error.data);
+    frame->error_rooted = 0;
+  }
   frame->error = (AuraTaskResult){data, size};
   frame->error_destroy = destroy;
+  if (data != NULL)
+  {
+    aura_gc_add_root(&frame->error.data);
+    frame->error_rooted = 1;
+  }
   if (data != NULL)
   {
     frame->state = AURA_TASK_FAILED;
@@ -1709,9 +1800,19 @@ void aura_task_frame_set_result(AuraTaskFrame *frame,
   {
     frame->result_destroy(frame->result.data, frame->result.size);
   }
+  if (frame->result_rooted)
+  {
+    aura_gc_remove_root(&frame->result.data);
+    frame->result_rooted = 0;
+  }
   frame->result.data = data;
   frame->result.size = size;
   frame->result_destroy = destroy;
+  if (data != NULL)
+  {
+    aura_gc_add_root(&frame->result.data);
+    frame->result_rooted = 1;
+  }
 }
 
 AuraTaskResult aura_task_frame_result(const AuraTaskFrame *frame)
@@ -1734,17 +1835,19 @@ void aura_task_frame_destroy(AuraTaskFrame *frame)
   {
     frame->result_destroy(frame->result.data, frame->result.size);
   }
-  if (frame->captures.destroy != NULL && frame->captures.data != NULL)
+  if (frame->result_rooted)
   {
-    frame->captures.destroy(frame->captures.data, frame->captures.size);
+    aura_gc_remove_root(&frame->result.data);
   }
-  if (frame->pending.destroy != NULL && frame->pending.data != NULL)
-  {
-    frame->pending.destroy(frame->pending.data, frame->pending.size);
-  }
+  aura_task_frame_storage_release(&frame->captures);
+  aura_task_frame_storage_release(&frame->pending);
   if (frame->error_destroy != NULL && frame->error.data != NULL)
   {
     frame->error_destroy(frame->error.data, frame->error.size);
+  }
+  if (frame->error_rooted)
+  {
+    aura_gc_remove_root(&frame->error.data);
   }
   free(frame->data);
   free(frame);

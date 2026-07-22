@@ -61,12 +61,18 @@ completion fixtures.
 
 **Objective:** Prevent invalid values from crossing suspension or task boundaries.
 
+**Implementation status:** Complete for the current compiler/runtime boundary.
+The sema pass rejects borrowed values across await/spawn/channel boundaries;
+runtime frame storage classifies owned, borrowed, pinned, shared, and
+transferred values, roots non-borrowed storage while suspended, and releases
+its root and destructor exactly once.
+
 **Checklist:**
 
-- [ ] Classify values as owned, borrowed, pinned, shared, or transferred.
-- [ ] Define root/mark/drop behavior for locals, captures, results, and payloads.
-- [ ] Reject borrowed values that outlive their legal scope.
-- [ ] Define foreign-pointer and external-resource treatment.
+- [x] Classify values as owned, borrowed, pinned, shared, or transferred.
+- [x] Define root/mark/drop behavior for locals, captures, results, and payloads.
+- [x] Reject borrowed values that outlive their legal scope.
+- [x] Define foreign-pointer and external-resource treatment.
 
 **Acceptance:** No unrooted or borrowed value survives await, spawn, channel
 send, returned task, or callback boundaries.

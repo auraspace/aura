@@ -37,6 +37,8 @@ int main(void)
   assert(capture != NULL && pending != NULL && error != NULL);
   aura_task_frame_set_captures(frame, capture, sizeof(*capture), drop);
   aura_task_frame_set_pending(frame, pending, sizeof(*pending), drop);
+  assert(aura_task_frame_capture_ownership(frame) == AURA_TASK_OWNED);
+  assert(aura_task_frame_pending_ownership(frame) == AURA_TASK_TRANSFERRED);
   assert(aura_task_frame_captures(frame).data == capture);
   assert(aura_task_frame_pending(frame).data == pending);
   assert(aura_task_frame_state(frame) == AURA_TASK_PENDING);
@@ -44,6 +46,11 @@ int main(void)
   aura_task_frame_set_error(frame, error, sizeof(*error), drop);
   assert(aura_task_frame_error(frame).data == error);
   assert(aura_task_frame_state(frame) == AURA_TASK_FAILED);
+  int *borrowed = malloc(sizeof(*borrowed));
+  assert(borrowed != NULL);
+  assert(!aura_task_frame_set_captures_with_ownership(
+      frame, borrowed, sizeof(*borrowed), drop, AURA_TASK_BORROWED));
+  free(borrowed);
   aura_task_frame_destroy(frame);
   assert(drops == 3);
 
