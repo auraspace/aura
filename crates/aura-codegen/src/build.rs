@@ -870,6 +870,34 @@ fun main() {}
     }
 
     #[test]
+    fn builds_and_runs_bounded_class_parameter_capture() {
+        let file = aura_parser::parse_file(
+            "package demo\nclass Box(val value: Int) {}\nfun report(box: Box) { if (box.value == 73) { println(\"captured class\") } }\nfun launch(box: Box) { val task = spawn { report(box) } join(task) }\nfun main() { launch(Box(73)) }\n",
+        )
+        .expect("parse class capture spawn");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-bounded-class-capture-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile class capture spawn");
+        let generated = fs::read_to_string(&generated_c).expect("read generated class capture C");
+        assert!(generated.contains("aura_gc_add_root((void **)&__spawn_data->box);"));
+        assert!(generated.contains("aura_gc_remove_root((void **)&data->box);"));
+        let output = Command::new(&bin)
+            .output()
+            .expect("run class capture spawn");
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "captured class\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn moves_string_ownership_across_nested_assignment() {
         let file = aura_parser::parse_file(
             r#"package demo

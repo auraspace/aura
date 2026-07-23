@@ -990,7 +990,7 @@ fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile, detector:
 
     let mut emitted = std::collections::HashSet::new();
     for (spawn, available) in spawns {
-        let Some(captures) = bounded_spawn_captures(&spawn.body, &available) else {
+        let Some(captures) = bounded_spawn_captures(&spawn.body, &available, checked) else {
             continue;
         };
         if spawn.body.stmts.is_empty() || !emitted.insert(spawn.span.start) {
@@ -1021,6 +1021,12 @@ fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile, detector:
                     let _ = writeln!(
                         out,
                         "  if (data != NULL && data->{n} != NULL) aura_box_str_release(data->{n});"
+                    );
+                } else if is_heap_class_mono(key, checked) {
+                    let n = mangle_ident(name);
+                    let _ = writeln!(
+                        out,
+                        "  if (data != NULL && data->{n} != NULL) aura_gc_remove_root((void **)&data->{n});"
                     );
                 }
             }

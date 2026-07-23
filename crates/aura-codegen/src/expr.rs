@@ -400,12 +400,13 @@ fn foreign_decl_package(foreign: &ForeignDecl, checked: &CheckedFile) -> String 
 }
 
 /// Bounded C22l lowering: a spawn body may contain only calls with literal
-/// arguments, or copied `Int`/`String` parameters from the enclosing function,
-/// and an optional unit return. String captures are copied into owned boxes by
-/// the frame emitter.
+/// arguments, or copied `Int`/`String`/heap-class parameters from the enclosing
+/// function, and an optional unit return. String captures are copied into
+/// owned boxes and class captures are rooted by the frame emitter.
 pub(crate) fn bounded_spawn_captures(
     body: &Block,
     available: &HashMap<String, String>,
+    checked: &CheckedFile,
 ) -> Option<Vec<(String, String)>> {
     let mut returned = false;
     let mut captures = BTreeSet::new();
@@ -419,7 +420,8 @@ pub(crate) fn bounded_spawn_captures(
                     && call
                         .args
                         .iter()
-                        .all(|arg| bounded_spawn_value(arg, available, &mut captures)) => {}
+                        .all(|arg| bounded_spawn_value(arg, available, &mut captures, checked)) => {
+            }
             Stmt::Return(ret) if ret.value.is_none() => returned = true,
             _ => return None,
         }
@@ -436,13 +438,14 @@ fn bounded_spawn_value(
     expr: &Expr,
     available: &HashMap<String, String>,
     captures: &mut BTreeSet<String>,
+    checked: &CheckedFile,
 ) -> bool {
     match expr {
         Expr::Int(_) | Expr::Bool(_) | Expr::String(_) | Expr::Null(_) => true,
         Expr::Ident(id) => {
             if available
                 .get(&id.name)
-                .is_some_and(|ty| ty == "Int" || ty == "String")
+                .is_some_and(|ty| ty == "Int" || ty == "String" || is_heap_class_mono(ty, checked))
             {
                 captures.insert(id.name.clone());
                 true
@@ -450,11 +453,11 @@ fn bounded_spawn_value(
                 false
             }
         }
-        Expr::Group(inner, _) => bounded_spawn_value(inner, available, captures),
-        Expr::Unary(unary) => bounded_spawn_value(&unary.expr, available, captures),
+        Expr::Group(inner, _) => bounded_spawn_value(inner, available, captures, checked),
+        Expr::Unary(unary) => bounded_spawn_value(&unary.expr, available, captures, checked),
         Expr::Binary(binary) => {
-            bounded_spawn_value(&binary.left, available, captures)
-                && bounded_spawn_value(&binary.right, available, captures)
+            bounded_spawn_value(&binary.left, available, captures, checked)
+                && bounded_spawn_value(&binary.right, available, captures, checked)
         }
         _ => false,
     }
@@ -1038,7 +1041,7 @@ fn emit_async_expr(expr: &AsyncExpr, ctx: &mut EmitCtx<'_>) -> String {
                 return format!("({{ AuraTaskFrame *__spawn = aura_task_frame_new(0, aura_task_poll_unit, NULL); if (__spawn != NULL) aura_task_frame_set_race_source_id(__spawn, UINT32_C({source})); if (__spawn != NULL && (__aura_task_executor == NULL || !aura_task_executor_submit(__aura_task_executor, __spawn))) {{ aura_task_frame_destroy(__spawn); __spawn = NULL; }} __spawn; }})");
             }
             let available = ctx.spawn_capture_types();
-            let Some(captures) = bounded_spawn_captures(&s.body, &available) else {
+            let Some(captures) = bounded_spawn_captures(&s.body, &available, ctx.checked) else {
                 return "({ fputs(\"aura: non-empty spawn body requires C22l state-machine lowering\\n\", stderr); abort(); (AuraTaskFrame *)NULL; })".to_string();
             };
             let poll = bounded_spawn_poll_name(s.span);
@@ -1057,6 +1060,8 @@ fn emit_async_expr(expr: &AsyncExpr, ctx: &mut EmitCtx<'_>) -> String {
                         let n = mangle_ident(name);
                         if key == "String" {
                             format!("__spawn_data->{n} = aura_box_str_new({n});")
+                        } else if is_heap_class_mono(key, ctx.checked) {
+                            format!("__spawn_data->{n} = {n}; aura_gc_add_root((void **)&__spawn_data->{n});")
                         } else {
                             format!("__spawn_data->{n} = {n};")
                         }
