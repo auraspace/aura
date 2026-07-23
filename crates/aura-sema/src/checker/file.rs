@@ -99,9 +99,31 @@ impl Checker {
             .return_type
             .as_ref()
             .map_or(Ok(Ty::Unit), |t| self.type_from_ref(t));
+        // FFI-001/FFI-002: the language does not yet have a typed foreign
+        // handle value.  Keep that absence fail-closed: runtime-owned task,
+        // channel, and handle values must never be smuggled through a C ABI
+        // and then retained across an Aura async boundary.  Primitive values
+        // (including copied String values) are the only boundary proven by
+        // the compiler today.
         let supported_ty = |ty: &Ty| matches!(ty, Ty::Int | Ty::Bool | Ty::String | Ty::Unit);
+        fn foreign_handle_kind(ty: &Ty) -> Option<&'static str> {
+            match ty {
+                Ty::Task(_) => Some("Task"),
+                Ty::TaskHandle(_) => Some("TaskHandle"),
+                Ty::Channel(_) => Some("Channel"),
+                Ty::Nullable(inner) => foreign_handle_kind(inner),
+                _ => None,
+            }
+        }
         if let Ok(params) = params {
-            if params.iter().any(|ty| !supported_ty(ty)) {
+            if let Some(kind) = params.iter().find_map(foreign_handle_kind) {
+                self.errors.push(SemaError {
+                    message: format!(
+                        "[AURA-F4-BOUNDARY] foreign parameter cannot expose runtime-owned `{kind}`; typed foreign handles are rejected until their async pin/ownership proof exists"
+                    ),
+                    span: foreign.span,
+                });
+            } else if params.iter().any(|ty| !supported_ty(ty)) {
                 self.errors.push(SemaError { message: "[AURA-F1-TYPE] only Int, Bool, String, and Unit are supported at the FFI boundary".into(), span: foreign.span });
             }
         } else {
@@ -111,7 +133,14 @@ impl Checker {
             });
         }
         if let Ok(ref ret) = ret {
-            if !supported_ty(ret) {
+            if let Some(kind) = foreign_handle_kind(ret) {
+                self.errors.push(SemaError {
+                    message: format!(
+                        "[AURA-F4-BOUNDARY] foreign return cannot expose runtime-owned `{kind}`; typed foreign handles are rejected until their async pin/ownership proof exists"
+                    ),
+                    span: foreign.span,
+                });
+            } else if !supported_ty(ret) {
                 self.errors.push(SemaError {
                     message:
                         "[AURA-F1-TYPE] foreign return type must be Int, Bool, String, or Unit"
@@ -431,6 +460,66 @@ impl Checker {
 
         // C22h: async declarations are callable like ordinary functions, but
         // their call result is a Task<T>; the body itself returns T.
+        // F2: foreign declarations are ordinary callable signatures, but have
+        // no Aura body. Register them before checking any function body,
+        // including async bodies.
+        let mut foreign_names = HashSet::new();
+        for foreign in &file.foreign_functions {
+            let pkg = decl_package(&foreign.origin_package, &file_pkg).to_string();
+            self.current_package = pkg.clone();
+            if !foreign_names.insert(foreign.name.name.clone())
+                || self
+                    .functions
+                    .get(&foreign.name.name)
+                    .is_some_and(|items| items.iter().any(|sig| sig.package == pkg))
+            {
+                self.errors.push(SemaError {
+                    message: format!(
+                        "duplicate foreign function `{}` in package `{pkg}`",
+                        foreign.name.name
+                    ),
+                    span: foreign.name.span,
+                });
+                continue;
+            }
+            self.validate_foreign_decl(foreign);
+            self.type_params.clear();
+            let params = match foreign
+                .params
+                .iter()
+                .map(|p| self.type_from_ref(&p.ty))
+                .collect::<Result<Vec<_>, _>>()
+            {
+                Ok(params) => params,
+                Err(_) => continue,
+            };
+            let ret = match foreign.return_type.as_ref() {
+                Some(ty) => match self.type_from_ref(ty) {
+                    Ok(ret) => ret,
+                    Err(_) => continue,
+                },
+                None => Ty::Unit,
+            };
+            for ty in &params {
+                self.note_mono_ty(ty);
+            }
+            self.note_mono_ty(&ret);
+            self.functions
+                .entry(foreign.name.name.clone())
+                .or_default()
+                .push(FunSig {
+                    name: foreign.name.name.clone(),
+                    is_pub: foreign.is_pub,
+                    package: pkg,
+                    is_test: false,
+                    type_params: Vec::new(),
+                    bounds: HashMap::new(),
+                    params,
+                    ret,
+                    span: foreign.span,
+                });
+        }
+
         for f in &file.async_functions {
             let pkg = decl_package(&f.origin_package, &file_pkg).to_string();
             self.current_package = pkg.clone();
@@ -987,65 +1076,6 @@ impl Checker {
                     span: f.span,
                 });
             self.type_params.clear();
-        }
-
-        // F2: foreign declarations are ordinary callable signatures, but have
-        // no Aura body. Register them before checking any function body.
-        let mut foreign_names = HashSet::new();
-        for foreign in &file.foreign_functions {
-            let pkg = decl_package(&foreign.origin_package, &file_pkg).to_string();
-            self.current_package = pkg.clone();
-            if !foreign_names.insert(foreign.name.name.clone())
-                || self
-                    .functions
-                    .get(&foreign.name.name)
-                    .is_some_and(|items| items.iter().any(|sig| sig.package == pkg))
-            {
-                self.errors.push(SemaError {
-                    message: format!(
-                        "duplicate foreign function `{}` in package `{pkg}`",
-                        foreign.name.name
-                    ),
-                    span: foreign.name.span,
-                });
-                continue;
-            }
-            self.validate_foreign_decl(foreign);
-            self.type_params.clear();
-            let params = match foreign
-                .params
-                .iter()
-                .map(|p| self.type_from_ref(&p.ty))
-                .collect::<Result<Vec<_>, _>>()
-            {
-                Ok(params) => params,
-                Err(_) => continue,
-            };
-            let ret = match foreign.return_type.as_ref() {
-                Some(ty) => match self.type_from_ref(ty) {
-                    Ok(ret) => ret,
-                    Err(_) => continue,
-                },
-                None => Ty::Unit,
-            };
-            for ty in &params {
-                self.note_mono_ty(ty);
-            }
-            self.note_mono_ty(&ret);
-            self.functions
-                .entry(foreign.name.name.clone())
-                .or_default()
-                .push(FunSig {
-                    name: foreign.name.name.clone(),
-                    is_pub: foreign.is_pub,
-                    package: pkg,
-                    is_test: false,
-                    type_params: Vec::new(),
-                    bounds: HashMap::new(),
-                    params,
-                    ret,
-                    span: foreign.span,
-                });
         }
 
         for c in &file.classes {

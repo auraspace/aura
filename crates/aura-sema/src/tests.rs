@@ -80,6 +80,28 @@ fn foreign_declaration_rejects_non_c_abi_and_borrow_types() {
 }
 
 #[test]
+fn foreign_declaration_rejects_runtime_owned_async_handles() {
+    let file = parse_file(
+        "package demo\n@foreign(library = \"m\", target = \"native\", link = \"dynamic\", abi = 1, abi_id = \"c\")\nextern \"C\" fun native_handle(handle: TaskHandle<Int>): Channel<Int>\n",
+    )
+    .expect("parse");
+    let error = check_file(&file).expect_err("runtime-owned handles must not cross C");
+    let message = error.to_string();
+    assert!(message.contains("AURA-F4-BOUNDARY"));
+    assert!(message.contains("TaskHandle"));
+    assert!(message.contains("async pin/ownership proof"));
+}
+
+#[test]
+fn primitive_foreign_call_is_accepted_inside_async_function() {
+    let file = parse_file(
+        "package demo\n@foreign(library = \"m\", target = \"native\", link = \"dynamic\", abi = 1, abi_id = \"c\")\nextern \"C\" fun native_abs(value: Int): Int\nasync fun call_native(): Int { return native_abs(7) }\n",
+    )
+    .expect("parse");
+    check_file(&file).expect("primitive foreign values are async-boundary safe");
+}
+
+#[test]
 fn async_call_is_task_and_await_recovers_result() {
     let mut file = parse_file(
         "package t\nfun worker(): Int { return 7 }\nfun main(): Int { return await worker() }\n",
@@ -88,6 +110,21 @@ fn async_call_is_task_and_await_recovers_result() {
     promote_to_async(&mut file, 1);
     promote_to_async(&mut file, 0);
     check_file(&file).expect("async call and await");
+}
+
+#[test]
+fn join_returns_result_with_typed_task_error() {
+    let file = parse_file(
+        r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+fun main(handle: TaskHandle<Int>): Result<Int, TaskError> {
+  return join(handle)
+}
+"#,
+    )
+    .expect("parse typed join fixture");
+    check_file(&file).expect("join should preserve Result<T, TaskError>");
 }
 
 #[test]

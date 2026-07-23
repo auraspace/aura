@@ -1274,8 +1274,9 @@ fun main() {
                 .expect("read generated join C");
         assert!(generated.contains("aura_task_executor_join_outcome(__aura_task_executor"));
         assert!(generated.contains("AuraTaskOutcome __join_outcome"));
-        assert!(generated.contains("aura_var_std_io_Result_Unit_String_Err"));
-        assert!(generated.contains("joined task cancelled"));
+        assert!(generated.contains("aura_var_std_io_Result_Unit_std_io_TaskError_Err"));
+        assert!(generated.contains("aura_var_std_io_TaskError_Failed"));
+        assert!(generated.contains("AURA_TASK_CANCELLED"));
         let status = Command::new(&bin).status().expect("run generated binary");
         assert!(status.success());
         let _ = std::fs::remove_file(&bin);
@@ -1295,7 +1296,9 @@ fun main() {
         )
         .expect("parse catchable join failure fixture");
         let generated = emit_c_from_ast(&file).expect("emit catchable join failure fixture");
-        assert!(generated.contains("aura_var_std_io_Result_Unit_String_Err"));
+        assert!(generated.contains("aura_var_std_io_Result_Unit_std_io_TaskError_Err"));
+        assert!(generated.contains("aura_var_std_io_TaskError_Failed"));
+        assert!(generated.contains("aura_var_std_io_TaskError_Cancelled"));
 
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()

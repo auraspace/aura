@@ -368,7 +368,13 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
             _ => "Int".into(),
         },
         Expr::Async(AsyncExpr::Spawn(_)) => "TaskHandle_Unit".into(),
-        Expr::Async(AsyncExpr::Join(j)) => async_inner_key_for_infer(&j.handle, ctx),
+        Expr::Async(AsyncExpr::Join(j)) => {
+            let inner = async_inner_key_for_infer(&j.handle, ctx);
+            format!(
+                "std_io_Result_{}_std_io_TaskError",
+                full_type_mono(&inner, ctx.checked)
+            )
+        }
         Expr::Async(AsyncExpr::Cancel(_)) => "Unit".into(),
         Expr::Async(AsyncExpr::Await(a)) => async_inner_key_for_infer(&a.operand, ctx),
         Expr::Async(AsyncExpr::ChannelCreate(c)) => {
@@ -1262,13 +1268,17 @@ fn emit_async_expr(expr: &AsyncExpr, ctx: &mut EmitCtx<'_>) -> String {
             let handle = emit_expr(&j.handle, ctx);
             let inner = async_inner_key(&j.handle, ctx);
             let cty = crate::stmt::local_key_to_c(&inner, ctx.checked);
+            let task_error_mono = "std_io_TaskError";
             let result_mono = format!(
-                "std_io_Result_{}_String",
-                full_type_mono(&inner, ctx.checked)
+                "std_io_Result_{}_{}",
+                full_type_mono(&inner, ctx.checked),
+                task_error_mono
             );
             let result_ty = format!("aura_enum_{result_mono}");
             let result_ok = format!("aura_var_{result_mono}_Ok");
             let result_err = format!("aura_var_{result_mono}_Err");
+            let task_failed = "aura_var_std_io_TaskError_Failed";
+            let task_cancelled = "aura_var_std_io_TaskError_Cancelled";
             let mut out = String::new();
             out.push_str("({ ");
             out.push_str(&result_ty);
@@ -1277,17 +1287,17 @@ fn emit_async_expr(expr: &AsyncExpr, ctx: &mut EmitCtx<'_>) -> String {
             out.push_str(&format!("); aura_race_set_source_id(UINT32_C({})); AuraTaskOutcome __join_outcome = aura_task_executor_join_outcome(__aura_task_executor, __join); AuraTaskPollState __join_state = __join_outcome.state; AuraTaskResult __join_result = __join_outcome.result; aura_race_set_source_id(0); ", j.span.start));
             out.push_str(
                 &format!(
-                    "if (__join_state == AURA_TASK_FAILED) {{ __join_value = {result_err}(\"joined task failed\"); }} "
+                    "if (__join_state == AURA_TASK_FAILED) {{ __join_value = {result_err}({task_failed}(\"joined task failed\")); }} "
                 ),
             );
             out.push_str(
                 &format!(
-                    "else if (__join_state == AURA_TASK_CANCELLED) {{ __join_value = {result_err}(\"joined task cancelled\"); }} "
+                    "else if (__join_state == AURA_TASK_CANCELLED) {{ __join_value = {result_err}({task_cancelled}()); }} "
                 ),
             );
             out.push_str(
                 &format!(
-                    "else if (__join_state != AURA_TASK_COMPLETE) {{ __join_value = {result_err}(\"joined task is pending\"); }} "
+                    "else if (__join_state != AURA_TASK_COMPLETE) {{ __join_value = {result_err}({task_failed}(\"joined task is pending\")); }} "
                 ),
             );
             if inner == "Unit" {

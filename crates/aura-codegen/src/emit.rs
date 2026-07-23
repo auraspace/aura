@@ -591,24 +591,35 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
 
 /// Direct codegen unit tests intentionally build a file without the CLI's
 /// auto-prelude merge. Keep `join(TaskHandle<Unit>)` compilable in that mode;
-/// package builds use the real generic `std.io.Result<Unit, String>` enum.
+/// package builds use the real `std.io.TaskError` and generic Result enums.
 fn emit_fallback_unit_join_result(out: &mut String, checked: &CheckedFile) {
-    let has_std_result_decl = checked
-        .ast
-        .enums
-        .iter()
-        .any(|e| e.name.name == "Result" && e.origin_package == "std.io");
+    let has_std_task_error_decl = checked.ast.enums.iter().any(|e| {
+        e.name.name == "TaskError" && (e.origin_package == "std.io" || checked.package == "std.io")
+    });
+    let has_std_result_decl = checked.ast.enums.iter().any(|e| {
+        e.name.name == "Result" && (e.origin_package == "std.io" || checked.package == "std.io")
+    });
     let has_result_unit = has_std_result_decl
-        && checked
-            .mono_enums
-            .iter()
-            .any(|(name, args)| name == "Result" && args == &[Ty::Unit, Ty::String]);
+        && checked.ast.enums.iter().any(|e| e.name.name == "TaskError")
+        && checked.mono_enums.iter().any(|(name, args)| {
+            name == "Result"
+                && args.len() == 2
+                && args[0] == Ty::Unit
+                && args[1] == Ty::Enum("TaskError@std.io".into())
+        });
     if has_result_unit {
         return;
     }
-    out.push_str("typedef struct aura_enum_std_io_Result_Unit_String { int tag; union { char as_Ok; struct { const char *error; } Err; } data; } aura_enum_std_io_Result_Unit_String;\n");
-    out.push_str("static aura_enum_std_io_Result_Unit_String aura_var_std_io_Result_Unit_String_Ok(void) { aura_enum_std_io_Result_Unit_String self; self.tag = 0; return self; }\n");
-    out.push_str("static aura_enum_std_io_Result_Unit_String aura_var_std_io_Result_Unit_String_Err(const char *error) { aura_enum_std_io_Result_Unit_String self; self.tag = 1; self.data.Err.error = error; return self; }\n");
+    if !has_std_task_error_decl {
+        out.push_str("typedef struct aura_enum_std_io_TaskError { int tag; union { struct { const char *error; } Failed; char as_Cancelled; } data; } aura_enum_std_io_TaskError;\n");
+        out.push_str("static aura_enum_std_io_TaskError aura_var_std_io_TaskError_Failed(const char *error) { aura_enum_std_io_TaskError self; self.tag = 0; self.data.Failed.error = error; return self; }\n");
+        out.push_str("static aura_enum_std_io_TaskError aura_var_std_io_TaskError_Cancelled(void) { aura_enum_std_io_TaskError self; self.tag = 1; return self; }\n");
+    }
+    if !has_result_unit {
+        out.push_str("typedef struct aura_enum_std_io_Result_Unit_std_io_TaskError { int tag; union { char as_Ok; struct { aura_enum_std_io_TaskError error; } Err; } data; } aura_enum_std_io_Result_Unit_std_io_TaskError;\n");
+        out.push_str("static aura_enum_std_io_Result_Unit_std_io_TaskError aura_var_std_io_Result_Unit_std_io_TaskError_Ok(void) { aura_enum_std_io_Result_Unit_std_io_TaskError self; self.tag = 0; return self; }\n");
+        out.push_str("static aura_enum_std_io_Result_Unit_std_io_TaskError aura_var_std_io_Result_Unit_std_io_TaskError_Err(aura_enum_std_io_TaskError error) { aura_enum_std_io_Result_Unit_std_io_TaskError self; self.tag = 1; self.data.Err.error = error; return self; }\n");
+    }
 }
 
 /// Minimal top-level `while`/`await` lowering for Int state. The loop locals

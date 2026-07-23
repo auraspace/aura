@@ -709,7 +709,7 @@ impl Checker {
                         // executor; it returns the standard structured
                         // result envelope instead.
                         name: "Result@std.io".into(),
-                        args: vec![*result, Ty::String],
+                        args: vec![*result, Ty::Enum("TaskError@std.io".into())],
                     }),
                     other => Err(SemaError {
                         message: format!("`join` requires TaskHandle<T>, got {}", other.display()),
