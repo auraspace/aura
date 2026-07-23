@@ -566,7 +566,8 @@ When you resolve debt, update or remove the matching entry.
 ### S2 bounded primitive capture (2026-07-23)
 
 - The compiler now copies `Int` parameters, heap-duplicates `String`
-  parameters, and roots class pointers used by the bounded one-shot spawn
-  subset in frame data. Array, Fun, transfer, await-crossing, and cancellation
+  parameters, roots class pointers, and deep-clones `Array<Int>`/`Array<String>`
+  parameters used by the bounded one-shot spawn subset in frame data. Other
+  Array element types, Fun, transfer, await-crossing, and cancellation
   ownership remain deferred until the complete frame ABI is available; extend
   the capture representation before claiming those types.

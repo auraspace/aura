@@ -898,6 +898,65 @@ fun main() {}
     }
 
     #[test]
+    fn builds_and_runs_bounded_array_parameter_capture() {
+        let file = aura_parser::parse_file(
+            "package demo\nfun report(values: Array<Int>) { if (values.len == 3) { println(\"captured array\") } }\nfun launch(values: Array<Int>) { val task = spawn { report(values) } join(task) }\nfun main() { launch(Array<Int>(3)) }\n",
+        )
+        .expect("parse Array capture spawn");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-bounded-array-capture-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile Array capture spawn");
+        let generated = fs::read_to_string(&generated_c).expect("read generated Array capture C");
+        assert!(generated.contains("aura_method_Array_Int_clone(&values)"));
+        assert!(generated.contains("aura_method_Array_Int_clone(&data->values)"));
+        let output = Command::new(&bin)
+            .output()
+            .expect("run Array capture spawn");
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "captured array\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_bounded_string_array_parameter_capture() {
+        let file = aura_parser::parse_file(
+            "package demo\nfun report(values: Array<String>) { if (values.len == 1) { println(\"captured string array\") } }\nfun launch(values: Array<String>) { val task = spawn { report(values) } join(task) }\nfun main() { launch(Array<String>(1)) }\n",
+        )
+        .expect("parse String Array capture spawn");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-bounded-string-array-capture-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile String Array capture spawn");
+        let generated =
+            fs::read_to_string(&generated_c).expect("read generated String Array capture C");
+        assert!(generated.contains("aura_method_Array_String_clone(&values)"));
+        let output = Command::new(&bin)
+            .output()
+            .expect("run String Array capture spawn");
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "captured string array\n"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn moves_string_ownership_across_nested_assignment() {
         let file = aura_parser::parse_file(
             r#"package demo

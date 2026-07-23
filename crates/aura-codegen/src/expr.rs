@@ -400,9 +400,10 @@ fn foreign_decl_package(foreign: &ForeignDecl, checked: &CheckedFile) -> String 
 }
 
 /// Bounded C22l lowering: a spawn body may contain only calls with literal
-/// arguments, or copied `Int`/`String`/heap-class parameters from the enclosing
-/// function, and an optional unit return. String captures are copied into
-/// owned boxes and class captures are rooted by the frame emitter.
+/// arguments, or copied `Int`/`String`/heap-class/primitive-Array parameters
+/// from the enclosing function, and an optional unit return. String captures
+/// are copied into owned boxes, class captures are rooted, and bounded Array
+/// captures are cloned by the frame emitter.
 pub(crate) fn bounded_spawn_captures(
     body: &Block,
     available: &HashMap<String, String>,
@@ -443,10 +444,13 @@ fn bounded_spawn_value(
     match expr {
         Expr::Int(_) | Expr::Bool(_) | Expr::String(_) | Expr::Null(_) => true,
         Expr::Ident(id) => {
-            if available
-                .get(&id.name)
-                .is_some_and(|ty| ty == "Int" || ty == "String" || is_heap_class_mono(ty, checked))
-            {
+            if available.get(&id.name).is_some_and(|ty| {
+                ty == "Int"
+                    || ty == "String"
+                    || is_heap_class_mono(ty, checked)
+                    || ty == "Array_Int"
+                    || ty == "Array_String"
+            }) {
                 captures.insert(id.name.clone());
                 true
             } else {
@@ -1062,6 +1066,8 @@ fn emit_async_expr(expr: &AsyncExpr, ctx: &mut EmitCtx<'_>) -> String {
                             format!("__spawn_data->{n} = aura_box_str_new({n});")
                         } else if is_heap_class_mono(key, ctx.checked) {
                             format!("__spawn_data->{n} = {n}; aura_gc_add_root((void **)&__spawn_data->{n});")
+                        } else if key == "Array_Int" || key == "Array_String" {
+                            format!("__spawn_data->{n} = {}(&{n});", crate::names::c_method_name(key, "clone"))
                         } else {
                             format!("__spawn_data->{n} = {n};")
                         }

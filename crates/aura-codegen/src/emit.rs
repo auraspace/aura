@@ -6,7 +6,7 @@ use std::fmt::Write as _;
 use aura_ast::*;
 use aura_sema::{CheckedFile, Ty};
 
-use crate::array_emit::{emit_array_mono, is_array_mono};
+use crate::array_emit::{emit_array_mono, is_array_mono, is_array_type_key};
 use crate::class_emit::*;
 use crate::ctx::{EmitCtx, EmitOptions};
 use crate::enum_emit::*;
@@ -1028,6 +1028,13 @@ fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile, detector:
                         out,
                         "  if (data != NULL && data->{n} != NULL) aura_gc_remove_root((void **)&data->{n});"
                     );
+                } else if is_array_type_key(key) {
+                    crate::array_emit::emit_array_contents_free(
+                        out,
+                        2,
+                        &format!("data->{}", mangle_ident(name)),
+                        key,
+                    );
                 }
             }
             out.push_str("}\n\n");
@@ -1047,6 +1054,13 @@ fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile, detector:
                     let _ = writeln!(
                         out,
                         "  const char *{n} = data->{n} != NULL ? data->{n}->value : NULL;"
+                    );
+                } else if is_array_type_key(key) {
+                    let _ = writeln!(
+                        out,
+                        "  {} {n} = {}(&data->{n});",
+                        crate::stmt::local_key_to_c(key, checked),
+                        crate::names::c_method_name(key, "clone")
                     );
                 } else {
                     let _ = writeln!(
@@ -1085,6 +1099,9 @@ fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile, detector:
         };
         for (name, key) in &captures {
             ctx.define_local(name, key.clone());
+            if is_array_type_key(key) {
+                ctx.mark_array_owner(name);
+            }
         }
         for stmt in &spawn.body.stmts {
             if let Stmt::Expr(expr) = stmt {
@@ -1092,6 +1109,8 @@ fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile, detector:
                 let _ = writeln!(out, "  {code};");
             }
         }
+        let array_owners = ctx.array_owners_all();
+        crate::stmt::emit_free_array_owners(out, 1, &ctx, &array_owners);
         out.push_str("  return AURA_TASK_COMPLETE;\n}\n\n");
     }
 }
@@ -1892,6 +1911,12 @@ pub(crate) fn emit_fun(
         }
     }
     emit_block(out, &f.body, 1, &mut ctx);
+    // Function parameters live in the outer emission scope, so the block
+    // cleanup above does not release owning Array parameters that were not
+    // moved or returned. Keep the parameter ownership invariant symmetric
+    // with the nested-block cleanup path.
+    let array_owners = ctx.array_owners_all();
+    crate::stmt::emit_free_array_owners(out, 1, &ctx, &array_owners);
     // Drop param roots when leaving the function.
     for name in ctx.array_gc_roots_all() {
         let n = mangle_ident(&name);
