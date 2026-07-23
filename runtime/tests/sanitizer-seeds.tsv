@@ -9,3 +9,4 @@ task_churn	0	runtime/tests/task_churn.c	cc -std=c11 -Wall -Wextra -Werror -fsani
 task_channel	0	runtime/tests/task_channel.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined runtime/tests/task_channel.c
 task_executor	0	runtime/tests/task_executor.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined runtime/tests/task_executor.c
 http_parser_fuzz	0	runtime/tests/http_parser_fuzz.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined runtime/tests/http_parser_fuzz.c
+task_waiter	0	runtime/tests/task_waiter.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined runtime/tests/task_waiter.c

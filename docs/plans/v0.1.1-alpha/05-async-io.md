@@ -44,7 +44,9 @@ filesystem async operations are not part of this slice yet.
 `destroy`. Calls borrow buffers only for their duration and return stable
 `OK`, `EOF`, `PENDING`, `PERMISSION`, `ERROR`, `CLOSED`, or `UNSUPPORTED`
 statuses. Regular-file `O_NONBLOCK` is not a real readiness mechanism on the
-supported hosts, so this slice does not claim scheduler suspension.
+supported hosts, so this slice does not claim scheduler suspension. Adapters
+may register a borrowed frame waiting token and clear it before waking the
+executor.
 
 **Checklist:**
 

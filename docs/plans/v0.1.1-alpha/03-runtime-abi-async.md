@@ -115,6 +115,9 @@ A5–A6.
 **Objective:** Make one pending operation suspend and later resume correctly.
 **Implementation status:** Immediate-completion and non-waiting pending
 continuation paths are complete through runtime polling and executor requeue.
+The bounded runtime ABI also exposes an adapter-owned waiting token with an
+explicit clear-before-wake protocol; generated await operation wiring and
+live-local hoisting remain open.
 The bounded codegen test for one `await` with an `Int` and a `String` used after
 the await confirms only the current boundary: the input task is retained in
 frame data, while those locals remain in the ordinary helper and are not
@@ -126,7 +129,9 @@ remain open.
 - [x] Distinguish ready, pending, failed, and cancelled poll results.
 - [ ] Save all values live across await.
 - [x] Resume exactly once for non-waiting pending frames when the operation
-      completes; waiter-driven resumption remains open.
+      completes; adapter-owned waiting-token registration and clear-before-wake
+      resumption are covered by the bounded runtime fixture. Generated await
+      operation wiring remains open.
 - [x] Prevent executor-owned frame destruction while pending.
 
 **Acceptance:** Immediate and delayed completion produce the same result.

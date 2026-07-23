@@ -5086,6 +5086,38 @@ int aura_task_frame_is_waiting(const AuraTaskFrame *frame)
   return frame != NULL && (frame->waiting_channel != NULL || frame->waiting_node != NULL);
 }
 
+/* Adapter-owned wait registration. The token is borrowed by the frame and
+ * must remain valid until the adapter clears it; the frame never frees it.
+ * Completion should clear the token before calling aura_task_executor_wake.
+ * Cancellation and frame destruction use the separate cleanup hook for owned
+ * operation resources. */
+void aura_task_frame_set_waiting(AuraTaskFrame *frame, void *token)
+{
+  if (frame == NULL || frame->state == AURA_TASK_COMPLETE ||
+      frame->state == AURA_TASK_FAILED || frame->state == AURA_TASK_CANCELLED)
+  {
+    return;
+  }
+  frame->waiting_node = token;
+  if (token != NULL)
+  {
+    frame->state = AURA_TASK_PENDING;
+  }
+}
+
+void aura_task_frame_clear_waiting(AuraTaskFrame *frame)
+{
+  if (frame != NULL)
+  {
+    frame->waiting_node = NULL;
+  }
+}
+
+void *aura_task_frame_waiting_token(const AuraTaskFrame *frame)
+{
+  return frame != NULL ? frame->waiting_node : NULL;
+}
+
 uint32_t aura_task_frame_resume_state(const AuraTaskFrame *frame)
 {
   return frame != NULL ? frame->resume_state : 0;

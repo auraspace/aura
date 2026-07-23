@@ -115,7 +115,8 @@ When you resolve debt, update or remove the matching entry.
   scheduler-wide failure wakeup would overstate the ABI.
 - Progress: `runtime/tests/task_io_cleanup_sanitizer.c` proves file and TCP
   descriptor cleanup on cancellation, failure, and forced executor shutdown
-  under ASAN/UBSAN.
+  under ASAN/UBSAN. The bounded frame ABI now exposes an adapter-owned waiting
+  token and explicit clear-before-wake protocol.
 - Next step: define an operation handle and readiness/event registration after
   the full A4–A8 suspension contract is available; connect disconnect and
   failure completion to executor wake before closing the remaining IO4 items.
