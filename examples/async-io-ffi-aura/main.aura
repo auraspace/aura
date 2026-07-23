@@ -1,0 +1,9 @@
+package async_io_ffi_aura
+
+@foreign(library = "aura_async_io_ffi", target = "native", link = "dynamic", abi = 1, abi_id = "c")
+extern "C" fun aura_async_io_ffi_status(): Int
+
+fun main() {
+  if (aura_async_io_ffi_status() != 0) { exit(1) }
+  println("async-io-ffi-aura: passed")
+}

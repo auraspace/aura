@@ -1,0 +1,6 @@
+[package]
+name = "async_io_ffi_aura"
+
+[[bin]]
+name = "async-io-ffi-aura"
+path = "main.aura"

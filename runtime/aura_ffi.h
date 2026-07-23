@@ -193,6 +193,59 @@ typedef enum AuraFfiBoundary {
 #define AURA_FFI_BOUNDARY_REJECTED ((AuraFfiStatus)3)
 #define AURA_FFI_BUSY ((AuraFfiStatus)4)
 
+/* Typed scheduler-owned I/O operation handles.  An operation is opaque to
+ * foreign callers and may be inspected synchronously while it is pending.
+ * Starting it binds it to one executor frame; the frame owns the suspension
+ * boundary and the operation must not be copied through await/channel/callback
+ * crossings.  Completion is published by the executor's readiness poller;
+ * cancellation remains idempotent and releases the resource at most once. */
+typedef struct AuraTaskExecutor AuraTaskExecutor;
+typedef struct AuraTaskFrame AuraTaskFrame;
+typedef struct AuraTcpListener AuraTcpListener;
+typedef struct AuraTcpStream AuraTcpStream;
+typedef struct AuraIoOperationHandle AuraIoOperationHandle;
+typedef void (*AuraIoOperationCleanupFn)(void *resource);
+
+typedef enum AuraIoOperationKind {
+  AURA_IO_OPERATION_FILE_READ = 1,
+  AURA_IO_OPERATION_FILE_WRITE = 2,
+  AURA_IO_OPERATION_TCP_ACCEPT = 3,
+  AURA_IO_OPERATION_TCP_CONNECT = 4,
+  AURA_IO_OPERATION_TCP_READ = 5,
+  AURA_IO_OPERATION_TCP_WRITE = 6
+} AuraIoOperationKind;
+
+typedef enum AuraIoOperationState {
+  AURA_IO_OPERATION_PENDING = 0,
+  AURA_IO_OPERATION_COMPLETE = 1,
+  AURA_IO_OPERATION_CANCELLED = 2,
+  AURA_IO_OPERATION_FAILED = 3
+} AuraIoOperationState;
+
+AuraIoOperationHandle *aura_file_async_read_handle_new(
+    AuraFile *file, AuraIoOperationCleanupFn cleanup);
+AuraIoOperationHandle *aura_file_async_write_handle_new(
+    AuraFile *file, AuraIoOperationCleanupFn cleanup);
+AuraIoOperationHandle *aura_tcp_async_accept_handle_new(
+    AuraTcpListener *listener, AuraIoOperationCleanupFn cleanup);
+AuraIoOperationHandle *aura_tcp_async_read_handle_new(
+    AuraTcpStream *stream, AuraIoOperationCleanupFn cleanup);
+AuraIoOperationHandle *aura_tcp_async_write_handle_new(
+    AuraTcpStream *stream, AuraIoOperationCleanupFn cleanup);
+int aura_io_operation_handle_start(AuraIoOperationHandle *operation,
+                                   AuraTaskExecutor *executor,
+                                   AuraTaskFrame *frame);
+AuraIoOperationState aura_io_operation_handle_state(
+    const AuraIoOperationHandle *operation);
+AuraIoOperationKind aura_io_operation_handle_kind(
+    const AuraIoOperationHandle *operation);
+int aura_io_operation_handle_complete(AuraIoOperationHandle *operation,
+                                      int success);
+int aura_io_operation_handle_cancel(AuraIoOperationHandle *operation);
+int aura_io_operation_handle_release(AuraIoOperationHandle **handle);
+AuraFfiStatus aura_io_operation_handle_check_boundary(
+    const AuraIoOperationHandle *operation, AuraFfiBoundary boundary);
+
 /* Non-null and nullable construction are intentionally separate operations. */
 AuraFfiStatus aura_ffi_handle_new(void *resource,
                                   AuraFfiHandleDestroyFn destroy,

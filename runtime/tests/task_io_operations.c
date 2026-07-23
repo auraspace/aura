@@ -115,7 +115,8 @@ static void test_file_handle_completion_wakes_task(void)
 
   assert(write(pipe_fds[1], "F", 1) == 1);
   assert(aura_task_executor_poll_waiting(executor, 1000) == 1);
-  assert(aura_io_operation_handle_complete(task->operation, 1) == 1);
+  assert(aura_io_operation_handle_state(task->operation) ==
+         AURA_IO_OPERATION_COMPLETE);
   assert(aura_task_executor_run_one(executor) == 1);
   assert(aura_task_frame_state(frame) == AURA_TASK_COMPLETE);
   assert(*(int *)aura_task_frame_result(frame).data == 'F');

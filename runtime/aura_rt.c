@@ -69,6 +69,26 @@ typedef enum AuraFfiBoundary
 } AuraFfiBoundary;
 #define AURA_FFI_BOUNDARY_REJECTED ((AuraFfiStatus)3)
 #define AURA_FFI_BUSY ((AuraFfiStatus)4)
+typedef struct AuraTaskExecutor AuraTaskExecutor;
+typedef struct AuraTaskFrame AuraTaskFrame;
+typedef struct AuraIoOperationHandle AuraIoOperationHandle;
+typedef void (*AuraIoOperationCleanupFn)(void *resource);
+typedef enum AuraIoOperationKind
+{
+  AURA_IO_OPERATION_FILE_READ = 1,
+  AURA_IO_OPERATION_FILE_WRITE = 2,
+  AURA_IO_OPERATION_TCP_ACCEPT = 3,
+  AURA_IO_OPERATION_TCP_CONNECT = 4,
+  AURA_IO_OPERATION_TCP_READ = 5,
+  AURA_IO_OPERATION_TCP_WRITE = 6
+} AuraIoOperationKind;
+typedef enum AuraIoOperationState
+{
+  AURA_IO_OPERATION_PENDING = 0,
+  AURA_IO_OPERATION_COMPLETE = 1,
+  AURA_IO_OPERATION_CANCELLED = 2,
+  AURA_IO_OPERATION_FAILED = 3
+} AuraIoOperationState;
 typedef struct AuraFfiCallbackFrame AuraFfiCallbackFrame;
 typedef struct AuraFfiCallback AuraFfiCallback;
 typedef int32_t (*AuraFfiCallbackFn)(void *environment, const void *payload,
@@ -5933,6 +5953,11 @@ struct AuraTaskExecutor
   void *failure_hook_context;
 };
 
+/* Defined with the typed I/O operation implementation below.  Keeping this
+ * small bridge here lets the scheduler publish readiness without exposing the
+ * operation layout to the executor code. */
+static int aura_io_operation_ready(AuraTaskFrame *frame, short revents);
+
 int aura_task_executor_wake(AuraTaskExecutor *executor, AuraTaskFrame *frame);
 static void aura_task_channel_cancel_wait(AuraTaskFrame *frame);
 
@@ -6286,7 +6311,17 @@ int aura_task_executor_poll_waiting(AuraTaskExecutor *executor, int timeout_ms)
     {
       if (result < 0 || descriptors[index].revents != 0)
       {
-        woke += (size_t)aura_task_executor_wake_waiting(executor, frames[index]);
+        AuraTaskFrame *ready_frame = frames[index];
+        if (result >= 0 &&
+            aura_io_operation_ready(ready_frame, descriptors[index].revents))
+        {
+          woke++;
+        }
+        else
+        {
+          woke += (size_t)aura_task_executor_wake_waiting(executor,
+                                                           ready_frame);
+        }
       }
     }
   }
@@ -6541,27 +6576,6 @@ void aura_task_executor_shutdown(AuraTaskExecutor *executor)
  * exclusive and gives adapters one place to enforce exactly-once cleanup.
  */
 
-typedef enum
-{
-  AURA_IO_OPERATION_FILE_READ = 1,
-  AURA_IO_OPERATION_FILE_WRITE = 2,
-  AURA_IO_OPERATION_TCP_ACCEPT = 3,
-  AURA_IO_OPERATION_TCP_CONNECT = 4,
-  AURA_IO_OPERATION_TCP_READ = 5,
-  AURA_IO_OPERATION_TCP_WRITE = 6
-} AuraIoOperationKind;
-
-typedef enum
-{
-  AURA_IO_OPERATION_PENDING = 0,
-  AURA_IO_OPERATION_COMPLETE = 1,
-  AURA_IO_OPERATION_CANCELLED = 2,
-  AURA_IO_OPERATION_FAILED = 3
-} AuraIoOperationState;
-
-typedef struct AuraIoOperationHandle AuraIoOperationHandle;
-typedef void (*AuraIoOperationCleanupFn)(void *resource);
-
 struct AuraIoOperationHandle
 {
   AuraTaskExecutor *executor;
@@ -6743,6 +6757,27 @@ int aura_io_operation_handle_complete(AuraIoOperationHandle *operation,
   return 1;
 }
 
+static int aura_io_operation_ready(AuraTaskFrame *frame, short revents)
+{
+  AuraIoOperationHandle *operation;
+
+  if (frame == NULL || frame->waiting_node == NULL ||
+      frame->waiting_node == &frame->fd_wait_active)
+  {
+    return 0;
+  }
+  operation = (AuraIoOperationHandle *)frame->waiting_node;
+  if (operation->frame != frame || operation->executor != frame->executor ||
+      operation->state != AURA_IO_OPERATION_PENDING)
+  {
+    return 0;
+  }
+  /* POLLNVAL is a descriptor failure.  POLLERR/POLLHUP still wake the task so
+   * its bounded read/write/accept call can publish EOF or the native error. */
+  return aura_io_operation_handle_complete(operation,
+                                           (revents & POLLNVAL) == 0);
+}
+
 int aura_io_operation_handle_cancel(AuraIoOperationHandle *operation)
 {
   AuraTaskExecutor *executor;
@@ -6782,6 +6817,25 @@ int aura_io_operation_handle_release(AuraIoOperationHandle **handle)
   *handle = NULL;
   free(operation);
   return 1;
+}
+
+AuraFfiStatus aura_io_operation_handle_check_boundary(
+    const AuraIoOperationHandle *operation, AuraFfiBoundary boundary)
+{
+  if (operation == NULL || operation->state != AURA_IO_OPERATION_PENDING)
+  {
+    return AURA_FFI_INVALID;
+  }
+  if (boundary == AURA_FFI_BOUNDARY_SYNC)
+  {
+    return operation->frame == NULL ? AURA_FFI_OK : AURA_FFI_BOUNDARY_REJECTED;
+  }
+  if (boundary == AURA_FFI_BOUNDARY_TASK)
+  {
+    return operation->frame != NULL ? AURA_FFI_OK
+                                    : AURA_FFI_BOUNDARY_REJECTED;
+  }
+  return AURA_FFI_BOUNDARY_REJECTED;
 }
 
 /* ---- C22n bounded FIFO channels (single-threaded MVP) ----
