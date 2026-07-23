@@ -96,7 +96,7 @@ run_stage() {
       fi ;;
     runtime) run_command runtime 'cc -std=c11 -Wall -Wextra -Werror -c runtime/aura_rt.c -o "$TEMP_RUNTIME_OBJECT"' 'scripts/alpha-harness.sh --stage runtime' ;;
     async) run_command async 'cargo test -p aura-cli async' 'cargo test -p aura-cli async' ;;
-    io) run_command io 'bash scripts/compiler-regression.sh' 'scripts/alpha-harness.sh --stage io' ;;
+    io) run_command io 'bash scripts/compiler-regression.sh && bash scripts/async-io-ffi-smoke.sh' 'scripts/alpha-harness.sh --stage io' ;;
     http) run_command http 'bash scripts/http-aura-smoke.sh' 'scripts/alpha-harness.sh --stage http' ;;
     build) run_command build '"$AURA_BIN" build corpus/hello/main.aura -o "$BUILD_OUTPUT" && "$BUILD_OUTPUT"' 'scripts/alpha-harness.sh --stage build' ;;
     registry) run_command registry 'bash scripts/registry-release-acceptance.sh' 'bash scripts/registry-release-acceptance.sh' ;;

@@ -102,6 +102,8 @@ for fixture in ffi_owned ffi_handles ffi_callbacks ffi_net; do
     "$tmp/$fixture"
 done
 
+bash scripts/async-io-ffi-smoke.sh
+
 run_aura() {
   local label="$1"
   shift
