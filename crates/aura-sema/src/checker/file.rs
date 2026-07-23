@@ -111,7 +111,7 @@ impl Checker {
             });
         }
         if let Ok(ref ret) = ret {
-            if !supported_ty(&ret) {
+            if !supported_ty(ret) {
                 self.errors.push(SemaError {
                     message:
                         "[AURA-F1-TYPE] foreign return type must be Int, Bool, String, or Unit"

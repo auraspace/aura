@@ -677,15 +677,15 @@ impl Parser {
     }
 }
 
-fn foreign_metadata(
-    attributes: &[Attribute],
-) -> (
+type ForeignMetadata = (
     Option<ForeignLibrary>,
     Option<ForeignTarget>,
     Option<ForeignLink>,
     Option<ForeignAbi>,
     Option<String>,
-) {
+);
+
+fn foreign_metadata(attributes: &[Attribute]) -> ForeignMetadata {
     let Some(attribute) = attributes.iter().find(|a| a.name.name == "foreign") else {
         return (None, None, None, None, None);
     };
