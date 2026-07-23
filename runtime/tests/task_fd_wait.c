@@ -21,6 +21,13 @@ typedef struct
   int polls;
 } TcpTask;
 
+typedef struct
+{
+  AuraTcpListener *listener;
+  AuraTcpStream *accepted;
+  int polls;
+} TcpListenerTask;
+
 static void destroy_int(void *data, size_t size)
 {
   assert(size == sizeof(int));
@@ -110,6 +117,56 @@ static void test_tcp_stream_adapter_wait(void)
   aura_tcp_listener_destroy(listener);
 }
 
+static AuraTaskPollState poll_tcp_listener(AuraTaskFrame *frame)
+{
+  TcpListenerTask *task = (TcpListenerTask *)aura_task_frame_data(frame);
+  if (task->polls++ == 0)
+  {
+    assert(aura_task_frame_wait_tcp_listener(frame, task->listener, POLLIN) == 1);
+    return AURA_TASK_PENDING;
+  }
+
+  assert(aura_tcp_listener_accept(task->listener, 0, &task->accepted) == AURA_TCP_OK);
+  int *result = (int *)malloc(sizeof(*result));
+  assert(result != NULL);
+  *result = 1;
+  aura_task_frame_set_result(frame, result, sizeof(*result), destroy_int);
+  return AURA_TASK_COMPLETE;
+}
+
+static void test_tcp_listener_adapter_wait(void)
+{
+  AuraTcpListener *listener = NULL;
+  AuraTcpStream *client = NULL;
+  uint16_t port = 0;
+  assert(aura_tcp_listener_bind(0, &port, &listener) == AURA_TCP_OK);
+  AuraTaskExecutor *executor = aura_task_executor_new();
+  assert(executor != NULL);
+  AuraTaskFrame *frame = aura_task_frame_new(sizeof(TcpListenerTask), poll_tcp_listener, NULL);
+  assert(frame != NULL);
+  TcpListenerTask *task = (TcpListenerTask *)aura_task_frame_data(frame);
+  task->listener = listener;
+  task->accepted = NULL;
+  task->polls = 0;
+  assert(aura_task_executor_submit(executor, frame) == 1);
+  assert(aura_task_executor_run_one(executor) == 1);
+  assert(aura_task_frame_state(frame) == AURA_TASK_PENDING);
+
+  assert(aura_tcp_stream_connect(port, 1000, &client) == AURA_TCP_OK);
+  assert(aura_task_executor_poll_waiting(executor, 1000) == 1);
+  assert(aura_task_executor_run_one(executor) == 1);
+  assert(aura_task_frame_state(frame) == AURA_TASK_COMPLETE);
+  assert(task->accepted != NULL);
+  AuraTcpStream *accepted = task->accepted;
+  AuraTaskResult result = aura_task_frame_result(frame);
+  assert(result.data != NULL && *(int *)result.data == 1);
+  assert(aura_task_executor_release(executor, &frame) == 1);
+  aura_task_executor_shutdown(executor);
+  aura_tcp_stream_destroy(client);
+  aura_tcp_stream_destroy(accepted);
+  aura_tcp_listener_destroy(listener);
+}
+
 static void test_ready_fd_wakes_pending_frame(void)
 {
   int pipe_fds[2];
@@ -189,6 +246,7 @@ int main(void)
   test_cancellation_clears_fd_registration();
   test_multiple_ready_fds_wake_in_one_turn();
   test_tcp_stream_adapter_wait();
+  test_tcp_listener_adapter_wait();
   aura_gc_shutdown();
   puts("task fd wait: passed");
   return 0;
