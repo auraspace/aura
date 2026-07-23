@@ -116,10 +116,12 @@ When you resolve debt, update or remove the matching entry.
 - Progress: `runtime/tests/task_io_cleanup_sanitizer.c` proves file and TCP
   descriptor cleanup on cancellation, failure, and forced executor shutdown
   under ASAN/UBSAN. The bounded frame ABI now exposes an adapter-owned waiting
-  token and explicit clear-before-wake protocol.
+  token plus `aura_task_executor_wake_waiting`, which clears and queues a
+  waiting frame exactly once.
 - Next step: define an operation handle and readiness/event registration after
-  the full A4–A8 suspension contract is available; connect disconnect and
-  failure completion to executor wake before closing the remaining IO4 items.
+  the full A4–A8 suspension contract is available; connect real disconnect and
+  failure completion to that event source before closing the remaining IO4
+  items.
 
 ### HTTP H3 remains transport-independent (2026-07-22)
 

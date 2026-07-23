@@ -5606,6 +5606,21 @@ int aura_task_executor_wake(AuraTaskExecutor *executor, AuraTaskFrame *frame)
   return 1;
 }
 
+/* Complete an adapter-owned wait registration and queue the frame in one
+ * bounded-runtime operation. The token is cleared before queueing so a
+ * completion/failure callback cannot wake the same frame twice or leave a
+ * borrowed registration visible while the poller resumes. */
+int aura_task_executor_wake_waiting(AuraTaskExecutor *executor, AuraTaskFrame *frame)
+{
+  if (executor == NULL || frame == NULL || frame->executor != executor ||
+      !aura_task_frame_is_waiting(frame))
+  {
+    return 0;
+  }
+  aura_task_frame_clear_waiting(frame);
+  return aura_task_executor_wake(executor, frame);
+}
+
 int aura_task_executor_cancel(AuraTaskExecutor *executor, AuraTaskFrame *frame)
 {
   if (executor == NULL || frame == NULL || frame->executor != executor || executor->shutdown)

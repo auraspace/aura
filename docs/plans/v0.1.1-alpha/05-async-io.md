@@ -108,15 +108,18 @@ and concurrent-connection tests on Linux and macOS.
 cleanup hook for an adapter-owned pending file/socket operation. The hook is
 cleared before its callback runs, runs before cancellation/failure becomes
 observable, and also runs when executor shutdown destroys a live frame.
-Cancellation already wakes a pending frame through the bounded executor. This
-does not yet register `AuraFile`/`AuraTcpStream` operations with a readiness
-source or scheduler; adapters must explicitly arm and clear the hook.
+Cancellation already wakes a pending frame through the bounded executor. The
+`aura_task_executor_wake_waiting` helper now clears an adapter-owned wait token
+and queues the frame exactly once, so completion, failure, and cancellation
+callbacks share the same wake protocol. This does not yet register
+`AuraFile`/`AuraTcpStream` operations with a readiness source or scheduler.
 
 **Checklist:**
 
 - [x] Cancel pending file and TCP operations without double-close for
       frame-registered adapter resources.
-- [ ] Wake suspended tasks when operations fail or cancel.
+- [x] Wake suspended tasks when operations fail or cancel through the bounded
+      adapter wake protocol; readiness-source registration remains open.
 - [ ] Reclaim buffers and descriptors after disconnect; native disconnect
       completion is not yet connected to the task frame.
 - [x] Drain or cancel frame-registered outstanding operations deterministically

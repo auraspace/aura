@@ -29,13 +29,15 @@ int main(void)
   assert(aura_task_frame_waiting_token(frame) == &token);
   assert(aura_task_frame_state(frame) == AURA_TASK_PENDING);
 
-  /* The adapter owns the token and clears its registration before wake. */
-  aura_task_frame_clear_waiting(frame);
+  /* The adapter-owned helper clears the token before wake. */
+  assert(aura_task_executor_wake_waiting(executor, frame) == 1);
   assert(!aura_task_frame_is_waiting(frame));
   assert(aura_task_frame_waiting_token(frame) == NULL);
-  assert(aura_task_executor_wake(executor, frame) == 1);
   assert(aura_task_executor_run_one(executor) == 1);
   assert(aura_task_frame_state(frame) == AURA_TASK_COMPLETE);
+
+  /* A completed operation cannot be delivered a second time. */
+  assert(aura_task_executor_wake_waiting(executor, frame) == 0);
 
   aura_task_executor_shutdown(executor);
   return 0;
