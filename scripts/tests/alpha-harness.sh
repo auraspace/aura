@@ -9,7 +9,7 @@ trap 'rm -rf "$tmp"' EXIT
 
 list="$(scripts/alpha-harness.sh --list)"
 for stage in frontend backend runtime async io http build registry ffi sanitizer release; do
-  printf '%s\n' "$list" | rg -qx "$stage"
+  printf '%s\n' "$list" | grep -Fxq -- "$stage"
 done
 
 set +e
@@ -27,8 +27,8 @@ set -e
 
 python3 -m json.tool "$tmp/runtime.json" >/dev/null
 python3 -m json.tool "$tmp/registry.json" >/dev/null
-rg -q '"schema_version":1' "$tmp/runtime.json"
-rg -q '"status":"passed"' "$tmp/runtime.json"
-rg -q '"status":"passed"' "$tmp/registry.json"
+grep -Eq '"schema_version":1' "$tmp/runtime.json"
+grep -Eq '"status":"passed"' "$tmp/runtime.json"
+grep -Eq '"status":"passed"' "$tmp/registry.json"
 
 printf 'alpha harness tests: PASS\n'

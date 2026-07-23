@@ -39,15 +39,15 @@ run "release signing and target policy" \
 # These assertions are deliberately source-level: they make the release gate
 # fail if a later workflow edit turns signature verification into an optional
 # success or drops the cross-file target check.
-rg -q 'AURA_MINISIGN_SECRET_KEY' .github/workflows/release.yml
-rg -q 'AURA_MINISIGN_PUBLIC_KEY' .github/workflows/release.yml
-rg -q 'minisign -Vm' .github/workflows/release.yml
-rg -q 'file .*x86_64|file "\$bin"' .github/workflows/release.yml
-rg -q 'required.*native|cross-file' scripts/release-targets.tsv
-rg -q 'fn parse_receipt' crates/aura-cli/src/package/registry.rs
-rg -q 'publish receipt does not match' crates/aura-cli/src/package/registry.rs
-rg -q 'aura-sig-v1' crates/aura-cli/src/package/registry.rs
-rg -q 'verify_package_signatures' crates/aura-cli/src/package/registry.rs
+grep -Eq 'AURA_MINISIGN_SECRET_KEY' .github/workflows/release.yml
+grep -Eq 'AURA_MINISIGN_PUBLIC_KEY' .github/workflows/release.yml
+grep -Eq 'minisign -Vm' .github/workflows/release.yml
+grep -Eq 'file .*x86_64|file "\$bin"' .github/workflows/release.yml
+grep -Eq 'required.*native|cross-file' scripts/release-targets.tsv
+grep -Eq 'fn parse_receipt' crates/aura-cli/src/package/registry.rs
+grep -Eq 'publish receipt does not match' crates/aura-cli/src/package/registry.rs
+grep -Eq 'aura-sig-v1' crates/aura-cli/src/package/registry.rs
+grep -Eq 'verify_package_signatures' crates/aura-cli/src/package/registry.rs
 
 host="$(uname -s)-$(uname -m)"
 cat >"$report" <<EOF
