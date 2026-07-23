@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Validate the bounded, offline registry/release acceptance evidence.
-# This intentionally rejects a report that presents deferred update signing or
-# unavailable production network credentials as a successful production claim.
+# Validate bounded, offline registry/release acceptance evidence.
+# Offline crypto is real and required; this validator does not turn it into a
+# claim that a live production registry or production credentials were tested.
 set -Eeuo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -30,7 +30,7 @@ try:
 except (OSError, json.JSONDecodeError) as exc:
     raise SystemExit(f"invalid registry acceptance report: {exc}") from exc
 
-if record.get("schema_version") != 1:
+if record.get("schema_version") != 2:
     raise SystemExit("unsupported registry acceptance report schema")
 if record.get("network") is not False or record.get("production_claim") is not False:
     raise SystemExit("offline fixture report must not claim production network acceptance")
@@ -54,8 +54,17 @@ if update.get("checksum") != "verified-local-fixture":
     raise SystemExit("update checksum evidence is missing")
 if update.get("rollback") != "verified-local-fixture":
     raise SystemExit("update rollback evidence is missing")
-if update.get("signature") != "deferred-alpha-primitive":
-    raise SystemExit("update signature must be explicitly deferred in alpha")
+if update.get("signature") != "verified-aura-sig-v1":
+    raise SystemExit("update signature must be verified with aura-sig-v1")
+
+crypto = record.get("crypto")
+if not isinstance(crypto, dict):
+    raise SystemExit("registry acceptance is missing cryptographic evidence")
+if crypto.get("format") != "aura-sig-v1":
+    raise SystemExit("unsupported registry signature format")
+for field in ("trusted_key_verification", "tamper_rejection", "replay_rejection", "fail_closed"):
+    if crypto.get(field) is not True:
+        raise SystemExit(f"cryptographic acceptance field is not proven: {field}")
 if record.get("production_credentials") != "not-configured":
     raise SystemExit("production credential limitation must be explicit")
 

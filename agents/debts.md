@@ -729,12 +729,12 @@ When you resolve debt, update or remove the matching entry.
   success, failure, cancellation, payload lifetime, and repeated joins, then
   add native and sanitizer-backed corpus evidence before closing ASYNC-002.
 
-### REG-002 signature trust remains open (2026-07-23)
+### REG-002 production trust remains open (updated 2026-07-23)
 
-- Offline registry acceptance verifies receipts and checksums, but the
-  implementation does not yet verify cryptographic signatures or enforce a
-  trusted signer policy. Production credentials and a live registry are also
-  unavailable here, so the matrix remains partial.
-- Next step: add a versioned signature format, trusted-key verification,
-  tamper/replay rejection tests, and a credential-gated live acceptance path;
-  keep offline checks fail-closed until those checks are present.
+- Offline registry acceptance now verifies the versioned `aura-sig-v1` envelope
+  with an explicit trusted key, rejects tampering and sequence replay, and
+  fails closed when the keyring or signature is invalid.
+- Production registry compatibility, credentialed network acceptance, and the
+  release artifact's minisign key remain unavailable in this environment; the
+  matrix therefore stays partial. Keep those claims separate from the offline
+  metadata-signing evidence.

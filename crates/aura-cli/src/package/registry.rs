@@ -18,6 +18,8 @@ use std::fs::{self, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
+use sha2::{Digest, Sha256};
+
 use super::fetch::read_crate_bytes;
 use super::fetch::{read_crate_bytes_bounded, verify_sha256, MAX_ARTIFACT_BYTES};
 use super::semver::parse_version;
@@ -56,6 +58,29 @@ pub struct VersionMeta {
     /// A revoked release must never be selected, even when it is newer.
     pub revoked: bool,
     pub revoke_reason: Option<String>,
+}
+
+/// Versioned cryptographic envelope for a registry release record.
+///
+/// The public `VersionMeta` remains the RFC-005 compatibility shape.  Signed
+/// records are verified before their metadata is admitted to a trust decision,
+/// so callers that do not opt into a keyring retain legacy index parsing while
+/// release acceptance can require this envelope.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrustedRegistryKey {
+    pub key_id: String,
+    pub key: Vec<u8>,
+}
+
+const REGISTRY_SIGNATURE_FORMAT: &str = "aura-sig-v1";
+const REGISTRY_SIGNATURE_DOMAIN: &str = "aura-registry-release-v1";
+const HMAC_BLOCK_SIZE: usize = 64;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SignedVersionRecord {
+    meta: VersionMeta,
+    sequence: u64,
+    signature: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -260,6 +285,16 @@ impl RegistryIndex {
 
     /// Full metadata for every version of `name`.
     pub fn package_versions(&self, name: &str) -> Result<Vec<VersionMeta>, String> {
+        let text = self.versions_text(name)?;
+        if text.contains("\"signature\"") {
+            let trusted_keys = trusted_registry_keys_from_env()?;
+            return self.verify_package_signatures(name, &trusted_keys);
+        }
+        parse_versions_json(&text)
+            .map_err(|e| format!("error: registry metadata for `{name}`: {e}"))
+    }
+
+    fn versions_text(&self, name: &str) -> Result<String, String> {
         let text = if let Some(base) = &self.remote {
             let rel = package_versions_rel_paths(name)
                 .into_iter()
@@ -275,8 +310,54 @@ impl RegistryIndex {
                 .ok_or_else(|| format!("error: package `{name}` not found in registry index"))?;
             fs::read_to_string(&path).map_err(|e| format!("error: read {}: {e}", path.display()))?
         };
-        parse_versions_json(&text)
-            .map_err(|e| format!("error: registry metadata for `{name}`: {e}"))
+        Ok(text)
+    }
+
+    /// Verify every release in a package index with an explicit trusted
+    /// keyring.  This is intentionally opt-in at the API boundary so legacy
+    /// RFC-005 indexes remain parseable, while release/update acceptance can
+    /// fail closed instead of silently treating metadata as trusted.
+    pub fn verify_package_signatures(
+        &self,
+        name: &str,
+        trusted_keys: &[TrustedRegistryKey],
+    ) -> Result<Vec<VersionMeta>, String> {
+        if trusted_keys.is_empty() {
+            return Err("error: registry trusted keyring is empty".into());
+        }
+        let records = parse_signed_versions_json(&self.versions_text(name)?)
+            .map_err(|e| format!("error: signed registry metadata for `{name}`: {e}"))?;
+        let mut previous_sequence = None;
+        let mut seen_versions = std::collections::BTreeSet::new();
+        let mut verified = Vec::with_capacity(records.len());
+        for record in records {
+            if record.sequence == 0 {
+                return Err(format!(
+                    "error: signed registry metadata for `{name}` has invalid sequence 0"
+                ));
+            }
+            if previous_sequence.is_some_and(|previous| record.sequence <= previous) {
+                return Err(format!(
+                    "error: signed registry metadata for `{name}` failed replay check at sequence {}",
+                    record.sequence
+                ));
+            }
+            if !seen_versions.insert(record.meta.vers.clone()) {
+                return Err(format!(
+                    "error: signed registry metadata for `{name}` repeats version `{}`",
+                    record.meta.vers
+                ));
+            }
+            verify_registry_signature(&record, trusted_keys).map_err(|error| {
+                format!(
+                    "error: signed registry metadata for `{name}` version `{}`: {error}",
+                    record.meta.vers
+                )
+            })?;
+            previous_sequence = Some(record.sequence);
+            verified.push(record.meta);
+        }
+        Ok(verified)
     }
 
     /// Select the highest newer release whose metadata is valid, target
@@ -971,6 +1052,13 @@ fn versions_from_json(v: Json) -> Result<Vec<VersionMeta>, String> {
 }
 
 fn version_meta_from_object(v: &Json) -> Result<VersionMeta, String> {
+    Ok(signed_version_record_from_object(v, false)?.meta)
+}
+
+fn signed_version_record_from_object(
+    v: &Json,
+    require_signature: bool,
+) -> Result<SignedVersionRecord, String> {
     let obj = v
         .as_object()
         .ok_or_else(|| "version record must be an object".to_string())?;
@@ -1024,7 +1112,7 @@ fn version_meta_from_object(v: &Json) -> Result<VersionMeta, String> {
         .get("revoke_reason")
         .and_then(Json::as_str)
         .map(str::to_string);
-    Ok(VersionMeta {
+    let meta = VersionMeta {
         name,
         vers,
         cksum,
@@ -1035,7 +1123,221 @@ fn version_meta_from_object(v: &Json) -> Result<VersionMeta, String> {
         max_aura,
         revoked,
         revoke_reason,
+    };
+    let sequence_text = obj
+        .get("sequence")
+        .and_then(Json::as_str)
+        .or_else(|| obj.get("sequence").and_then(Json::as_number))
+        .unwrap_or("0");
+    let sequence = sequence_text
+        .parse::<u64>()
+        .map_err(|_| "version record `sequence` must be a positive integer".to_string())?;
+    if require_signature && sequence == 0 {
+        return Err("signed version record missing positive `sequence`".into());
+    }
+    let signature = obj
+        .get("signature")
+        .and_then(Json::as_str)
+        .map(str::to_string)
+        .unwrap_or_default();
+    if require_signature && signature.is_empty() {
+        return Err("signed version record missing string `signature`".into());
+    }
+    Ok(SignedVersionRecord {
+        meta,
+        sequence,
+        signature,
     })
+}
+
+fn parse_signed_versions_json(text: &str) -> Result<Vec<SignedVersionRecord>, String> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return Err("versions.json: signed index is empty".into());
+    }
+    if let Ok(value) = parse_json(trimmed) {
+        return signed_versions_from_json(value);
+    }
+    let mut records = Vec::new();
+    for (line_number, line) in text.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let value = parse_json(line).map_err(|e| format!("line {}: {e}", line_number + 1))?;
+        records.push(
+            signed_version_record_from_object(&value, true)
+                .map_err(|e| format!("line {}: {e}", line_number + 1))?,
+        );
+    }
+    if records.is_empty() {
+        return Err("versions.json: no signed version records".into());
+    }
+    Ok(records)
+}
+
+fn signed_versions_from_json(value: Json) -> Result<Vec<SignedVersionRecord>, String> {
+    match value {
+        Json::Array(items) => items
+            .iter()
+            .map(|item| signed_version_record_from_object(item, true))
+            .collect(),
+        Json::Object(mut object) => {
+            if let Some(items) = object.remove("versions") {
+                items
+                    .as_array()
+                    .ok_or_else(|| "versions.json: `versions` must be an array".to_string())?
+                    .iter()
+                    .map(|item| signed_version_record_from_object(item, true))
+                    .collect()
+            } else {
+                signed_version_record_from_object(&Json::Object(object), true)
+                    .map(|record| vec![record])
+            }
+        }
+        _ => Err("versions.json: expected array or object".into()),
+    }
+}
+
+fn canonical_registry_payload(record: &SignedVersionRecord) -> Vec<u8> {
+    let meta = &record.meta;
+    let mut targets = meta.targets.clone().unwrap_or_default();
+    targets.sort();
+    let targets = targets.join(",");
+    let checksum = super::fetch::normalize_cksum(&meta.cksum);
+    let yanked = if meta.yanked { "true" } else { "false" };
+    let revoked = if meta.revoked { "true" } else { "false" };
+    let fields: [(&str, &str); 10] = [
+        ("name", meta.name.as_str()),
+        ("version", meta.vers.as_str()),
+        ("checksum", &checksum),
+        ("yanked", yanked),
+        ("repository", meta.repository.as_deref().unwrap_or("")),
+        ("targets", &targets),
+        ("min_aura", meta.min_aura.as_deref().unwrap_or("")),
+        ("max_aura", meta.max_aura.as_deref().unwrap_or("")),
+        ("revoked", revoked),
+        ("revoke_reason", meta.revoke_reason.as_deref().unwrap_or("")),
+    ];
+    let mut payload = format!(
+        "{REGISTRY_SIGNATURE_DOMAIN}\nsequence={}\n",
+        record.sequence
+    );
+    for (key, value) in fields {
+        payload.push_str(key);
+        payload.push('=');
+        payload.push_str(&value.len().to_string());
+        payload.push(':');
+        payload.push_str(value);
+        payload.push('\n');
+    }
+    payload.into_bytes()
+}
+
+fn verify_registry_signature(
+    record: &SignedVersionRecord,
+    trusted_keys: &[TrustedRegistryKey],
+) -> Result<(), String> {
+    let mut parts = record.signature.split(':');
+    let format = parts.next().unwrap_or_default();
+    let key_id = parts.next().unwrap_or_default();
+    let encoded = parts.next().unwrap_or_default();
+    if format != REGISTRY_SIGNATURE_FORMAT
+        || key_id.is_empty()
+        || parts.next().is_some()
+        || encoded.len() != 64
+    {
+        return Err("invalid versioned signature format".into());
+    }
+    let signature =
+        decode_hex(encoded).ok_or_else(|| "signature is not hexadecimal".to_string())?;
+    let key = trusted_keys
+        .iter()
+        .find(|candidate| candidate.key_id == key_id)
+        .ok_or_else(|| format!("untrusted signer `{key_id}`"))?;
+    let expected = hmac_sha256(&key.key, &canonical_registry_payload(record));
+    if !constant_time_eq(&signature, &expected) {
+        return Err("signature verification failed".into());
+    }
+    Ok(())
+}
+
+fn hmac_sha256(key: &[u8], message: &[u8]) -> Vec<u8> {
+    let mut normalized = [0u8; HMAC_BLOCK_SIZE];
+    if key.len() > HMAC_BLOCK_SIZE {
+        normalized[..32].copy_from_slice(&Sha256::digest(key));
+    } else {
+        normalized[..key.len()].copy_from_slice(key);
+    }
+    let mut inner = [0u8; HMAC_BLOCK_SIZE];
+    let mut outer = [0u8; HMAC_BLOCK_SIZE];
+    for i in 0..HMAC_BLOCK_SIZE {
+        inner[i] = normalized[i] ^ 0x36;
+        outer[i] = normalized[i] ^ 0x5c;
+    }
+    let mut inner_hash = Sha256::new();
+    inner_hash.update(inner);
+    inner_hash.update(message);
+    let inner_digest = inner_hash.finalize();
+    let mut outer_hash = Sha256::new();
+    outer_hash.update(outer);
+    outer_hash.update(inner_digest);
+    outer_hash.finalize().to_vec()
+}
+
+fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
+    left.len() == right.len()
+        && left
+            .iter()
+            .zip(right)
+            .fold(0u8, |difference, (a, b)| difference | (a ^ b))
+            == 0
+}
+
+fn decode_hex(value: &str) -> Option<Vec<u8>> {
+    if !value.len().is_multiple_of(2) {
+        return None;
+    }
+    value
+        .as_bytes()
+        .chunks_exact(2)
+        .map(|pair| Some((hex_nibble(pair[0])? << 4) | hex_nibble(pair[1])?))
+        .collect()
+}
+
+fn hex_nibble(value: u8) -> Option<u8> {
+    match value {
+        b'0'..=b'9' => Some(value - b'0'),
+        b'a'..=b'f' => Some(value - b'a' + 10),
+        b'A'..=b'F' => Some(value - b'A' + 10),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+fn encode_hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn trusted_registry_keys_from_env() -> Result<Vec<TrustedRegistryKey>, String> {
+    let encoded = std::env::var("AURA_REGISTRY_TRUSTED_KEY").map_err(|_| {
+        "error: signed registry metadata requires AURA_REGISTRY_TRUSTED_KEY".to_string()
+    })?;
+    let (key_id, key_hex) = encoded.split_once(':').ok_or_else(|| {
+        "error: AURA_REGISTRY_TRUSTED_KEY must use key-id:hex-key format".to_string()
+    })?;
+    if key_id.is_empty() {
+        return Err("error: AURA_REGISTRY_TRUSTED_KEY has an empty key id".into());
+    }
+    let key = decode_hex(key_hex)
+        .ok_or_else(|| "error: AURA_REGISTRY_TRUSTED_KEY contains invalid hex".to_string())?;
+    if key.is_empty() {
+        return Err("error: AURA_REGISTRY_TRUSTED_KEY contains an empty key".into());
+    }
+    Ok(vec![TrustedRegistryKey {
+        key_id: key_id.to_string(),
+        key,
+    }])
 }
 
 // --- Minimal JSON subset parser (objects, arrays, strings, bools, null, numbers) ---
@@ -1075,6 +1377,13 @@ impl Json {
     fn as_bool(&self) -> Option<bool> {
         match self {
             Json::Bool(b) => Some(*b),
+            _ => None,
+        }
+    }
+
+    fn as_number(&self) -> Option<&str> {
+        match self {
+            Json::Number(value) => Some(value),
             _ => None,
         }
     }
@@ -1956,6 +2265,115 @@ mod unit {
             fs::write(path, &report).unwrap();
         }
         println!("u8 release acceptance: {report}");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    fn signed_record_json(
+        name: &str,
+        version: &str,
+        checksum: &str,
+        sequence: u64,
+        key_id: &str,
+        key: &[u8],
+    ) -> String {
+        let record = SignedVersionRecord {
+            meta: VersionMeta {
+                name: name.into(),
+                vers: version.into(),
+                cksum: checksum.into(),
+                yanked: false,
+                repository: Some("auraspace/fixture".into()),
+                targets: Some(vec!["linux-amd64".into()]),
+                min_aura: Some("0.1.0".into()),
+                max_aura: None,
+                revoked: false,
+                revoke_reason: None,
+            },
+            sequence,
+            signature: String::new(),
+        };
+        let signature = format!(
+            "{REGISTRY_SIGNATURE_FORMAT}:{key_id}:{}",
+            encode_hex(&hmac_sha256(key, &canonical_registry_payload(&record)))
+        );
+        format!(
+            "{{\"name\":\"{}\",\"vers\":\"{}\",\"cksum\":\"{}\",\"yanked\":false,\"repository\":\"auraspace/fixture\",\"targets\":[\"linux-amd64\"],\"min_aura\":\"0.1.0\",\"sequence\":{},\"signature\":\"{}\"}}",
+            name, version, checksum, sequence, signature
+        )
+    }
+
+    #[test]
+    fn registry_signature_v1_accepts_trusted_key_and_rejects_tamper() {
+        let root = std::env::temp_dir().join(format!("aura-registry-signature-{}", update_nonce()));
+        let package_dir = root.join("packages/signed");
+        fs::create_dir_all(&package_dir).unwrap();
+        let key = b"offline-registry-fixture-key-v1";
+        let trusted = [TrustedRegistryKey {
+            key_id: "fixture-v1".into(),
+            key: key.to_vec(),
+        }];
+        fs::write(
+            package_dir.join("versions.json"),
+            signed_record_json("signed", "1.0.0", &"a".repeat(64), 1, "fixture-v1", key),
+        )
+        .unwrap();
+        let index = RegistryIndex::open(&root).unwrap();
+        assert_eq!(
+            index
+                .verify_package_signatures("signed", &trusted)
+                .unwrap()
+                .len(),
+            1
+        );
+
+        fs::write(
+            package_dir.join("versions.json"),
+            signed_record_json("signed", "1.0.0", &"b".repeat(64), 1, "fixture-v1", key).replacen(
+                "\"cksum\":\"",
+                "\"cksum\":\"c",
+                1,
+            ),
+        )
+        .unwrap();
+        let error = index
+            .verify_package_signatures("signed", &trusted)
+            .unwrap_err();
+        assert!(error.contains("signature verification failed"), "{error}");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn registry_signature_v1_rejects_unknown_key_and_replay() {
+        let root = std::env::temp_dir().join(format!("aura-registry-replay-{}", update_nonce()));
+        let package_dir = root.join("packages/signed");
+        fs::create_dir_all(&package_dir).unwrap();
+        let key = b"offline-registry-fixture-key-v1";
+        let trusted = [TrustedRegistryKey {
+            key_id: "fixture-v1".into(),
+            key: key.to_vec(),
+        }];
+        let first = signed_record_json("signed", "1.0.0", &"a".repeat(64), 2, "fixture-v1", key);
+        let replay = signed_record_json("signed", "0.9.0", &"b".repeat(64), 1, "fixture-v1", key);
+        fs::write(
+            package_dir.join("versions.json"),
+            format!("[{first},{replay}]"),
+        )
+        .unwrap();
+        let index = RegistryIndex::open(&root).unwrap();
+        let error = index
+            .verify_package_signatures("signed", &trusted)
+            .unwrap_err();
+        assert!(error.contains("replay check"), "{error}");
+
+        fs::write(
+            package_dir.join("versions.json"),
+            signed_record_json("signed", "1.0.0", &"a".repeat(64), 1, "unknown", key),
+        )
+        .unwrap();
+        let error = index
+            .verify_package_signatures("signed", &trusted)
+            .unwrap_err();
+        assert!(error.contains("untrusted signer"), "{error}");
         fs::remove_dir_all(root).unwrap();
     }
 

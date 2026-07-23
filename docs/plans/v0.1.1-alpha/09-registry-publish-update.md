@@ -8,17 +8,19 @@ Owner: Tooling + Release. Scope: 8 tasks.
 **Implementation status:** Partial. The package module now builds deterministic
 gzip/tar source archives rooted at `name-version/`, with sorted repository
 paths, normalized tar ownership/mode/timestamp metadata, safe path validation,
-and a lowercase SHA-256 helper. Manifest/dependency validation, signatures,
-target-specific metadata, and publish orchestration remain deferred.
+and a lowercase SHA-256 helper. The offline `aura-sig-v1` envelope now provides
+versioned trusted-key verification, tamper rejection, and monotonic sequence
+checks; production registry compatibility and target-specific metadata remain
+deferred.
 **Checklist:**
 
 - [x] Define identity, version, source inclusion, target naming, and archive
       layout for the deterministic source archive primitive; full manifest
       validation remains deferred.
 - [x] Define checksum and reproducibility rules for the archive primitive;
-      signatures and release metadata remain deferred.
+      offline signature metadata is covered by `aura-sig-v1`.
 - [x] Define bounded compatibility and rejection behavior for archive metadata;
-      signatures and production registry policy remain deferred.
+      production registry policy remains deferred.
       **Acceptance:** The same package input produces the same verified archive.
       **Verification:** Compare repeated archives and malformed metadata cases.
       **Dependencies:** C1–C3, P1–P8.
@@ -58,7 +60,7 @@ open.
 - [x] Resolve versions and transitive dependencies deterministically.
 - [x] Validate lockfile, source identity, checksum, and warm-cache state.
 - [x] Report conflicts, missing packages, cycles, and checksum tampering clearly;
-      signatures and broader registry tamper policy remain open.
+      production registry trust policy remains open.
       **Acceptance:** A locked graph resolves identically online and from warm cache.
       **Verification:** Run conflict, missing, checksum, cycle, and offline cases.
       **Dependencies:** U2, P3–P4.
@@ -70,13 +72,14 @@ open.
 --dry-run` command. It validates the release manifest/version, source entries,
 path dependencies, and locked registry dependency pins, then builds the U1
 archive in memory and previews its size/checksum. It never resolves/fetches,
-writes `aura.lock`, contacts a registry, or uploads. Release signatures remain
-explicitly deferred until the signing primitive and key policy are defined.
+writes `aura.lock`, contacts a registry, or uploads. Offline release metadata
+uses the versioned `aura-sig-v1` signing primitive and explicit trusted-key
+policy; production artifact signing remains governed by the release workflow.
 **Checklist:**
 
 - [x] Validate manifest, version, package contents, and dependencies.
-- [x] Produce bounded archive/checksum preview; report signature as deferred
-      rather than claiming an unsigned artifact is signed.
+- [x] Produce bounded archive/checksum preview; unsigned dry-run output does not
+      claim production signing, while signed registry metadata uses `aura-sig-v1`.
 - [x] Show all validation errors before any upload operation; dry-run has no
       upload path and does not mutate registry or package state.
       **Acceptance:** Dry-run never mutates registry state.
@@ -123,8 +126,8 @@ authoritative focused test for this contract.
 **Implementation status:** Complete for metadata-only discovery. The registry
 index selects the highest newer non-yanked release whose checksum, target, and
 Aura toolchain bounds validate; revoked, unsupported, and no-update outcomes
-are stable and explainable. Payload download, signature verification, and
-activation remain U7.
+are stable and explainable. Signed-index verification is available through the
+explicit trusted-key API; payload activation remains U7.
 **Checklist:**
 
 - [x] Discover versions and filter by platform, architecture, and compatibility.
@@ -147,7 +150,7 @@ and cross-host native execution remain outside this host-bound slice.
 **Checklist:**
 
 - [x] Download to isolated temporary storage and verify the checksum before
-      activation; signature verification remains deferred.
+      activation; signed metadata can be verified before update selection.
 - [x] Replace atomically and retain rollback information.
 - [x] Preserve the old version after interruption or validation failure.
       **Acceptance:** No failed update changes the active executable.
@@ -176,6 +179,6 @@ persist that record. macOS native execution still requires a native host run.
       evidence JSON.
       **Acceptance:** The release workflow is reproducible from a clean installation.
       **Verification:** Run `cargo test -p aura-cli
-    u8_local_registry_release_acceptance -- --nocapture`; use a native macOS
+  u8_local_registry_release_acceptance -- --nocapture`; use a native macOS
       host before making a macOS execution claim.
       **Dependencies:** U5, U7, P8.
