@@ -888,6 +888,55 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_top_level_while_await_int_without_string_temporary() {
+        let source = r#"package demo
+async fun worker(value: Int): Int { return value }
+async fun sum(limit: Int): Int {
+  var i: Int = 0
+  var total: Int = 0
+  while (i < limit) {
+    val value: Int = await worker(i)
+    total = total + value
+    i = i + 1
+  }
+  if (total == 10) { println("10") }
+  return total
+}
+fun main() {
+  val task = spawn { val result: Int = await sum(5) return }
+  join(task)
+}
+"#;
+        let file = parse_file(source).expect("parse while-await Int fixture");
+        let generated = emit_c_from_ast(&file).expect("emit while-await Int fixture");
+        assert!(generated.contains("/* aura async top-level while-await Int lowering */"));
+        assert!(
+            generated.contains("aura_task_executor_wake(__aura_task_executor, data->await_task)")
+        );
+        assert!(generated.contains("aura_task_executor_run_one(__aura_task_executor)"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-while-await-int-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile while-await Int fixture with ASAN/UBSAN");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run while-await Int fixture");
+        assert!(
+            output.status.success(),
+            "while-await fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "10\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_branch_join_await_state_machine() {
         let file = aura_parser::parse_file(
             r#"package demo
