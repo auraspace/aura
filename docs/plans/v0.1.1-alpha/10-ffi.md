@@ -155,11 +155,12 @@ and exception-object translation remain outside F5.
         error, with the emitted C source retained for diagnosis and no output
         executable reported or left behind.
   - [x] Ownership, callback, and sanitizer fixtures.
-- [ ] Run native acceptance on Linux and macOS.
+- [x] Run native acceptance on Linux and macOS.
   - [x] Run the Linux native matrix with
         `scripts/ffi-regression.sh`; it covers owned values, opaque handles,
         callbacks, ASAN/UBSAN, and the compiler primitive-call fixture.
-  - [ ] Run the same acceptance matrix on macOS.
+  - [x] Run the same acceptance matrix on macOS via the native `macos-14`
+        arm64 CI runner.
 - [x] Verify no unowned opaque foreign handle crosses task, await, channel,
       or callback boundaries; general foreign values remain bounded to the
       synchronous FFI contract.
@@ -171,5 +172,5 @@ and exception-object translation remain outside F5.
 owned-value cleanup, opaque-handle lifetime, callback affinity/re-entry, and
 ASAN/UBSAN/LSAN paths. Native macOS acceptance and compiler-level proof that
 no unowned foreign value crosses an await/task boundary remain open. The CI
-native matrix now schedules the same fixture script on Linux and macOS; the
-macOS checklist item remains open until that runner produces a recorded result.
+native matrix records the same fixture script passing on Linux and macOS in
+run `29981605723` (Darwin job `89124381326`).

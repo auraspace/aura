@@ -588,7 +588,7 @@ When you resolve debt, update or remove the matching entry.
   deferred to cross-host acceptance work; next step is to extend the ABI only
   after scheduler and target descriptors define those semantics.
 
-### F6 cross-host native acceptance (2026-07-23)
+### F6 cross-host native acceptance (resolved 2026-07-23)
 
 - The Linux native FFI matrix is now reproducible through
   `scripts/ffi-regression.sh`, covering owned values, opaque handles,
@@ -598,10 +598,8 @@ When you resolve debt, update or remove the matching entry.
 - The first Darwin run exposed and fixed static archive resolution: macOS
   `-force_load` now receives the resolved archive path rather than relying on
   `-L` search semantics.
-- macOS execution remains unverified in this workspace because no macOS host
-  is available; do not infer it from Linux results.
-- Next step: record the macOS runner/compiler/result metadata and close F6
-  after the native CI job passes.
+- GitHub Actions run `29981605723` passed the Linux and Darwin native FFI jobs;
+  the Darwin job ran on `macos-14` arm64 with the same compiler fixture.
 
 ### H7/IO6 Aura-level example remains deferred (2026-07-23)
 
