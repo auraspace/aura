@@ -720,6 +720,27 @@ fun main() {}
     }
 
     #[test]
+    fn builds_control_flow_await_with_false_path() {
+        let file = aura_parser::parse_file(
+            r#"package demo
+async fun choose(flag: Bool, task: Task<Int>): Int {
+  if (flag) {
+    val value: Int = await task
+    return value
+  }
+  return 0
+}
+fun main() {}
+"#,
+        )
+        .expect("parse control-flow await fixture");
+        let generated = emit_c_from_ast(&file).expect("emit control-flow await fixture");
+        assert!(generated.contains("aura async control-flow suspension"));
+        assert!(generated.contains("if (flag)"));
+        assert!(generated.contains("aura_task_frame_wait_on(frame, data->await_task)"));
+    }
+
+    #[test]
     fn builds_two_awaits_with_distinct_resume_states_and_intermediate_cleanup() {
         let file = aura_parser::parse_file(
             r#"package demo
