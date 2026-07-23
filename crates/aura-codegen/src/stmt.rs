@@ -287,10 +287,20 @@ pub(crate) fn string_call_owns_result(e: &Expr, ctx: &EmitCtx<'_>) -> bool {
     let Expr::Call(call) = e else {
         return false;
     };
-    // Aura function and foreign-call results have transfer ownership at the
-    // call boundary when their declared return type is String. This also
-    // covers user helpers such as `takeLines`, not only builtins.
+    // Generic Aura calls do not establish transfer ownership: a generic
+    // identity (for example `id<String>(literal)`) may return a borrowed
+    // argument. Copying such a result is safer than freeing a literal or
+    // caller-owned storage. Non-generic String helpers such as `takeLines`
+    // retain the existing transfer convention.
     if infer_type_name(e, ctx) == "String" {
+        if ctx
+            .checked
+            .call_instantiations
+            .get(&call.span.start)
+            .is_some_and(|inst| !inst.type_args.is_empty())
+        {
+            return false;
+        }
         return true;
     }
     match call.callee.as_ref() {
