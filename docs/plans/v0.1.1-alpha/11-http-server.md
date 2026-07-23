@@ -160,10 +160,13 @@ installed-release journey, and cross-host acceptance remain open until the
 documented Aura TCP bindings and async HTTP integration exist.
 **Checklist:**
 
-- [ ] Add an example that binds localhost and serves a health endpoint.
-- [ ] Print the bound address and provide deterministic shutdown.
-- [ ] Exercise it through the CLI and a native HTTP client.
-- [ ] Document build, run, test, and target selection commands.
+- [x] Add a bounded native companion that binds localhost and serves a health
+      endpoint; the Aura CLI/async example remains open.
+- [x] Print the bound address and provide deterministic native shutdown.
+- [x] Exercise the native companion with a native HTTP client; CLI execution
+      remains open with H5.
+- [x] Document bounded native build, run, sanitizer, and target-selection
+      commands in `examples/http-health/README.md`.
       **Acceptance:** A clean installation can start, query, and stop the server on
       Linux and macOS.
       **Verification:** Execute the example from source and installed release.
@@ -189,7 +192,8 @@ sanitizer smoke matrix.
 - [x] Test slow clients, oversized requests, malformed framing, and concurrent
       clients.
 - [x] Run sanitizer and forced-shutdown tests.
-- [ ] Record limits, known exclusions, and native-host results.
+- [x] Record limits, known exclusions, and the current Linux native result;
+      macOS acceptance remains unverified.
       **Acceptance:** The server cannot hang indefinitely or exceed configured limits
       under the mandatory hostile-input suite.
       **Verification:** Run the HTTP stage in the release acceptance matrix.

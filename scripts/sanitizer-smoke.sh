@@ -43,6 +43,20 @@ ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0:halt_on_error=1}" \
   UBSAN_OPTIONS="${UBSAN_OPTIONS:-halt_on_error=1:print_stacktrace=1}" \
   "$tmp/http-parser-fuzz"
 
+printf 'sanitizer smoke: http-hardening\n'
+"$real_cc" -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined \
+  -fno-omit-frame-pointer -o "$tmp/http-hardening" runtime/tests/http_hardening.c
+ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0:halt_on_error=1}" \
+  UBSAN_OPTIONS="${UBSAN_OPTIONS:-halt_on_error=1:print_stacktrace=1}" \
+  "$tmp/http-hardening"
+
+printf 'sanitizer smoke: http-health\n'
+"$real_cc" -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined \
+  -fno-omit-frame-pointer -o "$tmp/http-health" examples/http-health/http_health.c
+ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0:halt_on_error=1}" \
+  UBSAN_OPTIONS="${UBSAN_OPTIONS:-halt_on_error=1:print_stacktrace=1}" \
+  "$tmp/http-health"
+
 printf 'sanitizer smoke: task-waiter\n'
 "$real_cc" -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined \
   -fno-omit-frame-pointer -o "$tmp/task-waiter" runtime/tests/task_waiter.c

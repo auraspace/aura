@@ -171,9 +171,11 @@ When you resolve debt, update or remove the matching entry.
   synchronous.
 - Progress: `runtime/tests/http_hardening.c` runs the bounded checks over the
   existing parser and connection APIs under strict ASAN/UBSAN (and LSAN when
-  supported).
-- Next step: keep the H6 routing checklist open and extend H8 with fuzz and
-  supported-host acceptance evidence after the dependent work lands.
+  supported). The hardening fixture and `examples/http-health` native
+  companion now run from `scripts/sanitizer-smoke.sh`; the companion README
+  records the Linux result and the unverified macOS host.
+- Next step: keep the H5 async and H6 routing checklists open, then add
+  cross-host acceptance once the documented Aura-level server path exists.
 
 ### Async suspension GC roots and ownership (C22s, 2026-07-22)
 
