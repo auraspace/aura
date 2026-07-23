@@ -1,6 +1,6 @@
 //! Top-level C translation unit emission.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 
 use aura_ast::*;
@@ -10,7 +10,7 @@ use crate::array_emit::{emit_array_mono, is_array_mono};
 use crate::class_emit::*;
 use crate::ctx::{EmitCtx, EmitOptions};
 use crate::enum_emit::*;
-use crate::expr::{bounded_spawn_body, bounded_spawn_poll_name, emit_expr, full_type_mono};
+use crate::expr::{bounded_spawn_captures, bounded_spawn_poll_name, emit_expr, full_type_mono};
 use crate::iface::*;
 use crate::names::*;
 use crate::stmt::{emit_block, emit_return_fallback};
@@ -887,6 +887,7 @@ fn emit_async_body(
         array_gc_roots: vec![std::collections::HashSet::new()],
         return_key: ret_key,
         lambda_ids: build_lambda_ids(checked),
+        spawn_params: f.params.iter().map(|p| p.name.name.clone()).collect(),
     };
     for p in &f.params {
         let key = type_ref_local_key_expand(&p.ty, params, &[], checked);
@@ -967,33 +968,63 @@ pub(crate) fn build_lambda_ids(checked: &CheckedFile) -> HashMap<u32, usize> {
 fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile, detector: bool) {
     let mut spawns = Vec::new();
     for f in &checked.ast.functions {
-        collect_spawns_block(&f.body, &mut spawns);
+        let available = spawn_parameter_locals(&f.params, &[], &[], checked);
+        collect_spawns_block(&f.body, &available, &mut spawns);
     }
     for f in &checked.ast.async_functions {
-        collect_spawns_block(&f.body, &mut spawns);
+        let params: Vec<String> = f.type_params.iter().map(|p| p.name.name.clone()).collect();
+        let available = spawn_parameter_locals(&f.params, &params, &[], checked);
+        collect_spawns_block(&f.body, &available, &mut spawns);
     }
     for c in &checked.ast.classes {
         for m in &c.methods {
-            collect_spawns_block(&m.body, &mut spawns);
+            collect_spawns_block(&m.body, &HashMap::new(), &mut spawns);
         }
     }
     for c in &checked.ast.consts {
-        collect_spawns_expr(&c.value, &mut spawns);
+        collect_spawns_expr(&c.value, &HashMap::new(), &mut spawns);
     }
 
     let mut emitted = std::collections::HashSet::new();
-    for spawn in spawns {
-        if spawn.body.stmts.is_empty()
-            || !bounded_spawn_body(&spawn.body)
-            || !emitted.insert(spawn.span.start)
-        {
+    for (spawn, available) in spawns {
+        let Some(captures) = bounded_spawn_captures(&spawn.body, &available) else {
+            continue;
+        };
+        if spawn.body.stmts.is_empty() || !emitted.insert(spawn.span.start) {
             continue;
         }
         let poll = bounded_spawn_poll_name(spawn.span);
+        let data_ty = format!("aura_spawn_data_{}", spawn.span.start);
+        if !captures.is_empty() {
+            let _ = writeln!(out, "typedef struct {data_ty} {{");
+            for (name, key) in &captures {
+                let _ = writeln!(
+                    out,
+                    "  {} {};",
+                    crate::stmt::local_key_to_c(key, checked),
+                    mangle_ident(name)
+                );
+            }
+            let _ = writeln!(out, "}} {data_ty};\n");
+        }
         let _ = writeln!(
             out,
             "static AuraTaskPollState {poll}(AuraTaskFrame *frame) {{"
         );
+        if !captures.is_empty() {
+            let _ = writeln!(
+                out,
+                "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame);"
+            );
+            for (name, key) in &captures {
+                let n = mangle_ident(name);
+                let _ = writeln!(
+                    out,
+                    "  {} {n} = data->{n};",
+                    crate::stmt::local_key_to_c(key, checked)
+                );
+            }
+        }
         out.push_str(
             "  if (aura_task_frame_cancel_requested(frame)) return AURA_TASK_CANCELLED;\n",
         );
@@ -1018,7 +1049,11 @@ fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile, detector:
             array_gc_roots: vec![std::collections::HashSet::new()],
             return_key: Some("Unit".into()),
             lambda_ids: build_lambda_ids(checked),
+            spawn_params: HashSet::new(),
         };
+        for (name, key) in &captures {
+            ctx.define_local(name, key.clone());
+        }
         for stmt in &spawn.body.stmts {
             if let Stmt::Expr(expr) = stmt {
                 let code = emit_expr(expr, &mut ctx);
@@ -1029,99 +1064,122 @@ fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile, detector:
     }
 }
 
-fn collect_spawns_block<'a>(block: &'a Block, out: &mut Vec<&'a SpawnExpr>) {
+fn spawn_parameter_locals(
+    params: &[Param],
+    type_params: &[String],
+    type_args: &[Ty],
+    checked: &CheckedFile,
+) -> HashMap<String, String> {
+    params
+        .iter()
+        .map(|p| {
+            let key = type_ref_local_key_expand(&p.ty, type_params, type_args, checked);
+            (p.name.name.clone(), full_type_mono(&key, checked))
+        })
+        .collect()
+}
+
+fn collect_spawns_block<'a>(
+    block: &'a Block,
+    available: &HashMap<String, String>,
+    out: &mut Vec<(&'a SpawnExpr, HashMap<String, String>)>,
+) {
     for stmt in &block.stmts {
         match stmt {
-            Stmt::Var(v) => collect_spawns_expr(&v.init, out),
+            Stmt::Var(v) => collect_spawns_expr(&v.init, available, out),
             Stmt::If(i) => {
-                collect_spawns_expr(&i.cond, out);
-                collect_spawns_block(&i.then_block, out);
+                collect_spawns_expr(&i.cond, available, out);
+                collect_spawns_block(&i.then_block, available, out);
                 if let Some(b) = &i.else_block {
-                    collect_spawns_block(b, out);
+                    collect_spawns_block(b, available, out);
                 }
             }
             Stmt::While(w) => {
-                collect_spawns_expr(&w.cond, out);
-                collect_spawns_block(&w.body, out);
+                collect_spawns_expr(&w.cond, available, out);
+                collect_spawns_block(&w.body, available, out);
             }
             Stmt::ForRange(f) => {
-                collect_spawns_expr(&f.start, out);
-                collect_spawns_expr(&f.end, out);
-                collect_spawns_block(&f.body, out);
+                collect_spawns_expr(&f.start, available, out);
+                collect_spawns_expr(&f.end, available, out);
+                collect_spawns_block(&f.body, available, out);
             }
             Stmt::ForIn(f) => {
-                collect_spawns_expr(&f.iterable, out);
-                collect_spawns_block(&f.body, out);
+                collect_spawns_expr(&f.iterable, available, out);
+                collect_spawns_block(&f.body, available, out);
             }
             Stmt::Match(m) => {
-                collect_spawns_expr(&m.scrutinee, out);
+                collect_spawns_expr(&m.scrutinee, available, out);
                 for arm in &m.arms {
-                    collect_spawns_block(&arm.body, out);
+                    collect_spawns_block(&arm.body, available, out);
                 }
             }
             Stmt::Try(t) => {
-                collect_spawns_block(&t.try_block, out);
+                collect_spawns_block(&t.try_block, available, out);
                 if let Some(c) = &t.catch {
-                    collect_spawns_block(&c.body, out);
+                    collect_spawns_block(&c.body, available, out);
                 }
                 if let Some(f) = &t.finally {
-                    collect_spawns_block(f, out);
+                    collect_spawns_block(f, available, out);
                 }
             }
-            Stmt::Throw(t) => collect_spawns_expr(&t.value, out),
+            Stmt::Throw(t) => collect_spawns_expr(&t.value, available, out),
             Stmt::Return(r) => {
                 if let Some(e) = &r.value {
-                    collect_spawns_expr(e, out);
+                    collect_spawns_expr(e, available, out);
                 }
             }
-            Stmt::Expr(e) => collect_spawns_expr(e, out),
+            Stmt::Expr(e) => collect_spawns_expr(e, available, out),
             Stmt::Break(_) | Stmt::Continue(_) => {}
         }
     }
 }
 
-fn collect_spawns_expr<'a>(expr: &'a Expr, out: &mut Vec<&'a SpawnExpr>) {
+fn collect_spawns_expr<'a>(
+    expr: &'a Expr,
+    available: &HashMap<String, String>,
+    out: &mut Vec<(&'a SpawnExpr, HashMap<String, String>)>,
+) {
     match expr {
         Expr::Call(c) => {
-            collect_spawns_expr(&c.callee, out);
+            collect_spawns_expr(&c.callee, available, out);
             for arg in &c.args {
-                collect_spawns_expr(arg, out);
+                collect_spawns_expr(arg, available, out);
             }
         }
-        Expr::Field(f) => collect_spawns_expr(&f.object, out),
-        Expr::Assign(a) => collect_spawns_expr(&a.value, out),
+        Expr::Field(f) => collect_spawns_expr(&f.object, available, out),
+        Expr::Assign(a) => collect_spawns_expr(&a.value, available, out),
         Expr::Binary(b) => {
-            collect_spawns_expr(&b.left, out);
-            collect_spawns_expr(&b.right, out);
+            collect_spawns_expr(&b.left, available, out);
+            collect_spawns_expr(&b.right, available, out);
         }
-        Expr::Unary(u) => collect_spawns_expr(&u.expr, out),
-        Expr::ForceUnwrap(f) => collect_spawns_expr(&f.expr, out),
-        Expr::Is(i) => collect_spawns_expr(&i.expr, out),
-        Expr::Group(e, _) => collect_spawns_expr(e, out),
+        Expr::Unary(u) => collect_spawns_expr(&u.expr, available, out),
+        Expr::ForceUnwrap(f) => collect_spawns_expr(&f.expr, available, out),
+        Expr::Is(i) => collect_spawns_expr(&i.expr, available, out),
+        Expr::Group(e, _) => collect_spawns_expr(e, available, out),
         Expr::If(i) => {
-            collect_spawns_expr(&i.cond, out);
-            collect_spawns_block(&i.then_block, out);
-            collect_spawns_block(&i.else_block, out);
+            collect_spawns_expr(&i.cond, available, out);
+            collect_spawns_block(&i.then_block, available, out);
+            collect_spawns_block(&i.else_block, available, out);
         }
         Expr::Lambda(l) => match &l.body {
-            LambdaBody::Expr(e) => collect_spawns_expr(e, out),
-            LambdaBody::Block(b) => collect_spawns_block(b, out),
+            LambdaBody::Expr(e) => collect_spawns_expr(e, available, out),
+            LambdaBody::Block(b) => collect_spawns_block(b, available, out),
         },
         Expr::Async(a) => match a {
             AsyncExpr::Spawn(s) => {
-                out.push(s);
-                collect_spawns_block(&s.body, out);
+                out.push((s, available.clone()));
+                collect_spawns_block(&s.body, available, out);
             }
-            AsyncExpr::Await(a) => collect_spawns_expr(&a.operand, out),
-            AsyncExpr::Join(j) => collect_spawns_expr(&j.handle, out),
-            AsyncExpr::Cancel(c) => collect_spawns_expr(&c.handle, out),
-            AsyncExpr::ChannelCreate(c) => collect_spawns_expr(&c.capacity, out),
+            AsyncExpr::Await(a) => collect_spawns_expr(&a.operand, available, out),
+            AsyncExpr::Join(j) => collect_spawns_expr(&j.handle, available, out),
+            AsyncExpr::Cancel(c) => collect_spawns_expr(&c.handle, available, out),
+            AsyncExpr::ChannelCreate(c) => collect_spawns_expr(&c.capacity, available, out),
             AsyncExpr::ChannelSend(c) => {
-                collect_spawns_expr(&c.channel, out);
-                collect_spawns_expr(&c.value, out);
+                collect_spawns_expr(&c.channel, available, out);
+                collect_spawns_expr(&c.value, available, out);
             }
-            AsyncExpr::ChannelReceive(c) => collect_spawns_expr(&c.channel, out),
-            AsyncExpr::ChannelClose(c) => collect_spawns_expr(&c.channel, out),
+            AsyncExpr::ChannelReceive(c) => collect_spawns_expr(&c.channel, available, out),
+            AsyncExpr::ChannelClose(c) => collect_spawns_expr(&c.channel, available, out),
         },
         Expr::Ident(_)
         | Expr::This(_)
@@ -1575,6 +1633,7 @@ fn emit_lambda_fns(out: &mut String, checked: &CheckedFile, detector: bool) {
             array_gc_roots: vec![std::collections::HashSet::new()],
             return_key: ret_key,
             lambda_ids: ids.clone(),
+            spawn_params: HashSet::new(),
         };
         // C12l: Array captures are non-owning views — do not mark array_owner
         // (env/header copy only; outer scope frees the buffer).
@@ -1769,6 +1828,7 @@ pub(crate) fn emit_fun(
         array_gc_roots: vec![std::collections::HashSet::new()],
         return_key: ret_key,
         lambda_ids: build_lambda_ids(checked),
+        spawn_params: f.params.iter().map(|p| p.name.name.clone()).collect(),
     };
     for p in &f.params {
         let key = type_ref_local_key_expand(&p.ty, &params, args, checked);

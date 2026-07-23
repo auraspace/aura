@@ -1,5 +1,6 @@
 //! Expression emission.
 
+use std::collections::{BTreeSet, HashMap};
 use std::fmt::Write as _;
 
 use aura_ast::*;
@@ -399,32 +400,57 @@ fn foreign_decl_package(foreign: &ForeignDecl, checked: &CheckedFile) -> String 
 }
 
 /// Bounded C22l lowering: a spawn body may contain only calls with literal
-/// arguments and an optional unit return.  Such a body has no locals, captures,
-/// suspension points, or ownership to preserve across polls.
-pub(crate) fn bounded_spawn_body(body: &Block) -> bool {
+/// arguments, or copied `Int` parameters from the enclosing function, and an
+/// optional unit return. The copied subset has no heap ownership to preserve.
+pub(crate) fn bounded_spawn_captures(
+    body: &Block,
+    available: &HashMap<String, String>,
+) -> Option<Vec<(String, String)>> {
     let mut returned = false;
+    let mut captures = BTreeSet::new();
     for stmt in &body.stmts {
         if returned {
-            return false;
+            return None;
         }
         match stmt {
             Stmt::Expr(Expr::Call(call))
                 if matches!(call.callee.as_ref(), Expr::Ident(_))
-                    && call.args.iter().all(bounded_spawn_value) => {}
+                    && call
+                        .args
+                        .iter()
+                        .all(|arg| bounded_spawn_value(arg, available, &mut captures)) => {}
             Stmt::Return(ret) if ret.value.is_none() => returned = true,
-            _ => return false,
+            _ => return None,
         }
     }
-    true
+    Some(
+        captures
+            .into_iter()
+            .filter_map(|name| available.get(&name).map(|ty| (name, ty.clone())))
+            .collect(),
+    )
 }
 
-fn bounded_spawn_value(expr: &Expr) -> bool {
+fn bounded_spawn_value(
+    expr: &Expr,
+    available: &HashMap<String, String>,
+    captures: &mut BTreeSet<String>,
+) -> bool {
     match expr {
         Expr::Int(_) | Expr::Bool(_) | Expr::String(_) | Expr::Null(_) => true,
-        Expr::Group(inner, _) => bounded_spawn_value(inner),
-        Expr::Unary(unary) => bounded_spawn_value(&unary.expr),
+        Expr::Ident(id) => {
+            if available.get(&id.name).is_some_and(|ty| ty == "Int") {
+                captures.insert(id.name.clone());
+                true
+            } else {
+                false
+            }
+        }
+        Expr::Group(inner, _) => bounded_spawn_value(inner, available, captures),
+        Expr::Unary(unary) => bounded_spawn_value(&unary.expr, available, captures),
         Expr::Binary(binary) => {
-            bounded_spawn_value(&binary.left) && bounded_spawn_value(&binary.right)
+            bounded_spawn_value(&binary.left, available, captures)
+                && bounded_spawn_value(&binary.right, available, captures)
         }
         _ => false,
     }
@@ -777,9 +803,7 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
                         };
                         ctx.unmark_string_owner(&src.name);
                         ctx.mark_string_owner(dst_name);
-                        return format!(
-                            "({{ {free_dst}{lhs} = {rhs}; {source} = NULL; }})"
-                        );
+                        return format!("({{ {free_dst}{lhs} = {rhs}; {source} = NULL; }})");
                     }
                 }
             }
@@ -1005,12 +1029,34 @@ fn emit_async_expr(expr: &AsyncExpr, ctx: &mut EmitCtx<'_>) -> String {
                 let source = s.span.start;
                 return format!("({{ AuraTaskFrame *__spawn = aura_task_frame_new(0, aura_task_poll_unit, NULL); if (__spawn != NULL) aura_task_frame_set_race_source_id(__spawn, UINT32_C({source})); if (__spawn != NULL && (__aura_task_executor == NULL || !aura_task_executor_submit(__aura_task_executor, __spawn))) {{ aura_task_frame_destroy(__spawn); __spawn = NULL; }} __spawn; }})");
             }
-            if !bounded_spawn_body(&s.body) {
+            let available = ctx.spawn_capture_types();
+            let Some(captures) = bounded_spawn_captures(&s.body, &available) else {
                 return "({ fputs(\"aura: non-empty spawn body requires C22l state-machine lowering\\n\", stderr); abort(); (AuraTaskFrame *)NULL; })".to_string();
-            }
+            };
             let poll = bounded_spawn_poll_name(s.span);
             let source = s.span.start;
-            format!("({{ AuraTaskFrame *__spawn = aura_task_frame_new(0, {poll}, NULL); if (__spawn != NULL) aura_task_frame_set_race_source_id(__spawn, UINT32_C({source})); if (__spawn != NULL && (__aura_task_executor == NULL || !aura_task_executor_submit(__aura_task_executor, __spawn))) {{ aura_task_frame_destroy(__spawn); __spawn = NULL; }} __spawn; }})")
+            let data_size = if captures.is_empty() {
+                "0".to_string()
+            } else {
+                format!("sizeof(aura_spawn_data_{})", s.span.start)
+            };
+            let init = if captures.is_empty() {
+                String::new()
+            } else {
+                let assignments = captures
+                    .iter()
+                    .map(|(name, _)| {
+                        let n = mangle_ident(name);
+                        format!("__spawn_data->{n} = {n};")
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                format!(
+                    "aura_spawn_data_{} *__spawn_data = (aura_spawn_data_{0} *)aura_task_frame_data(__spawn); {assignments}",
+                    s.span.start
+                )
+            };
+            format!("({{ AuraTaskFrame *__spawn = aura_task_frame_new({data_size}, {poll}, NULL); if (__spawn != NULL) {{ aura_task_frame_set_race_source_id(__spawn, UINT32_C({source})); {init} }} if (__spawn != NULL && (__aura_task_executor == NULL || !aura_task_executor_submit(__aura_task_executor, __spawn))) {{ aura_task_frame_destroy(__spawn); __spawn = NULL; }} __spawn; }})")
         }
         AsyncExpr::Join(j) => {
             let handle = emit_expr(&j.handle, ctx);
@@ -1059,7 +1105,10 @@ fn emit_await(a: &AwaitExpr, ctx: &mut EmitCtx<'_>) -> String {
     let mut out = String::new();
     out.push_str("({ AuraTaskFrame *__await = (");
     out.push_str(&task);
-    out.push_str(&format!("); aura_race_set_source_id(UINT32_C({})); AuraTaskPollState __await_state = ", a.span.start));
+    out.push_str(&format!(
+        "); aura_race_set_source_id(UINT32_C({})); AuraTaskPollState __await_state = ",
+        a.span.start
+    ));
     out.push_str("__await == NULL ? AURA_TASK_FAILED : aura_task_frame_state(__await); ");
     out.push_str("if (__await_state == AURA_TASK_READY) __await_state = aura_task_frame_poll_once(__await); ");
     out.push_str("if (__await_state == AURA_TASK_PENDING && __aura_task_executor != NULL) { ");

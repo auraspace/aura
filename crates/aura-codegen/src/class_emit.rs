@@ -174,7 +174,13 @@ fn emit_class_gc_hooks(
     }
 }
 
-pub(crate) fn emit_class_defs(out: &mut String, checked: &CheckedFile, c: &ClassDecl, args: &[Ty], detector: bool) {
+pub(crate) fn emit_class_defs(
+    out: &mut String,
+    checked: &CheckedFile,
+    c: &ClassDecl,
+    args: &[Ty],
+    detector: bool,
+) {
     let params: Vec<String> = c.type_params.iter().map(|p| p.name.name.clone()).collect();
     let pkg = class_decl_package(c, checked);
     let mono = type_mono(&pkg, &c.name.name, args);
@@ -375,6 +381,7 @@ pub(crate) fn emit_method_mono(
         array_gc_roots: vec![std::collections::HashSet::new()],
         return_key: ret_key,
         lambda_ids: crate::emit::build_lambda_ids(checked),
+        spawn_params: std::collections::HashSet::new(),
     };
     for f in &c.fields {
         let key = type_ref_local_key_expand(&f.ty, params, args, checked);

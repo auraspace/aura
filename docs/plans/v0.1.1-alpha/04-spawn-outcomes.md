@@ -34,9 +34,17 @@ nested, capture, await, and repeatedly scheduled lowering remain unverified.
 
 **Objective:** Keep every captured value valid until task completion.
 
+**Implementation status (bounded compiler/runtime slice):** An `Int` parameter
+referenced by a supported spawn body is copied into a generated
+`AuraTaskFrame` data struct before submission. The one-shot poller reads that
+copy, so mutation of the caller's local state cannot invalidate the capture.
+String, class, Array, Fun, transfer, await-crossing, and cancellation
+ownership remain open until complete capture/frame lowering exists.
+
 **Checklist:**
 
-- [ ] Copy or transfer captures according to ownership rules.
+- [x] Copy `Int` parameter captures into frame data according to the bounded
+      copy rule; transfer and heap-owned capture rules remain open.
 - [ ] Support Int, String, class, Array, and Fun captures.
 - [x] Register, mark, release, and destroy captures with the frame. The
       bounded runtime slice roots owned capture storage, releases the root on
@@ -46,8 +54,10 @@ nested, capture, await, and repeatedly scheduled lowering remain unverified.
 
 **Acceptance:** Captures survive await and are released exactly once.
 
-**Verification:** Run capture, mutation, forced-GC, cancellation, and churn cases
-under sanitizers.
+**Verification:** `aura-codegen` native build test
+`builds_and_runs_bounded_int_parameter_capture` checks generated frame storage,
+copy-before-submit, and native execution. Full capture, mutation, forced-GC,
+cancellation, and churn cases remain open for the broader type set.
 
 **Dependencies:** S1, A3.
 

@@ -35,6 +35,9 @@ pub(crate) struct EmitCtx<'a> {
     pub(crate) return_key: Option<String>,
     /// C10e: LambdaExpr.span.start → sequential id for `aura_lambda_N`.
     pub(crate) lambda_ids: HashMap<u32, usize>,
+    /// Enclosing function parameters eligible for the bounded spawn capture
+    /// slice. Locals, fields, and lambda variables are intentionally excluded.
+    pub(crate) spawn_params: HashSet<String>,
 }
 
 impl<'a> EmitCtx<'a> {
@@ -66,6 +69,18 @@ impl<'a> EmitCtx<'a> {
         if let Some(scope) = self.locals.last_mut() {
             scope.insert(name.to_string(), ty);
         }
+    }
+
+    pub(crate) fn spawn_capture_types(&self) -> HashMap<String, String> {
+        self.spawn_params
+            .iter()
+            .filter_map(|name| {
+                self.locals
+                    .first()
+                    .and_then(|scope| scope.get(name))
+                    .map(|ty| (name.clone(), ty.clone()))
+            })
+            .collect()
     }
 
     pub(crate) fn mark_array_owner(&mut self, name: &str) {
@@ -170,7 +185,10 @@ impl<'a> EmitCtx<'a> {
     }
 
     pub(crate) fn is_string_owner(&self, name: &str) -> bool {
-        self.string_owners.iter().rev().any(|scope| scope.contains(name))
+        self.string_owners
+            .iter()
+            .rev()
+            .any(|scope| scope.contains(name))
     }
 
     pub(crate) fn string_owners_all(&self) -> Vec<String> {
