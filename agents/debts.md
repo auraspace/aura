@@ -7,6 +7,21 @@ When you resolve debt, update or remove the matching entry.
 
 ## Open
 
+### RUNTIME-003 exception cleanup is bounded to frame-owned object payloads (2026-07-23)
+
+- Area: unchecked exception payload ABI
+- Symptom: the runtime releases a heap object payload on both explicit
+  `aura_ex_clear` and the final `aura_try_leave`, while rethrow transfers that
+  ownership to the outer frame. Native ASAN/UBSAN with leak detection covers
+  clear, implicit leave, rethrow, and scalar pending reset.
+- Why deferred: the full exception contract still lacks typed nested exception
+  chains, compiler source mapping, and a general destructor protocol for
+  payloads containing owned runtime resources.
+- Progress: `runtime/tests/exception_payload_cleanup.c` is part of the
+  sanitizer seed manifest and `scripts/sanitizer-smoke.sh`.
+- Next step: define typed exception/destructor metadata before extending
+  cleanup claims beyond the current malloc-backed class/struct copy.
+
 ### H6 routing is synchronous and exact-match only (2026-07-22)
 
 - Area: HTTP handler API
@@ -546,6 +561,14 @@ When you resolve debt, update or remove the matching entry.
   checksum verification, discovery, activation, rollback, and execution on
   native Linux. A native macOS run is still required before claiming macOS
   execution evidence; the fixture intentionally does not emulate another host.
+
+### BUILD-002 / REL-003 target-host boundary (2026-07-23)
+
+- Host-only validation now fails closed on target-manifest, workflow, package,
+  and tier-2 policy drift; it intentionally does not claim foreign compilation
+  or execution.
+- Next step: run Linux arm64 and Windows package/native acceptance on their
+  declared hosts before promoting BUILD-002/REL-003 from partial.
 
 ### F2 foreign failure and search-path integration (2026-07-22)
 

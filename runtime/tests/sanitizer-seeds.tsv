@@ -1,4 +1,5 @@
 fixture	seed	minimized_case	command
+exception_payload_cleanup	0	runtime/tests/exception_payload_cleanup.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined runtime/tests/exception_payload_cleanup.c
 task_frame_sanitizer	0	runtime/tests/task_frame_sanitizer.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined runtime/tests/task_frame_sanitizer.c
 task_cancellation	0	runtime/tests/task_cancellation.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined runtime/tests/task_cancellation.c
 task_capture_ownership	0	runtime/tests/task_capture_ownership.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined runtime/tests/task_capture_ownership.c

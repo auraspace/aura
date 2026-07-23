@@ -3085,6 +3085,21 @@ static AuraExFrame aura_ex_stack[AURA_EX_MAX];
 static int aura_ex_sp = 0;
 static int aura_ex_pending = 0;
 
+static void aura_ex_dispose_frame(AuraExFrame *f)
+{
+  if (f == NULL)
+  {
+    return;
+  }
+  if (f->owns_obj && f->payload.as_obj != NULL)
+  {
+    free(f->payload.as_obj);
+    f->payload.as_obj = NULL;
+  }
+  f->owns_obj = 0;
+  f->type_name = NULL;
+}
+
 void aura_try_enter(jmp_buf *buf)
 {
   if (aura_ex_sp >= AURA_EX_MAX)
@@ -3103,7 +3118,14 @@ void aura_try_leave(void)
 {
   if (aura_ex_sp > 0)
   {
+    /* Leaving a catch is the final ownership boundary when the caller did
+     * not explicitly clear the payload. Generated catches still clear first. */
+    aura_ex_dispose_frame(&aura_ex_stack[aura_ex_sp - 1]);
     aura_ex_sp--;
+    if (aura_ex_sp == 0)
+    {
+      aura_ex_pending = 0;
+    }
   }
 }
 
@@ -3228,13 +3250,7 @@ void aura_ex_clear(void)
   {
     AuraExFrame *f = &aura_ex_stack[aura_ex_sp - 1];
     /* Catch path copies by value first; free the throw heap copy (C3s). */
-    if (f->owns_obj && f->payload.as_obj != NULL)
-    {
-      free(f->payload.as_obj);
-      f->payload.as_obj = NULL;
-    }
-    f->owns_obj = 0;
-    f->type_name = NULL;
+    aura_ex_dispose_frame(f);
   }
   aura_ex_pending = 0;
 }

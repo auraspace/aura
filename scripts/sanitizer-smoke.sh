@@ -71,6 +71,14 @@ ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0:halt_on_error=1}" \
   UBSAN_OPTIONS="${UBSAN_OPTIONS:-halt_on_error=1:print_stacktrace=1}" \
   "$tmp/task-waiter"
 
+printf 'sanitizer smoke: exception-payload-cleanup\n'
+"$real_cc" -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined \
+  -fno-omit-frame-pointer -o "$tmp/exception-payload-cleanup" \
+  runtime/tests/exception_payload_cleanup.c
+ASAN_OPTIONS="detect_leaks=1:halt_on_error=1" \
+  UBSAN_OPTIONS="${UBSAN_OPTIONS:-halt_on_error=1:print_stacktrace=1}" \
+  "$tmp/exception-payload-cleanup"
+
 printf 'sanitizer smoke: task-dependency\n'
 "$real_cc" -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined \
   -fno-omit-frame-pointer -o "$tmp/task-dependency" runtime/tests/task_dependency.c
