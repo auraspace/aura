@@ -7,6 +7,24 @@ When you resolve debt, update or remove the matching entry.
 
 ## Open
 
+### SAN-002 full Aura LSAN remains disabled for generated corpus binaries (2026-07-23)
+
+- Area: compiler-generated ownership cleanup under sanitizer smoke
+- Symptom: `scripts/sanitizer-smoke.sh --native-only` now runs the deterministic
+  native runtime seed manifest plus async I/O FFI smoke under fail-closed
+  ASAN/UBSAN/LSAN, but the full Aura compile/run matrix still uses
+  ASAN/UBSAN-only defaults because `corpus/generic/array_memory_safety.aura`
+  leaks generated heap strings when leak detection is forced on.
+- Why deferred: the leak originates in generated Aura C ownership paths outside
+  the runtime/test write set used for the SAN-002 slice, so tightening the full
+  gate here would turn an unrelated compiler debt into a permanent false red.
+- Progress: task outcomes, GC roots, exception cleanup, I/O cleanup, FFI
+  handles/callbacks/net, and HTTP async/hardening/health are now seeded and
+  executed under fail-closed native LSAN coverage.
+- Next step: fix the generated Array/String ownership release path, then switch
+  the Aura compile/run leg of `scripts/sanitizer-smoke.sh` to the same
+  leak-detecting defaults before promoting SAN-002 beyond partial.
+
 ### RUNTIME-003 exception cleanup is bounded to frame-owned object payloads (2026-07-23)
 
 - Area: unchecked exception payload ABI
