@@ -1,4 +1,4 @@
-//! Locate the in-tree / installed `std/<leaf>` packages (io, assert, collections).
+//! Locate the in-tree / installed `std/<leaf>` packages (io, assert, collections, net).
 //!
 //! Search order:
 //! 1. `AURA_STD` env (directory that **contains** `io/`, `assert/`, …)
@@ -23,7 +23,7 @@ pub fn find_std_package_dir(from: &Path, leaf: &str) -> Option<PathBuf> {
     }
 
     // Only known alpha packages are embedded; unknown leaves stop at disk search.
-    if !matches!(leaf, "io" | "assert" | "collections") {
+    if !matches!(leaf, "io" | "assert" | "collections" | "net") {
         return None;
     }
 
@@ -167,6 +167,20 @@ const EMBEDDED_STD_FILES: &[(&str, &str)] = &[
             "/../../std/collections/src/lib.aura"
         )),
     ),
+    (
+        "net/aura.toml",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../std/net/aura.toml"
+        )),
+    ),
+    (
+        "net/src/lib.aura",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../std/net/src/lib.aura"
+        )),
+    ),
 ];
 
 #[cfg(test)]
@@ -178,6 +192,13 @@ mod tests {
         assert!(EMBEDDED_STD_FILES
             .iter()
             .any(|(p, c)| *p == "io/src/lib.aura" && c.contains("package std.io")));
+    }
+
+    #[test]
+    fn embedded_has_net_primitive_bridge() {
+        assert!(EMBEDDED_STD_FILES
+            .iter()
+            .any(|(p, c)| *p == "net/src/lib.aura" && c.contains("package std.net")));
     }
 
     #[test]
