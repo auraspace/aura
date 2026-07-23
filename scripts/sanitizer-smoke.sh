@@ -16,6 +16,10 @@ fi
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
 
+# Keep every sanitizer fixture tied to a deterministic seed and minimized
+# reproducer before running the smoke matrix.
+bash scripts/validate-sanitizer-seeds.sh >/dev/null
+
 bin="${AURA_BIN:-target/debug/aura}"
 if [[ ! -x "$bin" ]]; then
   printf 'sanitizer smoke: Aura binary not found: %s\n' "$bin" >&2

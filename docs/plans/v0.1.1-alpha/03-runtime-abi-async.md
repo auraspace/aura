@@ -199,7 +199,7 @@ lowering exists.
 - [x] Exercise pending frames during forced GC.
 - [x] Exercise cancellation, repeated polling, dropped handles, and failures.
 - [x] Run memory and undefined-behavior sanitizers where supported.
-- [ ] Record reproducible seeds and minimized failures.
+- [x] Record reproducible seeds and minimized failures.
 
 **Bounded evidence (2026-07-22):**
 `runtime/tests/task_frame_sanitizer.c` covers a pending frame retaining a GC
@@ -209,6 +209,13 @@ failed frame whose error payload is observed and released. This is a C ABI
 fixture for the existing single-threaded frame/executor APIs; it does not claim
 full async state-machine lowering or delayed wakeup support. The fixture is
 run with ASAN/UBSAN and, when supported by the host toolchain, LSAN.
+
+Reproducibility metadata is recorded in
+`runtime/tests/sanitizer-seeds.tsv`. Each row uses seed `0` because the C ABI
+fixtures are deterministic, names the minimized fixture source, and records the
+sanitized compile command. `scripts/validate-sanitizer-seeds.sh` validates the
+manifest and is run by `scripts/sanitizer-smoke.sh`; its negative duplicate-row
+coverage is in `scripts/tests/validate-sanitizer-seeds.sh`.
 
 **Acceptance:** No use-after-free, double-drop, invalid root, or leaked frame is
 present in the mandatory suite.

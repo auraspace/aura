@@ -1,0 +1,10 @@
+fixture	seed	minimized_case	command
+task_frame_sanitizer	0	runtime/tests/task_frame_sanitizer.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined runtime/tests/task_frame_sanitizer.c
+task_cancellation	0	runtime/tests/task_cancellation.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined runtime/tests/task_cancellation.c
+task_capture_ownership	0	runtime/tests/task_capture_ownership.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined runtime/tests/task_capture_ownership.c
+task_io_cleanup_sanitizer	0	runtime/tests/task_io_cleanup_sanitizer.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined runtime/tests/task_io_cleanup_sanitizer.c
+task_outcomes	0	runtime/tests/task_outcomes.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined runtime/tests/task_outcomes.c
+task_join	0	runtime/tests/task_join.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined runtime/tests/task_join.c
+task_churn	0	runtime/tests/task_churn.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined runtime/tests/task_churn.c
+task_channel	0	runtime/tests/task_channel.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined runtime/tests/task_channel.c
+task_executor	0	runtime/tests/task_executor.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined runtime/tests/task_executor.c
