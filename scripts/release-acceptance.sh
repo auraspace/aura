@@ -109,6 +109,7 @@ run_stage "native host scope" report_native_scope
 
 run_stage "alpha contract matrix" bash scripts/validate-alpha-contract.sh
 run_stage "release target and signing policy" bash scripts/tests/release-policy.sh
+run_stage "registry and cross-host acceptance fixture" bash scripts/registry-release-acceptance.sh
 run_stage "workspace tests" cargo test --workspace
 run_stage "Clippy warnings gate" cargo clippy --workspace --all-targets -- -D warnings
 run_stage "corpus gate" bash scripts/check-corpus.sh

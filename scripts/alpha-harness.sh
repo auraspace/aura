@@ -99,7 +99,7 @@ run_stage() {
     io) run_command io 'bash scripts/compiler-regression.sh' 'scripts/alpha-harness.sh --stage io' ;;
     http) run_deferred http 'HTTP implementation is owned by workstream 11' ;;
     build) run_command build '"$AURA_BIN" build corpus/hello/main.aura -o "$BUILD_OUTPUT" && "$BUILD_OUTPUT"' 'scripts/alpha-harness.sh --stage build' ;;
-    registry) run_command registry 'cargo test -p aura-cli package' 'cargo test -p aura-cli package' ;;
+    registry) run_command registry 'bash scripts/registry-release-acceptance.sh' 'bash scripts/registry-release-acceptance.sh' ;;
     ffi) run_deferred ffi 'rich FFI implementation is owned by workstream 10' ;;
     sanitizer) run_command sanitizer 'bash scripts/sanitizer-smoke.sh' 'scripts/alpha-harness.sh --stage sanitizer' ;;
     release) run_command release 'bash scripts/release-acceptance.sh --dry-run' 'scripts/alpha-harness.sh --stage release' ;;
@@ -139,18 +139,10 @@ else cargo build -q -p aura-cli; export AURA_BIN="$root/target/debug/aura"; fi
 
 report_init
 if [[ -n "$stage" ]]; then
-  if [[ "$network" -eq 0 && "$stage" == registry ]]; then
-    run_deferred registry 'network mode is disabled; use --network to opt in'
-  else
-    run_stage "$stage"
-  fi
+  run_stage "$stage"
 else
   for current in "${stages[@]}"; do
-    if [[ "$network" -eq 0 && "$current" == registry ]]; then
-      run_deferred registry 'network mode is disabled; use --network to opt in'
-    else
-      run_stage "$current"
-    fi
+    run_stage "$current"
   done
 fi
 report_close

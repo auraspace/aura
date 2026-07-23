@@ -13,8 +13,9 @@ The release matrix contains exactly these Unix targets:
 | `darwin-arm64` | macOS arm64  | `aarch64-apple-darwin`     | Native on `macos-14`         |
 | `darwin-amd64` | macOS x86_64 | `x86_64-apple-darwin`      | Cross-compiled on `macos-14` |
 
-`darwin-*` is the artifact target spelling for macOS. Windows and other
-architectures are outside this release contract.
+`darwin-*` is the artifact target spelling for macOS. Linux arm64 and Windows
+targets are policy-only until their native artifact and installer acceptance
+evidence exists; they are not release claims in this alpha.
 
 If a supported target fails preflight or release acceptance, it is removed
 from the published matrix and release assets until its native/cross acceptance
@@ -40,10 +41,10 @@ Every archive must have its adjacent SHA-256 checksum, and the release job
 must verify all three checksums before publishing. The release also publishes
 an aggregate `SHA256SUMS` manifest covering the release assets.
 
-Minisign signing of `SHA256SUMS` is optional. When the signing secret and
-public key are configured, the workflow signs and verifies the manifest and
-publishes `SHA256SUMS.minisig` plus `minisign.pub`. No release claim depends
-on minisign being configured.
+Minisign signing of `SHA256SUMS` is required for production tags. The workflow
+fails closed unless the signing secret and matching public key are configured,
+then signs and verifies the manifest and publishes `SHA256SUMS.minisig` plus
+`minisign.pub`.
 
 ## Workflow contract
 

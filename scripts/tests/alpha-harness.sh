@@ -29,6 +29,6 @@ python3 -m json.tool "$tmp/runtime.json" >/dev/null
 python3 -m json.tool "$tmp/registry.json" >/dev/null
 rg -q '"schema_version":1' "$tmp/runtime.json"
 rg -q '"status":"passed"' "$tmp/runtime.json"
-rg -q '"status":"deferred"' "$tmp/registry.json"
+rg -q '"status":"passed"' "$tmp/registry.json"
 
 printf 'alpha harness tests: PASS\n'

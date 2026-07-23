@@ -113,10 +113,16 @@ impl UpdateDecision {
 fn validate_update_metadata(meta: &VersionMeta) -> Result<(), String> {
     let checksum = super::fetch::normalize_cksum(&meta.cksum);
     if checksum.len() != 64 || !checksum.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return Err(format!("error: registry metadata for `{}-{}` has invalid sha256 checksum", meta.name, meta.vers));
+        return Err(format!(
+            "error: registry metadata for `{}-{}` has invalid sha256 checksum",
+            meta.name, meta.vers
+        ));
     }
     if meta.targets.as_ref().is_none_or(Vec::is_empty) {
-        return Err(format!("error: registry metadata for `{}-{}` has no target list", meta.name, meta.vers));
+        return Err(format!(
+            "error: registry metadata for `{}-{}` has no target list",
+            meta.name, meta.vers
+        ));
     }
     if let Some(min) = &meta.min_aura {
         parse_version(min).map_err(|e| format!("error: invalid min_aura `{min}`: {e}"))?;
@@ -128,21 +134,30 @@ fn validate_update_metadata(meta: &VersionMeta) -> Result<(), String> {
 }
 
 fn target_matches(targets: Option<&[String]>, target: &str) -> bool {
-    targets.is_some_and(|items| items.iter().any(|item| {
-        item.eq_ignore_ascii_case(target)
-            || (item.eq_ignore_ascii_case("linux-x86_64") && target == "linux-amd64")
-            || (item.eq_ignore_ascii_case("darwin-x86_64") && target == "darwin-amd64")
-    }))
+    targets.is_some_and(|items| {
+        items.iter().any(|item| {
+            item.eq_ignore_ascii_case(target)
+                || (item.eq_ignore_ascii_case("linux-x86_64") && target == "linux-amd64")
+                || (item.eq_ignore_ascii_case("darwin-x86_64") && target == "darwin-amd64")
+        })
+    })
 }
 
-fn toolchain_matches(meta: &VersionMeta, toolchain: &super::semver::Version) -> Result<bool, String> {
+fn toolchain_matches(
+    meta: &VersionMeta,
+    toolchain: &super::semver::Version,
+) -> Result<bool, String> {
     if let Some(min) = &meta.min_aura {
-        if *toolchain < parse_version(min).map_err(|e| format!("error: invalid min_aura `{min}`: {e}"))? {
+        if *toolchain
+            < parse_version(min).map_err(|e| format!("error: invalid min_aura `{min}`: {e}"))?
+        {
             return Ok(false);
         }
     }
     if let Some(max) = &meta.max_aura {
-        if *toolchain > parse_version(max).map_err(|e| format!("error: invalid max_aura `{max}`: {e}"))? {
+        if *toolchain
+            > parse_version(max).map_err(|e| format!("error: invalid max_aura `{max}`: {e}"))?
+        {
             return Ok(false);
         }
     }
@@ -289,7 +304,10 @@ impl RegistryIndex {
         let mut revoked = None;
         for meta in versions {
             if meta.name != name {
-                return Err(format!("error: registry metadata name mismatch: expected `{name}`, got `{}`", meta.name));
+                return Err(format!(
+                    "error: registry metadata name mismatch: expected `{name}`, got `{}`",
+                    meta.name
+                ));
             }
             let version = parse_version(&meta.vers)
                 .map_err(|e| format!("error: registry metadata version `{}`: {e}", meta.vers))?;
@@ -298,10 +316,17 @@ impl RegistryIndex {
             }
             validate_update_metadata(&meta)?;
             if meta.revoked {
-                revoked = Some((meta.vers.clone(), meta.revoke_reason.clone().unwrap_or_else(|| "registry revoked this release".into())));
+                revoked = Some((
+                    meta.vers.clone(),
+                    meta.revoke_reason
+                        .clone()
+                        .unwrap_or_else(|| "registry revoked this release".into()),
+                ));
                 continue;
             }
-            if !target_matches(meta.targets.as_deref(), target) || !toolchain_matches(&meta, &toolchain)? {
+            if !target_matches(meta.targets.as_deref(), target)
+                || !toolchain_matches(&meta, &toolchain)?
+            {
                 saw_unsupported = true;
                 continue;
             }
@@ -315,20 +340,21 @@ impl RegistryIndex {
             return Ok(UpdateDecision::Revoked { version, reason });
         }
         if saw_unsupported {
-            return Ok(UpdateDecision::Unsupported { current: current_version.into(), target: target.into() });
+            return Ok(UpdateDecision::Unsupported {
+                current: current_version.into(),
+                target: target.into(),
+            });
         }
-        Ok(UpdateDecision::NoUpdate { current: current_version.into() })
+        Ok(UpdateDecision::NoUpdate {
+            current: current_version.into(),
+        })
     }
 
     /// Resolve the payload source for a previously validated U6 candidate.
     /// Keeping this separate from discovery makes it impossible for metadata
     /// inspection to perform a download accidentally.
     pub fn update_source(&self, candidate: &UpdateCandidate) -> Result<String, String> {
-        super::fetch::crate_source_for_meta(
-            &self.root,
-            self.config.dl.as_deref(),
-            &candidate.meta,
-        )
+        super::fetch::crate_source_for_meta(&self.root, self.config.dl.as_deref(), &candidate.meta)
     }
 
     /// Metadata for an exact version pin.
@@ -396,16 +422,28 @@ pub fn activate_update(
     active: impl AsRef<Path>,
 ) -> Result<UpdateActivation, String> {
     let active = active.as_ref();
-    let active_meta = fs::symlink_metadata(active)
-        .map_err(|error| format!("error: cannot inspect active executable {}: {error}", active.display()))?;
+    let active_meta = fs::symlink_metadata(active).map_err(|error| {
+        format!(
+            "error: cannot inspect active executable {}: {error}",
+            active.display()
+        )
+    })?;
     if !active_meta.file_type().is_file() {
-        return Err(format!("error: active executable is not a regular file: {}", active.display()));
+        return Err(format!(
+            "error: active executable is not a regular file: {}",
+            active.display()
+        ));
     }
     let parent = active.parent().unwrap_or_else(|| Path::new("."));
     let file_name = active
         .file_name()
         .and_then(|name| name.to_str())
-        .ok_or_else(|| format!("error: active executable has no valid file name: {}", active.display()))?;
+        .ok_or_else(|| {
+            format!(
+                "error: active executable has no valid file name: {}",
+                active.display()
+            )
+        })?;
     let nonce = update_nonce();
     let staging = parent.join(format!(".{file_name}{UPDATE_TEMP_SUFFIX}-{nonce}"));
     let rollback = parent.join(format!(".{file_name}.aura-rollback-{nonce}"));
@@ -422,15 +460,26 @@ pub fn activate_update(
         .write(true)
         .create_new(true)
         .open(&staging)
-        .map_err(|error| format!("error: create update staging file {}: {error}", staging.display()))?;
+        .map_err(|error| {
+            format!(
+                "error: create update staging file {}: {error}",
+                staging.display()
+            )
+        })?;
     if let Err(error) = staged.write_all(&bytes).and_then(|_| staged.sync_all()) {
         let _ = fs::remove_file(&staging);
-        return Err(format!("error: write update staging file {}: {error}", staging.display()));
+        return Err(format!(
+            "error: write update staging file {}: {error}",
+            staging.display()
+        ));
     }
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        if let Err(error) = fs::set_permissions(&staging, fs::Permissions::from_mode(active_meta.permissions().mode())) {
+        if let Err(error) = fs::set_permissions(
+            &staging,
+            fs::Permissions::from_mode(active_meta.permissions().mode()),
+        ) {
             let _ = fs::remove_file(&staging);
             return Err(format!("error: preserve executable permissions: {error}"));
         }
@@ -439,12 +488,18 @@ pub fn activate_update(
 
     if let Err(error) = fs::copy(active, &rollback) {
         let _ = fs::remove_file(&staging);
-        return Err(format!("error: retain rollback executable {}: {error}", rollback.display()));
+        return Err(format!(
+            "error: retain rollback executable {}: {error}",
+            rollback.display()
+        ));
     }
     if let Err(error) = sync_file(&rollback) {
         let _ = fs::remove_file(&staging);
         let _ = fs::remove_file(&rollback);
-        return Err(format!("error: sync rollback executable {}: {error}", rollback.display()));
+        return Err(format!(
+            "error: sync rollback executable {}: {error}",
+            rollback.display()
+        ));
     }
 
     let state_contents = format!(
@@ -492,25 +547,34 @@ fn sync_file(path: &Path) -> Result<(), String> {
 }
 
 fn write_atomic_state(path: &Path, contents: &str, nonce: &u128) -> Result<(), String> {
-    let tmp = path.with_file_name(format!("{}.tmp-{nonce}", path.file_name().unwrap().to_string_lossy()));
+    let tmp = path.with_file_name(format!(
+        "{}.tmp-{nonce}",
+        path.file_name().unwrap().to_string_lossy()
+    ));
     let result = (|| {
-        let mut file = OpenOptions::new().write(true).create_new(true).open(&tmp)
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&tmp)
             .map_err(|error| format!("error: create update state {}: {error}", tmp.display()))?;
-        file.write_all(contents.as_bytes()).and_then(|_| file.sync_all())
+        file.write_all(contents.as_bytes())
+            .and_then(|_| file.sync_all())
             .map_err(|error| format!("error: write update state {}: {error}", tmp.display()))?;
         fs::rename(&tmp, path)
             .map_err(|error| format!("error: publish update state {}: {error}", path.display()))
     })();
-    if result.is_err() { let _ = fs::remove_file(&tmp); }
+    if result.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
     result
 }
 
-/// Minimal, explicit upload contract used by U5.
+/// Publish endpoint used by the Aura registry protocol.
 ///
-/// The endpoint is intentionally not inferred from a registry's download/index
-/// API: it is a small Aura-specific fixture contract until a production API is
-/// standardized. A successful response must be HTTP 201 with a JSON object
-/// containing `status`, `name`, `version`, and `checksum`.
+/// A registry base URL is accepted for compatibility with RFC-005 (`/api/v1/
+/// publish` is appended), while callers may also provide the complete endpoint
+/// URL. A successful response must be HTTP 201 with a JSON object containing
+/// `status`, `name`, `version`, and `checksum`.
 pub const PUBLISH_PATH: &str = "/api/v1/publish";
 const PUBLISH_ATTEMPTS: usize = 3;
 const MAX_PUBLISH_RESPONSE_BYTES: usize = 64 * 1024;
@@ -602,7 +666,12 @@ pub fn publish_upload(
             message: "archive exceeds the 64 MiB upload limit".into(),
         });
     }
-    let url = format!("{}{}", base_url.trim_end_matches('/'), PUBLISH_PATH);
+    let base = base_url.trim_end_matches('/');
+    let url = if base.ends_with(PUBLISH_PATH) {
+        base.to_string()
+    } else {
+        format!("{base}{PUBLISH_PATH}")
+    };
     let agent = ureq::AgentBuilder::new()
         .timeout_connect(std::time::Duration::from_secs(30))
         .timeout_read(std::time::Duration::from_secs(30))
@@ -612,7 +681,8 @@ pub fn publish_upload(
     for attempt in 1..=PUBLISH_ATTEMPTS {
         let mut request = agent
             .post(&url)
-            .set("Content-Type", "application/gzip")
+            .set("Accept", "application/json")
+            .set("Content-Type", "application/vnd.aura.package+gzip")
             .set("X-Aura-Package", &preview.package)
             .set("X-Aura-Version", &preview.version)
             .set("X-Aura-Sha256", &preview.checksum);
@@ -720,12 +790,15 @@ fn parse_receipt(
         message: "registry publish response must be an object".into(),
     })?;
     let string_field = |key: &str| {
-        object.get(key).and_then(Json::as_str).ok_or_else(|| PublishError {
-            kind: PublishErrorKind::Protocol,
-            status: Some(201),
-            attempts,
-            message: format!("registry publish response missing string `{key}`"),
-        })
+        object
+            .get(key)
+            .and_then(Json::as_str)
+            .ok_or_else(|| PublishError {
+                kind: PublishErrorKind::Protocol,
+                status: Some(201),
+                attempts,
+                message: format!("registry publish response missing string `{key}`"),
+            })
     };
     let status = string_field("status")?;
     let name = string_field("name")?;
@@ -924,10 +997,13 @@ fn version_meta_from_object(v: &Json) -> Result<VersionMeta, String> {
         .get("repository")
         .and_then(Json::as_str)
         .map(str::to_string);
-    let targets = obj
-        .get("targets")
-        .and_then(Json::as_array)
-        .map(|items| items.iter().filter_map(Json::as_str).map(str::to_string).collect());
+    let targets = obj.get("targets").and_then(Json::as_array).map(|items| {
+        items
+            .iter()
+            .filter_map(Json::as_str)
+            .map(str::to_string)
+            .collect()
+    });
     let targets = targets.or_else(|| {
         obj.get("target")
             .and_then(Json::as_str)
@@ -943,10 +1019,7 @@ fn version_meta_from_object(v: &Json) -> Result<VersionMeta, String> {
         .or_else(|| obj.get("max_toolchain"))
         .and_then(Json::as_str)
         .map(str::to_string);
-    let revoked = obj
-        .get("revoked")
-        .and_then(Json::as_bool)
-        .unwrap_or(false);
+    let revoked = obj.get("revoked").and_then(Json::as_bool).unwrap_or(false);
     let revoke_reason = obj
         .get("revoke_reason")
         .and_then(Json::as_str)
@@ -1324,7 +1397,9 @@ mod unit {
             "[{{\"name\":\"demo\",\"vers\":\"2.0.0\",\"cksum\":\"{checksum}\",\"targets\":[\"darwin-arm64\"]}}]"
         ));
         assert!(matches!(
-            index.discover_update("demo", "1.0.0", "0.1.0", "linux-amd64").unwrap(),
+            index
+                .discover_update("demo", "1.0.0", "0.1.0", "linux-amd64")
+                .unwrap(),
             UpdateDecision::Unsupported { .. }
         ));
         fs::remove_dir_all(root).unwrap();
@@ -1333,7 +1408,9 @@ mod unit {
             "[{{\"name\":\"demo\",\"vers\":\"2.0.0\",\"cksum\":\"{checksum}\",\"targets\":[\"linux-amd64\"],\"revoked\":true,\"revoke_reason\":\"security\"}}]"
         ));
         assert!(matches!(
-            index.discover_update("demo", "1.0.0", "0.1.0", "linux-amd64").unwrap(),
+            index
+                .discover_update("demo", "1.0.0", "0.1.0", "linux-amd64")
+                .unwrap(),
             UpdateDecision::Revoked { .. }
         ));
         fs::remove_dir_all(root).unwrap();
@@ -1383,7 +1460,10 @@ mod unit {
         let archive = build_source_archive(
             "demo.publish",
             "1.2.3",
-            &[("aura.toml".into(), b"[package]\nname=\"demo.publish\"\n".to_vec())],
+            &[(
+                "aura.toml".into(),
+                b"[package]\nname=\"demo.publish\"\n".to_vec(),
+            )],
         )
         .unwrap();
         PublishPreview {
@@ -1436,7 +1516,10 @@ mod unit {
                 header_end = end + 4;
                 break;
             }
-            assert!(bytes.len() < 128 * 1024, "fixture request headers too large");
+            assert!(
+                bytes.len() < 128 * 1024,
+                "fixture request headers too large"
+            );
         }
         let headers = String::from_utf8_lossy(&bytes[..header_end]);
         let length = headers
@@ -1474,12 +1557,33 @@ mod unit {
         assert!(request.contains(&format!("X-Aura-Package: {}", preview.package)));
         assert!(request.contains(&format!("X-Aura-Version: {}", preview.version)));
         assert!(request.contains(&format!("X-Aura-Sha256: {}", preview.checksum)));
+        assert!(request.contains("Accept: application/json"));
+        assert!(request.contains("Content-Type: application/vnd.aura.package+gzip"));
         assert!(raw.ends_with(&preview.archive));
     }
 
     #[test]
+    fn publish_fixture_accepts_base_or_explicit_endpoint_url() {
+        for explicit in [false, true] {
+            let preview = upload_preview();
+            let (base, _requests, handle) = upload_fixture(vec![(201, receipt(&preview))]);
+            let endpoint = if explicit {
+                format!("{base}{PUBLISH_PATH}")
+            } else {
+                base
+            };
+            let result = publish_upload(&endpoint, None, &preview).unwrap();
+            handle.join().unwrap();
+            assert_eq!(result.version, preview.version);
+        }
+    }
+
+    #[test]
     fn publish_fixture_classifies_auth_and_version_conflict_without_retry() {
-        for (status, kind) in [(401, PublishErrorKind::Auth), (409, PublishErrorKind::Conflict)] {
+        for (status, kind) in [
+            (401, PublishErrorKind::Auth),
+            (409, PublishErrorKind::Conflict),
+        ] {
             let preview = upload_preview();
             let (url, requests, handle) = upload_fixture(vec![(status, String::new())]);
             let error = publish_upload(&url, None, &preview).unwrap_err();
@@ -1507,9 +1611,10 @@ mod unit {
     #[test]
     fn publish_fixture_never_claims_success_for_bad_receipt() {
         let preview = upload_preview();
-        let (url, _, handle) = upload_fixture(vec![
-            (201, "{\"status\":\"published\",\"name\":\"wrong\"}".into()),
-        ]);
+        let (url, _, handle) = upload_fixture(vec![(
+            201,
+            "{\"status\":\"published\",\"name\":\"wrong\"}".into(),
+        )]);
         let error = publish_upload(&url, None, &preview).unwrap_err();
         handle.join().unwrap();
         assert_eq!(error.kind, PublishErrorKind::Protocol);
@@ -1551,7 +1656,9 @@ mod unit {
               {"name":"demo","vers":"1.0.0","cksum":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","yanked":false,"targets":["linux-amd64"]}
             ]"#,
         );
-        let decision = index.discover_update("demo", "1.0.0", "0.1.1", "linux-amd64").unwrap();
+        let decision = index
+            .discover_update("demo", "1.0.0", "0.1.1", "linux-amd64")
+            .unwrap();
         match decision {
             UpdateDecision::Update(candidate) => assert_eq!(candidate.meta.vers, "1.1.0"),
             other => panic!("expected update, got {other:?}"),
@@ -1567,11 +1674,15 @@ mod unit {
             ]"#,
         );
         assert!(matches!(
-            index.discover_update("demo", "1.1.0", "0.1.1", "linux-amd64").unwrap(),
+            index
+                .discover_update("demo", "1.1.0", "0.1.1", "linux-amd64")
+                .unwrap(),
             UpdateDecision::NoUpdate { .. }
         ));
         assert!(matches!(
-            index.discover_update("demo", "1.0.0", "0.1.1", "linux-amd64").unwrap(),
+            index
+                .discover_update("demo", "1.0.0", "0.1.1", "linux-amd64")
+                .unwrap(),
             UpdateDecision::Unsupported { .. }
         ));
     }
@@ -1590,7 +1701,9 @@ mod unit {
             "bad",
             r#"[{"name":"demo","vers":"1.1.0","cksum":"bad","yanked":false,"targets":["linux-amd64"]}]"#,
         );
-        assert!(bad.discover_update("demo", "1.0.0", "0.1.1", "linux-amd64").is_err());
+        assert!(bad
+            .discover_update("demo", "1.0.0", "0.1.1", "linux-amd64")
+            .is_err());
     }
 
     fn activation_candidate(payload: &[u8], checksum: Option<&str>) -> UpdateCandidate {
@@ -1654,13 +1767,18 @@ mod unit {
         let bad_checksum = "0000000000000000000000000000000000000000000000000000000000000000";
         let candidate = activation_candidate(b"expected", Some(bad_checksum));
 
-        let error = activate_update(&candidate, &bad_source.display().to_string(), &active).unwrap_err();
+        let error =
+            activate_update(&candidate, &bad_source.display().to_string(), &active).unwrap_err();
         assert!(error.contains("verification failed"));
         assert_eq!(fs::read(&active).unwrap(), b"old-aura-binary");
         assert!(!root.join(".aura.aura-update-state").exists());
 
-        let error = activate_update(&candidate, &root.join("missing").display().to_string(), &active)
-            .unwrap_err();
+        let error = activate_update(
+            &candidate,
+            &root.join("missing").display().to_string(),
+            &active,
+        )
+        .unwrap_err();
         assert!(error.contains("download failed"));
         assert_eq!(fs::read(&active).unwrap(), b"old-aura-binary");
         fs::remove_dir_all(root).unwrap();
@@ -1688,12 +1806,8 @@ mod unit {
             stream.write_all(&expected).unwrap();
         });
         let candidate = activation_candidate(payload, None);
-        let result = activate_update(
-            &candidate,
-            &format!("http://{address}/aura"),
-            &active,
-        )
-        .unwrap();
+        let result =
+            activate_update(&candidate, &format!("http://{address}/aura"), &active).unwrap();
         handle.join().unwrap();
         assert_eq!(fs::read(&active).unwrap(), payload);
         assert!(result.rollback.exists());
@@ -1709,7 +1823,8 @@ mod unit {
         let source = root.join("download");
         fs::write(&source, payload).unwrap();
         let candidate = activation_candidate(payload, None);
-        let error = activate_update(&candidate, &source.display().to_string(), &active).unwrap_err();
+        let error =
+            activate_update(&candidate, &source.display().to_string(), &active).unwrap_err();
         assert!(error.contains("not a regular file"));
         assert!(active.is_dir());
         fs::remove_dir_all(root).unwrap();
@@ -1774,18 +1889,26 @@ mod unit {
             .parent()
             .and_then(Path::parent)
             .unwrap();
-        let old_source = parse_file(
-            "package release_fixture\nfun main() {\n  println(\"release-v1\")\n}\n",
-        )
-        .unwrap();
-        let new_source = parse_file(
-            "package release_fixture\nfun main() {\n  println(\"release-v2\")\n}\n",
-        )
-        .unwrap();
+        let old_source =
+            parse_file("package release_fixture\nfun main() {\n  println(\"release-v1\")\n}\n")
+                .unwrap();
+        let new_source =
+            parse_file("package release_fixture\nfun main() {\n  println(\"release-v2\")\n}\n")
+                .unwrap();
         let old_binary = root.join("release-v1");
         let new_binary = root.join("release-v2");
-        build_from_file(&old_source, &old_binary, &workspace.join("runtime/aura_rt.c")).unwrap();
-        build_from_file(&new_source, &new_binary, &workspace.join("runtime/aura_rt.c")).unwrap();
+        build_from_file(
+            &old_source,
+            &old_binary,
+            &workspace.join("runtime/aura_rt.c"),
+        )
+        .unwrap();
+        build_from_file(
+            &new_source,
+            &new_binary,
+            &workspace.join("runtime/aura_rt.c"),
+        )
+        .unwrap();
         let new_payload = fs::read(&new_binary).unwrap();
         let new_checksum = sha256_hex(&new_payload);
         let update_payload = index.join("crates/release.fixture-1.1.0.crate");
@@ -1870,9 +1993,6 @@ mod unit {
     fn run_fixture_binary(path: &Path) -> String {
         let output = Command::new(path).output().unwrap();
         assert!(output.status.success(), "fixture failed: {output:?}");
-        String::from_utf8(output.stdout)
-            .unwrap()
-            .trim()
-            .to_string()
+        String::from_utf8(output.stdout).unwrap().trim().to_string()
     }
 }

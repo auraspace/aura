@@ -44,6 +44,9 @@ jobs:
       - name: Release policy regression test
         run: bash scripts/tests/release-policy.sh
 
+      - name: Registry and release acceptance fixture
+        run: bash scripts/tests/registry-release.sh
+
       - name: Check corpus (excl. diag)
         env:
           AURA_BIN: target/debug/aura

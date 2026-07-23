@@ -120,6 +120,28 @@ jobs:
           file "$bin" | grep -qiE 'x86_64|Intel 64'
           lipo -info "$bin" 2>/dev/null || true
 
+      - name: Record native cross-host acceptance
+        if: ${{ !matrix.rust_target }}
+        run: |
+          set -euo pipefail
+          stage="$(tar -tzf dist/aura-*.tar.gz | { IFS= read -r first; printf '%s\n' "${first%%/*}"; cat >/dev/null; })"
+          bash scripts/cross-host-acceptance.sh \
+            --artifact "dist/$stage/bin/aura" \
+            --target "${{ matrix.name }}" \
+            --mode native \
+            --report "dist/${{ matrix.name }}-acceptance.json"
+
+      - name: Record cross-file acceptance
+        if: ${{ matrix.rust_target }}
+        run: |
+          set -euo pipefail
+          stage="$(tar -tzf dist/aura-*.tar.gz | { IFS= read -r first; printf '%s\n' "${first%%/*}"; cat >/dev/null; })"
+          bash scripts/cross-host-acceptance.sh \
+            --artifact "dist/$stage/bin/aura" \
+            --target "${{ matrix.name }}" \
+            --mode cross-file \
+            --report "dist/${{ matrix.name }}-acceptance.json"
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -127,6 +149,7 @@ jobs:
           path: |
             dist/*.tar.gz
             dist/*.sha256
+            dist/*-acceptance.json
           if-no-files-found: error
 
   release:

@@ -1,9 +1,8 @@
 # Release signing configuration
 
 The release workflow always publishes `SHA256SUMS` covering the tarballs and
-their adjacent `.sha256` assets. Minisign signing is intentionally guarded:
-the workflow remains usable for an unsigned rehearsal when the signing secret
-has not been configured.
+their adjacent `.sha256` assets. Production tags fail closed: minisign signing
+and verification are required, and an unsigned rehearsal must not be promoted.
 
 For a signed release, generate the minisign keypair offline and store the
 private key only in the GitHub Actions secret
@@ -13,8 +12,8 @@ to a mode-600 temporary file, signs `SHA256SUMS`, verifies the signature with
 the configured public key, and publishes `SHA256SUMS.minisig` plus
 `minisign.pub`. Neither key is committed to the repository.
 
-The installer keeps checksum verification mandatory. To additionally verify
-the signed aggregate manifest, install minisign and opt in:
+The installer keeps checksum verification mandatory. To verify the signed
+aggregate manifest, install minisign and opt in:
 
 ```sh
 AURA_VERIFY_SIGNATURE=1 AURA_MINISIGN_PUBLIC_KEY_FILE=/path/to/minisign.pub \
