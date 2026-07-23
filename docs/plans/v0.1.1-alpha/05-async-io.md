@@ -183,13 +183,23 @@ fixture. Slow-peer and network completion remain deferred to IO3/IO6.
 ## IO6. End-to-end async I/O example
 
 **Objective:** Prove a user can use async I/O from a clean installation.
+**Bounded native companion:** `examples/http-health/http_health.c` now uses
+the task executor and bounded async HTTP bridge to bind localhost, exchange a
+health response, reject malformed input with 400, and shut down
+deterministically. `scripts/http-health-smoke.sh` records the listening address,
+success/error output, and exit status under ASAN/UBSAN. The Aura CLI and
+installed-release path remain open.
 
 **Checklist:**
 
-- [ ] Add a small client/server example using only documented APIs.
-- [ ] Exercise bind/connect, exchange, error, and shutdown paths.
+- [x] Add a bounded native client/server example using documented runtime APIs;
+      the Aura-level example remains open.
+- [x] Exercise bind/connect, exchange, malformed-request error, and shutdown
+      paths in the native companion.
 - [ ] Run the example from the CLI on Linux and macOS.
-- [ ] Capture logs, exit status, and cleanup result in acceptance data.
+- [x] Capture native logs, exit status, and cleanup result in the smoke script
+      and `examples/http-health/README.md`; installed-release and macOS data
+      remain open.
 
 **Acceptance:** The example is reproducible on every supported native host.
 

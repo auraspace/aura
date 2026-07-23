@@ -594,7 +594,9 @@ When you resolve debt, update or remove the matching entry.
 ### H7/IO6 Aura-level example remains deferred (2026-07-23)
 
 - A bounded native health companion now proves localhost bind, `/health`
-  exchange, and deterministic shutdown through `aura_rt.c`.
+  exchange, malformed-request error mapping, async task progress, and
+  deterministic shutdown through `aura_rt.c`; its smoke script records output
+  and exit status under ASAN/UBSAN.
 - The requested CLI/Aura-level example and installed-release journey remain
   deferred because the stdlib does not yet expose the TCP handles and async
   HTTP integration required by H5/IO6.
