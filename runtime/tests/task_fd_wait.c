@@ -92,10 +92,39 @@ static void test_cancellation_clears_fd_registration(void)
   aura_task_executor_shutdown(executor);
 }
 
+static void test_multiple_ready_fds_wake_in_one_turn(void)
+{
+  int pipes[2][2];
+  assert(pipe(pipes[0]) == 0);
+  assert(pipe(pipes[1]) == 0);
+  AuraTaskExecutor *executor = aura_task_executor_new();
+  assert(executor != NULL);
+  AuraTaskFrame *first = new_fd_task(pipes[0][0]);
+  AuraTaskFrame *second = new_fd_task(pipes[1][0]);
+  assert(aura_task_executor_submit(executor, first) == 1);
+  assert(aura_task_executor_submit(executor, second) == 1);
+  assert(aura_task_executor_run_one(executor) == 1);
+  assert(aura_task_executor_run_one(executor) == 1);
+  const char bytes[2] = {'A', 'B'};
+  assert(write(pipes[0][1], &bytes[0], 1) == 1);
+  assert(write(pipes[1][1], &bytes[1], 1) == 1);
+  assert(aura_task_executor_poll_waiting(executor, 1000) == 2);
+  assert(aura_task_executor_run_one(executor) == 1);
+  assert(aura_task_executor_run_one(executor) == 1);
+  assert(aura_task_frame_state(first) == AURA_TASK_COMPLETE);
+  assert(aura_task_frame_state(second) == AURA_TASK_COMPLETE);
+  assert(aura_task_executor_release(executor, &first) == 1);
+  assert(aura_task_executor_release(executor, &second) == 1);
+  close(pipes[0][1]);
+  close(pipes[1][1]);
+  aura_task_executor_shutdown(executor);
+}
+
 int main(void)
 {
   test_ready_fd_wakes_pending_frame();
   test_cancellation_clears_fd_registration();
+  test_multiple_ready_fds_wake_in_one_turn();
   aura_gc_shutdown();
   puts("task fd wait: passed");
   return 0;

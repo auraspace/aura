@@ -125,8 +125,8 @@ When you resolve debt, update or remove the matching entry.
   peer disconnect under ASAN/UBSAN. The bounded frame ABI now exposes an
   adapter-owned waiting token plus `aura_task_executor_wake_waiting`, which
   clears and queues a waiting frame exactly once. `runtime/tests/task_fd_wait.c`
-  additionally proves inline POSIX fd registration, timeout, readiness wake,
-  and cancellation cleanup under ASAN/UBSAN.
+  additionally proves inline POSIX fd registration, timeout, multi-descriptor
+  readiness wake, and cancellation cleanup under ASAN/UBSAN.
 - Next step: define an operation handle and readiness/event registration after
   the full A4–A8 suspension contract is available; connect real disconnect and
   failure completion to that event source before closing the remaining IO4

@@ -5851,13 +5851,20 @@ int aura_task_executor_wake_waiting(AuraTaskExecutor *executor, AuraTaskFrame *f
   return aura_task_executor_wake(executor, frame);
 }
 
-/* Poll the first executor-owned frame registered with wait_fd. A zero return
- * means no descriptor became ready before timeout; a positive return means a
- * frame was cleared and queued. This bounded single-threaded API intentionally
- * leaves full multi-descriptor event-loop policy to a later host adapter. */
+/* Poll all executor-owned frames registered with wait_fd. A zero return means
+ * no descriptor became ready before timeout; a positive return is the number
+ * of frames cleared and queued. This bounded single-threaded API provides a
+ * deterministic multi-descriptor readiness turn without claiming a full
+ * cross-platform event-loop policy. */
 int aura_task_executor_poll_waiting(AuraTaskExecutor *executor, int timeout_ms)
 {
   AuraTaskFrame *frame;
+  struct pollfd *descriptors;
+  AuraTaskFrame **frames;
+  size_t count = 0;
+  size_t index = 0;
+  size_t woke = 0;
+  int result;
 
   if (executor == NULL || executor->shutdown || timeout_ms < 0)
   {
@@ -5870,19 +5877,49 @@ int aura_task_executor_poll_waiting(AuraTaskExecutor *executor, int timeout_ms)
     {
       continue;
     }
-    struct pollfd descriptor = {
+    count++;
+  }
+  if (count == 0)
+  {
+    return 0;
+  }
+  descriptors = (struct pollfd *)calloc(count, sizeof(*descriptors));
+  frames = (AuraTaskFrame **)calloc(count, sizeof(*frames));
+  if (descriptors == NULL || frames == NULL)
+  {
+    free(descriptors);
+    free(frames);
+    return 0;
+  }
+  for (frame = executor->owned_head; frame != NULL; frame = frame->owned_next)
+  {
+    if (!frame->fd_wait_active || frame->waiting_node == NULL ||
+        frame->state != AURA_TASK_PENDING)
+    {
+      continue;
+    }
+    descriptors[index] = (struct pollfd){
       frame->fd_wait_fd,
       frame->fd_wait_events,
       0,
     };
-    int result = poll(&descriptor, 1, timeout_ms);
-    if (result > 0 || (result < 0 && errno != EINTR))
-    {
-      return aura_task_executor_wake_waiting(executor, frame);
-    }
-    return 0;
+    frames[index] = frame;
+    index++;
   }
-  return 0;
+  result = poll(descriptors, count, timeout_ms);
+  if (result > 0 || (result < 0 && errno != EINTR))
+  {
+    for (index = 0; index < count; index++)
+    {
+      if (result < 0 || descriptors[index].revents != 0)
+      {
+        woke += (size_t)aura_task_executor_wake_waiting(executor, frames[index]);
+      }
+    }
+  }
+  free(descriptors);
+  free(frames);
+  return (int)woke;
 }
 
 int aura_task_executor_cancel(AuraTaskExecutor *executor, AuraTaskFrame *frame)

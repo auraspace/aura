@@ -116,9 +116,10 @@ the peer, observes `AURA_TCP_EOF`, publishes a terminal task failure, and
 verifies registered file/socket cleanup releases descriptors and buffers
 exactly once. This still does not register `AuraFile`/`AuraTcpStream` operations
 with a readiness source or scheduler. A bounded POSIX `fd/events` wait is now
-stored inline in the frame; `aura_task_executor_poll_waiting` polls it and
-wakes the frame, with timeout and cancellation coverage. Adapter-specific
-file/TCP operation registration remains open.
+stored inline in the frame; `aura_task_executor_poll_waiting` polls all
+registered descriptors in one bounded turn and wakes each ready frame, with
+timeout, multi-wait, and cancellation coverage. Adapter-specific file/TCP
+operation registration remains open.
 
 **Checklist:**
 
