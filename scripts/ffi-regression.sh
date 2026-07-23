@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# F6 native FFI acceptance matrix for the current Linux host.
+# F6 native FFI acceptance matrix for supported POSIX hosts.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
 
-if [[ "$(uname -s)" != "Linux" ]]; then
-  printf 'ffi regression: native Linux acceptance requires a Linux host\n' >&2
+host="$(uname -s)"
+if [[ "$host" != "Linux" && "$host" != "Darwin" ]]; then
+  printf 'ffi regression: unsupported native host: %s\n' "$host" >&2
   exit 2
 fi
 
@@ -30,4 +31,4 @@ done
 
 printf 'ffi regression: compiler primitive native fixture\n'
 cargo test -q -p aura-codegen native_ffi_primitive_fixture_calls_and_static_links
-printf 'ffi regression: Linux native acceptance passed\n'
+printf 'ffi regression: %s native acceptance passed\n' "$host"

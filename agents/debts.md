@@ -593,10 +593,12 @@ When you resolve debt, update or remove the matching entry.
 - The Linux native FFI matrix is now reproducible through
   `scripts/ffi-regression.sh`, covering owned values, opaque handles,
   callbacks, sanitizers, and the compiler primitive-call fixture.
-- macOS amd64/arm64 execution remains unverified because no macOS host is
-  available in this workspace; do not infer it from Linux results.
-- Next step: run the same script on each supported macOS host and record the
-  target/compiler/result metadata before closing F6.
+- The script now accepts both Linux and Darwin native hosts, and CI schedules
+  the same matrix on `macos-14` arm64 alongside Linux.
+- macOS execution remains unverified in this workspace because no macOS host
+  is available; do not infer it from Linux results.
+- Next step: record the macOS runner/compiler/result metadata and close F6
+  after the native CI job passes.
 
 ### H7/IO6 Aura-level example remains deferred (2026-07-23)
 

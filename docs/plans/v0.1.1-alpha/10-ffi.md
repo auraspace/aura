@@ -169,4 +169,6 @@ and exception-object translation remain outside F5.
 **Bounded evidence:** The Linux fixture set covers ABI mismatch, invalid linker,
 owned-value cleanup, opaque-handle lifetime, callback affinity/re-entry, and
 ASAN/UBSAN/LSAN paths. Native macOS acceptance and compiler-level proof that
-no unowned foreign value crosses an await/task boundary remain open.
+no unowned foreign value crosses an await/task boundary remain open. The CI
+native matrix now schedules the same fixture script on Linux and macOS; the
+macOS checklist item remains open until that runner produces a recorded result.

@@ -102,6 +102,39 @@ jobs:
           AURA_BIN: target/debug/aura
         run: bash scripts/sanitizer-smoke.sh
 
+  ffi-native:
+    name: FFI native (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: linux-amd64
+          - os: macos-14
+            name: darwin-arm64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install C toolchain (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y build-essential
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ffi-${{ matrix.name }}
+
+      - name: Build aura CLI
+        run: cargo build -p aura-cli
+
+      - name: Native FFI acceptance
+        run: bash scripts/ffi-regression.sh
+
   platform-contract:
     name: Package (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
