@@ -531,10 +531,16 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
 
     for f in &checked.ast.async_functions {
         if f.type_params.is_empty() {
-            if !emit_async_fun_multi_await(&mut out, f, checked, opts.detector)
-                && !emit_async_fun_single_await(&mut out, f, checked, opts.detector)
+            // Normalize the common `return await task` spelling into the same
+            // frame shape as a local await. The sema pass already proves the
+            // operand is a Task<T>; keeping one lowering path here avoids a
+            // backend-only unsupported hole for an equivalent program shape.
+            let normalized = normalize_async_return_await(f);
+            let lowered = normalized.as_ref().unwrap_or(f);
+            if !emit_async_fun_multi_await(&mut out, lowered, checked, opts.detector)
+                && !emit_async_fun_single_await(&mut out, lowered, checked, opts.detector)
             {
-                emit_async_fun_no_await(&mut out, f, checked, opts.detector);
+                emit_async_fun_no_await(&mut out, lowered, checked, opts.detector);
             }
             out.push('\n');
         }
@@ -561,6 +567,45 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
         out.push_str("  return 0;\n}\n");
     }
     out
+}
+
+/// Rewrite a top-level return-position await into a synthetic typed local.
+/// This is intentionally limited to one direct return expression; branches and
+/// nested control-flow still require the general state-machine lowering.
+fn normalize_async_return_await(f: &AsyncFunDecl) -> Option<AsyncFunDecl> {
+    let mut lowered = f.clone();
+    let return_type = lowered.return_type.clone()?;
+    let mut changed = false;
+    let mut stmts = Vec::with_capacity(lowered.body.stmts.len() + 1);
+    for stmt in lowered.body.stmts {
+        match stmt {
+            Stmt::Return(mut ret)
+                if matches!(ret.value, Some(Expr::Async(AsyncExpr::Await(_)))) && !changed =>
+            {
+                let value = ret.value.take().expect("matched await return");
+                let name = Ident {
+                    name: format!("__aura_await_return_{}", ret.span.start),
+                    span: ret.span,
+                };
+                stmts.push(Stmt::Var(VarStmt {
+                    mutable: false,
+                    name: name.clone(),
+                    ty: Some(return_type.clone()),
+                    init: value,
+                    span: ret.span,
+                }));
+                ret.value = Some(Expr::Ident(name));
+                stmts.push(Stmt::Return(ret));
+                changed = true;
+            }
+            other => stmts.push(other),
+        }
+    }
+    if !changed {
+        return None;
+    }
+    lowered.body.stmts = stmts;
+    Some(lowered)
 }
 
 /// F3: expose the stable allocation-only structured-value ABI to generated C.

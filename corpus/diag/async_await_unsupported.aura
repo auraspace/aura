@@ -1,11 +1,11 @@
-// C22p boundary fixture — return-position await is outside the bounded
-// local-binding state-machine slice.
+// C22p boundary fixture — await nested in control flow remains outside the
+// bounded straight-line state-machine slice. Direct top-level return await is
+// covered by the codegen regression suite.
 package demo.tasks.diag
 
-async fun answer(): Int {
-  return 42
-}
-
-async fun uses_await(): Int {
-  return await answer()
+async fun answer(task: Task<Int>): Int {
+  if (true) {
+    return await task
+  }
+  return 0
 }

@@ -8,7 +8,9 @@ The async fixtures cover the deterministic, single-threaded C22 surface currentl
 
 The following files are intentionally expected to fail and live under `diag/`, so `scripts/check-corpus.sh` excludes them from the green corpus:
 
-- diag/async_await_unsupported.aura — a return-position await outside the bounded local-binding shape; broader suspension lowering remains deferred.
+- diag/async_await_unsupported.aura — a control-flow/ownership boundary for
+  async lowering; direct top-level return-position await is now supported, while
+  broader suspension lowering remains deferred.
 - `diag/async_spawn_unsupported.aura` — non-empty `spawn` with locals still
   requires state-machine/capture lowering; the bounded effect-only subset is
   covered by native codegen tests.

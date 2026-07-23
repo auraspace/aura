@@ -88,11 +88,11 @@ forced GC.
 backend-specific control flow.
 
 **Implementation status:** The compiler now has an executable straight-line
-single-await slice. It reserves state `0` for entry, assigns state `1` to the
-await point, stores live `Int`/`String` locals in frame data, and uses the
-runtime parent-child waiter list to resume the parent when the child reaches a
-terminal state. Branches, loops, multiple awaits, and richer owned values
-remain in A5–A6.
+single-await slice, including the direct `return await task` spelling. It
+reserves state `0` for entry, assigns state `1` to the await point, stores live
+`Int`/`String` locals in frame data, and uses the runtime parent-child waiter
+list to resume the parent when the child reaches a terminal state. Branches,
+loops, multiple awaits, and richer owned values remain in A5–A6.
 
 **Checklist:**
 

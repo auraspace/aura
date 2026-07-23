@@ -687,6 +687,39 @@ fun main() {}
     }
 
     #[test]
+    fn builds_return_position_await_through_the_frame_lowering() {
+        let file = aura_parser::parse_file(
+            r#"package demo
+async fun worker(): Int { return 7 }
+async fun wrapper(): Int { return await worker() }
+fun main() {}
+"#,
+        )
+        .expect("parse return-await fixture");
+        let generated = emit_c_from_ast(&file).expect("emit return-await fixture");
+        assert!(generated.contains("__aura_await_return_"));
+        assert!(generated.contains("aura_async_resume_demo_wrapper"));
+        assert!(!generated.contains("await lowering is deferred"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-return-await-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile return-await fixture");
+        assert!(Command::new(&bin)
+            .status()
+            .expect("run return-await fixture")
+            .success());
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_two_awaits_with_distinct_resume_states_and_intermediate_cleanup() {
         let file = aura_parser::parse_file(
             r#"package demo

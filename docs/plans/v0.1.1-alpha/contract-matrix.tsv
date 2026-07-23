@@ -11,7 +11,7 @@ RUNTIME-002	runtime	RFC-006	Runtime & Integration	corpus/class/gc_nested_churn.a
 RUNTIME-003	runtime	RFC-006	Runtime & Integration	corpus/control/exception_payload_cleanup.aura	native	partial	alpha-partial	Exception payload cleanup is exercised; the complete runtime exception contract is not done.
 ASYNC-001	async	RFC-003	Compiler Expert	corpus/async/no_await.aura	native	partial	alpha-partial	No-await async/task behavior is shipped in the current deterministic MVP.
 ASYNC-002	async	RFC-003	Compiler Expert	corpus/async/task_lifecycle.aura	native	partial	alpha-partial	Task lifecycle coverage exists, but suspension and complete outcome propagation remain partial.
-ASYNC-003	async	RFC-003	Compiler Expert	corpus/diag/async_await_unsupported.aura	compile-only	blocked	not-claimed	Bounded straight-line one- and two-await lowering is shipped; control-flow, richer ownership, and full outcome propagation remain outside the broader contract.
+ASYNC-003	async	RFC-003	Compiler Expert	corpus/diag/async_await_unsupported.aura	compile-only	partial	alpha-partial	Top-level return-position await now shares the bounded frame lowering; control-flow, richer ownership, and full outcome propagation remain outside the broader contract.
 IO-001	I/O	RFC-006	Runtime & Integration	corpus/std_io/args/aura.toml	native	implemented	alpha-required	Process argument forwarding and std.io args are shipped.
 IO-002	I/O	RFC-006	Runtime & Integration	corpus/std_io/files/aura.toml	native	partial	alpha-partial	Synchronous file APIs are present; async I/O is not yet an alpha claim.
 HTTP-001	HTTP	RFC-006	Runtime & Integration	docs/plans/v0.1.1-alpha/11-http-server.md	compile-only	deferred	not-claimed	The minimal HTTP server workstream is planned but has no runnable alpha fixture.
