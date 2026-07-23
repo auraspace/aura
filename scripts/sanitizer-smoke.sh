@@ -93,6 +93,15 @@ ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0:halt_on_error=1}" \
   UBSAN_OPTIONS="${UBSAN_OPTIONS:-halt_on_error=1:print_stacktrace=1}" \
   "$tmp/task-fd-wait"
 
+for fixture in ffi_owned ffi_handles ffi_callbacks ffi_net; do
+  printf 'sanitizer smoke: %s\n' "$fixture"
+  "$real_cc" -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined \
+    -fno-omit-frame-pointer -o "$tmp/$fixture" "runtime/tests/$fixture.c"
+  ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0:halt_on_error=1}" \
+    UBSAN_OPTIONS="${UBSAN_OPTIONS:-halt_on_error=1:print_stacktrace=1}" \
+    "$tmp/$fixture"
+done
+
 run_aura() {
   local label="$1"
   shift
@@ -114,8 +123,12 @@ run_aura hello run corpus/hello/main.aura
 run_aura array-ownership run corpus/generic/array_memory_safety.aura
 run_aura gc run corpus/class/gc_nested_churn.aura
 run_aura exceptions run corpus/control/exception_payload_cleanup.aura
+run_aura async-lifecycle run corpus/async/task_lifecycle.aura
+run_aura async-multi-await run corpus/async/multi_await_four.aura
+run_aura std-io-files run corpus/std_io/files/aura.toml
 run_aura lambdas run corpus/fun/lambda_memory_safety.aura
 run_aura examples-wc run examples/wc -- "$tmp/wc-input.txt"
 run_aura http-health-cli run examples/http-health-cli
+bash scripts/http-aura-smoke.sh
 
 printf 'sanitizer smoke: all cases passed\n'
