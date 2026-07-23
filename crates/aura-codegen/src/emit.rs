@@ -610,16 +610,15 @@ fn emit_fallback_unit_join_result(out: &mut String, checked: &CheckedFile) {
     if has_result_unit {
         return;
     }
-    if !has_std_task_error_decl {
-        out.push_str("typedef struct aura_enum_std_io_TaskError { int tag; union { struct { const char *error; } Failed; char as_Cancelled; } data; } aura_enum_std_io_TaskError;\n");
-        out.push_str("static aura_enum_std_io_TaskError aura_var_std_io_TaskError_Failed(const char *error) { aura_enum_std_io_TaskError self; self.tag = 0; self.data.Failed.error = error; return self; }\n");
-        out.push_str("static aura_enum_std_io_TaskError aura_var_std_io_TaskError_Cancelled(void) { aura_enum_std_io_TaskError self; self.tag = 1; return self; }\n");
-    } else {
-        // The fallback Result typedef is emitted before ordinary enum
-        // definitions.  Keep its nested TaskError field nameable until the
-        // real std.io enum typedef is emitted later in the translation unit.
-        out.push_str("typedef struct aura_enum_std_io_TaskError aura_enum_std_io_TaskError;\n");
+    // A std.io prelude must have recorded Result<Unit, TaskError> above; if
+    // it has not, leave the real enum emission in charge rather than defining
+    // a duplicate/incomplete by-value TaskError type here.
+    if has_std_task_error_decl || has_std_result_decl {
+        return;
     }
+    out.push_str("typedef struct aura_enum_std_io_TaskError { int tag; union { struct { const char *error; } Failed; char as_Cancelled; } data; } aura_enum_std_io_TaskError;\n");
+    out.push_str("static aura_enum_std_io_TaskError aura_var_std_io_TaskError_Failed(const char *error) { aura_enum_std_io_TaskError self; self.tag = 0; self.data.Failed.error = error; return self; }\n");
+    out.push_str("static aura_enum_std_io_TaskError aura_var_std_io_TaskError_Cancelled(void) { aura_enum_std_io_TaskError self; self.tag = 1; return self; }\n");
     if !has_result_unit {
         out.push_str("typedef struct aura_enum_std_io_Result_Unit_std_io_TaskError { int tag; union { char as_Ok; struct { aura_enum_std_io_TaskError error; } Err; } data; } aura_enum_std_io_Result_Unit_std_io_TaskError;\n");
         out.push_str("static aura_enum_std_io_Result_Unit_std_io_TaskError aura_var_std_io_Result_Unit_std_io_TaskError_Ok(void) { aura_enum_std_io_Result_Unit_std_io_TaskError self; self.tag = 0; return self; }\n");
