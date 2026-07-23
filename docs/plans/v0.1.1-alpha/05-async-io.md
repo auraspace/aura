@@ -54,7 +54,8 @@ claim.
 
 - [x] Implement bounded open, read, write, flush, and close semantics.
 - [x] Distinguish pending, ready (`OK`), EOF, permission, and other errors.
-- [ ] Preserve buffers and handles across suspension.
+- [x] Preserve descriptor-backed buffers and handles across bounded suspension;
+      regular-file syscalls remain explicitly non-suspending.
 - [x] Release bounded file/TCP resources exactly once on cancellation, failure,
       forced executor shutdown, and peer disconnect; GC-rooted async file
       buffers remain open.
@@ -66,9 +67,11 @@ cases.
 
 **Dependencies:** IO1, A4–A8.
 
-Buffer/handle preservation across file suspension and the full acceptance claim
-require an async file operation contract and GC frame-root integration; they
-remain intentionally open.
+The bounded descriptor adapter now proves that a GC-rooted capture containing
+an `AuraFile` handle and read buffer survives a pending wait, GC collection,
+resumption, and terminal release. A true asynchronous regular-file operation
+contract remains outside this slice because POSIX regular files do not provide
+a portable readiness source; that broader scheduler integration remains open.
 
 ## IO3. TCP listener and stream integration
 

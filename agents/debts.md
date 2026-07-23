@@ -108,8 +108,14 @@ When you resolve debt, update or remove the matching entry.
   and are covered by `runtime/tests/file_io.c` under ASAN/UBSAN. The bounded
   task cleanup fixture additionally proves file/TCP resources release exactly
   once on cancellation, failure, forced shutdown, and peer disconnect.
-- Next step: integrate file buffers and handles with a true async operation
-  frame and GC-root contract before checking the remaining IO2 item.
+- Progress: `runtime/tests/task_fd_wait.c` now keeps a GC-rooted capture with
+  an `AuraFile` handle and read buffer alive across a pending descriptor wait,
+  an intervening GC collection, resumption, and terminal release under
+  ASAN/UBSAN.
+- Next step: integrate regular-file operations with a true asynchronous
+  operation backend once a portable completion source exists; the bounded IO2
+  preservation item is complete, but regular-file scheduler suspension is not
+  claimed.
 
 ### IO4 native operation adapters remain open (2026-07-23)
 

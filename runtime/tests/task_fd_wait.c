@@ -34,6 +34,30 @@ typedef struct
   int polls;
 } TcpListenerTask;
 
+typedef struct
+{
+  AuraFile file;
+  char buffer[2];
+  int cleanup_count;
+} RetainedFileCapture;
+
+typedef struct
+{
+  RetainedFileCapture *capture;
+  int polls;
+} RetainedFileTask;
+
+static int retained_file_capture_drops;
+
+static void drop_retained_file_capture(void *data)
+{
+  RetainedFileCapture *capture = (RetainedFileCapture *)data;
+  assert(capture != NULL);
+  assert(aura_file_close(&capture->file) == AURA_FILE_OK);
+  capture->cleanup_count++;
+  retained_file_capture_drops++;
+}
+
 static void destroy_int(void *data, size_t size)
 {
   assert(size == sizeof(int));
@@ -112,6 +136,77 @@ static void test_file_descriptor_adapter_wait(void)
   aura_task_executor_shutdown(executor);
   close(pipe_fds[0]);
   close(pipe_fds[1]);
+}
+
+static AuraTaskPollState poll_retained_file(AuraTaskFrame *frame)
+{
+  RetainedFileTask *task = (RetainedFileTask *)aura_task_frame_data(frame);
+  AuraTaskFrameStorage capture_storage = aura_task_frame_captures(frame);
+  RetainedFileCapture *capture = (RetainedFileCapture *)capture_storage.data;
+  assert(task->capture == capture);
+  assert(capture != NULL);
+
+  if (task->polls++ == 0)
+  {
+    assert(aura_task_frame_wait_file(frame, &capture->file, POLLIN) == 1);
+    return AURA_TASK_PENDING;
+  }
+
+  uint64_t read_count = 0;
+  assert(aura_file_read(&capture->file, capture->buffer, sizeof(capture->buffer),
+                        &read_count) == AURA_FILE_OK);
+  assert(read_count == 1);
+  int *result = (int *)malloc(sizeof(*result));
+  assert(result != NULL);
+  *result = (unsigned char)capture->buffer[0];
+  aura_task_frame_set_result(frame, result, sizeof(*result), destroy_int);
+  return AURA_TASK_COMPLETE;
+}
+
+static void test_file_buffer_and_handle_survive_suspension(void)
+{
+  int pipe_fds[2];
+  assert(pipe(pipe_fds) == 0);
+  void *sentinel = NULL;
+  aura_gc_add_root(&sentinel);
+  AuraTaskExecutor *executor = aura_task_executor_new();
+  assert(executor != NULL);
+  AuraTaskFrame *frame = aura_task_frame_new(sizeof(RetainedFileTask),
+                                             poll_retained_file, NULL);
+  assert(frame != NULL);
+
+  RetainedFileCapture *capture = (RetainedFileCapture *)aura_gc_alloc_full(
+      sizeof(*capture), drop_retained_file_capture, NULL);
+  assert(capture != NULL);
+  capture->file.fd = pipe_fds[0];
+  capture->file.closed = false;
+  capture->buffer[0] = 0;
+  capture->buffer[1] = 0;
+  capture->cleanup_count = 0;
+  RetainedFileTask *task = (RetainedFileTask *)aura_task_frame_data(frame);
+  task->capture = capture;
+  task->polls = 0;
+  aura_task_frame_set_captures(frame, capture, sizeof(*capture), NULL);
+
+  assert(aura_task_executor_submit(executor, frame) == 1);
+  assert(aura_task_executor_run_one(executor) == 1);
+  assert(aura_task_frame_state(frame) == AURA_TASK_PENDING);
+  aura_gc_collect();
+
+  const char byte = 'R';
+  assert(write(pipe_fds[1], &byte, sizeof(byte)) == 1);
+  assert(aura_task_executor_poll_waiting(executor, 1000) == 1);
+  assert(aura_task_executor_run_one(executor) == 1);
+  assert(aura_task_frame_state(frame) == AURA_TASK_COMPLETE);
+  AuraTaskResult result = aura_task_frame_result(frame);
+  assert(result.data != NULL && *(int *)result.data == 'R');
+  assert(capture->buffer[0] == 'R');
+  assert(aura_task_executor_release(executor, &frame) == 1);
+  aura_task_executor_shutdown(executor);
+  close(pipe_fds[1]);
+  aura_gc_collect();
+  assert(retained_file_capture_drops == 1);
+  aura_gc_remove_root(&sentinel);
 }
 
 static AuraTaskPollState poll_tcp_stream(AuraTaskFrame *frame)
@@ -298,6 +393,7 @@ int main(void)
 {
   test_ready_fd_wakes_pending_frame();
   test_file_descriptor_adapter_wait();
+  test_file_buffer_and_handle_survive_suspension();
   test_cancellation_clears_fd_registration();
   test_multiple_ready_fds_wake_in_one_turn();
   test_tcp_stream_adapter_wait();
