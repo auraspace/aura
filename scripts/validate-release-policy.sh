@@ -47,6 +47,8 @@ rg -q 'AURA_MINISIGN_PUBLIC_KEY' "$workflow" || die "release workflow has no min
 rg -q 'minisign -Vm' "$workflow" || die "release workflow does not verify its signature"
 rg -q 'SHA256SUMS\.minisig' "$workflow" || die "release workflow does not publish detached signature"
 rg -q 'generate-release-manifest\.sh' "$workflow" || die "release workflow does not generate a release manifest"
+rg -q 'release-manifest\.json' "$workflow" || die "release workflow does not carry the release manifest"
+rg -q 'release-acceptance' "$workflow" || die "release workflow does not collect acceptance reports"
 rg -q 'validate-release-bundle\.sh' "$workflow" || die "release workflow does not validate the release bundle"
 rg -q -- '--require-signature' "$workflow" || die "release workflow does not require signed bundle verification"
 rg -q 'AURA_VERIFY_SIGNATURE' scripts/release-signing.md || die "signing policy omits installer verification"

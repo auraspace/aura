@@ -192,7 +192,8 @@ jobs:
           bash scripts/generate-release-manifest.sh \
             --dir release-assets \
             --acceptance-dir release-acceptance \
-            --version "${GITHUB_REF_NAME#v}"
+            --version "${GITHUB_REF_NAME#v}" \
+            --output release-assets/release-manifest.json
 
       - name: Generate aggregate SHA256 manifest
         run: |
