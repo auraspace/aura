@@ -14,7 +14,13 @@ pub fn emit_c_from_ast(file: &File) -> Result<String, CodegenError> {
 }
 
 pub fn emit_c_tests_from_ast(file: &File) -> Result<String, CodegenError> {
-    Driver::new(CBackend).emit(file, EmitOptions { test: true, ..Default::default() })
+    Driver::new(CBackend).emit(
+        file,
+        EmitOptions {
+            test: true,
+            ..Default::default()
+        },
+    )
 }
 
 /// Typecheck + emit C + compile with the system C compiler (`CC` or `cc`).
@@ -42,7 +48,10 @@ pub fn build_tests_from_file(
         out_bin,
         runtime_c,
         CompileOptions::default(),
-        EmitOptions { test: true, ..Default::default() },
+        EmitOptions {
+            test: true,
+            ..Default::default()
+        },
     )
 }
 
@@ -69,10 +78,8 @@ mod tests {
     };
 
     use super::{build_from_file, build_from_file_with, emit_c_from_ast};
-    use crate::{
-        Backend, CompileOptions, DiagnosticMode, OutputKind, Profile, RuntimeAbi, Target,
-    };
     use crate::driver::{CBackend, Driver};
+    use crate::{Backend, CompileOptions, DiagnosticMode, OutputKind, Profile, RuntimeAbi, Target};
     use aura_parser::parse_file;
 
     fn empty_program() -> File {
@@ -153,7 +160,10 @@ mod tests {
         )
         .expect("link release executable with embedded runtime");
         let output = Command::new(&bin).output().expect("run release executable");
-        assert!(output.status.success(), "release executable failed: {output:?}");
+        assert!(
+            output.status.success(),
+            "release executable failed: {output:?}"
+        );
 
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);
@@ -168,7 +178,12 @@ mod tests {
         let runtime = root.join("runtime/aura_rt.c");
         let dir = std::env::temp_dir();
 
-        for profile in [Profile::Debug, Profile::Dev, Profile::Test, Profile::Release] {
+        for profile in [
+            Profile::Debug,
+            Profile::Dev,
+            Profile::Test,
+            Profile::Release,
+        ] {
             let stem = format!("aura-matrix-{}-{}", profile.name(), std::process::id());
             let bin = dir.join(&stem);
             let generated_c = dir.join(format!("{stem}.aura.c"));
@@ -312,10 +327,8 @@ mod tests {
         // flavor that cannot exist. The driver must return a compile error and
         // must not report an Artifact for a path that was never linked.
         let mut options = CompileOptions::default();
-        options.profile_settings.linker = Some(format!(
-            "aura-missing-linker-{}",
-            std::process::id()
-        ));
+        options.profile_settings.linker =
+            Some(format!("aura-missing-linker-{}", std::process::id()));
         let error = build_from_file_with(
             &empty_program(),
             &bin,
@@ -328,7 +341,10 @@ mod tests {
         match error {
             crate::error::CodegenError::Compile(message) => {
                 assert!(message.contains("failed with status"), "{message}");
-                assert!(message.contains(&generated_c.display().to_string()), "{message}");
+                assert!(
+                    message.contains(&generated_c.display().to_string()),
+                    "{message}"
+                );
             }
             other => panic!("expected deterministic linker compile error, got {other:?}"),
         }
@@ -337,7 +353,10 @@ mod tests {
             "failed linker must not leave a false executable at {}",
             bin.display()
         );
-        assert!(generated_c.exists(), "the emitted C is the diagnostic source");
+        assert!(
+            generated_c.exists(),
+            "the emitted C is the diagnostic source"
+        );
 
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);
@@ -382,11 +401,14 @@ extern "C" fun aura_ffi_enabled(): Bool
 extern "C" fun aura_ffi_label(): String
 @foreign(library = "aura_ffi_primitives", target = "native", link = "static", abi = 1, abi_id = "c")
 extern "C" fun aura_ffi_touch(value: String): Unit
+@foreign(library = "aura_ffi_primitives", target = "native", link = "static", abi = 1, abi_id = "c", failure = "status")
+extern "C" fun aura_ffi_status(value: Int): Int
 fun main() {
   val sum = aura_ffi_add(41)
   println(sum.toString())
   if (aura_ffi_enabled()) { println(aura_ffi_label()) }
   aura_ffi_touch("borrowed")
+  println(aura_ffi_status(99).toString())
 }
 "#;
         let file = parse_file(source).expect("parse F2 fixture");
@@ -411,10 +433,14 @@ fun main() {
         let generated = fs::read_to_string(&generated_c).expect("read generated F2 C");
         assert!(generated.contains("extern int64_t aura_ffi_add(int64_t);"));
         assert!(generated.contains("aura_ffi_add(INT64_C(41))"));
+        assert!(generated.contains("aura_ffi_map_error((int32_t)(aura_ffi_status(INT64_C(99))))"));
         assert!(!generated.contains("aura_fn_aura_ffi_add"));
         let output = Command::new(&bin).output().expect("run F2 fixture");
         assert!(output.status.success(), "F2 fixture failed: {output:?}");
-        assert_eq!(String::from_utf8_lossy(&output.stdout), "42\nffi-borrowed\n");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "42\nffi-borrowed\n7\n"
+        );
 
         for path in [bin, generated_c, object, archive] {
             let _ = fs::remove_file(path);
@@ -638,7 +664,8 @@ fun main() {}
         assert!(generated.contains(
             "typedef struct aura_async_data_demo_preserve {\n  AuraTaskFrame * task;\n} aura_async_data_demo_preserve;\n"
         ));
-        assert!(generated.contains("static int64_t aura_async_body_demo_preserve(AuraTaskFrame * task)"));
+        assert!(generated
+            .contains("static int64_t aura_async_body_demo_preserve(AuraTaskFrame * task)"));
         assert!(generated.contains("int64_t before = INT64_C(40);"));
         assert!(generated.contains("const char * label ="));
         assert!(generated.contains("AuraTaskResult __await_result"));
@@ -748,11 +775,13 @@ fun main() {}
         let bin = dir.join(format!("aura-c22m-{}", std::process::id()));
         let runtime = root.join("runtime/aura_rt.c");
         build_from_file(&file, &bin, &runtime).expect("compile generated C22m");
-        let generated = std::fs::read_to_string(dir.join(format!("aura-c22m-{}.aura.c", std::process::id())))
-            .expect("read generated join C");
+        let generated =
+            std::fs::read_to_string(dir.join(format!("aura-c22m-{}.aura.c", std::process::id())))
+                .expect("read generated join C");
         assert!(generated.contains("aura_task_executor_join(__aura_task_executor"));
         assert!(generated.contains("joined task failed"));
-        assert!(generated.contains("__join_state != AURA_TASK_COMPLETE && __join_state != AURA_TASK_CANCELLED"));
+        assert!(generated
+            .contains("__join_state != AURA_TASK_COMPLETE && __join_state != AURA_TASK_CANCELLED"));
         let status = Command::new(&bin).status().expect("run generated binary");
         assert!(status.success());
         let _ = std::fs::remove_file(&bin);
@@ -809,9 +838,14 @@ fun main() {
         let generated_c = dir.join(format!("{stem}.aura.c"));
         build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
             .expect("compile string ownership fixture");
-        let output = Command::new(&bin).output().expect("run string ownership fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run string ownership fixture");
         assert!(output.status.success(), "{output:?}");
-        assert_eq!(String::from_utf8_lossy(&output.stdout), "owned string move\n");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "owned string move\n"
+        );
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);
     }

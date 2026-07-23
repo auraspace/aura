@@ -281,6 +281,9 @@ pub struct ForeignDecl {
     pub target: Option<ForeignTarget>,
     pub link: Option<ForeignLink>,
     pub abi: Option<ForeignAbi>,
+    /// Optional explicit primitive failure convention.  `status` means that
+    /// the C `Int` result is normalized to an `AuraFfiOutcome` code.
+    pub failure: Option<String>,
     pub span: Span,
 }
 

@@ -29,7 +29,8 @@ triple). Calls, primitive lowering, and foreign linking remain F2 behavior.
 
 - [x] Define integer, boolean, string-handle, and void conventions.
 - [x] Generate target-aware declarations and linking behavior.
-- [ ] Map foreign failures to documented Aura outcomes.
+- [x] Map explicitly declared primitive status failures to documented Aura
+      outcomes.
       **Acceptance:** Primitive calls work consistently on supported hosts.
       **Verification:** Run native calls, missing-symbol, wrong-signature, and error
       fixtures on Linux/macOS.
@@ -43,12 +44,19 @@ symbols are emitted verbatim with an `extern` prototype. `target = "native"`
 and the host Linux/macOS matrix are enforced by F1. Dynamic libraries use
 `-lNAME`; static libraries use `-Wl,-Bstatic -lNAME -Wl,-Bdynamic` on Linux
 and `-Wl,-force_load,libNAME.a` on macOS. Additional library search paths are
-explicit `CompileOptions::foreign_library_path` entries. Floating-point,
-callbacks, pointers, and structured failure outcomes remain deferred to F4–F5;
+explicit `CompileOptions::foreign_library_path` entries. A declaration may
+opt into `failure = "status"` for an `Int` return; codegen passes the foreign
+integer through `aura_ffi_map_error`, yielding the documented bounded outcome
+codes (`OK`, `CANCELLED`, `INVALID`, `NOT_FOUND`, `PERMISSION`, `UNAVAILABLE`,
+`TIMEOUT`, or `FOREIGN_ERROR`). Undecorated primitive returns remain ordinary
+values, and linker failures remain deterministic build diagnostics. Floating-
+point, callbacks, pointers, and structured values remain deferred to F4–F5;
 the bounded owned-string/primitive-array ABI is F3.
 
 **Verification:** `aura-codegen` has a local static C fixture covering Int,
-Bool, borrowed String, and Unit calls; it compiles and runs on the native host.
+Bool, borrowed String, Unit, and `failure = "status"` calls; it compiles and
+runs on the native host, while sema tests reject the status convention on a
+non-`Int` return.
 
 ## F3. Owned strings and arrays
 

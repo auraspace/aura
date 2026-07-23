@@ -40,6 +40,22 @@ fn foreign_declaration_accepts_alpha_c_contract() {
 }
 
 #[test]
+fn foreign_status_failure_convention_requires_int_return() {
+    let valid = parse_file(
+        "package demo\n@foreign(library = \"m\", target = \"native\", link = \"dynamic\", abi = 1, abi_id = \"c\", failure = \"status\")\nextern \"C\" fun native_status(value: Int): Int\n",
+    )
+    .expect("parse valid status convention");
+    check_file(&valid).expect("status convention accepts Int");
+
+    let invalid = parse_file(
+        "package demo\n@foreign(library = \"m\", target = \"native\", link = \"dynamic\", abi = 1, abi_id = \"c\", failure = \"status\")\nextern \"C\" fun native_status(value: Int): Bool\n",
+    )
+    .expect("parse invalid status convention");
+    let error = check_file(&invalid).expect_err("status convention requires Int");
+    assert!(error.to_string().contains("AURA-F2-FAILURE"));
+}
+
+#[test]
 fn foreign_declaration_rejects_target_before_codegen() {
     let file = parse_file(
         "package demo\n@foreign(library = \"m\", target = \"windows-x86_64\", link = \"dynamic\", abi = 1, abi_id = \"c\")\nextern \"C\" fun native_abs(value: Int): Int\n",

@@ -508,10 +508,11 @@ When you resolve debt, update or remove the matching entry.
 ### F2 foreign failure and search-path integration (2026-07-22)
 
 - Primitive foreign calls now lower and link against explicit C libraries on
-  the native Linux/macOS matrix. Missing symbols are still reported by the C
-  linker rather than mapped to an Aura Result/error outcome, and package
-  manifests do not yet expose foreign library search paths; the next step is
-  F5 failure mapping plus a target-aware package linker configuration.
+  the native Linux/macOS matrix. The bounded `failure = "status"` convention
+  maps an `Int` return through `aura_ffi_map_error`; undecorated returns remain
+  ordinary values and missing symbols remain deterministic linker diagnostics.
+- Package manifests do not yet expose foreign library search paths; the next
+  step is target-aware package linker configuration for release packaging.
 
 ### F3 structured FFI values remain bounded (2026-07-22)
 

@@ -16,3 +16,7 @@ const char *aura_ffi_label(void) {
 void aura_ffi_touch(const char *value) {
     (void)value;
 }
+
+int32_t aura_ffi_status(int32_t code) {
+    return code;
+}

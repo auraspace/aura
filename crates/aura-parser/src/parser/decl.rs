@@ -24,7 +24,9 @@ impl Parser {
             },
             other => {
                 return Err(ParseError {
-                    message: format!("expected calling-convention string after `extern`, found {other:?}"),
+                    message: format!(
+                        "expected calling-convention string after `extern`, found {other:?}"
+                    ),
                     span: convention_token.span,
                 });
             }
@@ -51,7 +53,7 @@ impl Parser {
             None
         };
         let end = return_type.as_ref().map_or(name.span.end, |t| t.span.end);
-        let (library, target, link, abi) = foreign_metadata(attributes);
+        let (library, target, link, abi, failure) = foreign_metadata(attributes);
         Ok(ForeignDecl {
             is_pub: false,
             origin_package: String::new(),
@@ -64,6 +66,7 @@ impl Parser {
             target,
             link,
             abi,
+            failure,
             span: Span::new(start, end),
         })
     }
@@ -681,9 +684,10 @@ fn foreign_metadata(
     Option<ForeignTarget>,
     Option<ForeignLink>,
     Option<ForeignAbi>,
+    Option<String>,
 ) {
     let Some(attribute) = attributes.iter().find(|a| a.name.name == "foreign") else {
-        return (None, None, None, None);
+        return (None, None, None, None, None);
     };
     let args = &attribute.args;
     let mut library = None;
@@ -691,15 +695,24 @@ fn foreign_metadata(
     let mut link = None;
     let mut abi_version = None;
     let mut abi_identity = None;
+    let mut failure = None;
     let mut abi_span = attribute.span;
     for arg in args {
-        let AttributeArg::Named { name, value, .. } = arg else { continue };
+        let AttributeArg::Named { name, value, .. } = arg else {
+            continue;
+        };
         match (name.name.as_str(), value) {
             ("library", AttributeValue::String { value, span }) => {
-                library = Some(ForeignLibrary { name: value.clone(), span: *span });
+                library = Some(ForeignLibrary {
+                    name: value.clone(),
+                    span: *span,
+                });
             }
             ("target", AttributeValue::String { value, span }) => {
-                target = Some(ForeignTarget { triple: value.clone(), span: *span });
+                target = Some(ForeignTarget {
+                    triple: value.clone(),
+                    span: *span,
+                });
             }
             ("link", AttributeValue::String { value, span }) => {
                 let kind = match value.as_str() {
@@ -719,12 +732,19 @@ fn foreign_metadata(
                 abi_identity = Some(value.clone());
                 abi_span = *span;
             }
+            ("failure", AttributeValue::String { value, .. }) => {
+                failure = Some(value.clone());
+            }
             _ => {}
         }
     }
     let abi = match (abi_version, abi_identity) {
-        (Some(version), Some(identity)) => Some(ForeignAbi { version, identity, span: abi_span }),
+        (Some(version), Some(identity)) => Some(ForeignAbi {
+            version,
+            identity,
+            span: abi_span,
+        }),
         _ => None,
     };
-    (library, target, link, abi)
+    (library, target, link, abi, failure)
 }

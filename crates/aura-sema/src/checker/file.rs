@@ -22,14 +22,22 @@ impl Checker {
         }
         let Some(library) = &foreign.library else {
             self.errors.push(SemaError {
-                message: "[AURA-F1-LIBRARY] foreign declaration requires `library = \"...\"`".into(),
+                message: "[AURA-F1-LIBRARY] foreign declaration requires `library = \"...\"`"
+                    .into(),
                 span: foreign.span,
             });
             return;
         };
-        if library.name.is_empty() || library.name.starts_with('-') || library.name.contains('/') || library.name.contains('\\') {
+        if library.name.is_empty()
+            || library.name.starts_with('-')
+            || library.name.contains('/')
+            || library.name.contains('\\')
+        {
             self.errors.push(SemaError {
-                message: format!("[AURA-F1-LIBRARY] invalid foreign library `{}`; use a plain library name", library.name),
+                message: format!(
+                    "[AURA-F1-LIBRARY] invalid foreign library `{}`; use a plain library name",
+                    library.name
+                ),
                 span: library.span,
             });
         }
@@ -49,7 +57,10 @@ impl Checker {
         let supported = ["native", "linux-x86_64", "macos-x86_64", "macos-aarch64"];
         if !supported.contains(&target.triple.as_str()) {
             self.errors.push(SemaError {
-                message: format!("[AURA-F1-TARGET] unsupported foreign target `{}`", target.triple),
+                message: format!(
+                    "[AURA-F1-TARGET] unsupported foreign target `{}`",
+                    target.triple
+                ),
                 span: target.span,
             });
         } else if target.triple != "native" && target.triple != host {
@@ -66,7 +77,8 @@ impl Checker {
         }
         let Some(abi) = &foreign.abi else {
             self.errors.push(SemaError {
-                message: "[AURA-F1-ABI] foreign declaration requires `abi = 1, abi_id = \"c\"`".into(),
+                message: "[AURA-F1-ABI] foreign declaration requires `abi = 1, abi_id = \"c\"`"
+                    .into(),
                 span: foreign.span,
             });
             return;
@@ -78,25 +90,64 @@ impl Checker {
             });
         }
         self.type_params.clear();
-        let params = foreign.params.iter().map(|p| self.type_from_ref(&p.ty)).collect::<Result<Vec<_>, _>>();
-        let ret = foreign.return_type.as_ref().map_or(Ok(Ty::Unit), |t| self.type_from_ref(t));
+        let params = foreign
+            .params
+            .iter()
+            .map(|p| self.type_from_ref(&p.ty))
+            .collect::<Result<Vec<_>, _>>();
+        let ret = foreign
+            .return_type
+            .as_ref()
+            .map_or(Ok(Ty::Unit), |t| self.type_from_ref(t));
         let supported_ty = |ty: &Ty| matches!(ty, Ty::Int | Ty::Bool | Ty::String | Ty::Unit);
         if let Ok(params) = params {
             if params.iter().any(|ty| !supported_ty(ty)) {
                 self.errors.push(SemaError { message: "[AURA-F1-TYPE] only Int, Bool, String, and Unit are supported at the FFI boundary".into(), span: foreign.span });
             }
         } else {
-            self.errors.push(SemaError { message: "[AURA-F1-TYPE] foreign parameter type is not supported".into(), span: foreign.span });
+            self.errors.push(SemaError {
+                message: "[AURA-F1-TYPE] foreign parameter type is not supported".into(),
+                span: foreign.span,
+            });
         }
-        if let Ok(ret) = ret {
+        if let Ok(ref ret) = ret {
             if !supported_ty(&ret) {
-                self.errors.push(SemaError { message: "[AURA-F1-TYPE] foreign return type must be Int, Bool, String, or Unit".into(), span: foreign.span });
+                self.errors.push(SemaError {
+                    message:
+                        "[AURA-F1-TYPE] foreign return type must be Int, Bool, String, or Unit"
+                            .into(),
+                    span: foreign.span,
+                });
             }
         } else {
-            self.errors.push(SemaError { message: "[AURA-F1-TYPE] foreign return type is not supported".into(), span: foreign.span });
+            self.errors.push(SemaError {
+                message: "[AURA-F1-TYPE] foreign return type is not supported".into(),
+                span: foreign.span,
+            });
         }
-        if foreign.params.iter().any(|p| p.ty.reference) || foreign.return_type.as_ref().is_some_and(|t| t.reference) {
-            self.errors.push(SemaError { message: "[AURA-F1-TYPE] foreign declarations cannot use Aura borrow references".into(), span: foreign.span });
+        if foreign.params.iter().any(|p| p.ty.reference)
+            || foreign.return_type.as_ref().is_some_and(|t| t.reference)
+        {
+            self.errors.push(SemaError {
+                message: "[AURA-F1-TYPE] foreign declarations cannot use Aura borrow references"
+                    .into(),
+                span: foreign.span,
+            });
+        }
+        if let Some(failure) = &foreign.failure {
+            if failure != "status" {
+                self.errors.push(SemaError {
+                    message: format!("[AURA-F2-FAILURE] unsupported foreign failure convention `{failure}`; only `status` is supported"),
+                    span: foreign.span,
+                });
+            } else if !matches!(ret.as_ref(), Ok(ty) if matches!(ty, Ty::Int)) {
+                self.errors.push(SemaError {
+                    message:
+                        "[AURA-F2-FAILURE] `failure = \"status\"` requires an Int return value"
+                            .into(),
+                    span: foreign.span,
+                });
+            }
         }
         self.type_params.clear();
     }
@@ -951,7 +1002,10 @@ impl Checker {
                     .is_some_and(|items| items.iter().any(|sig| sig.package == pkg))
             {
                 self.errors.push(SemaError {
-                    message: format!("duplicate foreign function `{}` in package `{pkg}`", foreign.name.name),
+                    message: format!(
+                        "duplicate foreign function `{}` in package `{pkg}`",
+                        foreign.name.name
+                    ),
                     span: foreign.name.span,
                 });
                 continue;

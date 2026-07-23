@@ -172,9 +172,11 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                     }
                     return format!("{}({args})", c_ctor_name(&mono));
                 }
-                if let Some(foreign) = ctx.checked.ast.foreign_functions.iter().find(|f| {
-                    f.name.name == *name && foreign_decl_package(f, ctx.checked) == pkg
-                }) {
+                if let Some(foreign) =
+                    ctx.checked.ast.foreign_functions.iter().find(|f| {
+                        f.name.name == *name && foreign_decl_package(f, ctx.checked) == pkg
+                    })
+                {
                     return emit_foreign_call(foreign, c, ctx);
                 }
                 return format!("{}({args})", c_fun_name(pkg, name, &targs));
@@ -879,11 +881,7 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
 /// F2: foreign calls use the declared C symbol verbatim. String arguments are
 /// borrowed `const char *` handles; a foreign String result is also borrowed,
 /// so it is deliberately not added to codegen ownership tracking.
-fn emit_foreign_call(
-    foreign: &ForeignDecl,
-    call: &CallExpr,
-    ctx: &mut EmitCtx<'_>,
-) -> String {
+fn emit_foreign_call(foreign: &ForeignDecl, call: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
     let args = call
         .args
         .iter()
@@ -894,7 +892,15 @@ fn emit_foreign_call(
         })
         .collect::<Vec<_>>()
         .join(", ");
-    format!("{}({args})", foreign.name.name)
+    let call = format!("{}({args})", foreign.name.name);
+    if foreign.failure.as_deref() == Some("status") {
+        // F2: an explicitly declared status-returning primitive is normalized
+        // to the bounded Aura outcome code.  It remains an Int, not an
+        // implicit exception or callback result.
+        format!("((int64_t)aura_ffi_map_error((int32_t)({call})))")
+    } else {
+        call
+    }
 }
 
 fn foreign_decl_package(foreign: &ForeignDecl, checked: &aura_sema::CheckedFile) -> String {

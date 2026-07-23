@@ -26,7 +26,7 @@ impl Target {
             Self::Field => "fields",
             Self::EnumVariant => "enum variants",
             Self::TypeAlias => "type aliases",
-        Self::Const => "constants",
+            Self::Const => "constants",
         }
     }
 }
@@ -271,10 +271,12 @@ fn validate_arguments(attribute: &Attribute, spec: &AttributeSpec, errors: &mut 
                             || (name.name == "link" && is_string(value))
                             || (name.name == "abi" && matches!(value, AttributeValue::Int { .. }))
                             || (name.name == "abi_id" && is_string(value))
+                            || (name.name == "failure" && is_string(value))
                 );
                 if !valid {
                     invalid(
-                        "`@foreign` accepts named library/target/link/abi/abi_id metadata".into(),
+                        "`@foreign` accepts named library/target/link/abi/abi_id/failure metadata"
+                            .into(),
                         arg.span(),
                         errors,
                     );
@@ -295,18 +297,15 @@ fn validate_arguments(attribute: &Attribute, spec: &AttributeSpec, errors: &mut 
                 );
             }
         }
-        "bench"
-        | "inline"
-        | "noinline"
-        | "cold"
-        | "throws"
-        | "unsafe"
-        | "reflect"
-        | "notNull" if !attribute.args.is_empty() => invalid(
-            format!("`@{}` does not accept arguments", spec.name),
-            attribute.span,
-            errors,
-        ),
+        "bench" | "inline" | "noinline" | "cold" | "throws" | "unsafe" | "reflect" | "notNull"
+            if !attribute.args.is_empty() =>
+        {
+            invalid(
+                format!("`@{}` does not accept arguments", spec.name),
+                attribute.span,
+                errors,
+            )
+        }
         _ => {}
     }
 }
