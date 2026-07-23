@@ -1,9 +1,17 @@
-// C22p — supported empty spawn, join, and cancel operations.
+// C22p — bounded suspension/resumption plus cooperative cancellation.
 package demo.tasks.lifecycle
 
+async fun answer(): Int {
+  return 7
+}
+
 fun main() {
-  val joined = spawn {}
-  join(joined)
+  val resumed = spawn {
+    val value: Int = await answer()
+    println("resumed")
+    return
+  }
+  join(resumed)
 
   val cancelled = spawn {}
   cancel(cancelled)
