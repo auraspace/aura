@@ -86,8 +86,9 @@ static AuraTaskPollState poll_child(AuraTaskFrame *frame)
       assert(payload->message != NULL);
       memcpy(payload->message, "child-failed", 13);
       payload->code = 42;
-      aura_task_frame_set_error_span(frame, payload, sizeof(*payload),
-                                     drop_owned_error, 701, 130, 139);
+      aura_task_frame_set_error_span_with_clone(
+          frame, payload, sizeof(*payload), clone_owned_error, drop_owned_error,
+          701, 130, 139);
       return AURA_TASK_FAILED;
     }
     int *payload = (int *)malloc(sizeof(*payload));
@@ -140,8 +141,7 @@ static AuraTaskPollState poll_owned_error_parent(AuraTaskFrame *frame)
     return AURA_TASK_PENDING;
   }
   assert(aura_task_frame_state(state->child) == AURA_TASK_FAILED);
-  assert(aura_task_frame_propagate_error_with_clone(
-             frame, state->child, clone_owned_error, drop_owned_error) == 1);
+  assert(aura_task_frame_propagate_error(frame, state->child) == 1);
   return AURA_TASK_FAILED;
 }
 

@@ -5160,6 +5160,7 @@ struct AuraTaskFrame
   AuraTaskFrameStorage pending;
   AuraTaskFrameCleanup cleanup;
   AuraTaskResult error;
+  AuraTaskResultCloneFn error_clone;
   AuraTaskResultDestroyFn error_destroy;
   int error_rooted;
   uint32_t error_source_id;
@@ -5930,6 +5931,7 @@ uint32_t aura_task_frame_error_span_end(const AuraTaskFrame *frame)
 }
 
 static void aura_task_result_release(AuraTaskResult *result,
+                                     AuraTaskResultCloneFn *clone,
                                      AuraTaskResultDestroyFn *destroy,
                                      int *rooted)
 {
@@ -5949,11 +5951,41 @@ static void aura_task_result_release(AuraTaskResult *result,
   size = result->size;
   drop = *destroy;
   *result = (AuraTaskResult){NULL, 0};
+  if (clone != NULL)
+  {
+    *clone = NULL;
+  }
   *destroy = NULL;
   *rooted = 0;
   if (drop != NULL && data != NULL)
   {
     drop(data, size);
+  }
+}
+
+void aura_task_frame_set_error_span_with_clone(
+    AuraTaskFrame *frame, void *data, size_t size, AuraTaskResultCloneFn clone,
+    AuraTaskResultDestroyFn destroy, uint32_t source_id, uint32_t span_start,
+    uint32_t span_end)
+{
+  if (frame == NULL)
+  {
+    return;
+  }
+  aura_task_result_release(&frame->error, &frame->error_clone,
+                           &frame->error_destroy,
+                           &frame->error_rooted);
+  frame->error = (AuraTaskResult){data, size};
+  frame->error_clone = clone;
+  frame->error_destroy = destroy;
+  frame->error_source_id = source_id;
+  frame->error_span_start = span_start;
+  frame->error_span_end = span_end;
+  if (data != NULL)
+  {
+    aura_gc_add_root(&frame->error.data);
+    frame->error_rooted = 1;
+    frame->state = AURA_TASK_FAILED;
   }
 }
 
@@ -5965,23 +5997,8 @@ void aura_task_frame_set_error_span(AuraTaskFrame *frame,
                                     uint32_t span_start,
                                     uint32_t span_end)
 {
-  if (frame == NULL)
-  {
-    return;
-  }
-  aura_task_result_release(&frame->error, &frame->error_destroy,
-                           &frame->error_rooted);
-  frame->error = (AuraTaskResult){data, size};
-  frame->error_destroy = destroy;
-  frame->error_source_id = source_id;
-  frame->error_span_start = span_start;
-  frame->error_span_end = span_end;
-  if (data != NULL)
-  {
-    aura_gc_add_root(&frame->error.data);
-    frame->error_rooted = 1;
-    frame->state = AURA_TASK_FAILED;
-  }
+  aura_task_frame_set_error_span_with_clone(
+      frame, data, size, NULL, destroy, source_id, span_start, span_end);
 }
 
 void aura_task_frame_set_error_at(AuraTaskFrame *frame,
@@ -6058,10 +6075,9 @@ int aura_task_frame_propagate_error_with_clone(
   {
     return 0;
   }
-  aura_task_frame_set_error_span(frame, copy, cloned_size, destroy,
-                                 source->error_source_id,
-                                 source->error_span_start,
-                                 source->error_span_end);
+  aura_task_frame_set_error_span_with_clone(
+      frame, copy, cloned_size, clone, destroy, source->error_source_id,
+      source->error_span_start, source->error_span_end);
   return 1;
 }
 
@@ -6072,6 +6088,11 @@ int aura_task_frame_propagate_error_with_clone(
 int aura_task_frame_propagate_error(AuraTaskFrame *frame,
                                     const AuraTaskFrame *source)
 {
+  if (source != NULL && source->error_clone != NULL)
+  {
+    return aura_task_frame_propagate_error_with_clone(
+        frame, source, source->error_clone, source->error_destroy);
+  }
   return aura_task_frame_propagate_error_with_clone(
       frame, source, aura_task_error_shallow_clone,
       aura_task_error_copy_destroy);
@@ -6086,7 +6107,7 @@ void aura_task_frame_set_result(AuraTaskFrame *frame,
   {
     return;
   }
-  aura_task_result_release(&frame->result, &frame->result_destroy,
+  aura_task_result_release(&frame->result, NULL, &frame->result_destroy,
                            &frame->result_rooted);
   frame->result.data = data;
   frame->result.size = size;
@@ -6119,11 +6140,12 @@ void aura_task_frame_destroy(AuraTaskFrame *frame)
   {
     frame->destroy(frame);
   }
-  aura_task_result_release(&frame->result, &frame->result_destroy,
+  aura_task_result_release(&frame->result, NULL, &frame->result_destroy,
                            &frame->result_rooted);
   aura_task_frame_storage_release(&frame->captures);
   aura_task_frame_storage_release(&frame->pending);
-  aura_task_result_release(&frame->error, &frame->error_destroy,
+  aura_task_result_release(&frame->error, &frame->error_clone,
+                           &frame->error_destroy,
                            &frame->error_rooted);
   if (frame->data != NULL)
   {
