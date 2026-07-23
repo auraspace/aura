@@ -5176,6 +5176,16 @@ int aura_task_frame_wait_fd(AuraTaskFrame *frame, int fd, short events)
   return 1;
 }
 
+int aura_task_frame_wait_file(AuraTaskFrame *frame, const AuraFile *file,
+                              short events)
+{
+  if (file == NULL || file->closed)
+  {
+    return 0;
+  }
+  return aura_task_frame_wait_fd(frame, file->fd, events);
+}
+
 /* TCP adapters keep resource ownership in the existing listener/stream
  * objects and only borrow their nonblocking descriptor for this wait. */
 int aura_task_frame_wait_tcp_listener(AuraTaskFrame *frame,

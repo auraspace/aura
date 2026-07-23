@@ -46,7 +46,9 @@ filesystem async operations are not part of this slice yet.
 statuses. Regular-file `O_NONBLOCK` is not a real readiness mechanism on the
 supported hosts, so this slice does not claim scheduler suspension. Adapters
 may register a borrowed frame waiting token and clear it before waking the
-executor.
+executor; `aura_task_frame_wait_file` now covers descriptor-backed file-like
+handles. Regular files remain always-ready and do not gain a fake suspension
+claim.
 
 **Checklist:**
 
