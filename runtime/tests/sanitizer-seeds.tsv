@@ -5,6 +5,7 @@ task_frame_gc_roots	0	runtime/tests/task_frame_gc_roots.c	cc -std=c11 -Wall -Wex
 task_cancellation	0	runtime/tests/task_cancellation.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined runtime/tests/task_cancellation.c
 task_capture_ownership	0	runtime/tests/task_capture_ownership.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined runtime/tests/task_capture_ownership.c
 task_io_cleanup_sanitizer	0	runtime/tests/task_io_cleanup_sanitizer.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined runtime/tests/task_io_cleanup_sanitizer.c
+async_io_ffi_handles	0	runtime/tests/async_io_ffi_handles.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined runtime/tests/async_io_ffi_handles.c
 task_fd_wait	0	runtime/tests/task_fd_wait.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined runtime/tests/task_fd_wait.c
 task_outcomes	0	runtime/tests/task_outcomes.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined runtime/tests/task_outcomes.c
 task_outcome_api	0	runtime/tests/task_outcome_api.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined runtime/tests/task_outcome_api.c

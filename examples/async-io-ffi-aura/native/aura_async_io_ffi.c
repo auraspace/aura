@@ -24,7 +24,8 @@ static AuraTaskPollState poll_smoke(AuraTaskFrame *frame)
 {
   SmokeTask *task = (SmokeTask *)aura_task_frame_data(frame);
   if (task->polls++ == 0) {
-    task->operation = aura_file_async_read_handle_new(&task->file, close_file);
+    task->operation = aura_file_async_read_operation_new(
+        &task->file, &task->value, 1, close_file);
     if (task->operation == NULL ||
         aura_io_operation_handle_start(task->operation, frame->executor, frame) != 1 ||
         aura_io_operation_handle_check_boundary(task->operation,
@@ -36,9 +37,13 @@ static AuraTaskPollState poll_smoke(AuraTaskFrame *frame)
   if (aura_io_operation_handle_state(task->operation) != AURA_IO_OPERATION_COMPLETE) {
     return AURA_TASK_FAILED;
   }
-  uint64_t count = 0;
-  if (aura_file_read(&task->file, &task->value, 1, &count) != AURA_FILE_OK ||
-      count != 1 || task->value != 'A') {
+  AuraIoOperationResult io = {0};
+  if (aura_io_operation_handle_result(task->operation, &io) != 1 ||
+      io.kind != AURA_IO_OPERATION_FILE_READ ||
+      io.state != AURA_IO_OPERATION_COMPLETE ||
+      io.outcome != AURA_IO_OUTCOME_OK ||
+      io.native_status != AURA_FILE_OK ||
+      io.bytes_transferred != 1 || task->value != 'A') {
     return AURA_TASK_FAILED;
   }
   (void)aura_file_close(&task->file);

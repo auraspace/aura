@@ -28,7 +28,8 @@ static AuraTaskPollState poll_io(AuraTaskFrame *frame)
   IoTask *task = (IoTask *)aura_task_frame_data(frame);
   if (task->polls++ == 0)
   {
-    task->operation = aura_file_async_read_handle_new(&task->file, close_file);
+    task->operation = aura_file_async_read_operation_new(
+        &task->file, &task->value, 1, close_file);
     assert(task->operation != NULL);
     assert(aura_io_operation_handle_kind(task->operation) ==
            AURA_IO_OPERATION_FILE_READ);
@@ -59,9 +60,12 @@ static AuraTaskPollState poll_io(AuraTaskFrame *frame)
   assert(aura_io_operation_handle_check_boundary(
              task->operation, AURA_FFI_BOUNDARY_AWAIT) ==
          AURA_FFI_INVALID);
-  uint64_t read = 0;
-  assert(aura_file_read(&task->file, &task->value, 1, &read) == AURA_FILE_OK);
-  assert(read == 1 && task->value == 'F');
+  AuraIoOperationResult io = {0};
+  assert(aura_io_operation_handle_result(task->operation, &io) == 1);
+  assert(io.kind == AURA_IO_OPERATION_FILE_READ);
+  assert(io.outcome == AURA_IO_OUTCOME_OK);
+  assert(io.native_status == AURA_FILE_OK);
+  assert(io.bytes_transferred == 1 && task->value == 'F');
   assert(aura_file_close(&task->file) == AURA_FILE_OK);
   assert(aura_io_operation_handle_release(&task->operation) == 1);
   return AURA_TASK_COMPLETE;

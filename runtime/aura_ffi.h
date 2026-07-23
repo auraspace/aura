@@ -226,6 +226,25 @@ typedef enum AuraIoOperationState {
   AURA_IO_OPERATION_FAILED = 3
 } AuraIoOperationState;
 
+typedef enum AuraIoOutcome {
+  AURA_IO_OUTCOME_OK = 0,
+  AURA_IO_OUTCOME_EOF = 1,
+  AURA_IO_OUTCOME_CANCELLED = 2,
+  AURA_IO_OUTCOME_CLOSED = 3,
+  AURA_IO_OUTCOME_PERMISSION = 4,
+  AURA_IO_OUTCOME_TIMEOUT = 5,
+  AURA_IO_OUTCOME_UNSUPPORTED = 6,
+  AURA_IO_OUTCOME_ERROR = 7
+} AuraIoOutcome;
+
+typedef struct AuraIoOperationResult {
+  AuraIoOperationKind kind;
+  AuraIoOperationState state;
+  AuraIoOutcome outcome;
+  uint64_t bytes_transferred;
+  int32_t native_status;
+} AuraIoOperationResult;
+
 /* A suspended frame owns its opaque data, but the runtime cannot infer which
  * fields contain GC references.  The mark callback must call aura_gc_mark_ptr
  * for every GC object reachable from that frame's live state. */
@@ -242,6 +261,21 @@ AuraIoOperationHandle *aura_tcp_async_read_handle_new(
     AuraTcpStream *stream, AuraIoOperationCleanupFn cleanup);
 AuraIoOperationHandle *aura_tcp_async_write_handle_new(
     AuraTcpStream *stream, AuraIoOperationCleanupFn cleanup);
+/* Typed operations borrow their buffer until the operation leaves PENDING.
+ * Read/write completion performs one bounded native call and records a stable
+ * result; callers do not need a second synchronous syscall after wakeup. */
+AuraIoOperationHandle *aura_file_async_read_operation_new(
+    AuraFile *file, void *buffer, uint64_t capacity,
+    AuraIoOperationCleanupFn cleanup);
+AuraIoOperationHandle *aura_file_async_write_operation_new(
+    AuraFile *file, const void *buffer, uint64_t length,
+    AuraIoOperationCleanupFn cleanup);
+AuraIoOperationHandle *aura_tcp_async_read_operation_new(
+    AuraTcpStream *stream, void *buffer, uint64_t capacity,
+    AuraIoOperationCleanupFn cleanup);
+AuraIoOperationHandle *aura_tcp_async_write_operation_new(
+    AuraTcpStream *stream, const void *buffer, uint64_t length,
+    AuraIoOperationCleanupFn cleanup);
 int aura_io_operation_handle_start(AuraIoOperationHandle *operation,
                                    AuraTaskExecutor *executor,
                                    AuraTaskFrame *frame);
@@ -249,6 +283,8 @@ AuraIoOperationState aura_io_operation_handle_state(
     const AuraIoOperationHandle *operation);
 AuraIoOperationKind aura_io_operation_handle_kind(
     const AuraIoOperationHandle *operation);
+int aura_io_operation_handle_result(const AuraIoOperationHandle *operation,
+                                    AuraIoOperationResult *out);
 int aura_io_operation_handle_complete(AuraIoOperationHandle *operation,
                                       int success);
 int aura_io_operation_handle_cancel(AuraIoOperationHandle *operation);
