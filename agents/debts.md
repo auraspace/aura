@@ -114,9 +114,9 @@ When you resolve debt, update or remove the matching entry.
 - Area: async file/TCP cancellation and cleanup
 - Symptom: `AuraTaskFrame` now provides an exactly-once cleanup hook for a
   registered pending resource, and the bounded native peer-disconnect path
-  cleans file/TCP resources, but `AuraFile` and `AuraTcpStream` do not yet
-  register operations with the executor or expose readiness completion/wake
-  sources.
+  cleans file/TCP resources. TCP listener/stream descriptors now have bounded
+  frame wait adapters, but `AuraFile` operations and full TCP operation
+  ownership still do not expose a complete async operation handle.
 - Why deferred: the current POSIX APIs perform bounded synchronous calls (or
   return `PENDING` for a zero-timeout probe), so claiming disconnect cleanup or
   scheduler-wide failure wakeup would overstate the ABI.
@@ -126,10 +126,11 @@ When you resolve debt, update or remove the matching entry.
   adapter-owned waiting token plus `aura_task_executor_wake_waiting`, which
   clears and queues a waiting frame exactly once. `runtime/tests/task_fd_wait.c`
   additionally proves inline POSIX fd registration, timeout, multi-descriptor
-  readiness wake, and cancellation cleanup under ASAN/UBSAN.
-- Next step: define an operation handle and readiness/event registration after
-  the full A4–A8 suspension contract is available; connect real disconnect and
-  failure completion to that event source before closing the remaining IO4
+  readiness wake, cancellation cleanup, and a real TCP stream adapter wait
+  under ASAN/UBSAN.
+- Next step: define an operation handle and full readiness/event completion
+  after the A4–A8 suspension contract is available; add file semantics and
+  connect real disconnect/failure completion before closing the remaining IO4
   items.
 
 ### HTTP H3 remains transport-independent (2026-07-22)

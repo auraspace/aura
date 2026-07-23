@@ -77,8 +77,10 @@ nonblocking descriptors with an explicit millisecond poll bound, and read/write
 report byte counts plus `OK`, `PENDING`, `TIMEOUT`, `EOF`, `CLOSED`, or `ERROR`.
 Close transitions are idempotent and destroy releases the owning handle. The
 API is guarded by `AURA_TCP_POSIX` (`__unix__`/`__APPLE__`); unsupported targets
-return `AURA_TCP_UNSUPPORTED`. Async scheduler integration, address parsing,
-full partial-I/O readiness coverage, and cross-host evidence remain open.
+return `AURA_TCP_UNSUPPORTED`. The task ABI now provides bounded listener and
+stream readiness adapters that borrow the owned nonblocking descriptor and
+delegate to the executor's inline fd wait. Address parsing, full partial-I/O
+readiness coverage, and cross-host evidence remain open.
 
 **Checklist:**
 
@@ -91,6 +93,8 @@ full partial-I/O readiness coverage, and cross-host evidence remain open.
       open.
 - [x] Make listener/stream descriptor ownership explicit through idempotent
       close/destroy; task/cancellation transfer remains open.
+- [x] Register bounded listener/stream readiness waits through the task frame;
+      full operation ownership and cancellation transfer remain open.
 
 **Acceptance:** Loopback client/server exchange data without blocking or losing
 bytes.
@@ -127,12 +131,12 @@ operation registration remains open.
       frame-registered adapter resources.
 - [x] Wake suspended tasks when operations fail or cancel through the bounded
       adapter wake protocol; generic POSIX fd readiness is covered, while
-      file/TCP adapter registration remains open.
+      file operation registration and full TCP operation ownership remain open.
 - [x] Poll a bounded POSIX fd wait and wake its pending frame exactly once;
       timeout and cancellation clear the registration before resumption.
 - [x] Reclaim buffers and descriptors after bounded native disconnect; the
       peer-close/EOF path is connected to frame terminal cleanup, while
-      scheduler-wide readiness completion remains open.
+      scheduler-wide failure completion remains open.
 - [x] Drain or cancel frame-registered outstanding operations deterministically
       at shutdown.
 

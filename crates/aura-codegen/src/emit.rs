@@ -101,6 +101,8 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("typedef struct AuraTaskFrame AuraTaskFrame;\n");
     out.push_str("typedef struct AuraTaskExecutor AuraTaskExecutor;\n");
     out.push_str("typedef struct AuraTaskChannel AuraTaskChannel;\n");
+    out.push_str("typedef struct AuraTcpListener AuraTcpListener;\n");
+    out.push_str("typedef struct AuraTcpStream AuraTcpStream;\n");
     out.push_str("typedef struct AuraRaceTracker AuraRaceTracker;\n");
     out.push_str("typedef enum { AURA_RACE_READ = 0, AURA_RACE_WRITE = 1, AURA_RACE_TASK_SPAWN = 2, AURA_RACE_TASK_JOIN = 3, AURA_RACE_SYNC_ACQUIRE = 4, AURA_RACE_SYNC_RELEASE = 5, AURA_RACE_TASK_COMPLETE = 6, AURA_RACE_TASK_FAILED = 7, AURA_RACE_TASK_CANCELLED = 8, AURA_RACE_CHANNEL_SEND = 9, AURA_RACE_CHANNEL_RECEIVE = 10, AURA_RACE_CHANNEL_CLOSE = 11 } AuraRaceEventKind;\n");
     out.push_str("AuraRaceTracker *aura_race_tracker_new(void);\n");
@@ -144,6 +146,8 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("void aura_task_frame_clear_waiting(AuraTaskFrame *frame);\n");
     out.push_str("void *aura_task_frame_waiting_token(const AuraTaskFrame *frame);\n");
     out.push_str("int aura_task_frame_wait_fd(AuraTaskFrame *frame, int fd, short events);\n");
+    out.push_str("int aura_task_frame_wait_tcp_listener(AuraTaskFrame *frame, const AuraTcpListener *listener, short events);\n");
+    out.push_str("int aura_task_frame_wait_tcp_stream(AuraTaskFrame *frame, const AuraTcpStream *stream, short events);\n");
     out.push_str("int aura_task_frame_wait_on(AuraTaskFrame *frame, AuraTaskFrame *target);\n");
     out.push_str(
         "int aura_task_executor_wake_waiting(AuraTaskExecutor *executor, AuraTaskFrame *frame);\n",
