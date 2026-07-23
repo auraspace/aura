@@ -5045,6 +5045,19 @@ typedef struct
   size_t size;
 } AuraTaskResult;
 
+/* A join observation is a borrowed, immutable snapshot of a terminal frame.
+ * The state is authoritative: result is populated only for COMPLETE and
+ * error is populated only for FAILED.  Neither payload is transferred by
+ * this API; both remain owned by the frame until its handle is released or
+ * the executor shuts down.  This makes repeated observations safe while
+ * making use-after-release an explicit caller error. */
+typedef struct
+{
+  AuraTaskPollState state;
+  AuraTaskResult result;
+  AuraTaskResult error;
+} AuraTaskOutcome;
+
 typedef struct
 {
   uint64_t task_id;
@@ -6534,34 +6547,25 @@ size_t aura_task_executor_run(AuraTaskExecutor *executor)
  * Result and error snapshots are borrowed from executor-owned frame storage.
  * A PENDING result is explicit: no wake source is available to this bounded
  * single-threaded helper, so it does not pretend to support delayed awaits. */
-AuraTaskPollState aura_task_executor_join(AuraTaskExecutor *executor,
-                                          AuraTaskFrame *frame,
-                                          AuraTaskResult *out_result,
-                                          AuraTaskResult *out_error)
+AuraTaskOutcome aura_task_executor_join_outcome(AuraTaskExecutor *executor,
+                                                AuraTaskFrame *frame)
 {
-  if (out_result != NULL)
-  {
-    *out_result = (AuraTaskResult){NULL, 0};
-  }
-  if (out_error != NULL)
-  {
-    *out_error = (AuraTaskResult){NULL, 0};
-  }
+  AuraTaskOutcome outcome = {AURA_TASK_FAILED, {NULL, 0}, {NULL, 0}};
   if (executor == NULL || frame == NULL || executor->shutdown)
   {
-    return AURA_TASK_FAILED;
+    return outcome;
   }
   if (frame->executor == NULL && frame->state != AURA_TASK_COMPLETE &&
       frame->state != AURA_TASK_FAILED && frame->state != AURA_TASK_CANCELLED)
   {
     if (!aura_task_executor_submit(executor, frame))
     {
-      return AURA_TASK_FAILED;
+      return outcome;
     }
   }
   else if (frame->executor != NULL && frame->executor != executor)
   {
-    return AURA_TASK_FAILED;
+    return outcome;
   }
 
   while (frame->state == AURA_TASK_READY &&
@@ -6570,14 +6574,9 @@ AuraTaskPollState aura_task_executor_join(AuraTaskExecutor *executor,
     /* Only advance the executor; ownership remains with it. */
   }
 
-  if (out_result != NULL)
-  {
-    *out_result = frame->result;
-  }
-  if (out_error != NULL)
-  {
-    *out_error = frame->error;
-  }
+  outcome.state = frame->state;
+  outcome.result = frame->result;
+  outcome.error = frame->error;
   if (frame->state == AURA_TASK_FAILED)
   {
     frame->join_observed = 1;
@@ -6593,7 +6592,24 @@ AuraTaskPollState aura_task_executor_join(AuraTaskExecutor *executor,
                                    AURA_RACE_TASK_JOIN,
                                    NULL);
   }
-  return frame->state;
+  return outcome;
+}
+
+AuraTaskPollState aura_task_executor_join(AuraTaskExecutor *executor,
+                                          AuraTaskFrame *frame,
+                                          AuraTaskResult *out_result,
+                                          AuraTaskResult *out_error)
+{
+  AuraTaskOutcome outcome = aura_task_executor_join_outcome(executor, frame);
+  if (out_result != NULL)
+  {
+    *out_result = outcome.result;
+  }
+  if (out_error != NULL)
+  {
+    *out_error = outcome.error;
+  }
+  return outcome.state;
 }
 
 /* Release an executor-owned terminal frame through its task-handle slot.

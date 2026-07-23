@@ -1128,7 +1128,8 @@ fun main() {
         let generated =
             std::fs::read_to_string(dir.join(format!("aura-c22m-{}.aura.c", std::process::id())))
                 .expect("read generated join C");
-        assert!(generated.contains("aura_task_executor_join(__aura_task_executor"));
+        assert!(generated.contains("aura_task_executor_join_outcome(__aura_task_executor"));
+        assert!(generated.contains("AuraTaskOutcome __join_outcome"));
         assert!(generated.contains("joined task failed"));
         assert!(generated
             .contains("__join_state != AURA_TASK_COMPLETE && __join_state != AURA_TASK_CANCELLED"));
