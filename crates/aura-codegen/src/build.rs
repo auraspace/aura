@@ -957,6 +957,32 @@ fun main() {}
     }
 
     #[test]
+    fn builds_and_runs_bounded_fun_parameter_capture() {
+        let file = aura_parser::parse_file(
+            "package demo\nfun apply(f: (Int) -> Int) { if (f(2) == 3) { println(\"captured fun\") } }\nfun launch(f: (Int) -> Int) { val task = spawn { apply(f) } join(task) }\nfun main() { launch((n: Int) => n + 1) }\n",
+        )
+        .expect("parse Fun capture spawn");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-bounded-fun-capture-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile Fun capture spawn");
+        let generated = fs::read_to_string(&generated_c).expect("read generated Fun capture C");
+        assert!(generated.contains("aura_fun_env_retain(__spawn_data->f.env)"));
+        assert!(generated.contains("aura_fun_env_free(data->f.env)"));
+        let output = Command::new(&bin).output().expect("run Fun capture spawn");
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "captured fun\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn moves_string_ownership_across_nested_assignment() {
         let file = aura_parser::parse_file(
             r#"package demo

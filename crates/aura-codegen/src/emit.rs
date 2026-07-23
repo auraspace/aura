@@ -1035,6 +1035,12 @@ fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile, detector:
                         &format!("data->{}", mangle_ident(name)),
                         key,
                     );
+                } else if is_fun_type_key(key) {
+                    let n = mangle_ident(name);
+                    let _ = writeln!(
+                        out,
+                        "  if (data != NULL && data->{n}.env != NULL) aura_fun_env_free(data->{n}.env);"
+                    );
                 }
             }
             out.push_str("}\n\n");
@@ -1061,6 +1067,12 @@ fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile, detector:
                         "  {} {n} = {}(&data->{n});",
                         crate::stmt::local_key_to_c(key, checked),
                         crate::names::c_method_name(key, "clone")
+                    );
+                } else if is_fun_type_key(key) {
+                    let _ = writeln!(
+                        out,
+                        "  {} {n} = data->{n}; if ({n}.env != NULL) aura_fun_env_retain({n}.env);",
+                        crate::stmt::local_key_to_c(key, checked)
                     );
                 } else {
                     let _ = writeln!(
@@ -1102,6 +1114,9 @@ fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile, detector:
             if is_array_type_key(key) {
                 ctx.mark_array_owner(name);
             }
+            if is_fun_type_key(key) {
+                ctx.mark_fun_owner(name);
+            }
         }
         for stmt in &spawn.body.stmts {
             if let Stmt::Expr(expr) = stmt {
@@ -1111,6 +1126,8 @@ fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile, detector:
         }
         let array_owners = ctx.array_owners_all();
         crate::stmt::emit_free_array_owners(out, 1, &ctx, &array_owners);
+        let fun_owners = ctx.fun_owners_all();
+        crate::stmt::emit_free_fun_owners(out, 1, &ctx, &fun_owners);
         out.push_str("  return AURA_TASK_COMPLETE;\n}\n\n");
     }
 }

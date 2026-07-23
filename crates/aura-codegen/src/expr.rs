@@ -450,6 +450,7 @@ fn bounded_spawn_value(
                     || is_heap_class_mono(ty, checked)
                     || ty == "Array_Int"
                     || ty == "Array_String"
+                    || is_fun_type_key(ty)
             }) {
                 captures.insert(id.name.clone());
                 true
@@ -1068,6 +1069,8 @@ fn emit_async_expr(expr: &AsyncExpr, ctx: &mut EmitCtx<'_>) -> String {
                             format!("__spawn_data->{n} = {n}; aura_gc_add_root((void **)&__spawn_data->{n});")
                         } else if key == "Array_Int" || key == "Array_String" {
                             format!("__spawn_data->{n} = {}(&{n});", crate::names::c_method_name(key, "clone"))
+                        } else if is_fun_type_key(key) {
+                            format!("__spawn_data->{n} = {n}; if (__spawn_data->{n}.env != NULL) aura_fun_env_retain(__spawn_data->{n}.env);")
                         } else {
                             format!("__spawn_data->{n} = {n};")
                         }

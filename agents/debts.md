@@ -567,7 +567,8 @@ When you resolve debt, update or remove the matching entry.
 
 - The compiler now copies `Int` parameters, heap-duplicates `String`
   parameters, roots class pointers, and deep-clones `Array<Int>`/`Array<String>`
-  parameters used by the bounded one-shot spawn subset in frame data. Other
-  Array element types, Fun, transfer, await-crossing, and cancellation
-  ownership remain deferred until the complete frame ABI is available; extend
-  the capture representation before claiming those types.
+  parameters, and retains `Fun` environments used by the bounded one-shot
+  spawn subset in frame data. Other Array element types, transfer,
+  await-crossing, and cancellation ownership remain deferred until the complete
+  frame ABI is available; extend the capture representation before claiming
+  those types.
