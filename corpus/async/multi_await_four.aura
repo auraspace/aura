@@ -1,0 +1,18 @@
+// C22p — general straight-line lowering for four await suspension points.
+package demo.tasks.multiawait
+
+async fun worker(value: Int): Int {
+  return value
+}
+
+async fun total(): Int {
+  val first: Int = await worker(1)
+  val second: Int = await worker(2)
+  val third: Int = await worker(3)
+  val fourth: Int = await worker(4)
+  return first + second + third + fourth
+}
+
+fun main() {
+  total()
+}

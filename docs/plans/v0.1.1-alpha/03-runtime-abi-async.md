@@ -143,20 +143,21 @@ inspect drop counts.
 ## A6. Multiple awaits and drops
 
 **Objective:** Support multiple suspension points with correct cleanup.
-**Implementation status:** A bounded straight-line two/three-await lowering is
-now executable. Each await polls and registers a distinct child frame; locals
-initialized between awaits are stored only after the earlier state completes,
-and owned String locals are released exactly once by the frame destroy hook.
-Branches, loops, arrays/classes, typed failures, and panic unwinding remain
-open.
+**Implementation status:** Straight-line lowering is executable for an
+arbitrary number of `Task<Int>` await locals in the current value domain. The
+legacy two/three-await helper remains covered, while the general path derives
+one resume state and child slot per await; locals initialized between awaits
+are stored only after the earlier child completes, and owned String locals are
+released exactly once by the frame destroy hook. Branches, loops,
+arrays/classes, typed failures, and panic unwinding remain open.
 
 **Checklist:**
 
-- [x] Generate distinct states and resume locations for each await in the
-      bounded two/three-await straight-line slice.
+- [x] Generate distinct states and resume locations for each await in a
+      straight-line sequence (including the bounded two/three-await fixtures).
 - [x] Track Int/String values initialized before and between awaits;
       control-flow-sensitive and richer owned values remain open.
-- [x] Drop bounded owned String locals exactly once on frame destruction
+- [x] Drop owned String locals exactly once on frame destruction
       after success, error, or cancellation; panic/unwinding remains open.
 - [x] Preserve source mapping for each bounded await transition.
 

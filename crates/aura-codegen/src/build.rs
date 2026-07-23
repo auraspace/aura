@@ -828,6 +828,66 @@ fun main() {}
     }
 
     #[test]
+    fn builds_and_runs_general_four_await_state_machine() {
+        let file = aura_parser::parse_file(
+            r#"package demo
+async fun worker(value: Int): Int { return value }
+async fun four(): Int {
+  val base: Int = 1
+  val first: Int = await worker(2)
+  val label: String = "four" + "!"
+  val second: Int = await worker(3)
+  val third: Int = await worker(4)
+  val fourth: Int = await worker(5)
+  println(label)
+  return base + first + second + third + fourth
+}
+fun main() {
+  val marker: String = "marker"
+  val task = spawn { val result: Int = await four()
+    println(marker)
+    println("four-await-ok")
+    return }
+  join(task)
+}
+"#,
+        )
+        .expect("parse general four-await fixture");
+        let generated = emit_c_from_ast(&file).expect("emit general four-await fixture");
+        for state in 1..=4 {
+            assert!(generated.contains(&format!(
+                "aura async general suspension state={state} kind=await"
+            )));
+        }
+        assert!(generated.contains("AuraTaskFrame *await_task_3;"));
+        assert!(generated.contains("aura_task_frame_set_resume_state(frame, 4)"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-await-general-four-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile general four-await fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run general four-await fixture");
+        assert!(
+            output.status.success(),
+            "four-await fixture failed: {output:?}"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "four!\nmarker\nfour-await-ok\n"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_spawn_join_cancel() {
         let span = Span::new(0, 1);
         let ident = |name: &str| Ident {
