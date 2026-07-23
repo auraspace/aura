@@ -175,7 +175,9 @@ This is bounded synchronous evidence only: it does not claim async suspension,
 fuzzing, cross-host release coverage, or a routing API.
 **Checklist:**
 
-- [ ] Add parser fuzz cases and bounded-resource tests.
+- [x] Add deterministic parser fuzz cases and bounded-resource tests. The
+      parser fixture uses seed `0`, mutates a fixed valid request for 4,096
+      cases, and runs under ASAN/UBSAN in `scripts/sanitizer-smoke.sh`.
 - [x] Test slow clients, oversized requests, malformed framing, and concurrent
       clients.
 - [x] Run sanitizer and forced-shutdown tests.
