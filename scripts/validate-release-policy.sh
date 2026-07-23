@@ -7,6 +7,15 @@ cd "$root"
 die() { printf 'release policy: error: %s\n' "$*" >&2; exit 1; }
 info() { printf 'release policy: %s\n' "$*"; }
 
+# Keep the release gate usable on minimal CI/container images.  ripgrep is
+# convenient for local development, but POSIX grep is sufficient for these
+# literal/ERE policy checks and must remain an equivalent fallback.
+if command -v rg >/dev/null 2>&1; then
+  contains() { rg -q -- "$1" "$2"; }
+else
+  contains() { grep -Eq -- "$1" "$2"; }
+fi
+
 manifest="${AURA_RELEASE_TARGETS_FILE:-scripts/release-targets.tsv}"
 workflow="${AURA_RELEASE_WORKFLOW_FILE:-.github/workflows/release.yml}"
 package_script="${AURA_PACKAGE_SCRIPT_FILE:-scripts/package-release.sh}"
@@ -30,15 +39,15 @@ while IFS=$'\t' read -r target tier runner format install acceptance; do
   platform="${target%-*}/${target##*-}"
   if [[ "$tier" == required ]]; then
     required=$((required + 1))
-    rg -q "name: $target" "$workflow" || die "required target $target missing from release workflow"
-    rg -q "$platform" "$package_script" || die "required target $target missing from package script"
-    rg -q "$platform" "$installer" || die "required target $target missing from installer"
-    rg -q "$target" "$rfc" || die "required target $target missing from RFC-013"
-    rg -q "$target" "$release_docs" || die "required target $target missing from release docs"
+    contains "name: $target" "$workflow" || die "required target $target missing from release workflow"
+    contains "$platform" "$package_script" || die "required target $target missing from package script"
+    contains "$platform" "$installer" || die "required target $target missing from installer"
+    contains "$target" "$rfc" || die "required target $target missing from RFC-013"
+    contains "$target" "$release_docs" || die "required target $target missing from release docs"
     [[ "$format" == tar.gz && "$install" == supported ]] || die "required target $target is not install-supported"
   else
-    rg -q "$target" "$rfc" || die "tier2 target $target missing from RFC-013"
-    rg -q "$target" "$release_docs" || die "tier2 target $target missing from release docs"
+    contains "$target" "$rfc" || die "tier2 target $target missing from RFC-013"
+    contains "$target" "$release_docs" || die "tier2 target $target missing from release docs"
     [[ "$install" == deferred && "$acceptance" == policy-only ]] || die "tier2 target $target needs deferred policy-only acceptance"
   fi
 done < "$manifest"
@@ -99,17 +108,17 @@ for target in sorted(tier2):
     if not isinstance(record.get("reason"), str) or not record["reason"].strip():
         raise SystemExit(f"tier2 fixture needs a non-empty limitation reason: {target}")
 PY
-rg -q 'validate-release-policy\.sh' "$workflow" || die "release workflow does not run policy validation"
-rg -q 'AURA_MINISIGN_SECRET_KEY' "$workflow" || die "release workflow has no minisign secret input"
-rg -q 'AURA_MINISIGN_PUBLIC_KEY' "$workflow" || die "release workflow has no minisign public-key input"
-rg -q 'minisign -Vm' "$workflow" || die "release workflow does not verify its signature"
-rg -q 'SHA256SUMS\.minisig' "$workflow" || die "release workflow does not publish detached signature"
-rg -q 'generate-release-manifest\.sh' "$workflow" || die "release workflow does not generate a release manifest"
-rg -q 'release-manifest\.json' "$workflow" || die "release workflow does not carry the release manifest"
-rg -q 'release-acceptance' "$workflow" || die "release workflow does not collect acceptance reports"
-rg -q 'validate-release-bundle\.sh' "$workflow" || die "release workflow does not validate the release bundle"
-rg -q -- '--require-signature' "$workflow" || die "release workflow does not require signed bundle verification"
-rg -q 'AURA_VERIFY_SIGNATURE' scripts/release-signing.md || die "signing policy omits installer verification"
+contains 'validate-release-policy\.sh' "$workflow" || die "release workflow does not run policy validation"
+contains 'AURA_MINISIGN_SECRET_KEY' "$workflow" || die "release workflow has no minisign secret input"
+contains 'AURA_MINISIGN_PUBLIC_KEY' "$workflow" || die "release workflow has no minisign public-key input"
+contains 'minisign -Vm' "$workflow" || die "release workflow does not verify its signature"
+contains 'SHA256SUMS\.minisig' "$workflow" || die "release workflow does not publish detached signature"
+contains 'generate-release-manifest\.sh' "$workflow" || die "release workflow does not generate a release manifest"
+contains 'release-manifest\.json' "$workflow" || die "release workflow does not carry the release manifest"
+contains 'release-acceptance' "$workflow" || die "release workflow does not collect acceptance reports"
+contains 'validate-release-bundle\.sh' "$workflow" || die "release workflow does not validate the release bundle"
+contains '--require-signature' "$workflow" || die "release workflow does not require signed bundle verification"
+contains 'AURA_VERIFY_SIGNATURE' scripts/release-signing.md || die "signing policy omits installer verification"
 AURA_RELEASE_TARGETS_FILE="$manifest" \
 AURA_RELEASE_WORKFLOW_FILE="$workflow" \
 AURA_PACKAGE_SCRIPT_FILE="$package_script" \
