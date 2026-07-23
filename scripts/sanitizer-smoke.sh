@@ -101,6 +101,14 @@ ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0:halt_on_error=1}" \
   UBSAN_OPTIONS="${UBSAN_OPTIONS:-halt_on_error=1:print_stacktrace=1}" \
   "$tmp/task-fd-wait"
 
+printf 'sanitizer smoke: task-frame-gc-roots\n'
+"$real_cc" -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined \
+  -fno-omit-frame-pointer -o "$tmp/task-frame-gc-roots" \
+  runtime/tests/task_frame_gc_roots.c
+ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0:halt_on_error=1}" \
+  UBSAN_OPTIONS="${UBSAN_OPTIONS:-halt_on_error=1:print_stacktrace=1}" \
+  "$tmp/task-frame-gc-roots"
+
 for fixture in ffi_owned ffi_handles ffi_callbacks ffi_net; do
   printf 'sanitizer smoke: %s\n' "$fixture"
   "$real_cc" -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined \

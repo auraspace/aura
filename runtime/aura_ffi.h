@@ -169,6 +169,9 @@ typedef struct AuraFfiRootGuard {
 AuraFfiStatus aura_ffi_root_begin(AuraFfiRootGuard *guard, void **slot);
 void aura_ffi_root_end(AuraFfiRootGuard *guard);
 
+/* Mark a GC object reachable from a task frame mark callback. */
+void aura_gc_mark_ptr(void *obj);
+
 /* F4 opaque foreign-resource handles.  The resource pointer is never exposed
  * by the handle itself: foreign code must hold a live pin token and ask the
  * runtime to validate it before each operation.  A released handle remains a
@@ -201,6 +204,7 @@ typedef enum AuraFfiBoundary {
  * cancellation remains idempotent and releases the resource at most once. */
 typedef struct AuraTaskExecutor AuraTaskExecutor;
 typedef struct AuraTaskFrame AuraTaskFrame;
+typedef void (*AuraTaskFrameGcMarkFn)(AuraTaskFrame *frame);
 typedef struct AuraTcpListener AuraTcpListener;
 typedef struct AuraTcpStream AuraTcpStream;
 typedef struct AuraIoOperationHandle AuraIoOperationHandle;
@@ -221,6 +225,12 @@ typedef enum AuraIoOperationState {
   AURA_IO_OPERATION_CANCELLED = 2,
   AURA_IO_OPERATION_FAILED = 3
 } AuraIoOperationState;
+
+/* A suspended frame owns its opaque data, but the runtime cannot infer which
+ * fields contain GC references.  The mark callback must call aura_gc_mark_ptr
+ * for every GC object reachable from that frame's live state. */
+void aura_task_frame_set_gc_mark(AuraTaskFrame *frame,
+                                 AuraTaskFrameGcMarkFn mark);
 
 AuraIoOperationHandle *aura_file_async_read_handle_new(
     AuraFile *file, AuraIoOperationCleanupFn cleanup);

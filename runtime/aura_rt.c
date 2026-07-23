@@ -71,6 +71,7 @@ typedef enum AuraFfiBoundary
 #define AURA_FFI_BUSY ((AuraFfiStatus)4)
 typedef struct AuraTaskExecutor AuraTaskExecutor;
 typedef struct AuraTaskFrame AuraTaskFrame;
+typedef void (*AuraTaskFrameGcMarkFn)(AuraTaskFrame *frame);
 typedef struct AuraIoOperationHandle AuraIoOperationHandle;
 typedef void (*AuraIoOperationCleanupFn)(void *resource);
 typedef enum AuraIoOperationKind
@@ -3483,6 +3484,34 @@ void *aura_gc_alloc(size_t size)
   return aura_gc_alloc_full(size, NULL, NULL);
 }
 
+/* Release one runtime-owned GC allocation immediately.  Task frame locals
+ * are rooted while the frame exists, but their storage is still owned by the
+ * frame and must not be left on the GC list until an unrelated collection. */
+static void aura_gc_release(void *ptr)
+{
+  if (ptr == NULL)
+  {
+    return;
+  }
+  AuraGcNode **link = &aura_gc_list;
+  while (*link != NULL)
+  {
+    AuraGcNode *n = *link;
+    if (n->ptr == ptr)
+    {
+      *link = n->next;
+      if (n->dtor != NULL)
+      {
+        n->dtor(n->ptr);
+      }
+      free(n->ptr);
+      free(n);
+      return;
+    }
+    link = &n->next;
+  }
+}
+
 /* C7b: mark a GC object pointer (for generated mark_extras on Array fields). */
 void aura_gc_mark_ptr(void *obj)
 {
@@ -3496,6 +3525,10 @@ void aura_gc_mark_ptr(void *obj)
     aura_gc_mark_push(n);
   }
 }
+
+/* Frames are malloc-owned, so their opaque data is not visible to the
+ * collector unless the frame supplies an explicit mark contract. */
+static void aura_gc_mark_task_frames(void);
 
 /* C12k/C12l/C13e: Fun capture env header (must match codegen layout).
  * Layout of every capturing env:
@@ -3930,6 +3963,7 @@ void aura_gc_collect(void)
       }
     }
   }
+  aura_gc_mark_task_frames();
   /* C6a/C7b: deep mark + per-type mark_extras (Array-of-class fields). */
   while (aura_gc_mark_sp > 0)
   {
@@ -5076,7 +5110,38 @@ struct AuraTaskFrame
   AuraTaskFrame *wait_target;
   AuraTaskFrame *waiters_head;
   AuraTaskFrame *waiter_next;
+  AuraTaskFrameGcMarkFn gc_mark;
+  AuraTaskFrame *gc_next;
 };
+
+static AuraTaskFrame *aura_gc_task_frames = NULL;
+
+static void aura_gc_mark_task_frames(void)
+{
+  for (AuraTaskFrame *frame = aura_gc_task_frames; frame != NULL;
+       frame = frame->gc_next)
+  {
+    if (frame->gc_mark != NULL)
+    {
+      frame->gc_mark(frame);
+    }
+  }
+}
+
+static void aura_gc_unlink_task_frame(AuraTaskFrame *frame)
+{
+  AuraTaskFrame **link = &aura_gc_task_frames;
+  while (*link != NULL)
+  {
+    if (*link == frame)
+    {
+      *link = frame->gc_next;
+      frame->gc_next = NULL;
+      return;
+    }
+    link = &(*link)->gc_next;
+  }
+}
 
 static void aura_task_frame_detach_wait_target(AuraTaskFrame *frame);
 static void aura_task_frame_detach_waiters(AuraTaskFrame *frame);
@@ -5099,12 +5164,16 @@ AuraTaskFrame *aura_task_frame_new(size_t data_size,
   }
   if (data_size != 0)
   {
-    frame->data = calloc(1, data_size);
+    /* Frame locals are the suspended task's live state.  Store them in the
+     * tracing heap so the collector can deep-scan GC pointers held by the
+     * state while the task is pending. */
+    frame->data = aura_gc_alloc(data_size);
     if (frame->data == NULL)
     {
       free(frame);
       return NULL;
     }
+    aura_gc_add_root(&frame->data);
   }
   frame->abi_version = AURA_RT_ABI_VERSION;
   frame->task_id = aura_task_next_id++;
@@ -5113,7 +5182,18 @@ AuraTaskFrame *aura_task_frame_new(size_t data_size,
   frame->data_size = data_size;
   frame->resume_state = 0;
   frame->state = AURA_TASK_READY;
+  frame->gc_next = aura_gc_task_frames;
+  aura_gc_task_frames = frame;
   return frame;
+}
+
+void aura_task_frame_set_gc_mark(AuraTaskFrame *frame,
+                                 AuraTaskFrameGcMarkFn mark)
+{
+  if (frame != NULL)
+  {
+    frame->gc_mark = mark;
+  }
 }
 
 void aura_task_frame_set_cancel_handler(AuraTaskFrame *frame,
@@ -5927,6 +6007,7 @@ void aura_task_frame_destroy(AuraTaskFrame *frame)
   {
     return;
   }
+  aura_gc_unlink_task_frame(frame);
   aura_task_frame_detach_wait_target(frame);
   aura_task_frame_detach_waiters(frame);
   aura_task_frame_clear_waiting(frame);
@@ -5941,7 +6022,12 @@ void aura_task_frame_destroy(AuraTaskFrame *frame)
   aura_task_frame_storage_release(&frame->pending);
   aura_task_result_release(&frame->error, &frame->error_destroy,
                            &frame->error_rooted);
-  free(frame->data);
+  if (frame->data != NULL)
+  {
+    aura_gc_remove_root(&frame->data);
+    aura_gc_release(frame->data);
+    frame->data = NULL;
+  }
   free(frame);
 }
 
