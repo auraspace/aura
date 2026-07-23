@@ -60,9 +60,7 @@ fn debug_derive(attributes: &[Attribute]) -> Option<(&'static str, Span)> {
             AttributeArg::Positional(AttributeValue::Ident(name)) if name.name == "Debug" => {
                 Some((TO_STRING, attribute.span))
             }
-            AttributeArg::Positional(AttributeValue::Ident(name))
-                if name.name == "DebugString" =>
-            {
+            AttributeArg::Positional(AttributeValue::Ident(name)) if name.name == "DebugString" => {
                 Some((DEBUG_STRING, attribute.span))
             }
             _ => None,
@@ -156,9 +154,10 @@ fn hash_call(object: Expr, field: &aura_ast::FieldDecl, span: Span) -> Expr {
 }
 
 fn hash_body(class: &ClassDecl, span: Span) -> Block {
-    let value = class.fields.iter().fold(
-        Expr::Int(IntLit { value: 17, span }),
-        |seed, field| {
+    let value = class
+        .fields
+        .iter()
+        .fold(Expr::Int(IntLit { value: 17, span }), |seed, field| {
             let multiplied = Expr::Binary(aura_ast::BinaryExpr {
                 op: BinOp::Mul,
                 left: Box::new(seed),
@@ -171,8 +170,7 @@ fn hash_body(class: &ClassDecl, span: Span) -> Block {
                 right: Box::new(hash_call(Expr::This(span), field, span)),
                 span,
             })
-        },
-    );
+        });
     Block {
         stmts: vec![Stmt::Return(ReturnStmt {
             value: Some(value),
@@ -193,9 +191,9 @@ fn supports_field(field: &aura_ast::FieldDecl, classes: &[ClassDecl]) -> bool {
             return supported(&inner, classes);
         }
         matches!(ty.name.name.as_str(), "Int" | "Bool" | "String")
-            || classes.iter().any(|class| {
-                class.name.name == ty.name.name && class.kind == NominalKind::Class
-            })
+            || classes
+                .iter()
+                .any(|class| class.name.name == ty.name.name && class.kind == NominalKind::Class)
     }
     supported(&field.ty, classes)
 }
@@ -220,7 +218,10 @@ fn int_to_string(object: Expr, span: Span) -> Expr {
     Expr::Call(CallExpr {
         callee: Box::new(Expr::Field(FieldExpr {
             object: Box::new(object),
-            field: Ident { name: "toString".into(), span },
+            field: Ident {
+                name: "toString".into(),
+                span,
+            },
             safe: false,
             span,
         })),
@@ -257,7 +258,10 @@ fn debug_body(class: &ClassDecl, span: Span) -> Block {
         if index != 0 {
             value = string_add(
                 value,
-                Expr::String(StringLit { value: ", ".into(), span }),
+                Expr::String(StringLit {
+                    value: ", ".into(),
+                    span,
+                }),
                 span,
             );
         }
@@ -273,11 +277,17 @@ fn debug_body(class: &ClassDecl, span: Span) -> Block {
     }
     value = string_add(
         value,
-        Expr::String(StringLit { value: ")".into(), span }),
+        Expr::String(StringLit {
+            value: ")".into(),
+            span,
+        }),
         span,
     );
     Block {
-        stmts: vec![Stmt::Return(ReturnStmt { value: Some(value), span })],
+        stmts: vec![Stmt::Return(ReturnStmt {
+            value: Some(value),
+            span,
+        })],
         span,
     }
 }
@@ -289,12 +299,20 @@ pub(crate) fn expand_debug(file: &mut aura_ast::File) -> Vec<SemaError> {
         let Some((method_name, derive_span)) = debug_derive(&class.attributes) else {
             continue;
         };
-        if class.methods.iter().any(|method| method.name.name == method_name) {
+        if class
+            .methods
+            .iter()
+            .any(|method| method.name.name == method_name)
+        {
             errors.push(error(
                 "AURA-M6-DUPLICATE",
                 format!(
                     "cannot derive `{}` for `{}`: method `{method_name}` already exists",
-                    if method_name == TO_STRING { "Debug" } else { "DebugString" },
+                    if method_name == TO_STRING {
+                        "Debug"
+                    } else {
+                        "DebugString"
+                    },
                     class.name.name
                 ),
                 derive_span,
@@ -309,7 +327,11 @@ pub(crate) fn expand_debug(file: &mut aura_ast::File) -> Vec<SemaError> {
                     "AURA-M6-UNSUPPORTED",
                     format!(
                         "cannot derive `{}` for `{}`: field `{}` has unsupported type `{}`",
-                        if method_name == TO_STRING { "Debug" } else { "DebugString" },
+                        if method_name == TO_STRING {
+                            "Debug"
+                        } else {
+                            "DebugString"
+                        },
                         class.name.name,
                         field.name.name,
                         field.ty.name.name
@@ -326,12 +348,18 @@ pub(crate) fn expand_debug(file: &mut aura_ast::File) -> Vec<SemaError> {
             origin_package: class.origin_package.clone(),
             attributes: Vec::new(),
             is_test: false,
-            name: Ident { name: method_name.into(), span: derive_span },
+            name: Ident {
+                name: method_name.into(),
+                span: derive_span,
+            },
             type_params: Vec::new(),
             params: Vec::new(),
             return_type: Some(TypeRef {
                 qualifier: None,
-                name: Ident { name: "String".into(), span: derive_span },
+                name: Ident {
+                    name: "String".into(),
+                    span: derive_span,
+                },
                 type_args: Vec::new(),
                 nullable: false,
                 reference: false,
@@ -353,10 +381,17 @@ pub(crate) fn expand_equals(file: &mut aura_ast::File) -> Vec<SemaError> {
         let Some(derive_span) = has_equals_derive(&class.attributes) else {
             continue;
         };
-        if class.methods.iter().any(|method| method.name.name == EQUALS) {
+        if class
+            .methods
+            .iter()
+            .any(|method| method.name.name == EQUALS)
+        {
             errors.push(error(
                 "AURA-M4-DUPLICATE",
-                format!("cannot derive `Equals` for `{}`: method `equals` already exists", class.name.name),
+                format!(
+                    "cannot derive `Equals` for `{}`: method `equals` already exists",
+                    class.name.name
+                ),
                 derive_span,
             ));
             continue;
@@ -369,9 +404,7 @@ pub(crate) fn expand_equals(file: &mut aura_ast::File) -> Vec<SemaError> {
                     "AURA-M4-UNSUPPORTED",
                     format!(
                         "cannot derive `Equals` for `{}`: field `{}` has unsupported type `{}`",
-                        class.name.name,
-                        field.name.name,
-                        field.ty.name.name
+                        class.name.name, field.name.name, field.ty.name.name
                     ),
                     field.span,
                 ));
@@ -385,17 +418,26 @@ pub(crate) fn expand_equals(file: &mut aura_ast::File) -> Vec<SemaError> {
             origin_package: class.origin_package.clone(),
             attributes: Vec::new(),
             is_test: false,
-            name: Ident { name: EQUALS.into(), span: derive_span },
+            name: Ident {
+                name: EQUALS.into(),
+                span: derive_span,
+            },
             type_params: Vec::new(),
             params: vec![Param {
                 attributes: Vec::new(),
-                name: Ident { name: "other".into(), span: derive_span },
+                name: Ident {
+                    name: "other".into(),
+                    span: derive_span,
+                },
                 ty: type_ref_for_class(class),
                 span: derive_span,
             }],
             return_type: Some(TypeRef {
                 qualifier: None,
-                name: Ident { name: "Bool".into(), span: derive_span },
+                name: Ident {
+                    name: "Bool".into(),
+                    span: derive_span,
+                },
                 type_args: Vec::new(),
                 nullable: false,
                 reference: false,
@@ -416,7 +458,11 @@ pub(crate) fn expand_hash(file: &mut aura_ast::File) -> Vec<SemaError> {
         let Some(derive_span) = has_hash_derive(&class.attributes) else {
             continue;
         };
-        if class.methods.iter().any(|method| method.name.name == HASH_CODE) {
+        if class
+            .methods
+            .iter()
+            .any(|method| method.name.name == HASH_CODE)
+        {
             errors.push(error(
                 "AURA-M5-DUPLICATE",
                 format!(

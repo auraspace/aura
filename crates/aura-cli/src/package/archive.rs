@@ -68,7 +68,9 @@ fn validate_component(value: &str, label: &str) -> Result<(), String> {
         || value.contains('/')
         || value.contains('\\')
     {
-        return Err(format!("{label} contains an unsafe path component: {value}"));
+        return Err(format!(
+            "{label} contains an unsafe path component: {value}"
+        ));
     }
     Ok(())
 }
@@ -114,25 +116,31 @@ mod tests {
         let names = archive
             .entries()
             .expect("entries")
-            .map(|entry| entry.expect("entry").path().expect("path").display().to_string())
+            .map(|entry| {
+                entry
+                    .expect("entry")
+                    .path()
+                    .expect("path")
+                    .display()
+                    .to_string()
+            })
             .collect::<Vec<_>>();
-        assert_eq!(names, vec!["demo-1.0.0/aura.toml", "demo-1.0.0/src/main.aura"]);
+        assert_eq!(
+            names,
+            vec!["demo-1.0.0/aura.toml", "demo-1.0.0/src/main.aura"]
+        );
     }
 
     #[test]
     fn archive_rejects_empty_and_escaping_inputs() {
         assert!(build_source_archive("demo", "1.0.0", &[]).is_err());
-        assert!(build_source_archive(
-            "demo",
-            "1.0.0",
-            &[("../escape".into(), b"bad".to_vec())]
-        )
-        .is_err());
-        assert!(build_source_archive(
-            "../demo",
-            "1.0.0",
-            &[("main.aura".into(), b"ok".to_vec())]
-        )
-        .is_err());
+        assert!(
+            build_source_archive("demo", "1.0.0", &[("../escape".into(), b"bad".to_vec())])
+                .is_err()
+        );
+        assert!(
+            build_source_archive("../demo", "1.0.0", &[("main.aura".into(), b"ok".to_vec())])
+                .is_err()
+        );
     }
 }

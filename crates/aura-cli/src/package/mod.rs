@@ -1,8 +1,8 @@
 //! Multi-file package loading and minimal `aura.toml` (C3e).
 
-mod fetch;
 #[allow(dead_code)]
 mod archive;
+mod fetch;
 mod load;
 mod lock;
 mod publish;
@@ -16,6 +16,7 @@ mod util;
 #[path = "tests.rs"]
 mod tests;
 
+pub use fetch::ENV_REGISTRY_TOKEN;
 #[cfg(test)]
 pub use fetch::{
     cache_root_from_env, crate_source_for_meta, default_cache_root, ensure_installed,
@@ -26,12 +27,10 @@ pub use fetch::{
 pub use load::{load_package, load_package_default};
 pub use publish::{publish_dry_run, publish_package};
 pub use registry::PublishErrorKind;
-pub use fetch::ENV_REGISTRY_TOKEN;
 pub use registry::{activate_update, current_target, RegistryIndex, UpdateDecision};
 #[cfg(test)]
 pub use registry::{
-    default_index_path, index_root_from_env, RegistryConfig, VersionMeta,
-    ENV_REGISTRY_INDEX,
+    default_index_path, index_root_from_env, RegistryConfig, VersionMeta, ENV_REGISTRY_INDEX,
 };
 #[cfg(test)]
 pub use semver::{

@@ -145,7 +145,10 @@ pub fn read_crate_bytes_bounded(source: &str, limit: usize) -> Result<Vec<u8>, S
         .map_err(|e| format!("error: read crate {}: {e}", path.display()))?
         .len();
     if size > limit as u64 {
-        return Err(format!("error: artifact exceeds {limit} bytes: {}", path.display()));
+        return Err(format!(
+            "error: artifact exceeds {limit} bytes: {}",
+            path.display()
+        ));
     }
     fs::read(&path).map_err(|e| format!("error: read crate {}: {e}", path.display()))
 }
@@ -157,7 +160,11 @@ fn read_http_bytes(url: &str, limit: usize) -> Result<Vec<u8>, String> {
     read_http_bytes_with_token(url, token.as_deref(), limit)
 }
 
-fn read_http_bytes_with_token(url: &str, token: Option<&str>, limit: usize) -> Result<Vec<u8>, String> {
+fn read_http_bytes_with_token(
+    url: &str,
+    token: Option<&str>,
+    limit: usize,
+) -> Result<Vec<u8>, String> {
     let agent = ureq::AgentBuilder::new()
         .timeout_connect(HTTP_TIMEOUT)
         .timeout_read(HTTP_TIMEOUT)
@@ -556,10 +563,12 @@ mod unit {
         let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
         let addr = listener.local_addr().unwrap();
         thread::spawn(move || {
-            for (index, (status, body)) in [("503 Service Unavailable", b"retry".as_slice()),
-                                             ("200 OK", b"crate-bytes".as_slice())]
-                .into_iter()
-                .enumerate()
+            for (index, (status, body)) in [
+                ("503 Service Unavailable", b"retry".as_slice()),
+                ("200 OK", b"crate-bytes".as_slice()),
+            ]
+            .into_iter()
+            .enumerate()
             {
                 let (mut stream, _) = listener.accept().unwrap();
                 let mut request = [0; 1024];

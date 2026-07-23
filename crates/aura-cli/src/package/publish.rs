@@ -62,14 +62,15 @@ pub fn publish_dry_run(path: impl AsRef<Path>) -> Result<PublishPreview, String>
         .ok_or_else(|| format!("error: manifest has no parent: {}", manifest.display()))?;
     let text = fs::read_to_string(&manifest)
         .map_err(|e| format!("error: read {}: {e}", manifest.display()))?;
-    let toml = parse_aura_toml(&text)
-        .map_err(|e| format!("error: {}: {e}", manifest.display()))?;
+    let toml = parse_aura_toml(&text).map_err(|e| format!("error: {}: {e}", manifest.display()))?;
 
     let mut errors = Vec::new();
     let package = match toml.package_name.as_deref() {
         Some(name) if valid_package_name(name) => name.to_string(),
         Some(name) => {
-            errors.push(format!("error: manifest package name is unsafe or empty: `{name}`"));
+            errors.push(format!(
+                "error: manifest package name is unsafe or empty: `{name}`"
+            ));
             name.to_string()
         }
         None => {
@@ -143,7 +144,10 @@ fn manifest_path(path: &Path) -> Result<PathBuf, String> {
         ));
     }
     if !candidate.is_file() {
-        return Err(format!("error: manifest not found: {}", candidate.display()));
+        return Err(format!(
+            "error: manifest not found: {}",
+            candidate.display()
+        ));
     }
     Ok(candidate)
 }
@@ -207,7 +211,10 @@ fn collect_source_entries(
         let relative = match path.strip_prefix(&root_real) {
             Ok(relative) => relative.to_string_lossy().replace('\\', "/"),
             Err(_) => {
-                errors.push(format!("error: source path escapes package root: {}", path.display()));
+                errors.push(format!(
+                    "error: source path escapes package root: {}",
+                    path.display()
+                ));
                 continue;
             }
         };
@@ -238,7 +245,10 @@ fn collect_aura_paths(dir: &Path, root: &Path, out: &mut Vec<PathBuf>, errors: &
     let read_dir = match fs::read_dir(dir) {
         Ok(entries) => entries,
         Err(error) => {
-            errors.push(format!("error: read source directory {}: {error}", dir.display()));
+            errors.push(format!(
+                "error: read source directory {}: {error}",
+                dir.display()
+            ));
             return;
         }
     };
@@ -246,7 +256,10 @@ fn collect_aura_paths(dir: &Path, root: &Path, out: &mut Vec<PathBuf>, errors: &
         let entry = match entry {
             Ok(entry) => entry,
             Err(error) => {
-                errors.push(format!("error: read source directory {}: {error}", dir.display()));
+                errors.push(format!(
+                    "error: read source directory {}: {error}",
+                    dir.display()
+                ));
                 continue;
             }
         };
@@ -266,18 +279,26 @@ fn collect_aura_paths(dir: &Path, root: &Path, out: &mut Vec<PathBuf>, errors: &
             let target = match fs::canonicalize(&path) {
                 Ok(target) => target,
                 Err(error) => {
-                    errors.push(format!("error: source link {} is unreadable: {error}", path.display()));
+                    errors.push(format!(
+                        "error: source link {} is unreadable: {error}",
+                        path.display()
+                    ));
                     continue;
                 }
             };
             if !target.starts_with(root) {
-                errors.push(format!("error: source link escapes package root: {}", path.display()));
+                errors.push(format!(
+                    "error: source link escapes package root: {}",
+                    path.display()
+                ));
             }
             continue;
         }
         if metadata.is_dir() {
             collect_aura_paths(&path, root, out, errors);
-        } else if metadata.is_file() && path.extension().and_then(|ext| ext.to_str()) == Some("aura") {
+        } else if metadata.is_file()
+            && path.extension().and_then(|ext| ext.to_str()) == Some("aura")
+        {
             out.push(path);
         }
     }
@@ -303,12 +324,16 @@ fn validate_dependencies(root: &Path, toml: &AuraToml, errors: &mut Vec<String>)
     dependencies.sort_by(|left, right| left.0.cmp(right.0));
     for (name, dep) in dependencies {
         if !valid_package_name(name) {
-            errors.push(format!("error: dependency name is unsafe or empty: `{name}`"));
+            errors.push(format!(
+                "error: dependency name is unsafe or empty: `{name}`"
+            ));
         }
         match dep {
             DepSpec::Path(path) => {
                 if Path::new(path).is_absolute() || path.trim().is_empty() {
-                    errors.push(format!("error: dependency `{name}` has an unsafe path `{path}`"));
+                    errors.push(format!(
+                        "error: dependency `{name}` has an unsafe path `{path}`"
+                    ));
                     continue;
                 }
                 let dependency_root = root.join(path);
@@ -341,15 +366,21 @@ fn validate_dependencies(root: &Path, toml: &AuraToml, errors: &mut Vec<String>)
                     continue;
                 };
                 let Some(entry) = lock.packages.get(name) else {
-                    errors.push(format!("error: aura.lock is missing registry dependency `{name}`"));
+                    errors.push(format!(
+                        "error: aura.lock is missing registry dependency `{name}`"
+                    ));
                     continue;
                 };
                 if !entry.is_registry() {
-                    errors.push(format!("error: aura.lock dependency `{name}` is not a registry pin"));
+                    errors.push(format!(
+                        "error: aura.lock dependency `{name}` is not a registry pin"
+                    ));
                     continue;
                 }
                 let Some(version) = entry.version.as_deref() else {
-                    errors.push(format!("error: aura.lock registry dependency `{name}` is missing version"));
+                    errors.push(format!(
+                        "error: aura.lock registry dependency `{name}` is missing version"
+                    ));
                     continue;
                 };
                 match parse_version(version) {
@@ -360,11 +391,15 @@ fn validate_dependencies(root: &Path, toml: &AuraToml, errors: &mut Vec<String>)
                     Err(error) => errors.push(format!("error: locked version for `{name}` is invalid: {error}")),
                 }
                 let Some(checksum) = entry.checksum.as_deref() else {
-                    errors.push(format!("error: aura.lock registry dependency `{name}` is missing checksum"));
+                    errors.push(format!(
+                        "error: aura.lock registry dependency `{name}` is missing checksum"
+                    ));
                     continue;
                 };
                 if !valid_checksum(checksum) {
-                    errors.push(format!("error: registry dependency `{name}` has invalid checksum `{checksum}`"));
+                    errors.push(format!(
+                        "error: registry dependency `{name}` has invalid checksum `{checksum}`"
+                    ));
                 }
             }
         }
@@ -375,11 +410,16 @@ fn valid_package_name(name: &str) -> bool {
     !name.is_empty()
         && name != "."
         && name != ".."
-        && !name.chars().any(|c| c.is_whitespace() || c == '/' || c == '\\')
+        && !name
+            .chars()
+            .any(|c| c.is_whitespace() || c == '/' || c == '\\')
 }
 
 fn validate_release_version(version: &str) -> Result<(), String> {
-    let numeric = version.split_once('-').map(|(value, _)| value).unwrap_or(version);
+    let numeric = version
+        .split_once('-')
+        .map(|(value, _)| value)
+        .unwrap_or(version);
     if version.starts_with('v') || numeric.split('.').count() != 3 {
         return Err(format!(
             "error: package version `{version}` must be major.minor.patch (optional prerelease)"
@@ -409,7 +449,8 @@ mod tests {
     use std::io::Write;
 
     fn package_root(label: &str) -> PathBuf {
-        let root = std::env::temp_dir().join(format!("aura-publish-{label}-{}", std::process::id()));
+        let root =
+            std::env::temp_dir().join(format!("aura-publish-{label}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(root.join("src")).unwrap();
         root
@@ -423,8 +464,14 @@ mod tests {
     #[test]
     fn dry_run_previews_deterministic_archive_without_writing() {
         let root = package_root("valid");
-        write(&root.join("aura.toml"), "[package]\nname = \"demo.publish\"\nversion = \"1.2.3\"\n");
-        write(&root.join("src/main.aura"), "package demo.publish\nfun main() {}\n");
+        write(
+            &root.join("aura.toml"),
+            "[package]\nname = \"demo.publish\"\nversion = \"1.2.3\"\n",
+        );
+        write(
+            &root.join("src/main.aura"),
+            "package demo.publish\nfun main() {}\n",
+        );
         let before = fs::read(root.join("aura.toml")).unwrap();
         let preview = publish_dry_run(&root).expect("preview");
         assert_eq!(preview.archive_name, "demo.publish-1.2.3.crate");
@@ -454,7 +501,10 @@ mod tests {
     fn registry_dependency_requires_valid_read_only_lock_pin() {
         let root = package_root("registry");
         write(&root.join("aura.toml"), "[package]\nname = \"demo.publish\"\nversion = \"1.2.3\"\n[dependencies]\ntiny = \"0.1\"\n");
-        write(&root.join("src/main.aura"), "package demo.publish\nfun main() {}\n");
+        write(
+            &root.join("src/main.aura"),
+            "package demo.publish\nfun main() {}\n",
+        );
         write(&root.join("aura.lock"), "tiny = { version = \"0.1.0\", checksum = \"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\", source = \"registry\" }\n");
         let preview = publish_dry_run(&root).expect("locked preview");
         assert_eq!(preview.dependency_count, 1);

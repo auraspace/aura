@@ -13,8 +13,8 @@ use aura_diagnostics::{
 };
 use aura_sema::{check_file, SemaError, SemaErrors};
 use package::{
-    activate_update, current_target, load_package, load_package_default, publish_dry_run, publish_package,
-    LoadedPackage, RegistryIndex, UpdateDecision, ENV_REGISTRY_TOKEN,
+    activate_update, current_target, load_package, load_package_default, publish_dry_run,
+    publish_package, LoadedPackage, RegistryIndex, UpdateDecision, ENV_REGISTRY_TOKEN,
 };
 use std::env;
 use std::path::{Path, PathBuf};
@@ -200,10 +200,7 @@ fn cmd_update(args: &[String]) -> ExitCode {
         match &decision {
             UpdateDecision::Update(candidate) => println!(
                 "[{code}] update available: {} -> {} ({}, {})",
-                current,
-                candidate.meta.vers,
-                candidate.target,
-                candidate.reason
+                current, candidate.meta.vers, candidate.target, candidate.reason
             ),
             UpdateDecision::NoUpdate { current } => {
                 println!("[{code}] no update available (current {current})")
@@ -270,7 +267,11 @@ fn cmd_publish(args: &[String]) -> ExitCode {
         eprintln!("error: publish upload requires --registry <url> or AURA_REGISTRY_URL");
         return ExitCode::from(2);
     };
-    match publish_package(path, &registry, std::env::var(ENV_REGISTRY_TOKEN).ok().as_deref()) {
+    match publish_package(
+        path,
+        &registry,
+        std::env::var(ENV_REGISTRY_TOKEN).ok().as_deref(),
+    ) {
         Ok(receipt) => {
             println!("{}", receipt.render_json());
             ExitCode::SUCCESS
@@ -785,10 +786,10 @@ fn cmd_test(args: &[String]) -> ExitCode {
                             status,
                         );
                         let report = test_report::TestReport {
-                                package: pkg.package.clone(),
-                                duration_ms: elapsed,
-                                tests: cases
-                            };
+                            package: pkg.package.clone(),
+                            duration_ms: elapsed,
+                            tests: cases,
+                        };
                         if options.race {
                             println!(
                                 "{{\"mode\":\"race\",\"detector\":true,\"result\":{}}}",
