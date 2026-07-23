@@ -122,6 +122,7 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("typedef AuraTaskPollState (*AuraTaskCancelFn)(AuraTaskFrame *frame);\n");
     out.push_str("typedef void (*AuraTaskFrameDestroyFn)(AuraTaskFrame *frame);\n");
     out.push_str("typedef void (*AuraTaskResultDestroyFn)(void *data, size_t size);\n");
+    out.push_str("typedef void *(*AuraTaskResultCloneFn)(const void *data, size_t size, size_t *cloned_size);\n");
     out.push_str("AuraTaskPollState aura_task_poll_unit(AuraTaskFrame *frame);\n");
     out.push_str("AuraTaskFrame *aura_task_frame_new(size_t data_size, AuraTaskPollFn poll, AuraTaskFrameDestroyFn destroy);\n");
     out.push_str(
@@ -139,6 +140,7 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
         "int aura_task_frame_propagate_error(AuraTaskFrame *frame, const AuraTaskFrame *source);\n",
     );
     out.push_str("void aura_task_frame_set_error_span(AuraTaskFrame *frame, void *data, size_t size, AuraTaskResultDestroyFn destroy, uint32_t source_id, uint32_t span_start, uint32_t span_end);\n");
+    out.push_str("void aura_task_frame_set_error_span_with_clone(AuraTaskFrame *frame, void *data, size_t size, AuraTaskResultCloneFn clone, AuraTaskResultDestroyFn destroy, uint32_t source_id, uint32_t span_start, uint32_t span_end);\n");
     out.push_str("void aura_task_frame_set_error_at(AuraTaskFrame *frame, void *data, size_t size, AuraTaskResultDestroyFn destroy, uint32_t source_id);\n");
     out.push_str("AuraTaskPollState aura_task_frame_poll_once(AuraTaskFrame *frame);\n");
     out.push_str("void aura_task_frame_destroy(AuraTaskFrame *frame);\n");
@@ -1983,7 +1985,6 @@ fn emit_async_fun_multi_await(
         "static void {destroy_result}(void *data, size_t size) {{"
     );
     out.push_str("  (void)size;\n  free(data);\n}\n\n");
-
     let mut initial_ctx = async_ctx(checked, detector, &params, &f.params, &f.return_type);
     let _ = writeln!(
         out,
@@ -2389,7 +2390,6 @@ fn emit_async_fun_single_await(
         "static void {destroy_result}(void *data, size_t size) {{"
     );
     out.push_str("  (void)size;\n  free(data);\n}\n\n");
-
     let mut init_ctx = async_ctx(checked, detector, &params, &f.params, &f.return_type);
     for p in &f.params {
         init_ctx.define_local(
@@ -2597,6 +2597,21 @@ fn emit_async_fun_no_await(
         "static void {destroy_result}(void *data, size_t size) {{"
     );
     out.push_str("  (void)size;\n  free(data);\n}\n\n");
+    let clone_bytes = format!("aura_async_error_clone_{base}");
+    let clone_string = format!("aura_async_string_error_clone_{base}");
+    let destroy_error = format!("aura_async_error_destroy_{base}");
+    let _ = writeln!(
+        out,
+        "static void *{clone_bytes}(const void *src, size_t size, size_t *out_size) {{ void *copy; if (src == NULL || out_size == NULL) return NULL; copy = malloc(size == 0 ? 1 : size); if (copy == NULL) return NULL; if (size != 0) memcpy(copy, src, size); *out_size = size; return copy; }}"
+    );
+    let _ = writeln!(
+        out,
+        "static void *{clone_string}(const void *src, size_t size, size_t *out_size) {{ const char *text = (const char *)src; size_t len; char *copy; (void)size; if (text == NULL || out_size == NULL) return NULL; len = strlen(text); copy = (char *)malloc(len + 1); if (copy == NULL) return NULL; memcpy(copy, text, len + 1); *out_size = len + 1; return copy; }}"
+    );
+    let _ = writeln!(
+        out,
+        "static void {destroy_error}(void *data, size_t size) {{ (void)size; free(data); }}\n"
+    );
     let _ = writeln!(
         out,
         "static AuraTaskPollState {poll_fn}(AuraTaskFrame *frame) {{"
@@ -2618,19 +2633,39 @@ fn emit_async_fun_no_await(
         .map(|p| format!("data->{}", mangle_ident(&p.name.name)))
         .collect::<Vec<_>>()
         .join(", ");
+    out.push_str("  jmp_buf __async_jb;\n  if (setjmp(__async_jb) == 0) {\n    aura_try_enter(&__async_jb);\n");
     if ret == "void" {
-        let _ = writeln!(out, "  {body_fn}({args});");
-        out.push_str("  aura_task_frame_set_result(frame, NULL, 0, NULL);\n");
+        let _ = writeln!(out, "    {body_fn}({args});");
+        out.push_str(
+            "    aura_try_leave();\n    aura_task_frame_set_result(frame, NULL, 0, NULL);\n",
+        );
     } else {
-        let _ = writeln!(out, "  {ret} *result = ({ret} *)malloc(sizeof(*result));");
-        out.push_str("  if (result == NULL) return AURA_TASK_FAILED;\n");
-        let _ = writeln!(out, "  *result = {body_fn}({args});");
+        let _ = writeln!(out, "    {ret} *result = ({ret} *)malloc(sizeof(*result));");
+        out.push_str("    if (result == NULL) { aura_try_leave(); return AURA_TASK_FAILED; }\n");
+        let _ = writeln!(out, "    *result = {body_fn}({args});");
+        out.push_str("    aura_try_leave();\n");
         let _ = writeln!(
             out,
-            "  aura_task_frame_set_result(frame, result, sizeof(*result), {destroy_result});"
+            "    aura_task_frame_set_result(frame, result, sizeof(*result), {destroy_result});"
         );
     }
-    out.push_str("  return AURA_TASK_COMPLETE;\n}\n\n");
+    out.push_str("    return AURA_TASK_COMPLETE;\n  }\n");
+    out.push_str("  if (aura_ex_matches(\"Int\")) { int64_t *error = (int64_t *)malloc(sizeof(*error)); if (error == NULL) { aura_ex_clear(); aura_try_leave(); return AURA_TASK_FAILED; } *error = aura_ex_as_int(); aura_ex_clear(); aura_try_leave(); aura_task_frame_set_error_span_with_clone(frame, error, sizeof(*error), ");
+    out.push_str(&clone_bytes);
+    out.push_str(", ");
+    out.push_str(&destroy_error);
+    out.push_str(", 0, 0, 0); return AURA_TASK_FAILED; }\n");
+    out.push_str("  if (aura_ex_matches(\"Bool\")) { bool *error = (bool *)malloc(sizeof(*error)); if (error == NULL) { aura_ex_clear(); aura_try_leave(); return AURA_TASK_FAILED; } *error = aura_ex_as_bool(); aura_ex_clear(); aura_try_leave(); aura_task_frame_set_error_span_with_clone(frame, error, sizeof(*error), ");
+    out.push_str(&clone_bytes);
+    out.push_str(", ");
+    out.push_str(&destroy_error);
+    out.push_str(", 0, 0, 0); return AURA_TASK_FAILED; }\n");
+    out.push_str("  if (aura_ex_matches(\"String\")) { const char *value = aura_ex_as_string(); size_t len = value ? strlen(value) : 0; char *error = (char *)malloc(len + 1); if (error == NULL) { aura_ex_clear(); aura_try_leave(); return AURA_TASK_FAILED; } if (value != NULL) memcpy(error, value, len + 1); else error[0] = '\\0'; aura_ex_clear(); aura_try_leave(); aura_task_frame_set_error_span_with_clone(frame, error, len + 1, ");
+    out.push_str(&clone_string);
+    out.push_str(", ");
+    out.push_str(&destroy_error);
+    out.push_str(", 0, 0, 0); return AURA_TASK_FAILED; }\n");
+    out.push_str("  aura_ex_clear();\n  aura_try_leave();\n  return AURA_TASK_FAILED;\n}\n\n");
 
     let _ = writeln!(out, "{} {{", c_async_fun_signature(f, checked));
     let _ = writeln!(
