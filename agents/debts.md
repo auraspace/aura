@@ -678,3 +678,11 @@ When you resolve debt, update or remove the matching entry.
   `scripts/ffi-regression.sh` instead of reporting those stages as deferred.
 - The broader HTTP/FFI contract remains partial; this entry only records that
   the bounded acceptance stages are executable and sanitizer-backed.
+
+### Registry production acceptance remains credential-gated (2026-07-23)
+
+- Offline registry acceptance now validates publish receipts, update checksums,
+  rollback, and explicit non-production/signature-deferred evidence.
+- A live production registry, signing key, and network publish/update smoke are
+  still unavailable in this environment; the validator intentionally rejects
+  any report that claims those checks.
