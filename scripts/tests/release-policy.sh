@@ -59,4 +59,13 @@ if AURA_CI_WORKFLOW_FILE="$tmp/ci-drift.yml" bash scripts/validate-cross-target-
   printf 'release policy test: validator accepted CI platform-contract target drift\n' >&2
   exit 1
 fi
+
+cp .github/workflows/release.yml "$tmp/runner-drift.yml"
+# Change only the linux-amd64 matrix runner. Target names still match, so this
+# proves the validator binds each required target to its declared native host.
+sed -i '0,/- os: ubuntu-latest/s//- os: ubuntu-22.04/' "$tmp/runner-drift.yml"
+if AURA_RELEASE_WORKFLOW_FILE="$tmp/runner-drift.yml" bash scripts/validate-cross-target-packaging.sh >/dev/null 2>&1; then
+  printf 'release policy test: validator accepted release runner drift\n' >&2
+  exit 1
+fi
 printf 'release policy tests: PASS\n'

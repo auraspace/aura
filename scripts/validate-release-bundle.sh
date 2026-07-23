@@ -89,14 +89,20 @@ for (target, archive, checksum), record in zip(expected_artifacts, manifest_arti
 
 expected_acceptance = []
 for target, mode in targets:
-    expected_acceptance.append({"target": target, "mode": mode, "outcome": "pass", "report": f"{target}-acceptance.json"})
+    execution = "ran" if mode == "native" else "not-run"
+    expected_acceptance.append({"target": target, "mode": mode, "execution": execution, "outcome": "pass", "report": f"{target}-acceptance.json"})
 if manifest.get("acceptance") != expected_acceptance:
     raise SystemExit("release manifest acceptance records do not match target policy")
 for record in expected_acceptance:
     report_path = acceptance_dir / record["report"]
     report = json.loads(report_path.read_text(encoding="utf-8"))
-    if report.get("target") != record["target"] or report.get("mode") != record["mode"] or report.get("outcome") != "pass":
+    if report.get("schema_version") != 2 or report.get("target") != record["target"] or report.get("mode") != record["mode"] or report.get("execution") != record["execution"] or report.get("outcome") != "pass":
         raise SystemExit(f"acceptance report does not satisfy target policy: {record['report']}")
+    host = report.get("host")
+    if not isinstance(host, dict) or not isinstance(host.get("os"), str) or not isinstance(host.get("arch"), str):
+        raise SystemExit(f"acceptance host evidence is incomplete: {record['report']}")
+    if record["mode"] == "native" and f"{host['os']}-{host['arch']}" != record["target"]:
+        raise SystemExit(f"native acceptance host does not match target policy: {record['report']}")
 
 expected_payload = {"release-manifest.json"}
 for _target, archive, checksum in expected_artifacts:

@@ -22,29 +22,55 @@ package_script="${AURA_PACKAGE_SCRIPT_FILE:-scripts/package-release.sh}"
 mapfile -t rows < <(awk -F '\t' '!/^([[:space:]]*#|[[:space:]]*$)/ { print }' "$manifest")
 [[ ${#rows[@]} -gt 0 ]] || die "target manifest is empty"
 
-declare -A tier acceptance package
+declare -A tier acceptance package runner
 required=()
 for row in "${rows[@]}"; do
-  IFS=$'\t' read -r target target_tier _runner target_package _installer target_acceptance extra <<<"$row"
+  IFS=$'\t' read -r target target_tier target_runner target_package _installer target_acceptance extra <<<"$row"
   [[ -z "${extra:-}" && -n "${target:-}" && -n "${target_tier:-}" && -n "${target_package:-}" && -n "${target_acceptance:-}" ]] \
     || die "malformed target row: $row"
   [[ -z "${tier[$target]+x}" ]] || die "duplicate target row: $target"
   tier["$target"]="$target_tier"
   acceptance["$target"]="$target_acceptance"
   package["$target"]="$target_package"
+  runner["$target"]="$target_runner"
   [[ "$target_tier" == required ]] && required+=("$target")
 done
 [[ ${#required[@]} -gt 0 ]] || die "manifest has no required targets"
 
-# Compare sets, not substring presence. This catches removed, duplicated, or
-# unapproved workflow targets.
-mapfile -t workflow_targets < <(
-  awk '/^[[:space:]]*-[[:space:]]+os:/ { in_entry=1; next }
-       in_entry && /^[[:space:]]+name:[[:space:]]*/ { sub(/^[[:space:]]+name:[[:space:]]*/, ""); print; in_entry=0 }' "$workflow" \
-    | sed 's/[[:space:]]*#.*$//' | sed 's/[[:space:]]*$//' | sort -u
-)
+workflow_target_pairs() {
+  local file="$1" job="$2"
+  awk -v job="$job" '
+    $0 == "  " job ":" { in_job=1; next }
+    in_job && /^  [A-Za-z0-9_-]+:/ { exit }
+    in_job && /^[[:space:]]*-[[:space:]]+os:[[:space:]]*/ {
+      os = $0
+      sub(/^[[:space:]]*-[[:space:]]+os:[[:space:]]*/, "", os)
+      sub(/[[:space:]]*#.*$/, "", os)
+      sub(/[[:space:]]*$/, "", os)
+      in_entry=1
+      next
+    }
+    in_entry && /^[[:space:]]+name:[[:space:]]*/ {
+      name = $0
+      sub(/^[[:space:]]+name:[[:space:]]*/, "", name)
+      sub(/[[:space:]]*#.*$/, "", name)
+      sub(/[[:space:]]*$/, "", name)
+      print name "\t" os
+      in_entry=0
+    }
+  ' "$file"
+}
+
+# Compare target/runner pairs, not substring presence. This catches removed,
+# duplicated, unapproved, and silently re-homed native targets.
+declare -A workflow_runner ci_runner
+while IFS=$'\t' read -r target target_runner; do
+  [[ -n "$target" && -n "$target_runner" ]] || die "malformed release workflow matrix entry"
+  [[ -z "${workflow_runner[$target]+x}" ]] || die "duplicate release workflow target: $target"
+  workflow_runner["$target"]="$target_runner"
+done < <(workflow_target_pairs "$workflow" build)
 expected_sorted="$(printf '%s\n' "${required[@]}" | sort -u)"
-actual_sorted="$(printf '%s\n' "${workflow_targets[@]}" | sed '/^$/d' | sort -u)"
+actual_sorted="$(printf '%s\n' "${!workflow_runner[@]}" | sed '/^$/d' | sort -u)"
 [[ "$expected_sorted" == "$actual_sorted" ]] \
   || die "workflow target set differs: expected=[$(tr '\n' ' ' <<<"$expected_sorted")] actual=[$(tr '\n' ' ' <<<"$actual_sorted")]"
 
@@ -52,26 +78,21 @@ actual_sorted="$(printf '%s\n' "${workflow_targets[@]}" | sed '/^$/d' | sort -u)
 # release matrix so a green pull request cannot validate a different artifact
 # set from the tag workflow. Parse only that job's matrix; unrelated CI jobs
 # (for example FFI-native) are intentionally outside this comparison.
-mapfile -t ci_targets < <(
-  awk '
-    /^  platform-contract:/ { in_job=1; next }
-    in_job && /^  [A-Za-z0-9_-]+:/ { exit }
-    in_job && /^      matrix:/ { in_matrix=1; next }
-    in_matrix && /^      steps:/ { exit }
-    in_matrix && /^[[:space:]]+name:[[:space:]]*/ {
-      sub(/^[[:space:]]+name:[[:space:]]*/, "")
-      sub(/[[:space:]]*#.*$/, "")
-      sub(/[[:space:]]*$/, "")
-      print
-    }
-  ' "$ci_workflow" | sort -u
-)
-ci_sorted="$(printf '%s\n' "${ci_targets[@]}" | sed '/^$/d' | sort -u)"
+while IFS=$'\t' read -r target target_runner; do
+  [[ -n "$target" && -n "$target_runner" ]] || die "malformed CI platform-contract matrix entry"
+  [[ -z "${ci_runner[$target]+x}" ]] || die "duplicate CI platform-contract target: $target"
+  ci_runner["$target"]="$target_runner"
+done < <(workflow_target_pairs "$ci_workflow" platform-contract)
+ci_sorted="$(printf '%s\n' "${!ci_runner[@]}" | sed '/^$/d' | sort -u)"
 [[ "$expected_sorted" == "$ci_sorted" ]] \
   || die "CI platform-contract target set differs: expected=[$(tr '\n' ' ' <<<"$expected_sorted")] actual=[$(tr '\n' ' ' <<<"$ci_sorted")]"
 
 for target in "${required[@]}"; do
   [[ "${package[$target]}" == tar.gz ]] || die "required target $target is not tar.gz packaged"
+  [[ "${workflow_runner[$target]}" == "${runner[$target]}" ]] \
+    || die "release workflow runner differs for $target: expected=${runner[$target]} actual=${workflow_runner[$target]}"
+  [[ "${ci_runner[$target]}" == "${runner[$target]}" ]] \
+    || die "CI platform-contract runner differs for $target: expected=${runner[$target]} actual=${ci_runner[$target]}"
   "$package_script" --validate-target "$target" >/dev/null \
     || die "package script rejected required target $target"
 done

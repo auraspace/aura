@@ -36,6 +36,15 @@ if record.get("network") is not False or record.get("production_claim") is not F
     raise SystemExit("offline fixture report must not claim production network acceptance")
 if record.get("outcome") != "pass":
     raise SystemExit("registry acceptance did not pass")
+if record.get("protocol") != "rfc005-sparse-index-plus-api-v1":
+    raise SystemExit("registry acceptance protocol evidence is incomplete")
+if record.get("registry_fixture") != "u8_local_registry_release_acceptance":
+    raise SystemExit("registry acceptance fixture identity is incomplete")
+if record.get("cross_host") != "artifact-file-acceptance":
+    raise SystemExit("registry acceptance cross-host limitation is incomplete")
+host = record.get("host")
+if not isinstance(host, str) or "-" not in host or not all(host.split("-", 1)):
+    raise SystemExit("registry acceptance host evidence is incomplete")
 
 publish = record.get("publish")
 if not isinstance(publish, dict):

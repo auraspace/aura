@@ -125,6 +125,27 @@ Production release tags require `AURA_MINISIGN_SECRET_KEY` and
 publishes `SHA256SUMS.minisig` plus `minisign.pub`. Missing or invalid signing
 material is a release failure, not an unsigned success.
 
+## Evidence boundary for v0.1.1-alpha
+
+The checked-in policy and fixture gates prove matrix alignment, package layout,
+checksums, signed-bundle wiring, and the distinction between native execution
+and cross-file inspection. Release acceptance reports use schema 2: `native`
+reports must record `execution: "ran"` on the matching OS/architecture, while
+`cross-file` reports explicitly record `execution: "not-run"`.
+
+They do not substitute for external evidence. Before a target is promoted from
+policy-only or a production release is declared complete, retain links or CI
+run IDs for the following:
+
+- Linux arm64, Windows amd64, and Windows arm64: native package, installer,
+  `aura version`, and `aura new && aura run` results on the declared runner.
+- Registry: an authenticated production publish, signed index/receipt
+  verification, install/update checksum verification, and a rollback against
+  the live endpoint using non-test credentials.
+- Release signing: a tag-triggered GitHub Actions run with the configured
+  minisign secret/public key, successful detached-signature verification, and
+  the resulting GitHub Release assets.
+
 ## Version naming
 
 | Concept             | Example                                | Where                                              |

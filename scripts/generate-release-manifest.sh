@@ -98,7 +98,7 @@ for target, expected_mode in targets:
         report = json.loads(report_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         raise SystemExit(f"invalid acceptance report {report_name}: {exc}") from exc
-    if report.get("schema_version") != 1:
+    if report.get("schema_version") != 2:
         raise SystemExit(f"unsupported acceptance report schema: {report_name}")
     if report.get("target") != target:
         raise SystemExit(f"acceptance target mismatch in {report_name}")
@@ -106,9 +106,18 @@ for target, expected_mode in targets:
         raise SystemExit(f"acceptance mode mismatch in {report_name}: expected {expected_mode}")
     if report.get("outcome") != "pass":
         raise SystemExit(f"acceptance did not pass: {report_name}")
+    host = report.get("host")
+    if not isinstance(host, dict) or not isinstance(host.get("os"), str) or not isinstance(host.get("arch"), str):
+        raise SystemExit(f"acceptance host evidence is incomplete: {report_name}")
+    execution = "ran" if expected_mode == "native" else "not-run"
+    if report.get("execution") != execution:
+        raise SystemExit(f"acceptance execution evidence mismatch in {report_name}: expected {execution}")
+    if expected_mode == "native" and f"{host['os']}-{host['arch']}" != target:
+        raise SystemExit(f"native acceptance host does not match target in {report_name}")
     acceptance_records.append({
         "target": target,
         "mode": report["mode"],
+        "execution": execution,
         "outcome": report["outcome"],
         "report": report_name,
     })

@@ -950,10 +950,11 @@ fun main() {
         let file = parse_file(source).expect("parse while-await Int fixture");
         let generated = emit_c_from_ast(&file).expect("emit while-await Int fixture");
         assert!(generated.contains("/* aura async top-level while-await Int lowering */"));
+        assert!(generated.contains("aura_task_frame_wait_on(frame, data->await_task)"));
         assert!(
-            generated.contains("aura_task_executor_wake(__aura_task_executor, data->await_task)")
+            !generated.contains("aura_task_executor_wake(__aura_task_executor, data->await_task)")
         );
-        assert!(generated.contains("aura_task_executor_run_one(__aura_task_executor)"));
+        assert!(!generated.contains("aura_task_executor_run_one(__aura_task_executor)"));
         assert!(generated.contains("aura_task_frame_propagate_error(frame, data->await_task)"));
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()

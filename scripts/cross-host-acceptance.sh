@@ -25,6 +25,18 @@ done
 [[ "$mode" == native || "$mode" == cross-file ]] || die "mode must be native or cross-file"
 command -v file >/dev/null 2>&1 || die "file(1) is required"
 
+os="$(uname -s)"; arch="$(uname -m)"
+case "$os" in
+  Linux) host_os=linux ;;
+  Darwin) host_os=darwin ;;
+  *) host_os=unsupported ;;
+esac
+case "$arch" in
+  x86_64|amd64) host_arch=amd64 ;;
+  arm64|aarch64) host_arch=arm64 ;;
+  *) host_arch=unsupported ;;
+esac
+
 description="$(file -b "$artifact")"
 case "$target" in
   linux-amd64) [[ "$description" =~ (ELF|x86-64|x86_64) ]] || die "${target} artifact format mismatch: $description" ;;
@@ -34,17 +46,6 @@ case "$target" in
 esac
 
 if [[ "$mode" == native ]]; then
-  os="$(uname -s)"; arch="$(uname -m)"
-  case "$os" in
-    Linux) host_os=linux ;;
-    Darwin) host_os=darwin ;;
-    *) host_os=unsupported ;;
-  esac
-  case "$arch" in
-    x86_64|amd64) host_arch=amd64 ;;
-    arm64|aarch64) host_arch=arm64 ;;
-    *) host_arch=unsupported ;;
-  esac
   [[ "$target" == "$host_os-$host_arch" ]] || die "native mode target does not match host: $target"
   "$artifact" version >/dev/null
 fi
@@ -53,7 +54,9 @@ if [[ -n "$report" ]]; then
   mkdir -p "$(dirname "$report")"
   escaped="${description//\\/\\\\}"
   escaped="${escaped//\"/\\\"}"
-  printf '{"schema_version":1,"target":"%s","mode":"%s","format":"%s","outcome":"pass"}\n' \
-    "$target" "$mode" "$escaped" >"$report"
+  execution=not-run
+  [[ "$mode" == native ]] && execution=ran
+  printf '{"schema_version":2,"target":"%s","mode":"%s","format":"%s","host":{"os":"%s","arch":"%s"},"execution":"%s","outcome":"pass"}\n' \
+    "$target" "$mode" "$escaped" "$host_os" "$host_arch" "$execution" >"$report"
 fi
 printf 'cross-host acceptance: PASS target=%s mode=%s (%s)\n' "$target" "$mode" "$description"

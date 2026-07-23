@@ -190,6 +190,14 @@ Single-file apps maximize operational simplicity. Toolchain archives + checksums
 The alpha gate validates the target manifest against the workflow, package
 script, installer, and this RFC before assets are built.
 
+For alpha acceptance, a native target report is valid only when it records a
+successful binary execution on the matching OS/architecture; cross-file
+reports record format inspection and explicitly state that execution did not
+occur. This is intentionally weaker than foreign-host acceptance. Linux arm64
+and Windows promotion still require native package/install/run evidence on
+their declared runners, and a production release still requires an actual
+tag-triggered signature verification using configured GitHub credentials.
+
 ## 12. References
 
 - Go install/dist; rustup
