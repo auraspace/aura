@@ -4,8 +4,5 @@ export default {
   'site/**/*.{ts,tsx,js,jsx,mjs,cjs}': ['oxlint --fix', 'prettier --write'],
   'site/**/*.{json,css,md,html,yml,yaml}': ['prettier --write'],
   '*.{mjs,cjs,js,json,md,yml,yaml}': ['prettier --write'],
-  '**/*.rs': (filenames) =>
-    filenames
-      .map((filename) => `rustfmt --edition 2021 ${filename}`)
-      .join(' && '),
+  '**/*.rs': 'rustfmt --edition 2021',
 }
