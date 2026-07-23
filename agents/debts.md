@@ -85,8 +85,10 @@ When you resolve debt, update or remove the matching entry.
 - Progress: `runtime/tests/task_cancellation.c` proves request acceptance,
   cancellation acknowledgement after cleanup, completion-wins ordering, and
   identical joined/unjoined cancellation outcomes under ASAN/UBSAN.
-- Next step: extend cancellation checks to generated suspension, file/network
-  operations, and handler frames once their wake/capture ownership exists.
+  `runtime/tests/task_dependency.c` now proves cancellation detaches a
+  parent waiting on a child without cancelling the child implicitly.
+- Next step: extend cancellation checks to file/network operations and handler
+  frames once their wake/capture ownership exists.
 
 ### File I/O has no scheduler suspension yet (IO2, 2026-07-22)
 

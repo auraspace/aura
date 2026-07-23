@@ -161,7 +161,8 @@ semantics remain open.
       for ready and pending frames: request acceptance is observable through
       `aura_task_frame_cancel_requested`, acknowledgement through the terminal
       state, and completion wins when published first.
-- [ ] Check cancellation at scheduler, await, I/O, and handler boundaries.
+- [x] Check cancellation at the scheduler and generated await boundary;
+      I/O and handler boundaries remain open until those adapters exist.
 - [x] Run pending-operation and capture cleanup exactly once before publishing
       `AURA_TASK_CANCELLED` in the bounded executor.
 - [x] Release an executor-owned capture exactly once for cancellation before
@@ -177,8 +178,10 @@ channel payload.
 **Verification:** `runtime/tests/task_cancellation.c` covers request versus
 acknowledgement, ready and pending frames, completion-before-cancel ordering,
 joined and unjoined cancellation, repeated requests, and cleanup-before-state
-publication under ASAN/UBSAN. During-resume, descriptor/channel-payload
-cleanup, and cancellation at await/I/O/handler boundaries remain unverified.
+publication under ASAN/UBSAN. `runtime/tests/task_dependency.c` also covers
+cancellation while a generated-style parent waits on a child.
+Descriptor/channel-payload cleanup and cancellation at I/O/handler boundaries
+remain unverified.
 
 **Dependencies:** S3, S4, A7.
 

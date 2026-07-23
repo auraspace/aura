@@ -75,6 +75,32 @@ int main(void)
 
   assert(aura_task_executor_release(executor, &parent) == 1);
   assert(aura_task_executor_release(executor, &child) == 1);
+
+  /* Cancellation at an await boundary detaches only the parent. The child
+   * remains a valid executor-owned pending frame and is cancelled separately. */
+  child = aura_task_frame_new(sizeof(ChildState), poll_child, NULL);
+  parent = aura_task_frame_new(sizeof(ParentState), poll_parent, NULL);
+  assert(child != NULL && parent != NULL);
+  child_state = (ChildState *)aura_task_frame_data(child);
+  parent_state = (ParentState *)aura_task_frame_data(parent);
+  parent_state->child = child;
+  assert(aura_task_executor_submit(executor, child) == 1);
+  assert(aura_task_executor_submit(executor, parent) == 1);
+  assert(aura_task_executor_run_one(executor) == 1);
+  assert(aura_task_executor_run_one(executor) == 1);
+  assert(aura_task_frame_state(parent) == AURA_TASK_PENDING);
+  assert(aura_task_executor_cancel(executor, parent) == 1);
+  assert(aura_task_frame_waiting_token(parent) == NULL);
+  assert(aura_task_frame_state(child) == AURA_TASK_PENDING);
+  assert(aura_task_executor_run_one(executor) == 1);
+  assert(aura_task_frame_state(parent) == AURA_TASK_CANCELLED);
+  assert(parent_state->polls == 1);
+  assert(aura_task_executor_cancel(executor, child) == 1);
+  assert(aura_task_executor_run_one(executor) == 1);
+  assert(aura_task_frame_state(child) == AURA_TASK_CANCELLED);
+  assert(aura_task_executor_release(executor, &parent) == 1);
+  assert(aura_task_executor_release(executor, &child) == 1);
+
   aura_task_executor_shutdown(executor);
   return 0;
 }
