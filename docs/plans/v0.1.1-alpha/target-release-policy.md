@@ -30,6 +30,14 @@ hello project. Cross means compilation targets another architecture; CI must
 validate the binary format and architecture, but does not claim execution on
 the build runner.
 
+The host-only gate `scripts/validate-cross-target-packaging.sh` compares the
+required target set in `scripts/release-targets.tsv` with the release workflow,
+asks the package script to accept each required target, and requires every
+tier-2 target to be rejected as policy-only. It does not invoke a foreign
+compiler or run a foreign executable. `scripts/cross-host-acceptance.sh` is the
+separate artifact gate: `native` executes only on a matching host and
+`cross-file` checks format/architecture only.
+
 ## Artifact and integrity requirements
 
 For a tag `v{version}`, each target publishes exactly:

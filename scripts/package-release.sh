@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build a portable aura toolchain tarball (RFC-013 layout, alpha).
-# Usage: scripts/package-release.sh
+# Usage: scripts/package-release.sh [--validate-target TARGET]
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -10,6 +10,24 @@ die() {
   echo "error: $*" >&2
   exit 1
 }
+
+# Host-independent contract check. This never invokes a compiler or runs a
+# foreign executable; it only answers whether this script supports a release
+# target declared by the policy.
+if [[ "${1:-}" == "--validate-target" ]]; then
+  [[ $# -eq 2 ]] || die "usage: $0 --validate-target TARGET"
+  case "$2" in
+    linux-amd64|darwin-arm64|darwin-amd64)
+      printf 'package target: supported %s (build capability not exercised)\n' "$2"
+      exit 0
+      ;;
+    linux-arm64|windows-amd64|windows-arm64)
+      die "target $2 is policy-only in alpha; no package artifact is produced"
+      ;;
+    *) die "unknown release target: $2" ;;
+  esac
+fi
+[[ $# -eq 0 ]] || die "unknown option: $1"
 
 VERSION="$(grep -E '^version = ' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')"
 VERSION="${VERSION:-0.1.0}"

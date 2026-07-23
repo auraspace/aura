@@ -14,9 +14,11 @@ installer="${AURA_INSTALLER_FILE:-scripts/install.sh}"
 rfc="${AURA_RELEASE_RFC_FILE:-docs/rfc/RFC-013-binary-distribution.md}"
 release_docs="${AURA_RELEASE_DOCS_FILE:-docs/releases/README.md}"
 target_fixture_dir="${AURA_TARGET_POLICY_FIXTURE_DIR:-scripts/fixtures/target-policy}"
-for file in "$manifest" "$workflow" "$package_script" "$installer" "$rfc" "$release_docs"; do
+cross_target_validator="${AURA_CROSS_TARGET_VALIDATOR_FILE:-scripts/validate-cross-target-packaging.sh}"
+for file in "$manifest" "$workflow" "$package_script" "$installer" "$rfc" "$release_docs" "$cross_target_validator"; do
   [[ -f "$file" ]] || die "missing policy input: $file"
 done
+[[ -x "$cross_target_validator" ]] || die "cross-target validator is not executable: $cross_target_validator"
 
 required=0
 while IFS=$'\t' read -r target tier runner format install acceptance; do
@@ -108,5 +110,9 @@ rg -q 'release-acceptance' "$workflow" || die "release workflow does not collect
 rg -q 'validate-release-bundle\.sh' "$workflow" || die "release workflow does not validate the release bundle"
 rg -q -- '--require-signature' "$workflow" || die "release workflow does not require signed bundle verification"
 rg -q 'AURA_VERIFY_SIGNATURE' scripts/release-signing.md || die "signing policy omits installer verification"
+AURA_RELEASE_TARGETS_FILE="$manifest" \
+AURA_RELEASE_WORKFLOW_FILE="$workflow" \
+AURA_PACKAGE_SCRIPT_FILE="$package_script" \
+  bash "$cross_target_validator" || die "cross-target/package validation failed"
 info "validated $required required target(s), tier2 policy fixtures, and signing policy"
 info "validated fail-closed minisign production path"

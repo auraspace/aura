@@ -41,6 +41,9 @@ jobs:
       - name: Validate release target and signing policy
         run: bash scripts/validate-release-policy.sh
 
+      - name: Validate cross-target packaging contract (host-only)
+        run: bash scripts/validate-cross-target-packaging.sh
+
       - name: Release policy regression test
         run: bash scripts/tests/release-policy.sh
 
@@ -203,6 +206,14 @@ jobs:
               ;;
             *) echo "error: unsupported CI runner: ${{ runner.os }}" >&2; exit 1 ;;
           esac
+          stage="$(tar -tzf "$archive" | { IFS= read -r first; printf '%s\n' "${first%%/*}"; cat >/dev/null; })"
+          mode=native
+          if [[ -n "${{ matrix.rust_target }}" ]]; then mode=cross-file; fi
+          bash scripts/cross-host-acceptance.sh \
+            --artifact "dist/$stage/bin/aura" \
+            --target "${{ matrix.name }}" \
+            --mode "$mode" \
+            --report "dist/${{ matrix.name }}-acceptance.json"
 
   site:
     name: Site
