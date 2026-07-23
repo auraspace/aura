@@ -841,6 +841,35 @@ fun main() {}
     }
 
     #[test]
+    fn builds_and_runs_bounded_string_parameter_capture() {
+        let file = aura_parser::parse_file(
+            "package demo\nfun report(value: String) { println(value) }\nfun launch(value: String) { val task = spawn { report(value) } join(task) }\nfun main() { launch(\"captured string\") }\n",
+        )
+        .expect("parse String capture spawn");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-bounded-string-capture-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile String capture spawn");
+        let generated = fs::read_to_string(&generated_c).expect("read generated String capture C");
+        assert!(generated.contains("aura_box_str * value;"));
+        assert!(generated.contains("__spawn_data->value = aura_box_str_new(value);"));
+        assert!(generated.contains("aura_box_str_release(data->value);"));
+        let output = Command::new(&bin)
+            .output()
+            .expect("run String capture spawn");
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "captured string\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn moves_string_ownership_across_nested_assignment() {
         let file = aura_parser::parse_file(
             r#"package demo

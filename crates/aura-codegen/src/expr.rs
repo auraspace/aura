@@ -400,8 +400,9 @@ fn foreign_decl_package(foreign: &ForeignDecl, checked: &CheckedFile) -> String 
 }
 
 /// Bounded C22l lowering: a spawn body may contain only calls with literal
-/// arguments, or copied `Int` parameters from the enclosing function, and an
-/// optional unit return. The copied subset has no heap ownership to preserve.
+/// arguments, or copied `Int`/`String` parameters from the enclosing function,
+/// and an optional unit return. String captures are copied into owned boxes by
+/// the frame emitter.
 pub(crate) fn bounded_spawn_captures(
     body: &Block,
     available: &HashMap<String, String>,
@@ -439,7 +440,10 @@ fn bounded_spawn_value(
     match expr {
         Expr::Int(_) | Expr::Bool(_) | Expr::String(_) | Expr::Null(_) => true,
         Expr::Ident(id) => {
-            if available.get(&id.name).is_some_and(|ty| ty == "Int") {
+            if available
+                .get(&id.name)
+                .is_some_and(|ty| ty == "Int" || ty == "String")
+            {
                 captures.insert(id.name.clone());
                 true
             } else {
@@ -458,6 +462,10 @@ fn bounded_spawn_value(
 
 pub(crate) fn bounded_spawn_poll_name(span: Span) -> String {
     format!("aura_spawn_poll_{}", span.start)
+}
+
+pub(crate) fn bounded_spawn_destroy_name(span: Span) -> String {
+    format!("aura_spawn_destroy_{}", span.start)
 }
 
 fn race_read(value: String, lvalue: String, span: Span, ctx: &EmitCtx<'_>) -> String {
@@ -1045,9 +1053,13 @@ fn emit_async_expr(expr: &AsyncExpr, ctx: &mut EmitCtx<'_>) -> String {
             } else {
                 let assignments = captures
                     .iter()
-                    .map(|(name, _)| {
+                    .map(|(name, key)| {
                         let n = mangle_ident(name);
-                        format!("__spawn_data->{n} = {n};")
+                        if key == "String" {
+                            format!("__spawn_data->{n} = aura_box_str_new({n});")
+                        } else {
+                            format!("__spawn_data->{n} = {n};")
+                        }
                     })
                     .collect::<Vec<_>>()
                     .join(" ");
@@ -1056,7 +1068,12 @@ fn emit_async_expr(expr: &AsyncExpr, ctx: &mut EmitCtx<'_>) -> String {
                     s.span.start
                 )
             };
-            format!("({{ AuraTaskFrame *__spawn = aura_task_frame_new({data_size}, {poll}, NULL); if (__spawn != NULL) {{ aura_task_frame_set_race_source_id(__spawn, UINT32_C({source})); {init} }} if (__spawn != NULL && (__aura_task_executor == NULL || !aura_task_executor_submit(__aura_task_executor, __spawn))) {{ aura_task_frame_destroy(__spawn); __spawn = NULL; }} __spawn; }})")
+            let destroy = if captures.is_empty() {
+                "NULL".to_string()
+            } else {
+                bounded_spawn_destroy_name(s.span)
+            };
+            format!("({{ AuraTaskFrame *__spawn = aura_task_frame_new({data_size}, {poll}, {destroy}); if (__spawn != NULL) {{ aura_task_frame_set_race_source_id(__spawn, UINT32_C({source})); {init} }} if (__spawn != NULL && (__aura_task_executor == NULL || !aura_task_executor_submit(__aura_task_executor, __spawn))) {{ aura_task_frame_destroy(__spawn); __spawn = NULL; }} __spawn; }})")
         }
         AsyncExpr::Join(j) => {
             let handle = emit_expr(&j.handle, ctx);

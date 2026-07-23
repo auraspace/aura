@@ -565,7 +565,8 @@ When you resolve debt, update or remove the matching entry.
 
 ### S2 bounded primitive capture (2026-07-23)
 
-- The compiler now copies `Int` parameters used by the bounded one-shot spawn
-  subset into frame data. String, class, Array, Fun, transfer, await-crossing,
-  and cancellation ownership remain deferred until the complete frame ABI is
-  available; extend the capture representation before claiming those types.
+- The compiler now copies `Int` parameters and heap-duplicates `String`
+  parameters used by the bounded one-shot spawn subset into frame data. Class,
+  Array, Fun, transfer, await-crossing, and cancellation ownership remain
+  deferred until the complete frame ABI is available; extend the capture
+  representation before claiming those types.

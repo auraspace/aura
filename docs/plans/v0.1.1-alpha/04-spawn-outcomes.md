@@ -34,17 +34,20 @@ nested, capture, await, and repeatedly scheduled lowering remain unverified.
 
 **Objective:** Keep every captured value valid until task completion.
 
-**Implementation status (bounded compiler/runtime slice):** An `Int` parameter
-referenced by a supported spawn body is copied into a generated
-`AuraTaskFrame` data struct before submission. The one-shot poller reads that
-copy, so mutation of the caller's local state cannot invalidate the capture.
-String, class, Array, Fun, transfer, await-crossing, and cancellation
-ownership remain open until complete capture/frame lowering exists.
+**Implementation status (bounded compiler/runtime slice):** `Int` and `String`
+parameters referenced by a supported spawn body are copied into a generated
+`AuraTaskFrame` data struct before submission. Integer values are copied by
+value; strings are copied into an owned `aura_box_str` and released by the
+frame destroy hook. The one-shot poller reads those stable copies, so mutation
+or teardown of the caller's local state cannot invalidate the capture. Class,
+Array, Fun, transfer, await-crossing, and cancellation ownership remain open
+until complete capture/frame lowering exists.
 
 **Checklist:**
 
-- [x] Copy `Int` parameter captures into frame data according to the bounded
-      copy rule; transfer and heap-owned capture rules remain open.
+- [x] Copy `Int` and `String` parameter captures into frame data according to
+      the bounded copy rule; class/Array/Fun transfer and heap-owned capture
+      rules remain open.
 - [ ] Support Int, String, class, Array, and Fun captures.
 - [x] Register, mark, release, and destroy captures with the frame. The
       bounded runtime slice roots owned capture storage, releases the root on
@@ -54,10 +57,12 @@ ownership remain open until complete capture/frame lowering exists.
 
 **Acceptance:** Captures survive await and are released exactly once.
 
-**Verification:** `aura-codegen` native build test
-`builds_and_runs_bounded_int_parameter_capture` checks generated frame storage,
-copy-before-submit, and native execution. Full capture, mutation, forced-GC,
-cancellation, and churn cases remain open for the broader type set.
+**Verification:** `aura-codegen` native build tests
+`builds_and_runs_bounded_int_parameter_capture` and
+`builds_and_runs_bounded_string_parameter_capture` check generated frame
+storage, copy-before-submit, cleanup, and native execution. Full capture,
+mutation, forced-GC, cancellation, and churn cases remain open for the broader
+type set.
 
 **Dependencies:** S1, A3.
 

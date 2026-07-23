@@ -10,7 +10,10 @@ use crate::array_emit::{emit_array_mono, is_array_mono};
 use crate::class_emit::*;
 use crate::ctx::{EmitCtx, EmitOptions};
 use crate::enum_emit::*;
-use crate::expr::{bounded_spawn_captures, bounded_spawn_poll_name, emit_expr, full_type_mono};
+use crate::expr::{
+    bounded_spawn_captures, bounded_spawn_destroy_name, bounded_spawn_poll_name, emit_expr,
+    full_type_mono,
+};
 use crate::iface::*;
 use crate::names::*;
 use crate::stmt::{emit_block, emit_return_fallback};
@@ -994,18 +997,34 @@ fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile, detector:
             continue;
         }
         let poll = bounded_spawn_poll_name(spawn.span);
+        let destroy = bounded_spawn_destroy_name(spawn.span);
         let data_ty = format!("aura_spawn_data_{}", spawn.span.start);
         if !captures.is_empty() {
             let _ = writeln!(out, "typedef struct {data_ty} {{");
             for (name, key) in &captures {
-                let _ = writeln!(
-                    out,
-                    "  {} {};",
-                    crate::stmt::local_key_to_c(key, checked),
-                    mangle_ident(name)
-                );
+                let cty = if key == "String" {
+                    "aura_box_str *".to_string()
+                } else {
+                    crate::stmt::local_key_to_c(key, checked)
+                };
+                let _ = writeln!(out, "  {} {};", cty, mangle_ident(name));
             }
             let _ = writeln!(out, "}} {data_ty};\n");
+            let _ = writeln!(out, "static void {destroy}(AuraTaskFrame *frame) {{");
+            let _ = writeln!(
+                out,
+                "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame);"
+            );
+            for (name, key) in &captures {
+                if key == "String" {
+                    let n = mangle_ident(name);
+                    let _ = writeln!(
+                        out,
+                        "  if (data != NULL && data->{n} != NULL) aura_box_str_release(data->{n});"
+                    );
+                }
+            }
+            out.push_str("}\n\n");
         }
         let _ = writeln!(
             out,
@@ -1018,11 +1037,18 @@ fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile, detector:
             );
             for (name, key) in &captures {
                 let n = mangle_ident(name);
-                let _ = writeln!(
-                    out,
-                    "  {} {n} = data->{n};",
-                    crate::stmt::local_key_to_c(key, checked)
-                );
+                if key == "String" {
+                    let _ = writeln!(
+                        out,
+                        "  const char *{n} = data->{n} != NULL ? data->{n}->value : NULL;"
+                    );
+                } else {
+                    let _ = writeln!(
+                        out,
+                        "  {} {n} = data->{n};",
+                        crate::stmt::local_key_to_c(key, checked)
+                    );
+                }
             }
         }
         out.push_str(
