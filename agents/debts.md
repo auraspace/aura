@@ -7,6 +7,19 @@ When you resolve debt, update or remove the matching entry.
 
 ## Open
 
+### ASYNC-002 generated payload clone integration remains open (2026-07-23)
+
+- Area: compiler-generated async child-to-parent failure propagation
+- Symptom: the runtime now exposes an explicit clone/destroy callback boundary
+  for deep-owned task error payloads, with a sanitizer-backed nested String
+  fixture. Existing generated lowering still uses the legacy shallow-copy path.
+- Why deferred: codegen must emit recursive payload clone/destructor functions
+  for each supported exception/task payload shape before it can switch the
+  async propagation call safely.
+- Next step: connect generated class payload ownership to
+  `aura_task_frame_propagate_error_with_clone`, then add generated failure,
+  cancellation, and forced-GC corpus evidence.
+
 ### SAN-002 broader compiler-generated ownership remains out of scope (resolved mandatory gate, 2026-07-23)
 
 - Area: compiler-generated ownership cleanup under sanitizer smoke

@@ -5074,6 +5074,8 @@ typedef enum
 } AuraTaskPollState;
 
 typedef void (*AuraTaskResultDestroyFn)(void *data, size_t size);
+typedef void *(*AuraTaskResultCloneFn)(const void *data, size_t size,
+                                       size_t *cloned_size);
 typedef AuraTaskPollState (*AuraTaskPollFn)(AuraTaskFrame *frame);
 typedef AuraTaskPollState (*AuraTaskCancelFn)(AuraTaskFrame *frame);
 typedef void (*AuraTaskFrameDestroyFn)(AuraTaskFrame *frame);
@@ -6011,6 +6013,58 @@ static void aura_task_error_copy_destroy(void *data, size_t size)
   free(data);
 }
 
+static void *aura_task_error_shallow_clone(const void *data, size_t size,
+                                           size_t *cloned_size)
+{
+  void *copy;
+  if (cloned_size == NULL)
+  {
+    return NULL;
+  }
+  copy = malloc(size == 0 ? 1 : size);
+  if (copy == NULL)
+  {
+    return NULL;
+  }
+  if (size != 0 && data != NULL)
+  {
+    memcpy(copy, data, size);
+  }
+  *cloned_size = size;
+  return copy;
+}
+
+/* Propagate an error with an explicit payload clone.  The clone callback is
+ * responsible for recursively copying owned fields; the destroy callback is
+ * responsible for releasing that independent copy.  This keeps the runtime
+ * generic while allowing generated code to preserve nested String/Array
+ * ownership across an async child-to-parent boundary. */
+int aura_task_frame_propagate_error_with_clone(
+    AuraTaskFrame *frame, const AuraTaskFrame *source,
+    AuraTaskResultCloneFn clone, AuraTaskResultDestroyFn destroy)
+{
+  AuraTaskResult error;
+  size_t cloned_size = 0;
+  void *copy;
+
+  if (frame == NULL || source == NULL || clone == NULL ||
+      source->state != AURA_TASK_FAILED || source->error.data == NULL)
+  {
+    return 0;
+  }
+  error = source->error;
+  copy = clone(error.data, error.size, &cloned_size);
+  if (copy == NULL)
+  {
+    return 0;
+  }
+  aura_task_frame_set_error_span(frame, copy, cloned_size, destroy,
+                                 source->error_source_id,
+                                 source->error_span_start,
+                                 source->error_span_end);
+  return 1;
+}
+
 /* Copy a terminal child error into its waiting parent before the parent
  * publishes AURA_TASK_FAILED. The child remains executor-owned and retains
  * its original payload/source ID; the parent receives an independent payload
@@ -6018,30 +6072,9 @@ static void aura_task_error_copy_destroy(void *data, size_t size)
 int aura_task_frame_propagate_error(AuraTaskFrame *frame,
                                     const AuraTaskFrame *source)
 {
-  AuraTaskResult error;
-  void *copy;
-
-  if (frame == NULL || source == NULL || source->state != AURA_TASK_FAILED ||
-      source->error.data == NULL)
-  {
-    return 0;
-  }
-  error = source->error;
-  copy = malloc(error.size == 0 ? 1 : error.size);
-  if (copy == NULL)
-  {
-    return 0;
-  }
-  if (error.size != 0)
-  {
-    memcpy(copy, error.data, error.size);
-  }
-  aura_task_frame_set_error_span(frame, copy, error.size,
-                                 aura_task_error_copy_destroy,
-                                 source->error_source_id,
-                                 source->error_span_start,
-                                 source->error_span_end);
-  return 1;
+  return aura_task_frame_propagate_error_with_clone(
+      frame, source, aura_task_error_shallow_clone,
+      aura_task_error_copy_destroy);
 }
 
 void aura_task_frame_set_result(AuraTaskFrame *frame,
