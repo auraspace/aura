@@ -169,24 +169,28 @@ When you resolve debt, update or remove the matching entry.
 
 - Area: async/task runtime and codegen
 - Symptom: the C22 task frame owns opaque `data` bytes but has no GC mark hook; captured heap-class references cannot safely survive a future `await` suspension. C22o channel payloads are currently safe only because class values use a temporary GC-rooted box and `Int`/`String` values transfer their malloc ownership to the receiver.
-- Why deferred: C22l state-machine/capture lowering and the corresponding frame-root contract are not implemented; the shipped slice supports no-await tasks and empty `spawn {}` only.
+- Why deferred: the complete C22l state-machine/capture lowering and frame-root
+  contract are not implemented; the shipped slice is limited to bounded
+  straight-line async bodies.
 - Progress: frame captures, pending operations, results, and errors now have explicit ownership metadata, GC root registration, borrowed-value rejection, and exactly-once release. The compiler already rejects borrowed values crossing await/spawn/channel boundaries.
-- Next step: add an explicit frame-data mark/drop contract for typed locals/captures and enable non-empty async bodies after A4–A6 state lowering.
+- Next step: add an explicit frame-data mark/drop contract for typed
+  locals/captures and extend the state lowering to control flow, arrays, and
+  classes before claiming full async ownership.
 
 ### Async lowering and task outcome gaps (C22t, 2026-07-22)
 
 - Area: async/task codegen and runtime outcomes
-- Symptom: await lowering is still bounded to one straight-line await and
-  typed `Int` child result; branches, multiple awaits, richer ownership, and
-  full task outcome propagation are not complete.
-- Progress: the compiler now emits explicit entry/resume states for the
-  supported single-await shape, hoists live `Int`/`String` locals into frame
-  data, and uses a runtime parent-child waiter list to wake the parent exactly
-  once. `runtime/tests/task_dependency.c` covers delayed child completion
-  under ASAN/UBSAN.
-- Next step: extend state partitioning to control flow and multiple awaits,
-  then add typed failure/cancellation propagation before advertising the full
-  C22 contract as executable.
+- Symptom: await lowering is still bounded to straight-line one- and
+  two-await shapes with typed Int child results; branches, richer ownership,
+  and full task outcome propagation are not complete.
+- Progress: the compiler emits explicit entry/resume states for one and two
+  awaits, hoists live Int/String locals into frame data, and uses a runtime
+  parent-child waiter list to wake the parent exactly once.
+  runtime/tests/task_dependency.c covers delayed child completion under
+  ASAN/UBSAN.
+- Next step: extend state partitioning to control flow and three-or-more
+  awaits, then add typed failure/cancellation propagation before advertising
+  the full C22 contract as executable.
 
 ### S4 source locations and nested failures remain bounded (2026-07-22)
 

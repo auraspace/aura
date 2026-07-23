@@ -143,13 +143,22 @@ inspect drop counts.
 ## A6. Multiple awaits and drops
 
 **Objective:** Support multiple suspension points with correct cleanup.
+**Implementation status:** A bounded straight-line two-await lowering is now
+executable. States 1 and 2 each poll and register a distinct child frame;
+locals initialized between awaits are stored only after the earlier state
+completes, and owned String locals are released exactly once by the frame
+destroy hook. Branches, loops, arrays/classes, typed failures, and panic
+unwinding remain open.
 
 **Checklist:**
 
-- [ ] Generate distinct states and resume locations for each await.
-- [ ] Track values whose lifetime crosses only some states.
-- [ ] Drop values exactly once on success, error, cancellation, and panic.
-- [ ] Preserve source mapping for every transition.
+- [x] Generate distinct states and resume locations for each await in the
+      bounded two-await straight-line slice.
+- [x] Track Int/String values initialized before and between awaits;
+      control-flow-sensitive and richer owned values remain open.
+- [x] Drop bounded owned String locals exactly once on frame destruction
+      after success, error, or cancellation; panic/unwinding remains open.
+- [x] Preserve source mapping for each bounded await transition.
 
 **Acceptance:** Strings, arrays, classes, and nested results remain valid across
 multiple awaits and release on every exit path.

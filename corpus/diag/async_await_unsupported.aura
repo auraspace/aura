@@ -1,4 +1,5 @@
-// C22p expected fail — await parses/type-checks but codegen is not lowered yet.
+// C22p boundary fixture — return-position await is outside the bounded
+// local-binding state-machine slice.
 package demo.tasks.diag
 
 async fun answer(): Int {

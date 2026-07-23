@@ -687,6 +687,46 @@ fun main() {}
     }
 
     #[test]
+    fn builds_two_awaits_with_distinct_resume_states_and_intermediate_cleanup() {
+        let file = aura_parser::parse_file(
+            r#"package demo
+async fun twice(first: Task<Int>, second: Task<Int>): Int {
+  val base: Int = 1
+  val left: Int = await first
+  val label: String = "x" + "!"
+  val right: Int = await second
+  return base + left + right + label.len
+}
+fun main() {}
+"#,
+        )
+        .expect("parse two-await fixture");
+        let generated = emit_c_from_ast(&file).expect("emit two-await fixture");
+        assert!(generated.contains("aura async suspension state=1 kind=await"));
+        assert!(generated.contains("aura async suspension state=2 kind=await"));
+        assert!(generated.contains("AuraTaskFrame *await_task_0;"));
+        assert!(generated.contains("AuraTaskFrame *await_task_1;"));
+        assert!(generated.contains("aura_task_frame_wait_on(frame, data->await_task_0)"));
+        assert!(generated.contains("aura_task_frame_wait_on(frame, data->await_task_1)"));
+        assert!(generated.contains("data->label__owned = true;"));
+        assert!(generated.contains("if (data->label__owned) free((void *)data->label);"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let bin = dir.join(format!("aura-await-two-{}", std::process::id()));
+        let generated_c = dir.join(format!("aura-await-two-{}.aura.c", std::process::id()));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile two-await fixture");
+        let status = Command::new(&bin).status().expect("run two-await fixture");
+        assert!(status.success());
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_spawn_join_cancel() {
         let span = Span::new(0, 1);
         let ident = |name: &str| Ident {
