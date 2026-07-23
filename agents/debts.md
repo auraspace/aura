@@ -537,6 +537,16 @@ When you resolve debt, update or remove the matching entry.
   deferred to cross-host acceptance work; next step is to extend the ABI only
   after scheduler and target descriptors define those semantics.
 
+### F6 cross-host native acceptance (2026-07-23)
+
+- The Linux native FFI matrix is now reproducible through
+  `scripts/ffi-regression.sh`, covering owned values, opaque handles,
+  callbacks, sanitizers, and the compiler primitive-call fixture.
+- macOS amd64/arm64 execution remains unverified because no macOS host is
+  available in this workspace; do not infer it from Linux results.
+- Next step: run the same script on each supported macOS host and record the
+  target/compiler/result metadata before closing F6.
+
 ### Race report command integration (2026-07-22)
 
 - R4 now has deterministic runtime reports and planted-race/suppression/
