@@ -304,6 +304,12 @@ int aura_ffi_handle_is_null(const AuraFfiOpaqueHandle *handle);
 /* Pinning grants a checked, synchronous operation window. */
 AuraFfiStatus aura_ffi_handle_pin(AuraFfiOpaqueHandle *handle,
                                   AuraFfiHandlePin *out);
+/* Pin a handle for a specific ownership boundary.  SYNC, TASK, and AWAIT
+ * pins are valid while the caller retains the token; CHANNEL and CALLBACK
+ * crossings remain rejected until those ownership contracts are defined. */
+AuraFfiStatus aura_ffi_handle_pin_for_boundary(AuraFfiOpaqueHandle *handle,
+                                               AuraFfiBoundary boundary,
+                                               AuraFfiHandlePin *out);
 AuraFfiStatus aura_ffi_handle_pin_resource(const AuraFfiHandlePin *pin,
                                            void **out_resource);
 AuraFfiStatus aura_ffi_handle_unpin(AuraFfiHandlePin *pin);
@@ -315,8 +321,8 @@ AuraFfiStatus aura_ffi_handle_release(AuraFfiOpaqueHandle *handle);
 AuraFfiStatus aura_ffi_handle_invalidate(AuraFfiOpaqueHandle *handle);
 AuraFfiStatus aura_ffi_handle_destroy(AuraFfiOpaqueHandle **handle);
 
-/* Only synchronous calls may carry an opaque pointer handle in this alpha
- * ABI.  Task, await, channel, and callback crossings are rejected. */
+/* Direct unpinned pointer use is synchronous-only.  Use
+ * aura_ffi_handle_pin_for_boundary for a checked TASK or AWAIT transfer. */
 AuraFfiStatus aura_ffi_handle_check_boundary(const AuraFfiOpaqueHandle *handle,
                                              AuraFfiBoundary boundary);
 

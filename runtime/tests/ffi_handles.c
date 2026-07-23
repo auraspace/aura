@@ -95,11 +95,54 @@ static void test_pin_and_destroy_boundaries(void)
   assert(aura_ffi_handle_destroy(&handle) == AURA_FFI_INVALID);
 }
 
+static void test_async_boundary_pin_owns_resource(void)
+{
+  int *value = (int *)malloc(sizeof(*value));
+  assert(value != NULL);
+  *value = 77;
+
+  AuraFfiOpaqueHandle *handle = NULL;
+  AuraFfiHandlePin pin = {0};
+  AuraFfiHandlePin rejected = {(AuraFfiOpaqueHandle *)1, (void *)1, 1};
+  void *resource = NULL;
+  assert(aura_ffi_handle_new(value, destroy_resource, &handle) == AURA_FFI_OK);
+
+  assert(aura_ffi_handle_pin_for_boundary(
+             handle, AURA_FFI_BOUNDARY_TASK, &pin) == AURA_FFI_OK);
+  assert(aura_ffi_handle_pin_resource(&pin, &resource) == AURA_FFI_OK);
+  assert(resource == value && *(int *)resource == 77);
+  assert(aura_ffi_handle_release(handle) == AURA_FFI_OK);
+  assert(released_resources == 3);
+  assert(aura_ffi_handle_destroy(&handle) == AURA_FFI_BUSY);
+  assert(aura_ffi_handle_unpin(&pin) == AURA_FFI_OK);
+  assert(released_resources == 4);
+  assert(aura_ffi_handle_destroy(&handle) == AURA_FFI_OK);
+
+  value = (int *)malloc(sizeof(*value));
+  assert(value != NULL);
+  assert(aura_ffi_handle_new(value, destroy_resource, &handle) == AURA_FFI_OK);
+  assert(aura_ffi_handle_pin_for_boundary(
+             handle, AURA_FFI_BOUNDARY_AWAIT, &pin) == AURA_FFI_OK);
+  assert(aura_ffi_handle_pin_for_boundary(
+             handle, AURA_FFI_BOUNDARY_CHANNEL, &rejected) ==
+         AURA_FFI_BOUNDARY_REJECTED);
+  assert(rejected.handle == NULL && rejected.resource == NULL &&
+         rejected.generation == 0);
+  assert(aura_ffi_handle_pin_for_boundary(
+             handle, AURA_FFI_BOUNDARY_CALLBACK, &rejected) ==
+         AURA_FFI_BOUNDARY_REJECTED);
+  assert(aura_ffi_handle_unpin(&pin) == AURA_FFI_OK);
+  assert(aura_ffi_handle_release(handle) == AURA_FFI_OK);
+  assert(aura_ffi_handle_destroy(&handle) == AURA_FFI_OK);
+  assert(released_resources == 5);
+}
+
 int main(void)
 {
   test_nullable_and_boundaries();
   test_pin_release_and_stale_alias();
   test_pin_and_destroy_boundaries();
-  assert(released_resources == 3);
+  test_async_boundary_pin_owns_resource();
+  assert(released_resources == 5);
   return 0;
 }

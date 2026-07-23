@@ -629,11 +629,12 @@ When you resolve debt, update or remove the matching entry.
 
 ### F4 opaque foreign handles (2026-07-22)
 
-- F4 provides a synchronous, tombstoned opaque-handle ABI with deferred
-  destruction while pinned. Task, await, channel, and callback crossings are
-  rejected. Aura-level pointer types and automatic handle rooting across an
-  asynchronous boundary remain deferred; callbacks and foreign error mapping
-  belong to F5.
+- F4 provides a tombstoned opaque-handle ABI with deferred destruction while
+  pinned. `aura_ffi_handle_pin_for_boundary` now validates and retains a live
+  handle through bounded TASK and AWAIT ownership windows; CHANNEL and CALLBACK
+  crossings remain rejected. Aura-level pointer types, automatic compiler
+  rooting, and task-frame storage of the pin token remain deferred; callbacks
+  and foreign error mapping belong to F5.
 
 ### F5 callback portability (2026-07-22)
 

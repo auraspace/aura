@@ -4343,6 +4343,23 @@ AuraFfiStatus aura_ffi_handle_pin(AuraFfiOpaqueHandle *handle,
   return AURA_FFI_OK;
 }
 
+AuraFfiStatus aura_ffi_handle_pin_for_boundary(AuraFfiOpaqueHandle *handle,
+                                               AuraFfiBoundary boundary,
+                                               AuraFfiHandlePin *out)
+{
+  if (boundary != AURA_FFI_BOUNDARY_SYNC &&
+      boundary != AURA_FFI_BOUNDARY_TASK &&
+      boundary != AURA_FFI_BOUNDARY_AWAIT)
+  {
+    if (out != NULL)
+    {
+      memset(out, 0, sizeof(*out));
+    }
+    return AURA_FFI_BOUNDARY_REJECTED;
+  }
+  return aura_ffi_handle_pin(handle, out);
+}
+
 AuraFfiStatus aura_ffi_handle_pin_resource(const AuraFfiHandlePin *pin,
                                            void **out_resource)
 {
