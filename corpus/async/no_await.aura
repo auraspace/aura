@@ -6,6 +6,11 @@ async fun answer(): Int {
 }
 
 fun main() {
-  // The declaration is checked and lowered without suspension points.
-  println("async")
+  // The no-await task is executed through a frame and observed after await.
+  val task = spawn {
+    val result: Int = await answer()
+    println("async")
+    return
+  }
+  join(task)
 }

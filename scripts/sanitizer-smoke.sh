@@ -133,6 +133,7 @@ run_aura hello run corpus/hello/main.aura
 run_aura array-ownership run corpus/generic/array_memory_safety.aura
 run_aura gc run corpus/class/gc_nested_churn.aura
 run_aura exceptions run corpus/control/exception_payload_cleanup.aura
+run_aura async-no-await run corpus/async/no_await.aura
 run_aura async-lifecycle run corpus/async/task_lifecycle.aura
 run_aura async-multi-await run corpus/async/multi_await_four.aura
 run_aura std-io-files run corpus/std_io/files/aura.toml

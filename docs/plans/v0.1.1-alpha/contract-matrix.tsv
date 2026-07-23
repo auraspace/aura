@@ -9,7 +9,7 @@ DIAG-003	diagnostics	RFC-012	Compiler Expert	corpus/diag/multi_error.aura	compil
 RUNTIME-001	runtime	RFC-006	Runtime & Integration	corpus/hello/main.aura	native	implemented	alpha-required	The embedded runtime links and executes the basic native program.
 RUNTIME-002	runtime	RFC-006	Runtime & Integration	corpus/class/gc_nested_churn.aura	native	partial	alpha-partial	GC and ownership paths have coverage, while the full RFC runtime remains incomplete.
 RUNTIME-003	runtime	RFC-006	Runtime & Integration	corpus/control/exception_payload_cleanup.aura	native	partial	alpha-partial	Exception payload cleanup is exercised; the complete runtime exception contract is not done.
-ASYNC-001	async	RFC-003	Compiler Expert	corpus/async/no_await.aura	native	partial	alpha-partial	No-await async/task behavior is shipped in the current deterministic MVP.
+ASYNC-001	async	RFC-003	Compiler Expert	corpus/async/no_await.aura	native	implemented	alpha-required	Native corpus now executes a no-await async function through a spawned frame, awaits its result, and completes join successfully.
 ASYNC-002	async	RFC-003	Compiler Expert	corpus/async/task_lifecycle.aura	native	partial	alpha-partial	Task lifecycle coverage exists, but suspension and complete outcome propagation remain partial.
 ASYNC-003	async	RFC-003	Compiler Expert	corpus/diag/async_await_unsupported.aura	compile-only	partial	alpha-partial	Bounded straight-line, branch-join, multi-await, and one top-level Int loop/await shape use frame lowering; general control flow, richer ownership, and full outcome propagation remain outside the broader contract.
 IO-001	I/O	RFC-006	Runtime & Integration	corpus/std_io/args/aura.toml	native	implemented	alpha-required	Process argument forwarding and std.io args are shipped.
