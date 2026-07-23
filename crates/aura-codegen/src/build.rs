@@ -952,6 +952,33 @@ fun main() {}
     }
 
     #[test]
+    fn builds_and_runs_bounded_class_local_capture() {
+        let file = aura_parser::parse_file(
+            "package demo\nclass Box(val value: Int) {}\nfun report(box: Box) { if (box.value == 73) { println(\"local class\") } }\nfun main() { val captured: Box = Box(73)\nval task = spawn { report(captured) } join(task) }\n",
+        )
+        .expect("parse local class capture spawn");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-bounded-local-class-capture-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile local class capture spawn");
+        let generated = fs::read_to_string(&generated_c).expect("read local class capture C");
+        assert!(generated.contains("aura_gc_add_root((void **)&__spawn_data->captured);"));
+        let output = Command::new(&bin)
+            .output()
+            .expect("run local class capture spawn");
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "local class\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_bounded_array_parameter_capture() {
         let file = aura_parser::parse_file(
             "package demo\nfun report(values: Array<Int>) { if (values.len == 3) { println(\"captured array\") } }\nfun launch(values: Array<Int>) { val task = spawn { report(values) } join(task) }\nfun main() { launch(Array<Int>(3)) }\n",
@@ -975,6 +1002,35 @@ fun main() {}
             .expect("run Array capture spawn");
         assert!(output.status.success(), "{output:?}");
         assert_eq!(String::from_utf8_lossy(&output.stdout), "captured array\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_bounded_array_local_capture() {
+        let file = aura_parser::parse_file(
+            "package demo\nfun report(values: Array<Int>) { if (values.len == 3) { println(\"local array\") } }\nfun main() { val captured: Array<Int> = Array<Int>(3)\nval task = spawn { report(captured) } join(task) }\n",
+        )
+        .expect("parse local Array capture spawn");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-bounded-local-array-capture-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile local Array capture spawn");
+        let generated = fs::read_to_string(&generated_c).expect("read local Array capture C");
+        assert!(
+            generated.contains("__spawn_data->captured = aura_method_Array_Int_clone(&captured);")
+        );
+        let output = Command::new(&bin)
+            .output()
+            .expect("run local Array capture spawn");
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "local array\n");
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);
     }
@@ -1032,6 +1088,33 @@ fun main() {}
         let output = Command::new(&bin).output().expect("run Fun capture spawn");
         assert!(output.status.success(), "{output:?}");
         assert_eq!(String::from_utf8_lossy(&output.stdout), "captured fun\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_bounded_fun_local_capture() {
+        let file = aura_parser::parse_file(
+            "package demo\nfun apply(f: (Int) -> Int) { if (f(2) == 3) { println(\"local fun\") } }\nfun main() { val captured: (Int) -> Int = (n: Int) => n + 1\nval task = spawn { apply(captured) } join(task) }\n",
+        )
+        .expect("parse local Fun capture spawn");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-bounded-local-fun-capture-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile local Fun capture spawn");
+        let generated = fs::read_to_string(&generated_c).expect("read local Fun capture C");
+        assert!(generated.contains("aura_fun_env_retain(__spawn_data->captured.env)"));
+        let output = Command::new(&bin)
+            .output()
+            .expect("run local Fun capture spawn");
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "local fun\n");
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);
     }

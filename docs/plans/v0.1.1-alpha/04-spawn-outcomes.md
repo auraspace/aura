@@ -69,6 +69,9 @@ exists.
 `builds_and_runs_bounded_string_parameter_capture`, plus
 `builds_and_runs_bounded_int_local_capture` and
 `builds_and_runs_bounded_string_local_capture`,
+`builds_and_runs_bounded_class_local_capture`,
+`builds_and_runs_bounded_array_local_capture`, and
+`builds_and_runs_bounded_fun_local_capture`,
 `builds_and_runs_bounded_class_parameter_capture` and
 `builds_and_runs_bounded_array_parameter_capture`, check generated frame
 storage, copy/root-before-submit, cleanup, and native execution; the
