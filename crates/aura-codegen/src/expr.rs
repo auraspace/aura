@@ -409,6 +409,12 @@ pub(crate) fn bounded_spawn_captures(
     available: &HashMap<String, String>,
     checked: &CheckedFile,
 ) -> Option<Vec<(String, String)>> {
+    if body.stmts.iter().any(
+        |stmt| matches!(stmt, Stmt::Var(v) if matches!(&v.init, Expr::Async(AsyncExpr::Await(_)))),
+    ) && bounded_spawn_await_shape(body, checked).is_none()
+    {
+        return None;
+    }
     let mut returned = false;
     let mut captures = BTreeSet::new();
     for stmt in &body.stmts {
@@ -424,6 +430,12 @@ pub(crate) fn bounded_spawn_captures(
                         .all(|arg| bounded_spawn_value(arg, available, &mut captures, checked)) => {
             }
             Stmt::Return(ret) if ret.value.is_none() => returned = true,
+            Stmt::Var(v)
+                if matches!(&v.init, Expr::Async(AsyncExpr::Await(_)))
+                    && v.ty
+                        .as_ref()
+                        .map(|ty| type_ref_local_key_expand(ty, &[], &[], checked) == "Int")
+                        .unwrap_or(false) => {}
             _ => return None,
         }
     }
@@ -433,6 +445,37 @@ pub(crate) fn bounded_spawn_captures(
             .filter_map(|name| available.get(&name).map(|ty| (name, ty.clone())))
             .collect(),
     )
+}
+
+/// Bounded spawn suspension shape: the first statement awaits an `Int` task,
+/// and the remaining body is effect-only. Captures are therefore copied into
+/// the frame before submission and materialized only after the child reaches
+/// a terminal state, so temporary Array/Fun clones never span a pending poll.
+pub(crate) fn bounded_spawn_await_shape<'a>(
+    body: &'a Block,
+    checked: &CheckedFile,
+) -> Option<&'a AwaitExpr> {
+    let Stmt::Var(await_var) = body.stmts.first()? else {
+        return None;
+    };
+    let Expr::Async(AsyncExpr::Await(await_expr)) = &await_var.init else {
+        return None;
+    };
+    if await_var
+        .ty
+        .as_ref()
+        .map(|ty| type_ref_local_key_expand(ty, &[], &[], checked) == "Int")
+        .unwrap_or(false)
+        && body.stmts[1..].iter().all(|stmt| match stmt {
+            Stmt::Expr(Expr::Call(_)) => true,
+            Stmt::Return(ret) => ret.value.is_none(),
+            _ => false,
+        })
+    {
+        Some(await_expr)
+    } else {
+        None
+    }
 }
 
 fn bounded_spawn_value(

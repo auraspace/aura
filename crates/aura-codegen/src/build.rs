@@ -914,6 +914,35 @@ fun main() {}
     }
 
     #[test]
+    fn builds_and_runs_bounded_spawn_capture_across_await() {
+        let file = aura_parser::parse_file(
+            "package demo\nasync fun worker(): Int { return 7 }\nfun main() { val captured: String = \"after await\"\nval task = spawn { val result: Int = await worker()\nprintln(captured)\nreturn } join(task) }\n",
+        )
+        .expect("parse spawn capture across await");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-bounded-spawn-await-capture-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile spawn capture across await");
+        let generated = fs::read_to_string(&generated_c).expect("read spawn await capture C");
+        assert!(generated.contains("AuraTaskFrame *await_task;"));
+        assert!(generated.contains("aura_task_frame_wait_on(frame, data->await_task)"));
+        assert!(generated.contains("aura_box_str_new(captured)"));
+        let output = Command::new(&bin)
+            .output()
+            .expect("run spawn capture across await");
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "after await\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_bounded_int_parameter_capture() {
         let file = aura_parser::parse_file(
             "package demo\nfun report(value: Int) { if (value == 41) { println(\"captured\") } }\nfun launch(value: Int) { val task = spawn { report(value) } join(task) }\nfun main() { launch(41) }\n",
