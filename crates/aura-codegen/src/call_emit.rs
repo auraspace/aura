@@ -7,7 +7,7 @@ use crate::array_emit::is_array_type_key;
 use crate::ctx::EmitCtx;
 use crate::expr::{
     coerce_expr, emit_expr, infer_type_name, mono_base_name, mono_split, resolve_class_of_expr,
-    resolve_type_name, type_ref_to_ty,
+    resolve_type_name, string_expr_is_owned_temp, type_ref_to_ty,
 };
 use crate::names::*;
 
@@ -538,6 +538,7 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
         // Builtin Array methods
         if base == "Array" || mono.starts_with("Array_") {
             let mut args = vec![format!("&({obj})")];
+            let mut owned_string_temps: Vec<(usize, String)> = Vec::new();
             // C8e: push/set of Array-valued elems move from owner args (nested Array).
             let elem_key = mono.strip_prefix("Array_").unwrap_or("");
             let mut param_keys = Vec::new();
@@ -547,6 +548,13 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                     if fe.field.name == "set" && param_keys.is_empty() {
                         param_keys.push("Int".into());
                         args.push(emit_expr(a, ctx));
+                        continue;
+                    }
+                    if elem_key == "String" && string_expr_is_owned_temp(a, ctx) {
+                        let temp = format!("__aura_array_string_arg_{}", a.span().start);
+                        owned_string_temps.push((param_keys.len(), temp.clone()));
+                        param_keys.push(elem_key.to_string());
+                        args.push(temp);
                         continue;
                     }
                     if is_array_type_key(elem_key) {
@@ -563,6 +571,21 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                 c_method_name(&mono, &fe.field.name),
                 args.join(", ")
             );
+            if (fe.field.name == "push" || fe.field.name == "set")
+                && elem_key == "String"
+                && !owned_string_temps.is_empty()
+            {
+                let mut prefix = String::new();
+                let mut suffix = String::new();
+                for (arg_index, temp) in owned_string_temps {
+                    let a = &c.args[arg_index];
+                    let value = emit_expr(a, ctx);
+                    prefix.push_str(&format!("const char *{temp} = ({value}); "));
+                    suffix.push_str(&format!("free((void *){temp}); "));
+                }
+                let wrapped = format!("({{ {prefix}{call}; {suffix}}})");
+                return wrapped;
+            }
             if (fe.field.name == "push" || fe.field.name == "set") && is_array_type_key(elem_key) {
                 let move_srcs = array_move_srcs_from_args(&c.args, &param_keys, ctx);
                 return wrap_array_arg_moves(call, &move_srcs, "void", ctx);

@@ -768,15 +768,30 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
                         (Expr::String(_), _) | (_, Expr::String(_))
                     );
                 if is_string {
-                    // Both non-null and equal content, or both null.
-                    let cmp = format!(
-                        "(({left}) == NULL ? ({right}) == NULL : (({right}) != NULL && strcmp(({left}), ({right})) == 0))"
-                    );
-                    return if matches!(b.op, BinOp::Ne) {
-                        format!("!({cmp})")
+                    // Both non-null and equal content, or both null.  String
+                    // helpers (notably Array<String>.get) return owned copies;
+                    // bind each side once so comparisons neither leak nor
+                    // evaluate an allocating expression twice.
+                    let free_left = if string_expr_is_owned_temp(&b.left, ctx) {
+                        " free((void *)__a);"
                     } else {
-                        cmp
+                        ""
                     };
+                    let free_right = if string_expr_is_owned_temp(&b.right, ctx) {
+                        " free((void *)__b);"
+                    } else {
+                        ""
+                    };
+                    let cmp =
+                        "(__a == NULL ? __b == NULL : (__b != NULL && strcmp(__a, __b) == 0))";
+                    let result = if matches!(b.op, BinOp::Ne) {
+                        format!("!{cmp}")
+                    } else {
+                        cmp.into()
+                    };
+                    return format!(
+                        "({{ const char *__a = ({left}); const char *__b = ({right}); bool __eq = {result};{free_left}{free_right} __eq; }})"
+                    );
                 }
             }
             // C7a: after flow narrowing, Opt_* locals still hold tagged structs — use `.value`.
