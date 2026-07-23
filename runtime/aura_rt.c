@@ -3132,6 +3132,27 @@ static void aura_ex_dispose_frame(AuraExFrame *f)
   f->type_name = NULL;
 }
 
+/* An uncaught object still owns its payload until the process terminates.
+ * Dispose it before aborting so custom destructors release nested resources
+ * even when there is no catch frame to perform the final cleanup. */
+static void aura_ex_abort_uncaught(const char *type_name, void *obj,
+                                   void (*destroy_obj)(void *))
+{
+  fprintf(stderr, "uncaught exception (%s)\n", type_name ? type_name : "object");
+  if (obj != NULL)
+  {
+    if (destroy_obj != NULL)
+    {
+      destroy_obj(obj);
+    }
+    else
+    {
+      free(obj);
+    }
+  }
+  abort();
+}
+
 static void aura_ex_replace_payload(AuraExFrame *f)
 {
   aura_ex_dispose_frame(f);
@@ -3169,12 +3190,6 @@ void aura_try_leave(void)
       aura_ex_pending = 0;
     }
   }
-}
-
-static void aura_throw_uncaught(const char *type_name)
-{
-  fprintf(stderr, "uncaught exception (%s)\n", type_name ? type_name : "?");
-  abort();
 }
 
 void aura_throw_string(const char *s)
@@ -3241,8 +3256,8 @@ void aura_throw_obj_with_destructor(const char *type_name, void *obj,
 {
   if (aura_ex_sp == 0)
   {
-    fprintf(stderr, "uncaught exception: %s\n", type_name ? type_name : "object");
-    abort();
+    aura_ex_abort_uncaught(type_name, obj,
+                           destroy_obj != NULL ? destroy_obj : free);
   }
   AuraExFrame *f = &aura_ex_stack[aura_ex_sp - 1];
   aura_ex_replace_payload(f);
@@ -3322,8 +3337,9 @@ void aura_ex_rethrow(void)
   aura_ex_sp--;
   if (aura_ex_sp == 0)
   {
-    /* Process aborts; skip free (payload dies with process). */
-    aura_throw_uncaught(cur.type_name);
+    aura_ex_abort_uncaught(cur.type_name,
+                           cur.owns_obj ? cur.payload.as_obj : NULL,
+                           cur.owns_obj ? cur.destroy_obj : NULL);
   }
   AuraExFrame *outer = &aura_ex_stack[aura_ex_sp - 1];
   aura_ex_replace_payload(outer);

@@ -3,6 +3,9 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <signal.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 #define AURA_RUNTIME_NO_MAIN
 #include "../../runtime/aura_rt.c"
@@ -19,11 +22,17 @@ typedef struct
 } OwnedFailurePayload;
 
 static int owned_payload_drops;
+static int uncaught_cleanup_fd = -1;
 
 static void destroy_owned_failure(void *data)
 {
   OwnedFailurePayload *payload = (OwnedFailurePayload *)data;
   assert(payload != NULL);
+  if (uncaught_cleanup_fd >= 0)
+  {
+    const char marker = 'd';
+    (void)write(uncaught_cleanup_fd, &marker, 1);
+  }
   free(payload->message);
   free(payload);
   owned_payload_drops++;
@@ -209,6 +218,31 @@ static void test_replacing_payload_disposes_old_value(void)
   assert(owned_payload_drops == 4);
 }
 
+static void test_uncaught_payload_is_destroyed_before_abort(void)
+{
+  int pipe_fds[2];
+  assert(pipe(pipe_fds) == 0);
+  pid_t child = fork();
+  assert(child >= 0);
+  if (child == 0)
+  {
+    close(pipe_fds[0]);
+    uncaught_cleanup_fd = pipe_fds[1];
+    throw_owned_payload(UINT64_C(0x707));
+    abort();
+  }
+
+  close(pipe_fds[1]);
+  char marker = 0;
+  assert(read(pipe_fds[0], &marker, 1) == 1);
+  close(pipe_fds[0]);
+  int status = 0;
+  assert(waitpid(child, &status, 0) == child);
+  assert(marker == 'd');
+  assert(WIFSIGNALED(status));
+  assert(WTERMSIG(status) == SIGABRT);
+}
+
 int main(void)
 {
   test_clear_then_leave();
@@ -218,6 +252,7 @@ int main(void)
   test_destructor_clears_nested_owned_payload();
   test_destructor_transfers_on_rethrow();
   test_replacing_payload_disposes_old_value();
+  test_uncaught_payload_is_destroyed_before_abort();
   puts("exception payload cleanup: passed");
   return 0;
 }

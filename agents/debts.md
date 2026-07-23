@@ -61,15 +61,17 @@ When you resolve debt, update or remove the matching entry.
 
 - Area: unchecked exception payload ABI
 - Symptom: object payload cleanup now accepts an explicit destructor, invokes it
-  exactly once on clear/leave, transfers it across rethrow, and disposes an old
-  payload before replacement. Native ASAN/UBSAN/LSAN covers nested owned data,
-  implicit leave, rethrow, replacement, and scalar pending reset.
+  exactly once on clear/leave, transfers it across rethrow, disposes an old
+  payload before replacement, and runs it before an uncaught object exception
+  aborts the process. Native ASAN/UBSAN/LSAN covers nested owned data, implicit
+  leave, rethrow, replacement, uncaught cleanup, and scalar pending reset.
 - Why deferred: typed exception chains, source mapping, and compiler-generated
   destructor metadata remain outside this runtime-only slice.
 - Progress: `runtime/tests/exception_payload_cleanup.c` remains in the
   sanitizer seed manifest; `corpus/control/exception_payload_cleanup.aura`
   provides the generated shallow-copy regression with a static field.
-- Next step: have codegen pass a destructor for class/struct payload fields.
+- Next step: have codegen pass a destructor for class/struct payload fields and
+  attach source-span metadata to uncaught diagnostics.
 
 ### H6 routing is synchronous and exact-match only (2026-07-22)
 
