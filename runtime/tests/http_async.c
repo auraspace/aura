@@ -200,6 +200,54 @@ static void test_pending_connection_cancels_and_closes(void)
   assert(aura_http_server_destroy(server) == 1);
 }
 
+static void test_peer_disconnect_completes_pending_request(void)
+{
+  AuraHttpConnectionConfig config;
+  AuraHttpServer *server = NULL;
+  AuraTcpListener *listener = NULL;
+  AuraHttpConnection *connection = NULL;
+  AuraTcpStream *client = NULL;
+  AuraTaskExecutor *executor = NULL;
+  AuraTaskFrame *frame = NULL;
+  AsyncKeepAliveState state = {0, NULL, 0};
+  uint16_t port = 0;
+
+  aura_http_connection_config_init(&config);
+  assert(aura_tcp_listener_bind(0, &port, &listener) == AURA_TCP_OK);
+  assert(aura_http_server_create(listener, 1, &config, &server) ==
+         AURA_HTTP_CONNECTION_OK);
+  assert(aura_tcp_stream_connect(port, 1000, &client) == AURA_TCP_OK);
+  assert(aura_http_server_accept(server, 1000, &connection) ==
+         AURA_HTTP_CONNECTION_OK);
+
+  executor = aura_task_executor_new();
+  assert(executor != NULL);
+  frame = new_http_task(connection);
+  ((AsyncHttpTask *)aura_task_frame_data(frame))->handler = keep_alive_handler;
+  ((AsyncHttpTask *)aura_task_frame_data(frame))->user_data = &state;
+  assert(aura_task_executor_submit(executor, frame) == 1);
+  assert(aura_task_executor_run_one(executor) == 1);
+  assert(aura_task_frame_state(frame) == AURA_TASK_PENDING);
+  assert(aura_task_frame_is_waiting(frame));
+
+  /* A peer that disconnects before sending a complete request must wake the
+   * async operation, close the server-side connection, and never invoke the
+   * request handler with a partial request. */
+  assert(aura_tcp_stream_close(client) == 1);
+  assert(aura_task_executor_poll_waiting(executor, 1000) == 1);
+  assert(aura_task_executor_run_one(executor) == 1);
+  assert(aura_task_frame_state(frame) == AURA_TASK_FAILED);
+  assert(state.calls == 0);
+  assert(aura_http_server_active_connections(server) == 0);
+
+  assert(aura_task_executor_release(executor, &frame) == 1);
+  aura_http_connection_destroy(connection);
+  aura_tcp_stream_destroy(client);
+  aura_task_executor_shutdown(executor);
+  assert(aura_http_server_shutdown(server) == 1);
+  assert(aura_http_server_destroy(server) == 1);
+}
+
 static void test_async_keep_alive_preserves_pipelined_requests(void)
 {
   AuraHttpConnectionConfig config;
@@ -375,6 +423,7 @@ int main(void)
 {
   test_two_pending_connections_progress_independently();
   test_pending_connection_cancels_and_closes();
+  test_peer_disconnect_completes_pending_request();
   test_async_keep_alive_preserves_pipelined_requests();
   test_async_write_backpressure_resumes_without_blocking();
   aura_gc_shutdown();
