@@ -2,7 +2,13 @@
 
 package std.io
 
-/// Non-throwing result used by the structured file wrappers below.
+/// Terminal outcome for an asynchronous task join.
+pub enum TaskError {
+  case Failed(error: String)
+  case Cancelled
+}
+
+/// Non-throwing result used by task joins and structured file wrappers below.
 /// Error strings are owned Aura Strings; callers may retain or return them.
 pub enum Result<T, E> {
   case Ok(value: T)

@@ -14,8 +14,10 @@ When you resolve debt, update or remove the matching entry.
   `Int`, `Bool`, and `String` exceptions, publish owned task error payloads
   through `aura_task_frame_set_error_span_with_clone`, and have native compile/
   run regression coverage. Compiler-generated `join` now returns
-  `std.io.Result<T, String>` and maps failed, cancelled, and pending states to
-  typed `Err` values; the task-outcome corpus fixture covers the failure path.
+  `std.io.Result<T, std.io.TaskError>` and maps failed states to
+  `TaskError.Failed(String)`, cancellation to `TaskError.Cancelled`, and
+  unexpected pending states to a failed diagnostic; the task-outcome corpus
+  fixture covers the typed failure path.
 - Why still deferred: generated class payloads, suspended await continuation
   failures, full `TaskError.Failed(error)` preservation, and automatic
   completed-handle release remain open. The no-await primitive failure leak was
@@ -776,13 +778,15 @@ When you resolve debt, update or remove the matching entry.
 
 ### ASYNC-002 task outcome representation remains open (2026-07-23)
 
-- Generated `join` now exposes a typed `std.io.Result<T, String>` outcome, but
-  the failed-task corpus run still reports an allocated primitive error payload
-  leak under LeakSanitizer. Full `TaskError.Failed(error)` payload preservation,
-  cancellation ownership, cleanup, and repeated-join semantics remain open.
-- Next step: make failed-task payload ownership and release sanitizer-clean,
-  then add native and sanitizer-backed failure/cancellation corpus evidence
-  before closing ASYNC-002.
+- Generated `join` now exposes `std.io.Result<T, std.io.TaskError>` and
+  distinguishes `TaskError.Failed(String)` from `TaskError.Cancelled`.
+  Because the permitted slice cannot change the runtime ABI, the compiler uses
+  stable diagnostics rather than reifying arbitrary runtime error payloads.
+  Payload preservation, cancellation ownership, cleanup, and repeated-join
+  semantics remain open.
+- Next step: extend the runtime outcome ABI and generated clone/destroy path so
+  `TaskError.Failed(error)` can own the original typed payload; that work is
+  intentionally outside this compiler-only slice.
 
 ### REG-002 production trust remains open (updated 2026-07-23)
 
