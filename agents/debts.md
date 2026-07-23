@@ -174,8 +174,24 @@ When you resolve debt, update or remove the matching entry.
   supported). The hardening fixture and `examples/http-health` native
   companion now run from `scripts/sanitizer-smoke.sh`; the companion README
   records the Linux result and the unverified macOS host.
-- Next step: keep the H5 async and H6 routing checklists open, then add
-  cross-host acceptance once the documented Aura-level server path exists.
+- Next step: keep the remaining H6 routing and cross-host acceptance open,
+  then add supported-host evidence once the documented Aura-level server path
+  exists.
+
+### HTTP async handler and keep-alive gaps remain (H5, 2026-07-23)
+
+- Area: async HTTP connection integration
+- Symptom: the task bridge can park one-request HTTP reads and writes and
+  cleans the connection on cancellation, but the callback itself is
+  synchronous and the bridge closes after one response.
+- Why deferred: typed handler suspension, keep-alive buffering, and complete
+  response backpressure require the broader async handler and ownership
+  contract rather than the bounded native callback ABI.
+- Progress: `runtime/tests/http_async.c` proves two pending connections make
+  independent progress and cancellation releases the server's active slot;
+  `scripts/sanitizer-smoke.sh` runs it under ASAN/UBSAN.
+- Next step: expose an async-safe handler boundary and retain keep-alive
+  request/response state across multiple task suspension points.
 
 ### Async suspension GC roots and ownership (C22s, 2026-07-22)
 

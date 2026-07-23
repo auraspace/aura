@@ -114,11 +114,24 @@ shutdown refusal, and 500 handler mapping with a localhost loopback fixture.
 ## H5. Async HTTP integration
 
 **Objective:** Run parsing, handlers, and writes through the async task model.
+**Bounded implementation status:** `aura_http_connection_poll_async` now owns
+one request buffer and serialized response on the connection while its task is
+pending. It performs nonblocking reads/writes, parks on the task frame's TCP
+readiness adapter, and arms frame cleanup so cancellation, peer failure, and
+executor destruction close the connection exactly once. The native fixture
+`runtime/tests/http_async.c` proves two pending connections progress
+independently and a pending connection cancels without retaining an active
+server slot. This slice uses a synchronous handler and closes after one
+request; async handler suspension, keep-alive, and full response backpressure
+remain open.
 **Checklist:**
 
-- [ ] Suspend on partial reads and writes without blocking other tasks.
-- [ ] Propagate cancellation, parse failure, handler failure, and peer close.
-- [ ] Preserve request/response buffers and ownership across awaits.
+- [x] Suspend on partial reads and writes without blocking other tasks in the
+      bounded one-request bridge; full backpressure policy remains open.
+- [x] Propagate cancellation, parse failure, handler failure, and peer close
+      through the bounded task outcome/cleanup path.
+- [x] Preserve request/response buffers and ownership across readiness waits;
+      async handler-owned values remain open.
       **Acceptance:** Concurrent connections remain responsive under pending I/O.
       **Verification:** Run delayed-I/O, cancellation, GC, failure, and concurrency
       fixtures under sanitizers.
