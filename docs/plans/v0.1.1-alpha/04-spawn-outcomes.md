@@ -35,23 +35,26 @@ nested, capture, await, and repeatedly scheduled lowering remain unverified.
 **Objective:** Keep every captured value valid until task completion.
 
 **Implementation status (bounded compiler/runtime slice):** `Int` and `String`
-parameters referenced by a supported spawn body are copied into a generated
-`AuraTaskFrame` data struct before submission. Integer values are copied by
-value; strings are copied into an owned `aura_box_str` and released by the
-frame destroy hook; class pointers are registered as GC roots in frame data
-and unregistered by that hook; bounded `Array<Int>`/`Array<String>` captures
-are deep-cloned into frame-owned buffers and cloned again for the one-shot
-poll; `Fun` captures retain their environment for the frame and for the
-one-shot poll. The one-shot poller reads those stable copies, so mutation or
-teardown of the caller's local state cannot invalidate the capture. Other
-Array element types, transfer, await-crossing, and cancellation ownership
-remain open until complete capture/frame lowering exists.
+parameters and explicitly typed local bindings referenced by a supported spawn
+body are copied into a generated `AuraTaskFrame` data struct before submission.
+Integer values are copied by value; strings are copied into an owned
+`aura_box_str` and released by the frame destroy hook; class pointers are
+registered as GC roots in frame data and unregistered by that hook; bounded
+`Array<Int>`/`Array<String>` captures from parameters or explicitly typed local
+bindings are deep-cloned into frame-owned buffers
+and cloned again for the one-shot poll; `Fun` captures retain their environment
+for the frame and for the one-shot poll. The one-shot poller reads those stable
+copies, so mutation or teardown of the caller's local state cannot invalidate
+the capture. Other Array element types, transfer, await-crossing, and
+cancellation ownership remain open until complete capture/frame lowering
+exists.
 
 **Checklist:**
 
 - [x] Copy `Int`, `String`, class, bounded primitive-array, and `Fun` parameter
-      captures into frame data according to the bounded copy/root/retain rule;
-      other Array transfer and heap-owned capture rules remain open.
+      or explicitly typed local captures into frame data according to the
+      bounded copy/root/retain rule; other Array transfer and heap-owned capture
+      rules remain open.
 - [ ] Support Int, String, class, Array, and Fun captures.
 - [x] Register, mark, release, and destroy captures with the frame. The
       bounded runtime slice roots owned capture storage, releases the root on
@@ -64,6 +67,8 @@ remain open until complete capture/frame lowering exists.
 **Verification:** `aura-codegen` native build tests
 `builds_and_runs_bounded_int_parameter_capture` and
 `builds_and_runs_bounded_string_parameter_capture`, plus
+`builds_and_runs_bounded_int_local_capture` and
+`builds_and_runs_bounded_string_local_capture`,
 `builds_and_runs_bounded_class_parameter_capture` and
 `builds_and_runs_bounded_array_parameter_capture`, check generated frame
 storage, copy/root-before-submit, cleanup, and native execution; the

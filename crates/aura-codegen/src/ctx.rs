@@ -35,8 +35,8 @@ pub(crate) struct EmitCtx<'a> {
     pub(crate) return_key: Option<String>,
     /// C10e: LambdaExpr.span.start → sequential id for `aura_lambda_N`.
     pub(crate) lambda_ids: HashMap<u32, usize>,
-    /// Enclosing function parameters eligible for the bounded spawn capture
-    /// slice. Locals, fields, and lambda variables are intentionally excluded.
+    /// Names visible to the bounded spawn capture slice. Parameters and local
+    /// bindings are added as codegen walks the enclosing function.
     pub(crate) spawn_params: HashSet<String>,
 }
 
@@ -76,8 +76,9 @@ impl<'a> EmitCtx<'a> {
             .iter()
             .filter_map(|name| {
                 self.locals
-                    .first()
-                    .and_then(|scope| scope.get(name))
+                    .iter()
+                    .rev()
+                    .find_map(|scope| scope.get(name))
                     .map(|ty| (name.clone(), ty.clone()))
             })
             .collect()

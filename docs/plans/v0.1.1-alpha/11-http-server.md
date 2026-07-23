@@ -172,7 +172,9 @@ fixture over the existing parser and synchronous H4 connection API. It proves
 bounded timeout and cleanup for a partial client, active-connection limits with
 three queued loopback clients, and forced shutdown with an active connection.
 This is bounded synchronous evidence only: it does not claim async suspension,
-fuzzing, cross-host release coverage, or a routing API.
+cross-host release coverage, or a routing API. Deterministic parser mutation
+coverage is provided separately by `runtime/tests/http_parser_fuzz.c` and the
+sanitizer smoke matrix.
 **Checklist:**
 
 - [x] Add deterministic parser fuzz cases and bounded-resource tests. The

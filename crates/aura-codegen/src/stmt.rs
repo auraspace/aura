@@ -320,6 +320,12 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                     .unwrap_or_else(|| local_key_to_c(&ty_name, ctx.checked));
             // Store package mono key so method dispatch picks the right C symbol (C3v).
             ctx.define_local(&v.name.name, full_type_mono(&ty_name, ctx.checked));
+            // C22l: make bindings visible to a later bounded spawn in the same
+            // lexical scope. `bounded_spawn_captures` still filters the actual
+            // capture set to the supported owned types.
+            if v.ty.is_some() {
+                ctx.spawn_params.insert(v.name.name.clone());
+            }
             // C12m/C13f: `var` Int/Bool/String that is by-ref captured → heap box local.
             let captured_by_ref =
                 v.mutable && ctx.checked.by_ref_capture_names().contains(&v.name.name);
@@ -336,8 +342,7 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                 ctx.mark_box_owner(&v.name.name);
             }
             if ty_name == "String"
-                && (matches!(&v.init, Expr::Binary(_))
-                    || string_call_owns_result(&v.init, ctx))
+                && (matches!(&v.init, Expr::Binary(_)) || string_call_owns_result(&v.init, ctx))
             {
                 ctx.mark_string_owner(&v.name.name);
             }

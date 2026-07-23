@@ -972,20 +972,20 @@ fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile, detector:
     let mut spawns = Vec::new();
     for f in &checked.ast.functions {
         let available = spawn_parameter_locals(&f.params, &[], &[], checked);
-        collect_spawns_block(&f.body, &available, &mut spawns);
+        collect_spawns_block(&f.body, &available, checked, &mut spawns);
     }
     for f in &checked.ast.async_functions {
         let params: Vec<String> = f.type_params.iter().map(|p| p.name.name.clone()).collect();
         let available = spawn_parameter_locals(&f.params, &params, &[], checked);
-        collect_spawns_block(&f.body, &available, &mut spawns);
+        collect_spawns_block(&f.body, &available, checked, &mut spawns);
     }
     for c in &checked.ast.classes {
         for m in &c.methods {
-            collect_spawns_block(&m.body, &HashMap::new(), &mut spawns);
+            collect_spawns_block(&m.body, &HashMap::new(), checked, &mut spawns);
         }
     }
     for c in &checked.ast.consts {
-        collect_spawns_expr(&c.value, &HashMap::new(), &mut spawns);
+        collect_spawns_expr(&c.value, &HashMap::new(), checked, &mut spawns);
     }
 
     let mut emitted = std::collections::HashSet::new();
@@ -1150,53 +1150,61 @@ fn spawn_parameter_locals(
 fn collect_spawns_block<'a>(
     block: &'a Block,
     available: &HashMap<String, String>,
+    checked: &CheckedFile,
     out: &mut Vec<(&'a SpawnExpr, HashMap<String, String>)>,
 ) {
+    let mut available = available.clone();
     for stmt in &block.stmts {
         match stmt {
-            Stmt::Var(v) => collect_spawns_expr(&v.init, available, out),
+            Stmt::Var(v) => {
+                collect_spawns_expr(&v.init, &available, checked, out);
+                if let Some(ty) = &v.ty {
+                    let key = type_ref_local_key_expand(ty, &[], &[], checked);
+                    available.insert(v.name.name.clone(), full_type_mono(&key, checked));
+                }
+            }
             Stmt::If(i) => {
-                collect_spawns_expr(&i.cond, available, out);
-                collect_spawns_block(&i.then_block, available, out);
+                collect_spawns_expr(&i.cond, &available, checked, out);
+                collect_spawns_block(&i.then_block, &available, checked, out);
                 if let Some(b) = &i.else_block {
-                    collect_spawns_block(b, available, out);
+                    collect_spawns_block(b, &available, checked, out);
                 }
             }
             Stmt::While(w) => {
-                collect_spawns_expr(&w.cond, available, out);
-                collect_spawns_block(&w.body, available, out);
+                collect_spawns_expr(&w.cond, &available, checked, out);
+                collect_spawns_block(&w.body, &available, checked, out);
             }
             Stmt::ForRange(f) => {
-                collect_spawns_expr(&f.start, available, out);
-                collect_spawns_expr(&f.end, available, out);
-                collect_spawns_block(&f.body, available, out);
+                collect_spawns_expr(&f.start, &available, checked, out);
+                collect_spawns_expr(&f.end, &available, checked, out);
+                collect_spawns_block(&f.body, &available, checked, out);
             }
             Stmt::ForIn(f) => {
-                collect_spawns_expr(&f.iterable, available, out);
-                collect_spawns_block(&f.body, available, out);
+                collect_spawns_expr(&f.iterable, &available, checked, out);
+                collect_spawns_block(&f.body, &available, checked, out);
             }
             Stmt::Match(m) => {
-                collect_spawns_expr(&m.scrutinee, available, out);
+                collect_spawns_expr(&m.scrutinee, &available, checked, out);
                 for arm in &m.arms {
-                    collect_spawns_block(&arm.body, available, out);
+                    collect_spawns_block(&arm.body, &available, checked, out);
                 }
             }
             Stmt::Try(t) => {
-                collect_spawns_block(&t.try_block, available, out);
+                collect_spawns_block(&t.try_block, &available, checked, out);
                 if let Some(c) = &t.catch {
-                    collect_spawns_block(&c.body, available, out);
+                    collect_spawns_block(&c.body, &available, checked, out);
                 }
                 if let Some(f) = &t.finally {
-                    collect_spawns_block(f, available, out);
+                    collect_spawns_block(f, &available, checked, out);
                 }
             }
-            Stmt::Throw(t) => collect_spawns_expr(&t.value, available, out),
+            Stmt::Throw(t) => collect_spawns_expr(&t.value, &available, checked, out),
             Stmt::Return(r) => {
                 if let Some(e) = &r.value {
-                    collect_spawns_expr(e, available, out);
+                    collect_spawns_expr(e, &available, checked, out);
                 }
             }
-            Stmt::Expr(e) => collect_spawns_expr(e, available, out),
+            Stmt::Expr(e) => collect_spawns_expr(e, &available, checked, out),
             Stmt::Break(_) | Stmt::Continue(_) => {}
         }
     }
@@ -1205,49 +1213,54 @@ fn collect_spawns_block<'a>(
 fn collect_spawns_expr<'a>(
     expr: &'a Expr,
     available: &HashMap<String, String>,
+    checked: &CheckedFile,
     out: &mut Vec<(&'a SpawnExpr, HashMap<String, String>)>,
 ) {
     match expr {
         Expr::Call(c) => {
-            collect_spawns_expr(&c.callee, available, out);
+            collect_spawns_expr(&c.callee, available, checked, out);
             for arg in &c.args {
-                collect_spawns_expr(arg, available, out);
+                collect_spawns_expr(arg, available, checked, out);
             }
         }
-        Expr::Field(f) => collect_spawns_expr(&f.object, available, out),
-        Expr::Assign(a) => collect_spawns_expr(&a.value, available, out),
+        Expr::Field(f) => collect_spawns_expr(&f.object, available, checked, out),
+        Expr::Assign(a) => collect_spawns_expr(&a.value, available, checked, out),
         Expr::Binary(b) => {
-            collect_spawns_expr(&b.left, available, out);
-            collect_spawns_expr(&b.right, available, out);
+            collect_spawns_expr(&b.left, available, checked, out);
+            collect_spawns_expr(&b.right, available, checked, out);
         }
-        Expr::Unary(u) => collect_spawns_expr(&u.expr, available, out),
-        Expr::ForceUnwrap(f) => collect_spawns_expr(&f.expr, available, out),
-        Expr::Is(i) => collect_spawns_expr(&i.expr, available, out),
-        Expr::Group(e, _) => collect_spawns_expr(e, available, out),
+        Expr::Unary(u) => collect_spawns_expr(&u.expr, available, checked, out),
+        Expr::ForceUnwrap(f) => collect_spawns_expr(&f.expr, available, checked, out),
+        Expr::Is(i) => collect_spawns_expr(&i.expr, available, checked, out),
+        Expr::Group(e, _) => collect_spawns_expr(e, available, checked, out),
         Expr::If(i) => {
-            collect_spawns_expr(&i.cond, available, out);
-            collect_spawns_block(&i.then_block, available, out);
-            collect_spawns_block(&i.else_block, available, out);
+            collect_spawns_expr(&i.cond, available, checked, out);
+            collect_spawns_block(&i.then_block, available, checked, out);
+            collect_spawns_block(&i.else_block, available, checked, out);
         }
         Expr::Lambda(l) => match &l.body {
-            LambdaBody::Expr(e) => collect_spawns_expr(e, available, out),
-            LambdaBody::Block(b) => collect_spawns_block(b, available, out),
+            LambdaBody::Expr(e) => collect_spawns_expr(e, available, checked, out),
+            LambdaBody::Block(b) => collect_spawns_block(b, available, checked, out),
         },
         Expr::Async(a) => match a {
             AsyncExpr::Spawn(s) => {
                 out.push((s, available.clone()));
-                collect_spawns_block(&s.body, available, out);
+                collect_spawns_block(&s.body, available, checked, out);
             }
-            AsyncExpr::Await(a) => collect_spawns_expr(&a.operand, available, out),
-            AsyncExpr::Join(j) => collect_spawns_expr(&j.handle, available, out),
-            AsyncExpr::Cancel(c) => collect_spawns_expr(&c.handle, available, out),
-            AsyncExpr::ChannelCreate(c) => collect_spawns_expr(&c.capacity, available, out),
+            AsyncExpr::Await(a) => collect_spawns_expr(&a.operand, available, checked, out),
+            AsyncExpr::Join(j) => collect_spawns_expr(&j.handle, available, checked, out),
+            AsyncExpr::Cancel(c) => collect_spawns_expr(&c.handle, available, checked, out),
+            AsyncExpr::ChannelCreate(c) => {
+                collect_spawns_expr(&c.capacity, available, checked, out)
+            }
             AsyncExpr::ChannelSend(c) => {
-                collect_spawns_expr(&c.channel, available, out);
-                collect_spawns_expr(&c.value, available, out);
+                collect_spawns_expr(&c.channel, available, checked, out);
+                collect_spawns_expr(&c.value, available, checked, out);
             }
-            AsyncExpr::ChannelReceive(c) => collect_spawns_expr(&c.channel, available, out),
-            AsyncExpr::ChannelClose(c) => collect_spawns_expr(&c.channel, available, out),
+            AsyncExpr::ChannelReceive(c) => {
+                collect_spawns_expr(&c.channel, available, checked, out)
+            }
+            AsyncExpr::ChannelClose(c) => collect_spawns_expr(&c.channel, available, checked, out),
         },
         Expr::Ident(_)
         | Expr::This(_)
