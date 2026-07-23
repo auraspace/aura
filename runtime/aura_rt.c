@@ -6490,6 +6490,260 @@ void aura_task_executor_shutdown(AuraTaskExecutor *executor)
   free(executor);
 }
 
+/* ---- G3 asynchronous file/TCP operation handles ----
+ *
+ * File and TCP adapters need a lifetime-bearing token in addition to the
+ * frame's borrowed readiness registration.  The token is deliberately
+ * small: the task owns its buffer and performs the bounded read/write after
+ * the token is completed.  Cancellation owns the resource cleanup callback;
+ * completion never invokes it, because the task still has to consume the
+ * operation result.  This makes cancellation and completion mutually
+ * exclusive and gives adapters one place to enforce exactly-once cleanup.
+ */
+
+typedef enum
+{
+  AURA_IO_OPERATION_FILE_READ = 1,
+  AURA_IO_OPERATION_FILE_WRITE = 2,
+  AURA_IO_OPERATION_TCP_ACCEPT = 3,
+  AURA_IO_OPERATION_TCP_CONNECT = 4,
+  AURA_IO_OPERATION_TCP_READ = 5,
+  AURA_IO_OPERATION_TCP_WRITE = 6
+} AuraIoOperationKind;
+
+typedef enum
+{
+  AURA_IO_OPERATION_PENDING = 0,
+  AURA_IO_OPERATION_COMPLETE = 1,
+  AURA_IO_OPERATION_CANCELLED = 2,
+  AURA_IO_OPERATION_FAILED = 3
+} AuraIoOperationState;
+
+typedef struct AuraIoOperationHandle AuraIoOperationHandle;
+typedef void (*AuraIoOperationCleanupFn)(void *resource);
+
+struct AuraIoOperationHandle
+{
+  AuraTaskExecutor *executor;
+  AuraTaskFrame *frame;
+  AuraIoOperationKind kind;
+  AuraIoOperationState state;
+  int fd;
+  short events;
+  void *resource;
+  AuraIoOperationCleanupFn cleanup;
+  int cleanup_done;
+};
+
+static void aura_io_operation_cleanup_once(AuraIoOperationHandle *operation)
+{
+  if (operation == NULL || operation->cleanup_done)
+  {
+    return;
+  }
+  operation->cleanup_done = 1;
+  if (operation->cleanup != NULL && operation->resource != NULL)
+  {
+    operation->cleanup(operation->resource);
+  }
+}
+
+static void aura_io_operation_frame_cleanup(void *data)
+{
+  AuraIoOperationHandle *operation = (AuraIoOperationHandle *)data;
+  if (operation == NULL)
+  {
+    return;
+  }
+  if (operation->state == AURA_IO_OPERATION_PENDING)
+  {
+    operation->state = AURA_IO_OPERATION_CANCELLED;
+  }
+  aura_io_operation_cleanup_once(operation);
+  operation->frame = NULL;
+  operation->executor = NULL;
+}
+
+static AuraIoOperationHandle *aura_io_operation_handle_new(
+    AuraIoOperationKind kind, int fd, short events, void *resource,
+    AuraIoOperationCleanupFn cleanup)
+{
+  AuraIoOperationHandle *operation;
+  if (fd < 0 || events == 0 || resource == NULL)
+  {
+    return NULL;
+  }
+  operation = (AuraIoOperationHandle *)calloc(1, sizeof(*operation));
+  if (operation == NULL)
+  {
+    return NULL;
+  }
+  operation->kind = kind;
+  operation->state = AURA_IO_OPERATION_PENDING;
+  operation->fd = fd;
+  operation->events = events;
+  operation->resource = resource;
+  operation->cleanup = cleanup;
+  return operation;
+}
+
+AuraIoOperationHandle *aura_file_async_read_handle_new(
+    AuraFile *file, AuraIoOperationCleanupFn cleanup)
+{
+  if (file == NULL || file->closed)
+  {
+    return NULL;
+  }
+  return aura_io_operation_handle_new(AURA_IO_OPERATION_FILE_READ, file->fd,
+                                     POLLIN, file, cleanup);
+}
+
+AuraIoOperationHandle *aura_file_async_write_handle_new(
+    AuraFile *file, AuraIoOperationCleanupFn cleanup)
+{
+  if (file == NULL || file->closed)
+  {
+    return NULL;
+  }
+  return aura_io_operation_handle_new(AURA_IO_OPERATION_FILE_WRITE, file->fd,
+                                     POLLOUT, file, cleanup);
+}
+
+AuraIoOperationHandle *aura_tcp_async_accept_handle_new(
+    AuraTcpListener *listener, AuraIoOperationCleanupFn cleanup)
+{
+  if (listener == NULL || listener->fd < 0)
+  {
+    return NULL;
+  }
+  return aura_io_operation_handle_new(AURA_IO_OPERATION_TCP_ACCEPT,
+                                      listener->fd, POLLIN, listener, cleanup);
+}
+
+AuraIoOperationHandle *aura_tcp_async_read_handle_new(
+    AuraTcpStream *stream, AuraIoOperationCleanupFn cleanup)
+{
+  if (stream == NULL || stream->fd < 0)
+  {
+    return NULL;
+  }
+  return aura_io_operation_handle_new(AURA_IO_OPERATION_TCP_READ, stream->fd,
+                                     POLLIN, stream, cleanup);
+}
+
+AuraIoOperationHandle *aura_tcp_async_write_handle_new(
+    AuraTcpStream *stream, AuraIoOperationCleanupFn cleanup)
+{
+  if (stream == NULL || stream->fd < 0)
+  {
+    return NULL;
+  }
+  return aura_io_operation_handle_new(AURA_IO_OPERATION_TCP_WRITE,
+                                     stream->fd, POLLOUT, stream, cleanup);
+}
+
+int aura_io_operation_handle_start(AuraIoOperationHandle *operation,
+                                   AuraTaskExecutor *executor,
+                                   AuraTaskFrame *frame)
+{
+  if (operation == NULL || executor == NULL || frame == NULL ||
+      operation->state != AURA_IO_OPERATION_PENDING ||
+      frame->executor != executor || operation->frame != NULL)
+  {
+    return 0;
+  }
+  if (!aura_task_frame_wait_fd(frame, operation->fd, operation->events))
+  {
+    return 0;
+  }
+  operation->executor = executor;
+  operation->frame = frame;
+  /* wait_fd owns the inline descriptor registration.  Replace only its
+   * borrowed token; set_waiting would intentionally disable fd polling. */
+  frame->waiting_node = operation;
+  aura_task_frame_set_cleanup(frame, operation, aura_io_operation_frame_cleanup);
+  return 1;
+}
+
+AuraIoOperationState aura_io_operation_handle_state(
+    const AuraIoOperationHandle *operation)
+{
+  return operation != NULL ? operation->state : AURA_IO_OPERATION_FAILED;
+}
+
+AuraIoOperationKind aura_io_operation_handle_kind(
+    const AuraIoOperationHandle *operation)
+{
+  return operation != NULL ? operation->kind : 0;
+}
+
+int aura_io_operation_handle_complete(AuraIoOperationHandle *operation,
+                                      int success)
+{
+  int already_ready;
+  if (operation == NULL || operation->state != AURA_IO_OPERATION_PENDING ||
+      operation->executor == NULL || operation->frame == NULL ||
+      operation->executor->shutdown)
+  {
+    return 0;
+  }
+  already_ready = operation->frame->queued;
+  operation->state = success ? AURA_IO_OPERATION_COMPLETE
+                             : AURA_IO_OPERATION_FAILED;
+  aura_task_frame_clear_waiting(operation->frame);
+  aura_task_frame_clear_cleanup(operation->frame);
+  if (!already_ready &&
+      !aura_task_executor_wake(operation->executor, operation->frame))
+  {
+    operation->state = AURA_IO_OPERATION_FAILED;
+    return 0;
+  }
+  operation->frame = NULL;
+  operation->executor = NULL;
+  return 1;
+}
+
+int aura_io_operation_handle_cancel(AuraIoOperationHandle *operation)
+{
+  AuraTaskExecutor *executor;
+  AuraTaskFrame *frame;
+  if (operation == NULL || operation->state != AURA_IO_OPERATION_PENDING)
+  {
+    return 0;
+  }
+  executor = operation->executor;
+  frame = operation->frame;
+  operation->state = AURA_IO_OPERATION_CANCELLED;
+  if (frame != NULL)
+  {
+    aura_task_frame_clear_waiting(frame);
+  }
+  aura_io_operation_cleanup_once(operation);
+  if (executor == NULL || frame == NULL)
+  {
+    return 1;
+  }
+  return aura_task_executor_cancel(executor, frame);
+}
+
+int aura_io_operation_handle_release(AuraIoOperationHandle **handle)
+{
+  AuraIoOperationHandle *operation;
+  if (handle == NULL || *handle == NULL)
+  {
+    return 1;
+  }
+  operation = *handle;
+  if (operation->state == AURA_IO_OPERATION_PENDING ||
+      operation->frame != NULL)
+  {
+    return 0;
+  }
+  *handle = NULL;
+  free(operation);
+  return 1;
+}
+
 /* ---- C22n bounded FIFO channels (single-threaded MVP) ----
  *
  * A channel owns every value accepted by aura_task_channel_send.  A queued
