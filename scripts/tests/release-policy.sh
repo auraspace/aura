@@ -52,4 +52,11 @@ if AURA_RELEASE_WORKFLOW_FILE="$tmp/extra-target.yml" bash scripts/validate-cros
   printf 'release policy test: validator accepted an unmanifested workflow target\n' >&2
   exit 1
 fi
+
+cp .github/workflows/ci.yml "$tmp/ci-drift.yml"
+sed -i '/name: darwin-amd64/a\          - os: ubuntu-latest\n            name: rogue-target' "$tmp/ci-drift.yml"
+if AURA_CI_WORKFLOW_FILE="$tmp/ci-drift.yml" bash scripts/validate-cross-target-packaging.sh >/dev/null 2>&1; then
+  printf 'release policy test: validator accepted CI platform-contract target drift\n' >&2
+  exit 1
+fi
 printf 'release policy tests: PASS\n'

@@ -102,7 +102,7 @@ scripts/prepare-release.sh 0.2.0 --no-commit
 
 The CI and release workflows use the same required artifact matrix:
 
-The source of truth is [`scripts/release-targets.tsv`](../../scripts/release-targets.tsv), checked by [`scripts/validate-release-policy.sh`](../../scripts/validate-release-policy.sh). The release workflow fails before packaging if a required target drifts from package/installer support or if production signing is incomplete.
+The source of truth is [`scripts/release-targets.tsv`](../../scripts/release-targets.tsv), checked by [`scripts/validate-release-policy.sh`](../../scripts/validate-release-policy.sh). The cross-target validator compares both the tag release matrix and the PR CI `platform-contract` matrix against that manifest, and fails before packaging if either workflow drifts from package/installer support or if production signing is incomplete.
 
 | Target       | Artifact suffix | Build mode                |
 | ------------ | --------------- | ------------------------- |
