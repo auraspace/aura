@@ -34,6 +34,16 @@ static void destroy_int(void *data, size_t size)
   free(data);
 }
 
+static AuraTaskPollState cancel_with_error(AuraTaskFrame *frame)
+{
+  int *error = (int *)malloc(sizeof(*error));
+  assert(error != NULL);
+  *error = 88;
+  aura_task_frame_set_error_span(frame, error, sizeof(*error), destroy_int,
+                                 UINT32_C(0xca11), 401, 409);
+  return AURA_TASK_FAILED;
+}
+
 static AuraTaskPollState poll_outcome(AuraTaskFrame *frame)
 {
   OutcomeTask *task = (OutcomeTask *)aura_task_frame_data(frame);
@@ -131,10 +141,33 @@ static void test_cancellation_is_deterministic_and_cleans_before_join(void)
   aura_task_executor_shutdown(executor);
 }
 
+static void test_cancellation_exception_is_failure_after_cleanup(void)
+{
+  AuraTaskExecutor *executor = aura_task_executor_new();
+  assert(executor != NULL);
+  AuraTaskFrame *frame = new_outcome_task(2);
+  aura_task_frame_set_cancel_handler(frame, cancel_with_error);
+  assert(aura_task_executor_submit(executor, frame) == 1);
+  assert(aura_task_executor_cancel(executor, frame) == 1);
+  AuraTaskResult result = {NULL, 0};
+  AuraTaskResult error = {NULL, 0};
+  assert(aura_task_executor_join(executor, frame, &result, &error) ==
+         AURA_TASK_FAILED);
+  assert(result.data == NULL);
+  assert(error.data != NULL && *(int *)error.data == 88);
+  assert(aura_task_frame_error_source_id(frame) == UINT32_C(0xca11));
+  assert(aura_task_frame_error_span_start(frame) == 401);
+  assert(aura_task_frame_error_span_end(frame) == 409);
+  assert(cleanup_count == 4);
+  assert(aura_task_executor_release(executor, &frame) == 1);
+  aura_task_executor_shutdown(executor);
+}
+
 int main(void)
 {
   test_success_direct_poll();
   test_failure_join_preserves_source_identity();
   test_cancellation_is_deterministic_and_cleans_before_join();
+  test_cancellation_exception_is_failure_after_cleanup();
   return 0;
 }

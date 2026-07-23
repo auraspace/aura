@@ -4935,6 +4935,7 @@ typedef enum
 
 typedef void (*AuraTaskResultDestroyFn)(void *data, size_t size);
 typedef AuraTaskPollState (*AuraTaskPollFn)(AuraTaskFrame *frame);
+typedef AuraTaskPollState (*AuraTaskCancelFn)(AuraTaskFrame *frame);
 typedef void (*AuraTaskFrameDestroyFn)(AuraTaskFrame *frame);
 typedef void (*AuraTaskCleanupFn)(void *data);
 
@@ -4993,6 +4994,7 @@ struct AuraTaskFrame
   uint64_t task_id;
   uint32_t race_source_id;
   AuraTaskPollFn poll;
+  AuraTaskCancelFn cancel;
   AuraTaskFrameDestroyFn destroy;
   void *data;
   size_t data_size;
@@ -5060,6 +5062,15 @@ AuraTaskFrame *aura_task_frame_new(size_t data_size,
   frame->resume_state = 0;
   frame->state = AURA_TASK_READY;
   return frame;
+}
+
+void aura_task_frame_set_cancel_handler(AuraTaskFrame *frame,
+                                        AuraTaskCancelFn cancel)
+{
+  if (frame != NULL)
+  {
+    frame->cancel = cancel;
+  }
 }
 
 void *aura_task_frame_data(AuraTaskFrame *frame)
@@ -5545,7 +5556,19 @@ AuraTaskPollState aura_task_frame_poll_once(AuraTaskFrame *frame)
     aura_task_frame_storage_release(&frame->pending);
     aura_task_frame_storage_release(&frame->captures);
     aura_task_frame_cleanup_run(frame);
-    frame->state = AURA_TASK_CANCELLED;
+    /* Cancellation is terminal unless its bounded cancellation handler
+     * publishes an exception. The handler runs after owned cleanup, so an
+     * exception raised during cancellation cannot leak the cancelled
+     * operation's resources. */
+    if (frame->cancel != NULL &&
+        frame->cancel(frame) == AURA_TASK_FAILED && frame->error.data != NULL)
+    {
+      frame->state = AURA_TASK_FAILED;
+    }
+    else
+    {
+      frame->state = AURA_TASK_CANCELLED;
+    }
     aura_task_frame_wake_waiters(frame);
     return frame->state;
   }

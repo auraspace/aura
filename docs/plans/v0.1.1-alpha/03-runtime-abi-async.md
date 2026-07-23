@@ -176,8 +176,9 @@ composable by callers.
 cancelled child to a cancelled parent and copies a failed child error payload
 and numeric source ID into an independently owned parent error slot. The frame
 also carries bounded source-span start/end offsets through that propagation.
-Compiler file/line mapping, nested exception chains, and exceptions raised
-during cancellation remain open.
+Compiler file/line mapping and nested exception chains remain open. The
+bounded ABI defines a cancellation handler: cleanup runs first, then a handler
+may publish a failure payload/span; otherwise cancellation remains terminal.
 
 **Checklist:**
 
@@ -186,7 +187,8 @@ during cancellation remain open.
 - [x] Preserve bounded source-span start/end metadata through one/two-await
       child-error propagation; compiler file/line mapping remains open.
 - [x] Run cleanup before publishing an outcome in the bounded executor ABI.
-- [ ] Define an exception during cancellation.
+- [x] Define bounded cancellation-handler failure semantics; compiler-level
+      exception unwinding during cancellation remains open.
 
 **Acceptance:** Consumers distinguish success, failure, and cancellation without
 backend-specific details.
@@ -210,8 +212,10 @@ single/two-await tests verify both terminal edges are emitted.
 
 **Status note:** The bounded successful-value/failure-payload,
 cancelled-child propagation, and cleanup-before-outcome items are complete.
-Compiler file/line mapping and an exception raised during cancellation remain
-open until typed compiler outcome lowering exists.
+Compiler file/line mapping and nested exception unwinding remain open until
+typed compiler outcome lowering exists. The bounded cancellation handler is
+covered by `runtime/tests/task_outcomes.c`: owned cleanup completes before the
+handler publishes a failure payload and source span.
 
 **Dependencies:** A6.
 

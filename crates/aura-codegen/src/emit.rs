@@ -114,10 +114,14 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("typedef enum { AURA_TASK_READY = 0, AURA_TASK_PENDING = 1, AURA_TASK_COMPLETE = 2, AURA_TASK_FAILED = 3, AURA_TASK_CANCELLED = 4 } AuraTaskPollState;\n");
     out.push_str("typedef struct { void *data; size_t size; } AuraTaskResult;\n");
     out.push_str("typedef AuraTaskPollState (*AuraTaskPollFn)(AuraTaskFrame *frame);\n");
+    out.push_str("typedef AuraTaskPollState (*AuraTaskCancelFn)(AuraTaskFrame *frame);\n");
     out.push_str("typedef void (*AuraTaskFrameDestroyFn)(AuraTaskFrame *frame);\n");
     out.push_str("typedef void (*AuraTaskResultDestroyFn)(void *data, size_t size);\n");
     out.push_str("AuraTaskPollState aura_task_poll_unit(AuraTaskFrame *frame);\n");
     out.push_str("AuraTaskFrame *aura_task_frame_new(size_t data_size, AuraTaskPollFn poll, AuraTaskFrameDestroyFn destroy);\n");
+    out.push_str(
+        "void aura_task_frame_set_cancel_handler(AuraTaskFrame *frame, AuraTaskCancelFn cancel);\n",
+    );
     out.push_str("void *aura_task_frame_data(AuraTaskFrame *frame);\n");
     out.push_str("uint64_t aura_task_frame_task_id(const AuraTaskFrame *frame);\n");
     out.push_str(
