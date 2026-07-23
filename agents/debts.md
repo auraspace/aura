@@ -42,8 +42,10 @@ When you resolve debt, update or remove the matching entry.
   defined cancellation-throw policy; the C frame ABI must not imply either.
 - Progress: `runtime/tests/task_outcomes.c` proves owned payload cleanup before
   join observation and deterministic cancellation cleanup under the existing
-  executor.
-- Next step: extend the typed outcome ABI after A6 suspension lowering defines
+  executor. `runtime/tests/task_dependency.c` now verifies child failure
+  propagation with an independent payload/source ID and distinct cancellation
+  state; generated one/two-await edges emit the same mapping.
+- Next step: extend the typed outcome ABI after control-flow suspension defines
   source-span and nested-failure ownership.
 
 ### Unjoined task failures are bounded runtime diagnostics (S6, 2026-07-22)

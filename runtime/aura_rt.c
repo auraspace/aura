@@ -5383,6 +5383,43 @@ void aura_task_frame_set_error(AuraTaskFrame *frame,
       frame, data, size, destroy, frame->race_source_id);
 }
 
+static void aura_task_error_copy_destroy(void *data, size_t size)
+{
+  (void)size;
+  free(data);
+}
+
+/* Copy a terminal child error into its waiting parent before the parent
+ * publishes AURA_TASK_FAILED. The child remains executor-owned and retains
+ * its original payload/source ID; the parent receives an independent payload
+ * so either frame may be released independently. */
+int aura_task_frame_propagate_error(AuraTaskFrame *frame,
+                                    const AuraTaskFrame *source)
+{
+  AuraTaskResult error;
+  void *copy;
+
+  if (frame == NULL || source == NULL || source->state != AURA_TASK_FAILED ||
+      source->error.data == NULL)
+  {
+    return 0;
+  }
+  error = source->error;
+  copy = malloc(error.size == 0 ? 1 : error.size);
+  if (copy == NULL)
+  {
+    return 0;
+  }
+  if (error.size != 0)
+  {
+    memcpy(copy, error.data, error.size);
+  }
+  aura_task_frame_set_error_at(frame, copy, error.size,
+                               aura_task_error_copy_destroy,
+                               source->error_source_id);
+  return 1;
+}
+
 void aura_task_frame_set_result(AuraTaskFrame *frame,
                                 void *data,
                                 size_t size,

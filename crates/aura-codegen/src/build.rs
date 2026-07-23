@@ -708,6 +708,8 @@ fun main() {}
         assert!(generated.contains("AuraTaskFrame *await_task_1;"));
         assert!(generated.contains("aura_task_frame_wait_on(frame, data->await_task_0)"));
         assert!(generated.contains("aura_task_frame_wait_on(frame, data->await_task_1)"));
+        assert!(generated.contains("aura_task_frame_propagate_error(frame, data->await_task_0)"));
+        assert!(generated.contains("return AURA_TASK_CANCELLED;"));
         assert!(generated.contains("data->label__owned = true;"));
         assert!(generated.contains("if (data->label__owned) free((void *)data->label);"));
 

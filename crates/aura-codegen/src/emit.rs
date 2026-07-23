@@ -124,6 +124,9 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
         "void aura_task_frame_set_race_source_id(AuraTaskFrame *frame, uint32_t source_id);\n",
     );
     out.push_str("uint32_t aura_task_frame_error_source_id(const AuraTaskFrame *frame);\n");
+    out.push_str(
+        "int aura_task_frame_propagate_error(AuraTaskFrame *frame, const AuraTaskFrame *source);\n",
+    );
     out.push_str("void aura_task_frame_set_error_at(AuraTaskFrame *frame, void *data, size_t size, AuraTaskResultDestroyFn destroy, uint32_t source_id);\n");
     out.push_str("AuraTaskPollState aura_task_frame_poll_once(AuraTaskFrame *frame);\n");
     out.push_str("void aura_task_frame_destroy(AuraTaskFrame *frame);\n");
@@ -975,6 +978,8 @@ fn emit_async_fun_multi_await(
     );
     out.push_str("      if (child_state_0 == AURA_TASK_READY) child_state_0 = aura_task_frame_poll_once(data->await_task_0);\n");
     out.push_str("      if (child_state_0 == AURA_TASK_PENDING) { if (!aura_task_frame_wait_on(frame, data->await_task_0)) return AURA_TASK_FAILED; return AURA_TASK_PENDING; }\n");
+    out.push_str("      if (child_state_0 == AURA_TASK_CANCELLED) return AURA_TASK_CANCELLED;\n");
+    out.push_str("      if (child_state_0 == AURA_TASK_FAILED) { (void)aura_task_frame_propagate_error(frame, data->await_task_0); return AURA_TASK_FAILED; }\n");
     out.push_str("      if (child_state_0 != AURA_TASK_COMPLETE) return AURA_TASK_FAILED;\n");
     out.push_str(
         "      AuraTaskResult child_result_0 = aura_task_frame_result(data->await_task_0);\n",
@@ -1039,6 +1044,8 @@ fn emit_async_fun_multi_await(
     );
     out.push_str("      if (child_state_1 == AURA_TASK_READY) child_state_1 = aura_task_frame_poll_once(data->await_task_1);\n");
     out.push_str("      if (child_state_1 == AURA_TASK_PENDING) { if (!aura_task_frame_wait_on(frame, data->await_task_1)) return AURA_TASK_FAILED; return AURA_TASK_PENDING; }\n");
+    out.push_str("      if (child_state_1 == AURA_TASK_CANCELLED) return AURA_TASK_CANCELLED;\n");
+    out.push_str("      if (child_state_1 == AURA_TASK_FAILED) { (void)aura_task_frame_propagate_error(frame, data->await_task_1); return AURA_TASK_FAILED; }\n");
     out.push_str("      if (child_state_1 != AURA_TASK_COMPLETE) return AURA_TASK_FAILED;\n");
     out.push_str(
         "      AuraTaskResult child_result_1 = aura_task_frame_result(data->await_task_1);\n",
@@ -1299,6 +1306,8 @@ fn emit_async_fun_single_await(
     );
     out.push_str("        return AURA_TASK_PENDING;\n");
     out.push_str("      }\n");
+    out.push_str("      if (child_state == AURA_TASK_CANCELLED) return AURA_TASK_CANCELLED;\n");
+    out.push_str("      if (child_state == AURA_TASK_FAILED) { (void)aura_task_frame_propagate_error(frame, data->await_task); return AURA_TASK_FAILED; }\n");
     out.push_str("      if (child_state != AURA_TASK_COMPLETE) return AURA_TASK_FAILED;\n");
     out.push_str("      AuraTaskResult child_result = aura_task_frame_result(data->await_task);\n");
     out.push_str("      int64_t observed = 0;\n");

@@ -172,6 +172,11 @@ under sanitizers.
 
 **Objective:** Make async success, exception, and cancellation observable and
 composable by callers.
+**Implementation status:** The bounded one- and two-await codegen now maps a
+cancelled child to a cancelled parent and copies a failed child error payload
+and numeric source ID into an independently owned parent error slot. File/line
+source spans, nested exception chains, and exceptions raised during
+cancellation remain open.
 
 **Checklist:**
 
@@ -194,12 +199,17 @@ and cancellation. The fixture records that success/error cleanup runs before
 join publishes the borrowed outcome, while runtime cancellation releases
 pending/capture ownership before returning `AURA_TASK_CANCELLED` and never
 invokes the poll callback. This is a bounded C ABI result; it does not claim
-compiler suspension, source file/line spans, or nested exception chains.
+source file/line spans or nested exception chains.
 
-**Status note:** The bounded successful-value/failure-payload and
-cleanup-before-outcome items are complete. Source-span preservation and an
-exception raised during cancellation remain open until typed compiler outcome
-lowering exists.
+`runtime/tests/task_dependency.c` additionally verifies that a failed child
+wakes its parent, copies an independent error payload/source ID, and that
+child cancellation remains distinguishable from failure. The codegen
+single/two-await tests verify both terminal edges are emitted.
+
+**Status note:** The bounded successful-value/failure-payload,
+cancelled-child propagation, and cleanup-before-outcome items are complete.
+Source-span preservation and an exception raised during cancellation remain
+open until typed compiler outcome lowering exists.
 
 **Dependencies:** A6.
 
