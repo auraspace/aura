@@ -1,11 +1,6 @@
-// C22p boundary fixture — await nested in control flow remains outside the
-// bounded straight-line state-machine slice. Direct top-level return await is
-// covered by the codegen regression suite.
+// DIAG-002 — await outside an async context must produce stable metadata.
 package demo.tasks.diag
 
-async fun answer(task: Task<Int>): Int {
-  if (true) {
-    return await task
-  }
-  return 0
+fun answer(task: Task<Int>): Int {
+  return await task
 }

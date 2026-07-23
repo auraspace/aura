@@ -1,6 +1,8 @@
 # v0.1.1-alpha completion backlog
 
-The original 72 workstream tasks are complete as bounded slices. This file
+The original 72 workstream tasks are complete as bounded slices. DIAG-002 is
+now closed by a negative corpus fixture and stable JSON/pretty diagnostic
+evidence. This file
 tracks the remaining work required before the contract matrix can claim the
 broader v0.1.1-alpha surface. Each item is independently reviewable and has a
 single primary owner; an item is not complete until its implementation, focused

@@ -4,7 +4,7 @@ COMP-002	compiler	RFC-001	Compiler Expert	corpus/generic/id.aura	native	implemen
 COMP-003	compiler	RFC-008	Compiler Expert	corpus/import/app/aura.toml	compile-only	implemented	alpha-required	Package-root checking and locked imports are currently shipped.
 COMP-004	compiler	RFC-012	Compiler Expert	corpus/test/smoke.aura	native	implemented	alpha-required	The built-in test path is part of the current alpha gate.
 DIAG-001	diagnostics	RFC-012	Compiler Expert	corpus/diag/undefined.aura	compile-only	implemented	alpha-required	Pretty diagnostics and exit code 1 are regression-tested.
-DIAG-002	diagnostics	RFC-012	Compiler Expert	corpus/diag/async_await_unsupported.aura	compile-only	partial	alpha-partial	Stable async diagnostic metadata exists, but the async feature is not complete.
+DIAG-002	diagnostics	RFC-012	Compiler Expert	corpus/diag/async_await_unsupported.aura	compile-only	implemented	alpha-required	Await outside an async context emits stable E-ASYNC-CONTEXT metadata, operation, guidance, and source span.
 DIAG-003	diagnostics	RFC-012	Compiler Expert	corpus/diag/multi_error.aura	compile-only	implemented	alpha-required	Multiple diagnostics and source context are covered.
 RUNTIME-001	runtime	RFC-006	Runtime & Integration	corpus/hello/main.aura	native	implemented	alpha-required	The embedded runtime links and executes the basic native program.
 RUNTIME-002	runtime	RFC-006	Runtime & Integration	corpus/class/gc_nested_churn.aura	native	partial	alpha-partial	GC and ownership paths have coverage, while the full RFC runtime remains incomplete.

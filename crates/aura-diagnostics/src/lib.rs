@@ -286,4 +286,20 @@ mod tests {
         assert!(output.contains("owned values may cross"));
         assert!(output.contains("--> x.aura:1:"));
     }
+
+    #[test]
+    fn async_context_error_has_stable_code_and_guidance() {
+        let src = "fun f() { await task }\n";
+        let metadata = classify_async("`await` is only valid inside an async function or task")
+            .expect("async context metadata");
+        let output = format_async_error(
+            "x.aura",
+            src,
+            "`await` is only valid inside an async function or task",
+            Span::new(10, 15),
+            &metadata,
+        );
+        assert!(output.contains("E-ASYNC-CONTEXT"));
+        assert!(output.contains("await must execute inside"));
+    }
 }

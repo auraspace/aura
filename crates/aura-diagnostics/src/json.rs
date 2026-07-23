@@ -35,6 +35,15 @@ pub fn classify_async(message: &str) -> Option<AsyncDiagnostic> {
         "task"
     };
 
+    if lower.contains("only valid inside an async function")
+        || lower.contains("only valid inside an async context")
+    {
+        return Some(AsyncDiagnostic {
+            code: "E-ASYNC-CONTEXT",
+            operation: "await",
+            notes: &["await must execute inside an async function or spawned task"],
+        });
+    }
     if lower.contains("borrow") || lower.contains("reference") || lower.contains("borrowed") {
         return Some(AsyncDiagnostic {
             code: "E-BORROW-ASYNC-ESCAPE",
@@ -278,5 +287,17 @@ mod tests {
         assert!(json.contains("\"operation\":\"await\""));
         assert!(json.contains("\"start\":16,\"end\":21"));
         assert!(json.contains("owned values may cross"));
+    }
+
+    #[test]
+    fn classifies_await_outside_async_context() {
+        let metadata = classify_async("`await` is only valid inside an async function or task")
+            .expect("async context metadata");
+        assert_eq!(metadata.code, "E-ASYNC-CONTEXT");
+        assert_eq!(metadata.operation, "await");
+        assert_eq!(
+            metadata.notes,
+            &["await must execute inside an async function or spawned task"]
+        );
     }
 }
