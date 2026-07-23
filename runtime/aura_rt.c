@@ -3072,7 +3072,8 @@ typedef struct
 {
   jmp_buf *buf;
   const char *type_name; /* "String" | "Int" | "Bool" | class name */
-  int owns_obj;          /* C3s: payload.as_obj is malloc'd by throw_obj */
+  int owns_obj;          /* payload.as_obj is owned by the exception frame */
+  void (*destroy_obj)(void *);
   union
   {
     const char *as_string;
@@ -3086,6 +3087,9 @@ static AuraExFrame aura_ex_stack[AURA_EX_MAX];
 static int aura_ex_sp = 0;
 static int aura_ex_pending = 0;
 
+void aura_throw_obj_with_destructor(const char *type_name, void *obj,
+                                    void (*destroy_obj)(void *));
+
 static void aura_ex_dispose_frame(AuraExFrame *f)
 {
   if (f == NULL)
@@ -3094,11 +3098,28 @@ static void aura_ex_dispose_frame(AuraExFrame *f)
   }
   if (f->owns_obj && f->payload.as_obj != NULL)
   {
-    free(f->payload.as_obj);
+    if (f->destroy_obj != NULL)
+    {
+      f->destroy_obj(f->payload.as_obj);
+    }
+    else
+    {
+      free(f->payload.as_obj);
+    }
     f->payload.as_obj = NULL;
   }
   f->owns_obj = 0;
+  f->destroy_obj = NULL;
   f->type_name = NULL;
+}
+
+static void aura_ex_replace_payload(AuraExFrame *f)
+{
+  aura_ex_dispose_frame(f);
+  if (f != NULL)
+  {
+    f->payload.as_obj = NULL;
+  }
 }
 
 void aura_try_enter(jmp_buf *buf)
@@ -3112,6 +3133,7 @@ void aura_try_enter(jmp_buf *buf)
   f->buf = buf;
   f->type_name = NULL;
   f->owns_obj = 0;
+  f->destroy_obj = NULL;
   f->payload.as_obj = NULL;
 }
 
@@ -3144,6 +3166,7 @@ void aura_throw_string(const char *s)
     abort();
   }
   AuraExFrame *f = &aura_ex_stack[aura_ex_sp - 1];
+  aura_ex_replace_payload(f);
   f->type_name = "String";
   f->owns_obj = 0;
   f->payload.as_string = s;
@@ -3159,6 +3182,7 @@ void aura_throw_int(int64_t v)
     abort();
   }
   AuraExFrame *f = &aura_ex_stack[aura_ex_sp - 1];
+  aura_ex_replace_payload(f);
   f->type_name = "Int";
   f->owns_obj = 0;
   f->payload.as_int = v;
@@ -3174,6 +3198,7 @@ void aura_throw_bool(bool v)
     abort();
   }
   AuraExFrame *f = &aura_ex_stack[aura_ex_sp - 1];
+  aura_ex_replace_payload(f);
   f->type_name = "Bool";
   f->owns_obj = 0;
   f->payload.as_bool = v;
@@ -3181,10 +3206,19 @@ void aura_throw_bool(bool v)
   longjmp(*f->buf, 1);
 }
 
-/* Throw a class/struct instance. `obj` must be a heap pointer owned by the exception
- * machinery for the duration of unwind (typically malloc + copy in generated code).
- * Freed on aura_ex_clear after a successful catch (C3s). */
+/* Throw a class/struct instance with the legacy malloc ownership contract. */
 void aura_throw_obj(const char *type_name, void *obj)
+{
+  aura_throw_obj_with_destructor(type_name, obj, free);
+}
+
+/* Throw a class/struct instance and transfer its complete ownership to the
+ * exception frame.  The destructor is invoked exactly once by clear, the
+ * final try_leave, or after ownership is transferred by rethrow.  This is
+ * required for payloads containing owned runtime resources (for example a
+ * heap-backed String field), where a shallow free(obj) is insufficient. */
+void aura_throw_obj_with_destructor(const char *type_name, void *obj,
+                                    void (*destroy_obj)(void *))
 {
   if (aura_ex_sp == 0)
   {
@@ -3192,8 +3226,10 @@ void aura_throw_obj(const char *type_name, void *obj)
     abort();
   }
   AuraExFrame *f = &aura_ex_stack[aura_ex_sp - 1];
+  aura_ex_replace_payload(f);
   f->type_name = type_name;
   f->owns_obj = 1;
+  f->destroy_obj = destroy_obj != NULL ? destroy_obj : free;
   f->payload.as_obj = obj;
   aura_ex_pending = 1;
   longjmp(*f->buf, 1);
@@ -3271,8 +3307,10 @@ void aura_ex_rethrow(void)
     aura_throw_uncaught(cur.type_name);
   }
   AuraExFrame *outer = &aura_ex_stack[aura_ex_sp - 1];
+  aura_ex_replace_payload(outer);
   outer->type_name = cur.type_name;
   outer->owns_obj = cur.owns_obj;
+  outer->destroy_obj = cur.destroy_obj;
   outer->payload = cur.payload;
   longjmp(*outer->buf, 1);
 }
