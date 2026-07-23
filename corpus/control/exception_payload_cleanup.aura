@@ -14,10 +14,7 @@ class Keeper(val value: Int) {
 }
 
 fun throwFailure(i: Int) {
-  // The generated object-payload ABI currently performs a shallow copy.
-  // Keep this corpus case free of heap-backed fields until the compiler can
-  // pass the runtime destructor callback for nested owned values.
-  throw Failure("failure")
+  throw Failure("failure-" + i.toString())
 }
 
 fun main(): Int {

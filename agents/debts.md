@@ -7,35 +7,35 @@ When you resolve debt, update or remove the matching entry.
 
 ## Open
 
-### SAN-002 full Aura LSAN remains blocked by generated ownership (updated 2026-07-23)
+### SAN-002 full Aura LSAN remains blocked by exception payload ownership (updated 2026-07-23)
 
 - Area: compiler-generated ownership cleanup under sanitizer smoke
-- Symptom: the native exception payload seed passes ASAN/UBSAN/LSAN, and the
-  exception corpus now uses a static String field so its generated shallow-copy
-  path is leak-free. The full Aura compile/run matrix still exposes unrelated
-  generated lambda String-box leaks when LSAN is forced on.
-- Why deferred: compiler-generated object exceptions still call the legacy
-  shallow `aura_throw_obj` ABI; wiring a nested-field destructor requires the
-  compiler/codegen workstream, which is outside this runtime-only slice.
+- Symptom: the generated `Array<String>` ownership path now passes a dedicated
+  leak-detecting run, but the full Aura compile/run matrix still uses
+  ASAN/UBSAN-only defaults because `corpus/control/exception_payload_cleanup.aura`
+  leaks exception payload allocations when leak detection is forced on.
+- Why deferred: the remaining leak is in the broader exception payload/destructor
+  contract, beyond the Array/String ownership fix delivered in this slice.
 - Progress: task outcomes, GC roots, exception cleanup, I/O cleanup, FFI
   handles/callbacks/net, and HTTP async/hardening/health are now seeded and
   executed under fail-closed native LSAN coverage.
-- Next step: integrate `aura_throw_obj_with_destructor` in codegen and fix the
-  remaining generated lambda ownership leaks before enabling full Aura LSAN.
+- Next step: close the exception payload ownership path, then switch the Aura
+  compile/run leg of `scripts/sanitizer-smoke.sh` to leak-detecting defaults.
 
-### RUNTIME-003 exception cleanup supports explicit payload destructors (2026-07-23)
+### RUNTIME-003 exception cleanup is bounded to frame-owned object payloads (2026-07-23)
 
 - Area: unchecked exception payload ABI
-- Symptom: object payload cleanup now accepts an explicit destructor, invokes it
-  exactly once on clear/leave, transfers it across rethrow, and disposes an old
-  payload before replacement. Native ASAN/UBSAN/LSAN covers nested owned data,
-  implicit leave, rethrow, replacement, and scalar pending reset.
-- Why deferred: typed exception chains, source mapping, and compiler-generated
-  destructor metadata remain outside this runtime-only slice.
-- Progress: `runtime/tests/exception_payload_cleanup.c` remains in the
-  sanitizer seed manifest; `corpus/control/exception_payload_cleanup.aura`
-  provides the generated shallow-copy regression with a static field.
-- Next step: have codegen pass a destructor for class/struct payload fields.
+- Symptom: the runtime releases a heap object payload on both explicit
+  `aura_ex_clear` and the final `aura_try_leave`, while rethrow transfers that
+  ownership to the outer frame. Native ASAN/UBSAN with leak detection covers
+  clear, implicit leave, rethrow, and scalar pending reset.
+- Why deferred: the full exception contract still lacks typed nested exception
+  chains, compiler source mapping, and a general destructor protocol for
+  payloads containing owned runtime resources.
+- Progress: `runtime/tests/exception_payload_cleanup.c` is part of the
+  sanitizer seed manifest and `scripts/sanitizer-smoke.sh`.
+- Next step: define typed exception/destructor metadata before extending
+  cleanup claims beyond the current malloc-backed class/struct copy.
 
 ### H6 routing is synchronous and exact-match only (2026-07-22)
 

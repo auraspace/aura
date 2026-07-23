@@ -1186,7 +1186,7 @@ fn async_inner_key_for_infer(expr: &Expr, ctx: &EmitCtx<'_>) -> String {
     task_inner_key(&key).unwrap_or("Unit").to_string()
 }
 
-fn async_inner_key(expr: &Expr, ctx: &EmitCtx<'_>) -> String {
+pub(crate) fn async_inner_key(expr: &Expr, ctx: &EmitCtx<'_>) -> String {
     let key = infer_type_name(expr, ctx);
     task_inner_key(&key).unwrap_or("Unit").to_string()
 }

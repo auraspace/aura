@@ -741,6 +741,46 @@ fun main() {}
     }
 
     #[test]
+    fn builds_if_await_assignment_with_post_branch_continuation() {
+        let file = aura_parser::parse_file(
+            r#"package demo
+async fun worker(): Int { return 7 }
+async fun choose(flag: Bool, task: Task<Int>): Int {
+  var result: Int = 0
+  if (flag) {
+    result = await task
+  }
+  return result
+}
+fun main() {}
+"#,
+        )
+        .expect("parse if-await assignment fixture");
+        let generated = emit_c_from_ast(&file).expect("emit if-await assignment fixture");
+        assert!(generated.contains("aura async if-assign suspension"));
+        assert!(generated.contains("data->result = result;"));
+        assert!(generated.contains("aura_task_frame_wait_on(frame, data->await_task)"));
+        assert!(generated.contains("data->result = *((int64_t *)child_result.data)"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-await-if-assign-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile if-await assignment fixture");
+        assert!(Command::new(&bin)
+            .status()
+            .expect("run if-await assignment fixture")
+            .success());
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_two_awaits_with_distinct_resume_states_and_intermediate_cleanup() {
         let file = aura_parser::parse_file(
             r#"package demo
@@ -914,6 +954,7 @@ fun main() {
             generated.contains("aura_task_executor_wake(__aura_task_executor, data->await_task)")
         );
         assert!(generated.contains("aura_task_executor_run_one(__aura_task_executor)"));
+        assert!(generated.contains("aura_task_frame_propagate_error(frame, data->await_task)"));
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .and_then(|p| p.parent())
@@ -934,6 +975,27 @@ fun main() {
         assert_eq!(String::from_utf8_lossy(&output.stdout), "10\n");
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn lowers_while_await_for_checked_task_parameter() {
+        let source = r#"package demo
+async fun sum(task: Task<Int>): Int {
+  var i: Int = 0
+  var total: Int = 0
+  while (i < 1) {
+    val value: Int = await task
+    total = total + value
+    i = i + 1
+  }
+  return total
+}
+"#;
+        let file = parse_file(source).expect("parse task-parameter while-await fixture");
+        let generated = emit_c_from_ast(&file).expect("emit task-parameter while-await fixture");
+        assert!(generated.contains("/* aura async top-level while-await Int lowering */"));
+        assert!(generated.contains("data->await_task = task;"));
+        assert!(generated.contains("aura_task_frame_propagate_error(frame, data->await_task)"));
     }
 
     #[test]
