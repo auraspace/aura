@@ -95,10 +95,11 @@ milestone without changing the source vocabulary below. Release packaging,
 signing, notarization, and publication are also outside C22.
 
 The landed C22 implementation is intentionally narrower than this contract:
-`await` parses and type-checks but does not yet lower to suspension states;
-only empty `spawn {}` bodies are executable; and task failure propagation is
-not complete. These are implementation follow-ups, not changes to the source
-contract.
+bounded straight-line, branch-join, multi-await, and one top-level integer
+loop/await shapes lower to task-frame suspension states; bounded non-empty
+`spawn {}` bodies and typed channel operations are executable. General control
+flow, mutable capture transfer, and complete task failure propagation remain
+implementation follow-ups, not changes to the source contract.
 
 ### 6.2 Memory management strategy
 

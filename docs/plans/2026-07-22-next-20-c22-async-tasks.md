@@ -170,7 +170,8 @@ Each task should land as one focused commit. Agents must use disjoint write sets
 
 **Description:** Lower async bodies into explicit states at await points using task frames.
 
-- [ ] No-await bodies compile and run through task frames; await state-machine lowering remains deferred.
+- [x] No-await bodies compile and run through task frames; bounded await state-machine shapes are also covered.
+      General control flow and complete outcome propagation remain deferred.
       **Verification:** Add focused tests/checks for this task; preserve all existing regressions.
       **Dependencies:** C22e, C22h, C22j
       **Write set:** `crates/aura-codegen/**`
@@ -180,7 +181,8 @@ Each task should land as one focused commit. Agents must use disjoint write sets
 
 **Description:** Connect task operations to executor and typed task handles.
 
-- [ ] Empty spawn/join/cancel are wired; non-empty capture lowering and full failure propagation remain deferred.
+- [x] Empty and bounded non-empty spawn/join/cancel are wired, including a first-statement await capture slice.
+      Mutable capture transfer and full failure propagation remain deferred.
       **Verification:** Add focused tests/checks for this task; preserve all existing regressions.
       **Dependencies:** C22k, C22l
       **Write set:** `crates/aura-codegen/**; runtime/**; std/task/**`

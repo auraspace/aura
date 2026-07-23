@@ -651,11 +651,13 @@ When you resolve debt, update or remove the matching entry.
   binaries or provide concurrent vector-clock diagnostics. Those remain
   deferred until the runtime exposes a process-level report handoff.
 
-### A4 async lowering boundary (2026-07-22)
+### A4 async lowering boundary (updated 2026-07-23)
 
-- The compiler now exposes deterministic `await` suspension-point IDs and
-  source-span metadata, but does not hoist live locals or generate executable
-  resume edges. Those require the A5/A6 frame and runtime dependencies.
+- Bounded straight-line, branch-join, multi-await, and one top-level integer
+  loop/await shape now hoist supported locals into task frames and generate
+  executable resume edges. General control flow, mutable capture transfer,
+  async GC roots, and complete failure/cancellation outcome propagation remain
+  open; extend the frame representation before claiming the broader contract.
 
 ### C5 corpus split scope (2026-07-23)
 
