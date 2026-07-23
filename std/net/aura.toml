@@ -1,0 +1,6 @@
+[package]
+name = "std.net"
+
+[[bin]]
+name = "net"
+path = "src"

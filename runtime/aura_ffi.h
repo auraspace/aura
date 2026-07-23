@@ -51,6 +51,47 @@ AuraFileStatus aura_file_destroy(AuraFile **file);
 const char *aura_file_last_error(void);
 #endif
 
+/* Bounded std.net transport ABI.  Handles are opaque and own their socket
+ * until close/destroy.  The current Aura FFI primitive contract cannot pass
+ * these handles (only Int, Bool, String, and Unit are legal), so these
+ * declarations are for native integrations and the focused primitive bridge
+ * in std/net/native.  A future typed-handle binding must preserve this
+ * ownership rule and reject handles across task/await/callback boundaries. */
+#if defined(AURA_FFI_DECLARE_NET) && !defined(AURA_NET_H)
+#define AURA_NET_H
+typedef struct AuraTcpListener AuraTcpListener;
+typedef struct AuraTcpStream AuraTcpStream;
+
+typedef enum AuraTcpStatus {
+  AURA_TCP_OK = 0,
+  AURA_TCP_PENDING = 1,
+  AURA_TCP_EOF = 2,
+  AURA_TCP_TIMEOUT = 3,
+  AURA_TCP_ERROR = -1,
+  AURA_TCP_CLOSED = -2,
+  AURA_TCP_UNSUPPORTED = -3
+} AuraTcpStatus;
+
+AuraTcpStatus aura_tcp_listener_bind(uint16_t port, uint16_t *out_port,
+                                     AuraTcpListener **out_listener);
+AuraTcpStatus aura_tcp_listener_accept(AuraTcpListener *listener,
+                                       int timeout_ms,
+                                       AuraTcpStream **out_stream);
+AuraTcpStatus aura_tcp_stream_connect(uint16_t port, int timeout_ms,
+                                      AuraTcpStream **out_stream);
+AuraTcpStatus aura_tcp_stream_read(AuraTcpStream *stream, void *buffer,
+                                   size_t capacity, size_t *out_bytes,
+                                   int timeout_ms);
+AuraTcpStatus aura_tcp_stream_write(AuraTcpStream *stream, const void *buffer,
+                                    size_t capacity, size_t *out_bytes,
+                                    int timeout_ms);
+int aura_tcp_listener_close(AuraTcpListener *listener);
+void aura_tcp_listener_destroy(AuraTcpListener *listener);
+int aura_tcp_stream_close(AuraTcpStream *stream);
+void aura_tcp_stream_destroy(AuraTcpStream *stream);
+const char *aura_tcp_last_error(void);
+#endif
+
 #define AURA_FFI_ABI_VERSION 1u
 
 typedef enum AuraFfiStatus {

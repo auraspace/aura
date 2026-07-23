@@ -1,0 +1,6 @@
+[package]
+name = "std_net_acceptance"
+
+[[bin]]
+name = "std-net-acceptance"
+path = "src"

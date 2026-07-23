@@ -1,0 +1,38 @@
+// std.net — bounded primitive network/HTTP bridge.
+//
+// The typed TCP handles in runtime/aura_ffi.h are intentionally not exposed
+// here yet: Aura FFI v1 accepts only Int, Bool, String, and Unit.  These
+// operations therefore use bounded String/Int values and copy the returned
+// C string into Aura-owned storage at the call boundary.
+
+package std.net
+
+/// Return the loopback echo of `payload`, or an empty String on timeout,
+/// transport failure, unsupported host, or a payload over 64 KiB.
+/// `timeoutMs` must be non-negative; zero performs a non-blocking attempt.
+@foreign(library = "aura_net_ffi", target = "native", link = "static", abi = 1, abi_id = "c")
+pub extern "C" fun aura_net_loopback_echo(payload: String, timeoutMs: Int): String
+
+/// Parse one bounded HTTP/1.1 request and return its response status:
+/// 200 for a valid request, 400 for malformed input, 413 when the request
+/// exceeds the bounded parser budget, and 405 for an unsupported method.
+@foreign(library = "aura_net_ffi", target = "native", link = "static", abi = 1, abi_id = "c")
+pub extern "C" fun aura_net_http_request_status(request: String): Int
+
+/// Serialize a bounded HTTP response. The returned String is copied into Aura
+/// ownership by the primitive FFI boundary; invalid status/body input returns
+/// an empty String.
+@foreign(library = "aura_net_ffi", target = "native", link = "static", abi = 1, abi_id = "c")
+pub extern "C" fun aura_net_http_response(status: Int, body: String): String
+
+pub fun loopbackEcho(payload: String, timeoutMs: Int): String {
+  return aura_net_loopback_echo(payload, timeoutMs)
+}
+
+pub fun requestStatus(request: String): Int {
+  return aura_net_http_request_status(request)
+}
+
+pub fun response(status: Int, body: String): String {
+  return aura_net_http_response(status, body)
+}

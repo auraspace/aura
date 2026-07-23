@@ -1,0 +1,33 @@
+package std_net_acceptance
+
+// This is a native acceptance fixture for the primitive ABI. The current
+// package loader does not yet merge imported foreign declarations, so the
+// declarations are local until that compiler integration blocker is fixed.
+@foreign(library = "aura_net_ffi", target = "native", link = "static", abi = 1, abi_id = "c")
+extern "C" fun aura_net_loopback_echo(payload: String, timeoutMs: Int): String
+
+@foreign(library = "aura_net_ffi", target = "native", link = "static", abi = 1, abi_id = "c")
+extern "C" fun aura_net_http_request_status(request: String): Int
+
+@foreign(library = "aura_net_ffi", target = "native", link = "static", abi = 1, abi_id = "c")
+extern "C" fun aura_net_http_response(status: Int, body: String): String
+
+fun main() {
+  val request = "GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n"
+  if (aura_net_http_request_status(request) != 200) {
+    exit(1)
+  }
+  if (aura_net_http_request_status("POST /health HTTP/1.1\r\n\r\n") != 405) {
+    exit(2)
+  }
+  if (aura_net_http_request_status("not http") != 400) {
+    exit(3)
+  }
+  if (aura_net_http_response(200, "ok") != "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok") {
+    exit(4)
+  }
+  if (aura_net_loopback_echo("aura", 1000) != "aura") {
+    exit(5)
+  }
+  println("std.net: passed")
+}
