@@ -50,6 +50,13 @@ ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0:halt_on_error=1}" \
   UBSAN_OPTIONS="${UBSAN_OPTIONS:-halt_on_error=1:print_stacktrace=1}" \
   "$tmp/task-waiter"
 
+printf 'sanitizer smoke: task-dependency\n'
+"$real_cc" -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined \
+  -fno-omit-frame-pointer -o "$tmp/task-dependency" runtime/tests/task_dependency.c
+ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0:halt_on_error=1}" \
+  UBSAN_OPTIONS="${UBSAN_OPTIONS:-halt_on_error=1:print_stacktrace=1}" \
+  "$tmp/task-dependency"
+
 run_aura() {
   local label="$1"
   shift

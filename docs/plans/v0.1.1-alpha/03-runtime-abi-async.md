@@ -87,17 +87,19 @@ forced GC.
 **Objective:** Lower async functions into explicit states instead of relying on
 backend-specific control flow.
 
-**Implementation status:** Bounded compiler slice complete. The AST walks async
-bodies in deterministic lexical order, reserves state `0` for entry, assigns
-states `1..N` to `await` points, and codegen emits stable kind/source-span
-metadata. Live-local hoisting and executable resume-edge lowering remain in
-A5–A6.
+**Implementation status:** The compiler now has an executable straight-line
+single-await slice. It reserves state `0` for entry, assigns state `1` to the
+await point, stores live `Int`/`String` locals in frame data, and uses the
+runtime parent-child waiter list to resume the parent when the child reaches a
+terminal state. Branches, loops, multiple awaits, and richer owned values
+remain in A5–A6.
 
 **Checklist:**
 
 - [x] Identify `await` suspension points and assign deterministic state IDs
       with source-span metadata (bounded compiler slice).
-- [ ] Hoist live locals and owned values into frame storage.
+- [x] Hoist live `Int`/`String` locals into frame storage for the bounded
+      straight-line single-await slice; full control-flow coverage remains open.
 - [x] Generate bounded completion/error/cancellation edges for the current
       no-await frame representation with source-ID metadata; resumable await
       edges remain open.
@@ -113,21 +115,18 @@ A5–A6.
 ## A5. Single await suspension
 
 **Objective:** Make one pending operation suspend and later resume correctly.
-**Implementation status:** Immediate-completion and non-waiting pending
-continuation paths are complete through runtime polling and executor requeue.
-The bounded runtime ABI also exposes an adapter-owned waiting token with an
-explicit clear-before-wake protocol; generated await operation wiring and
-live-local hoisting remain open.
-The bounded codegen test for one `await` with an `Int` and a `String` used after
-the await confirms only the current boundary: the input task is retained in
-frame data, while those locals remain in the ordinary helper and are not
-hoisted. Operation wakeup, live-local hoisting, and full async I/O suspension
-remain open.
+**Implementation status:** A straight-line single-await lowering now polls a
+child frame, registers a parent-child wait when the child is pending, and
+resumes exactly once when the runtime wakes the parent. `Int` and `String`
+locals used after that await are retained in frame data and cleaned up by the
+frame destroy hook. Control-flow partitioning, richer owned values, and full
+async I/O operation wiring remain open.
 
 **Checklist:**
 
 - [x] Distinguish ready, pending, failed, and cancelled poll results.
-- [ ] Save all values live across await.
+- [x] Save live `Int`/`String` locals across one bounded straight-line await;
+      arrays, classes, and control-flow-sensitive locals remain open.
 - [x] Resume exactly once for non-waiting pending frames when the operation
       completes; adapter-owned waiting-token registration and clear-before-wake
       resumption are covered by the bounded runtime fixture. Generated await

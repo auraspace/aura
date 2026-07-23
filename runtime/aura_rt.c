@@ -5017,7 +5017,14 @@ struct AuraTaskFrame
   AuraTaskFrame *owned_next;
   AuraTaskChannel *waiting_channel;
   void *waiting_node;
+  AuraTaskFrame *wait_target;
+  AuraTaskFrame *waiters_head;
+  AuraTaskFrame *waiter_next;
 };
+
+static void aura_task_frame_detach_wait_target(AuraTaskFrame *frame);
+static void aura_task_frame_detach_waiters(AuraTaskFrame *frame);
+static void aura_task_frame_wake_waiters(AuraTaskFrame *frame);
 
 static uint64_t aura_task_next_id = 1;
 
@@ -5409,6 +5416,8 @@ void aura_task_frame_destroy(AuraTaskFrame *frame)
   {
     return;
   }
+  aura_task_frame_detach_wait_target(frame);
+  aura_task_frame_detach_waiters(frame);
   aura_task_frame_cleanup_run(frame);
   if (frame->destroy != NULL)
   {
@@ -5472,6 +5481,7 @@ AuraTaskPollState aura_task_frame_poll_once(AuraTaskFrame *frame)
     aura_task_frame_storage_release(&frame->captures);
     aura_task_frame_cleanup_run(frame);
     frame->state = AURA_TASK_CANCELLED;
+    aura_task_frame_wake_waiters(frame);
     return frame->state;
   }
   AuraTaskPollState state = frame->poll(frame);
@@ -5484,6 +5494,11 @@ AuraTaskPollState aura_task_frame_poll_once(AuraTaskFrame *frame)
     aura_task_frame_cleanup_run(frame);
   }
   frame->state = state;
+  if (state == AURA_TASK_COMPLETE || state == AURA_TASK_FAILED ||
+      state == AURA_TASK_CANCELLED)
+  {
+    aura_task_frame_wake_waiters(frame);
+  }
   return state;
 }
 
@@ -5606,6 +5621,105 @@ int aura_task_executor_wake(AuraTaskExecutor *executor, AuraTaskFrame *frame)
   return 1;
 }
 
+static void aura_task_frame_detach_wait_target(AuraTaskFrame *frame)
+{
+  AuraTaskFrame **link;
+
+  if (frame == NULL || frame->wait_target == NULL)
+  {
+    return;
+  }
+  link = &frame->wait_target->waiters_head;
+  while (*link != NULL && *link != frame)
+  {
+    link = &(*link)->waiter_next;
+  }
+  if (*link == frame)
+  {
+    *link = frame->waiter_next;
+  }
+  frame->wait_target = NULL;
+  frame->waiter_next = NULL;
+  if (frame->waiting_node != NULL)
+  {
+    frame->waiting_node = NULL;
+  }
+}
+
+static void aura_task_frame_detach_waiters(AuraTaskFrame *frame)
+{
+  AuraTaskFrame *waiter;
+
+  if (frame == NULL)
+  {
+    return;
+  }
+  waiter = frame->waiters_head;
+  frame->waiters_head = NULL;
+  while (waiter != NULL)
+  {
+    AuraTaskFrame *next = waiter->waiter_next;
+    waiter->wait_target = NULL;
+    waiter->waiter_next = NULL;
+    if (waiter->waiting_node == frame)
+    {
+      waiter->waiting_node = NULL;
+    }
+    waiter = next;
+  }
+}
+
+static void aura_task_frame_wake_waiters(AuraTaskFrame *frame)
+{
+  AuraTaskFrame *waiter;
+
+  if (frame == NULL)
+  {
+    return;
+  }
+  waiter = frame->waiters_head;
+  frame->waiters_head = NULL;
+  while (waiter != NULL)
+  {
+    AuraTaskFrame *next = waiter->waiter_next;
+    waiter->wait_target = NULL;
+    waiter->waiter_next = NULL;
+    if (waiter->waiting_node == frame)
+    {
+      waiter->waiting_node = NULL;
+    }
+    if (waiter->executor != NULL && !waiter->executor->shutdown &&
+        waiter->state != AURA_TASK_COMPLETE && waiter->state != AURA_TASK_FAILED &&
+        waiter->state != AURA_TASK_CANCELLED)
+    {
+      (void)aura_task_executor_wake(waiter->executor, waiter);
+    }
+    waiter = next;
+  }
+}
+
+/* Register a parent frame against one child frame. The child owns no parent
+ * memory; the embedded links are detached on cancellation/destruction and
+ * all waiters are queued exactly once when the child becomes terminal. */
+int aura_task_frame_wait_on(AuraTaskFrame *frame, AuraTaskFrame *target)
+{
+  if (frame == NULL || target == NULL || frame == target ||
+      frame->executor == NULL || frame->executor != target->executor ||
+      frame->state == AURA_TASK_COMPLETE || frame->state == AURA_TASK_FAILED ||
+      frame->state == AURA_TASK_CANCELLED || target->state == AURA_TASK_COMPLETE ||
+      target->state == AURA_TASK_FAILED || target->state == AURA_TASK_CANCELLED)
+  {
+    return 0;
+  }
+  aura_task_frame_detach_wait_target(frame);
+  frame->wait_target = target;
+  frame->waiter_next = target->waiters_head;
+  target->waiters_head = frame;
+  frame->waiting_node = target;
+  frame->state = AURA_TASK_PENDING;
+  return 1;
+}
+
 /* Complete an adapter-owned wait registration and queue the frame in one
  * bounded-runtime operation. The token is cleared before queueing so a
  * completion/failure callback cannot wake the same frame twice or leave a
@@ -5634,6 +5748,7 @@ int aura_task_executor_cancel(AuraTaskExecutor *executor, AuraTaskFrame *frame)
   }
   frame->cancel_requested = 1;
   aura_task_channel_cancel_wait(frame);
+  aura_task_frame_detach_wait_target(frame);
   if (!frame->queued)
   {
     aura_task_executor_wake(executor, frame);

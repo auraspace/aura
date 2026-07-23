@@ -176,9 +176,17 @@ When you resolve debt, update or remove the matching entry.
 ### Async lowering and task outcome gaps (C22t, 2026-07-22)
 
 - Area: async/task codegen and runtime outcomes
-- Symptom: `await` parses and type-checks but has no lowered suspension state machine; only empty `spawn {}` bodies execute; task failure propagation is not complete.
-- Progress: no-await code generation now emits deterministic `resume_state` transitions; immediate `await` polls a ready frame and returns its completed result; repeated polling is covered by runtime fixtures; A1–A3 define the frame ABI, ownership classes, roots, and error storage.
-- Next step: lower await points with captured-local storage, implement non-empty spawn capture/drop, and define end-to-end success/failure/cancellation propagation before advertising the full C22 contract as executable.
+- Symptom: await lowering is still bounded to one straight-line await and
+  typed `Int` child result; branches, multiple awaits, richer ownership, and
+  full task outcome propagation are not complete.
+- Progress: the compiler now emits explicit entry/resume states for the
+  supported single-await shape, hoists live `Int`/`String` locals into frame
+  data, and uses a runtime parent-child waiter list to wake the parent exactly
+  once. `runtime/tests/task_dependency.c` covers delayed child completion
+  under ASAN/UBSAN.
+- Next step: extend state partitioning to control flow and multiple awaits,
+  then add typed failure/cancellation propagation before advertising the full
+  C22 contract as executable.
 
 ### S4 source locations and nested failures remain bounded (2026-07-22)
 

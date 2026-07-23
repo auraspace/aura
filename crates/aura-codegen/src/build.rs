@@ -643,7 +643,7 @@ fun main() {
     }
 
     #[test]
-    fn records_live_int_and_string_across_await_are_not_hoisted_yet() {
+    fn builds_single_await_with_hoisted_int_and_string_locals() {
         let file = aura_parser::parse_file(
             r#"package demo
 async fun preserve(task: Task<Int>): Int {
@@ -658,19 +658,32 @@ fun main() {}
         .expect("parse single-await live-local fixture");
         let generated = emit_c_from_ast(&file).expect("emit single-await live-local fixture");
 
-        // The known boundary is intentional: the await-containing body is
-        // still emitted as one helper. Only the input task is in frame data;
-        // locals used after await are not yet hoisted into that frame.
+        // The single-await straight-line slice stores locals in frame data and
+        // resumes the parent only after the awaited child reaches a terminal
+        // state. More complex control flow remains on the bounded fallback.
         assert!(generated.contains(
-            "typedef struct aura_async_data_demo_preserve {\n  AuraTaskFrame * task;\n} aura_async_data_demo_preserve;\n"
+            "typedef struct aura_async_data_demo_preserve {\n  AuraTaskFrame * task;\n  int64_t before;\n  const char * label;\n  bool label__owned;\n  AuraTaskFrame *await_task;\n} aura_async_data_demo_preserve;\n"
         ));
-        assert!(generated
-            .contains("static int64_t aura_async_body_demo_preserve(AuraTaskFrame * task)"));
-        assert!(generated.contains("int64_t before = INT64_C(40);"));
-        assert!(generated.contains("const char * label ="));
-        assert!(generated.contains("AuraTaskResult __await_result"));
-        assert!(generated.contains("__await_value = *((int64_t *)__await_result.data)"));
+        assert!(generated.contains("static int64_t aura_async_resume_demo_preserve("));
+        assert!(generated.contains("data->before = before;"));
+        assert!(generated.contains("data->label = label;"));
+        assert!(generated.contains("aura_task_frame_wait_on(frame, data->await_task)"));
+        assert!(generated.contains("aura_async_resume_demo_preserve(data, observed)"));
         assert!(generated.contains("aura async suspension state=1 kind=await"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let bin = dir.join(format!("aura-await-hoist-{}", std::process::id()));
+        let generated_c = dir.join(format!("aura-await-hoist-{}.aura.c", std::process::id()));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile hoisted single-await fixture");
+        let status = Command::new(&bin).status().expect("run hoisted fixture");
+        assert!(status.success());
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
     }
 
     #[test]
