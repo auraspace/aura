@@ -152,6 +152,12 @@ remain H5 work.
 ## H7. Runnable server example
 
 **Objective:** Prove the complete user journey.
+**Bounded native companion:** `examples/http-health/http_health.c` exercises
+the documented native runtime APIs through a localhost bind, `/health` request,
+native client exchange, and deterministic shutdown. It is runnable with
+`scripts/http-health-smoke.sh` under ASAN/UBSAN. The CLI/Aura-level example,
+installed-release journey, and cross-host acceptance remain open until the
+documented Aura TCP bindings and async HTTP integration exist.
 **Checklist:**
 
 - [ ] Add an example that binds localhost and serves a health endpoint.

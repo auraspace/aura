@@ -547,6 +547,16 @@ When you resolve debt, update or remove the matching entry.
 - Next step: run the same script on each supported macOS host and record the
   target/compiler/result metadata before closing F6.
 
+### H7/IO6 Aura-level example remains deferred (2026-07-23)
+
+- A bounded native health companion now proves localhost bind, `/health`
+  exchange, and deterministic shutdown through `aura_rt.c`.
+- The requested CLI/Aura-level example and installed-release journey remain
+  deferred because the stdlib does not yet expose the TCP handles and async
+  HTTP integration required by H5/IO6.
+- Next step: add documented Aura TCP bindings after async operation lowering;
+  then port this companion to `aura run` and record Linux/macOS results.
+
 ### Race report command integration (2026-07-22)
 
 - R4 now has deterministic runtime reports and planted-race/suppression/
