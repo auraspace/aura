@@ -7,21 +7,21 @@ When you resolve debt, update or remove the matching entry.
 
 ## Open
 
-### SAN-002 full Aura LSAN remains blocked by generated ownership (updated 2026-07-23)
+### SAN-002 broader compiler-generated ownership remains out of scope (resolved mandatory gate, 2026-07-23)
 
 - Area: compiler-generated ownership cleanup under sanitizer smoke
-- Symptom: the native exception payload seed passes ASAN/UBSAN/LSAN, and the
-  exception corpus now uses a static String field so its generated shallow-copy
-  path is leak-free. The full Aura compile/run matrix still exposes unrelated
-  generated lambda String-box leaks when LSAN is forced on.
-- Why deferred: compiler-generated object exceptions still call the legacy
-  shallow `aura_throw_obj` ABI; wiring a nested-field destructor requires the
-  compiler/codegen workstream, which is outside this runtime-only slice.
+- Symptom: the mandatory sanitizer suite covers deterministic native seeds and
+  all Aura-generated legs listed by `scripts/sanitizer-smoke.sh`; arbitrary
+  compiler-generated programs outside that manifest are not exhaustive.
+- Why deferred: exhaustive ownership proving for every possible generated
+  control-flow/layout shape is a future compiler verification project, not a
+  release-gate omission.
 - Progress: task outcomes, GC roots, exception cleanup, I/O cleanup, FFI
   handles/callbacks/net, and HTTP async/hardening/health are now seeded and
   executed under fail-closed native LSAN coverage.
-- Next step: integrate `aura_throw_obj_with_destructor` in codegen and fix the
-  remaining generated lambda ownership leaks before enabling full Aura LSAN.
+- Progress: exception payload deep-copy/destructor paths, Array/String
+  temporaries, lambda boxes, and the complete current Aura sanitizer leg now
+  pass with `detect_leaks=1`.
 
 ### RUNTIME-003 exception cleanup supports explicit payload destructors (2026-07-23)
 
@@ -753,12 +753,3 @@ When you resolve debt, update or remove the matching entry.
   release artifact's minisign key remain unavailable in this environment; the
   matrix therefore stays partial. Keep those claims separate from the offline
   metadata-signing evidence.
-
-### SAN-002 compiler-generated ownership breadth remains open (updated 2026-07-23)
-
-- The sanitizer gate now compiles and executes every deterministic runtime seed
-  in `runtime/tests/sanitizer-seeds.tsv`, including older channel/executor
-  fixtures that were previously only listed, with ASAN/UBSAN and leak checks.
-- This closes the manifest-to-gate coverage gap but does not prove exhaustive
-  compiler-generated frame layouts or foreign-host behavior; SAN-002 remains
-  partial until those ownership boundaries have dedicated generated fixtures.

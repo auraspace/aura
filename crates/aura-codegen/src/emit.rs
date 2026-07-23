@@ -62,6 +62,7 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("void aura_throw_int(int64_t v);\n");
     out.push_str("void aura_throw_bool(_Bool v);\n");
     out.push_str("void aura_throw_obj(const char *type_name, void *obj);\n");
+    out.push_str("void aura_throw_obj_with_destructor(const char *type_name, void *obj, void (*destroy_obj)(void *));\n");
     out.push_str("int aura_ex_matches(const char *type_name);\n");
     out.push_str("const char *aura_ex_as_string(void);\n");
     out.push_str("int64_t aura_ex_as_int(void);\n");

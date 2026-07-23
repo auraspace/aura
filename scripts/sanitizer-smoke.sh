@@ -52,7 +52,7 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
 native_asan_options="${AURA_SANITIZER_NATIVE_ASAN_OPTIONS:-detect_leaks=1:halt_on_error=1}"
-aura_asan_options="${AURA_SANITIZER_AURA_ASAN_OPTIONS:-detect_leaks=0:halt_on_error=1}"
+aura_asan_options="${AURA_SANITIZER_AURA_ASAN_OPTIONS:-detect_leaks=1:halt_on_error=1}"
 ubsan_options="${UBSAN_OPTIONS:-halt_on_error=1:print_stacktrace=1}"
 
 run_native_fixture() {

@@ -543,6 +543,11 @@ pub(crate) fn race_write(code: String, lvalue: &str, span: Span, ctx: &EmitCtx<'
 /// that a consuming expression must release after copying or inspection.
 pub(crate) fn string_expr_is_owned_temp(e: &Expr, ctx: &EmitCtx<'_>) -> bool {
     match e {
+        Expr::Ident(id)
+            if ctx.lookup_local(&id.name) == Some("String") && ctx.is_box_local(&id.name) =>
+        {
+            true
+        }
         Expr::Binary(b) => matches!(b.op, BinOp::Add),
         Expr::Call(_) => crate::stmt::string_call_owns_result(e, ctx),
         Expr::ForceUnwrap(f) => string_expr_is_owned_temp(&f.expr, ctx),
@@ -874,6 +879,11 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
             // C13f: String by-ref box owns a heap copy; set frees the previous value.
             if ctx.is_box_local(dst_name) && dst_ty.as_deref() == Some("String") {
                 let box_ptr = mangle_ident(dst_name);
+                if string_expr_is_owned_temp(&a.value, ctx) {
+                    return format!(
+                        "({{ const char *__s = ({rhs}); const char *__r = aura_box_str_set({box_ptr}, __s); free((void *)__s); __r; }})"
+                    );
+                }
                 return format!("aura_box_str_set({box_ptr}, {rhs})");
             }
             if ctx.is_box_local(dst_name)
@@ -1082,7 +1092,12 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
                 if matches!(recv.as_deref(), Some("String"))
                     || matches!(f.object.as_ref(), Expr::String(_))
                 {
-                    let len_e = format!("((int64_t)strlen({obj}))");
+                    let owned = string_expr_is_owned_temp(&f.object, ctx);
+                    let len_e = if owned {
+                        format!("({{ const char *__s = ({obj}); int64_t __n = (int64_t)strlen(__s); free((void *)__s); __n; }})")
+                    } else {
+                        format!("((int64_t)strlen({obj}))")
+                    };
                     if f.safe {
                         // Nullable Int not representable; treat as 0 when null (MVP).
                         return format!("(({obj}) == NULL ? INT64_C(0) : {len_e})");

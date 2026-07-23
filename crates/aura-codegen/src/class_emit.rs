@@ -118,15 +118,29 @@ fn array_of_class_field_names(
         .collect()
 }
 
+fn string_field_names(c: &ClassDecl, params: &[String], args: &[Ty]) -> Vec<String> {
+    c.fields
+        .iter()
+        .filter(|f| type_ref_local_key(&f.ty, params, args) == "String")
+        .map(|f| f.name.name.clone())
+        .collect()
+}
+
 fn c_dtor_name(mono: &str) -> String {
     format!("aura_dtor_{mono}")
+}
+
+fn c_exception_dtor_name(mono: &str) -> String {
+    format!("aura_ex_dtor_{mono}")
 }
 
 fn c_markex_name(mono: &str) -> String {
     format!("aura_markex_{mono}")
 }
 
-/// Emit optional dtor / mark_extras for heap classes with Array fields (C7b).
+/// Emit ownership hooks for heap classes.  Exception payload copies use the
+/// same generated destructor as the GC object contract, so owned String and
+/// Array fields are released when the exception frame disposes the copy.
 fn emit_class_gc_hooks(
     out: &mut String,
     c: &ClassDecl,
@@ -140,11 +154,19 @@ fn emit_class_gc_hooks(
     }
     let cty = c_class_type(mono);
     let arr_fields = array_field_names(c, params, args);
+    let string_fields = string_field_names(c, params, args);
     let arr_cls_fields = array_of_class_field_names(c, checked, params, args);
-    if !arr_fields.is_empty() {
+    {
         let _ = writeln!(out, "static void {}(void *p) {{", c_dtor_name(mono));
         let _ = writeln!(out, "  {cty} *self = ({cty} *)p;");
         out.push_str("  if (self == NULL) { return; }\n");
+        for name in &string_fields {
+            let f = mangle_ident(name);
+            let _ = writeln!(
+                out,
+                "  if (self->{f} != NULL) {{ free((void *)self->{f}); self->{f} = NULL; }}"
+            );
+        }
         for name in &arr_fields {
             let f = mangle_ident(name);
             let _ = writeln!(
@@ -153,6 +175,12 @@ fn emit_class_gc_hooks(
             );
         }
         out.push_str("}\n\n");
+        let _ = writeln!(
+            out,
+            "static void {}(void *p) {{ {}(p); free(p); }}\n",
+            c_exception_dtor_name(mono),
+            c_dtor_name(mono)
+        );
     }
     if !arr_cls_fields.is_empty() {
         let _ = writeln!(out, "static void {}(void *p) {{", c_markex_name(mono));
@@ -306,13 +334,8 @@ pub(crate) fn emit_ctor_mono(
     if is_heap_class_decl(c) {
         // C3y: allocate class instance on GC heap.
         // C7b: pass dtor / mark_extras when the class owns Array fields.
-        let arr_fields = array_field_names(c, params, args);
         let arr_cls = array_of_class_field_names(c, checked, params, args);
-        let dtor = if arr_fields.is_empty() {
-            "NULL".to_string()
-        } else {
-            c_dtor_name(mono)
-        };
+        let dtor = c_dtor_name(mono);
         let markex = if arr_cls.is_empty() {
             "NULL".to_string()
         } else {

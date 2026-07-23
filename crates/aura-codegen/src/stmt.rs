@@ -412,7 +412,7 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
             // directly; an owned identifier is moved below after emission.
             let string_copy_init =
                 ty_name == "String" && v.mutable && !string_owned_init && string_move_src.is_none();
-            if string_owned_init || string_move_src.is_some() || string_copy_init {
+            if !needs_box && (string_owned_init || string_move_src.is_some() || string_copy_init) {
                 ctx.mark_string_owner(&v.name.name);
             }
             if ty_name.starts_with("Channel_")
@@ -500,8 +500,13 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
             if fun_moved_from.is_some() {
                 ctx.mark_fun_owner(&v.name.name);
             }
-            let init = coerce_expr(&v.init, &ty_name, ctx);
-            let init = if string_copy_init {
+            let raw_init = coerce_expr(&v.init, &ty_name, ctx);
+            let init = if needs_box && ty_name == "String" {
+                raw_init.clone()
+            } else {
+                raw_init
+            };
+            let init = if string_copy_init && !(needs_box && ty_name == "String") {
                 owned_string_copy_expr(init, v.init.span())
             } else {
                 init
@@ -513,7 +518,14 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                     "String" => ("aura_box_str *", "aura_box_str_new"),
                     _ => ("aura_box_i64 *", "aura_box_i64_new"),
                 };
-                let _ = writeln!(out, "{p}{box_ty} {dst} = {new_fn}({init});");
+                if ty_name == "String" && string_expr_is_owned_temp(&v.init, ctx) {
+                    let _ = writeln!(
+                        out,
+                        "{p}{box_ty} {dst} = ({{ const char *__s = ({init}); {box_ty} __b = {new_fn}(__s); free((void *)__s); __b; }});"
+                    );
+                } else {
+                    let _ = writeln!(out, "{p}{box_ty} {dst} = {new_fn}({init});");
+                }
             } else if needs_ptr_box {
                 let payload = format!("{dst}__capture_value");
                 let (payload_ty, drop, init_payload) = if is_array_type_key(&ty_name) {
@@ -863,8 +875,69 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                         );
                         let _ = writeln!(out, "{p}  *{ptr} = {tmp};");
                     }
+                    if is_heap_class_mono(&mono, ctx.checked) {
+                        if let Some(base) = mono_base_name(&mono, ctx.checked) {
+                            if let Some(class) = ctx
+                                .checked
+                                .ast
+                                .classes
+                                .iter()
+                                .find(|class| class.name.name == base)
+                            {
+                                let params: Vec<String> = class
+                                    .type_params
+                                    .iter()
+                                    .map(|param| param.name.name.clone())
+                                    .collect();
+                                for field in &class.fields {
+                                    if type_ref_local_key(&field.ty, &params, &[]) != "String" {
+                                        continue;
+                                    }
+                                    let field_name = mangle_ident(&field.name.name);
+                                    let copy = format!(
+                                        "__throw_string_{}_{}",
+                                        t.span.start, field.span.start
+                                    );
+                                    let _ = writeln!(out, "{p}  {{");
+                                    let _ = writeln!(
+                                        out,
+                                        "{p}    const char *__src = {tmp}->{field_name};"
+                                    );
+                                    let _ = writeln!(
+                                        out,
+                                        "{p}    size_t __len = __src ? strlen(__src) : 0;"
+                                    );
+                                    let _ = writeln!(
+                                        out,
+                                        "{p}    char *{copy} = (char *)malloc(__len + 1);"
+                                    );
+                                    let _ = writeln!(out, "{p}    if ({copy} == NULL) abort();");
+                                    let _ = writeln!(
+                                        out,
+                                        "{p}    if (__len > 0) memcpy({copy}, __src, __len);"
+                                    );
+                                    let _ = writeln!(out, "{p}    {copy}[__len] = '\\0';");
+                                    let _ = writeln!(
+                                        out,
+                                        "{p}    {ptr}->{field_name} = (const char *){copy};"
+                                    );
+                                    let _ = writeln!(out, "{p}  }}");
+                                }
+                            }
+                        }
+                    }
                     // Match key uses the Aura type name (mono key), not C typedef.
-                    let _ = writeln!(out, "{p}  aura_throw_obj(\"{other}\", {ptr});");
+                    // Heap classes have a generated exception wrapper that
+                    // releases owned fields and then the copied payload.
+                    if is_heap_class_mono(&mono, ctx.checked) {
+                        let dtor = format!("aura_ex_dtor_{mono}");
+                        let _ = writeln!(
+                            out,
+                            "{p}  aura_throw_obj_with_destructor(\"{other}\", {ptr}, {dtor});"
+                        );
+                    } else {
+                        let _ = writeln!(out, "{p}  aura_throw_obj(\"{other}\", {ptr});");
+                    }
                     let _ = writeln!(out, "{p}}}");
                 }
             }
@@ -1046,9 +1119,57 @@ pub(crate) fn emit_try(out: &mut String, t: &TryStmt, indent: usize, ctx: &mut E
                     // Promote exception payload into GC heap pointer for the catch binding.
                     let _ = writeln!(
                         out,
-                        "{p}      {base_c} *{bind} = ({base_c} *)aura_gc_alloc(sizeof({base_c}));"
+                        "{p}      {base_c} *{bind} = ({base_c} *)aura_gc_alloc_full(sizeof({base_c}), aura_dtor_{mono}, NULL);"
                     );
                     let _ = writeln!(out, "{p}      *{bind} = *({base_c} *)aura_ex_as_obj();");
+                    // Catch bindings outlive the exception frame.  Deep-copy
+                    // owned String fields before aura_ex_clear disposes the
+                    // throw payload; the binding's GC destructor owns the copy.
+                    if let Some(base) = mono_base_name(&mono, ctx.checked) {
+                        if let Some(class) = ctx
+                            .checked
+                            .ast
+                            .classes
+                            .iter()
+                            .find(|class| class.name.name == base)
+                        {
+                            let params: Vec<String> = class
+                                .type_params
+                                .iter()
+                                .map(|param| param.name.name.clone())
+                                .collect();
+                            for field in &class.fields {
+                                if type_ref_local_key(&field.ty, &params, &[]) != "String" {
+                                    continue;
+                                }
+                                let field_name = mangle_ident(&field.name.name);
+                                let src = format!("(({base_c} *)aura_ex_as_obj())->{field_name}");
+                                let copy =
+                                    format!("__catch_string_{}_{}", t.span.start, field.span.start);
+                                let _ = writeln!(out, "{p}      {{");
+                                let _ = writeln!(out, "{p}        const char *__src = {src};");
+                                let _ = writeln!(
+                                    out,
+                                    "{p}        size_t __len = __src ? strlen(__src) : 0;"
+                                );
+                                let _ = writeln!(
+                                    out,
+                                    "{p}        char *{copy} = (char *)malloc(__len + 1);"
+                                );
+                                let _ = writeln!(out, "{p}        if ({copy} == NULL) abort();");
+                                let _ = writeln!(
+                                    out,
+                                    "{p}        if (__len > 0) memcpy({copy}, __src, __len);"
+                                );
+                                let _ = writeln!(out, "{p}        {copy}[__len] = '\\0';");
+                                let _ = writeln!(
+                                    out,
+                                    "{p}        {bind}->{field_name} = (const char *){copy};"
+                                );
+                                let _ = writeln!(out, "{p}      }}");
+                            }
+                        }
+                    }
                 } else {
                     let _ = writeln!(
                         out,
