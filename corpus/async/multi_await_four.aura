@@ -14,5 +14,10 @@ async fun total(): Int {
 }
 
 fun main() {
-  total()
+  val task = spawn {
+    val result: Int = await total()
+    println("four-await-ok")
+    return
+  }
+  join(task)
 }

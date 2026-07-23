@@ -888,6 +888,93 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_branch_join_await_state_machine() {
+        let file = aura_parser::parse_file(
+            r#"package demo
+async fun choose(flag: Bool): Int {
+  if (flag) {
+    val value: Int = await yes()
+    return value
+  } else {
+    val value: Int = await no()
+    return value
+  }
+}
+async fun yes(): Int { println("yes") return 7 }
+async fun no(): Int { println("no") return 9 }
+async fun driver(flag: Bool): Int {
+  val value: Int = await choose(flag)
+  return value
+}
+fun main() {
+  val first = spawn { val value: Int = await driver(true) return }
+  join(first)
+  val second = spawn { val value: Int = await driver(false) return }
+  join(second)
+}
+"#,
+        )
+        .expect("parse branch-join await fixture");
+        let generated = emit_c_from_ast(&file).expect("emit branch-join await fixture");
+        assert!(generated.contains("aura async branch-join suspension state=1"));
+        assert!(generated.contains("bool selected_then;"));
+        assert!(generated.contains("data->selected_then ?"));
+        assert!(generated.contains("aura_task_frame_propagate_error(frame, data->await_task)"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-await-branch-join-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile branch-join await fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run branch-join await fixture");
+        assert!(
+            output.status.success(),
+            "branch-join fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "yes\nno\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_corpus_four_await_fixture() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let source = fs::read_to_string(root.join("corpus/async/multi_await_four.aura"))
+            .expect("read four-await corpus fixture");
+        let file = aura_parser::parse_file(&source).expect("parse four-await corpus fixture");
+        let generated = emit_c_from_ast(&file).expect("emit four-await corpus fixture");
+        assert!(generated.contains("aura async general suspension state=4"));
+        assert!(!generated.contains("= (void)"));
+
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-corpus-four-await-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile four-await corpus fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run four-await corpus fixture");
+        assert!(
+            output.status.success(),
+            "four-await corpus failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "four-await-ok\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_spawn_join_cancel() {
         let span = Span::new(0, 1);
         let ident = |name: &str| Ident {

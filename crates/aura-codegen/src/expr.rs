@@ -1189,7 +1189,8 @@ fn emit_async_expr(expr: &AsyncExpr, ctx: &mut EmitCtx<'_>) -> String {
             };
             let poll = bounded_spawn_poll_name(s.span);
             let source = s.span.start;
-            let data_size = if captures.is_empty() {
+            let has_await = bounded_spawn_await_shape(&s.body, ctx.checked).is_some();
+            let data_size = if captures.is_empty() && !has_await {
                 "0".to_string()
             } else {
                 format!("sizeof(aura_spawn_data_{})", s.span.start)
