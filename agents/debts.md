@@ -595,6 +595,9 @@ When you resolve debt, update or remove the matching entry.
   callbacks, sanitizers, and the compiler primitive-call fixture.
 - The script now accepts both Linux and Darwin native hosts, and CI schedules
   the same matrix on `macos-14` arm64 alongside Linux.
+- The first Darwin run exposed and fixed static archive resolution: macOS
+  `-force_load` now receives the resolved archive path rather than relying on
+  `-L` search semantics.
 - macOS execution remains unverified in this workspace because no macOS host
   is available; do not infer it from Linux results.
 - Next step: record the macOS runner/compiler/result metadata and close F6

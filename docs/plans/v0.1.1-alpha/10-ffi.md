@@ -43,8 +43,9 @@ duration of the call; codegen never frees a foreign String result. Foreign
 symbols are emitted verbatim with an `extern` prototype. `target = "native"`
 and the host Linux/macOS matrix are enforced by F1. Dynamic libraries use
 `-lNAME`; static libraries use `-Wl,-Bstatic -lNAME -Wl,-Bdynamic` on Linux
-and `-Wl,-force_load,libNAME.a` on macOS. Additional library search paths are
-explicit `CompileOptions::foreign_library_path` entries. A declaration may
+and `-Wl,-force_load,/path/to/libNAME.a` on macOS, resolving the archive from
+an explicit `CompileOptions::foreign_library_path` entry. Additional library
+search paths are explicit `CompileOptions::foreign_library_path` entries. A declaration may
 opt into `failure = "status"` for an `Int` return; codegen passes the foreign
 integer through `aura_ffi_map_error`, yielding the documented bounded outcome
 codes (`OK`, `CANCELLED`, `INVALID`, `NOT_FOUND`, `PERMISSION`, `UNAVAILABLE`,

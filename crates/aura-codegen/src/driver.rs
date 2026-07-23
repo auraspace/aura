@@ -225,7 +225,15 @@ impl Backend for CBackend {
                     foreign_link_args.push("-Wl,-Bdynamic".into());
                 }
                 aura_ast::ForeignLinkKind::Static if cfg!(target_os = "macos") => {
-                    foreign_link_args.push(format!("-Wl,-force_load,lib{}.a", library.name));
+                    let archive_name = format!("lib{}.a", library.name);
+                    let archive = options
+                        .foreign_library_paths
+                        .iter()
+                        .map(|path| path.join(&archive_name))
+                        .find(|path| path.is_file())
+                        .unwrap_or_else(|| PathBuf::from(&archive_name));
+                    foreign_link_args
+                        .push(format!("-Wl,-force_load,{}", archive.to_string_lossy()));
                 }
                 aura_ast::ForeignLinkKind::Static => {}
             }
