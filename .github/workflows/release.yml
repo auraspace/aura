@@ -169,10 +169,12 @@ jobs:
         id: assets
         run: |
           set -euo pipefail
-          mkdir -p release-assets
+          mkdir -p release-assets release-acceptance
           # Artifacts may be nested per-job or flat depending on merge-multiple
           find artifacts -type f \( -name '*.tar.gz' -o -name '*.sha256' \) -exec cp -v {} release-assets/ \;
+          find artifacts -type f -name '*-acceptance.json' -exec cp -v {} release-acceptance/ \;
           ls -la release-assets
+          ls -la release-acceptance
           version="${GITHUB_REF_NAME#v}"
           for target in linux-amd64 darwin-arm64 darwin-amd64; do
             archive="aura-${version}-${target}.tar.gz"
@@ -183,6 +185,14 @@ jobs:
           done
           count="$(find release-assets -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.sha256' \) | wc -l | tr -d ' ')"
           test "$count" -eq 6 || { echo "error: expected exactly 6 target assets, found $count" >&2; exit 1; }
+
+      - name: Generate release manifest
+        run: |
+          set -euo pipefail
+          bash scripts/generate-release-manifest.sh \
+            --dir release-assets \
+            --acceptance-dir release-acceptance \
+            --version "${GITHUB_REF_NAME#v}"
 
       - name: Generate aggregate SHA256 manifest
         run: |
@@ -208,7 +218,7 @@ jobs:
           [[ -s "$manifest" ]] || { echo "error: aggregate manifest is empty" >&2; exit 1; }
           echo "generated $manifest covering $(wc -l <"$manifest" | tr -d ' ') assets"
 
-      - name: Sign aggregate manifest (optional, minisign)
+      - name: Sign aggregate manifest (mandatory, minisign)
         env:
           AURA_MINISIGN_SECRET_KEY: ${{ secrets.AURA_MINISIGN_SECRET_KEY }}
           AURA_MINISIGN_PUBLIC_KEY: ${{ vars.AURA_MINISIGN_PUBLIC_KEY }}
@@ -238,6 +248,15 @@ jobs:
           minisign -Vm release-assets/SHA256SUMS -p "$pub_file" >/dev/null
           cp "$pub_file" release-assets/minisign.pub
           echo "signed release-assets/SHA256SUMS"
+
+      - name: Verify complete signed release bundle
+        run: |
+          set -euo pipefail
+          bash scripts/validate-release-bundle.sh \
+            --dir release-assets \
+            --acceptance-dir release-acceptance \
+            --version "${GITHUB_REF_NAME#v}" \
+            --require-signature
 
       - name: Release notes body
         id: notes

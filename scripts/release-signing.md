@@ -12,6 +12,13 @@ to a mode-600 temporary file, signs `SHA256SUMS`, verifies the signature with
 the configured public key, and publishes `SHA256SUMS.minisig` plus
 `minisign.pub`. Neither key is committed to the repository.
 
+The release job also publishes `release-manifest.json`. It records the exact
+required target artifacts, their SHA-256 values, and the native or cross-file
+acceptance report used for each target. `scripts/validate-release-bundle.sh`
+checks that manifest, the per-file checksums, the aggregate `SHA256SUMS`, and
+the detached signature before the GitHub Release step can run. A local
+fixture for the same contract is `scripts/tests/release-bundle.sh`.
+
 The installer keeps checksum verification mandatory. To verify the signed
 aggregate manifest, install minisign and opt in:
 

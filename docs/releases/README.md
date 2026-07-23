@@ -88,13 +88,15 @@ scripts/prepare-release.sh 0.2.0 --no-commit
 
 ## Scripts
 
-| Script                       | Role                                              |
-| ---------------------------- | ------------------------------------------------- |
-| `scripts/prepare-release.sh` | Version dump + changelog + **release commit**     |
-| `scripts/package-release.sh` | Build local / CI tarball (`dist/aura-…tar.gz`)    |
-| `scripts/install.sh`         | End-user installer (site copies to `/install.sh`) |
-| `scripts/avm`                | Version manager (embedded into CDN install.sh)    |
-| `scripts/install-smoke.sh`   | Post-install / post-release verify checklist      |
+| Script                                 | Role                                              |
+| -------------------------------------- | ------------------------------------------------- |
+| `scripts/prepare-release.sh`           | Version dump + changelog + **release commit**     |
+| `scripts/package-release.sh`           | Build local / CI tarball (`dist/aura-…tar.gz`)    |
+| `scripts/install.sh`                   | End-user installer (site copies to `/install.sh`) |
+| `scripts/avm`                          | Version manager (embedded into CDN install.sh)    |
+| `scripts/install-smoke.sh`             | Post-install / post-release verify checklist      |
+| `scripts/generate-release-manifest.sh` | Emit target/checksum/acceptance manifest          |
+| `scripts/validate-release-bundle.sh`   | Fail-closed artifact/signature verification       |
 
 ## Support contract
 

@@ -1,0 +1,26 @@
+package http_health_aura
+
+// This is the user-facing primitive HTTP slice.  The companion smoke script
+// supplies the documented std.net native library; Aura owns the arguments and
+// returned Strings while the foreign calls borrow them for one call only.
+@foreign(library = "aura_net_ffi", target = "native", link = "dynamic", abi = 1, abi_id = "c")
+extern "C" fun aura_net_loopback_echo(payload: String, timeoutMs: Int): String
+
+@foreign(library = "aura_net_ffi", target = "native", link = "dynamic", abi = 1, abi_id = "c")
+extern "C" fun aura_net_http_request_status(request: String): Int
+
+@foreign(library = "aura_net_ffi", target = "native", link = "dynamic", abi = 1, abi_id = "c")
+extern "C" fun aura_net_http_response(status: Int, body: String): String
+
+fun main() {
+  val get = "GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n"
+  val post = "POST /health HTTP/1.1\r\nHost: localhost\r\n\r\n"
+  if (aura_net_http_request_status(get) != 200) { exit(1) }
+  if (aura_net_http_request_status(post) != 405) { exit(2) }
+  if (aura_net_http_request_status("not http") != 400) { exit(3) }
+  if (aura_net_http_response(200, "ok") != "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok") {
+    exit(4)
+  }
+  if (aura_net_loopback_echo("aura", 1000) != "aura") { exit(5) }
+  println("http-health-aura: passed")
+}

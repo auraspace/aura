@@ -11,4 +11,10 @@ if AURA_RELEASE_WORKFLOW_FILE="$tmp/release.yml" bash scripts/validate-release-p
   printf 'release policy test: validator missed workflow target drift\n' >&2
   exit 1
 fi
+cp .github/workflows/release.yml "$tmp/signing.yml"
+sed -i '/--require-signature/d' "$tmp/signing.yml"
+if AURA_RELEASE_WORKFLOW_FILE="$tmp/signing.yml" bash scripts/validate-release-policy.sh >/dev/null 2>&1; then
+  printf 'release policy test: validator missed mandatory signing drift\n' >&2
+  exit 1
+fi
 printf 'release policy tests: PASS\n'

@@ -44,6 +44,9 @@ jobs:
       - name: Release policy regression test
         run: bash scripts/tests/release-policy.sh
 
+      - name: Release bundle manifest regression test
+        run: bash scripts/tests/release-bundle.sh
+
       - name: Registry and release acceptance fixture
         run: bash scripts/tests/registry-release.sh
 
