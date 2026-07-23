@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
 
+import { MarkdownActions } from '@/components/markdown/markdown-actions'
 import { getRfcById } from '@/lib/rfc/load-rfcs'
 import { NotFoundPage } from '@/pages/not-found-page'
 import { RfcArticle } from '@/pages/rfc/components/article'
@@ -37,9 +38,15 @@ export function DetailPage() {
           <StatusBadge status={doc.status} />
           <LayerChip layer={doc.layer} />
         </div>
-        <h1 className="mt-1 mb-2 font-display text-[32px] leading-tight font-medium tracking-tight md:text-[40px]">
-          {doc.title}
-        </h1>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <h1 className="mt-1 mb-2 font-display text-[32px] leading-tight font-medium tracking-tight md:text-[40px]">
+            {doc.title}
+          </h1>
+          <MarkdownActions
+            markdown={doc.markdown}
+            githubPath={`docs/rfc/${doc.fileName}`}
+          />
+        </div>
         <DepLinks label="Depends" ids={doc.depends} />
         <DepLinks label="Blocks" ids={doc.blocks} />
       </header>

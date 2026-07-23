@@ -131,6 +131,22 @@
     text-decoration-color: var(--accent);
   }
 
+  .markdown-actions {
+    @apply flex shrink-0 flex-wrap items-center gap-2 pt-1;
+  }
+
+  .markdown-action {
+    @apply inline-flex items-center gap-1.5 rounded-full border border-border-strong bg-card px-3 py-1.5 text-[12px] font-medium text-muted no-underline transition-colors;
+  }
+
+  .markdown-action:hover {
+    @apply border-accent text-fg;
+  }
+
+  .markdown-action:focus-visible {
+    @apply outline-2 outline-offset-2 outline-accent;
+  }
+
   .eyebrow {
     @apply font-mono text-[11px] uppercase tracking-[0.14em] text-muted;
   }

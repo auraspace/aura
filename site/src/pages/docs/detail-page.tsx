@@ -2,6 +2,7 @@ import { IconArrowLeft, IconArrowRight } from '@tabler/icons-react'
 import { useEffect } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
 
+import { MarkdownActions } from '@/components/markdown/markdown-actions'
 import { getAdjacentGuides, getGuideBySlug, getGuideNav } from '@/lib/docs'
 import { NotFoundPage } from '@/pages/not-found-page'
 
@@ -41,9 +42,15 @@ export function DocsDetailPage() {
 
       <header className="mb-6 mt-3">
         <p className="eyebrow">{doc.section}</p>
-        <h1 className="mt-2 font-display text-[32px] leading-tight font-medium tracking-tight md:text-[40px]">
-          {doc.title}
-        </h1>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <h1 className="mt-2 font-display text-[32px] leading-tight font-medium tracking-tight md:text-[40px]">
+            {doc.title}
+          </h1>
+          <MarkdownActions
+            markdown={doc.markdown}
+            githubPath={`docs/guide/${doc.fileName}`}
+          />
+        </div>
         {doc.summary ? (
           <p className="mt-3 max-w-[560px] text-[16px] leading-[1.55] text-muted">
             {doc.summary}
