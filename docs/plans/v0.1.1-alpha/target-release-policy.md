@@ -15,7 +15,9 @@ The release matrix contains exactly these Unix targets:
 
 `darwin-*` is the artifact target spelling for macOS. Linux arm64 and Windows
 targets are policy-only until their native artifact and installer acceptance
-evidence exists; they are not release claims in this alpha.
+evidence exists; they are not release claims in this alpha. The explicit
+non-claims are checked by JSON fixtures under
+`scripts/fixtures/target-policy/`.
 
 If a supported target fails preflight or release acceptance, it is removed
 from the published matrix and release assets until its native/cross acceptance

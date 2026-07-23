@@ -69,8 +69,8 @@ Build outputs (RFC-008) and CLI (RFC-012) need install and release contracts.
 The machine-readable policy is [`scripts/release-targets.tsv`](../../scripts/release-targets.tsv). `required` rows are built, checksum-checked, and installer-supported. `tier2` rows are explicit policy commitments only and must not be described as shipped until native build and install evidence exists.
 
 The current required artifact suffixes are `linux-amd64`, `darwin-arm64`, and
-`darwin-amd64`; Windows `windows-amd64` and `windows-arm64` are tier2 policy
-rows and have no release assets yet.
+`darwin-amd64`; `linux-arm64`, `windows-amd64`, and `windows-arm64` are tier2
+policy rows and have no release assets yet.
 
 | OS          | Arch                              |
 | ----------- | --------------------------------- |

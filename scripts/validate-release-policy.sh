@@ -13,6 +13,7 @@ package_script="${AURA_PACKAGE_SCRIPT_FILE:-scripts/package-release.sh}"
 installer="${AURA_INSTALLER_FILE:-scripts/install.sh}"
 rfc="${AURA_RELEASE_RFC_FILE:-docs/rfc/RFC-013-binary-distribution.md}"
 release_docs="${AURA_RELEASE_DOCS_FILE:-docs/releases/README.md}"
+target_fixture_dir="${AURA_TARGET_POLICY_FIXTURE_DIR:-scripts/fixtures/target-policy}"
 for file in "$manifest" "$workflow" "$package_script" "$installer" "$rfc" "$release_docs"; do
   [[ -f "$file" ]] || die "missing policy input: $file"
 done
@@ -41,6 +42,61 @@ while IFS=$'\t' read -r target tier runner format install acceptance; do
 done < "$manifest"
 
 [[ "$required" -gt 0 ]] || die "target manifest has no required targets"
+[[ -d "$target_fixture_dir" ]] || die "missing target policy fixture directory: $target_fixture_dir"
+
+# Tier2 rows are intentionally not release artifacts, but they still need a
+# machine-checkable, fail-closed policy fixture.
+python3 - "$manifest" "$target_fixture_dir" <<'PY'
+import json
+import pathlib
+import sys
+
+manifest_path = pathlib.Path(sys.argv[1])
+fixture_dir = pathlib.Path(sys.argv[2])
+rows = {}
+for line in manifest_path.read_text(encoding="utf-8").splitlines():
+    if not line.strip() or line.lstrip().startswith("#"):
+        continue
+    fields = line.split("\t")
+    target, tier, _runner, _format, install, acceptance = fields
+    rows[target] = {"tier": tier, "install": install, "acceptance": acceptance}
+
+tier2 = {target for target, row in rows.items() if row["tier"] == "tier2"}
+fixtures = {}
+for path in sorted(fixture_dir.glob("*.json")):
+    try:
+        record = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"invalid target policy fixture {path.name}: {exc}") from exc
+    target = record.get("target")
+    if not isinstance(target, str) or target in fixtures:
+        raise SystemExit(f"invalid or duplicate target policy fixture: {path.name}")
+    fixtures[target] = record
+
+if set(fixtures) != tier2:
+    raise SystemExit(
+        "target policy fixtures must exactly cover tier2 rows: "
+        f"expected={sorted(tier2)} actual={sorted(fixtures)}"
+    )
+
+for target in sorted(tier2):
+    record = fixtures[target]
+    row = rows[target]
+    if record.get("schema_version") != 1:
+        raise SystemExit(f"unsupported target policy fixture schema: {target}")
+    if record.get("tier") != "tier2":
+        raise SystemExit(f"target policy fixture is not tier2: {target}")
+    if record.get("artifact") != "not-produced":
+        raise SystemExit(f"tier2 fixture must not claim an artifact: {target}")
+    if record.get("acceptance") != "policy-only" or row["acceptance"] != "policy-only":
+        raise SystemExit(f"tier2 fixture acceptance must be policy-only: {target}")
+    if record.get("installer") != "deferred" or row["install"] != "deferred":
+        raise SystemExit(f"tier2 fixture installer status must be deferred: {target}")
+    if record.get("native_runner") is not False or record.get("production_claim") is not False:
+        raise SystemExit(f"tier2 fixture makes an unsupported production claim: {target}")
+    if not isinstance(record.get("reason"), str) or not record["reason"].strip():
+        raise SystemExit(f"tier2 fixture needs a non-empty limitation reason: {target}")
+PY
 rg -q 'validate-release-policy\.sh' "$workflow" || die "release workflow does not run policy validation"
 rg -q 'AURA_MINISIGN_SECRET_KEY' "$workflow" || die "release workflow has no minisign secret input"
 rg -q 'AURA_MINISIGN_PUBLIC_KEY' "$workflow" || die "release workflow has no minisign public-key input"
@@ -52,5 +108,5 @@ rg -q 'release-acceptance' "$workflow" || die "release workflow does not collect
 rg -q 'validate-release-bundle\.sh' "$workflow" || die "release workflow does not validate the release bundle"
 rg -q -- '--require-signature' "$workflow" || die "release workflow does not require signed bundle verification"
 rg -q 'AURA_VERIFY_SIGNATURE' scripts/release-signing.md || die "signing policy omits installer verification"
-info "validated $required required target(s) and tier2 policy rows"
+info "validated $required required target(s), tier2 policy fixtures, and signing policy"
 info "validated fail-closed minisign production path"

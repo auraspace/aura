@@ -2,5 +2,6 @@
 linux-amd64	required	ubuntu-latest	tar.gz	supported	native
 darwin-arm64	required	macos-14	tar.gz	supported	native
 darwin-amd64	required	macos-14	tar.gz	supported	cross-file
+linux-arm64	tier2	ubuntu-24.04-arm	tar.gz	deferred	policy-only
 windows-amd64	tier2	windows-latest	zip	deferred	policy-only
 windows-arm64	tier2	windows-11-arm	zip	deferred	policy-only

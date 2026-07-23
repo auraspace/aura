@@ -110,14 +110,15 @@ The source of truth is [`scripts/release-targets.tsv`](../../scripts/release-tar
 | macOS arm64  | `darwin-arm64`  | native on `macos-14`      |
 | macOS x86_64 | `darwin-amd64`  | cross-built on `macos-14` |
 
-Windows amd64 and arm64 are explicit tier2 policy targets. They are not
-required CI jobs, release artifacts, or installer targets until native
-acceptance evidence exists. Unsupported targets should use the
+Linux arm64 and Windows amd64/arm64 are explicit tier2 policy targets. They
+are not required CI jobs, release artifacts, or installer targets until native
+acceptance evidence exists. The non-claim is verified by JSON fixtures in
+`scripts/fixtures/target-policy/`. Unsupported targets should use the
 [source-install path](../guide/install.md#install-from-source-alpha) when
 their Rust and C toolchains are available.
 
-In machine-readable target names, these are `windows-amd64` and
-`windows-arm64`; both remain policy-only until native acceptance is added.
+In machine-readable target names, these are `linux-arm64`, `windows-amd64`, and
+`windows-arm64`; all remain policy-only until native acceptance is added.
 
 Production release tags require `AURA_MINISIGN_SECRET_KEY` and
 `AURA_MINISIGN_PUBLIC_KEY`; the workflow signs and verifies `SHA256SUMS` and

@@ -23,4 +23,17 @@ if AURA_RELEASE_WORKFLOW_FILE="$tmp/manifest.yml" bash scripts/validate-release-
   printf 'release policy test: validator missed manifest wiring drift\n' >&2
   exit 1
 fi
+
+cp -R scripts/fixtures/target-policy "$tmp/target-policy"
+rm "$tmp/target-policy/linux-arm64.json"
+if AURA_TARGET_POLICY_FIXTURE_DIR="$tmp/target-policy" bash scripts/validate-release-policy.sh >/dev/null 2>&1; then
+  printf 'release policy test: validator missed missing linux-arm64 policy fixture\n' >&2
+  exit 1
+fi
+cp scripts/fixtures/target-policy/linux-arm64.json "$tmp/target-policy/linux-arm64.json"
+sed -i 's/"production_claim": false/"production_claim": true/' "$tmp/target-policy/windows-amd64.json"
+if AURA_TARGET_POLICY_FIXTURE_DIR="$tmp/target-policy" bash scripts/validate-release-policy.sh >/dev/null 2>&1; then
+  printf 'release policy test: validator accepted an unsupported target claim\n' >&2
+  exit 1
+fi
 printf 'release policy tests: PASS\n'

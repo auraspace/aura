@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "target": "windows-arm64",
+  "tier": "tier2",
+  "artifact": "not-produced",
+  "acceptance": "policy-only",
+  "native_runner": false,
+  "installer": "deferred",
+  "production_claim": false,
+  "reason": "Windows arm64 packaging, installer, and native execution evidence are deferred in alpha."
+}
