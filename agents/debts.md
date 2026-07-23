@@ -15,15 +15,31 @@ When you resolve debt, update or remove the matching entry.
   through `aura_task_frame_set_error_span_with_clone`, and have native compile/
   run regression coverage. Compiler-generated `join` now returns
   `std.io.Result<T, String>` and maps failed, cancelled, and pending states to
-  typed `Err` values; the task-outcome corpus fixture covers the successful
-  typed-result path.
-- Why still deferred: failed generated tasks still leak an allocated primitive
-  error payload under LeakSanitizer; generated class payloads, suspended await
-  continuation failures, full `TaskError.Failed(error)` preservation, and
-  automatic completed-handle release remain open.
+  typed `Err` values; the task-outcome corpus fixture covers the failure path.
+- Why still deferred: generated class payloads, suspended await continuation
+  failures, full `TaskError.Failed(error)` preservation, and automatic
+  completed-handle release remain open. The no-await primitive failure leak was
+  fixed by allocating the result slot only after the body returns, avoiding a
+  `longjmp`-orphaned allocation; this does not close the broader ownership
+  contract.
 - Next step: connect generated class payload ownership and suspended await
   propagation to the clone/destroy boundary, then add cancellation and
   forced-GC evidence.
+
+### ASYNC-003 conditional await inside bounded loops remains partial (2026-07-23)
+
+- Area: compiler-generated async state-machine control flow
+- Progress: the C backend now lowers the bounded shape
+  `while (...) { if (cond) { val x: Int = await task } index = ... }` with
+  the loop index and child handle stored in the frame. False branches skip
+  task creation; pending true branches resume without repeating the
+  iteration. `aura-codegen` has a native regression covering both paths.
+- Why still deferred: arbitrary nested loops, multiple conditional awaits,
+  break/continue, branch-local values, and richer payload types still fall
+  back to the existing bounded-shape rejection path.
+- Next step: generalize the control-flow graph/state numbering after the
+  compiler has frame-root and typed-outcome ownership support for those
+  additional shapes.
 
 ### SAN-002 broader compiler-generated ownership remains out of scope (resolved mandatory gate, 2026-07-23)
 

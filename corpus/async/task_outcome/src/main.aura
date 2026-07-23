@@ -4,7 +4,7 @@ package demo.task_outcome
 import std.io as Io
 
 async fun answer(): Int {
-  return 7
+  throw 7
 }
 
 fun main() {

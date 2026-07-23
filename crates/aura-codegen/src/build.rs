@@ -1032,6 +1032,55 @@ async fun sum(task: Task<Int>): Int {
     }
 
     #[test]
+    fn builds_and_runs_conditional_await_inside_loop() {
+        let source = r#"package demo
+async fun worker(value: Int): Int { println("hit") return value }
+async fun count(flag: Bool, limit: Int): Int {
+  var i: Int = 0
+  while (i < limit) {
+    if (flag) {
+      val value: Int = await worker(i)
+    }
+    i = i + 1
+  }
+  return i
+}
+fun main() {
+  val first = spawn { val result: Int = await count(true, 3) return }
+  join(first)
+  val second = spawn { val result: Int = await count(false, 3) return }
+  join(second)
+}
+"#;
+        let file = parse_file(source).expect("parse conditional loop-await fixture");
+        let generated = emit_c_from_ast(&file).expect("emit conditional loop-await fixture");
+        assert!(generated.contains("/* aura async conditional loop suspension state=1"));
+        assert!(generated.contains("data->await_task = aura_fn_demo_worker(i);"));
+        assert!(generated.contains("if (flag)"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-conditional-loop-await-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile conditional loop-await fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run conditional loop-await fixture");
+        assert!(
+            output.status.success(),
+            "conditional loop-await fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "hit\nhit\nhit\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_branch_join_await_state_machine() {
         let file = aura_parser::parse_file(
             r#"package demo
@@ -1258,6 +1307,13 @@ fun main() {
         let generated_c = dir.join(format!("{stem}.aura.c"));
         build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
             .expect("compile catchable join failure fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run catchable join failure fixture");
+        assert!(
+            output.status.success(),
+            "catchable join failure fixture failed: {output:?}"
+        );
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);
     }
