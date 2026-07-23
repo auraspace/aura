@@ -718,3 +718,23 @@ When you resolve debt, update or remove the matching entry.
 - A live production registry, signing key, and network publish/update smoke are
   still unavailable in this environment; the validator intentionally rejects
   any report that claims those checks.
+
+### ASYNC-002 task outcome representation remains open (2026-07-23)
+
+- The runtime can propagate an async failure into task state, but generated
+  `join` still aborts on `FAILED`/`CANCELLED` rather than exposing a typed,
+  inspectable outcome to Aura code. Removing that abort alone would not define
+  payload ownership, cleanup, or repeated-join semantics.
+- Next step: specify and implement a persistent task-outcome API covering
+  success, failure, cancellation, payload lifetime, and repeated joins, then
+  add native and sanitizer-backed corpus evidence before closing ASYNC-002.
+
+### REG-002 signature trust remains open (2026-07-23)
+
+- Offline registry acceptance verifies receipts and checksums, but the
+  implementation does not yet verify cryptographic signatures or enforce a
+  trusted signer policy. Production credentials and a live registry are also
+  unavailable here, so the matrix remains partial.
+- Next step: add a versioned signature format, trusted-key verification,
+  tamper/replay rejection tests, and a credential-gated live acceptance path;
+  keep offline checks fail-closed until those checks are present.
