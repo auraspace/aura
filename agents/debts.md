@@ -662,3 +662,12 @@ When you resolve debt, update or remove the matching entry.
   strings under LeakSanitizer.
 - The success path now returns normally; error paths retain explicit non-zero
   exits, and `scripts/install-smoke.sh --local-pkg` covers the regression.
+
+### Aura HTTP primitive boundary remains synchronous (2026-07-23)
+
+- `examples/http-health-aura` and `scripts/http-aura-smoke.sh` provide a
+  runnable Aura-to-native HTTP status/response and loopback TCP fixture under
+  sanitizers.
+- Typed `AuraTcp*` handles, package-level `std.net` imports, async handler
+  suspension, keep-alive, and response backpressure remain deferred to the
+  full HTTP/FFI workstream; the contract matrix therefore stays `partial`.
