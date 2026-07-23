@@ -1,0 +1,15 @@
+id	positive_fixture	negative_fixture	note
+COMP-001	corpus/hello/main.aura	corpus/diag/undefined.aura	basic source acceptance and undefined-name rejection
+COMP-002	corpus/generic/id.aura	corpus/diag/generic_iface.aura	generic source acceptance and invalid generic interface rejection
+COMP-003	corpus/import/app/aura.toml	corpus/diag/undefined.aura	package graph acceptance and compiler rejection boundary
+COMP-004	corpus/test/smoke.aura	corpus/diag/multi_error.aura	test runner acceptance and deterministic multi-error diagnostics
+DIAG-001	corpus/diag/undefined.aura	corpus/hello/main.aura	pretty diagnostic is expected only for invalid input
+DIAG-003	corpus/diag/multi_error.aura	corpus/hello/main.aura	multiple diagnostics stay distinct from a clean source
+RUNTIME-001	corpus/hello/main.aura	corpus/diag/undefined.aura	native runtime execution and pre-runtime compile failure
+IO-001	corpus/std_io/args/aura.toml	corpus/diag/async_await_unsupported.aura	std.io execution and unsupported async boundary
+BUILD-001	corpus/hello/main.aura	corpus/diag/undefined.aura	executable build and rejected source
+BUILD-003	corpus/import/app/aura.toml	corpus/diag/undefined.aura	package build/check and rejected source
+REG-001	corpus/import/app/aura.lock	corpus/diag/undefined.aura	locked offline dependency and rejected source
+SAN-001	scripts/sanitizer-smoke.sh	corpus/diag/undefined.aura	sanitizer gate and rejected source
+REL-001	scripts/package-release.sh	corpus/diag/undefined.aura	release archive path and rejected source
+REL-002	scripts/install-smoke.sh	corpus/diag/undefined.aura	install smoke path and rejected source

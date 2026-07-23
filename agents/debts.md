@@ -565,3 +565,10 @@ When you resolve debt, update or remove the matching entry.
 - The compiler now exposes deterministic `await` suspension-point IDs and
   source-span metadata, but does not hoist live locals or generate executable
   resume edges. Those require the A5/A6 frame and runtime dependencies.
+
+### C5 corpus split scope (2026-07-23)
+
+- The positive/negative corpus manifest covers the 14 `alpha-required` matrix
+  rows. Partial and deferred rows remain outside the executable C5 claim until
+  their dependencies are implemented; extend the manifest as each dependency
+  closes.

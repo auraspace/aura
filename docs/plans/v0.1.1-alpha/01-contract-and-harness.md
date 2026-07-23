@@ -34,7 +34,7 @@ requirement with an owner and a release status.
 - [x] Link each requirement to the relevant accepted design decision without
       copying implementation assumptions into the contract.
 - [x] Define `implemented`, `partial`, `blocked`, `deferred`, and `out of
-  scope` consistently.
+scope` consistently.
 - [x] Assign one workstream owner and one acceptance fixture to every gate.
 - [x] Record which claims require native execution and which are compile-only.
 
@@ -151,7 +151,7 @@ implementation changes.
 
 - [x] Separate syntax, diagnostics, type checking, generated output, runtime,
       async, I/O, HTTP, build, registry, and FFI fixtures.
-- [ ] Add positive and negative cases for every mandatory contract.
+- [x] Add positive and negative cases for every alpha-required contract row.
 - [x] Record expected failures explicitly with a reason and owner.
 - [x] Make golden updates reviewable and deterministic.
 
@@ -161,6 +161,19 @@ affected subsystem.
 **Verification:** Run the corpus by stage and compare repeated outputs.
 
 **Dependencies:** C1, C4.
+
+**Implementation status (bounded C5 slice):**
+`docs/plans/v0.1.1-alpha/corpus-split.tsv` pairs all 14
+`alpha-required` rows from `contract-matrix.tsv` with a reviewable positive
+fixture and expected-failure fixture. `scripts/validate-corpus-split.sh`
+validates the schema, unique IDs, repository-relative paths, and fixture
+existence; `scripts/tests/validate-corpus-split.sh` also proves duplicate IDs
+are rejected. The existing compiler regression and stage harnesses execute the
+listed fixtures; deferred and partial matrix rows are intentionally not
+claimed by this bounded artifact.
+
+**Verification:** Run `bash scripts/tests/validate-corpus-split.sh`, then the
+backend/regression stages to execute the corpus cases.
 
 ## C6. Clean-host baseline
 
