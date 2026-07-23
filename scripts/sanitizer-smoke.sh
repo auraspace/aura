@@ -13,8 +13,23 @@ if [[ "${AURA_SANITIZER_CC:-}" == "1" ]]; then
     "$@"
 fi
 
+native_only=0
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --native-only)
+      native_only=1
+      shift
+      ;;
+    *)
+      printf 'sanitizer smoke: unknown argument: %s\n' "$1" >&2
+      exit 1
+      ;;
+  esac
+done
+
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
+manifest="${SANITIZER_SEEDS_MANIFEST:-$root/runtime/tests/sanitizer-seeds.tsv}"
 
 # Keep every sanitizer fixture tied to a deterministic seed and minimized
 # reproducer before running the smoke matrix.
@@ -36,97 +51,40 @@ fi
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
-printf 'sanitizer smoke: http-parser-fuzz\n'
-"$real_cc" -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined \
-  -fno-omit-frame-pointer -o "$tmp/http-parser-fuzz" runtime/tests/http_parser_fuzz.c
-ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0:halt_on_error=1}" \
-  UBSAN_OPTIONS="${UBSAN_OPTIONS:-halt_on_error=1:print_stacktrace=1}" \
-  "$tmp/http-parser-fuzz"
+native_asan_options="${AURA_SANITIZER_NATIVE_ASAN_OPTIONS:-detect_leaks=1:halt_on_error=1}"
+aura_asan_options="${AURA_SANITIZER_AURA_ASAN_OPTIONS:-detect_leaks=0:halt_on_error=1}"
+ubsan_options="${UBSAN_OPTIONS:-halt_on_error=1:print_stacktrace=1}"
 
-printf 'sanitizer smoke: http-hardening\n'
-"$real_cc" -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined \
-  -fno-omit-frame-pointer -o "$tmp/http-hardening" runtime/tests/http_hardening.c
-ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0:halt_on_error=1}" \
-  UBSAN_OPTIONS="${UBSAN_OPTIONS:-halt_on_error=1:print_stacktrace=1}" \
-  "$tmp/http-hardening"
-
-printf 'sanitizer smoke: http-health\n'
-"$real_cc" -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined \
-  -fno-omit-frame-pointer -o "$tmp/http-health" examples/http-health/http_health.c
-ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0:halt_on_error=1}" \
-  UBSAN_OPTIONS="${UBSAN_OPTIONS:-halt_on_error=1:print_stacktrace=1}" \
-  "$tmp/http-health"
-
-printf 'sanitizer smoke: http-async\n'
-"$real_cc" -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined \
-  -fno-omit-frame-pointer -o "$tmp/http-async" runtime/tests/http_async.c
-ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0:halt_on_error=1}" \
-  UBSAN_OPTIONS="${UBSAN_OPTIONS:-halt_on_error=1:print_stacktrace=1}" \
-  "$tmp/http-async"
-
-printf 'sanitizer smoke: task-waiter\n'
-"$real_cc" -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined \
-  -fno-omit-frame-pointer -o "$tmp/task-waiter" runtime/tests/task_waiter.c
-ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0:halt_on_error=1}" \
-  UBSAN_OPTIONS="${UBSAN_OPTIONS:-halt_on_error=1:print_stacktrace=1}" \
-  "$tmp/task-waiter"
-
-printf 'sanitizer smoke: exception-payload-cleanup\n'
-"$real_cc" -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined \
-  -fno-omit-frame-pointer -o "$tmp/exception-payload-cleanup" \
-  runtime/tests/exception_payload_cleanup.c
-ASAN_OPTIONS="detect_leaks=1:halt_on_error=1" \
-  UBSAN_OPTIONS="${UBSAN_OPTIONS:-halt_on_error=1:print_stacktrace=1}" \
-  "$tmp/exception-payload-cleanup"
-
-printf 'sanitizer smoke: task-dependency\n'
-"$real_cc" -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined \
-  -fno-omit-frame-pointer -o "$tmp/task-dependency" runtime/tests/task_dependency.c
-ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0:halt_on_error=1}" \
-  UBSAN_OPTIONS="${UBSAN_OPTIONS:-halt_on_error=1:print_stacktrace=1}" \
-  "$tmp/task-dependency"
-
-printf 'sanitizer smoke: task-io-cleanup\n'
-"$real_cc" -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined \
-  -fno-omit-frame-pointer -o "$tmp/task-io-cleanup" \
-  runtime/tests/task_io_cleanup_sanitizer.c
-ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0:halt_on_error=1}" \
-  UBSAN_OPTIONS="${UBSAN_OPTIONS:-halt_on_error=1:print_stacktrace=1}" \
-  "$tmp/task-io-cleanup"
-
-printf 'sanitizer smoke: task-fd-wait\n'
-"$real_cc" -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined \
-  -fno-omit-frame-pointer -o "$tmp/task-fd-wait" runtime/tests/task_fd_wait.c
-ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0:halt_on_error=1}" \
-  UBSAN_OPTIONS="${UBSAN_OPTIONS:-halt_on_error=1:print_stacktrace=1}" \
-  "$tmp/task-fd-wait"
-
-printf 'sanitizer smoke: task-frame-gc-roots\n'
-"$real_cc" -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined \
-  -fno-omit-frame-pointer -o "$tmp/task-frame-gc-roots" \
-  runtime/tests/task_frame_gc_roots.c
-ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0:halt_on_error=1}" \
-  UBSAN_OPTIONS="${UBSAN_OPTIONS:-halt_on_error=1:print_stacktrace=1}" \
-  "$tmp/task-frame-gc-roots"
-
-printf 'sanitizer smoke: task-outcome-api\n'
-"$real_cc" -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined \
-  -fno-omit-frame-pointer -o "$tmp/task-outcome-api" \
-  runtime/tests/task_outcome_api.c
-ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0:halt_on_error=1}" \
-  UBSAN_OPTIONS="${UBSAN_OPTIONS:-halt_on_error=1:print_stacktrace=1}" \
-  "$tmp/task-outcome-api"
-
-for fixture in ffi_owned ffi_handles ffi_callbacks ffi_net; do
+run_native_fixture() {
+  local fixture="$1"
+  local source="$2"
+  local output="$tmp/$fixture"
+  local extra=()
+  if ! grep -q 'AURA_RUNTIME_NO_MAIN' "$source"; then
+    extra=(-D AURA_RUNTIME_NO_MAIN)
+  fi
   printf 'sanitizer smoke: %s\n' "$fixture"
-  "$real_cc" -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined \
-    -fno-omit-frame-pointer -o "$tmp/$fixture" "runtime/tests/$fixture.c"
-  ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0:halt_on_error=1}" \
-    UBSAN_OPTIONS="${UBSAN_OPTIONS:-halt_on_error=1:print_stacktrace=1}" \
-    "$tmp/$fixture"
-done
+  "$real_cc" "${extra[@]}" -std=c11 -Wall -Wextra -Werror \
+    -fsanitize=address,undefined -fno-omit-frame-pointer \
+    -o "$output" "$source"
+  ASAN_OPTIONS="$native_asan_options" \
+    UBSAN_OPTIONS="$ubsan_options" \
+    "$output"
+}
 
-bash scripts/async-io-ffi-smoke.sh
+while IFS=$'\t' read -r fixture seed source command; do
+  [[ "$fixture" == "fixture" ]] && continue
+  run_native_fixture "$fixture" "$source"
+done < "$manifest"
+
+ASAN_OPTIONS="$native_asan_options" \
+  UBSAN_OPTIONS="$ubsan_options" \
+  bash scripts/async-io-ffi-smoke.sh
+
+if [[ "$native_only" == "1" ]]; then
+  printf 'sanitizer smoke: native fixtures passed\n'
+  exit 0
+fi
 
 run_aura() {
   local label="$1"
@@ -135,8 +93,8 @@ run_aura() {
   AURA_SANITIZER_CC=1 \
     AURA_SANITIZER_REAL_CC="$real_cc" \
     CC="$0" \
-    ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0:halt_on_error=1}" \
-    UBSAN_OPTIONS="${UBSAN_OPTIONS:-halt_on_error=1:print_stacktrace=1}" \
+    ASAN_OPTIONS="$aura_asan_options" \
+    UBSAN_OPTIONS="$ubsan_options" \
     "$bin" "$@"
 }
 
@@ -156,6 +114,8 @@ run_aura std-io-files run corpus/std_io/files/aura.toml
 run_aura lambdas run corpus/fun/lambda_memory_safety.aura
 run_aura examples-wc run examples/wc -- "$tmp/wc-input.txt"
 run_aura http-health-cli run examples/http-health-cli
-bash scripts/http-aura-smoke.sh
+ASAN_OPTIONS="$aura_asan_options" \
+  UBSAN_OPTIONS="$ubsan_options" \
+  bash scripts/http-aura-smoke.sh
 
 printf 'sanitizer smoke: all cases passed\n'

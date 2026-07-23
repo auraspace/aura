@@ -738,3 +738,12 @@ When you resolve debt, update or remove the matching entry.
   release artifact's minisign key remain unavailable in this environment; the
   matrix therefore stays partial. Keep those claims separate from the offline
   metadata-signing evidence.
+
+### SAN-002 compiler-generated ownership breadth remains open (updated 2026-07-23)
+
+- The sanitizer gate now compiles and executes every deterministic runtime seed
+  in `runtime/tests/sanitizer-seeds.tsv`, including older channel/executor
+  fixtures that were previously only listed, with ASAN/UBSAN and leak checks.
+- This closes the manifest-to-gate coverage gap but does not prove exhaustive
+  compiler-generated frame layouts or foreign-host behavior; SAN-002 remains
+  partial until those ownership boundaries have dedicated generated fixtures.
