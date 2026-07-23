@@ -61,7 +61,9 @@ exists.
 - [x] Preserve bounded captured values across a first-statement `await` in a
       spawn body; materialize temporary Array/Fun views only after child
       completion. Arbitrary suspension placement remains open.
-- [ ] Support Int, String, class, Array, and Fun captures.
+- [x] Support Int, String, class, bounded Array<Int>/Array<String>, and Fun
+      captures in the shipped one-shot `val` subset; generic Array elements,
+      transfer, arbitrary suspension, and cancellation ownership remain open.
 - [x] Register, mark, release, and destroy captures with the frame. The
       bounded runtime slice roots owned capture storage, releases the root on
       replacement or frame destruction, and invokes its destroy callback once.

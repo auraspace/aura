@@ -631,10 +631,11 @@ When you resolve debt, update or remove the matching entry.
 - The compiler now copies `Int` parameters and explicitly typed local bindings,
   heap-duplicates `String` parameters and locals, roots class pointers, and
   deep-clones `Array<Int>`/`Array<String>` parameters and explicitly typed
-  locals, and retains `Fun`
-  environments used by the bounded one-shot spawn subset in frame data. Other
-  Array element types, transfer, arbitrary await placement, and cancellation
-  ownership remain deferred until the complete frame ABI is available; extend
-  the capture representation before claiming those types. A bounded
-  first-statement `await` now materializes captured values after child
-  completion, covered by the native codegen fixture.
+  locals, and retains `Fun` environments used by the bounded one-shot spawn
+  subset in frame data. These five capture categories are covered by native
+  codegen fixtures. Other Array element types, transfer, arbitrary await
+  placement, and cancellation ownership remain deferred until the complete
+  frame ABI is available; extend the capture representation before claiming
+  those broader types. A bounded first-statement `await` now materializes
+  captured values after child completion, covered by the native codegen
+  fixture.
