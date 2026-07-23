@@ -198,7 +198,8 @@ installed-release path remain open.
       the Aura-level example remains open.
 - [x] Exercise bind/connect, exchange, malformed-request error, and shutdown
       paths in the native companion.
-- [ ] Run the example from the CLI on Linux and macOS.
+- [x] Run the bounded primitive-FFI example from the CLI on Linux;
+      macOS execution remains open.
 - [x] Capture native logs, exit status, and cleanup result in the smoke script
       and `examples/http-health/README.md`; installed-release and macOS data
       remain open.

@@ -598,11 +598,12 @@ When you resolve debt, update or remove the matching entry.
   exchange, malformed-request error mapping, async task progress, and
   deterministic shutdown through `aura_rt.c`; its smoke script records output
   and exit status under ASAN/UBSAN.
-- The requested CLI/Aura-level example and installed-release journey remain
-  deferred because the stdlib does not yet expose the TCP handles and async
-  HTTP integration required by H5/IO6.
-- Next step: add documented Aura TCP bindings after async operation lowering;
-  then port this companion to `aura run` and record Linux/macOS results.
+- A bounded `aura run examples/http-health-cli` entrypoint now calls
+  the primitive `aura_http_health_smoke(): Int` bridge and is included in the
+  sanitizer matrix. The full typed Aura TCP handle API and installed-release
+  journey remain deferred.
+- Next step: run the CLI entrypoint on macOS and replace the primitive bridge
+  with documented typed bindings after the broader async API is frozen.
 
 ### Race report command integration (2026-07-22)
 

@@ -1,0 +1,16 @@
+package http_health_cli
+
+import std.io as Io
+
+// Bounded CLI bridge: the opaque HTTP runtime stays native while Aura owns
+// the documented command entrypoint and exit status.
+@foreign(library = "m", target = "native", link = "dynamic", abi = 1, abi_id = "c")
+extern "C" fun aura_http_health_smoke(): Int
+
+fun main() {
+  val status: Int = aura_http_health_smoke()
+  if (status != 0) {
+    Io.exit(status)
+  }
+  println("http-health-cli: passed")
+}

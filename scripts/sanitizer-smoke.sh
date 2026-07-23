@@ -116,5 +116,6 @@ run_aura gc run corpus/class/gc_nested_churn.aura
 run_aura exceptions run corpus/control/exception_payload_cleanup.aura
 run_aura lambdas run corpus/fun/lambda_memory_safety.aura
 run_aura examples-wc run examples/wc -- "$tmp/wc-input.txt"
+run_aura http-health-cli run examples/http-health-cli
 
 printf 'sanitizer smoke: all cases passed\n'
