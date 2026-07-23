@@ -9,7 +9,8 @@ use aura_sema::{CheckedFile, Ty};
 use crate::ctx::EmitCtx;
 use crate::expr::{
     array_field_move_out_lvalue, coerce_expr, emit_expr, full_type_mono, infer_type_name,
-    mono_base_name, mono_split, resolve_type_name,
+    mono_base_name, mono_split, owned_string_copy_expr, resolve_type_name,
+    string_expr_is_owned_temp,
 };
 use crate::names::*;
 
@@ -282,15 +283,41 @@ fn is_array_ctor_expr(e: &Expr) -> bool {
     }
 }
 
-fn string_call_owns_result(e: &Expr, ctx: &EmitCtx<'_>) -> bool {
+pub(crate) fn string_call_owns_result(e: &Expr, ctx: &EmitCtx<'_>) -> bool {
     let Expr::Call(call) = e else {
         return false;
     };
+    // Aura function and foreign-call results have transfer ownership at the
+    // call boundary when their declared return type is String. This also
+    // covers user helpers such as `takeLines`, not only builtins.
+    if infer_type_name(e, ctx) == "String" {
+        return true;
+    }
     match call.callee.as_ref() {
         Expr::Ident(id) => matches!(id.name.as_str(), "readFile" | "tryReadFile"),
         Expr::Field(field) => {
-            let receiver = resolve_type_name(&field.object, ctx).unwrap_or_default();
-            (receiver.starts_with("Array_String") && field.field.name == "get")
+            if matches!(field.object.as_ref(), Expr::Ident(id) if ctx.checked.ast.imports.iter().any(|imp| imp.alias.as_ref().is_some_and(|alias| alias.name == id.name)))
+                && matches!(field.field.name.as_str(), "readFile" | "tryReadFile")
+            {
+                return true;
+            }
+            let receiver_is_array_string_get = match field.object.as_ref() {
+                Expr::Call(inner) => match inner.callee.as_ref() {
+                    Expr::Field(get_field) if get_field.field.name == "get" => {
+                        let get_receiver = resolve_type_name(&get_field.object, ctx)
+                            .or_else(|| Some(infer_type_name(&get_field.object, ctx)))
+                            .unwrap_or_default();
+                        get_receiver.starts_with("Array_String")
+                    }
+                    _ => false,
+                },
+                _ => false,
+            };
+            let receiver = resolve_type_name(&field.object, ctx)
+                .or_else(|| Some(infer_type_name(&field.object, ctx)))
+                .unwrap_or_default();
+            (receiver_is_array_string_get
+                || (receiver.starts_with("Array_String") && field.field.name == "get"))
                 || (receiver == "Int" && field.field.name == "toString")
                 || (receiver == "String"
                     && matches!(
@@ -341,9 +368,27 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
             if needs_box || needs_ptr_box {
                 ctx.mark_box_owner(&v.name.name);
             }
-            if ty_name == "String"
-                && (matches!(&v.init, Expr::Binary(_)) || string_call_owns_result(&v.init, ctx))
-            {
+            let string_owned_init = ty_name == "String" && string_expr_is_owned_temp(&v.init, ctx);
+            let string_move_src = if ty_name == "String" {
+                match &v.init {
+                    Expr::Ident(id) if ctx.is_string_owner(&id.name) => Some(id.name.clone()),
+                    Expr::ForceUnwrap(force) if matches!(force.expr.as_ref(), Expr::Ident(_)) => {
+                        let Expr::Ident(id) = force.expr.as_ref() else {
+                            unreachable!()
+                        };
+                        ctx.is_string_owner(&id.name).then(|| id.name.clone())
+                    }
+                    _ => None,
+                }
+            } else {
+                None
+            };
+            // A mutable String must always own its initial value. Borrowed
+            // parameters and literals are copied; owned expressions transfer
+            // directly; an owned identifier is moved below after emission.
+            let string_copy_init =
+                ty_name == "String" && v.mutable && !string_owned_init && string_move_src.is_none();
+            if string_owned_init || string_move_src.is_some() || string_copy_init {
                 ctx.mark_string_owner(&v.name.name);
             }
             if ty_name.starts_with("Channel_")
@@ -432,6 +477,11 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                 ctx.mark_fun_owner(&v.name.name);
             }
             let init = coerce_expr(&v.init, &ty_name, ctx);
+            let init = if string_copy_init {
+                owned_string_copy_expr(init, v.init.span())
+            } else {
+                init
+            };
             let dst = mangle_ident(&v.name.name);
             if needs_box {
                 let (box_ty, new_fn) = match ty_name.as_str() {
@@ -479,6 +529,11 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                 );
             } else {
                 let _ = writeln!(out, "{p}{ty} {dst} = {init};");
+            }
+            if let Some(src) = string_move_src {
+                let source = mangle_ident(&src);
+                let _ = writeln!(out, "{p}{source} = NULL;");
+                ctx.unmark_string_owner(&src);
             }
             if ctx.detector {
                 let _ = writeln!(
@@ -551,6 +606,7 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
             emit_remove_gc_roots(out, indent + 2, &ctx.gc_roots_current());
             emit_free_array_owners(out, indent + 2, ctx, &ctx.array_owners_current());
             emit_free_fun_owners(out, indent + 2, ctx, &ctx.fun_owners_current());
+            emit_free_string_owners(out, indent + 2, &ctx.string_owners_current());
             emit_release_box_locals(out, indent + 2, ctx, &ctx.box_owners_current());
             ctx.pop_scope();
             let _ = writeln!(out, "{p}  }}");
@@ -586,6 +642,7 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                 emit_remove_gc_roots(out, indent + 2, &ctx.gc_roots_current());
                 emit_free_array_owners(out, indent + 2, ctx, &ctx.array_owners_current());
                 emit_free_fun_owners(out, indent + 2, ctx, &ctx.fun_owners_current());
+                emit_free_string_owners(out, indent + 2, &ctx.string_owners_current());
                 emit_release_box_locals(out, indent + 2, ctx, &ctx.box_owners_current());
                 ctx.pop_scope();
                 let _ = writeln!(out, "{p}  }}");
@@ -621,6 +678,7 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                 emit_remove_gc_roots(out, indent + 2, &ctx.gc_roots_current());
                 emit_free_array_owners(out, indent + 2, ctx, &ctx.array_owners_current());
                 emit_free_fun_owners(out, indent + 2, ctx, &ctx.fun_owners_current());
+                emit_free_string_owners(out, indent + 2, &ctx.string_owners_current());
                 emit_release_box_locals(out, indent + 2, ctx, &ctx.box_owners_current());
                 ctx.pop_scope();
                 let _ = writeln!(out, "{p}  }}");
@@ -661,6 +719,7 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                 emit_remove_gc_roots(out, indent + 2, &ctx.gc_roots_current());
                 emit_free_array_owners(out, indent + 2, ctx, &ctx.array_owners_current());
                 emit_free_fun_owners(out, indent + 2, ctx, &ctx.fun_owners_current());
+                emit_free_string_owners(out, indent + 2, &ctx.string_owners_current());
                 emit_release_box_locals(out, indent + 2, ctx, &ctx.box_owners_current());
                 ctx.pop_scope();
                 let _ = writeln!(out, "{p}  }}");
@@ -730,6 +789,7 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                 emit_remove_gc_roots(out, indent + 2, &ctx.gc_roots_current());
                 emit_free_array_owners(out, indent + 2, ctx, &ctx.array_owners_current());
                 emit_free_fun_owners(out, indent + 2, ctx, &ctx.fun_owners_current());
+                emit_free_string_owners(out, indent + 2, &ctx.string_owners_current());
                 emit_release_box_locals(out, indent + 2, ctx, &ctx.box_owners_current());
                 ctx.pop_scope();
                 let _ = writeln!(out, "{p}  }}");

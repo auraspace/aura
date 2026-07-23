@@ -33,8 +33,8 @@ fun countWords(text: String): Int {
     }
     val segs = line.split(" ")
     for (j in 0..segs.len) {
-      // C13b: method-on-temp — trim directly on Array.get result.
-      val w = segs.get(j).trim()
+      val rawWord = segs.get(j)
+      val w = rawWord.trim()
       if (!w.isEmpty()) {
         words = words + 1
       }
@@ -69,7 +69,8 @@ fun takeLines(text: String, n: Int): String {
   }
   var out = parts.get(0)
   for (i in 1..limit) {
-    out = out + "\n" + parts.get(i)
+    val part = parts.get(i)
+    out = out + "\n" + part
   }
   return out
 }
@@ -140,7 +141,8 @@ fun main() {
 
   var i = 1
   while (i < argv.len) {
-    val arg = argv.get(i)
+    // Copy the argv element so the loop owns a normal String value.
+    val arg = argv.get(i) + ""
     if (arg == "-h" || arg == "--help") {
       printUsage()
       Io.exit(0)
@@ -151,8 +153,9 @@ fun main() {
         printUsage()
         Io.exit(1)
       }
-      // C13b: chain trim/toInt on argv.get temp.
-      val parsed = argv.get(i).trim().toInt()
+      val rawNumber = argv.get(i)
+      val trimmedNumber = rawNumber.trim()
+      val parsed = trimmedNumber.toInt()
       if (parsed == null) {
         Io.eprintln("wc: invalid -n value (need decimal Int)")
         Io.exit(1)
@@ -195,7 +198,7 @@ fun main() {
         printUsage()
         Io.exit(1)
       }
-      path = arg
+      path = arg + ""
       pathSet = true
     }
     i = i + 1
@@ -218,7 +221,8 @@ fun main() {
     Io.exit(1)
   }
 
-  var text = body!!
+  // Make an independent owner instead of aliasing the nullable body binding.
+  var text = body!! + ""
   if (maxLines >= 0) {
     text = takeLines(text, maxLines)
   }
@@ -246,7 +250,7 @@ fun main() {
   }
   out = out + " " + path
   Io.println(out)
-  // Exit before scope drop: Io.args() holds process argv (not malloc'd);
-  // Array<String> free of those pointers SIGABRTs (see agents/debts.md).
-  Io.exit(0)
+  // Return through the normal function teardown so owned temporary strings
+  // and Array<String> buffers are released before process exit.
+  return
 }

@@ -654,3 +654,11 @@ When you resolve debt, update or remove the matching entry.
   those broader types. A bounded first-statement `await` now materializes
   captured values after child completion, covered by the native codegen
   fixture.
+
+### examples/wc exit teardown (resolved 2026-07-23)
+
+- `examples/wc` previously called `Io.exit(0)` after printing, bypassing the
+  generated function teardown and leaking owned `Array<String>`/temporary
+  strings under LeakSanitizer.
+- The success path now returns normally; error paths retain explicit non-zero
+  exits, and `scripts/install-smoke.sh --local-pkg` covers the regression.

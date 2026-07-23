@@ -1400,6 +1400,63 @@ fun main() {
     }
 
     #[test]
+    fn evaluates_owned_rhs_before_string_and_array_drop() {
+        let file = aura_parser::parse_file(
+            r#"package demo
+fun appendMark(text: String): String {
+  return text + "!"
+}
+fun makeWords(seed: String): Array<String> {
+  val words: Array<String> = Array(0)
+  words.push(seed)
+  return words
+}
+fun main() {
+  var text = "a"
+  var i = 0
+  while (i < 3) {
+    text = appendMark(text)
+    i = i + 1
+  }
+  var rows: Array<String> = Array(0)
+  var j = 0
+  while (j < 2) {
+    val next = makeWords(text)
+    rows = next.clone()
+    j = j + 1
+  }
+  val copy = rows.clone()
+  for (k in 0..copy.len) {
+    println(copy.get(k))
+  }
+  println(text)
+}
+"#,
+        )
+        .expect("parse ownership evaluation-order fixture");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-owned-rhs-order-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile ownership evaluation-order fixture");
+        let generated = fs::read_to_string(&generated_c).expect("read generated ownership C");
+        assert!(generated.contains("__aura_string_rhs_"));
+        assert!(generated.contains("__aura_array_rhs_"));
+        let output = Command::new(&bin)
+            .output()
+            .expect("run ownership evaluation-order fixture");
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "a!!!\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn unsupported_spawn_body_keeps_stable_failure_path() {
         let file = aura_parser::parse_file(
             "package demo\nfun main() { val task = spawn { val later = 1 } cancel(task) }\n",

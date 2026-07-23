@@ -121,6 +121,15 @@ pub(crate) fn emit_array_contents_free(
     let _ = writeln!(out, "{p}}}");
 }
 
+/// Return deep cleanup for an Array lvalue inside a statement expression.
+/// Assignment codegen evaluates the RHS before running this cleanup, while
+/// using the same element-aware drop as lexical scope teardown.
+pub(crate) fn array_contents_free_expr(name_c: &str, ty_key: &str) -> String {
+    let mut out = String::new();
+    emit_array_contents_free(&mut out, 0, name_c, ty_key);
+    out
+}
+
 /// C13d: heap-copy a `const char *` into `__sc` (NULL → NULL); aborts on OOM.
 fn emit_string_heap_copy(out: &mut String, src_expr: &str, dst_var: &str) {
     let _ = writeln!(out, "  const char *{dst_var} = NULL;");

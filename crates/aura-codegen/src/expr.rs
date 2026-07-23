@@ -539,6 +539,29 @@ pub(crate) fn race_write(code: String, lvalue: &str, span: Span, ctx: &EmitCtx<'
     )
 }
 
+/// Whether evaluating this String expression produces a temporary allocation
+/// that a consuming expression must release after copying or inspection.
+pub(crate) fn string_expr_is_owned_temp(e: &Expr, ctx: &EmitCtx<'_>) -> bool {
+    match e {
+        Expr::Binary(b) => matches!(b.op, BinOp::Add),
+        Expr::Call(_) => crate::stmt::string_call_owns_result(e, ctx),
+        Expr::ForceUnwrap(f) => string_expr_is_owned_temp(&f.expr, ctx),
+        Expr::Group(inner, _) => string_expr_is_owned_temp(inner, ctx),
+        _ => false,
+    }
+}
+
+/// Copy a borrowed/string-literal expression into an owned String value.
+/// Mutable locals use this at declaration so later assignments can always
+/// release the previous value without attempting to free static storage or a
+/// borrowed function parameter.
+pub(crate) fn owned_string_copy_expr(code: String, span: Span) -> String {
+    let tmp = format!("__aura_string_init_{}", span.start);
+    format!(
+        "({{ const char *__s = {code}; size_t __n = __s ? strlen(__s) : 0; char *{tmp} = (char *)malloc(__n + 1); if ({tmp} == NULL) {{ fputs(\"aura: String copy OOM\\n\", stderr); abort(); }} if (__n > 0) memcpy({tmp}, __s, __n); {tmp}[__n] = '\\0'; (const char *){tmp}; }})"
+    )
+}
+
 pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
     match expr {
         Expr::Ident(i) => {
@@ -657,34 +680,54 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
                 let left_int = lt == "Int" || matches!(b.left.as_ref(), Expr::Int(_));
                 let right_int = rt == "Int" || matches!(b.right.as_ref(), Expr::Int(_));
                 if left_str && right_str {
+                    let free_left = if string_expr_is_owned_temp(&b.left, ctx) {
+                        " free((void *)__a);"
+                    } else {
+                        ""
+                    };
+                    let free_right = if string_expr_is_owned_temp(&b.right, ctx) {
+                        " free((void *)__b);"
+                    } else {
+                        ""
+                    };
                     return format!(
                         "({{ const char *__a = ({left}); const char *__b = ({right}); \
                          size_t __la = __a ? strlen(__a) : 0; size_t __lb = __b ? strlen(__b) : 0; \
                          char *__r = (char *)malloc(__la + __lb + 1); \
                          if (__r == NULL) {{ fputs(\"aura: string concat OOM\\n\", stderr); abort(); }} \
                          if (__la) memcpy(__r, __a, __la); if (__lb) memcpy(__r + __la, __b, __lb); \
-                         __r[__la + __lb] = '\\0'; (const char *)__r; }})"
+                         __r[__la + __lb] = '\\0';{free_left}{free_right} (const char *)__r; }})"
                     );
                 }
                 if left_str && right_int {
                     // Free the temporary decimal from toString after memcpy into result.
+                    let free_left = if string_expr_is_owned_temp(&b.left, ctx) {
+                        " free((void *)__a);"
+                    } else {
+                        ""
+                    };
                     return format!(
                         "({{ const char *__a = ({left}); const char *__b = aura_i64_to_string({right}); \
                          size_t __la = __a ? strlen(__a) : 0; size_t __lb = __b ? strlen(__b) : 0; \
                          char *__r = (char *)malloc(__la + __lb + 1); \
                          if (__r == NULL) {{ fputs(\"aura: string concat OOM\\n\", stderr); abort(); }} \
                          if (__la) memcpy(__r, __a, __la); if (__lb) memcpy(__r + __la, __b, __lb); \
-                         __r[__la + __lb] = '\\0'; free((void *)__b); (const char *)__r; }})"
+                         __r[__la + __lb] = '\\0'; free((void *)__b);{free_left} (const char *)__r; }})"
                     );
                 }
                 if left_int && right_str {
+                    let free_right = if string_expr_is_owned_temp(&b.right, ctx) {
+                        " free((void *)__b);"
+                    } else {
+                        ""
+                    };
                     return format!(
                         "({{ const char *__a = aura_i64_to_string({left}); const char *__b = ({right}); \
                          size_t __la = __a ? strlen(__a) : 0; size_t __lb = __b ? strlen(__b) : 0; \
                          char *__r = (char *)malloc(__la + __lb + 1); \
                          if (__r == NULL) {{ fputs(\"aura: string concat OOM\\n\", stderr); abort(); }} \
                          if (__la) memcpy(__r, __a, __la); if (__lb) memcpy(__r + __la, __b, __lb); \
-                         __r[__la + __lb] = '\\0'; free((void *)__a); (const char *)__r; }})"
+                         __r[__la + __lb] = '\\0'; free((void *)__a);{free_right} (const char *)__r; }})"
                     );
                 }
             }
@@ -865,31 +908,80 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
                         return format!("({{ {free_dst}{lhs} = {rhs}; {source} = NULL; }})");
                     }
                 }
+                if let Expr::ForceUnwrap(inner) = a.value.as_ref() {
+                    if let Expr::Ident(src) = inner.expr.as_ref() {
+                        if ctx.is_string_owner(&src.name) && src.name != *dst_name {
+                            let source = mangle_ident(&src.name);
+                            let free_dst = if ctx.is_string_owner(dst_name) {
+                                format!(
+                                    "if ({lhs} != NULL) {{ free((void *){lhs}); {lhs} = NULL; }} "
+                                )
+                            } else {
+                                String::new()
+                            };
+                            ctx.unmark_string_owner(&src.name);
+                            ctx.mark_string_owner(dst_name);
+                            return format!("({{ {free_dst}{lhs} = {rhs}; {source} = NULL; }})");
+                        }
+                    }
+                }
+                if matches!(a.value.as_ref(), Expr::Binary(_))
+                    || crate::stmt::string_call_owns_result(&a.value, ctx)
+                {
+                    // Evaluate the RHS first. In `s = f(s)`, freeing `s`
+                    // before calling `f` turns the argument into a dangling
+                    // pointer and can later surface as a double-free.
+                    let rhs_tmp = format!("__aura_string_rhs_{}", a.span.start);
+                    let free_dst = if ctx.is_string_owner(dst_name) {
+                        format!("if ({lhs} != NULL) {{ free((void *){lhs}); {lhs} = NULL; }} ")
+                    } else {
+                        String::new()
+                    };
+                    ctx.mark_string_owner(dst_name);
+                    return format!(
+                        "({{ const char *{rhs_tmp} = {rhs}; {free_dst}{lhs} = {rhs_tmp}; }})"
+                    );
+                }
+                // Borrowed identifiers and literals must be copied before
+                // assigning into an owning String destination. Otherwise the
+                // destination becomes responsible for static/borrowed storage
+                // and its scope drop calls free() on an invalid pointer.
+                let copied_rhs = owned_string_copy_expr(rhs, a.value.span());
+                let rhs_tmp = format!("__aura_string_rhs_{}", a.span.start);
+                let free_dst = if ctx.is_string_owner(dst_name) {
+                    format!("if ({lhs} != NULL) {{ free((void *){lhs}); {lhs} = NULL; }} ")
+                } else {
+                    String::new()
+                };
+                ctx.mark_string_owner(dst_name);
+                return format!(
+                    "({{ const char *{rhs_tmp} = {copied_rhs}; {free_dst}{lhs} = {rhs_tmp}; }})"
+                );
             }
             let dst_is_array = dst_ty
                 .as_deref()
                 .map(|t| t == "Array" || t.starts_with("Array_"))
                 .unwrap_or(false);
-            // Free C lvalue: locals use mangled name; fields use this->field (C6i).
-            let free_array_lvalue = |lv: &str| -> String {
-                format!(
-                    "if (({lv}).data != NULL) {{ free(({lv}).data); ({lv}).data = NULL; ({lv}).len = 0; ({lv}).cap = 0; }} "
-                )
-            };
             // C4r/C6d: free previous Array buffer when reassigning an owning local from
             // Array(...) or any call that transfers an Array result.
             // C6i: Array fields always own — free old field buffer on reassignment.
             let is_array_call = matches!(a.value.as_ref(), Expr::Call(_));
             if dst_is_array && is_array_call {
                 let free_dst = if dst_is_field || ctx.is_array_owner(dst_name) {
-                    free_array_lvalue(&lhs)
+                    crate::array_emit::array_contents_free_expr(
+                        &lhs,
+                        dst_ty.as_deref().unwrap_or("Array"),
+                    )
                 } else {
                     String::new()
                 };
                 if !dst_is_field {
                     ctx.mark_array_owner(dst_name);
                 }
-                return format!("({{ {free_dst}({lhs} = {rhs}); }})");
+                let rhs_tmp = format!("__aura_array_rhs_{}", a.span.start);
+                let cty =
+                    crate::stmt::local_key_to_c(dst_ty.as_deref().unwrap_or("Array"), ctx.checked);
+                return format!("({{ {cty} {rhs_tmp} = {rhs}; {free_dst}({lhs} = {rhs_tmp}); }})");
             }
             // C5e/C6i: move ownership on `b = a` / `field = a` when `a` owns an Array buffer.
             if dst_is_array {
@@ -898,7 +990,10 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
                         let s = mangle_ident(&src.name);
                         // Free old dst if local owner or field (field always owns).
                         let free_dst = if dst_is_field || ctx.is_array_owner(dst_name) {
-                            free_array_lvalue(&lhs)
+                            crate::array_emit::array_contents_free_expr(
+                                &lhs,
+                                dst_ty.as_deref().unwrap_or("Array"),
+                            )
                         } else {
                             String::new()
                         };
