@@ -1225,30 +1225,28 @@ fun main() {
                 .expect("read generated join C");
         assert!(generated.contains("aura_task_executor_join_outcome(__aura_task_executor"));
         assert!(generated.contains("AuraTaskOutcome __join_outcome"));
-        assert!(generated.contains("joined task failed"));
-        assert!(generated.contains("aura_throw_string(\"joined task cancelled\")"));
-        assert!(generated.contains("aura_throw_string(\"joined task is pending\")"));
-        let output = Command::new(&bin).output().expect("run generated binary");
-        assert!(!output.status.success());
-        assert!(String::from_utf8_lossy(&output.stderr).contains("joined task cancelled"));
+        assert!(generated.contains("aura_var_std_io_Result_Unit_String_Err"));
+        assert!(generated.contains("joined task cancelled"));
+        let status = Command::new(&bin).status().expect("run generated binary");
+        assert!(status.success());
         let _ = std::fs::remove_file(&bin);
         let _ = std::fs::remove_file(dir.join(format!("aura-c22m-{}.aura.c", std::process::id())));
     }
 
     #[test]
-    fn joined_task_failure_is_catchable_in_aura() {
+    fn joined_task_failure_produces_structured_result() {
         let file = aura_parser::parse_file(
             r#"package demo
 async fun fail(): Int { throw 7 }
 fun main() {
   val task = spawn { val value: Int = await fail() return }
-  try { join(task) } catch (e: String) { println(e) }
+  join(task)
 }
 "#,
         )
         .expect("parse catchable join failure fixture");
         let generated = emit_c_from_ast(&file).expect("emit catchable join failure fixture");
-        assert!(generated.contains("aura_throw_string(\"joined task failed\")"));
+        assert!(generated.contains("aura_var_std_io_Result_Unit_String_Err"));
 
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()

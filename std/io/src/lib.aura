@@ -4,7 +4,7 @@ package std.io
 
 /// Non-throwing result used by the structured file wrappers below.
 /// Error strings are owned Aura Strings; callers may retain or return them.
-enum Result<T, E> {
+pub enum Result<T, E> {
   case Ok(value: T)
   case Err(error: E)
 }

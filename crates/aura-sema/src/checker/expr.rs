@@ -704,7 +704,13 @@ impl Checker {
             AsyncExpr::Join(j) => {
                 let handle = self.check_expr(&j.handle)?;
                 match handle {
-                    Ty::TaskHandle(result) => Ok(*result),
+                    Ty::TaskHandle(result) => Ok(Ty::EnumApp {
+                        // RFC-003 §6.5.1: joining never terminates the
+                        // executor; it returns the standard structured
+                        // result envelope instead.
+                        name: "Result@std.io".into(),
+                        args: vec![*result, Ty::String],
+                    }),
                     other => Err(SemaError {
                         message: format!("`join` requires TaskHandle<T>, got {}", other.display()),
                         span: j.span,

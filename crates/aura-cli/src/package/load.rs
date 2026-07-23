@@ -728,6 +728,9 @@ fn merge_package(into: &mut LoadedPackage, mut dep: LoadedPackage) -> Result<(),
     for f in &into.ast.functions {
         seen_funs.push((f.name.name.clone(), f.origin_package.clone()));
     }
+    for f in &into.ast.async_functions {
+        seen_funs.push((f.name.name.clone(), f.origin_package.clone()));
+    }
 
     for i in &dep.ast.interfaces {
         // C4d: same simple name allowed across packages (C symbols package-prefixed).
@@ -781,12 +784,24 @@ fn merge_package(into: &mut LoadedPackage, mut dep: LoadedPackage) -> Result<(),
             ));
         }
     }
+    for f in &dep.ast.async_functions {
+        if seen_funs
+            .iter()
+            .any(|(n, p)| n == &f.name.name && p == &f.origin_package)
+        {
+            return Err(format!(
+                "error: duplicate async function `{}` when linking package `{}`",
+                f.name.name, dep.package
+            ));
+        }
+    }
 
     into.ast.imports.extend(dep.ast.imports);
     into.ast.interfaces.extend(dep.ast.interfaces);
     into.ast.enums.extend(dep.ast.enums);
     into.ast.classes.extend(dep.ast.classes);
     into.ast.functions.extend(dep.ast.functions);
+    into.ast.async_functions.extend(dep.ast.async_functions);
     into.sources.extend(dep.sources);
     Ok(())
 }
@@ -837,6 +852,11 @@ fn stamp_origin(ast: &mut File, package: &str) {
             f.origin_package = package.to_string();
         }
     }
+    for f in &mut ast.async_functions {
+        if f.origin_package.is_empty() {
+            f.origin_package = package.to_string();
+        }
+    }
 }
 
 pub(crate) fn load_directory(
@@ -865,6 +885,7 @@ pub(crate) fn load_directory(
     let mut classes = Vec::new();
     let mut functions = Vec::new();
     let mut foreign_functions = Vec::new();
+    let mut async_functions = Vec::new();
     let mut seen_types: Vec<(String, String, String)> = Vec::new(); // kind, name, path
     let mut seen_funs: Vec<(String, String)> = Vec::new(); // name, path
 
@@ -926,6 +947,9 @@ pub(crate) fn load_directory(
         for f in &ast.foreign_functions {
             check_dup_fun(&mut seen_funs, &f.name.name, path)?;
         }
+        for f in &ast.async_functions {
+            check_dup_fun(&mut seen_funs, &f.name.name, path)?;
+        }
 
         imports.extend(ast.imports);
         interfaces.extend(ast.interfaces);
@@ -935,6 +959,7 @@ pub(crate) fn load_directory(
         consts.extend(ast.consts);
         functions.extend(ast.functions);
         foreign_functions.extend(ast.foreign_functions);
+        async_functions.extend(ast.async_functions);
 
         sources.push(SourceEntry {
             path: path.clone(),
@@ -979,7 +1004,7 @@ pub(crate) fn load_directory(
         consts,
         functions,
         foreign_functions,
-        async_functions: Vec::new(),
+        async_functions,
         span: pkg_span,
     };
 

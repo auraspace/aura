@@ -1,0 +1,6 @@
+[package]
+name = "demo.task_outcome"
+
+[[bin]]
+name = "task_outcome"
+path = "src"

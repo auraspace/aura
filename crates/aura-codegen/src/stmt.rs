@@ -1257,6 +1257,12 @@ pub(crate) fn emit_match(out: &mut String, m: &MatchStmt, indent: usize, ctx: &m
                     .unwrap_or_default();
                 for (bind, field) in bindings.iter().zip(v.fields.iter()) {
                     let fty = type_ref_local_key(&field.ty, &params, &targs);
+                    if fty == "Unit" {
+                        // Unit payloads are represented as an absent C value;
+                        // the semantic binding remains valid but needs no C
+                        // storage and cannot be read as a runtime value.
+                        continue;
+                    }
                     let ct = c_type_ref_subst(&field.ty, ctx.checked, &params, &targs);
                     ctx.define_local(&bind.name, fty);
                     let _ = writeln!(

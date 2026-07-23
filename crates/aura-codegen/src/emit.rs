@@ -36,6 +36,7 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("#include <setjmp.h>\n");
     emit_ffi_abi_declarations(&mut out);
     emit_foreign_prototypes(&mut out, checked);
+    emit_fallback_unit_join_result(&mut out, checked);
     out.push_str("void aura_print(const char *s);\n");
     out.push_str("void aura_println(const char *s);\n");
     out.push_str("void aura_eprint(const char *s);\n");
@@ -577,6 +578,28 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
         out.push_str("  return 0;\n}\n");
     }
     out
+}
+
+/// Direct codegen unit tests intentionally build a file without the CLI's
+/// auto-prelude merge. Keep `join(TaskHandle<Unit>)` compilable in that mode;
+/// package builds use the real generic `std.io.Result<Unit, String>` enum.
+fn emit_fallback_unit_join_result(out: &mut String, checked: &CheckedFile) {
+    let has_std_result_decl = checked
+        .ast
+        .enums
+        .iter()
+        .any(|e| e.name.name == "Result" && e.origin_package == "std.io");
+    let has_result_unit = has_std_result_decl
+        && checked
+            .mono_enums
+            .iter()
+            .any(|(name, args)| name == "Result" && args == &[Ty::Unit, Ty::String]);
+    if has_result_unit {
+        return;
+    }
+    out.push_str("typedef struct aura_enum_std_io_Result_Unit_String { int tag; union { char as_Ok; struct { const char *error; } Err; } data; } aura_enum_std_io_Result_Unit_String;\n");
+    out.push_str("static aura_enum_std_io_Result_Unit_String aura_var_std_io_Result_Unit_String_Ok(void) { aura_enum_std_io_Result_Unit_String self; self.tag = 0; return self; }\n");
+    out.push_str("static aura_enum_std_io_Result_Unit_String aura_var_std_io_Result_Unit_String_Err(const char *error) { aura_enum_std_io_Result_Unit_String self; self.tag = 1; self.data.Err.error = error; return self; }\n");
 }
 
 /// Minimal top-level `while`/`await` lowering for Int state. The loop locals

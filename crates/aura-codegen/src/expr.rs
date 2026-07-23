@@ -1262,27 +1262,42 @@ fn emit_async_expr(expr: &AsyncExpr, ctx: &mut EmitCtx<'_>) -> String {
             let handle = emit_expr(&j.handle, ctx);
             let inner = async_inner_key(&j.handle, ctx);
             let cty = crate::stmt::local_key_to_c(&inner, ctx.checked);
+            let result_mono = format!(
+                "std_io_Result_{}_String",
+                full_type_mono(&inner, ctx.checked)
+            );
+            let result_ty = format!("aura_enum_{result_mono}");
+            let result_ok = format!("aura_var_{result_mono}_Ok");
+            let result_err = format!("aura_var_{result_mono}_Err");
             let mut out = String::new();
-            out.push_str("({ AuraTaskFrame *__join = (");
+            out.push_str("({ ");
+            out.push_str(&result_ty);
+            out.push_str(" __join_value; AuraTaskFrame *__join = (");
             out.push_str(&handle);
-            out.push_str(&format!("); aura_race_set_source_id(UINT32_C({})); AuraTaskOutcome __join_outcome = aura_task_executor_join_outcome(__aura_task_executor, __join); AuraTaskPollState __join_state = __join_outcome.state; AuraTaskResult __join_result = __join_outcome.result; AuraTaskResult __join_error = __join_outcome.error; aura_race_set_source_id(0); ", j.span.start));
+            out.push_str(&format!("); aura_race_set_source_id(UINT32_C({})); AuraTaskOutcome __join_outcome = aura_task_executor_join_outcome(__aura_task_executor, __join); AuraTaskPollState __join_state = __join_outcome.state; AuraTaskResult __join_result = __join_outcome.result; aura_race_set_source_id(0); ", j.span.start));
             out.push_str(
-                "if (__join_state == AURA_TASK_FAILED) { aura_throw_string(\"joined task failed\"); } ",
+                &format!(
+                    "if (__join_state == AURA_TASK_FAILED) {{ __join_value = {result_err}(\"joined task failed\"); }} "
+                ),
             );
             out.push_str(
-                "if (__join_state == AURA_TASK_CANCELLED) { aura_throw_string(\"joined task cancelled\"); } ",
+                &format!(
+                    "else if (__join_state == AURA_TASK_CANCELLED) {{ __join_value = {result_err}(\"joined task cancelled\"); }} "
+                ),
             );
             out.push_str(
-                "if (__join_state != AURA_TASK_COMPLETE) { aura_throw_string(\"joined task is pending\"); } ",
+                &format!(
+                    "else if (__join_state != AURA_TASK_COMPLETE) {{ __join_value = {result_err}(\"joined task is pending\"); }} "
+                ),
             );
             if inner == "Unit" {
-                out.push_str("(void)0; ");
+                out.push_str(&format!("else {{ __join_value = {result_ok}(); }} "));
             } else {
                 out.push_str(&format!(
-                    "(__join_result.data != NULL ? *(({cty} *)__join_result.data) : ({cty}){{0}}); "
+                    "else {{ __join_value = {result_ok}(__join_result.data != NULL ? *(({cty} *)__join_result.data) : ({cty}){{0}}); }} "
                 ));
             }
-            out.push_str("})");
+            out.push_str("__join_value; })");
             out
         }
         AsyncExpr::Cancel(c) => {

@@ -13,12 +13,14 @@ When you resolve debt, update or remove the matching entry.
 - Progress: no-suspension generated async functions now catch primitive
   `Int`, `Bool`, and `String` exceptions, publish owned task error payloads
   through `aura_task_frame_set_error_span_with_clone`, and have native compile/
-  run regression coverage. Compiler-generated `join` now turns failed,
-  cancelled, and pending states into catchable Aura `String` exceptions rather
-  than aborting the process.
-- Why still deferred: generated class payloads, suspended await continuation
-  failures, typed `Ok`/`Err` task outcomes, and automatic completed-handle
-  release still need recursive ownership and end-to-end corpus evidence.
+  run regression coverage. Compiler-generated `join` now returns
+  `std.io.Result<T, String>` and maps failed, cancelled, and pending states to
+  typed `Err` values; the task-outcome corpus fixture covers the successful
+  typed-result path.
+- Why still deferred: failed generated tasks still leak an allocated primitive
+  error payload under LeakSanitizer; generated class payloads, suspended await
+  continuation failures, full `TaskError.Failed(error)` preservation, and
+  automatic completed-handle release remain open.
 - Next step: connect generated class payload ownership and suspended await
   propagation to the clone/destroy boundary, then add cancellation and
   forced-GC evidence.
@@ -752,13 +754,13 @@ When you resolve debt, update or remove the matching entry.
 
 ### ASYNC-002 task outcome representation remains open (2026-07-23)
 
-- The runtime can propagate an async failure into task state, but generated
-  `join` still aborts on `FAILED`/`CANCELLED` rather than exposing a typed,
-  inspectable outcome to Aura code. Removing that abort alone would not define
-  payload ownership, cleanup, or repeated-join semantics.
-- Next step: specify and implement a persistent task-outcome API covering
-  success, failure, cancellation, payload lifetime, and repeated joins, then
-  add native and sanitizer-backed corpus evidence before closing ASYNC-002.
+- Generated `join` now exposes a typed `std.io.Result<T, String>` outcome, but
+  the failed-task corpus run still reports an allocated primitive error payload
+  leak under LeakSanitizer. Full `TaskError.Failed(error)` payload preservation,
+  cancellation ownership, cleanup, and repeated-join semantics remain open.
+- Next step: make failed-task payload ownership and release sanitizer-clean,
+  then add native and sanitizer-backed failure/cancellation corpus evidence
+  before closing ASYNC-002.
 
 ### REG-002 production trust remains open (updated 2026-07-23)
 
