@@ -5006,6 +5006,8 @@ struct AuraTaskFrame
   AuraTaskResultDestroyFn error_destroy;
   int error_rooted;
   uint32_t error_source_id;
+  uint32_t error_span_start;
+  uint32_t error_span_end;
   uint32_t resume_state;
   AuraTaskPollState state;
   int cancel_requested;
@@ -5319,6 +5321,16 @@ uint32_t aura_task_frame_error_source_id(const AuraTaskFrame *frame)
   return frame != NULL ? frame->error_source_id : 0;
 }
 
+uint32_t aura_task_frame_error_span_start(const AuraTaskFrame *frame)
+{
+  return frame != NULL ? frame->error_span_start : 0;
+}
+
+uint32_t aura_task_frame_error_span_end(const AuraTaskFrame *frame)
+{
+  return frame != NULL ? frame->error_span_end : 0;
+}
+
 static void aura_task_result_release(AuraTaskResult *result,
                                      AuraTaskResultDestroyFn *destroy,
                                      int *rooted)
@@ -5347,11 +5359,13 @@ static void aura_task_result_release(AuraTaskResult *result,
   }
 }
 
-void aura_task_frame_set_error_at(AuraTaskFrame *frame,
-                                  void *data,
-                                  size_t size,
-                                  AuraTaskResultDestroyFn destroy,
-                                  uint32_t source_id)
+void aura_task_frame_set_error_span(AuraTaskFrame *frame,
+                                    void *data,
+                                    size_t size,
+                                    AuraTaskResultDestroyFn destroy,
+                                    uint32_t source_id,
+                                    uint32_t span_start,
+                                    uint32_t span_end)
 {
   if (frame == NULL)
   {
@@ -5362,12 +5376,24 @@ void aura_task_frame_set_error_at(AuraTaskFrame *frame,
   frame->error = (AuraTaskResult){data, size};
   frame->error_destroy = destroy;
   frame->error_source_id = source_id;
+  frame->error_span_start = span_start;
+  frame->error_span_end = span_end;
   if (data != NULL)
   {
     aura_gc_add_root(&frame->error.data);
     frame->error_rooted = 1;
     frame->state = AURA_TASK_FAILED;
   }
+}
+
+void aura_task_frame_set_error_at(AuraTaskFrame *frame,
+                                  void *data,
+                                  size_t size,
+                                  AuraTaskResultDestroyFn destroy,
+                                  uint32_t source_id)
+{
+  aura_task_frame_set_error_span(frame, data, size, destroy, source_id,
+                                 source_id, source_id);
 }
 
 void aura_task_frame_set_error(AuraTaskFrame *frame,
@@ -5414,9 +5440,11 @@ int aura_task_frame_propagate_error(AuraTaskFrame *frame,
   {
     memcpy(copy, error.data, error.size);
   }
-  aura_task_frame_set_error_at(frame, copy, error.size,
-                               aura_task_error_copy_destroy,
-                               source->error_source_id);
+  aura_task_frame_set_error_span(frame, copy, error.size,
+                                 aura_task_error_copy_destroy,
+                                 source->error_source_id,
+                                 source->error_span_start,
+                                 source->error_span_end);
   return 1;
 }
 

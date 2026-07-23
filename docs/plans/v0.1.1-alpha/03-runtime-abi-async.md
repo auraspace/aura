@@ -174,15 +174,17 @@ under sanitizers.
 composable by callers.
 **Implementation status:** The bounded one- and two-await codegen now maps a
 cancelled child to a cancelled parent and copies a failed child error payload
-and numeric source ID into an independently owned parent error slot. File/line
-source spans, nested exception chains, and exceptions raised during
-cancellation remain open.
+and numeric source ID into an independently owned parent error slot. The frame
+also carries bounded source-span start/end offsets through that propagation.
+Compiler file/line mapping, nested exception chains, and exceptions raised
+during cancellation remain open.
 
 **Checklist:**
 
 - [x] Define successful values and failure payload representation for the
       bounded frame ABI.
-- [ ] Preserve exception source spans through suspension.
+- [x] Preserve bounded source-span start/end metadata through one/two-await
+      child-error propagation; compiler file/line mapping remains open.
 - [x] Run cleanup before publishing an outcome in the bounded executor ABI.
 - [ ] Define an exception during cancellation.
 
@@ -208,7 +210,7 @@ single/two-await tests verify both terminal edges are emitted.
 
 **Status note:** The bounded successful-value/failure-payload,
 cancelled-child propagation, and cleanup-before-outcome items are complete.
-Source-span preservation and an exception raised during cancellation remain
+Compiler file/line mapping and an exception raised during cancellation remain
 open until typed compiler outcome lowering exists.
 
 **Dependencies:** A6.

@@ -35,8 +35,8 @@ static AuraTaskPollState poll_child(AuraTaskFrame *frame)
     int *payload = (int *)malloc(sizeof(*payload));
     assert(payload != NULL);
     *payload = 99;
-    aura_task_frame_set_error_at(frame, payload, sizeof(*payload),
-                                 drop_payload, 700);
+    aura_task_frame_set_error_span(frame, payload, sizeof(*payload),
+                                   drop_payload, 700, 120, 127);
     return AURA_TASK_FAILED;
   }
   return AURA_TASK_COMPLETE;
@@ -129,6 +129,8 @@ int main(void)
   assert(aura_task_executor_run_one(executor) == 1);
   assert(aura_task_frame_state(parent) == AURA_TASK_FAILED);
   assert(aura_task_frame_error_source_id(parent) == 700);
+  assert(aura_task_frame_error_span_start(parent) == 120);
+  assert(aura_task_frame_error_span_end(parent) == 127);
   assert(aura_task_frame_error(parent).size == sizeof(int));
   assert(*(int *)aura_task_frame_error(parent).data == 99);
   assert(aura_task_executor_release(executor, &parent) == 1);

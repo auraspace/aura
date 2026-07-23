@@ -124,9 +124,12 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
         "void aura_task_frame_set_race_source_id(AuraTaskFrame *frame, uint32_t source_id);\n",
     );
     out.push_str("uint32_t aura_task_frame_error_source_id(const AuraTaskFrame *frame);\n");
+    out.push_str("uint32_t aura_task_frame_error_span_start(const AuraTaskFrame *frame);\n");
+    out.push_str("uint32_t aura_task_frame_error_span_end(const AuraTaskFrame *frame);\n");
     out.push_str(
         "int aura_task_frame_propagate_error(AuraTaskFrame *frame, const AuraTaskFrame *source);\n",
     );
+    out.push_str("void aura_task_frame_set_error_span(AuraTaskFrame *frame, void *data, size_t size, AuraTaskResultDestroyFn destroy, uint32_t source_id, uint32_t span_start, uint32_t span_end);\n");
     out.push_str("void aura_task_frame_set_error_at(AuraTaskFrame *frame, void *data, size_t size, AuraTaskResultDestroyFn destroy, uint32_t source_id);\n");
     out.push_str("AuraTaskPollState aura_task_frame_poll_once(AuraTaskFrame *frame);\n");
     out.push_str("void aura_task_frame_destroy(AuraTaskFrame *frame);\n");
