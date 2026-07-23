@@ -114,27 +114,29 @@ shutdown refusal, and 500 handler mapping with a localhost loopback fixture.
 ## H5. Async HTTP integration
 
 **Objective:** Run parsing, handlers, and writes through the async task model.
-**Bounded implementation status:** `aura_http_connection_poll_async` now owns
-one request buffer and serialized response on the connection while its task is
-pending. It performs nonblocking reads/writes, parks on the task frame's TCP
-readiness adapter, and arms frame cleanup so cancellation, peer failure, and
-executor destruction close the connection exactly once. The native fixture
-`runtime/tests/http_async.c` proves two pending connections progress
-independently and a pending connection cancels without retaining an active
-server slot. This slice uses a synchronous handler and closes after one
-request; async handler suspension, keep-alive, and full response backpressure
-remain open.
+**Implementation status:** `aura_http_connection_poll_async` owns the request
+buffer and serialized response on the connection while its task is pending. It
+performs nonblocking reads/writes, parks on the task frame's TCP readiness
+adapter, and arms frame cleanup so cancellation, peer failure, and executor
+destruction close the connection exactly once. Successful responses now retain
+HTTP/1.1 keep-alive when request, handler, and request-count policy allow it;
+consumed bytes are compacted so pipelined requests are served without losing
+the next request. Partial writes retain their offset and resume on `POLLOUT`,
+so a slow client applies bounded socket backpressure without blocking other
+tasks. The handler callback is still synchronous in this native ABI; async
+handler suspension and handler-owned values across an await remain outside
+this runtime-only slice.
 **Checklist:**
 
-- [x] Suspend on partial reads and writes without blocking other tasks in the
-      bounded one-request bridge; full backpressure policy remains open.
+- [x] Suspend on partial reads and writes without blocking other tasks; retain
+      keep-alive buffers and apply the bounded response backpressure policy.
 - [x] Propagate cancellation, parse failure, handler failure, and peer close
       through the bounded task outcome/cleanup path.
 - [x] Preserve request/response buffers and ownership across readiness waits;
       async handler-owned values remain open.
       **Acceptance:** Concurrent connections remain responsive under pending I/O.
-      **Verification:** Run delayed-I/O, cancellation, GC, failure, and concurrency
-      fixtures under sanitizers.
+      **Verification:** Run delayed-I/O, keep-alive, backpressure, cancellation,
+      GC, failure, and concurrency fixtures under sanitizers.
       **Dependencies:** H4, S1–S6, IO4–IO5.
 
 ## H6. Handler and routing API

@@ -2086,6 +2086,7 @@ struct AuraHttpConnection
   void *async_user_data;
   int async_active;
   int async_phase;
+  int async_close_after_write;
 };
 
 struct AuraHttpServer
@@ -5243,6 +5244,7 @@ static void aura_http_connection_async_reset(AuraHttpConnection *connection)
   connection->async_user_data = NULL;
   connection->async_active = 0;
   connection->async_phase = 0;
+  connection->async_close_after_write = 0;
 }
 
 static void aura_http_connection_async_cleanup(void *data)
@@ -5268,7 +5270,8 @@ static AuraTaskPollState aura_http_connection_async_failure(
 static int aura_http_connection_async_prepare_response(AuraHttpConnection *connection,
                                                        const AuraHttpRequest *request)
 {
-  AuraHttpHandlerResult handler_result;
+  AuraHttpHandlerResult handler_result = AURA_HTTP_HANDLER_CLOSE;
+  int request_close = aura_http_connection_header_has(request, "close");
   int status_code = 0;
   const char *error_code = NULL;
   size_t required = 0;
@@ -5283,6 +5286,12 @@ static int aura_http_connection_async_prepare_response(AuraHttpConnection *conne
   }
   else
   {
+    if (!request_close && aura_http_response_set_connection(
+                              &connection->async_response,
+                              AURA_HTTP_RESPONSE_KEEP_ALIVE) != AURA_HTTP_RESPONSE_OK)
+    {
+      return 0;
+    }
     handler_result = connection->async_handler(
         request, &connection->async_response, connection->async_user_data);
     if (handler_result == AURA_HTTP_HANDLER_ERROR)
@@ -5302,9 +5311,14 @@ static int aura_http_connection_async_prepare_response(AuraHttpConnection *conne
       return 0;
     }
   }
-  if (aura_http_response_set_connection(&connection->async_response,
+  connection->async_close_after_write =
+      status_code != 0 || request_close || handler_result == AURA_HTTP_HANDLER_CLOSE ||
+      connection->async_response.connection == AURA_HTTP_RESPONSE_CLOSE ||
+      connection->requests_served + 1 >= connection->config.max_requests;
+  if (connection->async_close_after_write &&
+      aura_http_response_set_connection(&connection->async_response,
                                         AURA_HTTP_RESPONSE_CLOSE) !=
-      AURA_HTTP_RESPONSE_OK)
+          AURA_HTTP_RESPONSE_OK)
   {
     return 0;
   }
@@ -5332,10 +5346,11 @@ static int aura_http_connection_async_prepare_response(AuraHttpConnection *conne
   return 1;
 }
 
-/* Bounded H5 bridge: one request per invocation, with request and response
- * storage owned by the connection while the task is pending. The handler is
- * synchronous; async handler suspension and keep-alive remain outside this
- * bounded slice. */
+/* H5 bridge: request/response storage stays connection-owned while the task is
+ * pending. The handler remains synchronous in this runtime ABI, but reads and
+ * writes are independently readiness-driven. A successful response may keep
+ * the connection alive; cancellation and every terminal path use the armed
+ * frame cleanup hook for exactly-once close and buffer release. */
 AuraTaskPollState aura_http_connection_poll_async(AuraTaskFrame *frame,
                                                   AuraHttpConnection *connection,
                                                   AuraHttpHandler handler,
@@ -5361,140 +5376,165 @@ AuraTaskPollState aura_http_connection_poll_async(AuraTaskFrame *frame,
     aura_task_frame_set_cleanup(frame, connection,
                                 aura_http_connection_async_cleanup);
   }
-  if (connection->async_phase == AURA_HTTP_ASYNC_READ)
+  for (;;)
   {
-    AuraHttpRequest request;
-    size_t consumed = 0;
-    AuraHttpParseStatus parse_status;
-    for (;;)
+    if (connection->async_phase == AURA_HTTP_ASYNC_READ)
     {
-      parse_status = aura_http_request_parse(connection->async_buffer,
-                                             connection->async_used, &request,
-                                             &consumed);
-      if (parse_status != AURA_HTTP_PARSE_INCOMPLETE)
+      AuraHttpRequest request;
+      size_t consumed = 0;
+      AuraHttpParseStatus parse_status;
+      for (;;)
       {
-        break;
-      }
-      if (connection->async_used == AURA_HTTP_MAX_TOTAL_BYTES)
-      {
-        parse_status = AURA_HTTP_PARSE_PAYLOAD_TOO_LARGE;
-        break;
-      }
-      if (connection->async_used == connection->async_capacity)
-      {
-        size_t next = connection->async_capacity * 2;
-        unsigned char *grown;
-        if (next > AURA_HTTP_MAX_TOTAL_BYTES)
+        parse_status = aura_http_request_parse(connection->async_buffer,
+                                               connection->async_used, &request,
+                                               &consumed);
+        if (parse_status != AURA_HTTP_PARSE_INCOMPLETE)
         {
-          next = AURA_HTTP_MAX_TOTAL_BYTES;
+          break;
         }
-        if (next <= connection->async_capacity)
+        if (connection->async_used == AURA_HTTP_MAX_TOTAL_BYTES)
         {
           parse_status = AURA_HTTP_PARSE_PAYLOAD_TOO_LARGE;
           break;
         }
-        grown = (unsigned char *)realloc(connection->async_buffer, next);
-        if (grown == NULL)
+        if (connection->async_used == connection->async_capacity)
+        {
+          size_t next = connection->async_capacity * 2;
+          unsigned char *grown;
+          if (next > AURA_HTTP_MAX_TOTAL_BYTES)
+          {
+            next = AURA_HTTP_MAX_TOTAL_BYTES;
+          }
+          if (next <= connection->async_capacity)
+          {
+            parse_status = AURA_HTTP_PARSE_PAYLOAD_TOO_LARGE;
+            break;
+          }
+          grown = (unsigned char *)realloc(connection->async_buffer, next);
+          if (grown == NULL)
+          {
+            return aura_http_connection_async_failure(frame, connection);
+          }
+          connection->async_buffer = grown;
+          connection->async_capacity = next;
+        }
+        {
+          size_t received = 0;
+          AuraTcpStatus status = aura_tcp_stream_read(
+              connection->stream, connection->async_buffer + connection->async_used,
+              connection->async_capacity - connection->async_used, &received, 0);
+          if (status == AURA_TCP_PENDING)
+          {
+            if (!aura_task_frame_wait_tcp_stream(frame, connection->stream, POLLIN))
+            {
+              return aura_http_connection_async_failure(frame, connection);
+            }
+            return AURA_TASK_PENDING;
+          }
+          if (status == AURA_TCP_EOF || status != AURA_TCP_OK || received == 0)
+          {
+            return aura_http_connection_async_failure(frame, connection);
+          }
+          connection->async_used += received;
+        }
+      }
+      if (parse_status == AURA_HTTP_PARSE_OK)
+      {
+        if (consumed == 0 || consumed > connection->async_used)
+        {
+          aura_http_request_destroy(&request);
+          return aura_http_connection_async_failure(frame, connection);
+        }
+        memmove(connection->async_buffer, connection->async_buffer + consumed,
+                connection->async_used - consumed);
+        connection->async_used -= consumed;
+        if (!aura_http_connection_async_prepare_response(connection, &request))
+        {
+          aura_http_request_destroy(&request);
+          return aura_http_connection_async_failure(frame, connection);
+        }
+        aura_http_request_destroy(&request);
+      }
+      else
+      {
+        int status_code = parse_status == AURA_HTTP_PARSE_METHOD_NOT_ALLOWED
+                              ? 405
+                              : parse_status == AURA_HTTP_PARSE_PAYLOAD_TOO_LARGE
+                                    ? 413
+                                    : 400;
+        const char *error_code = status_code == 405
+                                     ? "method_not_allowed"
+                                     : status_code == 413 ? "payload_too_large" : "bad_request";
+        size_t required = 0;
+        aura_http_response_init(&connection->async_response);
+        connection->async_response_active = 1;
+        if (aura_http_response_set_error(&connection->async_response, status_code,
+                                         error_code) != AURA_HTTP_RESPONSE_OK ||
+            aura_http_response_serialize(&connection->async_response, NULL, 0,
+                                         &required) != AURA_HTTP_RESPONSE_BUFFER_TOO_SMALL ||
+            required == 0)
         {
           return aura_http_connection_async_failure(frame, connection);
         }
-        connection->async_buffer = grown;
-        connection->async_capacity = next;
+        connection->async_output = (char *)malloc(required);
+        if (connection->async_output == NULL ||
+            aura_http_response_serialize(&connection->async_response,
+                                         connection->async_output, required,
+                                         &required) != AURA_HTTP_RESPONSE_OK)
+        {
+          return aura_http_connection_async_failure(frame, connection);
+        }
+        connection->async_output_length = required;
+        connection->async_output_offset = 0;
+        connection->async_close_after_write = 1;
+        connection->async_phase = AURA_HTTP_ASYNC_WRITE;
       }
+    }
+    if (connection->async_phase == AURA_HTTP_ASYNC_WRITE)
+    {
+      while (connection->async_output_offset < connection->async_output_length)
       {
-        size_t received = 0;
-        AuraTcpStatus status = aura_tcp_stream_read(
-            connection->stream, connection->async_buffer + connection->async_used,
-            connection->async_capacity - connection->async_used, &received, 0);
+        size_t written = 0;
+        AuraTcpStatus status = aura_tcp_stream_write(
+            connection->stream,
+            connection->async_output + connection->async_output_offset,
+            connection->async_output_length - connection->async_output_offset,
+            &written, 0);
         if (status == AURA_TCP_PENDING)
         {
-          if (!aura_task_frame_wait_tcp_stream(frame, connection->stream, POLLIN))
+          if (!aura_task_frame_wait_tcp_stream(frame, connection->stream, POLLOUT))
           {
             return aura_http_connection_async_failure(frame, connection);
           }
           return AURA_TASK_PENDING;
         }
-        if (status == AURA_TCP_EOF || status != AURA_TCP_OK || received == 0)
+        if (status != AURA_TCP_OK || written == 0)
         {
           return aura_http_connection_async_failure(frame, connection);
         }
-        connection->async_used += received;
+        connection->async_output_offset += written;
       }
-    }
-    if (parse_status == AURA_HTTP_PARSE_OK)
-    {
-      if (consumed == 0 || consumed > connection->async_used ||
-          !aura_http_connection_async_prepare_response(connection, &request))
-      {
-        aura_http_request_destroy(&request);
-        return aura_http_connection_async_failure(frame, connection);
-      }
-      aura_http_request_destroy(&request);
-    }
-    else
-    {
-      int status_code = parse_status == AURA_HTTP_PARSE_METHOD_NOT_ALLOWED
-                            ? 405
-                            : parse_status == AURA_HTTP_PARSE_PAYLOAD_TOO_LARGE
-                                  ? 413
-                                  : 400;
-      const char *error_code = status_code == 405
-                                   ? "method_not_allowed"
-                                   : status_code == 413 ? "payload_too_large" : "bad_request";
-      size_t required = 0;
-      aura_http_response_init(&connection->async_response);
-      connection->async_response_active = 1;
-      if (aura_http_response_set_error(&connection->async_response, status_code,
-                                       error_code) != AURA_HTTP_RESPONSE_OK ||
-          aura_http_response_serialize(&connection->async_response, NULL, 0,
-                                       &required) != AURA_HTTP_RESPONSE_BUFFER_TOO_SMALL ||
-          required == 0)
-      {
-        return aura_http_connection_async_failure(frame, connection);
-      }
-      connection->async_output = (char *)malloc(required);
-      if (connection->async_output == NULL ||
-          aura_http_response_serialize(&connection->async_response,
-                                       connection->async_output, required,
-                                       &required) != AURA_HTTP_RESPONSE_OK)
-      {
-        return aura_http_connection_async_failure(frame, connection);
-      }
-      connection->async_output_length = required;
+      connection->requests_served++;
+      free(connection->async_output);
+      connection->async_output = NULL;
+      connection->async_output_length = 0;
       connection->async_output_offset = 0;
-      connection->async_phase = AURA_HTTP_ASYNC_WRITE;
+      if (connection->async_response_active)
+      {
+        aura_http_response_destroy(&connection->async_response);
+        connection->async_response_active = 0;
+      }
+      if (connection->async_close_after_write)
+      {
+        aura_task_frame_clear_cleanup(frame);
+        aura_http_connection_async_reset(connection);
+        (void)aura_http_connection_close(connection);
+        return AURA_TASK_COMPLETE;
+      }
+      connection->async_close_after_write = 0;
+      connection->async_phase = AURA_HTTP_ASYNC_READ;
     }
   }
-  if (connection->async_phase == AURA_HTTP_ASYNC_WRITE)
-  {
-    while (connection->async_output_offset < connection->async_output_length)
-    {
-      size_t written = 0;
-      AuraTcpStatus status = aura_tcp_stream_write(
-          connection->stream,
-          connection->async_output + connection->async_output_offset,
-          connection->async_output_length - connection->async_output_offset,
-          &written, 0);
-      if (status == AURA_TCP_PENDING)
-      {
-        if (!aura_task_frame_wait_tcp_stream(frame, connection->stream, POLLOUT))
-        {
-          return aura_http_connection_async_failure(frame, connection);
-        }
-        return AURA_TASK_PENDING;
-      }
-      if (status != AURA_TCP_OK || written == 0)
-      {
-        return aura_http_connection_async_failure(frame, connection);
-      }
-      connection->async_output_offset += written;
-    }
-    aura_task_frame_clear_cleanup(frame);
-    aura_http_connection_async_reset(connection);
-    (void)aura_http_connection_close(connection);
-    return AURA_TASK_COMPLETE;
-  }
-  return aura_http_connection_async_failure(frame, connection);
 }
 
 uint32_t aura_task_frame_resume_state(const AuraTaskFrame *frame)
