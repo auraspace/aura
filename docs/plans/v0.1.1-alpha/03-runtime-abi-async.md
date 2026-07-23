@@ -143,17 +143,17 @@ inspect drop counts.
 ## A6. Multiple awaits and drops
 
 **Objective:** Support multiple suspension points with correct cleanup.
-**Implementation status:** A bounded straight-line two-await lowering is now
-executable. States 1 and 2 each poll and register a distinct child frame;
-locals initialized between awaits are stored only after the earlier state
-completes, and owned String locals are released exactly once by the frame
-destroy hook. Branches, loops, arrays/classes, typed failures, and panic
-unwinding remain open.
+**Implementation status:** A bounded straight-line two/three-await lowering is
+now executable. Each await polls and registers a distinct child frame; locals
+initialized between awaits are stored only after the earlier state completes,
+and owned String locals are released exactly once by the frame destroy hook.
+Branches, loops, arrays/classes, typed failures, and panic unwinding remain
+open.
 
 **Checklist:**
 
 - [x] Generate distinct states and resume locations for each await in the
-      bounded two-await straight-line slice.
+      bounded two/three-await straight-line slice.
 - [x] Track Int/String values initialized before and between awaits;
       control-flow-sensitive and richer owned values remain open.
 - [x] Drop bounded owned String locals exactly once on frame destruction
@@ -208,7 +208,8 @@ source file/line spans or nested exception chains.
 `runtime/tests/task_dependency.c` additionally verifies that a failed child
 wakes its parent, copies an independent error payload/source ID, and that
 child cancellation remains distinguishable from failure. The codegen
-single/two-await tests verify both terminal edges are emitted.
+single/two/three-await tests verify distinct resume states and both terminal
+edges for every generated child.
 
 **Status note:** The bounded successful-value/failure-payload,
 cancelled-child propagation, and cleanup-before-outcome items are complete.

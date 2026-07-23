@@ -187,17 +187,17 @@ When you resolve debt, update or remove the matching entry.
 ### Async lowering and task outcome gaps (C22t, 2026-07-22)
 
 - Area: async/task codegen and runtime outcomes
-- Symptom: await lowering is still bounded to straight-line one- and
-  two-await shapes with typed Int child results; branches, richer ownership,
+- Symptom: await lowering is still bounded to straight-line one- through
+  three-await shapes with typed Int child results; branches, richer ownership,
   and full task outcome propagation are not complete.
-- Progress: the compiler emits explicit entry/resume states for one and two
-  awaits, hoists live Int/String locals into frame data, and uses a runtime
+- Progress: the compiler emits explicit entry/resume states for one through
+  three awaits, hoists live Int/String locals into frame data, and uses a runtime
   parent-child waiter list to wake the parent exactly once.
   runtime/tests/task_dependency.c covers delayed child completion under
   ASAN/UBSAN.
-- Next step: extend state partitioning to control flow and three-or-more
-  awaits, then add typed failure/cancellation propagation before advertising
-  the full C22 contract as executable.
+- Next step: extend state partitioning to control flow and richer than
+  three-await bodies, then add typed failure/cancellation propagation before
+  advertising the full C22 contract as executable.
 
 ### S4 source locations and nested failures remain bounded (2026-07-22)
 
