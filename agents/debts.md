@@ -13,10 +13,12 @@ When you resolve debt, update or remove the matching entry.
 - Progress: no-suspension generated async functions now catch primitive
   `Int`, `Bool`, and `String` exceptions, publish owned task error payloads
   through `aura_task_frame_set_error_span_with_clone`, and have native compile/
-  run regression coverage.
+  run regression coverage. Compiler-generated `join` now turns failed,
+  cancelled, and pending states into catchable Aura `String` exceptions rather
+  than aborting the process.
 - Why still deferred: generated class payloads, suspended await continuation
-  failures, cancellation, and typed Aura-level task outcomes still need
-  recursive ownership and end-to-end corpus evidence.
+  failures, typed `Ok`/`Err` task outcomes, and automatic completed-handle
+  release still need recursive ownership and end-to-end corpus evidence.
 - Next step: connect generated class payload ownership and suspended await
   propagation to the clone/destroy boundary, then add cancellation and
   forced-GC evidence.

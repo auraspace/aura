@@ -1226,12 +1226,42 @@ fun main() {
         assert!(generated.contains("aura_task_executor_join_outcome(__aura_task_executor"));
         assert!(generated.contains("AuraTaskOutcome __join_outcome"));
         assert!(generated.contains("joined task failed"));
-        assert!(generated
-            .contains("__join_state != AURA_TASK_COMPLETE && __join_state != AURA_TASK_CANCELLED"));
-        let status = Command::new(&bin).status().expect("run generated binary");
-        assert!(status.success());
+        assert!(generated.contains("aura_throw_string(\"joined task cancelled\")"));
+        assert!(generated.contains("aura_throw_string(\"joined task is pending\")"));
+        let output = Command::new(&bin).output().expect("run generated binary");
+        assert!(!output.status.success());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("joined task cancelled"));
         let _ = std::fs::remove_file(&bin);
         let _ = std::fs::remove_file(dir.join(format!("aura-c22m-{}.aura.c", std::process::id())));
+    }
+
+    #[test]
+    fn joined_task_failure_is_catchable_in_aura() {
+        let file = aura_parser::parse_file(
+            r#"package demo
+async fun fail(): Int { throw 7 }
+fun main() {
+  val task = spawn { val value: Int = await fail() return }
+  try { join(task) } catch (e: String) { println(e) }
+}
+"#,
+        )
+        .expect("parse catchable join failure fixture");
+        let generated = emit_c_from_ast(&file).expect("emit catchable join failure fixture");
+        assert!(generated.contains("aura_throw_string(\"joined task failed\")"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-join-failure-catch-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile catchable join failure fixture");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
     }
 
     #[test]
