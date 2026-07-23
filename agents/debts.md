@@ -671,3 +671,10 @@ When you resolve debt, update or remove the matching entry.
 - Typed `AuraTcp*` handles, package-level `std.net` imports, async handler
   suspension, keep-alive, and response backpressure remain deferred to the
   full HTTP/FFI workstream; the contract matrix therefore stays `partial`.
+
+### Alpha harness HTTP/FFI deferred stages resolved (2026-07-23)
+
+- The harness now executes `scripts/http-aura-smoke.sh` and
+  `scripts/ffi-regression.sh` instead of reporting those stages as deferred.
+- The broader HTTP/FFI contract remains partial; this entry only records that
+  the bounded acceptance stages are executable and sanitizer-backed.
