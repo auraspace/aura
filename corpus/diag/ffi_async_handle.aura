@@ -1,0 +1,5 @@
+// FFI-001/FFI-002: runtime-owned async handles are not a C ABI type.
+package ffi_async_handle
+
+@foreign(library = "m", target = "native", link = "dynamic", abi = 1, abi_id = "c")
+extern "C" fun native_handle(handle: TaskHandle<Int>): Channel<Int>
