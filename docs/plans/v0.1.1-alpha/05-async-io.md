@@ -115,14 +115,20 @@ callbacks share the same wake protocol. The native disconnect fixture closes
 the peer, observes `AURA_TCP_EOF`, publishes a terminal task failure, and
 verifies registered file/socket cleanup releases descriptors and buffers
 exactly once. This still does not register `AuraFile`/`AuraTcpStream` operations
-with a readiness source or scheduler.
+with a readiness source or scheduler. A bounded POSIX `fd/events` wait is now
+stored inline in the frame; `aura_task_executor_poll_waiting` polls it and
+wakes the frame, with timeout and cancellation coverage. Adapter-specific
+file/TCP operation registration remains open.
 
 **Checklist:**
 
 - [x] Cancel pending file and TCP operations without double-close for
       frame-registered adapter resources.
 - [x] Wake suspended tasks when operations fail or cancel through the bounded
-      adapter wake protocol; readiness-source registration remains open.
+      adapter wake protocol; generic POSIX fd readiness is covered, while
+      file/TCP adapter registration remains open.
+- [x] Poll a bounded POSIX fd wait and wake its pending frame exactly once;
+      timeout and cancellation clear the registration before resumption.
 - [x] Reclaim buffers and descriptors after bounded native disconnect; the
       peer-close/EOF path is connected to frame terminal cleanup, while
       scheduler-wide readiness completion remains open.

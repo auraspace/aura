@@ -5021,6 +5021,9 @@ struct AuraTaskFrame
   AuraTaskFrame *owned_next;
   AuraTaskChannel *waiting_channel;
   void *waiting_node;
+  int fd_wait_fd;
+  short fd_wait_events;
+  int fd_wait_active;
   AuraTaskFrame *wait_target;
   AuraTaskFrame *waiters_head;
   AuraTaskFrame *waiter_next;
@@ -5119,6 +5122,7 @@ void aura_task_frame_set_waiting(AuraTaskFrame *frame, void *token)
     return;
   }
   frame->waiting_node = token;
+  frame->fd_wait_active = 0;
   if (token != NULL)
   {
     frame->state = AURA_TASK_PENDING;
@@ -5130,12 +5134,34 @@ void aura_task_frame_clear_waiting(AuraTaskFrame *frame)
   if (frame != NULL)
   {
     frame->waiting_node = NULL;
+    frame->fd_wait_active = 0;
   }
 }
 
 void *aura_task_frame_waiting_token(const AuraTaskFrame *frame)
 {
   return frame != NULL ? frame->waiting_node : NULL;
+}
+
+/* Register one borrowed POSIX descriptor readiness wait on the frame. The
+ * descriptor and event mask live inline in the executor-owned frame, so no
+ * adapter token allocation can outlive cancellation or destruction. A later
+ * aura_task_executor_poll_waiting call performs the bounded poll and wakes the
+ * frame through the same clear-before-queue protocol as other adapters. */
+int aura_task_frame_wait_fd(AuraTaskFrame *frame, int fd, short events)
+{
+  if (frame == NULL || fd < 0 || events == 0 || frame->state == AURA_TASK_COMPLETE ||
+      frame->state == AURA_TASK_FAILED || frame->state == AURA_TASK_CANCELLED ||
+      frame->waiting_channel != NULL || frame->wait_target != NULL)
+  {
+    return 0;
+  }
+  frame->fd_wait_fd = fd;
+  frame->fd_wait_events = events;
+  frame->fd_wait_active = 1;
+  frame->waiting_node = &frame->fd_wait_active;
+  frame->state = AURA_TASK_PENDING;
+  return 1;
 }
 
 uint32_t aura_task_frame_resume_state(const AuraTaskFrame *frame)
@@ -5494,6 +5520,7 @@ void aura_task_frame_destroy(AuraTaskFrame *frame)
   }
   aura_task_frame_detach_wait_target(frame);
   aura_task_frame_detach_waiters(frame);
+  aura_task_frame_clear_waiting(frame);
   aura_task_frame_cleanup_run(frame);
   if (frame->destroy != NULL)
   {
@@ -5556,6 +5583,7 @@ AuraTaskPollState aura_task_frame_poll_once(AuraTaskFrame *frame)
     aura_task_frame_storage_release(&frame->pending);
     aura_task_frame_storage_release(&frame->captures);
     aura_task_frame_cleanup_run(frame);
+    aura_task_frame_clear_waiting(frame);
     /* Cancellation is terminal unless its bounded cancellation handler
      * publishes an exception. The handler runs after owned cleanup, so an
      * exception raised during cancellation cannot leak the cancelled
@@ -5823,6 +5851,40 @@ int aura_task_executor_wake_waiting(AuraTaskExecutor *executor, AuraTaskFrame *f
   return aura_task_executor_wake(executor, frame);
 }
 
+/* Poll the first executor-owned frame registered with wait_fd. A zero return
+ * means no descriptor became ready before timeout; a positive return means a
+ * frame was cleared and queued. This bounded single-threaded API intentionally
+ * leaves full multi-descriptor event-loop policy to a later host adapter. */
+int aura_task_executor_poll_waiting(AuraTaskExecutor *executor, int timeout_ms)
+{
+  AuraTaskFrame *frame;
+
+  if (executor == NULL || executor->shutdown || timeout_ms < 0)
+  {
+    return 0;
+  }
+  for (frame = executor->owned_head; frame != NULL; frame = frame->owned_next)
+  {
+    if (!frame->fd_wait_active || frame->waiting_node == NULL ||
+        frame->state != AURA_TASK_PENDING)
+    {
+      continue;
+    }
+    struct pollfd descriptor = {
+      frame->fd_wait_fd,
+      frame->fd_wait_events,
+      0,
+    };
+    int result = poll(&descriptor, 1, timeout_ms);
+    if (result > 0 || (result < 0 && errno != EINTR))
+    {
+      return aura_task_executor_wake_waiting(executor, frame);
+    }
+    return 0;
+  }
+  return 0;
+}
+
 int aura_task_executor_cancel(AuraTaskExecutor *executor, AuraTaskFrame *frame)
 {
   if (executor == NULL || frame == NULL || frame->executor != executor || executor->shutdown)
@@ -5837,6 +5899,7 @@ int aura_task_executor_cancel(AuraTaskExecutor *executor, AuraTaskFrame *frame)
   frame->cancel_requested = 1;
   aura_task_channel_cancel_wait(frame);
   aura_task_frame_detach_wait_target(frame);
+  aura_task_frame_clear_waiting(frame);
   if (!frame->queued)
   {
     aura_task_executor_wake(executor, frame);

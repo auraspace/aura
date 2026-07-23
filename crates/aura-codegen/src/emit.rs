@@ -143,9 +143,13 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("void aura_task_frame_set_waiting(AuraTaskFrame *frame, void *token);\n");
     out.push_str("void aura_task_frame_clear_waiting(AuraTaskFrame *frame);\n");
     out.push_str("void *aura_task_frame_waiting_token(const AuraTaskFrame *frame);\n");
+    out.push_str("int aura_task_frame_wait_fd(AuraTaskFrame *frame, int fd, short events);\n");
     out.push_str("int aura_task_frame_wait_on(AuraTaskFrame *frame, AuraTaskFrame *target);\n");
     out.push_str(
         "int aura_task_executor_wake_waiting(AuraTaskExecutor *executor, AuraTaskFrame *frame);\n",
+    );
+    out.push_str(
+        "int aura_task_executor_poll_waiting(AuraTaskExecutor *executor, int timeout_ms);\n",
     );
     out.push_str("uint32_t aura_task_frame_resume_state(const AuraTaskFrame *frame);\n");
     out.push_str("void aura_task_frame_set_resume_state(AuraTaskFrame *frame, uint32_t state);\n");
