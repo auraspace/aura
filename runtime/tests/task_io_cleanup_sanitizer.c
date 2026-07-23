@@ -21,6 +21,7 @@ typedef struct
 typedef struct
 {
   int fail;
+  int disconnect;
   IoResources *resources;
 } IoTask;
 
@@ -89,18 +90,39 @@ static AuraTaskPollState poll_io(AuraTaskFrame *frame)
     return AURA_TASK_FAILED;
   }
 
+  if (task->disconnect)
+  {
+    char byte = 0;
+    size_t read = 0;
+    assert(aura_tcp_stream_close(resources->client) == 1);
+    assert(aura_tcp_stream_read(resources->accepted, &byte, sizeof(byte),
+                                &read, 1000) == AURA_TCP_EOF);
+    int *error = (int *)malloc(sizeof(*error));
+    assert(error != NULL);
+    *error = 23;
+    aura_task_frame_set_error_at(frame, error, sizeof(*error), drop_int,
+                                 UINT32_C(0xD15C));
+    return AURA_TASK_FAILED;
+  }
+
   /* Completion transfers responsibility away from the frame. */
   aura_task_frame_clear_cleanup(frame);
   aura_task_frame_set_pending(frame, NULL, 0, NULL);
   return AURA_TASK_COMPLETE;
 }
 
-static AuraTaskFrame *new_io_task(int fail)
+static AuraTaskFrame *new_io_task_with_mode(int fail, int disconnect)
 {
   AuraTaskFrame *frame = aura_task_frame_new(sizeof(IoTask), poll_io, NULL);
   assert(frame != NULL);
   ((IoTask *)aura_task_frame_data(frame))->fail = fail;
+  ((IoTask *)aura_task_frame_data(frame))->disconnect = disconnect;
   return frame;
+}
+
+static AuraTaskFrame *new_io_task(int fail)
+{
+  return new_io_task_with_mode(fail, 0);
 }
 
 static void test_cancel_closes_file_and_tcp_once(void)
@@ -153,10 +175,31 @@ static void test_failure_and_shutdown_cleanup_once(void)
   assert(cleanup_count == 2);
 }
 
+static void test_peer_disconnect_publishes_failure_and_cleans_once(void)
+{
+  int cleanup_count = 0;
+  AuraTaskExecutor *executor = aura_task_executor_new();
+  assert(executor != NULL);
+  AuraTaskFrame *frame = new_io_task_with_mode(0, 1);
+  assert(aura_task_executor_submit(executor, frame) == 1);
+  assert(aura_task_executor_run_one(executor) == 1);
+  IoResources *resources = ((IoTask *)aura_task_frame_data(frame))->resources;
+  resources->cleanup_count = &cleanup_count;
+  assert(aura_task_executor_wake(executor, frame) == 1);
+  assert(aura_task_executor_run_one(executor) == 1);
+  assert(aura_task_frame_state(frame) == AURA_TASK_FAILED);
+  assert(aura_task_frame_error_source_id(frame) == UINT32_C(0xD15C));
+  assert(cleanup_count == 1);
+  assert(aura_task_executor_release(executor, &frame) == 1);
+  assert(cleanup_count == 1);
+  aura_task_executor_shutdown(executor);
+}
+
 int main(void)
 {
   test_cancel_closes_file_and_tcp_once();
   test_failure_and_shutdown_cleanup_once();
+  test_peer_disconnect_publishes_failure_and_cleans_once();
   aura_gc_shutdown();
   puts("task I/O cleanup sanitizer: passed");
   return 0;

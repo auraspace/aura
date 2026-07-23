@@ -111,8 +111,11 @@ observable, and also runs when executor shutdown destroys a live frame.
 Cancellation already wakes a pending frame through the bounded executor. The
 `aura_task_executor_wake_waiting` helper now clears an adapter-owned wait token
 and queues the frame exactly once, so completion, failure, and cancellation
-callbacks share the same wake protocol. This does not yet register
-`AuraFile`/`AuraTcpStream` operations with a readiness source or scheduler.
+callbacks share the same wake protocol. The native disconnect fixture closes
+the peer, observes `AURA_TCP_EOF`, publishes a terminal task failure, and
+verifies registered file/socket cleanup releases descriptors and buffers
+exactly once. This still does not register `AuraFile`/`AuraTcpStream` operations
+with a readiness source or scheduler.
 
 **Checklist:**
 
@@ -120,8 +123,9 @@ callbacks share the same wake protocol. This does not yet register
       frame-registered adapter resources.
 - [x] Wake suspended tasks when operations fail or cancel through the bounded
       adapter wake protocol; readiness-source registration remains open.
-- [ ] Reclaim buffers and descriptors after disconnect; native disconnect
-      completion is not yet connected to the task frame.
+- [x] Reclaim buffers and descriptors after bounded native disconnect; the
+      peer-close/EOF path is connected to frame terminal cleanup, while
+      scheduler-wide readiness completion remains open.
 - [x] Drain or cancel frame-registered outstanding operations deterministically
       at shutdown.
 
@@ -130,9 +134,9 @@ executor shutdown. The full server-shutdown acceptance remains open until
 native file/TCP adapters provide operation registration and wake sources.
 
 **Verification:** `runtime/tests/task_io_cleanup_sanitizer.c` covers real file
-and TCP descriptors under cancellation, failure, and forced executor shutdown
-with ASAN/UBSAN. Native disconnect races and scheduler-wide wakeup remain
-deferred.
+and TCP descriptors under cancellation, failure, forced executor shutdown, and
+peer disconnect with ASAN/UBSAN. Native disconnect races and scheduler-wide
+wakeup remain deferred.
 
 **Dependencies:** IO2, IO3, S5.
 
