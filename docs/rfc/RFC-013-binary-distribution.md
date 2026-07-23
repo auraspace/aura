@@ -19,7 +19,7 @@
 
 This RFC covers **how Aura ships**: platform matrix for the **toolchain** and for **user applications**, installers, archive layouts, **code signing**, checksums, self-update, and packaging of **single-file app binaries**. Default application deploy remains **one executable** produced by `aura build`.
 
-**Toolchain today (2026-07-22, S2):** **`v0.1.0-alpha`** is published for Linux amd64 and macOS amd64/arm64. `curl …/install.sh` installs into versioned `$AURA_HOME` (`~/.aura/versions/<ver>`, `current`, `avm`), while `cargo install --path crates/aura-cli` uses the embedded `aura_rt.c`. Tag `v*` produces multi-OS tarballs, per-archive checksums, and an aggregate `SHA256SUMS`; optional minisign manifest signing and installer verification are wired for release configuration. Windows artifacts, self-update, notarization, and a full `aura toolchain` CLI remain deferred.
+**Toolchain today (2026-07-23, S2):** **`v0.1.0-alpha`** is published for Linux amd64 and macOS amd64/arm64. `curl …/install.sh` installs into versioned `$AURA_HOME` (`~/.aura/versions/<ver>`, `current`, `avm`), while `cargo install --path crates/aura-cli` uses the embedded `aura_rt.c`. Tag `v*` produces multi-OS tarballs, per-archive checksums, an aggregate `SHA256SUMS`, and a detached minisign signature; production tags fail closed unless both signing secrets are configured and the workflow verifies the signature. Windows amd64/arm64 remain tier2 policy targets and are not yet published.
 
 ## 2. Motivation
 
@@ -66,11 +66,17 @@ Build outputs (RFC-008) and CLI (RFC-012) need install and release contracts.
 
 ### 6.1 Platform matrix (v1)
 
-| OS          | Arch         |
-| ----------- | ------------ |
-| Linux (gnu) | amd64, arm64 |
-| macOS       | amd64, arm64 |
-| Windows     | amd64, arm64 |
+The machine-readable policy is [`scripts/release-targets.tsv`](../../scripts/release-targets.tsv). `required` rows are built, checksum-checked, and installer-supported. `tier2` rows are explicit policy commitments only and must not be described as shipped until native build and install evidence exists.
+
+The current required artifact suffixes are `linux-amd64`, `darwin-arm64`, and
+`darwin-amd64`; Windows `windows-amd64` and `windows-arm64` are tier2 policy
+rows and have no release assets yet.
+
+| OS          | Arch                              |
+| ----------- | --------------------------------- |
+| Linux (gnu) | amd64, arm64                      |
+| macOS       | amd64, arm64                      |
+| Windows     | amd64, arm64 (tier2; not shipped) |
 
 Musl/static Linux: stretch goal for super-portable apps.
 
@@ -110,7 +116,7 @@ components…    # optional cross libs
 ### 6.5 Integrity & signing
 
 - Publish `SHA256SUMS` for every release.
-- Sign sums with release key (**minisign** for simplicity of offline verify; cosign optional later for provenance).
+- Sign sums with release key (**minisign** for simplicity of offline verify; cosign optional later for provenance). Production release tags fail closed when signing material is absent; unsigned rehearsals must not be promoted to a release.
 - Windows Authenticode / macOS notarization: platform-specific checklist.
 
 ### 6.6 Self-update
@@ -180,6 +186,9 @@ Single-file apps maximize operational simplicity. Toolchain archives + checksums
 | D0    | Manual archives + checksums | GitHub releases CI |
 | D1    | Install script + matrix     | 6 platform builds  |
 | D2    | Sign + self-update          | Verified upgrade   |
+
+The alpha gate validates the target manifest against the workflow, package
+script, installer, and this RFC before assets are built.
 
 ## 12. References
 

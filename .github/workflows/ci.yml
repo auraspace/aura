@@ -38,6 +38,12 @@ jobs:
       - name: Validate alpha contract matrix
         run: bash scripts/validate-alpha-contract.sh
 
+      - name: Validate release target and signing policy
+        run: bash scripts/validate-release-policy.sh
+
+      - name: Release policy regression test
+        run: bash scripts/tests/release-policy.sh
+
       - name: Check corpus (excl. diag)
         env:
           AURA_BIN: target/debug/aura

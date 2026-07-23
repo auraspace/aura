@@ -36,6 +36,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Validate release target and signing policy
+        run: bash scripts/validate-release-policy.sh
+
       - name: Install C toolchain (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y build-essential
@@ -190,10 +193,10 @@ jobs:
           set -euo pipefail
           # The private key is supplied only through GitHub Actions Secrets and
           # is never checked into or written to the repository checkout.
-          if [[ -z "${AURA_MINISIGN_SECRET_KEY:-}" ]]; then
-            echo "minisign signing disabled: configure secret AURA_MINISIGN_SECRET_KEY"
-            exit 0
-          fi
+          [[ -n "${AURA_MINISIGN_SECRET_KEY:-}" ]] || {
+            echo "error: production releases require AURA_MINISIGN_SECRET_KEY" >&2
+            exit 1
+          }
           [[ -n "${AURA_MINISIGN_PUBLIC_KEY:-}" ]] || {
             echo "error: AURA_MINISIGN_PUBLIC_KEY repository variable is required when signing is enabled" >&2
             exit 1
