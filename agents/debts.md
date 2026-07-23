@@ -105,9 +105,11 @@ When you resolve debt, update or remove the matching entry.
   operation.
 - Progress: open/read/write/flush/close/destroy own descriptors explicitly,
   borrow buffers only per call, classify permission/pending/EOF/closed/error,
-  and are covered by `runtime/tests/file_io.c` under ASAN/UBSAN.
-- Next step: integrate file handles with the async operation frame and define
-  cancellation/GC cleanup before checking the remaining IO2 items.
+  and are covered by `runtime/tests/file_io.c` under ASAN/UBSAN. The bounded
+  task cleanup fixture additionally proves file/TCP resources release exactly
+  once on cancellation, failure, forced shutdown, and peer disconnect.
+- Next step: integrate file buffers and handles with a true async operation
+  frame and GC-root contract before checking the remaining IO2 item.
 
 ### IO4 native operation adapters remain open (2026-07-23)
 
