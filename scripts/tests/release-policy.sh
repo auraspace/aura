@@ -4,6 +4,10 @@ root="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$root"
 bash scripts/validate-release-policy.sh >/dev/null
 bash scripts/validate-cross-target-packaging.sh >/dev/null
+if ! PATH=/usr/bin:/bin bash scripts/validate-release-policy.sh >/dev/null; then
+  printf 'release policy test: validator requires optional rg dependency\n' >&2
+  exit 1
+fi
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/aura-release-policy.XXXXXX")"
 trap 'rm -rf "$tmp"' EXIT
 cp .github/workflows/release.yml "$tmp/release.yml"
