@@ -1894,10 +1894,12 @@ fn emit_ffi_abi_declarations(out: &mut String) {
     out.push_str("typedef struct { void *data; uint64_t len; uint64_t cap; uint64_t elem_size; AuraFfiArrayKind kind; } AuraFfiArray;\n");
     out.push_str("typedef struct { void **slot; int active; } AuraFfiRootGuard;\n");
     out.push_str("typedef struct AuraFfiOpaqueHandle AuraFfiOpaqueHandle;\n");
+    out.push_str("typedef struct AuraTaskFrame AuraTaskFrame;\n");
     out.push_str("typedef struct { AuraFfiOpaqueHandle *handle; void *resource; uint64_t generation; } AuraFfiHandlePin;\n");
     out.push_str("typedef enum { AURA_FFI_BOUNDARY_SYNC = 0, AURA_FFI_BOUNDARY_TASK = 1, AURA_FFI_BOUNDARY_AWAIT = 2, AURA_FFI_BOUNDARY_CHANNEL = 3, AURA_FFI_BOUNDARY_CALLBACK = 4 } AuraFfiBoundary;\n");
     out.push_str("AuraFfiStatus aura_ffi_handle_pin_for_boundary(AuraFfiOpaqueHandle *, AuraFfiBoundary, AuraFfiHandlePin *);\n");
     out.push_str("AuraFfiStatus aura_ffi_handle_unpin(AuraFfiHandlePin *);\n");
+    out.push_str("AuraFfiStatus aura_task_frame_pin_foreign_handle(AuraTaskFrame *, AuraFfiOpaqueHandle *, AuraFfiBoundary);\n");
     out.push_str(
         "AuraFfiStatus aura_ffi_string_borrow(const char *, uint64_t, AuraFfiStringView *);\n",
     );
@@ -1999,6 +2001,21 @@ extern \"C\" fun native_open(): ForeignHandle<Int>\n",
         .expect("parse typed foreign handle return fixture");
         let error = aura_sema::check_file(&file).expect_err("owned return is not proven");
         assert!(error.to_string().contains("drop/transfer semantics"));
+    }
+
+    #[test]
+    fn async_typed_foreign_handle_retains_pin_in_task_frame() {
+        let file = parse_file(
+            "package demo\n\
+@foreign(library = \"m\", target = \"native\", link = \"dynamic\", abi = 1, abi_id = \"c\")\n\
+extern \"C\" fun native_use(handle: ForeignHandle<Int>): Unit\n\
+async fun run(handle: ForeignHandle<Int>): Unit { native_use(handle) }\n",
+        )
+        .expect("parse async typed foreign handle fixture");
+        let checked = aura_sema::check_file(&file).expect("async typed parameter checks");
+        let generated = emit_c_with(&checked, EmitOptions::default());
+        assert!(generated.contains("aura_async_body_demo_run(AuraTaskFrame *frame"));
+        assert!(generated.contains("aura_task_frame_pin_foreign_handle(frame"));
     }
     #[test]
     fn checked_file_retains_attribute_metadata_for_consumers() {
@@ -3170,6 +3187,7 @@ fn async_ctx<'a>(
             .map(|t| type_ref_local_key_expand(t, params, &[], checked)),
         lambda_ids: build_lambda_ids(checked),
         spawn_params: fparams.iter().map(|p| p.name.name.clone()).collect(),
+        async_frame: None,
     };
     for p in fparams {
         let key = type_ref_local_key_expand(&p.ty, params, &[], checked);
@@ -3234,11 +3252,11 @@ fn emit_async_fun_no_await(
         .collect::<Vec<_>>();
     let _ = writeln!(
         out,
-        "static {ret} {body_fn}({}) {{",
+        "static {ret} {body_fn}(AuraTaskFrame *frame{}) {{",
         if body_params.is_empty() {
-            "void".into()
+            String::new()
         } else {
-            body_params.join(", ")
+            format!(", {}", body_params.join(", "))
         }
     );
     emit_async_body(out, f, checked, &params, detector);
@@ -3287,7 +3305,15 @@ fn emit_async_fun_no_await(
         .join(", ");
     out.push_str("  jmp_buf __async_jb;\n  if (setjmp(__async_jb) == 0) {\n    aura_try_enter(&__async_jb);\n");
     if ret == "void" {
-        let _ = writeln!(out, "    {body_fn}({args});");
+        let _ = writeln!(
+            out,
+            "    {body_fn}(frame{});",
+            if args.is_empty() {
+                String::new()
+            } else {
+                format!(", {args}")
+            }
+        );
         out.push_str(
             "    aura_try_leave();\n    aura_task_frame_set_result(frame, NULL, 0, NULL);\n",
         );
@@ -3296,7 +3322,15 @@ fn emit_async_fun_no_await(
         // throw uses longjmp and would bypass that local allocation. Keep the
         // returned value on the stack until the exception boundary is left,
         // then publish an owned heap result only on the success path.
-        let _ = writeln!(out, "    {ret} body_value = {body_fn}({args});");
+        let _ = writeln!(
+            out,
+            "    {ret} body_value = {body_fn}(frame{});",
+            if args.is_empty() {
+                String::new()
+            } else {
+                format!(", {args}")
+            }
+        );
         out.push_str("    aura_try_leave();\n");
         let _ = writeln!(out, "    {ret} *result = ({ret} *)malloc(sizeof(*result));");
         out.push_str("    if (result == NULL) return AURA_TASK_FAILED;\n");
@@ -3371,6 +3405,7 @@ fn emit_async_body(
         return_key: ret_key,
         lambda_ids: build_lambda_ids(checked),
         spawn_params: f.params.iter().map(|p| p.name.name.clone()).collect(),
+        async_frame: Some("frame".into()),
     };
     for p in &f.params {
         let key = type_ref_local_key_expand(&p.ty, params, &[], checked);
@@ -3604,6 +3639,7 @@ fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile, detector:
             return_key: Some("Unit".into()),
             lambda_ids: build_lambda_ids(checked),
             spawn_params: HashSet::new(),
+            async_frame: None,
         };
         for (name, key) in &captures {
             ctx.define_local(name, key.clone());
@@ -3666,6 +3702,7 @@ fn emit_bounded_spawn_await_poller(
         return_key: Some("Unit".into()),
         lambda_ids: build_lambda_ids(checked),
         spawn_params: HashSet::new(),
+        async_frame: None,
     };
     let task = emit_expr(&await_expr.operand, &mut initial_ctx);
     let _ = writeln!(out, "      data->await_task = {task};");
@@ -3700,6 +3737,7 @@ fn emit_bounded_spawn_await_poller(
         return_key: Some("Unit".into()),
         lambda_ids: build_lambda_ids(checked),
         spawn_params: HashSet::new(),
+        async_frame: None,
     };
     for (name, key) in captures {
         let n = mangle_ident(name);
@@ -4333,6 +4371,7 @@ fn emit_lambda_fns(out: &mut String, checked: &CheckedFile, detector: bool) {
             return_key: ret_key,
             lambda_ids: ids.clone(),
             spawn_params: HashSet::new(),
+            async_frame: None,
         };
         // C12l: Array captures are non-owning views — do not mark array_owner
         // (env/header copy only; outer scope frees the buffer).
@@ -4528,6 +4567,7 @@ pub(crate) fn emit_fun(
         return_key: ret_key,
         lambda_ids: build_lambda_ids(checked),
         spawn_params: f.params.iter().map(|p| p.name.name.clone()).collect(),
+        async_frame: None,
     };
     for p in &f.params {
         let key = type_ref_local_key_expand(&p.ty, &params, args, checked);

@@ -38,6 +38,9 @@ pub(crate) struct EmitCtx<'a> {
     /// Names visible to the bounded spawn capture slice. Parameters and local
     /// bindings are added as codegen walks the enclosing function.
     pub(crate) spawn_params: HashSet<String>,
+    /// Generated no-await async body frame, when foreign handles must live
+    /// until the task frame is destroyed.
+    pub(crate) async_frame: Option<String>,
 }
 
 impl<'a> EmitCtx<'a> {

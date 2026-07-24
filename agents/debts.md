@@ -666,9 +666,9 @@ When you resolve debt, update or remove the matching entry.
   while keeping primitive foreign declarations on the existing supported ABI.
   The compiler now accepts borrowed tagged `ForeignHandle<T>` parameters and
   emits the checked pin/unpin ABI for synchronous foreign calls, while rejecting
-  owned returns and unproven nested async handles. Task frames now retain
-  TASK/AWAIT pin tokens through destruction. Compiler-generated async lowering
-  still needs to invoke that frame-owned API; callbacks and foreign error
+  owned returns and unproven nested async handles. Bounded no-await compiler-
+  generated async functions now invoke the frame-owned pin API; suspension-point
+  state machines still need equivalent coverage. Callbacks and foreign error
   mapping belong to F5.
 
 ### F5 callback portability (2026-07-22)

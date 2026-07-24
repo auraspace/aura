@@ -405,6 +405,7 @@ pub(crate) fn emit_method_mono(
         return_key: ret_key,
         lambda_ids: crate::emit::build_lambda_ids(checked),
         spawn_params: std::collections::HashSet::new(),
+        async_frame: None,
     };
     for f in &c.fields {
         let key = type_ref_local_key_expand(&f.ty, params, args, checked);

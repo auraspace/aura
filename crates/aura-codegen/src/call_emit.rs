@@ -920,6 +920,7 @@ fn emit_foreign_call(foreign: &ForeignDecl, call: &CallExpr, ctx: &mut EmitCtx<'
         // async caller.  Aura does not silently pin Task, TaskHandle,
         // Channel, or any unproven value across an await.
         let ret = crate::names::c_type_from_opt(&foreign.return_type, ctx.checked, &[], &[]);
+        let async_frame = ctx.async_frame.clone();
         let mut out = String::from("({ ");
         for (slot, index) in pinned.iter().enumerate() {
             let arg = call
@@ -927,12 +928,21 @@ fn emit_foreign_call(foreign: &ForeignDecl, call: &CallExpr, ctx: &mut EmitCtx<'
                 .get(*index)
                 .map(|arg| emit_expr(arg, ctx))
                 .unwrap_or_else(|| "NULL".into());
-            let _ = std::fmt::Write::write_fmt(
-                &mut out,
+            if let Some(frame) = &async_frame {
+                let _ = std::fmt::Write::write_fmt(
+                    &mut out,
                     format_args!(
-                    "AuraFfiOpaqueHandle *__aura_ffi_handle_{slot} = (AuraFfiOpaqueHandle *)({arg}); AuraFfiHandlePin __aura_ffi_pin_{slot} = {{0}}; if (__aura_ffi_handle_{slot} != NULL && aura_ffi_handle_pin_for_boundary(__aura_ffi_handle_{slot}, AURA_FFI_BOUNDARY_TASK, &__aura_ffi_pin_{slot}) != AURA_FFI_OK) abort(); "
-                ),
-            );
+                        "AuraFfiOpaqueHandle *__aura_ffi_handle_{slot} = (AuraFfiOpaqueHandle *)({arg}); if (__aura_ffi_handle_{slot} != NULL && aura_task_frame_pin_foreign_handle({frame}, __aura_ffi_handle_{slot}, AURA_FFI_BOUNDARY_TASK) != AURA_FFI_OK) abort(); "
+                    ),
+                );
+            } else {
+                let _ = std::fmt::Write::write_fmt(
+                    &mut out,
+                    format_args!(
+                        "AuraFfiOpaqueHandle *__aura_ffi_handle_{slot} = (AuraFfiOpaqueHandle *)({arg}); AuraFfiHandlePin __aura_ffi_pin_{slot} = {{0}}; if (__aura_ffi_handle_{slot} != NULL && aura_ffi_handle_pin_for_boundary(__aura_ffi_handle_{slot}, AURA_FFI_BOUNDARY_TASK, &__aura_ffi_pin_{slot}) != AURA_FFI_OK) abort(); "
+                    ),
+                );
+            }
         }
         let call_args = call
             .args
@@ -958,11 +968,13 @@ fn emit_foreign_call(foreign: &ForeignDecl, call: &CallExpr, ctx: &mut EmitCtx<'
                 format_args!("{ret} __aura_ffi_result = ({pinned_call}); "),
             );
         }
-        for slot in pinned.iter().enumerate().map(|(slot, _)| slot) {
-            let _ = std::fmt::Write::write_fmt(
-                &mut out,
-                format_args!("if (__aura_ffi_pin_{slot}.handle != NULL) (void)aura_ffi_handle_unpin(&__aura_ffi_pin_{slot}); "),
-            );
+        if async_frame.is_none() {
+            for slot in pinned.iter().enumerate().map(|(slot, _)| slot) {
+                let _ = std::fmt::Write::write_fmt(
+                    &mut out,
+                    format_args!("if (__aura_ffi_pin_{slot}.handle != NULL) (void)aura_ffi_handle_unpin(&__aura_ffi_pin_{slot}); "),
+                );
+            }
         }
         if ret != "void" {
             out.push_str("__aura_ffi_result; ");
