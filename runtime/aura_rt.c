@@ -3112,6 +3112,16 @@ void aura_assert_eq_bool(bool a, bool b)
 
 #define AURA_EX_MAX 64
 
+typedef struct AuraExCause AuraExCause;
+
+struct AuraExCause
+{
+  char *type_name;
+  uint32_t source_span_start;
+  uint32_t source_span_end;
+  AuraExCause *next;
+};
+
 typedef struct
 {
   jmp_buf *buf;
@@ -3120,6 +3130,8 @@ typedef struct
   uint32_t source_span_end;
   int owns_obj;          /* payload.as_obj is owned by the exception frame */
   void (*destroy_obj)(void *);
+  AuraExCause *cause_head;
+  AuraExCause *cause_tail;
   union
   {
     const char *as_string;
@@ -3134,6 +3146,43 @@ static int aura_ex_sp = 0;
 static int aura_ex_pending = 0;
 static uint32_t aura_ex_unhandled_span_start = 0;
 static uint32_t aura_ex_unhandled_span_end = 0;
+
+static char *aura_ex_copy_string(const char *text)
+{
+  size_t len;
+  char *copy;
+  if (text == NULL)
+  {
+    return NULL;
+  }
+  len = strlen(text);
+  copy = (char *)malloc(len + 1);
+  if (copy != NULL)
+  {
+    memcpy(copy, text, len + 1);
+  }
+  return copy;
+}
+
+static void aura_ex_dispose_causes(AuraExFrame *f)
+{
+  AuraExCause *cause;
+  AuraExCause *next;
+  if (f == NULL)
+  {
+    return;
+  }
+  cause = f->cause_head;
+  f->cause_head = NULL;
+  f->cause_tail = NULL;
+  while (cause != NULL)
+  {
+    next = cause->next;
+    free(cause->type_name);
+    free(cause);
+    cause = next;
+  }
+}
 
 /* Compiler-generated throws set this before transferring control. Runtime
  * helpers leave it at zero, preserving a stable unknown location. */
@@ -3179,6 +3228,7 @@ static void aura_ex_dispose_frame(AuraExFrame *f)
     }
     f->payload.as_obj = NULL;
   }
+  aura_ex_dispose_causes(f);
   f->owns_obj = 0;
   f->destroy_obj = NULL;
   f->type_name = NULL;
@@ -3190,7 +3240,8 @@ static void aura_ex_dispose_frame(AuraExFrame *f)
 static void aura_ex_abort_uncaught(const char *type_name, void *obj,
                                    void (*destroy_obj)(void *),
                                    uint32_t source_span_start,
-                                   uint32_t source_span_end)
+                                   uint32_t source_span_end,
+                                   AuraExCause *causes)
 {
   if (source_span_end > source_span_start)
   {
@@ -3203,6 +3254,20 @@ static void aura_ex_abort_uncaught(const char *type_name, void *obj,
     fprintf(stderr, "uncaught exception (%s)\n",
             type_name ? type_name : "object");
   }
+  for (AuraExCause *cause = causes; cause != NULL; cause = cause->next)
+  {
+    if (cause->source_span_end > cause->source_span_start)
+    {
+      fprintf(stderr, "  caused by (%s) at source span [%u,%u)\n",
+              cause->type_name ? cause->type_name : "exception",
+              cause->source_span_start, cause->source_span_end);
+    }
+    else
+    {
+      fprintf(stderr, "  caused by (%s)\n",
+              cause->type_name ? cause->type_name : "exception");
+    }
+  }
   if (obj != NULL)
   {
     if (destroy_obj != NULL)
@@ -3213,6 +3278,13 @@ static void aura_ex_abort_uncaught(const char *type_name, void *obj,
     {
       free(obj);
     }
+  }
+  while (causes != NULL)
+  {
+    AuraExCause *next = causes->next;
+    free(causes->type_name);
+    free(causes);
+    causes = next;
   }
   abort();
 }
@@ -3238,6 +3310,8 @@ void aura_try_enter(jmp_buf *buf)
   f->type_name = NULL;
   f->source_span_start = 0;
   f->source_span_end = 0;
+  f->cause_head = NULL;
+  f->cause_tail = NULL;
   f->owns_obj = 0;
   f->destroy_obj = NULL;
   f->payload.as_obj = NULL;
@@ -3325,7 +3399,7 @@ void aura_throw_obj_with_destructor(const char *type_name, void *obj,
     aura_ex_abort_uncaught(type_name, obj,
                            destroy_obj != NULL ? destroy_obj : free,
                            aura_ex_unhandled_span_start,
-                           aura_ex_unhandled_span_end);
+                           aura_ex_unhandled_span_end, NULL);
   }
   AuraExFrame *f = &aura_ex_stack[aura_ex_sp - 1];
   aura_ex_replace_payload(f);
@@ -3335,6 +3409,106 @@ void aura_throw_obj_with_destructor(const char *type_name, void *obj,
   f->payload.as_obj = obj;
   aura_ex_pending = 1;
   longjmp(*f->buf, 1);
+}
+
+int aura_ex_add_cause(const char *type_name, uint32_t source_span_start,
+                      uint32_t source_span_end)
+{
+  AuraExFrame *frame;
+  AuraExCause *cause;
+  if (aura_ex_sp == 0 || type_name == NULL)
+  {
+    return 0;
+  }
+  cause = (AuraExCause *)calloc(1, sizeof(*cause));
+  if (cause == NULL)
+  {
+    return 0;
+  }
+  cause->type_name = aura_ex_copy_string(type_name);
+  if (cause->type_name == NULL)
+  {
+    free(cause);
+    return 0;
+  }
+  cause->source_span_start = source_span_start;
+  cause->source_span_end = source_span_end;
+  frame = &aura_ex_stack[aura_ex_sp - 1];
+  if (frame->cause_tail == NULL)
+  {
+    frame->cause_head = cause;
+  }
+  else
+  {
+    frame->cause_tail->next = cause;
+  }
+  frame->cause_tail = cause;
+  return 1;
+}
+
+size_t aura_ex_cause_count(void)
+{
+  size_t count = 0;
+  if (aura_ex_sp > 0)
+  {
+    for (AuraExCause *cause = aura_ex_stack[aura_ex_sp - 1].cause_head;
+         cause != NULL; cause = cause->next)
+    {
+      count++;
+    }
+  }
+  return count;
+}
+
+const char *aura_ex_cause_type(size_t index)
+{
+  if (aura_ex_sp > 0)
+  {
+    size_t current = 0;
+    for (AuraExCause *cause = aura_ex_stack[aura_ex_sp - 1].cause_head;
+         cause != NULL; cause = cause->next)
+    {
+      if (current++ == index)
+      {
+        return cause->type_name;
+      }
+    }
+  }
+  return NULL;
+}
+
+uint32_t aura_ex_cause_span_start(size_t index)
+{
+  if (aura_ex_sp > 0)
+  {
+    size_t current = 0;
+    for (AuraExCause *cause = aura_ex_stack[aura_ex_sp - 1].cause_head;
+         cause != NULL; cause = cause->next)
+    {
+      if (current++ == index)
+      {
+        return cause->source_span_start;
+      }
+    }
+  }
+  return 0;
+}
+
+uint32_t aura_ex_cause_span_end(size_t index)
+{
+  if (aura_ex_sp > 0)
+  {
+    size_t current = 0;
+    for (AuraExCause *cause = aura_ex_stack[aura_ex_sp - 1].cause_head;
+         cause != NULL; cause = cause->next)
+    {
+      if (current++ == index)
+      {
+        return cause->source_span_end;
+      }
+    }
+  }
+  return 0;
 }
 
 int aura_ex_matches(const char *type_name)
@@ -3408,7 +3582,8 @@ void aura_ex_rethrow(void)
     aura_ex_abort_uncaught(cur.type_name,
                            cur.owns_obj ? cur.payload.as_obj : NULL,
                            cur.owns_obj ? cur.destroy_obj : NULL,
-                           cur.source_span_start, cur.source_span_end);
+                           cur.source_span_start, cur.source_span_end,
+                           cur.cause_head);
   }
   AuraExFrame *outer = &aura_ex_stack[aura_ex_sp - 1];
   aura_ex_replace_payload(outer);
@@ -3418,6 +3593,10 @@ void aura_ex_rethrow(void)
   outer->owns_obj = cur.owns_obj;
   outer->destroy_obj = cur.destroy_obj;
   outer->payload = cur.payload;
+  outer->cause_head = cur.cause_head;
+  outer->cause_tail = cur.cause_tail;
+  cur.cause_head = NULL;
+  cur.cause_tail = NULL;
   longjmp(*outer->buf, 1);
 }
 

@@ -171,6 +171,40 @@ static void test_source_span_survives_rethrow(void)
   }
 }
 
+static void test_cause_chain_survives_rethrow(void)
+{
+  jmp_buf outer_jb;
+  jmp_buf inner_jb;
+  if (setjmp(outer_jb) == 0)
+  {
+    aura_try_enter(&outer_jb);
+    if (setjmp(inner_jb) == 0)
+    {
+      aura_try_enter(&inner_jb);
+      aura_throw_int(10);
+    }
+    else
+    {
+      assert(aura_ex_add_cause("ReadFailure", 51, 58) == 1);
+      assert(aura_ex_add_cause("SocketFailure", 61, 69) == 1);
+      assert(aura_ex_cause_count() == 2);
+      aura_ex_rethrow();
+    }
+    abort();
+  }
+  else
+  {
+    assert(aura_ex_matches("Int"));
+    assert(aura_ex_cause_count() == 2);
+    assert(strcmp(aura_ex_cause_type(0), "ReadFailure") == 0);
+    assert(strcmp(aura_ex_cause_type(1), "SocketFailure") == 0);
+    assert(aura_ex_cause_span_start(1) == 61);
+    assert(aura_ex_cause_span_end(1) == 69);
+    aura_ex_clear();
+    aura_try_leave();
+  }
+}
+
 static void test_destructor_clears_nested_owned_payload(void)
 {
   jmp_buf jb;
@@ -294,6 +328,7 @@ int main(void)
   test_rethrow_transfers_ownership_once();
   test_leave_resets_scalar_pending_state();
   test_source_span_survives_rethrow();
+  test_cause_chain_survives_rethrow();
   test_destructor_clears_nested_owned_payload();
   test_destructor_transfers_on_rethrow();
   test_replacing_payload_disposes_old_value();

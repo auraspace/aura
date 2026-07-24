@@ -62,6 +62,11 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("void aura_ex_set_source_span(uint32_t start, uint32_t end);\n");
     out.push_str("uint32_t aura_ex_source_span_start(void);\n");
     out.push_str("uint32_t aura_ex_source_span_end(void);\n");
+    out.push_str("int aura_ex_add_cause(const char *type_name, uint32_t source_span_start, uint32_t source_span_end);\n");
+    out.push_str("size_t aura_ex_cause_count(void);\n");
+    out.push_str("const char *aura_ex_cause_type(size_t index);\n");
+    out.push_str("uint32_t aura_ex_cause_span_start(size_t index);\n");
+    out.push_str("uint32_t aura_ex_cause_span_end(size_t index);\n");
     out.push_str("void aura_throw_string(const char *s);\n");
     out.push_str("void aura_throw_int(int64_t v);\n");
     out.push_str("void aura_throw_bool(_Bool v);\n");
@@ -557,6 +562,11 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
                 lowered,
                 checked,
                 opts.detector,
+            ) && !emit_async_fun_nested_if_branch_awaits(
+                &mut out,
+                lowered,
+                checked,
+                opts.detector,
             ) && !emit_async_fun_if_else_single_await(&mut out, lowered, checked, opts.detector)
                 && !emit_async_fun_if_assign_await(&mut out, lowered, checked, opts.detector)
                 && !emit_async_fun_if_await_then_continue(&mut out, lowered, checked, opts.detector)
@@ -1029,6 +1039,203 @@ fn normalize_async_return_await(f: &AsyncFunDecl) -> Option<AsyncFunDecl> {
 /// records the selected arm and state one performs the common terminal/error
 /// handling.  This is the smallest general join shape that avoids duplicating
 /// the child-wait protocol while remaining explicit about the frame state.
+/// Lower a nested branch tree with one await in each leaf:
+///
+/// ```text
+/// if (outer) { if (inner) { await a } else { await b } }
+/// else       { if (inner) { await c } else { await d } }
+/// ```
+///
+/// This is deliberately a closed shape.  The selected leaf is recorded in
+/// the frame before its child is created, and all four leaves share the same
+/// terminal poll state.  Consequently a pending poll never re-evaluates a
+/// condition or allocates an unselected child, while cancellation/failure
+/// follows the same frame protocol as the other async lowerings.
+fn emit_async_fun_nested_if_branch_awaits(
+    out: &mut String,
+    f: &AsyncFunDecl,
+    checked: &CheckedFile,
+    detector: bool,
+) -> bool {
+    if f.return_type
+        .as_ref()
+        .map(|t| type_ref_local_key_expand(t, &[], &[], checked) != "Int")
+        .unwrap_or(true)
+        || f.body.stmts.len() != 1
+    {
+        return false;
+    }
+    let Stmt::If(outer) = &f.body.stmts[0] else {
+        return false;
+    };
+    let Some(outer_else) = &outer.else_block else {
+        return false;
+    };
+    if outer.then_block.stmts.len() != 1 || outer_else.stmts.len() != 1 {
+        return false;
+    }
+    let Stmt::If(then_tree) = &outer.then_block.stmts[0] else {
+        return false;
+    };
+    let Stmt::If(else_tree) = &outer_else.stmts[0] else {
+        return false;
+    };
+    let Some(then_else) = &then_tree.else_block else {
+        return false;
+    };
+    let Some(else_else) = &else_tree.else_block else {
+        return false;
+    };
+    let Some((_, then_true, _)) = branch_await_return(&then_tree.then_block, checked) else {
+        return false;
+    };
+    let Some((_, then_false, _)) = branch_await_return(then_else, checked) else {
+        return false;
+    };
+    let Some((_, else_true, _)) = branch_await_return(&else_tree.then_block, checked) else {
+        return false;
+    };
+    let Some((_, else_false, _)) = branch_await_return(else_else, checked) else {
+        return false;
+    };
+
+    // The task expression is created in state 0.  Do not admit another
+    // await-shaped expression here: that would require a second suspension
+    // state inside a branch and would violate this lowering's invariant.
+    let leaves = [then_true, then_false, else_true, else_false];
+    if leaves
+        .iter()
+        .any(|await_expr| matches!(await_expr.operand.as_ref(), Expr::Async(_)))
+    {
+        return false;
+    }
+
+    let params: Vec<String> = f.type_params.iter().map(|p| p.name.name.clone()).collect();
+    let pkg = async_fun_decl_package(f, checked);
+    let base = format!("{}_{}", mangle_package(&pkg), mangle_ident(&f.name.name));
+    let data_ty = format!("aura_async_data_{base}");
+    let poll_fn = format!("aura_async_poll_{base}");
+    let destroy_data = format!("aura_async_destroy_{base}");
+    let destroy_result = format!("aura_async_result_destroy_{base}");
+    let ret = c_type_from_opt(&f.return_type, checked, &params, &[]);
+
+    let mut outer_ctx = async_ctx(checked, detector, &params, &f.params, &f.return_type);
+    let outer_condition = emit_expr(&outer.cond, &mut outer_ctx);
+    let mut then_ctx = async_ctx(checked, detector, &params, &f.params, &f.return_type);
+    let then_condition = emit_expr(&then_tree.cond, &mut then_ctx);
+    let mut else_ctx = async_ctx(checked, detector, &params, &f.params, &f.return_type);
+    let else_condition = emit_expr(&else_tree.cond, &mut else_ctx);
+    let task_exprs: Vec<String> = leaves
+        .iter()
+        .map(|await_expr| {
+            let mut ctx = async_ctx(checked, detector, &params, &f.params, &f.return_type);
+            emit_expr(&await_expr.operand, &mut ctx)
+        })
+        .collect();
+
+    let _ = writeln!(
+        out,
+        "/* aura async nested-branch suspension states=1 leaves=4 spans={}:{}|{}:{}|{}:{}|{}:{} */",
+        then_true.span.start,
+        then_true.span.end,
+        then_false.span.start,
+        then_false.span.end,
+        else_true.span.start,
+        else_true.span.end,
+        else_false.span.start,
+        else_false.span.end
+    );
+    let _ = writeln!(out, "typedef struct {data_ty} {{");
+    for p in &f.params {
+        let _ = writeln!(
+            out,
+            "  {} {};",
+            c_type_ref_subst(&p.ty, checked, &params, &[]),
+            mangle_ident(&p.name.name)
+        );
+    }
+    out.push_str("  uint8_t selected_path;\n  AuraTaskFrame *await_task;\n");
+    let _ = writeln!(out, "}} {data_ty};\n");
+    let _ = writeln!(
+        out,
+        "static void {destroy_data}(AuraTaskFrame *frame) {{ (void)frame; }}\n"
+    );
+    let _ = writeln!(
+        out,
+        "static void {destroy_result}(void *data, size_t size) {{ (void)size; free(data); }}\n"
+    );
+    let _ = writeln!(
+        out,
+        "static AuraTaskPollState {poll_fn}(AuraTaskFrame *frame) {{"
+    );
+    let _ = writeln!(
+        out,
+        "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame);"
+    );
+    out.push_str("  if (aura_task_frame_cancel_requested(frame)) return AURA_TASK_CANCELLED;\n");
+    out.push_str("  switch (aura_task_frame_resume_state(frame)) {\n    case 0: {\n");
+    for p in &f.params {
+        let n = mangle_ident(&p.name.name);
+        let _ = writeln!(
+            out,
+            "      {} {n} = data->{n};",
+            c_type_ref_subst(&p.ty, checked, &params, &[])
+        );
+    }
+    let _ = writeln!(out, "      if ({outer_condition}) {{");
+    let _ = writeln!(
+        out,
+        "        if ({then_condition}) {{ data->selected_path = 0; data->await_task = {}; }} else {{ data->selected_path = 1; data->await_task = {}; }}",
+        task_exprs[0],
+        task_exprs[1]
+    );
+    let _ = writeln!(out, "      }} else {{");
+    let _ = writeln!(
+        out,
+        "        if ({else_condition}) {{ data->selected_path = 2; data->await_task = {}; }} else {{ data->selected_path = 3; data->await_task = {}; }}",
+        task_exprs[2],
+        task_exprs[3]
+    );
+    out.push_str("      }\n      if (data->await_task == NULL) return AURA_TASK_FAILED;\n      aura_task_frame_set_resume_state(frame, 1);\n    }\n    case 1: {\n");
+    out.push_str("      if (data->selected_path > 3) return AURA_TASK_FAILED;\n");
+    out.push_str(
+        "      AuraTaskPollState child_state = aura_task_frame_state(data->await_task);\n",
+    );
+    out.push_str("      if (child_state == AURA_TASK_READY) child_state = aura_task_frame_poll_once(data->await_task);\n");
+    out.push_str("      if (child_state == AURA_TASK_PENDING) { if (!aura_task_frame_wait_on(frame, data->await_task)) return AURA_TASK_FAILED; return AURA_TASK_PENDING; }\n");
+    out.push_str("      if (child_state == AURA_TASK_CANCELLED) return AURA_TASK_CANCELLED;\n");
+    out.push_str("      if (child_state == AURA_TASK_FAILED) { (void)aura_task_frame_propagate_error(frame, data->await_task); return AURA_TASK_FAILED; }\n");
+    out.push_str("      if (child_state != AURA_TASK_COMPLETE) return AURA_TASK_FAILED;\n      AuraTaskResult child_result = aura_task_frame_result(data->await_task);\n");
+    let _ = writeln!(
+        out,
+        "      {ret} *result = ({ret} *)malloc(sizeof(*result));"
+    );
+    out.push_str("      if (result == NULL) return AURA_TASK_FAILED;\n");
+    out.push_str(
+        "      *result = child_result.data == NULL ? 0 : *((int64_t *)child_result.data);\n",
+    );
+    let _ = writeln!(
+        out,
+        "      aura_task_frame_set_result(frame, result, sizeof(*result), {destroy_result}); return AURA_TASK_COMPLETE;\n    }}\n    default: return AURA_TASK_FAILED;\n  }}\n}}\n\n"
+    );
+    let _ = writeln!(out, "{} {{", c_async_fun_signature(f, checked));
+    let _ = writeln!(
+        out,
+        "  AuraTaskFrame *frame = aura_task_frame_new(sizeof({data_ty}), {poll_fn}, {destroy_data});"
+    );
+    out.push_str("  if (frame == NULL) return NULL;\n");
+    let _ = writeln!(
+        out,
+        "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame);"
+    );
+    for p in &f.params {
+        let n = mangle_ident(&p.name.name);
+        let _ = writeln!(out, "  data->{n} = {n};");
+    }
+    out.push_str("  if (__aura_task_executor != NULL && !aura_task_executor_submit(__aura_task_executor, frame)) { aura_task_frame_destroy(frame); return NULL; }\n  return frame;\n}\n");
+    true
+}
+
 fn emit_async_fun_if_else_single_await(
     out: &mut String,
     f: &AsyncFunDecl,
@@ -1889,6 +2096,35 @@ extern \"C\" fun native_open(): ForeignHandle<Int>\n",
         assert!(instrumented.contains("AURA_RACE_READ"));
         assert!(instrumented.contains("AURA_RACE_WRITE"));
         assert!(instrumented.contains("UINT32_C("));
+    }
+
+    #[test]
+    fn lowers_nested_branch_local_awaits_to_one_resumable_state() {
+        let file = parse_file(
+            r#"package demo
+async fun nested(outer: Bool, inner: Bool, a: Task<Int>, b: Task<Int>, c: Task<Int>, d: Task<Int>): Int {
+  if (outer) {
+    if (inner) { val value: Int = await a return value }
+    else { val value: Int = await b return value }
+  } else {
+    if (inner) { val value: Int = await c return value }
+    else { val value: Int = await d return value }
+  }
+}
+fun main() {}
+"#,
+        )
+        .expect("parse nested branch-local await fixture");
+        let checked = aura_sema::check_file(&file).expect("nested await fixture checks");
+        let generated = emit_c_with(&checked, EmitOptions::default());
+        assert!(generated.contains("nested-branch suspension states=1 leaves=4"));
+        assert!(generated.contains("uint8_t selected_path;"));
+        assert!(generated.contains("data->selected_path = 0"));
+        assert!(generated.contains("data->selected_path = 3"));
+        assert!(generated.contains("aura_task_frame_set_resume_state(frame, 1)"));
+        assert!(generated.contains("aura_task_frame_wait_on(frame, data->await_task)"));
+        assert!(generated.contains("aura_task_frame_propagate_error(frame, data->await_task)"));
+        assert!(generated.contains("aura_task_frame_cancel_requested(frame)"));
     }
 }
 
