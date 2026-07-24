@@ -252,18 +252,25 @@ static void test_replacing_payload_disposes_old_value(void)
 static void test_uncaught_payload_is_destroyed_before_abort(void)
 {
   int pipe_fds[2];
+  int stderr_fds[2];
   assert(pipe(pipe_fds) == 0);
+  assert(pipe(stderr_fds) == 0);
   pid_t child = fork();
   assert(child >= 0);
   if (child == 0)
   {
     close(pipe_fds[0]);
+    close(stderr_fds[0]);
+    assert(dup2(stderr_fds[1], STDERR_FILENO) >= 0);
+    close(stderr_fds[1]);
     uncaught_cleanup_fd = pipe_fds[1];
+    aura_ex_set_source_span(71, 79);
     throw_owned_payload(UINT64_C(0x707));
     abort();
   }
 
   close(pipe_fds[1]);
+  close(stderr_fds[1]);
   char marker = 0;
   assert(read(pipe_fds[0], &marker, 1) == 1);
   close(pipe_fds[0]);
@@ -272,6 +279,12 @@ static void test_uncaught_payload_is_destroyed_before_abort(void)
   assert(marker == 'd');
   assert(WIFSIGNALED(status));
   assert(WTERMSIG(status) == SIGABRT);
+  char diagnostic[256] = {0};
+  ssize_t diagnostic_len = read(stderr_fds[0], diagnostic, sizeof(diagnostic) - 1);
+  assert(diagnostic_len > 0);
+  diagnostic[diagnostic_len] = '\0';
+  assert(strstr(diagnostic, "source span [71,79)") != NULL);
+  close(stderr_fds[0]);
 }
 
 int main(void)

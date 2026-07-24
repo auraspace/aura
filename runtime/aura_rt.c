@@ -69,8 +69,6 @@ typedef enum AuraFfiBoundary
 } AuraFfiBoundary;
 #define AURA_FFI_BOUNDARY_REJECTED ((AuraFfiStatus)3)
 #define AURA_FFI_BUSY ((AuraFfiStatus)4)
-typedef struct AuraTaskExecutor AuraTaskExecutor;
-typedef struct AuraTaskFrame AuraTaskFrame;
 typedef void (*AuraTaskFrameGcMarkFn)(AuraTaskFrame *frame);
 typedef struct AuraIoOperationHandle AuraIoOperationHandle;
 typedef void (*AuraIoOperationCleanupFn)(void *resource);
@@ -126,6 +124,13 @@ typedef enum AuraFfiOutcome
   AURA_FFI_OUTCOME_FOREIGN_ERROR = 7
 } AuraFfiOutcome;
 #endif
+
+/* Task types are used by HTTP declarations below and must remain available
+ * even when aura_ffi.h was included before this translation unit. */
+typedef struct AuraTaskExecutor AuraTaskExecutor;
+typedef struct AuraTaskFrame AuraTaskFrame;
+enum AuraTaskPollState;
+typedef enum AuraTaskPollState AuraTaskPollState;
 
 #ifndef AURA_FILE_H
 #define AURA_FILE_H
@@ -2045,6 +2050,15 @@ typedef enum
   AURA_HTTP_HANDLER_ERROR = -1
 } AuraHttpHandlerResult;
 
+/* A handler that is itself an Aura task.  The request and response are owned
+ * by the connection for the complete task lifetime; a handler may therefore
+ * register a file/socket wait on `frame`, return AURA_TASK_PENDING, and be
+ * called again with the same typed values after the executor wakes it. */
+typedef AuraTaskPollState (*AuraHttpTaskHandler)(AuraTaskFrame *frame,
+                                                  const AuraHttpRequest *request,
+                                                  AuraHttpResponse *response,
+                                                  void *user_data);
+
 typedef struct
 {
   size_t max_requests;
@@ -2126,10 +2140,14 @@ struct AuraHttpConnection
   size_t async_output_length;
   size_t async_output_offset;
   AuraHttpHandler async_handler;
+  AuraHttpTaskHandler async_task_handler;
   void *async_user_data;
   int async_active;
   int async_phase;
   int async_close_after_write;
+  AuraHttpRequest async_request;
+  int async_request_active;
+  int async_handler_started;
 };
 
 struct AuraHttpServer
@@ -3110,11 +3128,15 @@ typedef struct
 static AuraExFrame aura_ex_stack[AURA_EX_MAX];
 static int aura_ex_sp = 0;
 static int aura_ex_pending = 0;
+static uint32_t aura_ex_unhandled_span_start = 0;
+static uint32_t aura_ex_unhandled_span_end = 0;
 
 /* Compiler-generated throws set this before transferring control. Runtime
  * helpers leave it at zero, preserving a stable unknown location. */
 void aura_ex_set_source_span(uint32_t start, uint32_t end)
 {
+  aura_ex_unhandled_span_start = start;
+  aura_ex_unhandled_span_end = end;
   if (aura_ex_sp > 0)
   {
     aura_ex_stack[aura_ex_sp - 1].source_span_start = start;
@@ -3162,9 +3184,21 @@ static void aura_ex_dispose_frame(AuraExFrame *f)
  * Dispose it before aborting so custom destructors release nested resources
  * even when there is no catch frame to perform the final cleanup. */
 static void aura_ex_abort_uncaught(const char *type_name, void *obj,
-                                   void (*destroy_obj)(void *))
+                                   void (*destroy_obj)(void *),
+                                   uint32_t source_span_start,
+                                   uint32_t source_span_end)
 {
-  fprintf(stderr, "uncaught exception (%s)\n", type_name ? type_name : "object");
+  if (source_span_end > source_span_start)
+  {
+    fprintf(stderr, "uncaught exception (%s) at source span [%u,%u)\n",
+            type_name ? type_name : "object", source_span_start,
+            source_span_end);
+  }
+  else
+  {
+    fprintf(stderr, "uncaught exception (%s)\n",
+            type_name ? type_name : "object");
+  }
   if (obj != NULL)
   {
     if (destroy_obj != NULL)
@@ -3285,7 +3319,9 @@ void aura_throw_obj_with_destructor(const char *type_name, void *obj,
   if (aura_ex_sp == 0)
   {
     aura_ex_abort_uncaught(type_name, obj,
-                           destroy_obj != NULL ? destroy_obj : free);
+                           destroy_obj != NULL ? destroy_obj : free,
+                           aura_ex_unhandled_span_start,
+                           aura_ex_unhandled_span_end);
   }
   AuraExFrame *f = &aura_ex_stack[aura_ex_sp - 1];
   aura_ex_replace_payload(f);
@@ -3367,7 +3403,8 @@ void aura_ex_rethrow(void)
   {
     aura_ex_abort_uncaught(cur.type_name,
                            cur.owns_obj ? cur.payload.as_obj : NULL,
-                           cur.owns_obj ? cur.destroy_obj : NULL);
+                           cur.owns_obj ? cur.destroy_obj : NULL,
+                           cur.source_span_start, cur.source_span_end);
   }
   AuraExFrame *outer = &aura_ex_stack[aura_ex_sp - 1];
   aura_ex_replace_payload(outer);
@@ -5127,7 +5164,7 @@ typedef struct AuraTaskFrame AuraTaskFrame;
 typedef struct AuraTaskExecutor AuraTaskExecutor;
 typedef struct AuraTaskChannel AuraTaskChannel;
 
-typedef enum
+typedef enum AuraTaskPollState
 {
   AURA_TASK_READY = 0,
   AURA_TASK_PENDING = 1,
@@ -5466,7 +5503,8 @@ int aura_task_frame_wait_tcp_stream(AuraTaskFrame *frame,
 enum
 {
   AURA_HTTP_ASYNC_READ = 1,
-  AURA_HTTP_ASYNC_WRITE = 2
+  AURA_HTTP_ASYNC_WRITE = 2,
+  AURA_HTTP_ASYNC_HANDLER = 3
 };
 
 void aura_task_frame_set_cleanup(AuraTaskFrame *frame, void *data,
@@ -5488,15 +5526,22 @@ static void aura_http_connection_async_reset(AuraHttpConnection *connection)
     aura_http_response_destroy(&connection->async_response);
     connection->async_response_active = 0;
   }
+  if (connection->async_request_active)
+  {
+    aura_http_request_destroy(&connection->async_request);
+    connection->async_request_active = 0;
+  }
   free(connection->async_output);
   connection->async_output = NULL;
   connection->async_output_length = 0;
   connection->async_output_offset = 0;
   connection->async_handler = NULL;
+  connection->async_task_handler = NULL;
   connection->async_user_data = NULL;
   connection->async_active = 0;
   connection->async_phase = 0;
   connection->async_close_after_write = 0;
+  connection->async_handler_started = 0;
 }
 
 static void aura_http_connection_async_cleanup(void *data)
@@ -5598,6 +5643,82 @@ static int aura_http_connection_async_prepare_response(AuraHttpConnection *conne
   return 1;
 }
 
+/* Prepare and resume a task-backed handler.  Request/response objects remain
+ * connection-owned while this function returns PENDING, so a generated Aura
+ * handler can suspend on any runtime readiness source without borrowing a
+ * stack object across the suspension. */
+static AuraTaskPollState aura_http_connection_async_run_task_handler(
+    AuraTaskFrame *frame, AuraHttpConnection *connection)
+{
+  AuraTaskPollState state;
+  AuraHttpResponseStatus response_status;
+  size_t required = 0;
+
+  if (frame == NULL || connection == NULL || connection->async_task_handler == NULL ||
+      !connection->async_request_active)
+  {
+    return AURA_TASK_FAILED;
+  }
+  if (!connection->async_handler_started)
+  {
+    aura_http_response_init(&connection->async_response);
+    connection->async_response_active = 1;
+    if (!aura_http_connection_header_has(&connection->async_request, "close") &&
+        aura_http_response_set_connection(&connection->async_response,
+                                          AURA_HTTP_RESPONSE_KEEP_ALIVE) !=
+            AURA_HTTP_RESPONSE_OK)
+    {
+      return AURA_TASK_FAILED;
+    }
+    connection->async_handler_started = 1;
+  }
+  state = connection->async_task_handler(
+      frame, &connection->async_request, &connection->async_response,
+      connection->async_user_data);
+  if (state == AURA_TASK_PENDING)
+  {
+    connection->async_phase = AURA_HTTP_ASYNC_HANDLER;
+    return state;
+  }
+  if (state != AURA_TASK_COMPLETE)
+  {
+    return AURA_TASK_FAILED;
+  }
+  connection->async_close_after_write =
+      aura_http_connection_header_has(&connection->async_request, "close") ||
+      connection->async_response.connection == AURA_HTTP_RESPONSE_CLOSE ||
+      connection->requests_served + 1 >= connection->config.max_requests;
+  if (connection->async_close_after_write &&
+      aura_http_response_set_connection(&connection->async_response,
+                                        AURA_HTTP_RESPONSE_CLOSE) !=
+          AURA_HTTP_RESPONSE_OK)
+  {
+    return AURA_TASK_FAILED;
+  }
+  response_status = aura_http_response_serialize(
+      &connection->async_response, NULL, 0, &required);
+  if (response_status != AURA_HTTP_RESPONSE_BUFFER_TOO_SMALL || required == 0)
+  {
+    return AURA_TASK_FAILED;
+  }
+  connection->async_output = (char *)malloc(required);
+  if (connection->async_output == NULL)
+  {
+    return AURA_TASK_FAILED;
+  }
+  connection->async_output_length = required;
+  response_status = aura_http_response_serialize(
+      &connection->async_response, connection->async_output, required,
+      &connection->async_output_length);
+  if (response_status != AURA_HTTP_RESPONSE_OK)
+  {
+    return AURA_TASK_FAILED;
+  }
+  connection->async_output_offset = 0;
+  connection->async_phase = AURA_HTTP_ASYNC_WRITE;
+  return AURA_TASK_READY;
+}
+
 /* H5 bridge: request/response storage stays connection-owned while the task is
  * pending. The handler remains synchronous in this runtime ABI, but reads and
  * writes are independently readiness-driven. A successful response may keep
@@ -5609,7 +5730,7 @@ AuraTaskPollState aura_http_connection_poll_async(AuraTaskFrame *frame,
                                                   void *user_data)
 {
   if (frame == NULL || connection == NULL || connection->stream == NULL ||
-      connection->closed || handler == NULL)
+      connection->closed || (handler == NULL && connection->async_task_handler == NULL))
   {
     return AURA_TASK_FAILED;
   }
@@ -5621,8 +5742,11 @@ AuraTaskPollState aura_http_connection_poll_async(AuraTaskFrame *frame,
       return AURA_TASK_FAILED;
     }
     connection->async_capacity = 4096;
-    connection->async_handler = handler;
-    connection->async_user_data = user_data;
+    if (handler != NULL)
+    {
+      connection->async_handler = handler;
+      connection->async_user_data = user_data;
+    }
     connection->async_active = 1;
     connection->async_phase = AURA_HTTP_ASYNC_READ;
     aura_task_frame_set_cleanup(frame, connection,
@@ -5700,12 +5824,31 @@ AuraTaskPollState aura_http_connection_poll_async(AuraTaskFrame *frame,
         memmove(connection->async_buffer, connection->async_buffer + consumed,
                 connection->async_used - consumed);
         connection->async_used -= consumed;
-        if (!aura_http_connection_async_prepare_response(connection, &request))
+        if (connection->async_task_handler != NULL)
         {
-          aura_http_request_destroy(&request);
-          return aura_http_connection_async_failure(frame, connection);
+          connection->async_request = request;
+          memset(&request, 0, sizeof(request));
+          connection->async_request_active = 1;
+          AuraTaskPollState handler_state =
+              aura_http_connection_async_run_task_handler(frame, connection);
+          if (handler_state == AURA_TASK_PENDING)
+          {
+            return AURA_TASK_PENDING;
+          }
+          if (handler_state == AURA_TASK_FAILED)
+          {
+            return aura_http_connection_async_failure(frame, connection);
+          }
         }
-        aura_http_request_destroy(&request);
+        else
+        {
+          if (!aura_http_connection_async_prepare_response(connection, &request))
+          {
+            aura_http_request_destroy(&request);
+            return aura_http_connection_async_failure(frame, connection);
+          }
+          aura_http_request_destroy(&request);
+        }
       }
       else
       {
@@ -5742,6 +5885,19 @@ AuraTaskPollState aura_http_connection_poll_async(AuraTaskFrame *frame,
         connection->async_phase = AURA_HTTP_ASYNC_WRITE;
       }
     }
+    if (connection->async_phase == AURA_HTTP_ASYNC_HANDLER)
+    {
+      AuraTaskPollState handler_state =
+          aura_http_connection_async_run_task_handler(frame, connection);
+      if (handler_state == AURA_TASK_PENDING)
+      {
+        return AURA_TASK_PENDING;
+      }
+      if (handler_state == AURA_TASK_FAILED)
+      {
+        return aura_http_connection_async_failure(frame, connection);
+      }
+    }
     if (connection->async_phase == AURA_HTTP_ASYNC_WRITE)
     {
       while (connection->async_output_offset < connection->async_output_length)
@@ -5776,6 +5932,12 @@ AuraTaskPollState aura_http_connection_poll_async(AuraTaskFrame *frame,
         aura_http_response_destroy(&connection->async_response);
         connection->async_response_active = 0;
       }
+      if (connection->async_request_active)
+      {
+        aura_http_request_destroy(&connection->async_request);
+        connection->async_request_active = 0;
+      }
+      connection->async_handler_started = 0;
       if (connection->async_close_after_write)
       {
         aura_task_frame_clear_cleanup(frame);
@@ -5787,6 +5949,27 @@ AuraTaskPollState aura_http_connection_poll_async(AuraTaskFrame *frame,
       connection->async_phase = AURA_HTTP_ASYNC_READ;
     }
   }
+}
+
+/* HTTP-001 task boundary for compiler-generated handlers.  The supplied
+ * handler is called on the connection task's frame, so its ordinary Aura
+ * await lowering can use the same readiness/cancellation machinery as any
+ * other async function. */
+AuraTaskPollState aura_http_connection_poll_async_task(
+    AuraTaskFrame *frame, AuraHttpConnection *connection,
+    AuraHttpTaskHandler handler, void *user_data)
+{
+  if (frame == NULL || connection == NULL || handler == NULL ||
+      (connection->async_active && connection->async_task_handler != handler))
+  {
+    return AURA_TASK_FAILED;
+  }
+  if (!connection->async_active)
+  {
+    connection->async_task_handler = handler;
+    connection->async_user_data = user_data;
+  }
+  return aura_http_connection_poll_async(frame, connection, NULL, NULL);
 }
 
 uint32_t aura_task_frame_resume_state(const AuraTaskFrame *frame)
@@ -6159,6 +6342,57 @@ int aura_task_frame_propagate_error(AuraTaskFrame *frame,
   return aura_task_frame_propagate_error_with_clone(
       frame, source, aura_task_error_shallow_clone,
       aura_task_error_copy_destroy);
+}
+
+void aura_task_frame_set_result(AuraTaskFrame *frame,
+                                void *data,
+                                size_t size,
+                                AuraTaskResultDestroyFn destroy);
+
+/* Publish a child's complete terminal outcome into its waiting parent. A
+ * payload is copied only through the caller-supplied clone/destroy pair;
+ * cancellation has no payload and is forwarded as a cancellation request. */
+AuraTaskPollState aura_task_frame_propagate_outcome(
+    AuraTaskFrame *frame, const AuraTaskFrame *source,
+    AuraTaskResultCloneFn result_clone, AuraTaskResultDestroyFn result_destroy)
+{
+  size_t cloned_size = 0;
+  void *copy;
+
+  if (frame == NULL || source == NULL ||
+      (source->state != AURA_TASK_COMPLETE &&
+       source->state != AURA_TASK_FAILED &&
+       source->state != AURA_TASK_CANCELLED))
+  {
+    return AURA_TASK_FAILED;
+  }
+  if (source->state == AURA_TASK_CANCELLED)
+  {
+    frame->cancel_requested = 1;
+    frame->state = AURA_TASK_CANCELLED;
+    return AURA_TASK_CANCELLED;
+  }
+  if (source->state == AURA_TASK_FAILED)
+  {
+    (void)aura_task_frame_propagate_error(frame, source);
+    return AURA_TASK_FAILED;
+  }
+  if (source->result.data == NULL)
+  {
+    aura_task_frame_set_result(frame, NULL, 0, NULL);
+    return AURA_TASK_COMPLETE;
+  }
+  if (result_clone == NULL)
+  {
+    return AURA_TASK_FAILED;
+  }
+  copy = result_clone(source->result.data, source->result.size, &cloned_size);
+  if (copy == NULL)
+  {
+    return AURA_TASK_FAILED;
+  }
+  aura_task_frame_set_result(frame, copy, cloned_size, result_destroy);
+  return AURA_TASK_COMPLETE;
 }
 
 void aura_task_frame_set_result(AuraTaskFrame *frame,
