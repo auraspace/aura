@@ -779,7 +779,7 @@ fun main() {}
 async fun choose(flag: Bool, task: Task<Int>): Int {
   if (flag) {
     val value: Int = await task
-    println(value)
+    println(value.toString())
   }
   return 0
 }

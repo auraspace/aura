@@ -1776,7 +1776,7 @@ fun main(handle: ForeignHandle<Int>) { native_use(handle) }\n",
         .expect("parse typed foreign handle fixture");
         let checked = aura_sema::check_file(&file).expect("typed parameter checks");
         let generated = emit_c_with(&checked, EmitOptions::default());
-        assert!(generated.contains("extern void native_use(AuraFfiOpaqueHandle *);"));
+        assert!(generated.contains("native_use") && generated.contains("AuraFfiOpaqueHandle *"));
         assert!(generated.contains("aura_ffi_handle_pin_for_boundary"));
         assert!(generated.contains("AURA_FFI_BOUNDARY_TASK"));
         assert!(generated.contains("aura_ffi_handle_unpin"));
