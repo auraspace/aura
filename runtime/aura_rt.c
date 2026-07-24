@@ -5249,6 +5249,8 @@ typedef struct
   AuraTaskCleanupFn cleanup;
 } AuraTaskFrameCleanup;
 
+typedef struct AuraTaskFfiPin AuraTaskFfiPin;
+
 struct AuraTaskFrame
 {
   uint32_t abi_version;
@@ -5291,9 +5293,61 @@ struct AuraTaskFrame
   AuraTaskFrame *waiter_next;
   AuraTaskFrameGcMarkFn gc_mark;
   AuraTaskFrame *gc_next;
+  AuraTaskFfiPin *ffi_pins;
 };
 
 static AuraTaskFrame *aura_gc_task_frames = NULL;
+
+struct AuraTaskFfiPin
+{
+  AuraFfiHandlePin pin;
+  AuraTaskFfiPin *next;
+};
+
+static void aura_task_frame_unpin_foreign_handles(AuraTaskFrame *frame)
+{
+  AuraTaskFfiPin *node;
+  AuraTaskFfiPin *next;
+  if (frame == NULL)
+  {
+    return;
+  }
+  node = frame->ffi_pins;
+  frame->ffi_pins = NULL;
+  while (node != NULL)
+  {
+    next = node->next;
+    (void)aura_ffi_handle_unpin(&node->pin);
+    free(node);
+    node = next;
+  }
+}
+
+AuraFfiStatus aura_task_frame_pin_foreign_handle(AuraTaskFrame *frame,
+                                                 AuraFfiOpaqueHandle *handle,
+                                                 AuraFfiBoundary boundary)
+{
+  AuraTaskFfiPin *node;
+  AuraFfiStatus status;
+  if (frame == NULL)
+  {
+    return AURA_FFI_INVALID;
+  }
+  node = (AuraTaskFfiPin *)calloc(1, sizeof(*node));
+  if (node == NULL)
+  {
+    return AURA_FFI_OOM;
+  }
+  status = aura_ffi_handle_pin_for_boundary(handle, boundary, &node->pin);
+  if (status != AURA_FFI_OK)
+  {
+    free(node);
+    return status;
+  }
+  node->next = frame->ffi_pins;
+  frame->ffi_pins = node;
+  return AURA_FFI_OK;
+}
 
 static void aura_gc_mark_task_frames(void)
 {
@@ -6443,6 +6497,7 @@ void aura_task_frame_destroy(AuraTaskFrame *frame)
   {
     frame->destroy(frame);
   }
+  aura_task_frame_unpin_foreign_handles(frame);
   aura_task_result_release(&frame->result, NULL, &frame->result_destroy,
                            &frame->result_rooted);
   aura_task_frame_storage_release(&frame->captures);

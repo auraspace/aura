@@ -227,6 +227,25 @@ static void test_task_frame_pin_owns_foreign_resource(void)
   aura_task_executor_shutdown(executor);
 }
 
+static void test_frame_owned_pin_survives_owner_release(void)
+{
+  int *value = (int *)malloc(sizeof(*value));
+  AuraFfiOpaqueHandle *handle = NULL;
+  AuraTaskFrame *frame;
+  unsigned before = released_resources;
+  assert(value != NULL);
+  assert(aura_ffi_handle_new(value, destroy_resource, &handle) == AURA_FFI_OK);
+  frame = aura_task_frame_new(0, aura_task_poll_unit, NULL);
+  assert(frame != NULL);
+  assert(aura_task_frame_pin_foreign_handle(
+             frame, handle, AURA_FFI_BOUNDARY_AWAIT) == AURA_FFI_OK);
+  assert(aura_ffi_handle_release(handle) == AURA_FFI_OK);
+  assert(released_resources == before);
+  aura_task_frame_destroy(frame);
+  assert(released_resources == before + 1);
+  assert(aura_ffi_handle_destroy(&handle) == AURA_FFI_OK);
+}
+
 int main(void)
 {
   test_nullable_and_boundaries();
@@ -235,6 +254,7 @@ int main(void)
   test_async_boundary_pin_owns_resource();
   test_checked_task_and_await_boundaries();
   test_task_frame_pin_owns_foreign_resource();
-  assert(released_resources == 7);
+  test_frame_owned_pin_survives_owner_release();
+  assert(released_resources == 8);
   return 0;
 }

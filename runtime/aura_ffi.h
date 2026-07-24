@@ -251,6 +251,13 @@ typedef struct AuraIoOperationResult {
 void aura_task_frame_set_gc_mark(AuraTaskFrame *frame,
                                  AuraTaskFrameGcMarkFn mark);
 
+/* Retain a foreign handle pin in the task frame until frame destruction.  This
+ * is the ownership bridge for compiler-generated TASK/AWAIT state; callers do
+ * not need to keep a pin token in an ad-hoc side allocation. */
+AuraFfiStatus aura_task_frame_pin_foreign_handle(AuraTaskFrame *frame,
+                                                 AuraFfiOpaqueHandle *handle,
+                                                 AuraFfiBoundary boundary);
+
 AuraIoOperationHandle *aura_file_async_read_handle_new(
     AuraFile *file, AuraIoOperationCleanupFn cleanup);
 AuraIoOperationHandle *aura_file_async_write_handle_new(
