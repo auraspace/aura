@@ -6575,10 +6575,21 @@ int aura_task_executor_poll_waiting(AuraTaskExecutor *executor, int timeout_ms)
       if (result < 0 || descriptors[index].revents != 0)
       {
         AuraTaskFrame *ready_frame = frames[index];
-        if (result >= 0 &&
-            aura_io_operation_ready(ready_frame, descriptors[index].revents))
+        if (result >= 0)
         {
-          woke++;
+          int operation_result =
+              aura_io_operation_ready(ready_frame, descriptors[index].revents);
+          if (operation_result > 0)
+          {
+            woke++;
+          }
+          else if (operation_result == 0)
+          {
+            woke += (size_t)aura_task_executor_wake_waiting(executor,
+                                                             ready_frame);
+          }
+          /* A typed operation can consume a short nonblocking write and stay
+           * pending. Its fd registration remains active for the next poll. */
         }
         else
         {
@@ -6855,6 +6866,7 @@ struct AuraIoOperationHandle
   int cleanup_done;
   void *buffer;
   uint64_t length;
+  uint64_t offset;
   int typed;
   AuraIoOperationResult result;
 };
@@ -7161,7 +7173,25 @@ static int aura_io_operation_perform(AuraIoOperationHandle *operation)
 {
   uint64_t file_bytes = 0;
   size_t tcp_bytes = 0;
+  uint64_t remaining = operation->length;
+  void *buffer = operation->buffer;
   int32_t status;
+
+  if (operation->kind == AURA_IO_OPERATION_FILE_WRITE ||
+      operation->kind == AURA_IO_OPERATION_TCP_WRITE)
+  {
+    if (operation->offset > operation->length)
+    {
+      operation->result.outcome = AURA_IO_OUTCOME_ERROR;
+      operation->result.native_status = AURA_FILE_ERROR;
+      return 0;
+    }
+    remaining = operation->length - operation->offset;
+    if (buffer != NULL)
+    {
+      buffer = (unsigned char *)buffer + operation->offset;
+    }
+  }
 
   switch (operation->kind)
   {
@@ -7172,10 +7202,11 @@ static int aura_io_operation_perform(AuraIoOperationHandle *operation)
     operation->result.bytes_transferred = file_bytes;
     break;
   case AURA_IO_OPERATION_FILE_WRITE:
-    status = aura_file_write((AuraFile *)operation->resource, operation->buffer,
-                             operation->length, &file_bytes);
+    status = aura_file_write((AuraFile *)operation->resource, buffer, remaining,
+                             &file_bytes);
     operation->result.outcome = aura_io_file_outcome((AuraFileStatus)status);
-    operation->result.bytes_transferred = file_bytes;
+    operation->offset += file_bytes;
+    operation->result.bytes_transferred = operation->offset;
     break;
   case AURA_IO_OPERATION_TCP_READ:
     status = aura_tcp_stream_read((AuraTcpStream *)operation->resource,
@@ -7185,11 +7216,12 @@ static int aura_io_operation_perform(AuraIoOperationHandle *operation)
     operation->result.bytes_transferred = (uint64_t)tcp_bytes;
     break;
   case AURA_IO_OPERATION_TCP_WRITE:
-    status = aura_tcp_stream_write((AuraTcpStream *)operation->resource,
-                                   operation->buffer, (size_t)operation->length,
+    status = aura_tcp_stream_write((AuraTcpStream *)operation->resource, buffer,
+                                   (size_t)remaining,
                                    &tcp_bytes, 0);
     operation->result.outcome = aura_io_tcp_outcome((AuraTcpStatus)status);
-    operation->result.bytes_transferred = (uint64_t)tcp_bytes;
+    operation->offset += (uint64_t)tcp_bytes;
+    operation->result.bytes_transferred = operation->offset;
     break;
   default:
     status = AURA_FILE_ERROR;
@@ -7199,6 +7231,16 @@ static int aura_io_operation_perform(AuraIoOperationHandle *operation)
   operation->result.native_status = status;
   if (status == AURA_FILE_PENDING || status == AURA_TCP_PENDING)
   {
+    return 0;
+  }
+  if ((operation->kind == AURA_IO_OPERATION_FILE_WRITE ||
+       operation->kind == AURA_IO_OPERATION_TCP_WRITE) &&
+      operation->offset < operation->length &&
+      operation->result.outcome == AURA_IO_OUTCOME_OK)
+  {
+    operation->result.native_status =
+        operation->kind == AURA_IO_OPERATION_FILE_WRITE ? AURA_FILE_PENDING
+                                                        : AURA_TCP_PENDING;
     return 0;
   }
   return operation->result.outcome == AURA_IO_OUTCOME_OK ||
@@ -7226,7 +7268,7 @@ static int aura_io_operation_ready(AuraTaskFrame *frame, short revents)
     if (operation->result.native_status == AURA_FILE_PENDING ||
         operation->result.native_status == AURA_TCP_PENDING)
     {
-      return 0;
+      return -1;
     }
     return aura_io_operation_handle_complete(operation, success);
   }
