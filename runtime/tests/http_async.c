@@ -2,6 +2,7 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <string.h>
+#include <unistd.h>
 
 #define AURA_RUNTIME_NO_MAIN
 #include "../aura_rt.c"
@@ -105,6 +106,180 @@ static AuraTaskFrame *new_http_task(AuraHttpConnection *connection)
   ((AsyncHttpTask *)aura_task_frame_data(frame))->connection = connection;
   ((AsyncHttpTask *)aura_task_frame_data(frame))->handler = ok_handler;
   return frame;
+}
+
+typedef struct
+{
+  int wake_fd;
+  int calls;
+} SuspendingHandlerState;
+
+static AuraTaskPollState suspending_task_handler(AuraTaskFrame *frame,
+                                                 const AuraHttpRequest *request,
+                                                 AuraHttpResponse *response,
+                                                 void *user_data)
+{
+  SuspendingHandlerState *state = (SuspendingHandlerState *)user_data;
+  char marker;
+  assert(strcmp(request->target, "/suspend") == 0);
+  if (state->calls++ == 0)
+  {
+    assert(aura_task_frame_wait_fd(frame, state->wake_fd, POLLIN) == 1);
+    return AURA_TASK_PENDING;
+  }
+  assert(read(state->wake_fd, &marker, 1) == 1);
+  assert(marker == 'R');
+  assert(aura_http_response_set_body(response, "suspended", 9) ==
+         AURA_HTTP_RESPONSE_OK);
+  return AURA_TASK_COMPLETE;
+}
+
+typedef struct
+{
+  AuraHttpConnection *connection;
+  SuspendingHandlerState *state;
+} SuspendingHttpTask;
+
+static AuraTaskPollState poll_suspending_http(AuraTaskFrame *frame)
+{
+  SuspendingHttpTask *task = (SuspendingHttpTask *)aura_task_frame_data(frame);
+  return aura_http_connection_poll_async_task(
+      frame, task->connection, suspending_task_handler, task->state);
+}
+
+static void test_task_handler_suspends_with_owned_request_and_cancels(void)
+{
+  AuraHttpConnectionConfig config;
+  AuraHttpServer *server = NULL;
+  AuraTcpListener *listener = NULL;
+  AuraHttpConnection *connection = NULL;
+  AuraTcpStream *client = NULL;
+  AuraTaskExecutor *executor = NULL;
+  AuraTaskFrame *frame = NULL;
+  SuspendingHandlerState state;
+  SuspendingHttpTask *task;
+  int wake_pipe[2];
+  uint16_t port = 0;
+  const char request[] = "GET /suspend HTTP/1.1\r\nHost: localhost\r\n\r\n";
+  char response[512] = {0};
+  size_t written = 0;
+  size_t received = 0;
+
+  assert(pipe(wake_pipe) == 0);
+  state = (SuspendingHandlerState){wake_pipe[0], 0};
+  aura_http_connection_config_init(&config);
+  config.max_requests = 1;
+  assert(aura_tcp_listener_bind(0, &port, &listener) == AURA_TCP_OK);
+  assert(aura_http_server_create(listener, 1, &config, &server) ==
+         AURA_HTTP_CONNECTION_OK);
+  assert(aura_tcp_stream_connect(port, 1000, &client) == AURA_TCP_OK);
+  assert(aura_http_server_accept(server, 1000, &connection) ==
+         AURA_HTTP_CONNECTION_OK);
+  executor = aura_task_executor_new();
+  assert(executor != NULL);
+  frame = aura_task_frame_new(sizeof(*task), poll_suspending_http, NULL);
+  assert(frame != NULL);
+  task = (SuspendingHttpTask *)aura_task_frame_data(frame);
+  task->connection = connection;
+  task->state = &state;
+  assert(aura_task_executor_submit(executor, frame) == 1);
+  assert(aura_task_executor_run_one(executor) == 1);
+  assert(aura_task_frame_state(frame) == AURA_TASK_PENDING);
+  assert(aura_task_frame_is_waiting(frame));
+
+  assert(aura_tcp_stream_write(client, request, sizeof(request) - 1, &written,
+                               1000) == AURA_TCP_OK);
+  assert(written == sizeof(request) - 1);
+  assert(aura_task_executor_poll_waiting(executor, 1000) == 1);
+  assert(aura_task_executor_run_one(executor) == 1);
+  /* Request/response are retained while the generated-style handler waits on
+   * its own readiness source, rather than being borrowed stack values. */
+  assert(aura_task_frame_state(frame) == AURA_TASK_PENDING);
+  assert(state.calls == 1);
+  assert(aura_task_frame_is_waiting(frame));
+
+  assert(write(wake_pipe[1], "R", 1) == 1);
+  assert(aura_task_executor_poll_waiting(executor, 1000) == 1);
+  assert(aura_task_executor_run_one(executor) == 1);
+  assert(aura_task_frame_state(frame) == AURA_TASK_COMPLETE);
+  assert(state.calls == 2);
+  while (received + 1 < sizeof(response) &&
+         strstr(response, "\r\n\r\nsuspended") == NULL)
+  {
+    size_t chunk = 0;
+    assert(aura_tcp_stream_read(client, response + received,
+                                sizeof(response) - received - 1, &chunk, 1000) ==
+           AURA_TCP_OK);
+    assert(chunk > 0);
+    received += chunk;
+    response[received] = '\0';
+  }
+  assert(strstr(response, "HTTP/1.1 200 OK") != NULL);
+  assert(strstr(response, "\r\n\r\nsuspended") != NULL);
+  assert(aura_task_executor_release(executor, &frame) == 1);
+  aura_http_connection_destroy(connection);
+  aura_tcp_stream_destroy(client);
+  aura_task_executor_shutdown(executor);
+  assert(aura_http_server_shutdown(server) == 1);
+  assert(aura_http_server_destroy(server) == 1);
+  assert(close(wake_pipe[0]) == 0);
+  assert(close(wake_pipe[1]) == 0);
+}
+
+static void test_task_handler_cancellation_closes_owned_connection(void)
+{
+  AuraHttpConnectionConfig config;
+  AuraHttpServer *server = NULL;
+  AuraTcpListener *listener = NULL;
+  AuraHttpConnection *connection = NULL;
+  AuraTcpStream *client = NULL;
+  AuraTaskExecutor *executor = NULL;
+  AuraTaskFrame *frame = NULL;
+  SuspendingHandlerState state;
+  SuspendingHttpTask *task;
+  int wake_pipe[2];
+  uint16_t port = 0;
+  const char request[] = "GET /suspend HTTP/1.1\r\nHost: localhost\r\n\r\n";
+  size_t written = 0;
+
+  assert(pipe(wake_pipe) == 0);
+  state = (SuspendingHandlerState){wake_pipe[0], 0};
+  aura_http_connection_config_init(&config);
+  assert(aura_tcp_listener_bind(0, &port, &listener) == AURA_TCP_OK);
+  assert(aura_http_server_create(listener, 1, &config, &server) ==
+         AURA_HTTP_CONNECTION_OK);
+  assert(aura_tcp_stream_connect(port, 1000, &client) == AURA_TCP_OK);
+  assert(aura_http_server_accept(server, 1000, &connection) ==
+         AURA_HTTP_CONNECTION_OK);
+  executor = aura_task_executor_new();
+  assert(executor != NULL);
+  frame = aura_task_frame_new(sizeof(*task), poll_suspending_http, NULL);
+  assert(frame != NULL);
+  task = (SuspendingHttpTask *)aura_task_frame_data(frame);
+  task->connection = connection;
+  task->state = &state;
+  assert(aura_task_executor_submit(executor, frame) == 1);
+  assert(aura_task_executor_run_one(executor) == 1);
+  assert(aura_task_frame_state(frame) == AURA_TASK_PENDING);
+  assert(aura_tcp_stream_write(client, request, sizeof(request) - 1, &written,
+                               1000) == AURA_TCP_OK);
+  assert(written == sizeof(request) - 1);
+  assert(aura_task_executor_poll_waiting(executor, 1000) == 1);
+  assert(aura_task_executor_run_one(executor) == 1);
+  assert(aura_task_frame_state(frame) == AURA_TASK_PENDING);
+  assert(state.calls == 1);
+  assert(aura_task_executor_cancel(executor, frame) == 1);
+  assert(aura_task_executor_run_one(executor) == 1);
+  assert(aura_task_frame_state(frame) == AURA_TASK_CANCELLED);
+  assert(aura_http_server_active_connections(server) == 0);
+  assert(aura_task_executor_release(executor, &frame) == 1);
+  aura_http_connection_destroy(connection);
+  aura_tcp_stream_destroy(client);
+  aura_task_executor_shutdown(executor);
+  assert(aura_http_server_shutdown(server) == 1);
+  assert(aura_http_server_destroy(server) == 1);
+  assert(close(wake_pipe[0]) == 0);
+  assert(close(wake_pipe[1]) == 0);
 }
 
 static void test_two_pending_connections_progress_independently(void)
@@ -490,6 +665,8 @@ static void test_async_write_backpressure_resumes_without_blocking(void)
 
 int main(void)
 {
+  test_task_handler_suspends_with_owned_request_and_cancels();
+  test_task_handler_cancellation_closes_owned_connection();
   test_two_pending_connections_progress_independently();
   test_pending_connection_cancels_and_closes();
   test_peer_disconnect_completes_pending_request();
