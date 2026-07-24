@@ -7,10 +7,12 @@ When you resolve debt, update or remove the matching entry.
 
 ## Open
 
-### ASYNC-002 generated payload clone integration remains partial (2026-07-23)
+### ASYNC-002 generated payload clone integration remains partial (updated 2026-07-24)
 
 - Area: compiler-generated async child-to-parent failure propagation
-- Progress: no-suspension generated async functions now catch primitive
+- Progress: native task outcomes now support clone-based terminal result
+  propagation, preserving an independently owned successful payload and an
+  explicit cancellation state. No-suspension generated async functions now catch primitive
   `Int`, `Bool`, and `String` exceptions, publish owned task error payloads
   through `aura_task_frame_set_error_span_with_clone`, and have native compile/
   run regression coverage. Compiler-generated `join` now returns
@@ -19,7 +21,7 @@ When you resolve debt, update or remove the matching entry.
   unexpected pending states to a failed diagnostic; the task-outcome corpus
   fixture covers the typed failure path.
 - Why still deferred: generated class payloads, suspended await continuation
-  failures, full `TaskError.Failed(error)` preservation, and automatic
+  payload failures, full `TaskError.Failed(error)` preservation, and automatic
   completed-handle release remain open. The no-await primitive failure leak was
   fixed by allocating the result slot only after the body returns, avoiding a
   `longjmp`-orphaned allocation; this does not close the broader ownership
@@ -28,10 +30,11 @@ When you resolve debt, update or remove the matching entry.
   propagation to the clone/destroy boundary, then add cancellation and
   forced-GC evidence.
 
-### ASYNC-003 conditional await inside bounded loops remains partial (2026-07-23)
+### ASYNC-003 conditional await inside bounded loops remains partial (updated 2026-07-24)
 
 - Area: compiler-generated async state-machine control flow
-- Progress: the C backend now lowers the bounded shape
+- Progress: the C backend now lowers the bounded post-await branch continuation
+  shape in addition to the bounded shape
   `while (...) { if (cond) { val x: Int = await task } index = ... }` with
   the loop index and child handle stored in the frame. False branches skip
   task creation; pending true branches resume without repeating the
@@ -68,13 +71,13 @@ When you resolve debt, update or remove the matching entry.
   aborts the process. Native ASAN/UBSAN/LSAN covers nested owned data, implicit
   leave, rethrow, replacement, uncaught cleanup, and scalar pending reset.
 - Why deferred: typed exception chains remain outside this runtime-only slice;
-  source-span propagation and compiler-generated destructor metadata now have
-  bounded evidence.
+  source-span propagation, uncaught source-span formatting, and compiler-generated
+  destructor metadata now have bounded evidence.
 - Progress: `runtime/tests/exception_payload_cleanup.c` remains in the
   sanitizer seed manifest; `corpus/control/exception_payload_cleanup.aura`
   provides the generated shallow-copy regression with a static field.
-- Next step: add typed cause-chain storage and expose source spans in the
-  uncaught diagnostic formatter rather than only through the runtime query API.
+- Next step: add typed cause-chain storage and preserve nested causes through
+  rethrow.
 
 ### H6 routing is synchronous and exact-match only (2026-07-22)
 
@@ -256,24 +259,24 @@ When you resolve debt, update or remove the matching entry.
   then add supported-host evidence once the documented Aura-level server path
   exists.
 
-### HTTP async handler and Aura typed-handle gaps remain (H5, 2026-07-24)
+### HTTP async handler and Aura typed-handle gaps remain (H5, updated 2026-07-24)
 
 - Area: async HTTP connection integration
-- Symptom: the runtime bridge still exposes a synchronous native callback and
-  cannot carry an Aura typed HTTP/TCP handle through compiler-generated async
-  handler state.
+- Symptom: the runtime bridge now has a suspending native task-handler callback,
+  but cannot carry an Aura typed HTTP/TCP handle through compiler-generated
+  async handler state.
 - Why deferred: compiler/FFI boundary work and async handler ownership are
   explicitly outside this runtime HTTP/net slice.
-- Progress: `runtime/tests/http_async.c` now proves independent pending
+- Progress: `runtime/tests/http_async.c` now proves a task handler can retain
+  request/response state across a readiness suspension and cancellation, in
+  addition to independent pending
   connections, cancellation, peer disconnect before a complete request,
   pipelined keep-alive, a later keep-alive request after suspension, and
   bounded POLLOUT response backpressure; all `runtime/tests/http*.c` fixtures
   and both HTTP health smoke paths run directly under ASAN/UBSAN. The full
-  sanitizer manifest is currently blocked by an unrelated incomplete
-  `async_io_ffi_handles.c` change in the shared worktree.
-- Next step: add Aura-level typed-handle and suspending-handler evidence when
-  the compiler/FFI ownership contract is in scope; keep HTTP-001 partial until
-  then.
+  sanitizer manifest now includes this fixture under native ASAN/UBSAN.
+- Next step: add Aura-level typed-handle and compiler-generated suspending
+  handler evidence; keep HTTP-001 partial until then.
 
 ### Async suspension GC roots and ownership (C22s, 2026-07-22)
 
@@ -652,7 +655,7 @@ When you resolve debt, update or remove the matching entry.
   intentionally deferred to F4/F5; extend the declaration model only after
   those lifetimes have a complete contract.
 
-### F4 opaque foreign handles (2026-07-22)
+### F4 opaque foreign handles (updated 2026-07-24)
 
 - F4 provides a tombstoned opaque-handle ABI with deferred destruction while
   pinned. `aura_ffi_handle_pin_for_boundary` now validates and retains a live
@@ -660,9 +663,11 @@ When you resolve debt, update or remove the matching entry.
   crossings remain rejected. The compiler now fail-closes foreign declarations
   that expose `Task`, `TaskHandle`, or `Channel` (including nullable forms),
   while keeping primitive foreign declarations on the existing supported ABI.
-  Aura-level pointer types, automatic compiler rooting, and task-frame storage
-  of the pin token remain deferred; callbacks and foreign error mapping belong
-  to F5.
+  The compiler now accepts borrowed tagged `ForeignHandle<T>` parameters and
+  emits the checked pin/unpin ABI for synchronous foreign calls, while rejecting
+  owned returns and unproven nested async handles. Aura-level pointer types,
+  automatic compiler rooting, and task-frame storage of the pin token remain
+  deferred; callbacks and foreign error mapping belong to F5.
 
 ### F5 callback portability (2026-07-22)
 
