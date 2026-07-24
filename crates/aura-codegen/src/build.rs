@@ -1299,6 +1299,7 @@ fun main() {
         assert!(generated.contains("aura_var_std_io_Result_Unit_std_io_TaskError_Err"));
         assert!(generated.contains("aura_var_std_io_TaskError_Failed"));
         assert!(generated.contains("aura_var_std_io_TaskError_Cancelled"));
+        assert!(generated.contains("aura_ex_set_source_span"));
 
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()

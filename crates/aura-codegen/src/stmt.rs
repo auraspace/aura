@@ -842,6 +842,11 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
         Stmt::Throw(t) => {
             let ty = infer_type_name(&t.value, ctx);
             let val = emit_expr(&t.value, ctx);
+            let _ = writeln!(
+                out,
+                "{p}aura_ex_set_source_span({}, {});",
+                t.span.start, t.span.end
+            );
             match ty.as_str() {
                 "String" => {
                     let _ = writeln!(out, "{p}aura_throw_string({val});");

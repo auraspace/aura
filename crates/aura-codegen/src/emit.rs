@@ -59,6 +59,9 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("void aura_assert_eq_bool(_Bool a, _Bool b);\n");
     out.push_str("void aura_try_enter(jmp_buf *buf);\n");
     out.push_str("void aura_try_leave(void);\n");
+    out.push_str("void aura_ex_set_source_span(uint32_t start, uint32_t end);\n");
+    out.push_str("uint32_t aura_ex_source_span_start(void);\n");
+    out.push_str("uint32_t aura_ex_source_span_end(void);\n");
     out.push_str("void aura_throw_string(const char *s);\n");
     out.push_str("void aura_throw_int(int64_t v);\n");
     out.push_str("void aura_throw_bool(_Bool v);\n");

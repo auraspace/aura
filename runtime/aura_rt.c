@@ -3094,6 +3094,8 @@ typedef struct
 {
   jmp_buf *buf;
   const char *type_name; /* "String" | "Int" | "Bool" | class name */
+  uint32_t source_span_start;
+  uint32_t source_span_end;
   int owns_obj;          /* payload.as_obj is owned by the exception frame */
   void (*destroy_obj)(void *);
   union
@@ -3108,6 +3110,27 @@ typedef struct
 static AuraExFrame aura_ex_stack[AURA_EX_MAX];
 static int aura_ex_sp = 0;
 static int aura_ex_pending = 0;
+
+/* Compiler-generated throws set this before transferring control. Runtime
+ * helpers leave it at zero, preserving a stable unknown location. */
+void aura_ex_set_source_span(uint32_t start, uint32_t end)
+{
+  if (aura_ex_sp > 0)
+  {
+    aura_ex_stack[aura_ex_sp - 1].source_span_start = start;
+    aura_ex_stack[aura_ex_sp - 1].source_span_end = end;
+  }
+}
+
+uint32_t aura_ex_source_span_start(void)
+{
+  return aura_ex_sp > 0 ? aura_ex_stack[aura_ex_sp - 1].source_span_start : 0;
+}
+
+uint32_t aura_ex_source_span_end(void)
+{
+  return aura_ex_sp > 0 ? aura_ex_stack[aura_ex_sp - 1].source_span_end : 0;
+}
 
 void aura_throw_obj_with_destructor(const char *type_name, void *obj,
                                     void (*destroy_obj)(void *));
@@ -3175,6 +3198,8 @@ void aura_try_enter(jmp_buf *buf)
   AuraExFrame *f = &aura_ex_stack[aura_ex_sp++];
   f->buf = buf;
   f->type_name = NULL;
+  f->source_span_start = 0;
+  f->source_span_end = 0;
   f->owns_obj = 0;
   f->destroy_obj = NULL;
   f->payload.as_obj = NULL;
@@ -3347,6 +3372,8 @@ void aura_ex_rethrow(void)
   AuraExFrame *outer = &aura_ex_stack[aura_ex_sp - 1];
   aura_ex_replace_payload(outer);
   outer->type_name = cur.type_name;
+  outer->source_span_start = cur.source_span_start;
+  outer->source_span_end = cur.source_span_end;
   outer->owns_obj = cur.owns_obj;
   outer->destroy_obj = cur.destroy_obj;
   outer->payload = cur.payload;

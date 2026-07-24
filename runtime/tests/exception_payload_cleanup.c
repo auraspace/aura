@@ -140,6 +140,37 @@ static void test_leave_resets_scalar_pending_state(void)
   }
 }
 
+static void test_source_span_survives_rethrow(void)
+{
+  jmp_buf outer_jb;
+  jmp_buf inner_jb;
+  if (setjmp(outer_jb) == 0)
+  {
+    aura_try_enter(&outer_jb);
+    if (setjmp(inner_jb) == 0)
+    {
+      aura_try_enter(&inner_jb);
+      aura_ex_set_source_span(41, 47);
+      aura_throw_int(9);
+    }
+    else
+    {
+      assert(aura_ex_source_span_start() == 41);
+      assert(aura_ex_source_span_end() == 47);
+      aura_ex_rethrow();
+    }
+    abort();
+  }
+  else
+  {
+    assert(aura_ex_matches("Int"));
+    assert(aura_ex_source_span_start() == 41);
+    assert(aura_ex_source_span_end() == 47);
+    aura_ex_clear();
+    aura_try_leave();
+  }
+}
+
 static void test_destructor_clears_nested_owned_payload(void)
 {
   jmp_buf jb;
@@ -249,6 +280,7 @@ int main(void)
   test_leave_is_final_cleanup_boundary();
   test_rethrow_transfers_ownership_once();
   test_leave_resets_scalar_pending_state();
+  test_source_span_survives_rethrow();
   test_destructor_clears_nested_owned_payload();
   test_destructor_transfers_on_rethrow();
   test_replacing_payload_disposes_old_value();
