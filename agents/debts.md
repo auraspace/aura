@@ -59,7 +59,7 @@ When you resolve debt, update or remove the matching entry.
   temporaries, lambda boxes, and the complete current Aura sanitizer leg now
   pass with `detect_leaks=1`.
 
-### RUNTIME-003 exception cleanup supports explicit payload destructors (2026-07-23)
+### RUNTIME-003 exception cleanup supports explicit payload destructors (updated 2026-07-24)
 
 - Area: unchecked exception payload ABI
 - Symptom: object payload cleanup now accepts an explicit destructor, invokes it
@@ -67,13 +67,14 @@ When you resolve debt, update or remove the matching entry.
   payload before replacement, and runs it before an uncaught object exception
   aborts the process. Native ASAN/UBSAN/LSAN covers nested owned data, implicit
   leave, rethrow, replacement, uncaught cleanup, and scalar pending reset.
-- Why deferred: typed exception chains, source mapping, and compiler-generated
-  destructor metadata remain outside this runtime-only slice.
+- Why deferred: typed exception chains remain outside this runtime-only slice;
+  source-span propagation and compiler-generated destructor metadata now have
+  bounded evidence.
 - Progress: `runtime/tests/exception_payload_cleanup.c` remains in the
   sanitizer seed manifest; `corpus/control/exception_payload_cleanup.aura`
   provides the generated shallow-copy regression with a static field.
-- Next step: have codegen pass a destructor for class/struct payload fields and
-  attach source-span metadata to uncaught diagnostics.
+- Next step: add typed cause-chain storage and expose source spans in the
+  uncaught diagnostic formatter rather than only through the runtime query API.
 
 ### H6 routing is synchronous and exact-match only (2026-07-22)
 
