@@ -316,6 +316,75 @@ static void test_async_keep_alive_preserves_pipelined_requests(void)
   assert(aura_http_server_destroy(server) == 1);
 }
 
+static void test_async_keep_alive_suspends_between_requests(void)
+{
+  AuraHttpConnectionConfig config;
+  AuraHttpServer *server = NULL;
+  AuraTcpListener *listener = NULL;
+  AuraHttpConnection *connection = NULL;
+  AuraTcpStream *client = NULL;
+  AuraTaskExecutor *executor = NULL;
+  AuraTaskFrame *frame = NULL;
+  AsyncKeepAliveState state = {0, NULL, 0};
+  uint16_t port = 0;
+
+  aura_http_connection_config_init(&config);
+  config.max_requests = 2;
+  assert(aura_tcp_listener_bind(0, &port, &listener) == AURA_TCP_OK);
+  assert(aura_http_server_create(listener, 1, &config, &server) ==
+         AURA_HTTP_CONNECTION_OK);
+  assert(aura_tcp_stream_connect(port, 1000, &client) == AURA_TCP_OK);
+  assert(aura_http_server_accept(server, 1000, &connection) ==
+         AURA_HTTP_CONNECTION_OK);
+
+  executor = aura_task_executor_new();
+  assert(executor != NULL);
+  frame = new_http_task(connection);
+  ((AsyncHttpTask *)aura_task_frame_data(frame))->handler = keep_alive_handler;
+  ((AsyncHttpTask *)aura_task_frame_data(frame))->user_data = &state;
+  assert(aura_task_executor_submit(executor, frame) == 1);
+  assert(aura_task_executor_run_one(executor) == 1);
+  assert(aura_task_frame_state(frame) == AURA_TASK_PENDING);
+  assert(aura_task_frame_is_waiting(frame));
+
+  /* The first request arrives alone. After its response, the connection must
+   * retain its typed stream/HTTP state and suspend again instead of closing. */
+  {
+    const char first[] = "GET /one HTTP/1.1\r\nHost: localhost\r\n\r\n";
+    size_t written = 0;
+    assert(aura_tcp_stream_write(client, first, sizeof(first) - 1, &written,
+                                 1000) == AURA_TCP_OK);
+    assert(written == sizeof(first) - 1);
+  }
+  assert(aura_task_executor_poll_waiting(executor, 1000) == 1);
+  assert(aura_task_executor_run_one(executor) == 1);
+  assert(aura_task_frame_state(frame) == AURA_TASK_PENDING);
+  assert(aura_task_frame_is_waiting(frame));
+  assert(state.calls == 1);
+  read_ok(client);
+
+  /* A later request must wake the same task and reach the handler. */
+  {
+    const char second[] = "GET /two HTTP/1.1\r\nHost: localhost\r\n\r\n";
+    size_t written = 0;
+    assert(aura_tcp_stream_write(client, second, sizeof(second) - 1, &written,
+                                 1000) == AURA_TCP_OK);
+    assert(written == sizeof(second) - 1);
+  }
+  assert(aura_task_executor_poll_waiting(executor, 1000) == 1);
+  assert(aura_task_executor_run_one(executor) == 1);
+  assert(aura_task_frame_state(frame) == AURA_TASK_COMPLETE);
+  assert(state.calls == 2);
+  read_ok(client);
+
+  assert(aura_task_executor_release(executor, &frame) == 1);
+  aura_task_executor_shutdown(executor);
+  aura_http_connection_destroy(connection);
+  aura_tcp_stream_destroy(client);
+  assert(aura_http_server_shutdown(server) == 1);
+  assert(aura_http_server_destroy(server) == 1);
+}
+
 static void test_async_write_backpressure_resumes_without_blocking(void)
 {
   AuraHttpConnectionConfig config;
@@ -425,6 +494,7 @@ int main(void)
   test_pending_connection_cancels_and_closes();
   test_peer_disconnect_completes_pending_request();
   test_async_keep_alive_preserves_pipelined_requests();
+  test_async_keep_alive_suspends_between_requests();
   test_async_write_backpressure_resumes_without_blocking();
   aura_gc_shutdown();
   puts("http async: passed");

@@ -1897,7 +1897,10 @@ static int aura_http_response_append(char *output, size_t capacity, size_t *curs
     {
       return 0;
     }
-    memcpy(output + *cursor, data, length);
+    if (length != 0)
+    {
+      memcpy(output + *cursor, data, length);
+    }
   }
   *cursor += length;
   return 1;

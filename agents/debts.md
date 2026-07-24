@@ -255,20 +255,24 @@ When you resolve debt, update or remove the matching entry.
   then add supported-host evidence once the documented Aura-level server path
   exists.
 
-### HTTP async handler and keep-alive gaps remain (H5, 2026-07-23)
+### HTTP async handler and Aura typed-handle gaps remain (H5, 2026-07-24)
 
 - Area: async HTTP connection integration
-- Symptom: the task bridge can park one-request HTTP reads and writes and
-  cleans the connection on cancellation, but the callback itself is
-  synchronous and the bridge closes after one response.
-- Why deferred: typed handler suspension, keep-alive buffering, and complete
-  response backpressure require the broader async handler and ownership
-  contract rather than the bounded native callback ABI.
-- Progress: `runtime/tests/http_async.c` proves two pending connections make
-  independent progress and cancellation releases the server's active slot;
-  `scripts/sanitizer-smoke.sh` runs it under ASAN/UBSAN.
-- Next step: expose an async-safe handler boundary and retain keep-alive
-  request/response state across multiple task suspension points.
+- Symptom: the runtime bridge still exposes a synchronous native callback and
+  cannot carry an Aura typed HTTP/TCP handle through compiler-generated async
+  handler state.
+- Why deferred: compiler/FFI boundary work and async handler ownership are
+  explicitly outside this runtime HTTP/net slice.
+- Progress: `runtime/tests/http_async.c` now proves independent pending
+  connections, cancellation, peer disconnect before a complete request,
+  pipelined keep-alive, a later keep-alive request after suspension, and
+  bounded POLLOUT response backpressure; all `runtime/tests/http*.c` fixtures
+  and both HTTP health smoke paths run directly under ASAN/UBSAN. The full
+  sanitizer manifest is currently blocked by an unrelated incomplete
+  `async_io_ffi_handles.c` change in the shared worktree.
+- Next step: add Aura-level typed-handle and suspending-handler evidence when
+  the compiler/FFI ownership contract is in scope; keep HTTP-001 partial until
+  then.
 
 ### Async suspension GC roots and ownership (C22s, 2026-07-22)
 
