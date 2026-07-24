@@ -82,14 +82,51 @@ fn foreign_declaration_rejects_non_c_abi_and_borrow_types() {
 #[test]
 fn foreign_declaration_rejects_runtime_owned_async_handles() {
     let file = parse_file(
-        "package demo\n@foreign(library = \"m\", target = \"native\", link = \"dynamic\", abi = 1, abi_id = \"c\")\nextern \"C\" fun native_handle(handle: TaskHandle<Int>): Channel<Int>\n",
+        "package demo\n\
+@foreign(library = \"m\", target = \"native\", link = \"dynamic\", abi = 1, abi_id = \"c\")\n\
+extern \"C\" fun native_task(task: Task<Int>?): Unit\n\
+@foreign(library = \"m\", target = \"native\", link = \"dynamic\", abi = 1, abi_id = \"c\")\n\
+extern \"C\" fun native_handle(handle: TaskHandle<Int>): Channel<Int>\n",
     )
     .expect("parse");
     let error = check_file(&file).expect_err("runtime-owned handles must not cross C");
     let message = error.to_string();
     assert!(message.contains("AURA-F4-BOUNDARY"));
+    assert!(message.contains("Task"));
     assert!(message.contains("TaskHandle"));
+    assert!(message.contains("Channel"));
     assert!(message.contains("async pin/ownership proof"));
+}
+
+#[test]
+fn foreign_declaration_rejects_every_runtime_owned_handle_shape() {
+    for (name, ty) in [
+        ("task", "Task<Int>"),
+        ("task_handle", "TaskHandle<Int>"),
+        ("channel", "Channel<Int>"),
+        ("nullable_task", "Task<Int>?"),
+        ("nullable_handle", "TaskHandle<Int>?"),
+        ("nullable_channel", "Channel<Int>?"),
+    ] {
+        let source = format!(
+            "package demo\n@foreign(library = \"m\", target = \"native\", link = \"dynamic\", abi = 1, abi_id = \"c\")\nextern \"C\" fun native_{name}(value: {ty}): Unit\n"
+        );
+        let file = parse_file(&source).expect("parse");
+        let error = check_file(&file).expect_err("runtime-owned handles must not cross C");
+        let message = error.to_string();
+        assert!(message.contains("AURA-F4-BOUNDARY"), "{name}: {message}");
+        assert!(
+            message.contains("async pin/ownership proof"),
+            "{name}: {message}"
+        );
+    }
+
+    let source = "package demo\n@foreign(library = \"m\", target = \"native\", link = \"dynamic\", abi = 1, abi_id = \"c\")\nextern \"C\" fun native_task(): Task<Int>\n";
+    let file = parse_file(source).expect("parse");
+    let error = check_file(&file).expect_err("runtime-owned returns must not cross C");
+    let message = error.to_string();
+    assert!(message.contains("AURA-F4-BOUNDARY"));
+    assert!(message.contains("foreign return"));
 }
 
 #[test]
