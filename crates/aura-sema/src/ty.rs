@@ -72,6 +72,9 @@ pub enum Ty {
     TaskHandle(Box<Ty>),
     /// C22: bounded FIFO channel carrying owned values.
     Channel(Box<Ty>),
+    /// FFI-001/FFI-002: opaque foreign resource handle.  The type argument is
+    /// a compile-time tag only; the resource is never dereferenced by Aura.
+    ForeignHandle(Box<Ty>),
 }
 
 impl Ty {
@@ -137,6 +140,7 @@ impl Ty {
             Ty::Task(inner) => format!("Task<{}>", inner.display()),
             Ty::TaskHandle(inner) => format!("TaskHandle<{}>", inner.display()),
             Ty::Channel(inner) => format!("Channel<{}>", inner.display()),
+            Ty::ForeignHandle(inner) => format!("ForeignHandle<{}>", inner.display()),
         }
     }
 
@@ -186,6 +190,7 @@ impl Ty {
             Ty::Task(inner) => format!("Task_{}", inner.mono_suffix()),
             Ty::TaskHandle(inner) => format!("TaskHandle_{}", inner.mono_suffix()),
             Ty::Channel(inner) => format!("Channel_{}", inner.mono_suffix()),
+            Ty::ForeignHandle(inner) => format!("ForeignHandle_{}", inner.mono_suffix()),
         }
     }
 
@@ -205,7 +210,10 @@ impl Ty {
             | Ty::EnumApp { args, .. }
             | Ty::InterfaceApp { args, .. } => args.iter().any(|a| a.is_open()),
             Ty::Fun { params, ret } => params.iter().any(|p| p.is_open()) || ret.is_open(),
-            Ty::Task(inner) | Ty::TaskHandle(inner) | Ty::Channel(inner) => inner.is_open(),
+            Ty::Task(inner)
+            | Ty::TaskHandle(inner)
+            | Ty::Channel(inner)
+            | Ty::ForeignHandle(inner) => inner.is_open(),
             _ => false,
         }
     }

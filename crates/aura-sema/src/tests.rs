@@ -130,6 +130,46 @@ fn foreign_declaration_rejects_every_runtime_owned_handle_shape() {
 }
 
 #[test]
+fn foreign_declaration_accepts_tagged_opaque_handle() {
+    let file = parse_file(
+        "package demo\n\
+@foreign(library = \"m\", target = \"native\", link = \"dynamic\", abi = 1, abi_id = \"c\")\n\
+extern \"C\" fun native_use(handle: ForeignHandle<Int>): Unit\n",
+    )
+    .expect("parse typed opaque-handle declarations");
+    let checked = check_file(&file).expect("tagged opaque handles have a C pointer ABI");
+    let use_handle = checked
+        .functions
+        .iter()
+        .find(|item| item.name == "native_use")
+        .expect("native_use signature");
+    assert_eq!(use_handle.params[0].display(), "ForeignHandle<Int>");
+}
+
+#[test]
+fn foreign_declaration_keeps_unproven_async_handles_fail_closed() {
+    for ty in ["ForeignHandle<Task<Int>>", "ForeignHandle<TaskHandle<Int>>"] {
+        let source = format!(
+            "package demo\n@foreign(library = \"m\", target = \"native\", link = \"dynamic\", abi = 1, abi_id = \"c\")\nextern \"C\" fun native_use(handle: {ty}): Unit\n"
+        );
+        let file = parse_file(&source).expect("parse");
+        let error = check_file(&file).expect_err("unproven nested async tags must be rejected");
+        assert!(error.to_string().contains("AURA-F1-TYPE"), "{ty}: {error}");
+    }
+}
+
+#[test]
+fn foreign_handle_task_await_crossing_remains_fail_closed() {
+    let file = parse_file(
+        "package demo\n\
+async fun keep(handle: ForeignHandle<Int>): Int { return 1 }\n",
+    )
+    .expect("parse async handle fixture");
+    let error = check_file(&file).expect_err("TASK/AWAIT pin lifetime is not compiler-generated");
+    assert!(error.to_string().contains("TASK/AWAIT pin lifetime"));
+}
+
+#[test]
 fn primitive_foreign_call_is_accepted_inside_async_function() {
     let file = parse_file(
         "package demo\n@foreign(library = \"m\", target = \"native\", link = \"dynamic\", abi = 1, abi_id = \"c\")\nextern \"C\" fun native_abs(value: Int): Int\nasync fun call_native(): Int { return native_abs(7) }\n",

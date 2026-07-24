@@ -8,6 +8,22 @@ use crate::sigs::*;
 use crate::ty::Ty;
 use crate::util::{subst_ty, type_subst_map};
 
+fn contains_foreign_handle(ty: &Ty) -> bool {
+    match ty {
+        Ty::ForeignHandle(_) => true,
+        Ty::Nullable(inner) | Ty::Task(inner) | Ty::TaskHandle(inner) | Ty::Channel(inner) => {
+            contains_foreign_handle(inner)
+        }
+        Ty::ClassApp { args, .. } | Ty::EnumApp { args, .. } | Ty::InterfaceApp { args, .. } => {
+            args.iter().any(contains_foreign_handle)
+        }
+        Ty::Fun { params, ret } => {
+            params.iter().any(contains_foreign_handle) || contains_foreign_handle(ret)
+        }
+        _ => false,
+    }
+}
+
 impl Checker {
     fn validate_foreign_decl(&mut self, foreign: &ForeignDecl) {
         if !matches!(foreign.convention, ForeignCallingConvention::C) {
@@ -99,12 +115,13 @@ impl Checker {
             .return_type
             .as_ref()
             .map_or(Ok(Ty::Unit), |t| self.type_from_ref(t));
-        // FFI-001/FFI-002: the language does not yet have a typed foreign
-        // handle value.  Keep that absence fail-closed: runtime-owned task,
-        // channel, and handle values must never be smuggled through a C ABI
-        // and then retained across an Aura async boundary.  Primitive values
-        // (including copied String values) are the only boundary proven by
-        // the compiler today.
+        // FFI-001/FFI-002: ForeignHandle<T> is the one typed opaque handle
+        // accepted by the compiler.  It is only a tag around the runtime's
+        // tombstoned AuraFfiOpaqueHandle*; Aura cannot dereference it.  The
+        // The code generator pins this handle for the synchronous foreign
+        // call. Compiler-generated TASK/AWAIT pin storage is still absent, so
+        // async functions and scheduler-owned Task/TaskHandle/Channel values
+        // remain fail-closed.
         let supported_ty = |ty: &Ty| matches!(ty, Ty::Int | Ty::Bool | Ty::String | Ty::Unit);
         fn foreign_handle_kind(ty: &Ty) -> Option<&'static str> {
             match ty {
@@ -115,6 +132,15 @@ impl Checker {
                 _ => None,
             }
         }
+        fn valid_foreign_handle_tag(ty: &Ty) -> bool {
+            match ty {
+                Ty::ForeignHandle(inner) => {
+                    matches!(inner.as_ref(), Ty::Int | Ty::Bool | Ty::String | Ty::Unit)
+                }
+                Ty::Nullable(inner) => valid_foreign_handle_tag(inner),
+                _ => false,
+            }
+        }
         if let Ok(params) = params {
             if let Some(kind) = params.iter().find_map(foreign_handle_kind) {
                 self.errors.push(SemaError {
@@ -123,7 +149,10 @@ impl Checker {
                     ),
                     span: foreign.span,
                 });
-            } else if params.iter().any(|ty| !supported_ty(ty)) {
+            } else if params
+                .iter()
+                .any(|ty| !supported_ty(ty) && !valid_foreign_handle_tag(ty))
+            {
                 self.errors.push(SemaError { message: "[AURA-F1-TYPE] only Int, Bool, String, and Unit are supported at the FFI boundary".into(), span: foreign.span });
             }
         } else {
@@ -133,18 +162,28 @@ impl Checker {
             });
         }
         if let Ok(ref ret) = ret {
-            if let Some(kind) = foreign_handle_kind(ret) {
+            if valid_foreign_handle_tag(ret) {
                 self.errors.push(SemaError {
-                    message: format!(
-                        "[AURA-F4-BOUNDARY] foreign return cannot expose runtime-owned `{kind}`; typed foreign handles are rejected until their async pin/ownership proof exists"
-                    ),
+                    message: "[AURA-F4-BOUNDARY] a typed ForeignHandle<T> may only be borrowed as a foreign parameter; returning an owned handle is rejected until Aura drop/transfer semantics exist".into(),
                     span: foreign.span,
                 });
-            } else if !supported_ty(ret) {
+            } else if let Some(kind) = foreign_handle_kind(ret) {
+                if valid_foreign_handle_tag(ret) {
+                    self.errors.push(SemaError {
+                        message: "[AURA-F4-BOUNDARY] a typed ForeignHandle<T> may only be borrowed as a foreign parameter; returning an owned handle is rejected until Aura drop/transfer semantics exist".into(),
+                        span: foreign.span,
+                    });
+                } else {
+                    self.errors.push(SemaError {
+                        message: format!(
+                            "[AURA-F4-BOUNDARY] foreign return cannot expose runtime-owned `{kind}`; typed foreign handles are rejected until their async pin/ownership proof exists"
+                        ),
+                        span: foreign.span,
+                    });
+                }
+            } else if !supported_ty(ret) && !valid_foreign_handle_tag(ret) {
                 self.errors.push(SemaError {
-                    message:
-                        "[AURA-F1-TYPE] foreign return type must be Int, Bool, String, or Unit"
-                            .into(),
+                    message: "[AURA-F1-TYPE] foreign return type must be Int, Bool, String, Unit, or a tagged ForeignHandle<T>".into(),
                     span: foreign.span,
                 });
             }
@@ -571,6 +610,14 @@ impl Checker {
                 },
                 None => Ty::Unit,
             };
+            if params.iter().any(contains_foreign_handle) || contains_foreign_handle(&result_ty) {
+                self.errors.push(SemaError {
+                    message: "[AURA-F4-BOUNDARY] ForeignHandle values cannot be captured by an async function or stored in Task<T> until compiler-generated TASK/AWAIT pin lifetime is implemented".into(),
+                    span: f.span,
+                });
+                self.type_params.clear();
+                continue;
+            }
             let task_ty = Ty::Task(Box::new(result_ty.clone()));
             self.note_mono_ty(&task_ty);
             self.functions

@@ -32,9 +32,9 @@ static void test_nullable_and_boundaries(void)
   assert(aura_ffi_handle_check_boundary(empty, AURA_FFI_BOUNDARY_SYNC) ==
          AURA_FFI_OK);
   assert(aura_ffi_handle_check_boundary(empty, AURA_FFI_BOUNDARY_TASK) ==
-         AURA_FFI_BOUNDARY_REJECTED);
+         AURA_FFI_INVALID);
   assert(aura_ffi_handle_check_boundary(empty, AURA_FFI_BOUNDARY_AWAIT) ==
-         AURA_FFI_BOUNDARY_REJECTED);
+         AURA_FFI_INVALID);
   assert(aura_ffi_handle_check_boundary(empty, AURA_FFI_BOUNDARY_CHANNEL) ==
          AURA_FFI_BOUNDARY_REJECTED);
   assert(aura_ffi_handle_check_boundary(empty, AURA_FFI_BOUNDARY_CALLBACK) ==
@@ -145,6 +145,31 @@ static void test_async_boundary_pin_owns_resource(void)
   assert(released_resources == 5);
 }
 
+static void test_checked_task_and_await_boundaries(void)
+{
+  int *value = (int *)malloc(sizeof(*value));
+  AuraFfiOpaqueHandle *handle = NULL;
+  AuraFfiHandlePin task_pin = {0};
+  AuraFfiHandlePin await_pin = {0};
+  assert(value != NULL);
+  assert(aura_ffi_handle_new(value, destroy_resource, &handle) == AURA_FFI_OK);
+  assert(aura_ffi_handle_check_boundary(handle, AURA_FFI_BOUNDARY_TASK) ==
+         AURA_FFI_OK);
+  assert(aura_ffi_handle_check_boundary(handle, AURA_FFI_BOUNDARY_AWAIT) ==
+         AURA_FFI_OK);
+  assert(aura_ffi_handle_pin_for_boundary(
+             handle, AURA_FFI_BOUNDARY_TASK, &task_pin) == AURA_FFI_OK);
+  assert(aura_ffi_handle_pin_for_boundary(
+             handle, AURA_FFI_BOUNDARY_AWAIT, &await_pin) == AURA_FFI_OK);
+  assert(aura_ffi_handle_release(handle) == AURA_FFI_OK);
+  assert(released_resources == 5);
+  assert(aura_ffi_handle_unpin(&task_pin) == AURA_FFI_OK);
+  assert(released_resources == 5);
+  assert(aura_ffi_handle_unpin(&await_pin) == AURA_FFI_OK);
+  assert(released_resources == 6);
+  assert(aura_ffi_handle_destroy(&handle) == AURA_FFI_OK);
+}
+
 static AuraTaskPollState poll_async_ffi_handle(AuraTaskFrame *frame)
 {
   AsyncFfiTask *task = (AsyncFfiTask *)aura_task_frame_data(frame);
@@ -208,7 +233,8 @@ int main(void)
   test_pin_release_and_stale_alias();
   test_pin_and_destroy_boundaries();
   test_async_boundary_pin_owns_resource();
+  test_checked_task_and_await_boundaries();
   test_task_frame_pin_owns_foreign_resource();
-  assert(released_resources == 6);
+  assert(released_resources == 7);
   return 0;
 }

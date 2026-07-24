@@ -905,6 +905,71 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
 /// borrowed `const char *` handles; a foreign String result is also borrowed,
 /// so it is deliberately not added to codegen ownership tracking.
 fn emit_foreign_call(foreign: &ForeignDecl, call: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
+    let pinned: Vec<usize> = foreign
+        .params
+        .iter()
+        .enumerate()
+        .filter(|(_, param)| param.ty.name.name == "ForeignHandle")
+        .map(|(index, _)| index)
+        .collect();
+    if !pinned.is_empty() {
+        // FFI-001/002: ForeignHandle parameters are borrowed for exactly the
+        // C call.  A TASK pin is the ABI's checked async-capable ownership
+        // class even though this call itself is synchronous; it prevents
+        // release/destruction during the call and remains compatible with an
+        // async caller.  Aura does not silently pin Task, TaskHandle,
+        // Channel, or any unproven value across an await.
+        let ret = crate::names::c_type_from_opt(&foreign.return_type, ctx.checked, &[], &[]);
+        let mut out = String::from("({ ");
+        for (slot, index) in pinned.iter().enumerate() {
+            let arg = call
+                .args
+                .get(*index)
+                .map(|arg| emit_expr(arg, ctx))
+                .unwrap_or_else(|| "NULL".into());
+            let _ = std::fmt::Write::write_fmt(
+                &mut out,
+                    format_args!(
+                    "AuraFfiOpaqueHandle *__aura_ffi_handle_{slot} = (AuraFfiOpaqueHandle *)({arg}); AuraFfiHandlePin __aura_ffi_pin_{slot} = {{0}}; if (__aura_ffi_handle_{slot} != NULL && aura_ffi_handle_pin_for_boundary(__aura_ffi_handle_{slot}, AURA_FFI_BOUNDARY_TASK, &__aura_ffi_pin_{slot}) != AURA_FFI_OK) abort(); "
+                ),
+            );
+        }
+        let call_args = call
+            .args
+            .iter()
+            .zip(foreign.params.iter())
+            .enumerate()
+            .map(|(index, (arg, param))| {
+                if let Some(slot) = pinned.iter().position(|p| *p == index) {
+                    format!("__aura_ffi_handle_{slot}")
+                } else {
+                    let expected = type_ref_local_key(&param.ty, &[], &[]);
+                    coerce_expr(arg, &expected, ctx)
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        let pinned_call = format!("{}({call_args})", foreign.name.name);
+        if ret == "void" {
+            let _ = std::fmt::Write::write_fmt(&mut out, format_args!("{pinned_call}; "));
+        } else {
+            let _ = std::fmt::Write::write_fmt(
+                &mut out,
+                format_args!("{ret} __aura_ffi_result = ({pinned_call}); "),
+            );
+        }
+        for slot in pinned.iter().enumerate().map(|(slot, _)| slot) {
+            let _ = std::fmt::Write::write_fmt(
+                &mut out,
+                format_args!("if (__aura_ffi_pin_{slot}.handle != NULL) (void)aura_ffi_handle_unpin(&__aura_ffi_pin_{slot}); "),
+            );
+        }
+        if ret != "void" {
+            out.push_str("__aura_ffi_result; ");
+        }
+        out.push_str("})");
+        return out;
+    }
     let args = call
         .args
         .iter()

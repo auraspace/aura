@@ -395,6 +395,7 @@ pub(crate) fn ty_to_c(t: &Ty) -> String {
         // C22: task frames and channels are opaque runtime-owned pointers.
         Ty::Task(_) | Ty::TaskHandle(_) => "AuraTaskFrame *".into(),
         Ty::Channel(_) => "AuraTaskChannel *".into(),
+        Ty::ForeignHandle(_) => "AuraFfiOpaqueHandle *".into(),
     }
 }
 
@@ -440,6 +441,7 @@ pub(crate) fn ty_to_c_local(t: &Ty, checked: &CheckedFile) -> String {
         // C22: async values are represented by opaque runtime handles.
         Ty::Task(_) | Ty::TaskHandle(_) => "AuraTaskFrame *".into(),
         Ty::Channel(_) => "AuraTaskChannel *".into(),
+        Ty::ForeignHandle(_) => "AuraFfiOpaqueHandle *".into(),
         Ty::Enum(n) => c_enum_type(&nominal_mono_base(n)),
         Ty::EnumApp { name, args } => c_enum_type(&mono_key(name, args)),
         other => ty_to_c(other),
@@ -834,6 +836,7 @@ pub(crate) fn c_type_from_ty(ty: &Ty, checked: &CheckedFile) -> String {
         // C22 runtime-owned opaque handles.
         Ty::Task(_) | Ty::TaskHandle(_) => "AuraTaskFrame *".into(),
         Ty::Channel(_) => "AuraTaskChannel *".into(),
+        Ty::ForeignHandle(_) => "AuraFfiOpaqueHandle *".into(),
         Ty::TypeParam(n) => n.clone(),
     }
 }

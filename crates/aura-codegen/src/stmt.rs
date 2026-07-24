@@ -1062,6 +1062,9 @@ pub(crate) fn local_key_to_c(key: &str, checked: &CheckedFile) -> String {
             "AuraTaskFrame *".into()
         }
         n if n == "Channel" || n.starts_with("Channel_") => "AuraTaskChannel *".into(),
+        n if n == "ForeignHandle" || n.starts_with("ForeignHandle_") => {
+            "AuraFfiOpaqueHandle *".into()
+        }
         // C10e: function-type mono keys → typedef name.
         n if is_fun_type_key(n) => c_fun_typedef(n),
         n if checked

@@ -88,11 +88,11 @@ impl Checker {
             "Int" => Ty::Int,
             "Bool" => Ty::Bool,
             "String" => Ty::String,
-            "Task" | "TaskHandle" | "Channel" => {
+            "Task" | "TaskHandle" | "Channel" | "ForeignHandle" => {
                 if qualified_pkg.is_some() {
                     return Err(SemaError {
                         message: format!(
-                            "async type `{}` cannot be package-qualified",
+                            "builtin async/foreign type `{}` cannot be package-qualified",
                             t.name.name
                         ),
                         span: t.span,
@@ -115,10 +115,19 @@ impl Checker {
                     });
                 }
                 let inner = Box::new(type_args.into_iter().next().unwrap());
+                if t.name.name == "ForeignHandle"
+                    && type_ref_contains_reference_for_async(&t.type_args[0])
+                {
+                    return Err(SemaError {
+                        message: "borrow reference cannot be stored in `ForeignHandle`".into(),
+                        span: t.type_args[0].span,
+                    });
+                }
                 match t.name.name.as_str() {
                     "Task" => Ty::Task(inner),
                     "TaskHandle" => Ty::TaskHandle(inner),
-                    _ => Ty::Channel(inner),
+                    "Channel" => Ty::Channel(inner),
+                    _ => Ty::ForeignHandle(inner),
                 }
             }
             // C9f: type alias expansion (non-generic).
