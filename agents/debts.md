@@ -70,14 +70,15 @@ When you resolve debt, update or remove the matching entry.
   payload before replacement, and runs it before an uncaught object exception
   aborts the process. Native ASAN/UBSAN/LSAN covers nested owned data, implicit
   leave, rethrow, replacement, uncaught cleanup, and scalar pending reset.
-- Why deferred: typed exception chains remain outside this runtime-only slice;
-  source-span propagation, uncaught source-span formatting, and compiler-generated
-  destructor metadata now have bounded evidence.
+- Why deferred: compiler-level nested-cause lowering remains outside this
+  runtime-only slice; source-span propagation, uncaught source-span formatting,
+  typed cause-chain storage/query, and compiler-generated destructor metadata
+  now have bounded evidence.
 - Progress: `runtime/tests/exception_payload_cleanup.c` remains in the
   sanitizer seed manifest; `corpus/control/exception_payload_cleanup.aura`
   provides the generated shallow-copy regression with a static field.
-- Next step: add typed cause-chain storage and preserve nested causes through
-  rethrow.
+- Next step: connect the cause-chain API to compiler-level nested-cause syntax
+  when that language surface is defined.
 
 ### H6 routing is synchronous and exact-match only (2026-07-22)
 
@@ -665,9 +666,10 @@ When you resolve debt, update or remove the matching entry.
   while keeping primitive foreign declarations on the existing supported ABI.
   The compiler now accepts borrowed tagged `ForeignHandle<T>` parameters and
   emits the checked pin/unpin ABI for synchronous foreign calls, while rejecting
-  owned returns and unproven nested async handles. Aura-level pointer types,
-  automatic compiler rooting, and task-frame storage of the pin token remain
-  deferred; callbacks and foreign error mapping belong to F5.
+  owned returns and unproven nested async handles. Task frames now retain
+  TASK/AWAIT pin tokens through destruction. Compiler-generated async lowering
+  still needs to invoke that frame-owned API; callbacks and foreign error
+  mapping belong to F5.
 
 ### F5 callback portability (2026-07-22)
 
