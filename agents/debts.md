@@ -751,10 +751,11 @@ When you resolve debt, update or remove the matching entry.
 
 ### RUNTIME-002 suspended frame ownership boundary (updated 2026-07-23)
 
-- Task-frame data is now rooted in the tracing heap for its lifetime, with an
-  explicit mark callback for opaque live state and exact teardown coverage.
-  Compiler-generated mutable captures, complete GC treatment for every frame
-  layout, and the broader RFC runtime ownership contract remain open.
+- Task-frame data is now rooted in the tracing heap for its lifetime; capture
+  and pending storage receives a conservative pointer scan in addition to the
+  explicit mark callback for opaque live state, with exact teardown coverage.
+  Compiler-generated mutable captures and the broader RFC runtime ownership
+  contract remain open.
 
 ### examples/wc exit teardown (resolved 2026-07-23)
 

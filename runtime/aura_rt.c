@@ -5530,9 +5530,31 @@ AuraFfiStatus aura_task_frame_pin_foreign_handle(AuraTaskFrame *frame,
 
 static void aura_gc_mark_task_frames(void)
 {
+  /* Frame captures and pending payloads are allocator-owned storage rather
+   * than tracing-heap nodes.  Scan their pointer-sized words conservatively
+   * so a compiler frame remains a complete GC root even when it has no custom
+   * mark callback.  Explicit callbacks still handle typed nested layouts and
+   * remain the preferred precise path. */
   for (AuraTaskFrame *frame = aura_gc_task_frames; frame != NULL;
        frame = frame->gc_next)
   {
+    const AuraTaskFrameStorage *storage[] = {&frame->captures,
+                                             &frame->pending};
+    for (size_t s = 0; s < sizeof(storage) / sizeof(storage[0]); s++)
+    {
+      const unsigned char *bytes = (const unsigned char *)storage[s]->data;
+      size_t words = storage[s]->size / sizeof(void *);
+      if (storage[s]->data != NULL)
+      {
+        aura_gc_mark_ptr(storage[s]->data);
+      }
+      for (size_t i = 0; bytes != NULL && i < words; i++)
+      {
+        void *candidate = NULL;
+        memcpy(&candidate, bytes + i * sizeof(void *), sizeof(candidate));
+        aura_gc_mark_ptr(candidate);
+      }
+    }
     if (frame->gc_mark != NULL)
     {
       frame->gc_mark(frame);
