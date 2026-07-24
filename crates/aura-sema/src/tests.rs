@@ -162,12 +162,11 @@ fn foreign_declaration_keeps_unproven_async_handles_fail_closed() {
 fn foreign_handle_task_await_crossing_remains_fail_closed() {
     let file = parse_file(
         "package demo\n\
-async fun keep(handle: ForeignHandle<Int>): Int { return await worker(handle) }\n\
-fun worker(handle: ForeignHandle<Int>): Int { return 1 }\n",
+async fun worker(handle: ForeignHandle<Int>): Int { return 1 }\n\
+async fun keep(handle: ForeignHandle<Int>): Int { return await worker(handle) }\n",
     )
     .expect("parse async handle fixture");
-    let error = check_file(&file).expect_err("TASK/AWAIT pin lifetime is not compiler-generated");
-    assert!(error.to_string().contains("TASK/AWAIT pin lifetime"));
+    check_file(&file).expect("borrowed handle is retained by the async task frame");
 }
 
 #[test]

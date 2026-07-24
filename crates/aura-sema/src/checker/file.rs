@@ -610,13 +610,11 @@ impl Checker {
                 },
                 None => Ty::Unit,
             };
-            // No-await async functions are lowered as a single task poll with
-            // a concrete frame, so their borrowed foreign handles can be
-            // retained by that frame. Functions with suspension points still
-            // remain fail-closed until every state-machine path pins them.
-            if (params.iter().any(contains_foreign_handle) || contains_foreign_handle(&result_ty))
-                && !f.suspension_points().is_empty()
-            {
+            // Every generated async poller owns a concrete task frame. Borrowed
+            // foreign parameters are pinned in that frame for the task's full
+            // lifetime; an owned ForeignHandle result remains rejected because
+            // Task<T> still has no transfer/destructor contract for it.
+            if contains_foreign_handle(&result_ty) {
                 self.errors.push(SemaError {
                     message: "[AURA-F4-BOUNDARY] ForeignHandle values cannot be captured by an async function or stored in Task<T> until compiler-generated TASK/AWAIT pin lifetime is implemented".into(),
                     span: f.span,

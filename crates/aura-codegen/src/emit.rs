@@ -3187,7 +3187,7 @@ fn async_ctx<'a>(
             .map(|t| type_ref_local_key_expand(t, params, &[], checked)),
         lambda_ids: build_lambda_ids(checked),
         spawn_params: fparams.iter().map(|p| p.name.name.clone()).collect(),
-        async_frame: None,
+        async_frame: Some("frame".into()),
     };
     for p in fparams {
         let key = type_ref_local_key_expand(&p.ty, params, &[], checked);
