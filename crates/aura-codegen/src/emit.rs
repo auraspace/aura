@@ -143,6 +143,7 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str(
         "int aura_task_frame_propagate_error(AuraTaskFrame *frame, const AuraTaskFrame *source);\n",
     );
+    out.push_str("AuraTaskPollState aura_task_frame_propagate_outcome(AuraTaskFrame *frame, const AuraTaskFrame *source, AuraTaskResultCloneFn result_clone, AuraTaskResultDestroyFn result_destroy);\n");
     out.push_str("void aura_task_frame_set_error_span(AuraTaskFrame *frame, void *data, size_t size, AuraTaskResultDestroyFn destroy, uint32_t source_id, uint32_t span_start, uint32_t span_end);\n");
     out.push_str("void aura_task_frame_set_error_span_with_clone(AuraTaskFrame *frame, void *data, size_t size, AuraTaskResultCloneFn clone, AuraTaskResultDestroyFn destroy, uint32_t source_id, uint32_t span_start, uint32_t span_end);\n");
     out.push_str("void aura_task_frame_set_error_at(AuraTaskFrame *frame, void *data, size_t size, AuraTaskResultDestroyFn destroy, uint32_t source_id);\n");
@@ -558,6 +559,7 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
                 opts.detector,
             ) && !emit_async_fun_if_else_single_await(&mut out, lowered, checked, opts.detector)
                 && !emit_async_fun_if_assign_await(&mut out, lowered, checked, opts.detector)
+                && !emit_async_fun_if_await_then_continue(&mut out, lowered, checked, opts.detector)
                 && !emit_async_fun_if_single_await(&mut out, lowered, checked, opts.detector)
                 && !emit_async_fun_general_multi_await(&mut out, lowered, checked, opts.detector)
                 && !emit_async_fun_multi_await(&mut out, lowered, checked, opts.detector)
@@ -620,8 +622,8 @@ fn emit_fallback_unit_join_result(out: &mut String, checked: &CheckedFile) {
         return;
     }
     out.push_str("typedef struct aura_enum_std_io_TaskError { int tag; union { struct { const char *error; } Failed; char as_Cancelled; } data; } aura_enum_std_io_TaskError;\n");
-    out.push_str("static aura_enum_std_io_TaskError aura_var_std_io_TaskError_Failed(const char *error) { aura_enum_std_io_TaskError self; self.tag = 0; self.data.Failed.error = error; return self; }\n");
-    out.push_str("static aura_enum_std_io_TaskError aura_var_std_io_TaskError_Cancelled(void) { aura_enum_std_io_TaskError self; self.tag = 1; return self; }\n");
+    out.push_str("static __attribute__((unused)) aura_enum_std_io_TaskError aura_var_std_io_TaskError_Failed(const char *error) { aura_enum_std_io_TaskError self; self.tag = 0; self.data.Failed.error = error; return self; }\n");
+    out.push_str("static __attribute__((unused)) aura_enum_std_io_TaskError aura_var_std_io_TaskError_Cancelled(void) { aura_enum_std_io_TaskError self; self.tag = 1; return self; }\n");
     if !has_result_unit {
         out.push_str("typedef struct aura_enum_std_io_Result_Unit_std_io_TaskError { int tag; union { char as_Ok; struct { aura_enum_std_io_TaskError error; } Err; } data; } aura_enum_std_io_Result_Unit_std_io_TaskError;\n");
         out.push_str("static aura_enum_std_io_Result_Unit_std_io_TaskError aura_var_std_io_Result_Unit_std_io_TaskError_Ok(void) { aura_enum_std_io_Result_Unit_std_io_TaskError self; self.tag = 0; return self; }\n");
@@ -1368,6 +1370,140 @@ fn emit_async_fun_if_assign_await(
     true
 }
 
+/// Lower `if (cond) { val x = await task; call(x) } return literal`.
+/// The call is a post-suspension continuation, so the awaited value and child
+/// frame stay live in the task frame until the resumed branch has executed.
+fn emit_async_fun_if_await_then_continue(
+    out: &mut String,
+    f: &AsyncFunDecl,
+    checked: &CheckedFile,
+    detector: bool,
+) -> bool {
+    if f.return_type
+        .as_ref()
+        .map(|t| type_ref_local_key_expand(t, &[], &[], checked) != "Int")
+        .unwrap_or(true)
+        || f.body.stmts.len() != 2
+    {
+        return false;
+    }
+    let Stmt::If(branch) = &f.body.stmts[0] else {
+        return false;
+    };
+    if branch.else_block.is_some() || branch.then_block.stmts.len() != 2 {
+        return false;
+    }
+    let Stmt::Var(await_var) = &branch.then_block.stmts[0] else {
+        return false;
+    };
+    let Expr::Async(AsyncExpr::Await(await_expr)) = &await_var.init else {
+        return false;
+    };
+    if await_var
+        .ty
+        .as_ref()
+        .map(|t| type_ref_local_key_expand(t, &[], &[], checked) != "Int")
+        .unwrap_or(true)
+        || matches!(await_expr.operand.as_ref(), Expr::Async(_))
+    {
+        return false;
+    }
+    let Stmt::Expr(Expr::Call(_)) = &branch.then_block.stmts[1] else {
+        return false;
+    };
+    let Stmt::Return(ret) = &f.body.stmts[1] else {
+        return false;
+    };
+    let Some(fallback) = &ret.value else {
+        return false;
+    };
+    if !matches!(fallback, Expr::Int(_))
+        || async_inner_key(
+            &await_expr.operand,
+            &async_ctx(checked, detector, &[], &f.params, &f.return_type),
+        ) != "Int"
+    {
+        return false;
+    }
+
+    let params: Vec<String> = f.type_params.iter().map(|p| p.name.name.clone()).collect();
+    let pkg = async_fun_decl_package(f, checked);
+    let base = format!("{}_{}", mangle_package(&pkg), mangle_ident(&f.name.name));
+    let data_ty = format!("aura_async_data_{base}");
+    let poll_fn = format!("aura_async_poll_{base}");
+    let destroy_result = format!("aura_async_result_destroy_{base}");
+    let ret_ty = c_type_from_opt(&f.return_type, checked, &params, &[]);
+    let value_name = mangle_ident(&await_var.name.name);
+    let mut entry_ctx = async_ctx(checked, detector, &params, &f.params, &f.return_type);
+    let condition = emit_expr(&branch.cond, &mut entry_ctx);
+    let task = emit_expr(&await_expr.operand, &mut entry_ctx);
+    entry_ctx.define_local(&await_var.name.name, "Int".into());
+    let Stmt::Expr(Expr::Call(call)) = &branch.then_block.stmts[1] else {
+        unreachable!()
+    };
+    let continuation = emit_expr(&Expr::Call(call.clone()), &mut entry_ctx);
+    let fallback = emit_expr(fallback, &mut entry_ctx);
+
+    let _ = writeln!(
+        out,
+        "/* aura async if-await continuation state=1 kind=await span={}:{} */",
+        await_expr.span.start, await_expr.span.end
+    );
+    let _ = writeln!(out, "typedef struct {data_ty} {{");
+    for p in &f.params {
+        let _ = writeln!(
+            out,
+            "  {} {};",
+            c_type_ref_subst(&p.ty, checked, &params, &[]),
+            mangle_ident(&p.name.name)
+        );
+    }
+    out.push_str("  int64_t awaited_value;\n  AuraTaskFrame *await_task;\n");
+    let _ = writeln!(out, "}} {data_ty};\n");
+    let _ = writeln!(
+        out,
+        "static void {destroy_result}(void *data, size_t size) {{ (void)size; free(data); }}"
+    );
+    let _ = writeln!(
+        out,
+        "static AuraTaskPollState {poll_fn}(AuraTaskFrame *frame) {{"
+    );
+    let _ = writeln!(
+        out,
+        "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame);"
+    );
+    out.push_str("  if (aura_task_frame_cancel_requested(frame)) return AURA_TASK_CANCELLED;\n  switch (aura_task_frame_resume_state(frame)) {\n");
+    out.push_str("    case 0: {\n");
+    for p in &f.params {
+        let n = mangle_ident(&p.name.name);
+        let _ = writeln!(
+            out,
+            "      {} {n} = data->{n};",
+            c_type_ref_subst(&p.ty, checked, &params, &[])
+        );
+    }
+    let _ = writeln!(out, "      if ({condition}) {{ data->await_task = {task}; if (data->await_task == NULL) return AURA_TASK_FAILED; aura_task_frame_set_resume_state(frame, 1); }} else {{");
+    let _ = writeln!(out, "        {ret_ty} *result = ({ret_ty} *)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; *result = {fallback}; aura_task_frame_set_result(frame, result, sizeof(*result), {destroy_result}); return AURA_TASK_COMPLETE; }}\n    }}\n    case 1: {{");
+    out.push_str("      AuraTaskPollState child_state = aura_task_frame_state(data->await_task);\n      if (child_state == AURA_TASK_READY) child_state = aura_task_frame_poll_once(data->await_task);\n      if (child_state == AURA_TASK_PENDING) { if (!aura_task_frame_wait_on(frame, data->await_task)) return AURA_TASK_FAILED; return AURA_TASK_PENDING; }\n      if (child_state == AURA_TASK_CANCELLED) return AURA_TASK_CANCELLED;\n      if (child_state == AURA_TASK_FAILED) { (void)aura_task_frame_propagate_error(frame, data->await_task); return AURA_TASK_FAILED; }\n      if (child_state != AURA_TASK_COMPLETE) return AURA_TASK_FAILED;\n      AuraTaskResult child_result = aura_task_frame_result(data->await_task);\n      data->awaited_value = child_result.data == NULL ? 0 : *((int64_t *)child_result.data);\n");
+    let _ = writeln!(
+        out,
+        "      int64_t {value_name} = data->awaited_value; (void){continuation};"
+    );
+    let _ = writeln!(out, "      {ret_ty} *result = ({ret_ty} *)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; *result = {fallback}; aura_task_frame_set_result(frame, result, sizeof(*result), {destroy_result}); return AURA_TASK_COMPLETE;\n    }}\n    default: return AURA_TASK_FAILED;\n  }}\n}}\n");
+    let _ = writeln!(out, "{} {{", c_async_fun_signature(f, checked));
+    let _ = writeln!(out, "  AuraTaskFrame *frame = aura_task_frame_new(sizeof({data_ty}), {poll_fn}, NULL); if (frame == NULL) return NULL;");
+    let _ = writeln!(
+        out,
+        "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame);"
+    );
+    for p in &f.params {
+        let n = mangle_ident(&p.name.name);
+        let _ = writeln!(out, "  data->{n} = {n};");
+    }
+    out.push_str("  if (__aura_task_executor != NULL && !aura_task_executor_submit(__aura_task_executor, frame)) { aura_task_frame_destroy(frame); return NULL; }\n  return frame;\n}\n");
+    true
+}
+
 /// Lower the first control-flow state-machine slice: an `if` whose true arm
 /// awaits one `Task<Int>` local and returns it, followed by a literal `Int`
 /// return on the false path. The branch decision is made in entry state and
@@ -1550,6 +1686,11 @@ fn emit_ffi_abi_declarations(out: &mut String) {
     out.push_str("typedef struct { const void *data; uint64_t len; uint64_t cap; uint64_t elem_size; AuraFfiArrayKind kind; } AuraFfiArrayView;\n");
     out.push_str("typedef struct { void *data; uint64_t len; uint64_t cap; uint64_t elem_size; AuraFfiArrayKind kind; } AuraFfiArray;\n");
     out.push_str("typedef struct { void **slot; int active; } AuraFfiRootGuard;\n");
+    out.push_str("typedef struct AuraFfiOpaqueHandle AuraFfiOpaqueHandle;\n");
+    out.push_str("typedef struct { AuraFfiOpaqueHandle *handle; void *resource; uint64_t generation; } AuraFfiHandlePin;\n");
+    out.push_str("typedef enum { AURA_FFI_BOUNDARY_SYNC = 0, AURA_FFI_BOUNDARY_TASK = 1, AURA_FFI_BOUNDARY_AWAIT = 2, AURA_FFI_BOUNDARY_CHANNEL = 3, AURA_FFI_BOUNDARY_CALLBACK = 4 } AuraFfiBoundary;\n");
+    out.push_str("AuraFfiStatus aura_ffi_handle_pin_for_boundary(AuraFfiOpaqueHandle *, AuraFfiBoundary, AuraFfiHandlePin *);\n");
+    out.push_str("AuraFfiStatus aura_ffi_handle_unpin(AuraFfiHandlePin *);\n");
     out.push_str(
         "AuraFfiStatus aura_ffi_string_borrow(const char *, uint64_t, AuraFfiStringView *);\n",
     );
@@ -1622,6 +1763,35 @@ mod abi_tests {
         assert!(generated.contains("#define AURA_GENERATED_ABI_VERSION 1u"));
         assert!(generated
             .contains("aura_runtime_check_abi(AURA_GENERATED_ABI_VERSION, AURA_GENERATED_ABI_ID)"));
+    }
+
+    #[test]
+    fn typed_foreign_handle_parameter_uses_checked_task_pin_abi() {
+        let file = parse_file(
+            "package demo\n\
+@foreign(library = \"m\", target = \"native\", link = \"dynamic\", abi = 1, abi_id = \"c\")\n\
+extern \"C\" fun native_use(handle: ForeignHandle<Int>): Unit\n\
+fun main(handle: ForeignHandle<Int>) { native_use(handle) }\n",
+        )
+        .expect("parse typed foreign handle fixture");
+        let checked = aura_sema::check_file(&file).expect("typed parameter checks");
+        let generated = emit_c_with(&checked, EmitOptions::default());
+        assert!(generated.contains("extern void native_use(AuraFfiOpaqueHandle *);"));
+        assert!(generated.contains("aura_ffi_handle_pin_for_boundary"));
+        assert!(generated.contains("AURA_FFI_BOUNDARY_TASK"));
+        assert!(generated.contains("aura_ffi_handle_unpin"));
+    }
+
+    #[test]
+    fn typed_foreign_handle_return_remains_fail_closed() {
+        let file = parse_file(
+            "package demo\n\
+@foreign(library = \"m\", target = \"native\", link = \"dynamic\", abi = 1, abi_id = \"c\")\n\
+extern \"C\" fun native_open(): ForeignHandle<Int>\n",
+        )
+        .expect("parse typed foreign handle return fixture");
+        let error = aura_sema::check_file(&file).expect_err("owned return is not proven");
+        assert!(error.to_string().contains("drop/transfer semantics"));
     }
     #[test]
     fn checked_file_retains_attribute_metadata_for_consumers() {

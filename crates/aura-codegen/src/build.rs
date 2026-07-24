@@ -773,6 +773,27 @@ fun main() {}
     }
 
     #[test]
+    fn builds_if_await_with_post_suspend_continuation() {
+        let file = aura_parser::parse_file(
+            r#"package demo
+async fun choose(flag: Bool, task: Task<Int>): Int {
+  if (flag) {
+    val value: Int = await task
+    println(value)
+  }
+  return 0
+}
+fun main() {}
+"#,
+        )
+        .expect("parse post-await continuation fixture");
+        let generated = emit_c_from_ast(&file).expect("emit post-await continuation fixture");
+        assert!(generated.contains("aura async if-await continuation"));
+        assert!(generated.contains("data->awaited_value"));
+        assert!(generated.contains("aura_task_frame_propagate_error(frame, data->await_task)"));
+    }
+
+    #[test]
     fn builds_if_await_assignment_with_post_branch_continuation() {
         let file = aura_parser::parse_file(
             r#"package demo

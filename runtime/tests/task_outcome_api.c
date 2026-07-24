@@ -1,5 +1,6 @@
 #include <assert.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define AURA_RUNTIME_NO_MAIN
 #include "../../runtime/aura_rt.c"
@@ -16,6 +17,22 @@ static void drop_payload(void *data, size_t size)
   assert(size == sizeof(int));
   payload_drops++;
   free(data);
+}
+
+static void *clone_payload(const void *data, size_t size, size_t *out_size)
+{
+  void *copy = malloc(size);
+  assert(copy != NULL);
+  memcpy(copy, data, size);
+  *out_size = size;
+  return copy;
+}
+
+static AuraTaskFrame *new_empty_frame(void)
+{
+  AuraTaskFrame *frame = aura_task_frame_new(0, aura_task_poll_unit, NULL);
+  assert(frame != NULL);
+  return frame;
 }
 
 static AuraTaskPollState poll_outcome_api(AuraTaskFrame *frame)
@@ -101,6 +118,38 @@ int main(void)
   assert_same_outcome(cancelled_first, cancelled_second);
   assert(aura_task_executor_release(executor, &cancelled) == 1);
   assert(payload_drops == 2);
+
+  /* Full outcome propagation clones a successful payload, so repeated
+   * observations remain valid even when the parent is released first. */
+  AuraTaskFrame *source = new_outcome_api_task(0);
+  assert(aura_task_frame_poll_once(source) == AURA_TASK_COMPLETE);
+  AuraTaskFrame *parent = new_empty_frame();
+  assert(aura_task_frame_propagate_outcome(parent, source, clone_payload,
+                                           drop_payload) == AURA_TASK_COMPLETE);
+  AuraTaskResult copied = aura_task_frame_result(parent);
+  assert(copied.data != NULL && *(int *)copied.data == 42);
+  assert(copied.data != aura_task_frame_result(source).data);
+  *(int *)aura_task_frame_result(source).data = 99;
+  assert(*(int *)copied.data == 42);
+  aura_task_frame_destroy(source);
+  aura_task_frame_destroy(parent);
+  assert(payload_drops == 4);
+
+  /* Cancellation is an explicit terminal outcome, not a failed payload. */
+  AuraTaskFrame *cancel_source = new_outcome_api_task(0);
+  AuraTaskFrame *cancel_parent = new_empty_frame();
+  assert(aura_task_executor_submit(executor, cancel_source) == 1);
+  assert(aura_task_executor_cancel(executor, cancel_source) == 1);
+  assert(aura_task_executor_join_outcome(executor, cancel_source).state ==
+         AURA_TASK_CANCELLED);
+  assert(aura_task_frame_propagate_outcome(cancel_parent, cancel_source,
+                                           clone_payload, drop_payload) ==
+         AURA_TASK_CANCELLED);
+  assert(aura_task_frame_state(cancel_parent) == AURA_TASK_CANCELLED);
+  assert(aura_task_frame_result(cancel_parent).data == NULL);
+  assert(aura_task_frame_error(cancel_parent).data == NULL);
+  aura_task_frame_destroy(cancel_parent);
+  assert(aura_task_executor_release(executor, &cancel_source) == 1);
 
   aura_task_executor_shutdown(executor);
   return 0;

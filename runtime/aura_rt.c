@@ -69,6 +69,7 @@ typedef enum AuraFfiBoundary
 } AuraFfiBoundary;
 #define AURA_FFI_BOUNDARY_REJECTED ((AuraFfiStatus)3)
 #define AURA_FFI_BUSY ((AuraFfiStatus)4)
+typedef struct AuraTaskFrame AuraTaskFrame;
 typedef void (*AuraTaskFrameGcMarkFn)(AuraTaskFrame *frame);
 typedef struct AuraIoOperationHandle AuraIoOperationHandle;
 typedef void (*AuraIoOperationCleanupFn)(void *resource);
@@ -129,8 +130,15 @@ typedef enum AuraFfiOutcome
  * even when aura_ffi.h was included before this translation unit. */
 typedef struct AuraTaskExecutor AuraTaskExecutor;
 typedef struct AuraTaskFrame AuraTaskFrame;
-enum AuraTaskPollState;
-typedef enum AuraTaskPollState AuraTaskPollState;
+
+typedef enum AuraTaskPollState
+{
+  AURA_TASK_READY = 0,
+  AURA_TASK_PENDING = 1,
+  AURA_TASK_COMPLETE = 2,
+  AURA_TASK_FAILED = 3,
+  AURA_TASK_CANCELLED = 4
+} AuraTaskPollState;
 
 #ifndef AURA_FILE_H
 #define AURA_FILE_H
@@ -2050,10 +2058,6 @@ typedef enum
   AURA_HTTP_HANDLER_ERROR = -1
 } AuraHttpHandlerResult;
 
-/* A handler that is itself an Aura task.  The request and response are owned
- * by the connection for the complete task lifetime; a handler may therefore
- * register a file/socket wait on `frame`, return AURA_TASK_PENDING, and be
- * called again with the same typed values after the executor wakes it. */
 typedef AuraTaskPollState (*AuraHttpTaskHandler)(AuraTaskFrame *frame,
                                                   const AuraHttpRequest *request,
                                                   AuraHttpResponse *response,
@@ -4520,8 +4524,19 @@ AuraFfiStatus aura_ffi_handle_check_boundary(const AuraFfiOpaqueHandle *handle,
   {
     return AURA_FFI_INVALID;
   }
-  return boundary == AURA_FFI_BOUNDARY_SYNC ? AURA_FFI_OK
-                                             : AURA_FFI_BOUNDARY_REJECTED;
+  /* Nullable handles may cross a synchronous call as an explicit null value,
+   * but task/await pinning requires a live resource to retain. */
+  if (handle->resource == NULL &&
+      (boundary == AURA_FFI_BOUNDARY_TASK ||
+       boundary == AURA_FFI_BOUNDARY_AWAIT))
+  {
+    return AURA_FFI_INVALID;
+  }
+  return boundary == AURA_FFI_BOUNDARY_SYNC ||
+                 boundary == AURA_FFI_BOUNDARY_TASK ||
+                 boundary == AURA_FFI_BOUNDARY_AWAIT
+             ? AURA_FFI_OK
+             : AURA_FFI_BOUNDARY_REJECTED;
 }
 
 /* ---- F5 bounded callback and foreign-outcome ABI ---- */
@@ -5163,15 +5178,6 @@ int aura_race_happens_before(const AuraRaceEvent *before, const AuraRaceEvent *a
 typedef struct AuraTaskFrame AuraTaskFrame;
 typedef struct AuraTaskExecutor AuraTaskExecutor;
 typedef struct AuraTaskChannel AuraTaskChannel;
-
-typedef enum AuraTaskPollState
-{
-  AURA_TASK_READY = 0,
-  AURA_TASK_PENDING = 1,
-  AURA_TASK_COMPLETE = 2,
-  AURA_TASK_FAILED = 3,
-  AURA_TASK_CANCELLED = 4
-} AuraTaskPollState;
 
 typedef void (*AuraTaskResultDestroyFn)(void *data, size_t size);
 typedef void *(*AuraTaskResultCloneFn)(const void *data, size_t size,

@@ -34,6 +34,18 @@ static void destroy_int(void *data, size_t size)
   free(data);
 }
 
+static void *clone_int(const void *data, size_t size, size_t *cloned_size)
+{
+  int *copy;
+  assert(size == sizeof(int));
+  assert(cloned_size != NULL);
+  copy = (int *)malloc(sizeof(*copy));
+  assert(copy != NULL);
+  *copy = *(const int *)data;
+  *cloned_size = sizeof(*copy);
+  return copy;
+}
+
 static AuraTaskPollState cancel_with_error(AuraTaskFrame *frame)
 {
   int *error = (int *)malloc(sizeof(*error));
@@ -163,11 +175,32 @@ static void test_cancellation_exception_is_failure_after_cleanup(void)
   aura_task_executor_shutdown(executor);
 }
 
+static void test_full_terminal_outcome_propagation(void)
+{
+  AuraTaskFrame *parent = aura_task_frame_new(sizeof(OutcomeTask), poll_outcome, NULL);
+  AuraTaskFrame *success = new_outcome_task(0);
+  AuraTaskFrame *cancelled = new_outcome_task(2);
+  assert(parent != NULL && success != NULL && cancelled != NULL);
+  assert(aura_task_frame_poll_once(success) == AURA_TASK_COMPLETE);
+  cancelled->state = AURA_TASK_CANCELLED;
+  assert(aura_task_frame_propagate_outcome(parent, success, clone_int,
+                                           destroy_int) == AURA_TASK_COMPLETE);
+  assert(aura_task_frame_result(parent).data != success->result.data);
+  assert(*(int *)aura_task_frame_result(parent).data == 42);
+  assert(aura_task_frame_propagate_outcome(parent, cancelled, clone_int,
+                                           destroy_int) == AURA_TASK_CANCELLED);
+  assert(aura_task_frame_cancel_requested(parent));
+  aura_task_frame_destroy(cancelled);
+  aura_task_frame_destroy(success);
+  aura_task_frame_destroy(parent);
+}
+
 int main(void)
 {
   test_success_direct_poll();
   test_failure_join_preserves_source_identity();
   test_cancellation_is_deterministic_and_cleans_before_join();
   test_cancellation_exception_is_failure_after_cleanup();
+  test_full_terminal_outcome_propagation();
   return 0;
 }
