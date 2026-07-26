@@ -1,0 +1,14 @@
+// Compiler-generated nested cause chain: mismatched catches rethrow outward.
+package demo.exception_nested_cause
+
+fun main() {
+  try {
+    try {
+      throw "nested"
+    } catch (e: Int) {
+      println("unreachable")
+    }
+  } catch (e: Bool) {
+    println("unreachable")
+  }
+}

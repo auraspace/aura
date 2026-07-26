@@ -1508,6 +1508,99 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_bounded_mutable_capture_shared_with_scheduler() {
+        let file = aura_parser::parse_file(
+            "package demo\nclass Box(var value: Int) {}\nfun report(number: Int, text: String, box: Box) { println(number.toString()) println(text) println(box.value.toString()) }\nfun main() { var number: Int = 1\nvar text: String = \"before\"\nvar box: Box = Box(1)\nval task = spawn { report(number, text, box) return }\nnumber = 2\ntext = \"after\"\nbox = Box(2)\njoin(task) }\n",
+        )
+        .expect("parse mutable spawn capture");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-bounded-mutable-capture-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile mutable spawn capture");
+        let generated = fs::read_to_string(&generated_c).expect("read mutable capture C");
+        assert!(generated.contains("aura_box_i64 * number;"));
+        assert!(generated.contains("aura_box_str * text;"));
+        assert!(generated.contains("aura_box_ptr * box;"));
+        assert!(generated.contains("aura_box_i64_retain(__spawn_data->number)"));
+        let output = Command::new(&bin)
+            .output()
+            .expect("run mutable spawn capture");
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "2\nafter\n2\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn compiler_nested_rethrow_preserves_cause_chain_and_spans() {
+        let file = aura_parser::parse_file(
+            "package demo\nfun main() { try { try { throw \"nested\" } catch (e: Int) { println(\"wrong\") } } catch (e: Bool) { println(\"wrong\") } }\n",
+        )
+        .expect("parse nested exception cause fixture");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-nested-exception-cause-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile nested exception cause fixture");
+        let generated = fs::read_to_string(&generated_c).expect("read nested cause C");
+        assert!(generated.contains("aura_ex_add_cause(\"Int\""));
+        assert!(generated.contains("aura_ex_add_cause(\"Bool\""));
+        let output = Command::new(&bin)
+            .output()
+            .expect("run nested exception cause fixture");
+        assert!(
+            !output.status.success(),
+            "uncaught nested exception must fail"
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("caused by (Int)"), "{stderr}");
+        assert!(stderr.contains("caused by (Bool)"), "{stderr}");
+        assert!(stderr.contains("source span"), "{stderr}");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_bounded_mutable_array_capture_shared_with_scheduler() {
+        let file = aura_parser::parse_file(
+            "package demo\nfun report(values: Array<Int>) { println(values.len.toString()) }\nfun main() { var values: Array<Int> = Array(0)\nvalues.push(1)\nval task = spawn { report(values) return }\nvalues.push(2)\njoin(task) }\n",
+        )
+        .expect("parse mutable Array spawn capture");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-bounded-mutable-array-capture-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile mutable Array spawn capture");
+        let generated = fs::read_to_string(&generated_c).expect("read mutable Array capture C");
+        assert!(generated.contains("aura_box_ptr * values;"));
+        assert!(generated.contains("aura_capture_drop_Array_Int"));
+        assert!(generated.contains("aura_method_Array_Int_clone"));
+        let output = Command::new(&bin)
+            .output()
+            .expect("run mutable Array spawn capture");
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "2\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_bounded_class_parameter_capture() {
         let file = aura_parser::parse_file(
             "package demo\nclass Box(val value: Int) {}\nfun report(box: Box) { if (box.value == 73) { println(\"captured class\") } }\nfun launch(box: Box) { val task = spawn { report(box) } join(task) }\nfun main() { launch(Box(73)) }\n",

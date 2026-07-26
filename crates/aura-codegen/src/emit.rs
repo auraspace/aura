@@ -11,9 +11,9 @@ use crate::class_emit::*;
 use crate::ctx::{EmitCtx, EmitOptions};
 use crate::enum_emit::*;
 use crate::expr::{
-    async_inner_key, bounded_spawn_await_shape, bounded_spawn_captures, bounded_spawn_destroy_name,
-    bounded_spawn_poll_name, coerce_expr, emit_expr, full_type_mono, infer_type_name,
-    mutable_spawn_capture_names, BoundedSpawnCapture,
+    async_inner_key, bounded_capture_box_kind, bounded_spawn_await_shape, bounded_spawn_captures,
+    bounded_spawn_destroy_name, bounded_spawn_poll_name, coerce_expr, emit_expr, full_type_mono,
+    infer_type_name, mutable_spawn_capture_names, BoundedSpawnCapture,
 };
 use crate::iface::*;
 use crate::names::*;
@@ -480,6 +480,8 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
         }
     }
     out.push('\n');
+
+    emit_capture_drop_helpers(&mut out, checked);
 
     // C22l: emit the bounded, capture-free spawn pollers after all ordinary
     // declarations are visible. Unsupported bodies keep the explicit abort
@@ -3534,7 +3536,12 @@ fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile, detector:
             for capture in &captures {
                 let key = &capture.key;
                 let cty = if capture.boxed {
-                    "aura_box_ptr *".to_string()
+                    match bounded_capture_box_kind(capture) {
+                        "string" => "aura_box_str *".to_string(),
+                        "i64" => "aura_box_i64 *".to_string(),
+                        "bool" => "aura_box_bool *".to_string(),
+                        _ => "aura_box_ptr *".to_string(),
+                    }
                 } else if key == "String" {
                     "aura_box_str *".to_string()
                 } else {
@@ -3555,9 +3562,15 @@ fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile, detector:
                 let key = &capture.key;
                 let n = mangle_ident(&capture.name);
                 if capture.boxed {
+                    let release = match bounded_capture_box_kind(capture) {
+                        "string" => "aura_box_str_release",
+                        "i64" => "aura_box_i64_release",
+                        "bool" => "aura_box_bool_release",
+                        _ => "aura_box_ptr_release",
+                    };
                     let _ = writeln!(
                         out,
-                        "  if (data != NULL && data->{n} != NULL) aura_box_ptr_release(data->{n});"
+                        "  if (data != NULL && data->{n} != NULL) {release}(data->{n});"
                     );
                 } else if key == "String" {
                     let _ = writeln!(
@@ -3611,7 +3624,13 @@ fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile, detector:
                 let key = &capture.key;
                 let n = mangle_ident(name);
                 if capture.boxed {
-                    let _ = writeln!(out, "  aura_box_ptr *{n} = data->{n};");
+                    let cty = match bounded_capture_box_kind(capture) {
+                        "string" => "aura_box_str *",
+                        "i64" => "aura_box_i64 *",
+                        "bool" => "aura_box_bool *",
+                        _ => "aura_box_ptr *",
+                    };
+                    let _ = writeln!(out, "  {cty}{n} = data->{n};");
                 } else if key == "String" {
                     let _ = writeln!(
                         out,
@@ -3776,7 +3795,13 @@ fn emit_bounded_spawn_await_poller(
         let key = &capture.key;
         let n = mangle_ident(name);
         if capture.boxed {
-            let _ = writeln!(out, "      aura_box_ptr *{n} = data->{n};");
+            let cty = match bounded_capture_box_kind(capture) {
+                "string" => "aura_box_str *",
+                "i64" => "aura_box_i64 *",
+                "bool" => "aura_box_bool *",
+                _ => "aura_box_ptr *",
+            };
+            let _ = writeln!(out, "      {cty}{n} = data->{n};");
             ctx.mark_box_local(name);
         } else if key == "String" {
             let _ = writeln!(
@@ -4233,8 +4258,13 @@ fn emit_fun_typedefs(out: &mut String, checked: &CheckedFile) {
 
 fn emit_capture_drop_helpers(out: &mut String, checked: &CheckedFile) {
     let mut array_keys = std::collections::BTreeSet::new();
+    let mut array_c_types = std::collections::HashMap::new();
     let mut has_fun = false;
-    let mut has_obj = false;
+    let mut has_obj = checked
+        .ast
+        .classes
+        .iter()
+        .any(|class| class.kind == NominalKind::Class);
     for captures in checked.lambda_captures.values() {
         for cap in captures {
             if !cap.by_ref {
@@ -4249,17 +4279,31 @@ fn emit_capture_drop_helpers(out: &mut String, checked: &CheckedFile) {
             }
         }
     }
+    for (name, args) in &checked.mono_classes {
+        if is_array_mono(name) {
+            if let Some(elem) = args.first() {
+                let key = format!("Array_{}", elem.mono_suffix());
+                array_c_types.insert(key.clone(), crate::stmt::local_key_to_c(&key, checked));
+                array_keys.insert(key);
+            }
+        }
+    }
+    has_fun |= collect_fun_tys(checked)
+        .iter()
+        .any(|ty| matches!(ty, Ty::Fun { .. }));
     for key in array_keys {
-        let c_ty = c_type_from_ty(
-            &checked
-                .lambda_captures
-                .values()
-                .flatten()
-                .find(|c| c.by_ref && c.ty.mono_suffix() == key)
-                .expect("array capture key must have a capture")
-                .ty,
-            checked,
-        );
+        let c_ty = array_c_types.get(&key).cloned().unwrap_or_else(|| {
+            c_type_from_ty(
+                &checked
+                    .lambda_captures
+                    .values()
+                    .flatten()
+                    .find(|c| c.by_ref && c.ty.mono_suffix() == key)
+                    .expect("array capture key must have a capture")
+                    .ty,
+                checked,
+            )
+        });
         let _ = writeln!(out, "static void aura_capture_drop_{key}(void *value) {{");
         let _ = writeln!(out, "  {c_ty} *__a = ({c_ty} *)value;");
         if crate::array_emit::is_array_of_heap_class(&key, checked) {
@@ -4314,8 +4358,6 @@ fn emit_lambda_fns(out: &mut String, checked: &CheckedFile, detector: bool) {
         );
     }
     out.push('\n');
-    emit_capture_drop_helpers(out, checked);
-
     // C10h/C12k/C12l/C12m/C13e: env structs for capturing lambdas (stable field order from sema).
     // Header: `__drop` + `__refs` (refcount for shared nested Fun envs / multi-owner free).
     // Array captures store a non-owning header view — drop must not free their buffers.

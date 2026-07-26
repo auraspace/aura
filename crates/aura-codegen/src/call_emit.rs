@@ -92,6 +92,19 @@ fn fun_move_srcs_from_args(args: &[Expr], param_keys: &[String], ctx: &EmitCtx<'
     move_srcs
 }
 
+/// A mutable Array capture is shared through a box.  Owning call parameters
+/// must receive a clone so the callee cannot free the box's live buffer.
+fn coerce_owner_arg_expr(expr: &Expr, expected_ty: &str, ctx: &mut EmitCtx<'_>) -> String {
+    if is_array_type_key(expected_ty)
+        && matches!(expr, Expr::Ident(id) if ctx.is_box_local(&id.name))
+    {
+        let mono = resolve_type_name(expr, ctx).unwrap_or_else(|| expected_ty.to_string());
+        let value = emit_expr(expr, ctx);
+        return format!("{}(&({value}))", c_method_name(&mono, "clone"));
+    }
+    coerce_expr(expr, expected_ty, ctx)
+}
+
 /// Move Array + Fun owner args into params (zero sources after call).
 fn wrap_owner_arg_moves(
     call: String,
@@ -157,7 +170,7 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                             .map(|(a, f)| {
                                 let expected = type_ref_local_key(&f.ty, &tparams, &targs);
                                 field_keys.push(expected.clone());
-                                coerce_expr(a, &expected, ctx)
+                                coerce_owner_arg_expr(a, &expected, ctx)
                             })
                             .collect::<Vec<_>>()
                             .join(", ");
@@ -209,7 +222,7 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                 if let Some(m) = i.methods.iter().find(|m| m.name.name == fe.field.name) {
                     for (a, p) in c.args.iter().zip(m.params.iter()) {
                         let expected = type_ref_local_key(&p.ty, &tparams, &iargs);
-                        args.push(coerce_expr(a, &expected, ctx));
+                        args.push(coerce_owner_arg_expr(a, &expected, ctx));
                     }
                 } else {
                     for a in &c.args {
@@ -620,7 +633,7 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                 for (a, p) in c.args.iter().zip(m.params.iter()) {
                     let expected = type_ref_local_key(&p.ty, &params, &targs);
                     param_keys.push(expected.clone());
-                    args.push(coerce_expr(a, &expected, ctx));
+                    args.push(coerce_owner_arg_expr(a, &expected, ctx));
                 }
                 let ret_c = c_type_from_opt(&m.return_type, ctx.checked, &params, &targs);
                 let call = format!(
@@ -750,7 +763,7 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                     .map(|(a, f)| {
                         let expected = type_ref_local_key(&f.ty, &params, &targs);
                         field_keys.push(expected.clone());
-                        coerce_expr(a, &expected, ctx)
+                        coerce_owner_arg_expr(a, &expected, ctx)
                     })
                     .collect::<Vec<_>>()
                     .join(", ");
@@ -784,7 +797,7 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                                 .map(|(a, f)| {
                                     let expected =
                                         type_ref_local_key(&f.ty, &params, &inst.type_args);
-                                    coerce_expr(a, &expected, ctx)
+                                    coerce_owner_arg_expr(a, &expected, ctx)
                                 })
                                 .collect::<Vec<_>>()
                                 .join(", ");
@@ -871,7 +884,7 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                     .map(|(a, p)| {
                         let expected = type_ref_local_key(&p.ty, &params, &targs);
                         param_keys.push(expected.clone());
-                        coerce_expr(a, &expected, ctx)
+                        coerce_owner_arg_expr(a, &expected, ctx)
                     })
                     .collect::<Vec<_>>()
                     .join(", ");

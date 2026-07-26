@@ -17,6 +17,10 @@ The following files are intentionally expected to fail and live under `diag/`, s
 - `diag/async_borrow_await.aura`, `diag/async_borrow_spawn.aura`, and `diag/async_borrow_channel_send.aura` — borrowed values cannot cross those async/task/channel boundaries.
 - `diag/async_borrow_task_storage.aura` — `Task<T>` cannot store a borrowed `T`.
 
+The green async set also includes `async/mutable_spawn_capture.aura`, which
+checks that mutable primitive/class captures share state with the scheduled
+bounded spawn frame.
+
 Run the green async fixtures with bash scripts/check-corpus.sh (or cargo run -p aura-cli -- check corpus/async/<file>.aura). Validate the expected-fail fixtures with cargo run -p aura-cli -- check <path> and confirm the diagnostic names the corresponding operation/boundary. Unsupported codegen cases remain check-only until their broader lowering lands. Full task failure propagation is also deferred.
 
 ## Core fixtures
@@ -25,6 +29,7 @@ Run the green async fixtures with bash scripts/check-corpus.sh (or cargo run -p 
 | ---------------------------------------------- | ---------------------------------------------------------------------- |
 | `hello/main.aura`                              | Package + `fun main` + call + string                                   |
 | `control/if_while.aura`                        | Params, types, `if`/`while`, locals                                    |
+| `control/exception_nested_cause.aura`          | Compiler-generated nested exception causes and source spans            |
 | `control/else_if.aura`                         | `else if` chaining (C4l)                                               |
 | `types/nullable.aura`                          | `T?`, flow `!= null` / `== null`, `!!`                                 |
 | `types/opt_prim.aura`                          | `Int?` / `Bool?` tagged optional C emit (C7a)                          |

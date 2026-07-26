@@ -753,10 +753,13 @@ When you resolve debt, update or remove the matching entry.
 - Task-frame data is now rooted in the tracing heap for its lifetime; capture
   and pending storage receives a conservative pointer scan in addition to the
   explicit mark callback for opaque live state, with exact teardown coverage.
-  Bounded spawn lowering now stores mutable Array/Fun/class captures in shared
-  refcounted boxes and releases the frame retain on destruction.
+  Bounded spawn lowering now stores mutable Int/String/Bool/Array/Fun/class
+  captures in shared refcounted boxes and releases the frame retain on
+  destruction. Owning calls clone boxed Arrays before callee teardown, while
+  direct Array mutation continues to operate on the shared payload.
 - Why deferred: arbitrary state-machine shapes, scheduler-integrated mutation
-  semantics, and the broader RFC runtime ownership contract remain open.
+  semantics outside the bounded scheduler slice, cancellation ownership, and
+  the broader RFC runtime ownership contract remain open.
 
 ### examples/wc exit teardown (resolved 2026-07-23)
 

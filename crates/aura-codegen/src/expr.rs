@@ -417,6 +417,18 @@ pub(crate) struct BoundedSpawnCapture {
     pub(crate) boxed: bool,
 }
 
+pub(crate) fn bounded_capture_box_kind(capture: &BoundedSpawnCapture) -> &'static str {
+    if !capture.boxed {
+        return "none";
+    }
+    match capture.key.as_str() {
+        "String" => "string",
+        "Int" => "i64",
+        "Bool" => "bool",
+        _ => "ptr",
+    }
+}
+
 pub(crate) fn bounded_spawn_captures(
     body: &Block,
     available: &HashMap<String, String>,
@@ -653,6 +665,104 @@ pub(crate) fn mutable_spawn_capture_names(block: &Block) -> HashSet<String> {
         }
     }
 
+    fn block_capture_refs(block: &Block, captured: &mut HashSet<String>) {
+        for stmt in &block.stmts {
+            match stmt {
+                Stmt::Var(v) => expr_capture_refs(&v.init, captured),
+                Stmt::If(i) => {
+                    expr_capture_refs(&i.cond, captured);
+                    block_capture_refs(&i.then_block, captured);
+                    if let Some(block) = &i.else_block {
+                        block_capture_refs(block, captured);
+                    }
+                }
+                Stmt::While(w) => {
+                    expr_capture_refs(&w.cond, captured);
+                    block_capture_refs(&w.body, captured);
+                }
+                Stmt::ForRange(f) => {
+                    expr_capture_refs(&f.start, captured);
+                    expr_capture_refs(&f.end, captured);
+                    block_capture_refs(&f.body, captured);
+                }
+                Stmt::ForIn(f) => {
+                    expr_capture_refs(&f.iterable, captured);
+                    block_capture_refs(&f.body, captured);
+                }
+                Stmt::Match(m) => {
+                    expr_capture_refs(&m.scrutinee, captured);
+                    for arm in &m.arms {
+                        block_capture_refs(&arm.body, captured);
+                    }
+                }
+                Stmt::Try(t) => {
+                    block_capture_refs(&t.try_block, captured);
+                    if let Some(catch) = &t.catch {
+                        block_capture_refs(&catch.body, captured);
+                    }
+                    if let Some(finally) = &t.finally {
+                        block_capture_refs(finally, captured);
+                    }
+                }
+                Stmt::Throw(t) => expr_capture_refs(&t.value, captured),
+                Stmt::Return(r) => {
+                    if let Some(value) = &r.value {
+                        expr_capture_refs(value, captured);
+                    }
+                }
+                Stmt::Expr(e) => expr_capture_refs(e, captured),
+                Stmt::Break(_) | Stmt::Continue(_) => {}
+            }
+        }
+    }
+
+    fn expr_capture_refs(expr: &Expr, captured: &mut HashSet<String>) {
+        match expr {
+            Expr::Ident(id) => {
+                captured.insert(id.name.clone());
+            }
+            Expr::Call(c) => {
+                expr_capture_refs(&c.callee, captured);
+                for arg in &c.args {
+                    expr_capture_refs(arg, captured);
+                }
+            }
+            Expr::Field(f) => expr_capture_refs(&f.object, captured),
+            Expr::Assign(a) => expr_capture_refs(&a.value, captured),
+            Expr::Binary(b) => {
+                expr_capture_refs(&b.left, captured);
+                expr_capture_refs(&b.right, captured);
+            }
+            Expr::Unary(u) => expr_capture_refs(&u.expr, captured),
+            Expr::ForceUnwrap(f) => expr_capture_refs(&f.expr, captured),
+            Expr::Is(i) => expr_capture_refs(&i.expr, captured),
+            Expr::Group(e, _) => expr_capture_refs(e, captured),
+            Expr::If(i) => {
+                expr_capture_refs(&i.cond, captured);
+                block_capture_refs(&i.then_block, captured);
+                block_capture_refs(&i.else_block, captured);
+            }
+            Expr::Lambda(l) => match &l.body {
+                LambdaBody::Expr(e) => expr_capture_refs(e, captured),
+                LambdaBody::Block(b) => block_capture_refs(b, captured),
+            },
+            Expr::Async(a) => match a {
+                AsyncExpr::Spawn(s) => block_capture_refs(&s.body, captured),
+                AsyncExpr::Await(a) => expr_capture_refs(&a.operand, captured),
+                AsyncExpr::Join(j) => expr_capture_refs(&j.handle, captured),
+                AsyncExpr::Cancel(c) => expr_capture_refs(&c.handle, captured),
+                AsyncExpr::ChannelCreate(c) => expr_capture_refs(&c.capacity, captured),
+                AsyncExpr::ChannelSend(c) => {
+                    expr_capture_refs(&c.channel, captured);
+                    expr_capture_refs(&c.value, captured);
+                }
+                AsyncExpr::ChannelReceive(c) => expr_capture_refs(&c.channel, captured),
+                AsyncExpr::ChannelClose(c) => expr_capture_refs(&c.channel, captured),
+            },
+            Expr::This(_) | Expr::Int(_) | Expr::Bool(_) | Expr::String(_) | Expr::Null(_) => {}
+        }
+    }
+
     fn expr_spawn_refs(expr: &Expr, spawned: &mut HashSet<String>) {
         match expr {
             Expr::Ident(id) => {
@@ -684,7 +794,7 @@ pub(crate) fn mutable_spawn_capture_names(block: &Block) -> HashSet<String> {
                 LambdaBody::Block(b) => block_spawn_refs(b, spawned),
             },
             Expr::Async(a) => match a {
-                AsyncExpr::Spawn(s) => block_spawn_refs(&s.body, spawned),
+                AsyncExpr::Spawn(s) => block_capture_refs(&s.body, spawned),
                 AsyncExpr::Await(a) => expr_spawn_refs(&a.operand, spawned),
                 AsyncExpr::Join(j) => expr_spawn_refs(&j.handle, spawned),
                 AsyncExpr::Cancel(c) => expr_spawn_refs(&c.handle, spawned),
@@ -1498,9 +1608,13 @@ fn emit_async_expr(expr: &AsyncExpr, ctx: &mut EmitCtx<'_>) -> String {
                         let key = &capture.key;
                         let n = mangle_ident(name);
                         if capture.boxed {
-                            format!(
-                                "__spawn_data->{n} = {n}; aura_box_ptr_retain(__spawn_data->{n});"
-                            )
+                            let retain = match bounded_capture_box_kind(capture) {
+                                "string" => "aura_box_str_retain",
+                                "i64" => "aura_box_i64_retain",
+                                "bool" => "aura_box_bool_retain",
+                                _ => "aura_box_ptr_retain",
+                            };
+                            format!("__spawn_data->{n} = {n}; {retain}(__spawn_data->{n});")
                         } else if key == "String" {
                             format!("__spawn_data->{n} = aura_box_str_new({n});")
                         } else if is_heap_class_mono(key, ctx.checked) {

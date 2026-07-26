@@ -98,6 +98,30 @@ run_aura() {
     "$bin" "$@"
 }
 
+run_aura_expected_nested_cause() {
+  local label="$1"
+  shift
+  local log="$tmp/$label.log"
+  printf 'sanitizer smoke: %s\n' "$label"
+  set +e
+  AURA_SANITIZER_CC=1 \
+    AURA_SANITIZER_REAL_CC="$real_cc" \
+    CC="$0" \
+    ASAN_OPTIONS="$aura_asan_options" \
+    UBSAN_OPTIONS="$ubsan_options" \
+    "$bin" "$@" >"$log" 2>&1
+  local status=$?
+  set -e
+  (( status != 0 )) || {
+    cat "$log" >&2
+    printf 'sanitizer smoke: expected nested cause failure was successful\n' >&2
+    exit 1
+  }
+  grep -q 'caused by (Int)' "$log"
+  grep -q 'caused by (Bool)' "$log"
+  grep -q 'source span' "$log"
+}
+
 cat >"$tmp/wc-input.txt" <<'EOF'
 one two
 three	four
@@ -107,9 +131,11 @@ run_aura hello run corpus/hello/main.aura
 run_aura array-ownership run corpus/generic/array_memory_safety.aura
 run_aura gc run corpus/class/gc_nested_churn.aura
 run_aura exceptions run corpus/control/exception_payload_cleanup.aura
+run_aura_expected_nested_cause exceptions-nested-cause run corpus/control/exception_nested_cause.aura
 run_aura async-no-await run corpus/async/no_await.aura
 run_aura async-lifecycle run corpus/async/task_lifecycle.aura
 run_aura async-multi-await run corpus/async/multi_await_four.aura
+run_aura async-mutable-capture run corpus/async/mutable_spawn_capture.aura
 run_aura std-io-files run corpus/std_io/files/aura.toml
 run_aura lambdas run corpus/fun/lambda_memory_safety.aura
 run_aura examples-wc run examples/wc -- "$tmp/wc-input.txt"

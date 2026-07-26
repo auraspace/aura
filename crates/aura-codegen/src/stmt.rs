@@ -383,8 +383,8 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
             // C21d: `ref Array<T>` is a scoped header view. It never owns or
             // moves the backing buffer, even when the source is an owning local.
             let borrow_binding = v.ty.as_ref().is_some_and(|t| t.reference);
-            let needs_box =
-                captured_by_ref && (ty_name == "Int" || ty_name == "Bool" || ty_name == "String");
+            let needs_box = (captured_by_ref || ctx.mutable_spawn_captures.contains(&v.name.name))
+                && (ty_name == "Int" || ty_name == "Bool" || ty_name == "String");
             let needs_ptr_box = (captured_by_ref
                 || ctx.mutable_spawn_captures.contains(&v.name.name))
                 && (is_array_type_key(&ty_name)
