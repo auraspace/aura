@@ -424,11 +424,11 @@ fn foreign_decl_package(foreign: &ForeignDecl, checked: &CheckedFile) -> String 
     }
 }
 
-/// Bounded C22l lowering: a spawn body may contain only calls with literal
-/// arguments, or copied `Int`/`String`/heap-class/primitive-Array parameters
-/// from the enclosing function, and an optional unit return. String captures
-/// are copied into owned boxes, class captures are rooted, and bounded Array
-/// captures are cloned by the frame emitter.
+/// Bounded C22l lowering: a spawn body may contain synchronous statements and
+/// the current first-await shape, with copied `Int`/`Bool`/`String`/heap-class/
+/// Array/Fun parameters from the enclosing function. String captures are copied
+/// into owned boxes, class captures are rooted, and Array captures are cloned by
+/// the frame emitter.
 #[derive(Debug, Clone)]
 pub(crate) struct BoundedSpawnCapture {
     pub(crate) name: String,
@@ -461,6 +461,16 @@ pub(crate) fn bounded_spawn_captures(
     if !has_await {
         let mut names = BTreeSet::new();
         spawn_body_capture_refs(body, &mut names);
+        // A referenced outer value with an unsupported ownership shape must
+        // reject the spawn lowering; silently dropping it would emit a poller
+        // that reads an uninitialized or undeclared C value.
+        if names.iter().any(|name| {
+            available
+                .get(name)
+                .is_some_and(|ty| !spawn_capture_type_supported(ty, checked))
+        }) {
+            return None;
+        }
         return Some(
             names
                 .into_iter()
@@ -478,29 +488,14 @@ pub(crate) fn bounded_spawn_captures(
                 .collect(),
         );
     }
-    let mut returned = false;
     let mut captures = BTreeSet::new();
-    for stmt in &body.stmts {
-        if returned {
-            return None;
-        }
-        match stmt {
-            Stmt::Expr(Expr::Call(call))
-                if matches!(call.callee.as_ref(), Expr::Ident(_))
-                    && call
-                        .args
-                        .iter()
-                        .all(|arg| bounded_spawn_value(arg, available, &mut captures, checked)) => {
-            }
-            Stmt::Return(ret) if ret.value.is_none() => returned = true,
-            Stmt::Var(v)
-                if matches!(&v.init, Expr::Async(AsyncExpr::Await(_)))
-                    && v.ty
-                        .as_ref()
-                        .map(|ty| type_ref_local_key_expand(ty, &[], &[], checked) == "Int")
-                        .unwrap_or(false) => {}
-            _ => return None,
-        }
+    spawn_body_capture_refs(body, &mut captures);
+    if captures.iter().any(|name| {
+        available
+            .get(name)
+            .is_some_and(|ty| !spawn_capture_type_supported(ty, checked))
+    }) {
+        return None;
     }
     Some(
         captures
@@ -1030,14 +1025,14 @@ pub(crate) fn mutable_spawn_capture_names(block: &Block) -> HashSet<String> {
     mutable.intersection(&spawned).cloned().collect()
 }
 
-/// Bounded spawn suspension shape: the first statement awaits an `Int` task,
-/// and the remaining body is effect-only. Captures are therefore copied into
+/// Bounded spawn suspension shape: the first statement awaits an `Int` or
+/// `Bool` task, and the remaining body is synchronous. Captures are copied into
 /// the frame before submission and materialized only after the child reaches
 /// a terminal state, so temporary Array/Fun clones never span a pending poll.
 pub(crate) fn bounded_spawn_await_shape<'a>(
     body: &'a Block,
     checked: &CheckedFile,
-) -> Option<&'a AwaitExpr> {
+) -> Option<(&'a VarStmt, &'a AwaitExpr)> {
     let Stmt::Var(await_var) = body.stmts.first()? else {
         return None;
     };
@@ -1047,50 +1042,21 @@ pub(crate) fn bounded_spawn_await_shape<'a>(
     if await_var
         .ty
         .as_ref()
-        .map(|ty| type_ref_local_key_expand(ty, &[], &[], checked) == "Int")
+        .map(|ty| {
+            matches!(
+                type_ref_local_key_expand(ty, &[], &[], checked).as_str(),
+                "Int" | "Bool"
+            )
+        })
         .unwrap_or(false)
-        && body.stmts[1..].iter().all(|stmt| match stmt {
-            Stmt::Expr(Expr::Call(_)) => true,
-            Stmt::Return(ret) => ret.value.is_none(),
-            _ => false,
+        && !spawn_body_contains_await(&Block {
+            stmts: body.stmts[1..].to_vec(),
+            span: body.span,
         })
     {
-        Some(await_expr)
+        Some((await_var, await_expr))
     } else {
         None
-    }
-}
-
-fn bounded_spawn_value(
-    expr: &Expr,
-    available: &HashMap<String, String>,
-    captures: &mut BTreeSet<String>,
-    checked: &CheckedFile,
-) -> bool {
-    match expr {
-        Expr::Int(_) | Expr::Bool(_) | Expr::String(_) | Expr::Null(_) => true,
-        Expr::Ident(id) => {
-            if available.get(&id.name).is_some_and(|ty| {
-                ty == "Int"
-                    || ty == "String"
-                    || is_heap_class_mono(ty, checked)
-                    || ty == "Array_Int"
-                    || ty == "Array_String"
-                    || is_fun_type_key(ty)
-            }) {
-                captures.insert(id.name.clone());
-                true
-            } else {
-                false
-            }
-        }
-        Expr::Group(inner, _) => bounded_spawn_value(inner, available, captures, checked),
-        Expr::Unary(unary) => bounded_spawn_value(&unary.expr, available, captures, checked),
-        Expr::Binary(binary) => {
-            bounded_spawn_value(&binary.left, available, captures, checked)
-                && bounded_spawn_value(&binary.right, available, captures, checked)
-        }
-        _ => false,
     }
 }
 

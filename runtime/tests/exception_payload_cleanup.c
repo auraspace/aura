@@ -200,9 +200,35 @@ static void test_cause_chain_survives_rethrow(void)
     assert(strcmp(aura_ex_cause_type(1), "SocketFailure") == 0);
     assert(aura_ex_cause_span_start(1) == 61);
     assert(aura_ex_cause_span_end(1) == 69);
+    const char *copied_type = aura_ex_cause_type_copy(0);
+    assert(copied_type != NULL);
+    assert(strcmp(copied_type, "ReadFailure") == 0);
+    free((void *)copied_type);
     aura_ex_clear();
     aura_try_leave();
   }
+}
+
+static void test_cause_snapshot_is_cleared_at_next_boundary(void)
+{
+  jmp_buf jb;
+  if (setjmp(jb) == 0)
+  {
+    aura_try_enter(&jb);
+    aura_throw_int(11);
+  }
+  else
+  {
+    assert(aura_ex_add_cause("Handled", 81, 88) == 1);
+    aura_ex_clear();
+    assert(aura_ex_cause_count() == 1);
+    aura_try_leave();
+  }
+  assert(aura_ex_cause_count() == 1);
+  jmp_buf next;
+  aura_try_enter(&next);
+  assert(aura_ex_cause_count() == 0);
+  aura_try_leave();
 }
 
 static void test_destructor_clears_nested_owned_payload(void)
@@ -329,6 +355,7 @@ int main(void)
   test_leave_resets_scalar_pending_state();
   test_source_span_survives_rethrow();
   test_cause_chain_survives_rethrow();
+  test_cause_snapshot_is_cleared_at_next_boundary();
   test_destructor_clears_nested_owned_payload();
   test_destructor_transfers_on_rethrow();
   test_replacing_payload_disposes_old_value();

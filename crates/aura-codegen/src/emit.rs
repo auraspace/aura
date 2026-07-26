@@ -3527,14 +3527,14 @@ fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile, detector:
         else {
             continue;
         };
-        let await_expr = bounded_spawn_await_shape(&spawn.body, checked);
+        let await_shape = bounded_spawn_await_shape(&spawn.body, checked);
         if spawn.body.stmts.is_empty() || !emitted.insert(spawn.span.start) {
             continue;
         }
         let poll = bounded_spawn_poll_name(spawn.span);
         let destroy = bounded_spawn_destroy_name(spawn.span);
         let data_ty = format!("aura_spawn_data_{}", spawn.span.start);
-        if !captures.is_empty() || await_expr.is_some() {
+        if !captures.is_empty() || await_shape.is_some() {
             let _ = writeln!(out, "typedef struct {data_ty} {{");
             for capture in &captures {
                 let key = &capture.key;
@@ -3552,8 +3552,17 @@ fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile, detector:
                 };
                 let _ = writeln!(out, "  {} {};", cty, mangle_ident(&capture.name));
             }
-            if await_expr.is_some() {
-                out.push_str("  AuraTaskFrame *await_task;\n  int64_t await_value;\n");
+            if let Some((await_var, _)) = await_shape.as_ref() {
+                let await_key = await_var
+                    .ty
+                    .as_ref()
+                    .map(|ty| type_ref_local_key_expand(ty, &[], &[], checked))
+                    .unwrap_or_else(|| "Int".into());
+                let await_cty = crate::stmt::local_key_to_c(&await_key, checked);
+                let _ = writeln!(
+                    out,
+                    "  AuraTaskFrame *await_task;\n  {await_cty} await_value;"
+                );
             }
             let _ = writeln!(out, "}} {data_ty};\n");
             let _ = writeln!(out, "static void {destroy}(AuraTaskFrame *frame) {{");
@@ -3601,10 +3610,11 @@ fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile, detector:
             }
             out.push_str("}\n\n");
         }
-        if let Some(await_expr) = await_expr {
+        if let Some((await_var, await_expr)) = await_shape {
             emit_bounded_spawn_await_poller(
                 out,
                 &spawn.body,
+                await_var,
                 await_expr,
                 &captures,
                 checked,
@@ -3717,6 +3727,7 @@ fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile, detector:
 fn emit_bounded_spawn_await_poller(
     out: &mut String,
     body: &Block,
+    await_var: &VarStmt,
     await_expr: &AwaitExpr,
     captures: &[BoundedSpawnCapture],
     checked: &CheckedFile,
@@ -3769,7 +3780,16 @@ fn emit_bounded_spawn_await_poller(
     out.push_str("      if (child_state == AURA_TASK_FAILED) { (void)aura_task_frame_propagate_error(frame, data->await_task); return AURA_TASK_FAILED; }\n");
     out.push_str("      if (child_state != AURA_TASK_COMPLETE) return AURA_TASK_FAILED;\n");
     out.push_str("      AuraTaskResult child_result = aura_task_frame_result(data->await_task);\n");
-    out.push_str("      if (child_result.data != NULL) data->await_value = *((int64_t *)child_result.data);\n");
+    let await_key = await_var
+        .ty
+        .as_ref()
+        .map(|ty| type_ref_local_key_expand(ty, &[], &[], checked))
+        .unwrap_or_else(|| "Int".into());
+    let await_cty = crate::stmt::local_key_to_c(&await_key, checked);
+    let _ = writeln!(
+        out,
+        "      if (child_result.data != NULL) data->await_value = *(({await_cty} *)child_result.data);"
+    );
 
     let mut ctx = EmitCtx {
         checked,
@@ -3791,7 +3811,7 @@ fn emit_bounded_spawn_await_poller(
         spawn_params: HashSet::new(),
         mutable_spawn_captures: HashSet::new(),
         async_frame: None,
-        task_poller: false,
+        task_poller: true,
     };
     for capture in captures {
         let name = &capture.name;
@@ -3835,16 +3855,14 @@ fn emit_bounded_spawn_await_poller(
         }
         ctx.define_local(name, key.clone());
     }
-    ctx.define_local("__aura_spawn_await_value", "Int".into());
+    ctx.define_local(&await_var.name.name, await_key.clone());
     let _ = writeln!(
         out,
-        "      int64_t __aura_spawn_await_value = data->await_value;"
+        "      {await_cty} {} = data->await_value;",
+        mangle_ident(&await_var.name.name)
     );
     for stmt in &body.stmts[1..] {
-        if let Stmt::Expr(expr) = stmt {
-            let code = emit_expr(expr, &mut ctx);
-            let _ = writeln!(out, "      {code};");
-        }
+        crate::stmt::emit_stmt(out, stmt, 3, &mut ctx);
     }
     let array_owners = ctx.array_owners_all();
     crate::stmt::emit_free_array_owners(out, 3, &ctx, &array_owners);

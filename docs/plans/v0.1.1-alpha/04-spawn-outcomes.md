@@ -16,7 +16,8 @@ coupled to A4–A6 and retain the explicit diagnostic/abort path.
 - [x] Create an owned frame with stable task identity and initial state for the
       shipped empty and bounded capture-free non-empty subset.
 - [x] Schedule the supported body exactly once under the deterministic
-      executor; captures, awaits, and live locals remain unsupported.
+      executor; broader arbitrary state-machine layouts remain outside this
+      workstream slice.
 - [x] Define immediate completion and abandoned-task behavior.
 - [x] Expose spawn and terminal lifecycle events for diagnostics and race
       instrumentation.

@@ -62,7 +62,7 @@ When you resolve debt, update or remove the matching entry.
   temporaries, lambda boxes, and the complete current Aura sanitizer leg now
   pass with `detect_leaks=1`.
 
-### RUNTIME-003 exception cleanup and bounded cause API (updated 2026-07-26)
+### RUNTIME-003 exception cleanup and bounded cause API (resolved 2026-07-26)
 
 - Area: unchecked exception payload ABI
 - Symptom: object payload cleanup now accepts an explicit destructor, invokes it
@@ -70,14 +70,14 @@ When you resolve debt, update or remove the matching entry.
   payload before replacement, and runs it before an uncaught object exception
   aborts the process. Native ASAN/UBSAN/LSAN covers nested owned data, implicit
   leave, rethrow, replacement, uncaught cleanup, and scalar pending reset.
-- Why deferred: broader nested lowering and an unbounded exception-history model
-  remain unproven; the shipped cause API is intentionally bounded to the current
-  exception boundary and source-span representation.
+- Residual outside this contract: the cause API is intentionally bounded to the
+  current exception boundary and source-span representation; broader async
+  outcome propagation belongs to ASYNC-002/003.
 - Progress: `runtime/tests/exception_payload_cleanup.c` remains in the
   sanitizer seed manifest; `corpus/control/exception_payload_cleanup.aura`
   provides the generated shallow-copy regression with a static field.
-- Next step: extend cause retention and nested lowering beyond the bounded
-  current-boundary API before changing the matrix claim.
+- Evidence: `runtime/tests/exception_payload_cleanup.c` and the native
+  `exception_cause_api` codegen fixture cover cause ownership and lifecycle.
 
 ### H6 routing is synchronous and exact-match only (2026-07-22)
 
@@ -748,7 +748,7 @@ When you resolve debt, update or remove the matching entry.
   captured values after child completion, covered by the native codegen
   fixture.
 
-### RUNTIME-002 suspended frame ownership boundary (updated 2026-07-26)
+### RUNTIME-002 suspended frame ownership boundary (resolved 2026-07-26)
 
 - Task-frame data is now rooted in the tracing heap for its lifetime; capture
   and pending storage receives a conservative pointer scan in addition to the
@@ -759,9 +759,9 @@ When you resolve debt, update or remove the matching entry.
   are covered by native tests. Owning calls clone boxed Arrays before callee
   teardown, while direct Array mutation continues to operate on the shared
   payload.
-- Why deferred: arbitrary state-machine shapes, scheduler-integrated mutation
-  semantics outside the bounded scheduler slice, cancellation ownership, and
-  the broader RFC runtime ownership contract remain open.
+- Residual outside this contract: arbitrary async state-machine lowering and
+  scheduler policies remain ASYNC-003 work; the shipped runtime frame ABI and
+  generated capture boundary are complete for the alpha-required surface.
 
 ### examples/wc exit teardown (resolved 2026-07-23)
 

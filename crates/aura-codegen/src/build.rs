@@ -1563,6 +1563,54 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_spawn_control_flow_with_mutable_bool_capture() {
+        let file = aura_parser::parse_file(
+            "package demo\nfun main() { var flag: Bool = false\nval task = spawn { if (flag) { println(\"bad\") } else { println(\"ok\") } } join(task) }\n",
+        )
+        .expect("parse mutable Bool spawn capture");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-spawn-bool-capture-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile mutable Bool spawn capture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run mutable Bool spawn capture");
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "ok\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_spawn_await_bool_result() {
+        let file = aura_parser::parse_file(
+            "package demo\nasync fun ready(): Bool { return true }\nfun main() { val task = spawn { val value: Bool = await ready() if (value) { println(\"ready\") } } join(task) }\n",
+        )
+        .expect("parse Bool spawn await");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-spawn-await-bool-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile Bool spawn await");
+        let output = Command::new(&bin).output().expect("run Bool spawn await");
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "ready\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_spawn_capture_through_forced_gc() {
         let file = aura_parser::parse_file(
             "package demo\nclass Box(var value: Int) {}\nfun main() { var box: Box = Box(7)\nval task = spawn { gc_collect() println(box.value.toString()) return }\ngc_collect()\njoin(task) }\n",
