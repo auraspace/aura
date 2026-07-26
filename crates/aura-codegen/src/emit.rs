@@ -13,6 +13,7 @@ use crate::enum_emit::*;
 use crate::expr::{
     async_inner_key, bounded_spawn_await_shape, bounded_spawn_captures, bounded_spawn_destroy_name,
     bounded_spawn_poll_name, coerce_expr, emit_expr, full_type_mono, infer_type_name,
+    mutable_spawn_capture_names, BoundedSpawnCapture,
 };
 use crate::iface::*;
 use crate::names::*;
@@ -3187,6 +3188,7 @@ fn async_ctx<'a>(
             .map(|t| type_ref_local_key_expand(t, params, &[], checked)),
         lambda_ids: build_lambda_ids(checked),
         spawn_params: fparams.iter().map(|p| p.name.name.clone()).collect(),
+        mutable_spawn_captures: HashSet::new(),
         async_frame: Some("frame".into()),
     };
     for p in fparams {
@@ -3405,6 +3407,7 @@ fn emit_async_body(
         return_key: ret_key,
         lambda_ids: build_lambda_ids(checked),
         spawn_params: f.params.iter().map(|p| p.name.name.clone()).collect(),
+        mutable_spawn_captures: mutable_spawn_capture_names(&f.body),
         async_frame: Some("frame".into()),
     };
     for p in &f.params {
@@ -3487,25 +3490,36 @@ fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile, detector:
     let mut spawns = Vec::new();
     for f in &checked.ast.functions {
         let available = spawn_parameter_locals(&f.params, &[], &[], checked);
-        collect_spawns_block(&f.body, &available, checked, &mut spawns);
+        let mutable = mutable_spawn_capture_names(&f.body);
+        collect_spawns_block(&f.body, &available, checked, &mutable, &mut spawns);
     }
     for f in &checked.ast.async_functions {
         let params: Vec<String> = f.type_params.iter().map(|p| p.name.name.clone()).collect();
         let available = spawn_parameter_locals(&f.params, &params, &[], checked);
-        collect_spawns_block(&f.body, &available, checked, &mut spawns);
+        let mutable = mutable_spawn_capture_names(&f.body);
+        collect_spawns_block(&f.body, &available, checked, &mutable, &mut spawns);
     }
     for c in &checked.ast.classes {
         for m in &c.methods {
-            collect_spawns_block(&m.body, &HashMap::new(), checked, &mut spawns);
+            let mutable = mutable_spawn_capture_names(&m.body);
+            collect_spawns_block(&m.body, &HashMap::new(), checked, &mutable, &mut spawns);
         }
     }
     for c in &checked.ast.consts {
-        collect_spawns_expr(&c.value, &HashMap::new(), checked, &mut spawns);
+        collect_spawns_expr(
+            &c.value,
+            &HashMap::new(),
+            checked,
+            &HashSet::new(),
+            &mut spawns,
+        );
     }
 
     let mut emitted = std::collections::HashSet::new();
-    for (spawn, available) in spawns {
-        let Some(captures) = bounded_spawn_captures(&spawn.body, &available, checked) else {
+    for (spawn, available, mutable_captures) in spawns {
+        let Some(captures) =
+            bounded_spawn_captures(&spawn.body, &available, checked, &mutable_captures)
+        else {
             continue;
         };
         let await_expr = bounded_spawn_await_shape(&spawn.body, checked);
@@ -3517,13 +3531,16 @@ fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile, detector:
         let data_ty = format!("aura_spawn_data_{}", spawn.span.start);
         if !captures.is_empty() || await_expr.is_some() {
             let _ = writeln!(out, "typedef struct {data_ty} {{");
-            for (name, key) in &captures {
-                let cty = if key == "String" {
+            for capture in &captures {
+                let key = &capture.key;
+                let cty = if capture.boxed {
+                    "aura_box_ptr *".to_string()
+                } else if key == "String" {
                     "aura_box_str *".to_string()
                 } else {
                     crate::stmt::local_key_to_c(key, checked)
                 };
-                let _ = writeln!(out, "  {} {};", cty, mangle_ident(name));
+                let _ = writeln!(out, "  {} {};", cty, mangle_ident(&capture.name));
             }
             if await_expr.is_some() {
                 out.push_str("  AuraTaskFrame *await_task;\n  int64_t await_value;\n");
@@ -3534,15 +3551,20 @@ fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile, detector:
                 out,
                 "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame);"
             );
-            for (name, key) in &captures {
-                if key == "String" {
-                    let n = mangle_ident(name);
+            for capture in &captures {
+                let key = &capture.key;
+                let n = mangle_ident(&capture.name);
+                if capture.boxed {
+                    let _ = writeln!(
+                        out,
+                        "  if (data != NULL && data->{n} != NULL) aura_box_ptr_release(data->{n});"
+                    );
+                } else if key == "String" {
                     let _ = writeln!(
                         out,
                         "  if (data != NULL && data->{n} != NULL) aura_box_str_release(data->{n});"
                     );
                 } else if is_heap_class_mono(key, checked) {
-                    let n = mangle_ident(name);
                     let _ = writeln!(
                         out,
                         "  if (data != NULL && data->{n} != NULL) aura_gc_remove_root((void **)&data->{n});"
@@ -3551,11 +3573,10 @@ fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile, detector:
                     crate::array_emit::emit_array_contents_free(
                         out,
                         2,
-                        &format!("data->{}", mangle_ident(name)),
+                        &format!("data->{}", n),
                         key,
                     );
                 } else if is_fun_type_key(key) {
-                    let n = mangle_ident(name);
                     let _ = writeln!(
                         out,
                         "  if (data != NULL && data->{n}.env != NULL) aura_fun_env_free(data->{n}.env);"
@@ -3585,9 +3606,13 @@ fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile, detector:
                 out,
                 "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame);"
             );
-            for (name, key) in &captures {
+            for capture in &captures {
+                let name = &capture.name;
+                let key = &capture.key;
                 let n = mangle_ident(name);
-                if key == "String" {
+                if capture.boxed {
+                    let _ = writeln!(out, "  aura_box_ptr *{n} = data->{n};");
+                } else if key == "String" {
                     let _ = writeln!(
                         out,
                         "  const char *{n} = data->{n} != NULL ? data->{n}->value : NULL;"
@@ -3639,14 +3664,19 @@ fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile, detector:
             return_key: Some("Unit".into()),
             lambda_ids: build_lambda_ids(checked),
             spawn_params: HashSet::new(),
+            mutable_spawn_captures: HashSet::new(),
             async_frame: None,
         };
-        for (name, key) in &captures {
+        for capture in &captures {
+            let name = &capture.name;
+            let key = &capture.key;
             ctx.define_local(name, key.clone());
-            if is_array_type_key(key) {
+            if capture.boxed {
+                ctx.mark_box_local(name);
+            } else if is_array_type_key(key) {
                 ctx.mark_array_owner(name);
             }
-            if is_fun_type_key(key) {
+            if !capture.boxed && is_fun_type_key(key) {
                 ctx.mark_fun_owner(name);
             }
         }
@@ -3668,7 +3698,7 @@ fn emit_bounded_spawn_await_poller(
     out: &mut String,
     body: &Block,
     await_expr: &AwaitExpr,
-    captures: &[(String, String)],
+    captures: &[BoundedSpawnCapture],
     checked: &CheckedFile,
     detector: bool,
     names: (&str, &str),
@@ -3702,6 +3732,7 @@ fn emit_bounded_spawn_await_poller(
         return_key: Some("Unit".into()),
         lambda_ids: build_lambda_ids(checked),
         spawn_params: HashSet::new(),
+        mutable_spawn_captures: HashSet::new(),
         async_frame: None,
     };
     let task = emit_expr(&await_expr.operand, &mut initial_ctx);
@@ -3737,11 +3768,17 @@ fn emit_bounded_spawn_await_poller(
         return_key: Some("Unit".into()),
         lambda_ids: build_lambda_ids(checked),
         spawn_params: HashSet::new(),
+        mutable_spawn_captures: HashSet::new(),
         async_frame: None,
     };
-    for (name, key) in captures {
+    for capture in captures {
+        let name = &capture.name;
+        let key = &capture.key;
         let n = mangle_ident(name);
-        if key == "String" {
+        if capture.boxed {
+            let _ = writeln!(out, "      aura_box_ptr *{n} = data->{n};");
+            ctx.mark_box_local(name);
+        } else if key == "String" {
             let _ = writeln!(
                 out,
                 "      const char *{n} = data->{n} != NULL ? data->{n}->value : NULL;"
@@ -3807,60 +3844,63 @@ fn collect_spawns_block<'a>(
     block: &'a Block,
     available: &HashMap<String, String>,
     checked: &CheckedFile,
-    out: &mut Vec<(&'a SpawnExpr, HashMap<String, String>)>,
+    mutable_captures: &HashSet<String>,
+    out: &mut Vec<(&'a SpawnExpr, HashMap<String, String>, HashSet<String>)>,
 ) {
     let mut available = available.clone();
     for stmt in &block.stmts {
         match stmt {
             Stmt::Var(v) => {
-                collect_spawns_expr(&v.init, &available, checked, out);
+                collect_spawns_expr(&v.init, &available, checked, mutable_captures, out);
                 if let Some(ty) = &v.ty {
                     let key = type_ref_local_key_expand(ty, &[], &[], checked);
                     available.insert(v.name.name.clone(), full_type_mono(&key, checked));
                 }
             }
             Stmt::If(i) => {
-                collect_spawns_expr(&i.cond, &available, checked, out);
-                collect_spawns_block(&i.then_block, &available, checked, out);
+                collect_spawns_expr(&i.cond, &available, checked, mutable_captures, out);
+                collect_spawns_block(&i.then_block, &available, checked, mutable_captures, out);
                 if let Some(b) = &i.else_block {
-                    collect_spawns_block(b, &available, checked, out);
+                    collect_spawns_block(b, &available, checked, mutable_captures, out);
                 }
             }
             Stmt::While(w) => {
-                collect_spawns_expr(&w.cond, &available, checked, out);
-                collect_spawns_block(&w.body, &available, checked, out);
+                collect_spawns_expr(&w.cond, &available, checked, mutable_captures, out);
+                collect_spawns_block(&w.body, &available, checked, mutable_captures, out);
             }
             Stmt::ForRange(f) => {
-                collect_spawns_expr(&f.start, &available, checked, out);
-                collect_spawns_expr(&f.end, &available, checked, out);
-                collect_spawns_block(&f.body, &available, checked, out);
+                collect_spawns_expr(&f.start, &available, checked, mutable_captures, out);
+                collect_spawns_expr(&f.end, &available, checked, mutable_captures, out);
+                collect_spawns_block(&f.body, &available, checked, mutable_captures, out);
             }
             Stmt::ForIn(f) => {
-                collect_spawns_expr(&f.iterable, &available, checked, out);
-                collect_spawns_block(&f.body, &available, checked, out);
+                collect_spawns_expr(&f.iterable, &available, checked, mutable_captures, out);
+                collect_spawns_block(&f.body, &available, checked, mutable_captures, out);
             }
             Stmt::Match(m) => {
-                collect_spawns_expr(&m.scrutinee, &available, checked, out);
+                collect_spawns_expr(&m.scrutinee, &available, checked, mutable_captures, out);
                 for arm in &m.arms {
-                    collect_spawns_block(&arm.body, &available, checked, out);
+                    collect_spawns_block(&arm.body, &available, checked, mutable_captures, out);
                 }
             }
             Stmt::Try(t) => {
-                collect_spawns_block(&t.try_block, &available, checked, out);
+                collect_spawns_block(&t.try_block, &available, checked, mutable_captures, out);
                 if let Some(c) = &t.catch {
-                    collect_spawns_block(&c.body, &available, checked, out);
+                    collect_spawns_block(&c.body, &available, checked, mutable_captures, out);
                 }
                 if let Some(f) = &t.finally {
-                    collect_spawns_block(f, &available, checked, out);
+                    collect_spawns_block(f, &available, checked, mutable_captures, out);
                 }
             }
-            Stmt::Throw(t) => collect_spawns_expr(&t.value, &available, checked, out),
+            Stmt::Throw(t) => {
+                collect_spawns_expr(&t.value, &available, checked, mutable_captures, out)
+            }
             Stmt::Return(r) => {
                 if let Some(e) = &r.value {
-                    collect_spawns_expr(e, &available, checked, out);
+                    collect_spawns_expr(e, &available, checked, mutable_captures, out);
                 }
             }
-            Stmt::Expr(e) => collect_spawns_expr(e, &available, checked, out),
+            Stmt::Expr(e) => collect_spawns_expr(e, &available, checked, mutable_captures, out),
             Stmt::Break(_) | Stmt::Continue(_) => {}
         }
     }
@@ -3870,53 +3910,68 @@ fn collect_spawns_expr<'a>(
     expr: &'a Expr,
     available: &HashMap<String, String>,
     checked: &CheckedFile,
-    out: &mut Vec<(&'a SpawnExpr, HashMap<String, String>)>,
+    mutable_captures: &HashSet<String>,
+    out: &mut Vec<(&'a SpawnExpr, HashMap<String, String>, HashSet<String>)>,
 ) {
     match expr {
         Expr::Call(c) => {
-            collect_spawns_expr(&c.callee, available, checked, out);
+            collect_spawns_expr(&c.callee, available, checked, mutable_captures, out);
             for arg in &c.args {
-                collect_spawns_expr(arg, available, checked, out);
+                collect_spawns_expr(arg, available, checked, mutable_captures, out);
             }
         }
-        Expr::Field(f) => collect_spawns_expr(&f.object, available, checked, out),
-        Expr::Assign(a) => collect_spawns_expr(&a.value, available, checked, out),
+        Expr::Field(f) => collect_spawns_expr(&f.object, available, checked, mutable_captures, out),
+        Expr::Assign(a) => collect_spawns_expr(&a.value, available, checked, mutable_captures, out),
         Expr::Binary(b) => {
-            collect_spawns_expr(&b.left, available, checked, out);
-            collect_spawns_expr(&b.right, available, checked, out);
+            collect_spawns_expr(&b.left, available, checked, mutable_captures, out);
+            collect_spawns_expr(&b.right, available, checked, mutable_captures, out);
         }
-        Expr::Unary(u) => collect_spawns_expr(&u.expr, available, checked, out),
-        Expr::ForceUnwrap(f) => collect_spawns_expr(&f.expr, available, checked, out),
-        Expr::Is(i) => collect_spawns_expr(&i.expr, available, checked, out),
-        Expr::Group(e, _) => collect_spawns_expr(e, available, checked, out),
+        Expr::Unary(u) => collect_spawns_expr(&u.expr, available, checked, mutable_captures, out),
+        Expr::ForceUnwrap(f) => {
+            collect_spawns_expr(&f.expr, available, checked, mutable_captures, out)
+        }
+        Expr::Is(i) => collect_spawns_expr(&i.expr, available, checked, mutable_captures, out),
+        Expr::Group(e, _) => collect_spawns_expr(e, available, checked, mutable_captures, out),
         Expr::If(i) => {
-            collect_spawns_expr(&i.cond, available, checked, out);
-            collect_spawns_block(&i.then_block, available, checked, out);
-            collect_spawns_block(&i.else_block, available, checked, out);
+            collect_spawns_expr(&i.cond, available, checked, mutable_captures, out);
+            collect_spawns_block(&i.then_block, available, checked, mutable_captures, out);
+            collect_spawns_block(&i.else_block, available, checked, mutable_captures, out);
         }
         Expr::Lambda(l) => match &l.body {
-            LambdaBody::Expr(e) => collect_spawns_expr(e, available, checked, out),
-            LambdaBody::Block(b) => collect_spawns_block(b, available, checked, out),
+            LambdaBody::Expr(e) => {
+                collect_spawns_expr(e, available, checked, mutable_captures, out)
+            }
+            LambdaBody::Block(b) => {
+                collect_spawns_block(b, available, checked, mutable_captures, out)
+            }
         },
         Expr::Async(a) => match a {
             AsyncExpr::Spawn(s) => {
-                out.push((s, available.clone()));
-                collect_spawns_block(&s.body, available, checked, out);
+                out.push((s, available.clone(), mutable_captures.clone()));
+                collect_spawns_block(&s.body, available, checked, mutable_captures, out);
             }
-            AsyncExpr::Await(a) => collect_spawns_expr(&a.operand, available, checked, out),
-            AsyncExpr::Join(j) => collect_spawns_expr(&j.handle, available, checked, out),
-            AsyncExpr::Cancel(c) => collect_spawns_expr(&c.handle, available, checked, out),
+            AsyncExpr::Await(a) => {
+                collect_spawns_expr(&a.operand, available, checked, mutable_captures, out)
+            }
+            AsyncExpr::Join(j) => {
+                collect_spawns_expr(&j.handle, available, checked, mutable_captures, out)
+            }
+            AsyncExpr::Cancel(c) => {
+                collect_spawns_expr(&c.handle, available, checked, mutable_captures, out)
+            }
             AsyncExpr::ChannelCreate(c) => {
-                collect_spawns_expr(&c.capacity, available, checked, out)
+                collect_spawns_expr(&c.capacity, available, checked, mutable_captures, out)
             }
             AsyncExpr::ChannelSend(c) => {
-                collect_spawns_expr(&c.channel, available, checked, out);
-                collect_spawns_expr(&c.value, available, checked, out);
+                collect_spawns_expr(&c.channel, available, checked, mutable_captures, out);
+                collect_spawns_expr(&c.value, available, checked, mutable_captures, out);
             }
             AsyncExpr::ChannelReceive(c) => {
-                collect_spawns_expr(&c.channel, available, checked, out)
+                collect_spawns_expr(&c.channel, available, checked, mutable_captures, out)
             }
-            AsyncExpr::ChannelClose(c) => collect_spawns_expr(&c.channel, available, checked, out),
+            AsyncExpr::ChannelClose(c) => {
+                collect_spawns_expr(&c.channel, available, checked, mutable_captures, out)
+            }
         },
         Expr::Ident(_)
         | Expr::This(_)
@@ -4371,6 +4426,7 @@ fn emit_lambda_fns(out: &mut String, checked: &CheckedFile, detector: bool) {
             return_key: ret_key,
             lambda_ids: ids.clone(),
             spawn_params: HashSet::new(),
+            mutable_spawn_captures: HashSet::new(),
             async_frame: None,
         };
         // C12l: Array captures are non-owning views — do not mark array_owner
@@ -4567,6 +4623,7 @@ pub(crate) fn emit_fun(
         return_key: ret_key,
         lambda_ids: build_lambda_ids(checked),
         spawn_params: f.params.iter().map(|p| p.name.name.clone()).collect(),
+        mutable_spawn_captures: mutable_spawn_capture_names(&f.body),
         async_frame: None,
     };
     for p in &f.params {

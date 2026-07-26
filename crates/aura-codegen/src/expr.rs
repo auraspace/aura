@@ -1,6 +1,6 @@
 //! Expression emission.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt::Write as _;
 
 use aura_ast::*;
@@ -410,11 +410,19 @@ fn foreign_decl_package(foreign: &ForeignDecl, checked: &CheckedFile) -> String 
 /// from the enclosing function, and an optional unit return. String captures
 /// are copied into owned boxes, class captures are rooted, and bounded Array
 /// captures are cloned by the frame emitter.
+#[derive(Debug, Clone)]
+pub(crate) struct BoundedSpawnCapture {
+    pub(crate) name: String,
+    pub(crate) key: String,
+    pub(crate) boxed: bool,
+}
+
 pub(crate) fn bounded_spawn_captures(
     body: &Block,
     available: &HashMap<String, String>,
     checked: &CheckedFile,
-) -> Option<Vec<(String, String)>> {
+    mutable_captures: &HashSet<String>,
+) -> Option<Vec<BoundedSpawnCapture>> {
     if body.stmts.iter().any(
         |stmt| matches!(stmt, Stmt::Var(v) if matches!(&v.init, Expr::Async(AsyncExpr::Await(_)))),
     ) && bounded_spawn_await_shape(body, checked).is_none()
@@ -448,9 +456,253 @@ pub(crate) fn bounded_spawn_captures(
     Some(
         captures
             .into_iter()
-            .filter_map(|name| available.get(&name).map(|ty| (name, ty.clone())))
+            .filter_map(|name| {
+                available.get(&name).map(|ty| BoundedSpawnCapture {
+                    boxed: mutable_captures.contains(&name),
+                    name,
+                    key: ty.clone(),
+                })
+            })
             .collect(),
     )
+}
+
+/// Return mutable locals that are referenced from a spawn body. The sema
+/// capture model intentionally remains separate from task lowering, so this
+/// conservative codegen pass identifies the names that need shared boxes.
+pub(crate) fn mutable_spawn_capture_names(block: &Block) -> HashSet<String> {
+    let mut mutable = HashSet::new();
+    let mut spawned = HashSet::new();
+
+    fn block_decls(block: &Block, mutable: &mut HashSet<String>) {
+        for stmt in &block.stmts {
+            match stmt {
+                Stmt::Var(v) => {
+                    if v.mutable {
+                        mutable.insert(v.name.name.clone());
+                    }
+                    expr_decls(&v.init, mutable);
+                }
+                Stmt::If(i) => {
+                    expr_decls(&i.cond, mutable);
+                    block_decls(&i.then_block, mutable);
+                    if let Some(block) = &i.else_block {
+                        block_decls(block, mutable);
+                    }
+                }
+                Stmt::While(w) => {
+                    expr_decls(&w.cond, mutable);
+                    block_decls(&w.body, mutable);
+                }
+                Stmt::ForRange(f) => {
+                    expr_decls(&f.start, mutable);
+                    expr_decls(&f.end, mutable);
+                    block_decls(&f.body, mutable);
+                }
+                Stmt::ForIn(f) => {
+                    expr_decls(&f.iterable, mutable);
+                    block_decls(&f.body, mutable);
+                }
+                Stmt::Match(m) => {
+                    expr_decls(&m.scrutinee, mutable);
+                    for arm in &m.arms {
+                        block_decls(&arm.body, mutable);
+                    }
+                }
+                Stmt::Try(t) => {
+                    block_decls(&t.try_block, mutable);
+                    if let Some(catch) = &t.catch {
+                        block_decls(&catch.body, mutable);
+                    }
+                    if let Some(finally) = &t.finally {
+                        block_decls(finally, mutable);
+                    }
+                }
+                Stmt::Throw(t) => expr_decls(&t.value, mutable),
+                Stmt::Return(r) => {
+                    if let Some(value) = &r.value {
+                        expr_decls(value, mutable);
+                    }
+                }
+                Stmt::Expr(e) => expr_decls(e, mutable),
+                Stmt::Break(_) | Stmt::Continue(_) => {}
+            }
+        }
+    }
+
+    fn expr_decls(expr: &Expr, mutable: &mut HashSet<String>) {
+        match expr {
+            Expr::Call(c) => {
+                expr_decls(&c.callee, mutable);
+                for arg in &c.args {
+                    expr_decls(arg, mutable);
+                }
+            }
+            Expr::Field(f) => expr_decls(&f.object, mutable),
+            Expr::Assign(a) => expr_decls(&a.value, mutable),
+            Expr::Binary(b) => {
+                expr_decls(&b.left, mutable);
+                expr_decls(&b.right, mutable);
+            }
+            Expr::Unary(u) => expr_decls(&u.expr, mutable),
+            Expr::ForceUnwrap(f) => expr_decls(&f.expr, mutable),
+            Expr::Is(i) => expr_decls(&i.expr, mutable),
+            Expr::Group(e, _) => expr_decls(e, mutable),
+            Expr::If(i) => {
+                expr_decls(&i.cond, mutable);
+                block_decls(&i.then_block, mutable);
+                block_decls(&i.else_block, mutable);
+            }
+            Expr::Lambda(l) => match &l.body {
+                LambdaBody::Expr(e) => expr_decls(e, mutable),
+                LambdaBody::Block(b) => block_decls(b, mutable),
+            },
+            Expr::Async(a) => match a {
+                AsyncExpr::Await(a) => expr_decls(&a.operand, mutable),
+                AsyncExpr::Spawn(s) => block_decls(&s.body, mutable),
+                AsyncExpr::Join(j) => expr_decls(&j.handle, mutable),
+                AsyncExpr::Cancel(c) => expr_decls(&c.handle, mutable),
+                AsyncExpr::ChannelCreate(c) => expr_decls(&c.capacity, mutable),
+                AsyncExpr::ChannelSend(c) => {
+                    expr_decls(&c.channel, mutable);
+                    expr_decls(&c.value, mutable);
+                }
+                AsyncExpr::ChannelReceive(c) => expr_decls(&c.channel, mutable),
+                AsyncExpr::ChannelClose(c) => expr_decls(&c.channel, mutable),
+            },
+            Expr::Ident(_)
+            | Expr::This(_)
+            | Expr::Int(_)
+            | Expr::Bool(_)
+            | Expr::String(_)
+            | Expr::Null(_) => {}
+        }
+    }
+
+    fn block_spawn_refs(block: &Block, spawned: &mut HashSet<String>) {
+        for stmt in &block.stmts {
+            match stmt {
+                Stmt::Var(v) if matches!(v.init, Expr::Async(AsyncExpr::Spawn(_))) => {
+                    expr_spawn_refs(&v.init, spawned)
+                }
+                Stmt::Var(_) => {}
+                Stmt::If(i) => {
+                    if matches!(i.cond, Expr::Async(AsyncExpr::Spawn(_))) {
+                        expr_spawn_refs(&i.cond, spawned);
+                    }
+                    block_spawn_refs(&i.then_block, spawned);
+                    if let Some(block) = &i.else_block {
+                        block_spawn_refs(block, spawned);
+                    }
+                }
+                Stmt::While(w) => {
+                    if matches!(w.cond, Expr::Async(AsyncExpr::Spawn(_))) {
+                        expr_spawn_refs(&w.cond, spawned);
+                    }
+                    block_spawn_refs(&w.body, spawned);
+                }
+                Stmt::ForRange(f) => {
+                    if matches!(f.start, Expr::Async(AsyncExpr::Spawn(_))) {
+                        expr_spawn_refs(&f.start, spawned);
+                    }
+                    if matches!(f.end, Expr::Async(AsyncExpr::Spawn(_))) {
+                        expr_spawn_refs(&f.end, spawned);
+                    }
+                    block_spawn_refs(&f.body, spawned);
+                }
+                Stmt::ForIn(f) => {
+                    if matches!(f.iterable, Expr::Async(AsyncExpr::Spawn(_))) {
+                        expr_spawn_refs(&f.iterable, spawned);
+                    }
+                    block_spawn_refs(&f.body, spawned);
+                }
+                Stmt::Match(m) => {
+                    if matches!(m.scrutinee, Expr::Async(AsyncExpr::Spawn(_))) {
+                        expr_spawn_refs(&m.scrutinee, spawned);
+                    }
+                    for arm in &m.arms {
+                        block_spawn_refs(&arm.body, spawned);
+                    }
+                }
+                Stmt::Try(t) => {
+                    block_spawn_refs(&t.try_block, spawned);
+                    if let Some(catch) = &t.catch {
+                        block_spawn_refs(&catch.body, spawned);
+                    }
+                    if let Some(finally) = &t.finally {
+                        block_spawn_refs(finally, spawned);
+                    }
+                }
+                Stmt::Throw(t) if matches!(t.value, Expr::Async(AsyncExpr::Spawn(_))) => {
+                    expr_spawn_refs(&t.value, spawned)
+                }
+                Stmt::Throw(_) => {}
+                Stmt::Return(r) => {
+                    if let Some(value) = &r.value {
+                        if matches!(value, Expr::Async(AsyncExpr::Spawn(_))) {
+                            expr_spawn_refs(value, spawned);
+                        }
+                    }
+                }
+                Stmt::Expr(e) if matches!(e, Expr::Async(AsyncExpr::Spawn(_))) => {
+                    expr_spawn_refs(e, spawned)
+                }
+                Stmt::Expr(_) => {}
+                Stmt::Break(_) | Stmt::Continue(_) => {}
+            }
+        }
+    }
+
+    fn expr_spawn_refs(expr: &Expr, spawned: &mut HashSet<String>) {
+        match expr {
+            Expr::Ident(id) => {
+                spawned.insert(id.name.clone());
+            }
+            Expr::Call(c) => {
+                expr_spawn_refs(&c.callee, spawned);
+                for arg in &c.args {
+                    expr_spawn_refs(arg, spawned);
+                }
+            }
+            Expr::Field(f) => expr_spawn_refs(&f.object, spawned),
+            Expr::Assign(a) => expr_spawn_refs(&a.value, spawned),
+            Expr::Binary(b) => {
+                expr_spawn_refs(&b.left, spawned);
+                expr_spawn_refs(&b.right, spawned);
+            }
+            Expr::Unary(u) => expr_spawn_refs(&u.expr, spawned),
+            Expr::ForceUnwrap(f) => expr_spawn_refs(&f.expr, spawned),
+            Expr::Is(i) => expr_spawn_refs(&i.expr, spawned),
+            Expr::Group(e, _) => expr_spawn_refs(e, spawned),
+            Expr::If(i) => {
+                expr_spawn_refs(&i.cond, spawned);
+                block_spawn_refs(&i.then_block, spawned);
+                block_spawn_refs(&i.else_block, spawned);
+            }
+            Expr::Lambda(l) => match &l.body {
+                LambdaBody::Expr(e) => expr_spawn_refs(e, spawned),
+                LambdaBody::Block(b) => block_spawn_refs(b, spawned),
+            },
+            Expr::Async(a) => match a {
+                AsyncExpr::Spawn(s) => block_spawn_refs(&s.body, spawned),
+                AsyncExpr::Await(a) => expr_spawn_refs(&a.operand, spawned),
+                AsyncExpr::Join(j) => expr_spawn_refs(&j.handle, spawned),
+                AsyncExpr::Cancel(c) => expr_spawn_refs(&c.handle, spawned),
+                AsyncExpr::ChannelCreate(c) => expr_spawn_refs(&c.capacity, spawned),
+                AsyncExpr::ChannelSend(c) => {
+                    expr_spawn_refs(&c.channel, spawned);
+                    expr_spawn_refs(&c.value, spawned);
+                }
+                AsyncExpr::ChannelReceive(c) => expr_spawn_refs(&c.channel, spawned),
+                AsyncExpr::ChannelClose(c) => expr_spawn_refs(&c.channel, spawned),
+            },
+            Expr::This(_) | Expr::Int(_) | Expr::Bool(_) | Expr::String(_) | Expr::Null(_) => {}
+        }
+    }
+
+    block_decls(block, &mut mutable);
+    block_spawn_refs(block, &mut spawned);
+    mutable.intersection(&spawned).cloned().collect()
 }
 
 /// Bounded spawn suspension shape: the first statement awaits an `Int` task,
@@ -1220,7 +1472,12 @@ fn emit_async_expr(expr: &AsyncExpr, ctx: &mut EmitCtx<'_>) -> String {
                 return format!("({{ AuraTaskFrame *__spawn = aura_task_frame_new(0, aura_task_poll_unit, NULL); if (__spawn != NULL) aura_task_frame_set_race_source_id(__spawn, UINT32_C({source})); if (__spawn != NULL && (__aura_task_executor == NULL || !aura_task_executor_submit(__aura_task_executor, __spawn))) {{ aura_task_frame_destroy(__spawn); __spawn = NULL; }} __spawn; }})");
             }
             let available = ctx.spawn_capture_types();
-            let Some(captures) = bounded_spawn_captures(&s.body, &available, ctx.checked) else {
+            let Some(captures) = bounded_spawn_captures(
+                &s.body,
+                &available,
+                ctx.checked,
+                &ctx.mutable_spawn_captures,
+            ) else {
                 return "({ fputs(\"aura: non-empty spawn body requires C22l state-machine lowering\\n\", stderr); abort(); (AuraTaskFrame *)NULL; })".to_string();
             };
             let poll = bounded_spawn_poll_name(s.span);
@@ -1236,9 +1493,15 @@ fn emit_async_expr(expr: &AsyncExpr, ctx: &mut EmitCtx<'_>) -> String {
             } else {
                 let assignments = captures
                     .iter()
-                    .map(|(name, key)| {
+                    .map(|capture| {
+                        let name = &capture.name;
+                        let key = &capture.key;
                         let n = mangle_ident(name);
-                        if key == "String" {
+                        if capture.boxed {
+                            format!(
+                                "__spawn_data->{n} = {n}; aura_box_ptr_retain(__spawn_data->{n});"
+                            )
+                        } else if key == "String" {
                             format!("__spawn_data->{n} = aura_box_str_new({n});")
                         } else if is_heap_class_mono(key, ctx.checked) {
                             format!("__spawn_data->{n} = {n}; aura_gc_add_root((void **)&__spawn_data->{n});")

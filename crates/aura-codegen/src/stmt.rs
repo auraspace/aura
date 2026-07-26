@@ -385,7 +385,8 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
             let borrow_binding = v.ty.as_ref().is_some_and(|t| t.reference);
             let needs_box =
                 captured_by_ref && (ty_name == "Int" || ty_name == "Bool" || ty_name == "String");
-            let needs_ptr_box = captured_by_ref
+            let needs_ptr_box = (captured_by_ref
+                || ctx.mutable_spawn_captures.contains(&v.name.name))
                 && (is_array_type_key(&ty_name)
                     || is_fun_type_key(&ty_name)
                     || is_heap_class_mono(&ty_name, ctx.checked));
@@ -1190,12 +1191,18 @@ pub(crate) fn emit_try(out: &mut String, t: &TryStmt, indent: usize, ctx: &mut E
         let _ = writeln!(out, "{p}      aura_try_leave();");
         let _ = writeln!(out, "{p}      {state} = 1;");
         ctx.push_scope();
-        ctx.define_local(&c.name.name, catch_key);
+        ctx.define_local(&c.name.name, catch_key.clone());
         for stmt in &c.body.stmts {
             emit_stmt(out, stmt, indent + 3, ctx);
         }
         ctx.pop_scope();
         let _ = writeln!(out, "{p}    }} else {{");
+        // Record the compiler-visible nested boundary before rethrowing.
+        let _ = writeln!(
+            out,
+            "{p}      (void)aura_ex_add_cause(\"{catch_key}\", {}, {});",
+            t.span.start, t.span.end
+        );
         // Keep frame for aura_ex_rethrow (do not leave).
         let _ = writeln!(out, "{p}      {state} = 2;");
         let _ = writeln!(out, "{p}    }}");

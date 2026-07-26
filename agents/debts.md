@@ -62,7 +62,7 @@ When you resolve debt, update or remove the matching entry.
   temporaries, lambda boxes, and the complete current Aura sanitizer leg now
   pass with `detect_leaks=1`.
 
-### RUNTIME-003 exception cleanup supports explicit payload destructors (updated 2026-07-24)
+### RUNTIME-003 exception cleanup supports explicit payload destructors (updated 2026-07-26)
 
 - Area: unchecked exception payload ABI
 - Symptom: object payload cleanup now accepts an explicit destructor, invokes it
@@ -70,15 +70,14 @@ When you resolve debt, update or remove the matching entry.
   payload before replacement, and runs it before an uncaught object exception
   aborts the process. Native ASAN/UBSAN/LSAN covers nested owned data, implicit
   leave, rethrow, replacement, uncaught cleanup, and scalar pending reset.
-- Why deferred: compiler-level nested-cause lowering remains outside this
-  runtime-only slice; source-span propagation, uncaught source-span formatting,
-  typed cause-chain storage/query, and compiler-generated destructor metadata
-  now have bounded evidence.
+- Why deferred: compiler mismatched-catch rethrows now append a typed cause with
+  the try source span, but Aura has no cause construction/query surface and
+  broader nested lowering remains unproven.
 - Progress: `runtime/tests/exception_payload_cleanup.c` remains in the
   sanitizer seed manifest; `corpus/control/exception_payload_cleanup.aura`
   provides the generated shallow-copy regression with a static field.
-- Next step: connect the cause-chain API to compiler-level nested-cause syntax
-  when that language surface is defined.
+- Next step: expose a stable Aura cause-chain API and add a native/sanitizer
+  fixture that observes compiler-generated nested causes directly.
 
 ### H6 routing is synchronous and exact-match only (2026-07-22)
 
@@ -749,13 +748,15 @@ When you resolve debt, update or remove the matching entry.
   captured values after child completion, covered by the native codegen
   fixture.
 
-### RUNTIME-002 suspended frame ownership boundary (updated 2026-07-23)
+### RUNTIME-002 suspended frame ownership boundary (updated 2026-07-26)
 
 - Task-frame data is now rooted in the tracing heap for its lifetime; capture
   and pending storage receives a conservative pointer scan in addition to the
   explicit mark callback for opaque live state, with exact teardown coverage.
-  Compiler-generated mutable captures and the broader RFC runtime ownership
-  contract remain open.
+  Bounded spawn lowering now stores mutable Array/Fun/class captures in shared
+  refcounted boxes and releases the frame retain on destruction.
+- Why deferred: arbitrary state-machine shapes, scheduler-integrated mutation
+  semantics, and the broader RFC runtime ownership contract remain open.
 
 ### examples/wc exit teardown (resolved 2026-07-23)
 
