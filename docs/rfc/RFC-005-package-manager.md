@@ -19,7 +19,7 @@
 
 This RFC defines the **Aura package manager**: manifest format (`aura.toml`), lockfile, dependency resolver, registry client, workspaces, and publish flow. The **default registry is GitHub-backed** (index repository + Release crate artifacts; optional direct `github =` deps). Implemented in **Rust** as part of the `aura` CLI, it ensures **reproducible** dependency graphs for libraries and binaries.
 
-**Toolchain today (2026-07-22, S2/C19):** multi-file packages with minimal `aura.toml`, path dependencies, and `aura.lock` write/verify including nested/transitive entries. Locked registry dependencies are now consumed through HTTPS metadata and archive downloads with semver pinning, SHA-256 verification, cache extraction, and atomic cache publication (C13i–C13l, S2). Registry publishing/authentication, `git=`/`github=` sources, and workspaces remain deferred — see [roadmap](../roadmap.md) and `agents/debts.md`.
+**Toolchain today (2026-07-26, S2 + v0.1.1-alpha follow-up):** multi-file packages with minimal `aura.toml`, path dependencies, and `aura.lock` write/verify including nested/transitive entries. Locked registry dependencies are consumed through HTTPS metadata and archive downloads with semver pinning, SHA-256 verification, cache extraction, and atomic cache publication. Offline publish/update receipts, rollback, and signature fixtures exist; live registry publishing/authentication, `git=`/`github=` sources, and workspaces remain deferred — see [roadmap](../roadmap.md) and `agents/debts.md`.
 
 ## 2. Motivation
 

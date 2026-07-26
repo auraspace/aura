@@ -19,7 +19,7 @@
 
 This RFC defines the unified **`aura` CLI** (implemented in **Rust**): the single entrypoint for create, build, run, test, check, format, package, and toolchain management. Subcommands delegate to compiler, package manager, build, and test subsystems while presenting a consistent UX, exit codes, and machine-readable output modes.
 
-**Toolchain today (2026-07-22, S2/C21i):** shipped subcommands — `new`, `init`, `version`, `check`, `build`, `run`, `test`, `fmt`, and `emit-c` — on files or package dirs (`aura.toml`). `run`/`test` forward args after `--`; `test` supports name filters and structured JSON reports. Programs read argv via `std.io.args()`. Pretty diagnostics include path, line/column, source context, and notes; structured diagnostic models/JSON are available to tooling. Locked registry dependencies are supported by the package commands. Not yet: `add`, `publish`, release profiles beyond basic link, or a full `aura toolchain` manager.
+**Toolchain today (2026-07-26, S2/C22):** shipped subcommands — `new`, `init`, `version`, `check`, `build`, `run`, `test`, `fmt`, and `emit-c` — on files or package dirs (`aura.toml`). `run`/`test` forward args after `--`; `test` supports name filters and structured JSON reports. Programs read argv via `std.io.args()`. Pretty diagnostics include path, line/column, source context, and notes; structured diagnostic models/JSON are available to tooling. Locked registry dependencies are supported by the package commands. Not yet: `add`, live `publish`, a complete `aura http serve` path, or a full `aura toolchain` manager.
 
 ## 2. Motivation
 

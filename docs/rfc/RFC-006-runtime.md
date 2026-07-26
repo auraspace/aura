@@ -19,7 +19,7 @@
 
 This RFC specifies the **Aura runtime** linked into application binaries: tracing **GC**, **M:N task scheduler**, async I/O reactor, exception personality support, panic/abort paths, timers, and **C ABI FFI** bridges. The runtime is shipped as libraries produced by the Rust toolchain and linked by `aura build`, not installed as a separate end-user package.
 
-**Toolchain today (2026-07-22, C22t):** embedded C runtime [`runtime/aura_rt.c`](../../runtime/aura_rt.c) linked by the C backend — console/file/process I/O, exception frames with object payloads, Array/String ownership helpers, stop-the-world mark/sweep GC with registered roots, task-frame ABI, a deterministic single-threaded FIFO executor, and bounded channels with typed payload cleanup. C22 does not yet provide the full RFC scheduler: await suspension state machines, non-empty spawn capture frames, complete task failure propagation, async I/O, concurrent GC, and broad C FFI remain deferred.
+**Toolchain today (2026-07-26, C22t + alpha follow-up):** embedded C runtime [`runtime/aura_rt.c`](../../runtime/aura_rt.c) linked by the C backend — console/file/process I/O, exception frames with typed causes, Array/String ownership helpers, stop-the-world mark/sweep GC with registered roots and task storage scans, task-frame ABI, deterministic FIFO executor, bounded channels, and bounded FFI pin retention. The full RFC scheduler remains incomplete: arbitrary await lowering, non-empty capture transfer, complete task failure propagation, scheduler-integrated async I/O, concurrent GC, and typed HTTP handles remain deferred.
 
 ## 2. Motivation
 

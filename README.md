@@ -1,6 +1,6 @@
 # Aura
 
-**Aura** is a statically typed, compiled language (classes, null-safe types, lightweight tasks, and GC) that ships as a **single native executable**. The **toolchain is Rust + LLVM**; application code is Aura.
+**Aura** is a statically typed, compiled language (classes, null-safe types, lightweight tasks, and GC) that ships as a **single native executable**. The current toolchain is Rust + a C backend; LLVM remains a future backend.
 
 This repository currently holds:
 
@@ -8,8 +8,8 @@ This repository currently holds:
 | ------------------------------------ | -------------------------------------------------------------------- |
 | [`docs/guide/`](docs/guide/)         | User guide (site `/docs`)                                            |
 | [`docs/rfc/`](docs/rfc/)             | Language & toolchain RFCs                                            |
-| [`docs/roadmap.md`](docs/roadmap.md) | Execution phases (P0–P3; C21 borrow/DX batch closed)                 |
-| [`docs/releases/`](docs/releases/)   | Freeze / release notes (`0.1.0-alpha`)                               |
+| [`docs/roadmap.md`](docs/roadmap.md) | Execution phases (P0–P3; C22 partial implementation closed)          |
+| [`docs/releases/`](docs/releases/)   | Freeze / release notes (`0.1.0-alpha` history; next release work)    |
 | [`site/`](site/)                     | Homepage + docs + RFC site (Vite + React)                            |
 | [`crates/`](crates/)                 | Rust toolchain (`aura` CLI) — check / build / run / test (C backend) |
 | [`corpus/`](corpus/)                 | Sample `.aura` programs for the compiler                             |
@@ -243,8 +243,8 @@ when their Rust and C toolchains are available.
 - **Docs C12t** C12a–C12t batch closed — post-alpha CLI/String/captures shippable ([plan](docs/plans/2026-07-21-next-20-c12a-c12t.md))
 - **Debts** Tracked in [`agents/debts.md`](agents/debts.md)
 - **Docs C13t:** C13a–C13t batch closed — dogfood/captures/registry K1 foundation ([plan](docs/plans/2026-07-21-next-20-c13a-c13t.md))
-- **S2:** production toolchain complete — verified HTTPS/nested registry deps, Unix artifacts, installer safety, and acceptance gate ([plan](docs/plans/2026-07-21-s2-production-toolchain.md))
-- **C22:** async/task syntax, sema borrow barriers, deterministic task frames/executor, bounded channels, typed Int/String/class channel lowering, corpus, diagnostics, and churn/audit checks are landed. `await` suspension state machines, non-empty `spawn` capture lowering, complete task failure propagation, async GC roots across suspension, and release work remain deferred; see the [C22 plan](docs/plans/2026-07-22-next-20-c22-async-tasks.md).
+- **S2:** the production-toolchain implementation covers verified HTTPS/nested locked registry consumption, Unix artifacts, installer safety, and acceptance wiring; live publication and production signing remain release work ([plan](docs/plans/2026-07-21-s2-production-toolchain.md))
+- **C22:** async/task syntax, borrow barriers, deterministic task frames/executor, bounded channels, typed channel lowering, corpus, diagnostics, and ownership audits are landed. Bounded await/control-flow shapes, task-frame storage scans, typed exception causes, and bounded async FFI pin retention now have evidence. General async lowering, richer captures/outcomes, typed async HTTP handles, live registry publication, and production release acceptance remain partial; see the [C22 plan](docs/plans/2026-07-22-next-20-c22-async-tasks.md) and [v0.1.1-alpha contract](docs/plans/v0.1.1-alpha/contract-matrix.tsv).
 
 ### Mutable capture status
 

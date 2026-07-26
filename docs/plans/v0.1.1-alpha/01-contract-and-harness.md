@@ -12,9 +12,9 @@ deferred, or rejected.
   `contract-matrix.tsv` and `scripts/validate-alpha-contract.sh`.
 - **C2:** Complete — target/release policy and CI/release enforcement cover
   Linux amd64, macOS arm64, and macOS amd64.
-- **C3:** Partial — current CLI, offline registry, JSON test report, and
-  deferred rich FFI/HTTP claims are recorded; publish/update and rich FFI
-  implementation remain owned by workstreams 09–11.
+- **C3:** Partial — current CLI, registry consumption, JSON test reports, and
+  bounded FFI/HTTP evidence are recorded; production publish/update, richer
+  FFI ownership, and typed async HTTP handles remain owned by workstreams 09–11.
 - **C4:** Complete — `scripts/alpha-harness.sh` provides stage, fixture,
   target, profile, offline/network, rerun, and versioned JSON report support.
 - **C5:** Partial — alpha corpus layout and golden policy are documented;
@@ -94,11 +94,11 @@ released. Callbacks retain their environment until deregistration and cannot
 cross task/await boundaries in the alpha contract. ABI mismatches are hard
 errors before linking.
 
-The HTTP surface is explicitly deferred from the alpha executable claim. The
-reserved future command is `aura http serve <package-or-example>`; no HTTP
-server, socket API, routing behavior, or implicit network permission is
-available until workstream 11 supplies its parser, limits, lifecycle, and
-native acceptance fixtures.
+The full HTTP server surface is outside the current alpha executable claim.
+Bounded parser, response, synchronous connection, routing, and native async
+handler fixtures exist as partial evidence; typed Aura handles, compiler-
+generated async handlers, and a complete `aura http serve` user path remain
+open until workstream 11 closes its lifecycle and ownership gaps.
 
 These rules make success, invalid input, network failure, checksum failure,
 rollback failure, and ABI mismatch independently testable without inventing

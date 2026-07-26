@@ -19,7 +19,7 @@
 
 This RFC specifies Aura’s **built-in testing** support: discovery via `@test`, assertions, async tests, unit vs integration layout, filtering, and coverage hooks. Tests run through `aura test` using the same compiler and runtime as production code.
 
-**Toolchain today (2026-07-22, S2/C19):** `aura test` discovers `@test` functions in files and packages; builtins `assert` / `assert_eq` cover Int/String/Bool, and `std.assert` supports package-mode assertions. The test path is included in the S2 acceptance gate and supports forwarded process arguments after `--`. No async tests, tags/filters, integration-test conventions, or coverage hooks yet.
+**Toolchain today (2026-07-26, S2/C22):** `aura test` discovers `@test` functions in files and packages; builtins `assert` / `assert_eq` cover Int/String/Bool, and `std.assert` supports package-mode assertions. The test path is included in the S2 acceptance gate, supports forwarded process arguments after `--`, name filters, and structured JSON reports. Async test conventions, tags, integration-test conventions, and coverage hooks remain open.
 
 ## 2. Motivation
 

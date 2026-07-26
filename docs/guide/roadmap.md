@@ -22,27 +22,27 @@ Aura is **spec-first**: RFCs lock design; the compiler and runtime land vertical
 
 ## RFC Accepted vs implemented
 
-| RFC             | Title                      | RFC status | In code (approx.)       | Notes                                                                                                            |
-| --------------- | -------------------------- | ---------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| [000](/rfc/000) | Vision & design principles | Accepted   | **Shipped (docs)**      | Product north star                                                                                               |
-| [001](/rfc/001) | Language specification     | Accepted   | **Partial → broad MVP** | Through **C20**: classes, packages, mutable captures, collection snapshots; async/macros/live ownership not full |
-| [002](/rfc/002) | Type system                | Accepted   | **Partial**             | Null flow, generics, bounds, Result, fun types; deeper rules ongoing                                             |
-| [003](/rfc/003) | Memory & concurrency       | Accepted   | **Partial**             | GC mark/sweep + class heap; tasks/channels limited                                                               |
-| [004](/rfc/004) | Compiler architecture      | Accepted   | **Partial**             | Rust toolchain + **C backend** default; LLVM later                                                               |
-| [005](/rfc/005) | Package manager            | Accepted   | **Partial**             | Path deps + **C13** registry K1 offline (index/semver/fetch/lock); no live HTTPS / publish                       |
-| [006](/rfc/006) | Runtime                    | Accepted   | **Partial**             | `aura_rt.c`, GC, exceptions, String Array free, file I/O, Fun env RC, argv/stdin/exit                            |
-| [007](/rfc/007) | Standard library           | Accepted   | **Partial**             | `std.io` / `assert` / Map·Set·HashMap<K,V> + Hashable + HOF + deterministic collection snapshots                 |
-| [008](/rfc/008) | Build system               | Accepted   | **Partial**             | `aura.toml` package build/run/test                                                                               |
-| [009](/rfc/009) | Reflection / metadata      | Accepted   | **Deferred / limited**  | Not a day-one teach path                                                                                         |
-| [010](/rfc/010) | Plugins / macros           | Accepted   | **Deferred / limited**  | Not required for hello                                                                                           |
-| [011](/rfc/011) | Testing framework          | Accepted   | **Partial**             | `aura test` + `@test` MVP                                                                                        |
-| [012](/rfc/012) | CLI                        | Accepted   | **Partial**             | `new` / `init` / `version` / `check` / `build` / `run` / `test` / `emit-c`; `--` args pass-through (C12c)        |
-| [013](/rfc/013) | Binary distribution        | Accepted   | **Partial**             | `v0.1.0-alpha` tarballs + `install.sh` / `avm`; no Windows matrix, signing, or self-update                       |
-| [014](/rfc/014) | Language server            | Draft      | **Deferred / planned**  | LSP contract drafted; implementation follows shared compiler queries                                             |
+| RFC             | Title                      | RFC status | In code (approx.)       | Notes                                                                                                                              |
+| --------------- | -------------------------- | ---------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| [000](/rfc/000) | Vision & design principles | Accepted   | **Shipped (docs)**      | Product north star                                                                                                                 |
+| [001](/rfc/001) | Language specification     | Accepted   | **Partial → broad MVP** | Through **C22 bounded async slices**: classes, packages, captures, snapshots, task syntax; general async ownership/macros not full |
+| [002](/rfc/002) | Type system                | Accepted   | **Partial**             | Null flow, generics, bounds, Result, fun types; deeper rules ongoing                                                               |
+| [003](/rfc/003) | Memory & concurrency       | Accepted   | **Partial**             | GC mark/sweep, task frames, channels, bounded await and frame scans; general scheduler/ownership limited                           |
+| [004](/rfc/004) | Compiler architecture      | Accepted   | **Partial**             | Rust toolchain + **C backend** default; LLVM later                                                                                 |
+| [005](/rfc/005) | Package manager            | Accepted   | **Partial**             | Path deps + verified HTTPS/nested locked registry consumption; live publish/auth/signing remain open                               |
+| [006](/rfc/006) | Runtime                    | Accepted   | **Partial**             | `aura_rt.c`, GC, exceptions/causes, task frames/channels, file I/O, FFI pins; full async I/O remains open                          |
+| [007](/rfc/007) | Standard library           | Accepted   | **Partial**             | `std.io` / `assert` / Map·Set·HashMap<K,V> + Hashable + HOF + deterministic collection snapshots                                   |
+| [008](/rfc/008) | Build system               | Accepted   | **Partial**             | `aura.toml`, profiles/cache APIs, package build/run/test; cross-host evidence remains open                                         |
+| [009](/rfc/009) | Reflection / metadata      | Accepted   | **Deferred / limited**  | Not a day-one teach path                                                                                                           |
+| [010](/rfc/010) | Plugins / macros           | Accepted   | **Deferred / limited**  | Not required for hello                                                                                                             |
+| [011](/rfc/011) | Testing framework          | Accepted   | **Partial**             | `aura test` + `@test` MVP                                                                                                          |
+| [012](/rfc/012) | CLI                        | Accepted   | **Partial**             | `new` / `init` / `version` / `check` / `build` / `run` / `test` / `emit-c`; `--` args pass-through (C12c)                          |
+| [013](/rfc/013) | Binary distribution        | Accepted   | **Partial**             | `v0.1.0-alpha` tarballs + installer; v0.1.1-alpha signing and production acceptance remain open                                    |
+| [014](/rfc/014) | Language server            | Draft      | **Deferred / planned**  | LSP contract drafted; implementation follows shared compiler queries                                                               |
 
 ## Compiler milestone band
 
-Public README and repo `docs/roadmap.md` track **C0 → C20** batch closed (mutable captures and collection snapshot APIs; C21 remains pending).
+Public README and repo `docs/roadmap.md` track **C0 → C22** with C22's implementation explicitly partial (bounded async/task slices and residual ownership debt).
 
 | Band   | User-visible outcome                                                                                                                         |
 | ------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -60,7 +60,7 @@ Public README and repo `docs/roadmap.md` track **C0 → C20** batch closed (muta
 
 **Shipped:** tag `v0.1.0-alpha` + multi-OS tarballs ([release notes](https://github.com/auraspace/aura/blob/main/docs/releases/0.1.0-alpha.md)); C12 + **C13** batches closed.
 
-**Next:** C21 pending; live registry HTTPS + nested deps, borrow/live views, and residual [debts](https://github.com/auraspace/aura/blob/main/agents/debts.md).
+**Next:** close the v0.1.1-alpha completion backlog: general async lowering/captures, async I/O and HTTP handles, live registry publication, FFI boundary gaps, and release evidence. See the [contract matrix](https://github.com/auraspace/aura/blob/main/docs/plans/v0.1.1-alpha/contract-matrix.tsv) and residual [debts](https://github.com/auraspace/aura/blob/main/agents/debts.md).
 
 Exact bullet lists live in the root [README](https://github.com/auraspace/aura) and repo [`docs/roadmap.md`](https://github.com/auraspace/aura/blob/main/docs/roadmap.md).
 
