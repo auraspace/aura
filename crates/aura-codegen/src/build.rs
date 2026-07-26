@@ -1538,6 +1538,81 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_spawn_control_flow_with_mutable_capture() {
+        let file = aura_parser::parse_file(
+            "package demo\nfun main() { var number: Int = 1\nval task = spawn { if (number == 1) { println(\"before\") } else { println(\"after\") } return }\nnumber = 2\njoin(task) }\n",
+        )
+        .expect("parse spawn control-flow capture");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-spawn-control-flow-capture-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile spawn control-flow capture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run spawn control-flow capture");
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "after\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_spawn_capture_through_forced_gc() {
+        let file = aura_parser::parse_file(
+            "package demo\nclass Box(var value: Int) {}\nfun main() { var box: Box = Box(7)\nval task = spawn { gc_collect() println(box.value.toString()) return }\ngc_collect()\njoin(task) }\n",
+        )
+        .expect("parse spawn forced-GC capture");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-spawn-forced-gc-capture-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile spawn forced-GC capture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run spawn forced-GC capture");
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "7\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_spawn_capture_cancellation_cleanup() {
+        let file = aura_parser::parse_file(
+            "package demo\nfun main() { var text: String = \"pending\"\nval task = spawn { println(text) return }\ncancel(task)\njoin(task) }\n",
+        )
+        .expect("parse spawn cancellation capture");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-spawn-cancel-capture-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile spawn cancellation capture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run spawn cancellation capture");
+        assert!(output.status.success(), "{output:?}");
+        assert!(String::from_utf8_lossy(&output.stdout).is_empty());
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn compiler_nested_rethrow_preserves_cause_chain_and_spans() {
         let file = aura_parser::parse_file(
             "package demo\nfun main() { try { try { throw \"nested\" } catch (e: Int) { println(\"wrong\") } } catch (e: Bool) { println(\"wrong\") } }\n",
@@ -1567,6 +1642,34 @@ fun main() {
         assert!(stderr.contains("caused by (Int)"), "{stderr}");
         assert!(stderr.contains("caused by (Bool)"), "{stderr}");
         assert!(stderr.contains("source span"), "{stderr}");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_exception_cause_api() {
+        let file = aura_parser::parse_file(
+            "package demo\nfun main() { try { try { throw \"nested\" } catch (e: Int) { } } catch (e: String) { println(exception_cause_count().toString()) println(exception_cause_type(0)) println(exception_cause_span_start(0).toString()) exception_add_cause(\"manual\", 7, 9) println(exception_cause_count().toString()) println(exception_cause_type(1)) println(exception_cause_span_end(1).toString()) } }\n",
+        )
+        .expect("parse exception cause API fixture");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-exception-cause-api-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile exception cause API fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run exception cause API fixture");
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "1\nInt\n32\n2\nmanual\n9\n"
+        );
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);
     }
@@ -1891,13 +1994,14 @@ fun main() {
     }
 
     #[test]
-    fn unsupported_spawn_body_keeps_stable_failure_path() {
+    fn non_empty_spawn_local_body_uses_bounded_poller() {
         let file = aura_parser::parse_file(
             "package demo\nfun main() { val task = spawn { val later = 1 } cancel(task) }\n",
         )
-        .expect("parse unsupported spawn");
-        let generated = emit_c_from_ast(&file).expect("emit unsupported spawn path");
-        assert!(generated.contains("non-empty spawn body requires C22l state-machine lowering"));
+        .expect("parse bounded spawn");
+        let generated = emit_c_from_ast(&file).expect("emit bounded spawn path");
+        assert!(!generated.contains("non-empty spawn body requires C22l state-machine lowering"));
+        assert!(generated.contains("AURA_TASK_COMPLETE"));
     }
 
     #[test]

@@ -30,6 +30,7 @@ Run the green async fixtures with bash scripts/check-corpus.sh (or cargo run -p 
 | `hello/main.aura`                              | Package + `fun main` + call + string                                   |
 | `control/if_while.aura`                        | Params, types, `if`/`while`, locals                                    |
 | `control/exception_nested_cause.aura`          | Compiler-generated nested exception causes and source spans            |
+| `control/exception_cause_api.aura`             | Aura-level exception cause construction and query                      |
 | `control/else_if.aura`                         | `else if` chaining (C4l)                                               |
 | `types/nullable.aura`                          | `T?`, flow `!= null` / `== null`, `!!`                                 |
 | `types/opt_prim.aura`                          | `Int?` / `Bool?` tagged optional C emit (C7a)                          |

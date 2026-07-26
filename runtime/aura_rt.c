@@ -3146,6 +3146,10 @@ static int aura_ex_sp = 0;
 static int aura_ex_pending = 0;
 static uint32_t aura_ex_unhandled_span_start = 0;
 static uint32_t aura_ex_unhandled_span_end = 0;
+static AuraExCause *aura_ex_cleared_causes_head = NULL;
+static AuraExCause *aura_ex_cleared_causes_tail = NULL;
+static uint32_t aura_ex_cleared_span_start = 0;
+static uint32_t aura_ex_cleared_span_end = 0;
 
 static char *aura_ex_copy_string(const char *text)
 {
@@ -3184,6 +3188,29 @@ static void aura_ex_dispose_causes(AuraExFrame *f)
   }
 }
 
+static void aura_ex_dispose_cleared_causes(void)
+{
+  AuraExCause *cause = aura_ex_cleared_causes_head;
+  aura_ex_cleared_causes_head = NULL;
+  aura_ex_cleared_causes_tail = NULL;
+  while (cause != NULL)
+  {
+    AuraExCause *next = cause->next;
+    free(cause->type_name);
+    free(cause);
+    cause = next;
+  }
+}
+
+static AuraExCause *aura_ex_query_causes(void)
+{
+  if (aura_ex_sp > 0 && aura_ex_stack[aura_ex_sp - 1].cause_head != NULL)
+  {
+    return aura_ex_stack[aura_ex_sp - 1].cause_head;
+  }
+  return aura_ex_cleared_causes_head;
+}
+
 /* Compiler-generated throws set this before transferring control. Runtime
  * helpers leave it at zero, preserving a stable unknown location. */
 void aura_ex_set_source_span(uint32_t start, uint32_t end)
@@ -3199,12 +3226,20 @@ void aura_ex_set_source_span(uint32_t start, uint32_t end)
 
 uint32_t aura_ex_source_span_start(void)
 {
-  return aura_ex_sp > 0 ? aura_ex_stack[aura_ex_sp - 1].source_span_start : 0;
+  if (aura_ex_sp > 0 && aura_ex_stack[aura_ex_sp - 1].source_span_end != 0)
+  {
+    return aura_ex_stack[aura_ex_sp - 1].source_span_start;
+  }
+  return aura_ex_cleared_span_start;
 }
 
 uint32_t aura_ex_source_span_end(void)
 {
-  return aura_ex_sp > 0 ? aura_ex_stack[aura_ex_sp - 1].source_span_end : 0;
+  if (aura_ex_sp > 0 && aura_ex_stack[aura_ex_sp - 1].source_span_end != 0)
+  {
+    return aura_ex_stack[aura_ex_sp - 1].source_span_end;
+  }
+  return aura_ex_cleared_span_end;
 }
 
 void aura_throw_obj_with_destructor(const char *type_name, void *obj,
@@ -3306,6 +3341,9 @@ void aura_try_enter(jmp_buf *buf)
     abort();
   }
   AuraExFrame *f = &aura_ex_stack[aura_ex_sp++];
+  aura_ex_dispose_cleared_causes();
+  aura_ex_cleared_span_start = 0;
+  aura_ex_cleared_span_end = 0;
   f->buf = buf;
   f->type_name = NULL;
   f->source_span_start = 0;
@@ -3414,9 +3452,10 @@ void aura_throw_obj_with_destructor(const char *type_name, void *obj,
 int aura_ex_add_cause(const char *type_name, uint32_t source_span_start,
                       uint32_t source_span_end)
 {
-  AuraExFrame *frame;
   AuraExCause *cause;
-  if (aura_ex_sp == 0 || type_name == NULL)
+  AuraExCause **head;
+  AuraExCause **tail;
+  if (type_name == NULL)
   {
     return 0;
   }
@@ -3433,26 +3472,35 @@ int aura_ex_add_cause(const char *type_name, uint32_t source_span_start,
   }
   cause->source_span_start = source_span_start;
   cause->source_span_end = source_span_end;
-  frame = &aura_ex_stack[aura_ex_sp - 1];
-  if (frame->cause_tail == NULL)
+  if (aura_ex_sp > 0)
   {
-    frame->cause_head = cause;
+    head = &aura_ex_stack[aura_ex_sp - 1].cause_head;
+    tail = &aura_ex_stack[aura_ex_sp - 1].cause_tail;
   }
   else
   {
-    frame->cause_tail->next = cause;
+    head = &aura_ex_cleared_causes_head;
+    tail = &aura_ex_cleared_causes_tail;
   }
-  frame->cause_tail = cause;
+  if (*tail == NULL)
+  {
+    *head = cause;
+  }
+  else
+  {
+    (*tail)->next = cause;
+  }
+  *tail = cause;
   return 1;
 }
 
 size_t aura_ex_cause_count(void)
 {
   size_t count = 0;
-  if (aura_ex_sp > 0)
+  AuraExCause *head = aura_ex_query_causes();
+  if (head != NULL)
   {
-    for (AuraExCause *cause = aura_ex_stack[aura_ex_sp - 1].cause_head;
-         cause != NULL; cause = cause->next)
+    for (AuraExCause *cause = head; cause != NULL; cause = cause->next)
     {
       count++;
     }
@@ -3462,11 +3510,11 @@ size_t aura_ex_cause_count(void)
 
 const char *aura_ex_cause_type(size_t index)
 {
-  if (aura_ex_sp > 0)
+  AuraExCause *head = aura_ex_query_causes();
+  if (head != NULL)
   {
     size_t current = 0;
-    for (AuraExCause *cause = aura_ex_stack[aura_ex_sp - 1].cause_head;
-         cause != NULL; cause = cause->next)
+    for (AuraExCause *cause = head; cause != NULL; cause = cause->next)
     {
       if (current++ == index)
       {
@@ -3479,11 +3527,11 @@ const char *aura_ex_cause_type(size_t index)
 
 uint32_t aura_ex_cause_span_start(size_t index)
 {
-  if (aura_ex_sp > 0)
+  AuraExCause *head = aura_ex_query_causes();
+  if (head != NULL)
   {
     size_t current = 0;
-    for (AuraExCause *cause = aura_ex_stack[aura_ex_sp - 1].cause_head;
-         cause != NULL; cause = cause->next)
+    for (AuraExCause *cause = head; cause != NULL; cause = cause->next)
     {
       if (current++ == index)
       {
@@ -3494,13 +3542,18 @@ uint32_t aura_ex_cause_span_start(size_t index)
   return 0;
 }
 
+const char *aura_ex_cause_type_copy(size_t index)
+{
+  return aura_ex_copy_string(aura_ex_cause_type(index));
+}
+
 uint32_t aura_ex_cause_span_end(size_t index)
 {
-  if (aura_ex_sp > 0)
+  AuraExCause *head = aura_ex_query_causes();
+  if (head != NULL)
   {
     size_t current = 0;
-    for (AuraExCause *cause = aura_ex_stack[aura_ex_sp - 1].cause_head;
-         cause != NULL; cause = cause->next)
+    for (AuraExCause *cause = head; cause != NULL; cause = cause->next)
     {
       if (current++ == index)
       {
@@ -3562,8 +3615,29 @@ void aura_ex_clear(void)
   if (aura_ex_sp > 0)
   {
     AuraExFrame *f = &aura_ex_stack[aura_ex_sp - 1];
-    /* Catch path copies by value first; free the throw heap copy (C3s). */
-    aura_ex_dispose_frame(f);
+    /* Keep causes queryable for the catch body after its frame is left. */
+    aura_ex_dispose_cleared_causes();
+    aura_ex_cleared_span_start = f->source_span_start;
+    aura_ex_cleared_span_end = f->source_span_end;
+    aura_ex_cleared_causes_head = f->cause_head;
+    aura_ex_cleared_causes_tail = f->cause_tail;
+    f->cause_head = NULL;
+    f->cause_tail = NULL;
+    if (f->owns_obj && f->payload.as_obj != NULL)
+    {
+      if (f->destroy_obj != NULL)
+      {
+        f->destroy_obj(f->payload.as_obj);
+      }
+      else
+      {
+        free(f->payload.as_obj);
+      }
+      f->payload.as_obj = NULL;
+    }
+    f->owns_obj = 0;
+    f->destroy_obj = NULL;
+    f->type_name = NULL;
   }
   aura_ex_pending = 0;
 }
@@ -3574,6 +3648,7 @@ void aura_ex_rethrow(void)
   {
     abort();
   }
+  aura_ex_dispose_cleared_causes();
   /* Pop current frame and longjmp to outer, or uncaught. */
   AuraExFrame cur = aura_ex_stack[aura_ex_sp - 1];
   aura_ex_sp--;
@@ -4336,6 +4411,7 @@ void aura_gc_shutdown(void)
   aura_gc_list = NULL;
   aura_gc_root_n = 0;
   aura_gc_array_root_n = 0;
+  aura_ex_dispose_cleared_causes();
 }
 
 /* ---- F3 bounded foreign String/Array ABI ---- */

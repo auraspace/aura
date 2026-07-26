@@ -62,7 +62,7 @@ When you resolve debt, update or remove the matching entry.
   temporaries, lambda boxes, and the complete current Aura sanitizer leg now
   pass with `detect_leaks=1`.
 
-### RUNTIME-003 exception cleanup supports explicit payload destructors (updated 2026-07-26)
+### RUNTIME-003 exception cleanup and bounded cause API (updated 2026-07-26)
 
 - Area: unchecked exception payload ABI
 - Symptom: object payload cleanup now accepts an explicit destructor, invokes it
@@ -70,14 +70,14 @@ When you resolve debt, update or remove the matching entry.
   payload before replacement, and runs it before an uncaught object exception
   aborts the process. Native ASAN/UBSAN/LSAN covers nested owned data, implicit
   leave, rethrow, replacement, uncaught cleanup, and scalar pending reset.
-- Why deferred: compiler mismatched-catch rethrows now append a typed cause with
-  the try source span, but Aura has no cause construction/query surface and
-  broader nested lowering remains unproven.
+- Why deferred: broader nested lowering and an unbounded exception-history model
+  remain unproven; the shipped cause API is intentionally bounded to the current
+  exception boundary and source-span representation.
 - Progress: `runtime/tests/exception_payload_cleanup.c` remains in the
   sanitizer seed manifest; `corpus/control/exception_payload_cleanup.aura`
   provides the generated shallow-copy regression with a static field.
-- Next step: expose a stable Aura cause-chain API and add a native/sanitizer
-  fixture that observes compiler-generated nested causes directly.
+- Next step: extend cause retention and nested lowering beyond the bounded
+  current-boundary API before changing the matrix claim.
 
 ### H6 routing is synchronous and exact-match only (2026-07-22)
 
@@ -755,8 +755,10 @@ When you resolve debt, update or remove the matching entry.
   explicit mark callback for opaque live state, with exact teardown coverage.
   Bounded spawn lowering now stores mutable Int/String/Bool/Array/Fun/class
   captures in shared refcounted boxes and releases the frame retain on
-  destruction. Owning calls clone boxed Arrays before callee teardown, while
-  direct Array mutation continues to operate on the shared payload.
+  destruction. Synchronous control flow, forced GC, and cancellation cleanup
+  are covered by native tests. Owning calls clone boxed Arrays before callee
+  teardown, while direct Array mutation continues to operate on the shared
+  payload.
 - Why deferred: arbitrary state-machine shapes, scheduler-integrated mutation
   semantics outside the bounded scheduler slice, cancellation ownership, and
   the broader RFC runtime ownership contract remain open.

@@ -68,6 +68,7 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("const char *aura_ex_cause_type(size_t index);\n");
     out.push_str("uint32_t aura_ex_cause_span_start(size_t index);\n");
     out.push_str("uint32_t aura_ex_cause_span_end(size_t index);\n");
+    out.push_str("const char *aura_ex_cause_type_copy(size_t index);\n");
     out.push_str("void aura_throw_string(const char *s);\n");
     out.push_str("void aura_throw_int(int64_t v);\n");
     out.push_str("void aura_throw_bool(_Bool v);\n");
@@ -3192,6 +3193,7 @@ fn async_ctx<'a>(
         spawn_params: fparams.iter().map(|p| p.name.name.clone()).collect(),
         mutable_spawn_captures: HashSet::new(),
         async_frame: Some("frame".into()),
+        task_poller: false,
     };
     for p in fparams {
         let key = type_ref_local_key_expand(&p.ty, params, &[], checked);
@@ -3411,6 +3413,7 @@ fn emit_async_body(
         spawn_params: f.params.iter().map(|p| p.name.name.clone()).collect(),
         mutable_spawn_captures: mutable_spawn_capture_names(&f.body),
         async_frame: Some("frame".into()),
+        task_poller: false,
     };
     for p in &f.params {
         let key = type_ref_local_key_expand(&p.ty, params, &[], checked);
@@ -3685,6 +3688,7 @@ fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile, detector:
             spawn_params: HashSet::new(),
             mutable_spawn_captures: HashSet::new(),
             async_frame: None,
+            task_poller: true,
         };
         for capture in &captures {
             let name = &capture.name;
@@ -3700,10 +3704,7 @@ fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile, detector:
             }
         }
         for stmt in &spawn.body.stmts {
-            if let Stmt::Expr(expr) = stmt {
-                let code = emit_expr(expr, &mut ctx);
-                let _ = writeln!(out, "  {code};");
-            }
+            crate::stmt::emit_stmt(out, stmt, 1, &mut ctx);
         }
         let array_owners = ctx.array_owners_all();
         crate::stmt::emit_free_array_owners(out, 1, &ctx, &array_owners);
@@ -3753,6 +3754,7 @@ fn emit_bounded_spawn_await_poller(
         spawn_params: HashSet::new(),
         mutable_spawn_captures: HashSet::new(),
         async_frame: None,
+        task_poller: false,
     };
     let task = emit_expr(&await_expr.operand, &mut initial_ctx);
     let _ = writeln!(out, "      data->await_task = {task};");
@@ -3789,6 +3791,7 @@ fn emit_bounded_spawn_await_poller(
         spawn_params: HashSet::new(),
         mutable_spawn_captures: HashSet::new(),
         async_frame: None,
+        task_poller: false,
     };
     for capture in captures {
         let name = &capture.name;
@@ -4470,6 +4473,7 @@ fn emit_lambda_fns(out: &mut String, checked: &CheckedFile, detector: bool) {
             spawn_params: HashSet::new(),
             mutable_spawn_captures: HashSet::new(),
             async_frame: None,
+            task_poller: false,
         };
         // C12l: Array captures are non-owning views — do not mark array_owner
         // (env/header copy only; outer scope frees the buffer).
@@ -4667,6 +4671,7 @@ pub(crate) fn emit_fun(
         spawn_params: f.params.iter().map(|p| p.name.name.clone()).collect(),
         mutable_spawn_captures: mutable_spawn_capture_names(&f.body),
         async_frame: None,
+        task_poller: false,
     };
     for p in &f.params {
         let key = type_ref_local_key_expand(&p.ty, &params, args, checked);

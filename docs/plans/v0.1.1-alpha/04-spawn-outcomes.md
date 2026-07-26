@@ -6,10 +6,10 @@ Owner: Runtime + Compiler. Scope: 6 tasks.
 
 **Objective:** Execute non-empty spawned bodies as first-class task frames.
 **Implementation status:** Partial lowering now covers empty and bounded
-capture-free non-empty bodies made of effect-only calls with literal arguments
-or an explicit unit return. Every frame receives a monotonic task identity and
-initial state; unsupported capture/await/live-local bodies remain coupled to
-A4–A6 and retain the explicit diagnostic/abort path.
+non-empty bodies with synchronous control flow, locals, mutable captures, and
+the current one-shot await shape. Every frame receives a monotonic task identity
+and initial state; arbitrary state-machine layouts and richer suspension remain
+coupled to A4–A6 and retain the explicit diagnostic/abort path.
 
 **Checklist:**
 
@@ -20,13 +20,14 @@ A4–A6 and retain the explicit diagnostic/abort path.
 - [x] Define immediate completion and abandoned-task behavior.
 - [x] Expose spawn and terminal lifecycle events for diagnostics and race
       instrumentation.
-- [x] Lower the proven capture-free effect-only subset to a real one-shot poll
-      frame and verify native execution plus join completion.
+- [x] Lower the bounded non-empty subset to a real one-shot poll frame and
+      verify native execution plus join completion.
 
 **Acceptance:** A spawned body runs once and reaches a terminal state.
 
-**Verification:** Run empty and bounded effect-only non-empty cases natively;
-nested, capture, await, and repeatedly scheduled lowering remain unverified.
+**Verification:** Run empty, control-flow, capture, await, forced-GC, and
+cancellation cases natively; arbitrary nested state-machine lowering remains
+unverified.
 
 **Dependencies:** A1–A7.
 
@@ -34,7 +35,7 @@ nested, capture, await, and repeatedly scheduled lowering remain unverified.
 
 **Objective:** Keep every captured value valid until task completion.
 
-**Implementation status (bounded compiler/runtime slice):** `Int` and `String`
+**Implementation status (bounded compiler/runtime slice):** `Int`, `Bool`, and `String`
 parameters and explicitly typed local bindings referenced by a supported spawn
 body are copied into a generated `AuraTaskFrame` data struct before submission.
 Integer values are copied by value; strings are copied into an owned
@@ -50,7 +51,8 @@ captured values; frame-owned String/Array/Fun storage is materialized only
 after the child completes, so temporary clones do not survive a pending poll.
 Other Array element types, transfer, arbitrary await placement, and
 cancellation ownership remain open until complete capture/frame lowering
-exists.
+exists. Synchronous control flow, mutable captures, forced-GC retention, and
+cancellation cleanup are covered for the bounded type set.
 
 **Checklist:**
 
@@ -61,9 +63,9 @@ exists.
 - [x] Preserve bounded captured values across a first-statement `await` in a
       spawn body; materialize temporary Array/Fun views only after child
       completion. Arbitrary suspension placement remains open.
-- [x] Support Int, String, class, bounded Array<Int>/Array<String>, and Fun
-      captures in the shipped one-shot `val` subset; generic Array elements,
-      transfer, arbitrary suspension, and cancellation ownership remain open.
+- [x] Support Int, Bool, String, class, bounded Array types, and Fun captures
+      in the shipped one-shot subset; generic transfer, arbitrary suspension,
+      and broader cancellation ownership remain open.
 - [x] Register, mark, release, and destroy captures with the frame. The
       bounded runtime slice roots owned capture storage, releases the root on
       replacement or frame destruction, and invokes its destroy callback once.
@@ -86,8 +88,9 @@ storage, copy/root-before-submit, cleanup, and native execution; the
 `builds_and_runs_bounded_fun_parameter_capture` test checks environment retain
 and release. `builds_and_runs_bounded_spawn_capture_across_await` verifies a
 frame-owned String capture remains valid across a child await and is released
-with the task frame. Full capture, mutation, forced-GC, cancellation, and
-churn cases remain open for the broader type set.
+with the task frame. Control-flow, mutation, forced-GC, cancellation, and
+churn cases are covered for the bounded type set; arbitrary state-machine
+shapes and broader ownership remain open.
 
 **Dependencies:** S1, A3.
 

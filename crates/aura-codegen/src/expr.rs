@@ -16,42 +16,131 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
         Expr::Int(_) => "Int".into(),
         Expr::Bool(_) => "Bool".into(),
         Expr::String(_) => "String".into(),
-        Expr::Call(c) => match c.callee.as_ref() {
-            // Free-function / Alias.fun via call_instantiations (return type from FunSig).
-            Expr::Field(_) | Expr::Ident(_)
-                if ctx
-                    .checked
-                    .call_instantiations
-                    .get(&c.span.start)
-                    .is_some_and(|i| !i.is_constructor && i.variant.is_none()) =>
-            {
-                let Some(inst) = ctx.checked.call_instantiations.get(&c.span.start) else {
-                    return "Unit".into();
-                };
-                if let Some(f) = ctx.checked.ast.functions.iter().find(|f| {
-                    f.name.name == inst.name
-                        && (inst.package.is_empty()
-                            || fun_decl_package(f, ctx.checked) == inst.package)
-                }) {
-                    let params: Vec<String> =
-                        f.type_params.iter().map(|p| p.name.name.clone()).collect();
-                    if let Some(rt) = &f.return_type {
-                        return type_ref_local_key(rt, &params, &inst.type_args);
-                    }
-                    return "Unit".into();
+        Expr::Call(c) => {
+            if let Expr::Ident(id) = c.callee.as_ref() {
+                match id.name.as_str() {
+                    "exception_cause_count"
+                    | "exception_source_span_start"
+                    | "exception_source_span_end"
+                    | "exception_cause_span_start"
+                    | "exception_cause_span_end" => return "Int".into(),
+                    "exception_cause_type" => return "String".into(),
+                    "exception_add_cause" => return "Unit".into(),
+                    _ => {}
                 }
-                if let Some(f) = ctx.checked.ast.foreign_functions.iter().find(|f| {
-                    f.name.name == inst.name
-                        && (inst.package.is_empty()
-                            || foreign_decl_package(f, ctx.checked) == inst.package)
-                }) {
-                    if let Some(rt) = &f.return_type {
-                        return type_ref_local_key(rt, &[], &inst.type_args);
+            }
+            match c.callee.as_ref() {
+                // Free-function / Alias.fun via call_instantiations (return type from FunSig).
+                Expr::Field(_) | Expr::Ident(_)
+                    if ctx
+                        .checked
+                        .call_instantiations
+                        .get(&c.span.start)
+                        .is_some_and(|i| !i.is_constructor && i.variant.is_none()) =>
+                {
+                    let Some(inst) = ctx.checked.call_instantiations.get(&c.span.start) else {
+                        return "Unit".into();
+                    };
+                    if let Some(f) = ctx.checked.ast.functions.iter().find(|f| {
+                        f.name.name == inst.name
+                            && (inst.package.is_empty()
+                                || fun_decl_package(f, ctx.checked) == inst.package)
+                    }) {
+                        let params: Vec<String> =
+                            f.type_params.iter().map(|p| p.name.name.clone()).collect();
+                        if let Some(rt) = &f.return_type {
+                            return type_ref_local_key(rt, &params, &inst.type_args);
+                        }
+                        return "Unit".into();
                     }
-                    return "Unit".into();
+                    if let Some(f) = ctx.checked.ast.foreign_functions.iter().find(|f| {
+                        f.name.name == inst.name
+                            && (inst.package.is_empty()
+                                || foreign_decl_package(f, ctx.checked) == inst.package)
+                    }) {
+                        if let Some(rt) = &f.return_type {
+                            return type_ref_local_key(rt, &[], &inst.type_args);
+                        }
+                        return "Unit".into();
+                    }
+                    // Fall through to other match arms when decl not found.
+                    if let Expr::Ident(id) = c.callee.as_ref() {
+                        if let Some(f) = ctx
+                            .checked
+                            .ast
+                            .functions
+                            .iter()
+                            .find(|f| f.name.name == id.name)
+                        {
+                            let params: Vec<String> =
+                                f.type_params.iter().map(|p| p.name.name.clone()).collect();
+                            if let Some(rt) = &f.return_type {
+                                return type_ref_local_key(rt, &params, &inst.type_args);
+                            }
+                        }
+                    }
+                    "Unit".into()
                 }
-                // Fall through to other match arms when decl not found.
-                if let Expr::Ident(id) = c.callee.as_ref() {
+                Expr::Ident(id)
+                    if ctx
+                        .checked
+                        .call_instantiations
+                        .get(&c.span.start)
+                        .and_then(|i| i.variant.as_ref())
+                        .is_some() =>
+                {
+                    let Some(inst) = ctx.checked.call_instantiations.get(&c.span.start) else {
+                        return "Unit".into();
+                    };
+                    mono_key(&inst.name, &inst.type_args)
+                }
+                Expr::Ident(id)
+                    if id.name == "Array"
+                        || ctx
+                            .checked
+                            .ast
+                            .classes
+                            .iter()
+                            .any(|x| x.name.name == id.name)
+                        || ctx
+                            .checked
+                            .call_instantiations
+                            .get(&c.span.start)
+                            .map(|i| i.is_constructor && i.name == id.name)
+                            .unwrap_or(false) =>
+                {
+                    let targs: Vec<Ty> = ctx
+                        .checked
+                        .call_instantiations
+                        .get(&c.span.start)
+                        .map(|i| i.type_args.clone())
+                        .unwrap_or_else(|| {
+                            c.type_args
+                                .iter()
+                                .filter_map(|t| type_ref_to_ty(t, ctx))
+                                .collect()
+                        });
+                    mono_key(&id.name, &targs)
+                }
+                Expr::Ident(id)
+                    if ctx
+                        .checked
+                        .ast
+                        .functions
+                        .iter()
+                        .any(|f| f.name.name == id.name) =>
+                {
+                    let targs: Vec<Ty> = ctx
+                        .checked
+                        .call_instantiations
+                        .get(&c.span.start)
+                        .map(|i| i.type_args.clone())
+                        .unwrap_or_else(|| {
+                            c.type_args
+                                .iter()
+                                .filter_map(|t| type_ref_to_ty(t, ctx))
+                                .collect()
+                        });
                     if let Some(f) = ctx
                         .checked
                         .ast
@@ -62,185 +151,115 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
                         let params: Vec<String> =
                             f.type_params.iter().map(|p| p.name.name.clone()).collect();
                         if let Some(rt) = &f.return_type {
-                            return type_ref_local_key(rt, &params, &inst.type_args);
+                            return type_ref_local_key(rt, &params, &targs);
                         }
                     }
+                    "Unit".into()
                 }
-                "Unit".into()
-            }
-            Expr::Ident(id)
-                if ctx
-                    .checked
-                    .call_instantiations
-                    .get(&c.span.start)
-                    .and_then(|i| i.variant.as_ref())
-                    .is_some() =>
-            {
-                let Some(inst) = ctx.checked.call_instantiations.get(&c.span.start) else {
-                    return "Unit".into();
-                };
-                mono_key(&inst.name, &inst.type_args)
-            }
-            Expr::Ident(id)
-                if id.name == "Array"
-                    || ctx
-                        .checked
-                        .ast
-                        .classes
-                        .iter()
-                        .any(|x| x.name.name == id.name)
-                    || ctx
-                        .checked
-                        .call_instantiations
-                        .get(&c.span.start)
-                        .map(|i| i.is_constructor && i.name == id.name)
-                        .unwrap_or(false) =>
-            {
-                let targs: Vec<Ty> = ctx
-                    .checked
-                    .call_instantiations
-                    .get(&c.span.start)
-                    .map(|i| i.type_args.clone())
-                    .unwrap_or_else(|| {
-                        c.type_args
-                            .iter()
-                            .filter_map(|t| type_ref_to_ty(t, ctx))
-                            .collect()
-                    });
-                mono_key(&id.name, &targs)
-            }
-            Expr::Ident(id)
-                if ctx
-                    .checked
-                    .ast
-                    .functions
-                    .iter()
-                    .any(|f| f.name.name == id.name) =>
-            {
-                let targs: Vec<Ty> = ctx
-                    .checked
-                    .call_instantiations
-                    .get(&c.span.start)
-                    .map(|i| i.type_args.clone())
-                    .unwrap_or_else(|| {
-                        c.type_args
-                            .iter()
-                            .filter_map(|t| type_ref_to_ty(t, ctx))
-                            .collect()
-                    });
-                if let Some(f) = ctx
-                    .checked
-                    .ast
-                    .functions
-                    .iter()
-                    .find(|f| f.name.name == id.name)
-                {
-                    let params: Vec<String> =
-                        f.type_params.iter().map(|p| p.name.name.clone()).collect();
-                    if let Some(rt) = &f.return_type {
-                        return type_ref_local_key(rt, &params, &targs);
-                    }
-                }
-                "Unit".into()
-            }
-            Expr::Field(fe) => {
-                // C4k: resolve receiver via type name (handles field chains like this.item).
-                // Fall back to infer so arithmetic receivers work: (0-1).toString().
-                let mono = resolve_type_name(&fe.object, ctx)
-                    .or_else(|| resolve_class_of_expr(&fe.object, ctx).map(|s| s.to_string()))
-                    .or_else(|| {
-                        let t = infer_type_name(&fe.object, ctx);
-                        if t == "Unit" || t.is_empty() {
-                            None
-                        } else {
-                            Some(t)
-                        }
-                    });
-                if let Some(mono) = mono {
-                    let base = mono_base_name(&mono, ctx.checked).unwrap_or(mono.as_str());
-                    // Builtin Array.get / Array.pop return element type T (C3j/C6g).
-                    if (base == "Array" || mono.starts_with("Array_"))
-                        && (fe.field.name == "get" || fe.field.name == "pop")
-                    {
-                        if let Some(elem) = array_elem_local_key(&mono, ctx.checked) {
-                            return elem;
-                        }
-                    }
-                    // C9c: Array.clone() returns same Array mono (owning copy).
-                    if (base == "Array" || mono.starts_with("Array_")) && fe.field.name == "clone" {
-                        return mono;
-                    }
-                    // Builtin String methods (return type for locals / assert_eq).
-                    if mono == "String" || base == "String" {
-                        match fe.field.name.as_str() {
-                            "isEmpty" | "startsWith" | "contains" | "endsWith" => {
-                                return "Bool".into();
-                            }
-                            "charAt" | "indexOf" | "len" | "hash" => return "Int".into(),
-                            "substring" | "trim" | "trimStart" | "trimEnd" | "toLower"
-                            | "toUpper" => {
-                                return "String".into();
-                            }
-                            // C12g: split(sep) → Array<String>
-                            "split" => return mono_key("Array", &[Ty::String]),
-                            // C12i: toInt() → Int?
-                            "toInt" => return "Opt_Int".into(),
-                            _ => {}
-                        }
-                    }
-                    // C13c: Int.toString() → String
-                    if (mono == "Int" || base == "Int") && fe.field.name == "toString" {
-                        return "String".into();
-                    }
-                    if (mono == "Int" || base == "Int") && fe.field.name == "hash" {
-                        return "Int".into();
-                    }
-                    if let Some(m) = ctx
-                        .checked
-                        .ast
-                        .classes
-                        .iter()
-                        .find(|c| c.name.name == base)
-                        .and_then(|c| c.methods.iter().find(|m| m.name.name == fe.field.name))
-                    {
-                        if let Some(rt) = &m.return_type {
-                            let (ps, as_) = if let Some((_, args)) = mono_split(&mono, ctx.checked)
-                            {
-                                let params: Vec<String> = ctx
-                                    .checked
-                                    .ast
-                                    .classes
-                                    .iter()
-                                    .find(|c| c.name.name == base)
-                                    .map(|c| {
-                                        c.type_params.iter().map(|p| p.name.name.clone()).collect()
-                                    })
-                                    .unwrap_or_default();
-                                (params, args.to_vec())
+                Expr::Field(fe) => {
+                    // C4k: resolve receiver via type name (handles field chains like this.item).
+                    // Fall back to infer so arithmetic receivers work: (0-1).toString().
+                    let mono = resolve_type_name(&fe.object, ctx)
+                        .or_else(|| resolve_class_of_expr(&fe.object, ctx).map(|s| s.to_string()))
+                        .or_else(|| {
+                            let t = infer_type_name(&fe.object, ctx);
+                            if t == "Unit" || t.is_empty() {
+                                None
                             } else {
-                                (Vec::new(), Vec::new())
-                            };
-                            return type_ref_local_key(rt, &ps, &as_);
+                                Some(t)
+                            }
+                        });
+                    if let Some(mono) = mono {
+                        let base = mono_base_name(&mono, ctx.checked).unwrap_or(mono.as_str());
+                        // Builtin Array.get / Array.pop return element type T (C3j/C6g).
+                        if (base == "Array" || mono.starts_with("Array_"))
+                            && (fe.field.name == "get" || fe.field.name == "pop")
+                        {
+                            if let Some(elem) = array_elem_local_key(&mono, ctx.checked) {
+                                return elem;
+                            }
+                        }
+                        // C9c: Array.clone() returns same Array mono (owning copy).
+                        if (base == "Array" || mono.starts_with("Array_"))
+                            && fe.field.name == "clone"
+                        {
+                            return mono;
+                        }
+                        // Builtin String methods (return type for locals / assert_eq).
+                        if mono == "String" || base == "String" {
+                            match fe.field.name.as_str() {
+                                "isEmpty" | "startsWith" | "contains" | "endsWith" => {
+                                    return "Bool".into();
+                                }
+                                "charAt" | "indexOf" | "len" | "hash" => return "Int".into(),
+                                "substring" | "trim" | "trimStart" | "trimEnd" | "toLower"
+                                | "toUpper" => {
+                                    return "String".into();
+                                }
+                                // C12g: split(sep) → Array<String>
+                                "split" => return mono_key("Array", &[Ty::String]),
+                                // C12i: toInt() → Int?
+                                "toInt" => return "Opt_Int".into(),
+                                _ => {}
+                            }
+                        }
+                        // C13c: Int.toString() → String
+                        if (mono == "Int" || base == "Int") && fe.field.name == "toString" {
+                            return "String".into();
+                        }
+                        if (mono == "Int" || base == "Int") && fe.field.name == "hash" {
+                            return "Int".into();
+                        }
+                        if let Some(m) = ctx
+                            .checked
+                            .ast
+                            .classes
+                            .iter()
+                            .find(|c| c.name.name == base)
+                            .and_then(|c| c.methods.iter().find(|m| m.name.name == fe.field.name))
+                        {
+                            if let Some(rt) = &m.return_type {
+                                let (ps, as_) =
+                                    if let Some((_, args)) = mono_split(&mono, ctx.checked) {
+                                        let params: Vec<String> = ctx
+                                            .checked
+                                            .ast
+                                            .classes
+                                            .iter()
+                                            .find(|c| c.name.name == base)
+                                            .map(|c| {
+                                                c.type_params
+                                                    .iter()
+                                                    .map(|p| p.name.name.clone())
+                                                    .collect()
+                                            })
+                                            .unwrap_or_default();
+                                        (params, args.to_vec())
+                                    } else {
+                                        (Vec::new(), Vec::new())
+                                    };
+                                return type_ref_local_key(rt, &ps, &as_);
+                            }
+                        }
+                        // Interface method return type
+                        if let Some(m) = ctx
+                            .checked
+                            .ast
+                            .interfaces
+                            .iter()
+                            .find(|i| i.name.name == base || iface_mono(i, ctx.checked) == mono)
+                            .and_then(|i| i.methods.iter().find(|m| m.name.name == fe.field.name))
+                        {
+                            if let Some(rt) = &m.return_type {
+                                return type_ref_local_key(rt, &[], &[]);
+                            }
                         }
                     }
-                    // Interface method return type
-                    if let Some(m) = ctx
-                        .checked
-                        .ast
-                        .interfaces
-                        .iter()
-                        .find(|i| i.name.name == base || iface_mono(i, ctx.checked) == mono)
-                        .and_then(|i| i.methods.iter().find(|m| m.name.name == fe.field.name))
-                    {
-                        if let Some(rt) = &m.return_type {
-                            return type_ref_local_key(rt, &[], &[]);
-                        }
-                    }
+                    "Int".into()
                 }
-                "Int".into()
+                _ => "Int".into(),
             }
-            _ => "Int".into(),
-        },
+        }
         Expr::Field(f) => {
             // Prefer resolve_type_name so field chains (this.keys.len) and Array/String
             // `.len` resolve correctly (C6f).
@@ -435,11 +454,29 @@ pub(crate) fn bounded_spawn_captures(
     checked: &CheckedFile,
     mutable_captures: &HashSet<String>,
 ) -> Option<Vec<BoundedSpawnCapture>> {
-    if body.stmts.iter().any(
-        |stmt| matches!(stmt, Stmt::Var(v) if matches!(&v.init, Expr::Async(AsyncExpr::Await(_)))),
-    ) && bounded_spawn_await_shape(body, checked).is_none()
-    {
+    let has_await = spawn_body_contains_await(body);
+    if has_await && bounded_spawn_await_shape(body, checked).is_none() {
         return None;
+    }
+    if !has_await {
+        let mut names = BTreeSet::new();
+        spawn_body_capture_refs(body, &mut names);
+        return Some(
+            names
+                .into_iter()
+                .filter_map(|name| {
+                    let ty = available.get(&name)?;
+                    if !spawn_capture_type_supported(ty, checked) {
+                        return None;
+                    }
+                    Some(BoundedSpawnCapture {
+                        boxed: mutable_captures.contains(&name),
+                        name,
+                        key: ty.clone(),
+                    })
+                })
+                .collect(),
+        );
     }
     let mut returned = false;
     let mut captures = BTreeSet::new();
@@ -477,6 +514,184 @@ pub(crate) fn bounded_spawn_captures(
             })
             .collect(),
     )
+}
+
+fn spawn_capture_type_supported(key: &str, checked: &CheckedFile) -> bool {
+    key == "Int"
+        || key == "Bool"
+        || key == "String"
+        || is_array_type_key(key)
+        || is_fun_type_key(key)
+        || is_heap_class_mono(key, checked)
+}
+
+fn spawn_body_contains_await(block: &Block) -> bool {
+    fn expr_has_await(expr: &Expr) -> bool {
+        match expr {
+            Expr::Async(AsyncExpr::Await(_)) => true,
+            Expr::Call(c) => expr_has_await(&c.callee) || c.args.iter().any(expr_has_await),
+            Expr::Field(f) => expr_has_await(&f.object),
+            Expr::Assign(a) => expr_has_await(&a.value),
+            Expr::Binary(b) => expr_has_await(&b.left) || expr_has_await(&b.right),
+            Expr::Unary(u) => expr_has_await(&u.expr),
+            Expr::ForceUnwrap(f) => expr_has_await(&f.expr),
+            Expr::Is(i) => expr_has_await(&i.expr),
+            Expr::Group(e, _) => expr_has_await(e),
+            Expr::If(i) => {
+                expr_has_await(&i.cond)
+                    || block_has_await(&i.then_block)
+                    || block_has_await(&i.else_block)
+            }
+            Expr::Lambda(l) => match &l.body {
+                LambdaBody::Expr(e) => expr_has_await(e),
+                LambdaBody::Block(b) => block_has_await(b),
+            },
+            Expr::Async(a) => match a {
+                AsyncExpr::Spawn(s) => block_has_await(&s.body),
+                AsyncExpr::Join(j) => expr_has_await(&j.handle),
+                AsyncExpr::Cancel(c) => expr_has_await(&c.handle),
+                AsyncExpr::ChannelCreate(c) => expr_has_await(&c.capacity),
+                AsyncExpr::ChannelSend(c) => expr_has_await(&c.channel) || expr_has_await(&c.value),
+                AsyncExpr::ChannelReceive(c) => expr_has_await(&c.channel),
+                AsyncExpr::ChannelClose(c) => expr_has_await(&c.channel),
+                AsyncExpr::Await(_) => true,
+            },
+            Expr::Ident(_)
+            | Expr::This(_)
+            | Expr::Int(_)
+            | Expr::Bool(_)
+            | Expr::String(_)
+            | Expr::Null(_) => false,
+        }
+    }
+    fn block_has_await(block: &Block) -> bool {
+        block.stmts.iter().any(|stmt| match stmt {
+            Stmt::Var(v) => expr_has_await(&v.init),
+            Stmt::If(i) => {
+                expr_has_await(&i.cond)
+                    || block_has_await(&i.then_block)
+                    || i.else_block.as_ref().is_some_and(block_has_await)
+            }
+            Stmt::While(w) => expr_has_await(&w.cond) || block_has_await(&w.body),
+            Stmt::ForRange(f) => {
+                expr_has_await(&f.start) || expr_has_await(&f.end) || block_has_await(&f.body)
+            }
+            Stmt::ForIn(f) => expr_has_await(&f.iterable) || block_has_await(&f.body),
+            Stmt::Match(m) => {
+                expr_has_await(&m.scrutinee) || m.arms.iter().any(|a| block_has_await(&a.body))
+            }
+            Stmt::Try(t) => {
+                block_has_await(&t.try_block)
+                    || t.catch.as_ref().is_some_and(|c| block_has_await(&c.body))
+                    || t.finally.as_ref().is_some_and(block_has_await)
+            }
+            Stmt::Throw(t) => expr_has_await(&t.value),
+            Stmt::Return(r) => r.value.as_ref().is_some_and(expr_has_await),
+            Stmt::Expr(e) => expr_has_await(e),
+            Stmt::Break(_) | Stmt::Continue(_) => false,
+        })
+    }
+    block_has_await(block)
+}
+
+fn spawn_body_capture_refs(block: &Block, captures: &mut BTreeSet<String>) {
+    fn expr_refs(expr: &Expr, captures: &mut BTreeSet<String>) {
+        match expr {
+            Expr::Ident(id) => {
+                captures.insert(id.name.clone());
+            }
+            Expr::Call(c) => {
+                expr_refs(&c.callee, captures);
+                for arg in &c.args {
+                    expr_refs(arg, captures);
+                }
+            }
+            Expr::Field(f) => expr_refs(&f.object, captures),
+            Expr::Assign(a) => {
+                captures.insert(a.name.name.clone());
+                expr_refs(&a.value, captures);
+            }
+            Expr::Binary(b) => {
+                expr_refs(&b.left, captures);
+                expr_refs(&b.right, captures);
+            }
+            Expr::Unary(u) => expr_refs(&u.expr, captures),
+            Expr::ForceUnwrap(f) => expr_refs(&f.expr, captures),
+            Expr::Is(i) => expr_refs(&i.expr, captures),
+            Expr::Group(e, _) => expr_refs(e, captures),
+            Expr::If(i) => {
+                expr_refs(&i.cond, captures);
+                spawn_body_capture_refs(&i.then_block, captures);
+                spawn_body_capture_refs(&i.else_block, captures);
+            }
+            Expr::Lambda(l) => match &l.body {
+                LambdaBody::Expr(e) => expr_refs(e, captures),
+                LambdaBody::Block(b) => spawn_body_capture_refs(b, captures),
+            },
+            Expr::Async(a) => match a {
+                AsyncExpr::Spawn(s) => spawn_body_capture_refs(&s.body, captures),
+                AsyncExpr::Await(a) => expr_refs(&a.operand, captures),
+                AsyncExpr::Join(j) => expr_refs(&j.handle, captures),
+                AsyncExpr::Cancel(c) => expr_refs(&c.handle, captures),
+                AsyncExpr::ChannelCreate(c) => expr_refs(&c.capacity, captures),
+                AsyncExpr::ChannelSend(c) => {
+                    expr_refs(&c.channel, captures);
+                    expr_refs(&c.value, captures);
+                }
+                AsyncExpr::ChannelReceive(c) => expr_refs(&c.channel, captures),
+                AsyncExpr::ChannelClose(c) => expr_refs(&c.channel, captures),
+            },
+            Expr::This(_) | Expr::Int(_) | Expr::Bool(_) | Expr::String(_) | Expr::Null(_) => {}
+        }
+    }
+    for stmt in &block.stmts {
+        match stmt {
+            Stmt::Var(v) => expr_refs(&v.init, captures),
+            Stmt::If(i) => {
+                expr_refs(&i.cond, captures);
+                spawn_body_capture_refs(&i.then_block, captures);
+                if let Some(b) = &i.else_block {
+                    spawn_body_capture_refs(b, captures);
+                }
+            }
+            Stmt::While(w) => {
+                expr_refs(&w.cond, captures);
+                spawn_body_capture_refs(&w.body, captures);
+            }
+            Stmt::ForRange(f) => {
+                expr_refs(&f.start, captures);
+                expr_refs(&f.end, captures);
+                spawn_body_capture_refs(&f.body, captures);
+            }
+            Stmt::ForIn(f) => {
+                expr_refs(&f.iterable, captures);
+                spawn_body_capture_refs(&f.body, captures);
+            }
+            Stmt::Match(m) => {
+                expr_refs(&m.scrutinee, captures);
+                for arm in &m.arms {
+                    spawn_body_capture_refs(&arm.body, captures);
+                }
+            }
+            Stmt::Try(t) => {
+                spawn_body_capture_refs(&t.try_block, captures);
+                if let Some(c) = &t.catch {
+                    spawn_body_capture_refs(&c.body, captures);
+                }
+                if let Some(f) = &t.finally {
+                    spawn_body_capture_refs(f, captures);
+                }
+            }
+            Stmt::Throw(t) => expr_refs(&t.value, captures),
+            Stmt::Return(r) => {
+                if let Some(e) = &r.value {
+                    expr_refs(e, captures);
+                }
+            }
+            Stmt::Expr(e) => expr_refs(e, captures),
+            Stmt::Break(_) | Stmt::Continue(_) => {}
+        }
+    }
 }
 
 /// Return mutable locals that are referenced from a spawn body. The sema
@@ -1619,7 +1834,7 @@ fn emit_async_expr(expr: &AsyncExpr, ctx: &mut EmitCtx<'_>) -> String {
                             format!("__spawn_data->{n} = aura_box_str_new({n});")
                         } else if is_heap_class_mono(key, ctx.checked) {
                             format!("__spawn_data->{n} = {n}; aura_gc_add_root((void **)&__spawn_data->{n});")
-                        } else if key == "Array_Int" || key == "Array_String" {
+                        } else if is_array_type_key(key) {
                             format!("__spawn_data->{n} = {}(&{n});", crate::names::c_method_name(key, "clone"))
                         } else if is_fun_type_key(key) {
                             format!("__spawn_data->{n} = {n}; if (__spawn_data->{n}.env != NULL) aura_fun_env_retain(__spawn_data->{n}.env);")

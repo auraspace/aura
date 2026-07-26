@@ -126,6 +126,36 @@ impl Checker {
             }],
         );
 
+        // RUNTIME-003: inspect and extend the active exception cause chain.
+        for (name, params, ret) in [
+            ("exception_cause_count", vec![], Ty::Int),
+            ("exception_source_span_start", vec![], Ty::Int),
+            ("exception_source_span_end", vec![], Ty::Int),
+            ("exception_cause_type", vec![Ty::Int], Ty::String),
+            ("exception_cause_span_start", vec![Ty::Int], Ty::Int),
+            ("exception_cause_span_end", vec![Ty::Int], Ty::Int),
+            (
+                "exception_add_cause",
+                vec![Ty::String, Ty::Int, Ty::Int],
+                Ty::Unit,
+            ),
+        ] {
+            functions.insert(
+                name.into(),
+                vec![FunSig {
+                    name: name.into(),
+                    is_pub: true,
+                    package: String::new(),
+                    is_test: false,
+                    type_params: Vec::new(),
+                    bounds: HashMap::new(),
+                    params,
+                    ret,
+                    span: Span::new(0, 0),
+                }],
+            );
+        }
+
         // Builtin Array<T> (C3j/C4c/C6g) — monomorphized; T ∈ primitives, class, struct, or enum.
         let mut array_methods = HashMap::new();
         array_methods.insert(

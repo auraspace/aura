@@ -300,6 +300,9 @@ pub(crate) fn string_call_owns_result(e: &Expr, ctx: &EmitCtx<'_>) -> bool {
         return false;
     }
     if let Expr::Ident(id) = call.callee.as_ref() {
+        if id.name == "exception_cause_type" {
+            return true;
+        }
         if ctx
             .checked
             .ast
@@ -374,9 +377,7 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
             // C22l: make bindings visible to a later bounded spawn in the same
             // lexical scope. `bounded_spawn_captures` still filters the actual
             // capture set to the supported owned types.
-            if v.ty.is_some() {
-                ctx.spawn_params.insert(v.name.name.clone());
-            }
+            ctx.spawn_params.insert(v.name.name.clone());
             // C12m/C13f: `var` Int/Bool/String that is by-ref captured → heap box local.
             let captured_by_ref =
                 v.mutable && ctx.checked.by_ref_capture_names().contains(&v.name.name);
@@ -962,7 +963,12 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                     emit_free_string_owners(out, indent, &ctx.string_owners_all());
                     emit_destroy_channel_owners(out, indent, &ctx.channel_owners_all());
                     emit_release_box_locals(out, indent, ctx, &ctx.box_owners_all());
-                    let _ = writeln!(out, "{p}return;");
+                    let ret_stmt = if ctx.task_poller {
+                        "return AURA_TASK_COMPLETE;"
+                    } else {
+                        "return;"
+                    };
+                    let _ = writeln!(out, "{p}{ret_stmt}");
                 }
                 Some(e) => {
                     let ret_key = infer_type_name(e, ctx);
@@ -1003,7 +1009,12 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                         emit_free_string_owners(out, indent, &string_owners);
                         emit_destroy_channel_owners(out, indent, &ctx.channel_owners_all());
                         emit_release_box_locals(out, indent, ctx, &ctx.box_owners_all());
-                        let _ = writeln!(out, "{p}return;");
+                        let ret_stmt = if ctx.task_poller {
+                            "return AURA_TASK_COMPLETE;"
+                        } else {
+                            "return;"
+                        };
+                        let _ = writeln!(out, "{p}{ret_stmt}");
                     } else {
                         // Prefer declared return type for C7a opt coercion (`return 1` → Int?).
                         let expected = ctx.return_key.clone().unwrap_or_else(|| ret_key.clone());
@@ -1035,7 +1046,11 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                         emit_free_string_owners(out, indent, &string_owners);
                         emit_destroy_channel_owners(out, indent, &ctx.channel_owners_all());
                         emit_release_box_locals(out, indent, ctx, &ctx.box_owners_all());
-                        let _ = writeln!(out, "{p}return {tmp};");
+                        if ctx.task_poller {
+                            let _ = writeln!(out, "{p}return AURA_TASK_COMPLETE;");
+                        } else {
+                            let _ = writeln!(out, "{p}return {tmp};");
+                        }
                     }
                 }
             }

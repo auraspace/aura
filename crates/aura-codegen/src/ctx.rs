@@ -43,6 +43,8 @@ pub(crate) struct EmitCtx<'a> {
     /// Generated no-await async body frame, when foreign handles must live
     /// until the task frame is destroyed.
     pub(crate) async_frame: Option<String>,
+    /// Emit `return` statements for a generated task poller.
+    pub(crate) task_poller: bool,
 }
 
 impl<'a> EmitCtx<'a> {

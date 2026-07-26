@@ -407,6 +407,7 @@ pub(crate) fn emit_method_mono(
         spawn_params: std::collections::HashSet::new(),
         mutable_spawn_captures: std::collections::HashSet::new(),
         async_frame: None,
+        task_poller: false,
     };
     for f in &c.fields {
         let key = type_ref_local_key_expand(&f.ty, params, args, checked);

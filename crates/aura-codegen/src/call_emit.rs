@@ -854,6 +854,46 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
             if id.name == "gc_collect" && c.args.is_empty() {
                 return "aura_gc_collect()".into();
             }
+            // RUNTIME-003: expose the active cause chain without leaking the
+            // runtime's borrowed type-name storage into Aura String values.
+            match id.name.as_str() {
+                "exception_cause_count" if c.args.is_empty() => {
+                    return "((int64_t)aura_ex_cause_count())".into();
+                }
+                "exception_source_span_start" if c.args.is_empty() => {
+                    return "((int64_t)aura_ex_source_span_start())".into();
+                }
+                "exception_source_span_end" if c.args.is_empty() => {
+                    return "((int64_t)aura_ex_source_span_end())".into();
+                }
+                "exception_cause_type" if c.args.len() == 1 => {
+                    return format!(
+                        "aura_ex_cause_type_copy((size_t)({}))",
+                        emit_expr(&c.args[0], ctx)
+                    );
+                }
+                "exception_cause_span_start" if c.args.len() == 1 => {
+                    return format!(
+                        "((int64_t)aura_ex_cause_span_start((size_t)({})))",
+                        emit_expr(&c.args[0], ctx)
+                    );
+                }
+                "exception_cause_span_end" if c.args.len() == 1 => {
+                    return format!(
+                        "((int64_t)aura_ex_cause_span_end((size_t)({})))",
+                        emit_expr(&c.args[0], ctx)
+                    );
+                }
+                "exception_add_cause" if c.args.len() == 3 => {
+                    return format!(
+                        "((void)aura_ex_add_cause({}, (uint32_t)({}), (uint32_t)({})))",
+                        emit_expr(&c.args[0], ctx),
+                        emit_expr(&c.args[1], ctx),
+                        emit_expr(&c.args[2], ctx)
+                    );
+                }
+                _ => {}
+            }
             // Free function
             let targs: Vec<Ty> = if let Some(inst) = inst {
                 inst.type_args.clone()
