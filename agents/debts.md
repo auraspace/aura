@@ -74,6 +74,9 @@ When you resolve debt, update or remove the matching entry.
   now persists the selected child through a shared resume state and emits a
   common post-join continuation, including GC calls, repeated joins, and
   cancellation coverage.
+  A bounded Int loop now supports an if/else await at each iteration, with one
+  persisted child state, shared accumulator/index continuation, forced GC, and
+  queued-task cancellation coverage.
 - Why still deferred: arbitrary nested loops beyond the supported two-level
   Int shape, multiple conditional awaits,
   nested branch-local values, and richer payload types still fall back to the

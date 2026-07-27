@@ -1315,6 +1315,63 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_loop_branch_join_with_gc_and_cancellation() {
+        let source = r#"package demo
+async fun worker(value: Int): Int { return value }
+async fun sum(flag: Bool, limit: Int): Int {
+  var i: Int = 0
+  var total: Int = 0
+  var value: Int = 0
+  while (i < limit) {
+    if (flag) { value = await worker(i) }
+    else { value = await worker(i + 1) }
+    gc_collect()
+    total = total + value
+    i = i + 1
+  }
+  return total
+}
+fun main() {
+  val first = spawn { val value: Int = await sum(true, 3) println(value.toString()) return }
+  join(first)
+  val second = spawn { val value: Int = await sum(false, 3) println(value.toString()) return }
+  join(second)
+  val cancelled = spawn { val value: Int = await sum(true, 3) println("unexpected-cancel") return }
+  cancel(cancelled)
+  join(cancelled)
+}
+"#;
+        let file = parse_file(source).expect("parse loop branch-join fixture");
+        let generated = emit_c_from_ast(&file).expect("emit loop branch-join fixture");
+        assert!(generated.contains("aura async loop branch-join suspension states=2"));
+        assert!(generated.contains("aura_async_loop_branch_head"));
+        assert!(generated.contains("aura_task_frame_set_resume_state(frame, 2)"));
+        assert!(generated.contains("aura_task_frame_propagate_error(frame, data->await_task)"));
+        assert!(generated.contains("aura_gc_collect"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-loop-branch-join-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile loop branch-join fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run loop branch-join fixture");
+        assert!(
+            output.status.success(),
+            "loop branch-join fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "3\n6\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_branch_then_second_await_state_machine() {
         let source = r#"package demo
 async fun worker(value: Int): Int {
