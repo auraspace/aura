@@ -813,6 +813,7 @@ fun main() {}
         assert!(generated.contains("aura async if-assign suspension"));
         assert!(generated.contains("data->result = result;"));
         assert!(generated.contains("aura_task_frame_wait_on(frame, data->await_task)"));
+        assert!(generated.contains("aura_async_destroy_demo_choose"));
         assert!(generated.contains("data->result = *((int64_t *)child_result.data)"));
 
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

@@ -181,6 +181,9 @@ their ownership.
 The common `if/else` single-await branch join now follows the same selected
 child rule for terminal result copy and parent-frame destruction.
 
+The one-armed `if` assignment continuation also releases a compiler-created
+temporary child after copying the result and on parent-frame destruction.
+
 **Verification:** Run multi-await, forced-GC, cancellation, and failure fixtures
 under sanitizers.
 

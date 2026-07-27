@@ -107,7 +107,9 @@ When you resolve debt, update or remove the matching entry.
   destruction; caller-owned handles remain borrowed. Multi-conditional branch
   loops now apply the same cleanup for each selected temporary child. The
   common `if/else` single-await branch join now releases the selected temporary
-  child after copying its result and on parent destruction.
+  child after copying its result and on parent destruction. The one-armed
+  `if` assignment continuation now releases its temporary child on terminal
+  copy and parent destruction as well.
   The same bounded branch continuation now owns copied `String` payloads in
   the frame and result slot, with forced-GC and repeated-join native coverage.
   A bounded Int loop now supports an if/else await at each iteration, with one
