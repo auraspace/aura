@@ -42,6 +42,10 @@ When you resolve debt, update or remove the matching entry.
   executor ownership ends at the release boundary. Primitive `String` failure detail
   also survives a nested `leaf -> await middle -> spawned parent` chain and
   two repeated typed joins.
+  The generic four-plus-await lowering now releases compiler-created child
+  frames after terminal payload cloning and on parent frame destruction;
+  caller-owned task handles are left untouched. Broader control-flow shapes
+  still need the same explicit child ownership treatment.
   The
   single-await lowering now clones primitive `String` results into an owned
   parent result slot, and bounded `spawn` bodies can await String with repeated

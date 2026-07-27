@@ -164,6 +164,12 @@ arrays/classes, typed failures, and panic unwinding remain open.
 **Acceptance:** Strings, arrays, classes, and nested results remain valid across
 multiple awaits and release on every exit path.
 
+The general four-plus-await lowering now releases temporary child frames after
+copying each terminal payload and from parent-frame destruction, including the
+pending cancellation path. Await operands that are caller-owned handles are
+not released by this path; broader control-flow lowerings still need the same
+ownership classification.
+
 **Verification:** Run multi-await, forced-GC, cancellation, and failure fixtures
 under sanitizers.
 

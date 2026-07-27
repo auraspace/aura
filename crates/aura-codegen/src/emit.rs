@@ -4449,6 +4449,10 @@ fn emit_async_fun_general_multi_await(
                 .unwrap_or_else(|| "Int".into())
         })
         .collect();
+    let await_owns_task: Vec<bool> = awaits
+        .iter()
+        .map(|(_, _, await_expr)| await_operand_is_temporary(&await_expr.operand, checked))
+        .collect();
     if awaits.len() < 4
         || f.return_type
             .as_ref()
@@ -4631,6 +4635,14 @@ fn emit_async_fun_general_multi_await(
         out,
         "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame);"
     );
+    for (index, owns_task) in await_owns_task.iter().enumerate() {
+        if *owns_task {
+            let _ = writeln!(
+                out,
+                "  if (data->await_task_{index} != NULL && __aura_task_executor != NULL) {{ (void)aura_task_executor_release(__aura_task_executor, &data->await_task_{index}); }}"
+            );
+        }
+    }
     for (v, key) in &locals {
         if key == "String" && matches!(&v.init, Expr::Binary(_)) {
             let n = mangle_ident(&v.name.name);
@@ -4734,6 +4746,10 @@ fn emit_async_fun_general_multi_await(
             let cty = crate::stmt::local_key_to_c(&await_keys[index], checked);
             out.push_str(&format!("      if (child_result_{index}.data != NULL) data->{value_name} = *(({cty} *)child_result_{index}.data);\n"));
         }
+        if await_owns_task[index] {
+            out.push_str(&format!("      if (__aura_task_executor != NULL) {{ (void)aura_task_executor_release(__aura_task_executor, &data->await_task_{index}); }}\n"));
+        }
+        out.push_str(&format!("      data->await_task_{index} = NULL;\n"));
         if index + 1 < awaits.len() {
             let next_index = awaits[index + 1].0;
             let mut ctx = async_ctx(checked, detector, &params, &f.params, &f.return_type);
@@ -4824,6 +4840,21 @@ fn emit_async_fun_general_multi_await(
     }
     out.push_str("  if (__aura_task_executor != NULL && !aura_task_executor_submit(__aura_task_executor, frame)) { aura_task_frame_destroy(frame); return NULL; }\n  return frame;\n}\n");
     true
+}
+
+fn await_operand_is_temporary(expr: &Expr, checked: &CheckedFile) -> bool {
+    match expr {
+        Expr::Async(AsyncExpr::Spawn(_)) => true,
+        Expr::Call(call) => match call.callee.as_ref() {
+            Expr::Ident(id) => checked
+                .ast
+                .async_functions
+                .iter()
+                .any(|f| f.name.name == id.name),
+            _ => false,
+        },
+        _ => false,
+    }
 }
 
 /// Emit the bounded two/three-await straight-line A6 slice. Each await
