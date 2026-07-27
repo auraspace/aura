@@ -1204,6 +1204,80 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_branch_then_second_await_state_machine() {
+        let source = r#"package demo
+async fun worker(value: Int): Int {
+  println(value.toString())
+  return value
+}
+async fun combine(flag: Bool, first: Task<Int>, second: Task<Int>): Int {
+  if (flag) {
+    val left: Int = await first
+  }
+  gc_collect()
+  val right: Int = await second
+  return right
+}
+fun main() {
+  val task = spawn {
+    val result: Int = await combine(true, worker(1), worker(2))
+    println(result.toString())
+    return
+  }
+  join(task)
+  val skipped = spawn {
+    val result: Int = await combine(false, worker(3), worker(4))
+    println(result.toString())
+    return
+  }
+  join(skipped)
+  val cancelled = spawn {
+    val result: Int = await combine(true, worker(5), worker(6))
+    println("unexpected-cancel")
+    return
+  }
+  cancel(cancelled)
+  join(cancelled)
+}
+"#;
+        let file = parse_file(source).expect("parse branch-then-second-await fixture");
+        let generated = emit_c_from_ast(&file).expect("emit branch-then-second-await fixture");
+        assert!(generated.contains("aura async branch-then-multi suspension states=2"));
+        assert!(generated.contains("AuraTaskFrame *await_task_0;"));
+        assert!(generated.contains("AuraTaskFrame *await_task_1;"));
+        assert!(generated.contains("aura_task_frame_set_resume_state(frame, 2)"));
+        assert!(generated.contains("aura_task_frame_propagate_error(frame, data->await_task_0)"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-branch-then-await-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile branch-then-second-await fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run branch-then-second-await fixture");
+        assert!(
+            output.status.success(),
+            "branch-then-second-await fixture failed: {output:?}"
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("1\n"));
+        assert!(stdout.contains("2\n2\n"));
+        assert!(stdout.contains("4\n4\n"));
+        assert!(stdout.contains("3\n"));
+        assert!(!stdout.contains("5\n"));
+        assert!(!stdout.contains("6\n"));
+        assert!(!stdout.contains("unexpected-cancel"));
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_branch_join_await_state_machine() {
         let file = aura_parser::parse_file(
             r#"package demo

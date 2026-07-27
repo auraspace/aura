@@ -50,7 +50,10 @@ When you resolve debt, update or remove the matching entry.
   continues the next iteration only after the final child completes. Native
   coverage now also forces GC between iterations and cancels a queued loop
   task before its first poll. `aura-codegen` has regressions covering both
-  loop paths.
+  loop paths. A bounded branch-then-second-await shape now persists the
+  selected branch, carries two child slots across three resume states, runs
+  `gc_collect()` between awaits, and rejects cancellation before worker
+  execution in a native regression.
 - Why still deferred: arbitrary nested loops, multiple conditional awaits,
   break/continue, branch-local values, and richer payload types still fall
   back to the existing bounded-shape rejection path.
