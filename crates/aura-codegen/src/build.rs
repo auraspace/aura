@@ -1555,6 +1555,54 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_string_branch_join_with_owned_continuation() {
+        let source = r#"package demo
+async fun worker(value: String): String { return value }
+async fun combine(flag: Bool, first: Task<String>, second: Task<String>): String {
+  var value: String = "initial"
+  if (flag) { value = await first }
+  else { value = await second }
+  gc_collect()
+  return value
+}
+fun main() {
+  val first = spawn { val value: String = await combine(true, worker("one"), worker("two")) println(value) return }
+  join(first)
+  join(first)
+  val second = spawn { val value: String = await combine(false, worker("three"), worker("four")) println(value) return }
+  join(second)
+}
+"#;
+        let file = parse_file(source).expect("parse String branch-join fixture");
+        let generated = emit_c_from_ast(&file).expect("emit String branch-join fixture");
+        assert!(generated.contains("aura async branch-join continuation states=1"));
+        assert!(generated.contains("bool value__owned;"));
+        assert!(generated.contains("strlen(__returned)"));
+        assert!(generated.contains("aura_task_frame_propagate_error(frame, data->await_task)"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-string-branch-join-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile String branch-join fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run String branch-join fixture");
+        assert!(
+            output.status.success(),
+            "String branch-join fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "one\nfour\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_nested_branch_await_state_machine() {
         let file = aura_parser::parse_file(
             r#"package demo
