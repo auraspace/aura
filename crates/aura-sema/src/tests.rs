@@ -513,6 +513,22 @@ fn bounded_non_empty_spawn_body_is_semantically_valid() {
 }
 
 #[test]
+fn spawn_infers_return_payload_for_join() {
+    let file = parse_file(
+        r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+fun main() {
+  val task = spawn { return "ready" }
+  val outcome: Result<String, TaskError> = join(task)
+}
+"#,
+    )
+    .expect("parse typed spawn fixture");
+    check_file(&file).expect("spawn should infer String payload");
+}
+
+#[test]
 fn task_owned_storage_rejects_nested_ref() {
     let file = parse_file("package t\nfun use(task: Task<ref String>) {}\n").expect("parse");
     let err = check_file(&file).expect_err("borrow in task storage");

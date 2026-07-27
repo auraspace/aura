@@ -1140,6 +1140,59 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_nested_loop_await_with_persisted_state() {
+        let source = r#"package demo
+async fun worker(value: Int): Int { return value }
+async fun nested(limit: Int): Int {
+  var outer: Int = 0
+  var total: Int = 0
+  while (outer < limit) {
+    var inner: Int = 0
+    while (inner < 2) {
+      val value: Int = await worker(inner)
+      total = total + value
+      inner = inner + 1
+      gc_collect()
+    }
+    outer = outer + 1
+  }
+  return total
+}
+fun main() {
+  val task = spawn { val result: Int = await nested(3) println(result.toString()) return }
+  join(task)
+}
+"#;
+        let file = parse_file(source).expect("parse nested loop-await fixture");
+        let generated = emit_c_from_ast(&file).expect("emit nested loop-await fixture");
+        assert!(generated.contains("/* aura async nested while-await Int lowering */"));
+        assert!(generated.contains("aura_async_nested_outer_head"));
+        assert!(generated.contains("aura_async_nested_inner_head"));
+        assert!(generated.contains("aura_task_frame_set_resume_state(frame, 2)"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-nested-loop-await-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile nested loop-await fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run nested loop-await fixture");
+        assert!(
+            output.status.success(),
+            "nested loop-await fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "3\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_loop_with_multiple_await_states() {
         let source = r#"package demo
 async fun worker(value: Int): Int { return value }
@@ -1527,6 +1580,181 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_typed_spawn_string_after_await_with_repeated_join() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+async fun answer(): String { return "suspended-ready" }
+fun main() {
+  val task = spawn {
+    val value: String = await answer()
+    return value
+  }
+  val first: Result<String, TaskError> = join(task)
+  match (first) {
+    case Ok(value) => { println(value) }
+    case Err(error) => { println("unexpected-error") }
+  }
+  val second: Result<String, TaskError> = join(task)
+  match (second) {
+    case Ok(value) => { println(value) }
+    case Err(error) => { println("unexpected-error") }
+  }
+  val cancelled = spawn {
+    val value: String = await answer()
+    return value
+  }
+  cancel(cancelled)
+  val cancelled_outcome: Result<String, TaskError> = join(cancelled)
+  match (cancelled_outcome) {
+    case Ok(value) => { println("unexpected-success") }
+    case Err(error) => {
+      match (error) {
+        case Failed(message) => { println("unexpected-failure") }
+        case Cancelled => { println("cancelled") }
+      }
+    }
+  }
+}
+"#,
+        )
+        .expect("parse suspended typed String spawn fixture");
+        let generated = emit_c_from_ast(&file).expect("emit suspended typed String spawn fixture");
+        assert!(generated.contains("typed suspended String result"));
+        assert!(generated.contains("aura_spawn_result_destroy_"));
+        assert!(generated.contains("aura_var_std_io_Result_String_std_io_TaskError_OkOwned"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-typed-spawn-await-string-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile suspended typed String spawn fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run suspended typed String spawn fixture");
+        assert!(
+            output.status.success(),
+            "suspended typed String spawn fixture failed: {output:?}"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "suspended-ready\nsuspended-ready\ncancelled\n"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_typed_spawn_int_after_await_with_repeated_join() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+async fun answer(): Int { return 9 }
+fun main() {
+  val task = spawn {
+    val value: Int = await answer()
+    return value
+  }
+  val first: Result<Int, TaskError> = join(task)
+  match (first) {
+    case Ok(value) => { println(value.toString()) }
+    case Err(error) => { println("unexpected-error") }
+  }
+  val second: Result<Int, TaskError> = join(task)
+  match (second) {
+    case Ok(value) => { println(value.toString()) }
+    case Err(error) => { println("unexpected-error") }
+  }
+}
+"#,
+        )
+        .expect("parse suspended typed Int spawn fixture");
+        let generated = emit_c_from_ast(&file).expect("emit suspended typed Int spawn fixture");
+        assert!(generated.contains("typed suspended Int result"));
+        assert!(generated.contains("aura_var_std_io_Result_Int_std_io_TaskError_Ok"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-typed-spawn-await-int-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile suspended typed Int spawn fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run suspended typed Int spawn fixture");
+        assert!(
+            output.status.success(),
+            "suspended typed Int spawn fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "9\n9\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_typed_spawn_bool_after_await_with_repeated_join() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+async fun answer(): Bool { return true }
+fun main() {
+  val task = spawn {
+    val value: Bool = await answer()
+    return value
+  }
+  val first: Result<Bool, TaskError> = join(task)
+  match (first) {
+    case Ok(value) => { if (value) { println("true") } }
+    case Err(error) => { println("unexpected-error") }
+  }
+  val second: Result<Bool, TaskError> = join(task)
+  match (second) {
+    case Ok(value) => { if (value) { println("true") } }
+    case Err(error) => { println("unexpected-error") }
+  }
+}
+"#,
+        )
+        .expect("parse suspended typed Bool spawn fixture");
+        let generated = emit_c_from_ast(&file).expect("emit suspended typed Bool spawn fixture");
+        assert!(generated.contains("typed suspended Bool result"));
+        assert!(generated.contains("aura_var_std_io_Result_Bool_std_io_TaskError_Ok"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-typed-spawn-await-bool-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile suspended typed Bool spawn fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run suspended typed Bool spawn fixture");
+        assert!(
+            output.status.success(),
+            "suspended typed Bool spawn fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "true\ntrue\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_string_branch_join_await_state_machine() {
         let file = aura_parser::parse_file(
             r#"package demo
@@ -1891,6 +2119,105 @@ fun main() { }
         assert!(generated.contains("aura_var_std_io_Result_String_std_io_TaskError_OkOwned"));
         assert!(generated.contains("data.Ok.owned"));
         assert!(generated.contains("__join_success_owned"));
+    }
+
+    #[test]
+    fn builds_and_runs_typed_spawn_string_success_with_repeated_join() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+fun main() {
+  val task = spawn { return "ready" }
+  val outcome: Result<String, TaskError> = join(task)
+  match (outcome) {
+    case Ok(value) => { println(value) }
+    case Err(error) => { println("unexpected-error") }
+  }
+  val repeated: Result<String, TaskError> = join(task)
+  match (repeated) {
+    case Ok(value) => { println(value) }
+    case Err(error) => { println("unexpected-error") }
+  }
+}
+"#,
+        )
+        .expect("parse typed String spawn fixture");
+        let generated = emit_c_from_ast(&file).expect("emit typed String spawn fixture");
+        assert!(generated.contains("aura_spawn_result_destroy_"));
+        assert!(generated.contains("aura_var_std_io_Result_String_std_io_TaskError_OkOwned"));
+        assert!(generated.contains("__join_success_owned"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-typed-spawn-string-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile typed String spawn fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run typed String spawn fixture");
+        assert!(
+            output.status.success(),
+            "typed String spawn fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "ready\nready\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_typed_spawn_array_success_with_repeated_join() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+fun main() {
+  val task = spawn { return Array<Int>(2) }
+  val first: Result<Array<Int>, TaskError> = join(task)
+  match (first) {
+    case Ok(value) => { println(value.len.toString()) }
+    case Err(error) => { println("unexpected-error") }
+  }
+  gc_collect()
+  val second: Result<Array<Int>, TaskError> = join(task)
+  match (second) {
+    case Ok(value) => { println(value.len.toString()) }
+    case Err(error) => { println("unexpected-error") }
+  }
+  gc_collect()
+}
+"#,
+        )
+        .expect("parse typed Array spawn fixture");
+        let generated = emit_c_from_ast(&file).expect("emit typed Array spawn fixture");
+        assert!(generated.contains("aura_method_Array_Int_clone"));
+        assert!(generated.contains("aura_spawn_result_destroy_"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-typed-spawn-array-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile typed Array spawn fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run typed Array spawn fixture");
+        assert!(
+            output.status.success(),
+            "typed Array spawn fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "2\n2\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
     }
 
     #[test]

@@ -18,8 +18,9 @@ When you resolve debt, update or remove the matching entry.
   run regression coverage. Compiler-generated `join` now returns
   `std.io.Result<T, std.io.TaskError>` and maps failed states to
   `TaskError.Failed(String)`, cancellation to `TaskError.Cancelled`, and
-  unexpected pending states to a failed diagnostic; the task-outcome corpus
-  fixture covers the typed failure path.
+  unexpected pending states to a failed diagnostic; typed `spawn` now infers
+  its return payload and native `TaskHandle<String>` success is covered by
+  two repeated joins.
 - Why still deferred: generated class payloads, suspended await continuation
   payload failures, full `TaskError.Failed(error)` preservation, and automatic
   completed-handle release remain open. The
@@ -39,10 +40,11 @@ When you resolve debt, update or remove the matching entry.
   it at scope exit; local `Result<String, TaskError>` joins also clone
   successful strings through an owned `Ok` constructor and release them at
   scope exit. Bare joins remain borrowed, while successful non-String/richer
-  payloads still need a corresponding generated ownership path. The codegen
-  regression covers the typed `TaskHandle<String>` path; native coverage
-  remains blocked until `spawn` can produce typed handles instead of its
-  current `TaskHandle<Unit>`.
+  payloads still need a corresponding generated ownership path. Native typed
+  spawn coverage now includes suspended String, Int, and Bool returns,
+  repeated success joins, typed cancellation, and direct producer-side
+  `Array<Int>` payloads with repeated owning joins; aggregate and richer typed
+  payloads still need matching poller ownership paths.
 - Next step: connect generated class payload ownership and suspended await
   propagation and generated `Result`/`TaskError` cleanup to the clone/destroy
   boundary, then add cancellation and forced-GC evidence.
@@ -66,8 +68,11 @@ When you resolve debt, update or remove the matching entry.
   execution in a native regression. A loop CFG slice now supports multiple
   pre-await guard branches with `break`/`continue`, a distinct resumed child
   state, forced GC after completion, and queued-task cancellation in a native
-  regression.
-- Why still deferred: arbitrary nested loops, multiple conditional awaits,
+  regression. A nested outer/inner Int loop slice now persists both loop
+  counters and the accumulator across an inner await, resumes at the inner
+  loop head, and forces GC after each child completion in a native regression.
+- Why still deferred: arbitrary nested loops beyond the supported two-level
+  Int shape, multiple conditional awaits,
   nested branch-local values, and richer payload types still fall back to the
   existing bounded-shape rejection path; `break`/`continue` outside the new
   top-level Int loop CFG slice remain unsupported.
@@ -829,10 +834,10 @@ When you resolve debt, update or remove the matching entry.
 
 - Generated `join` now exposes `std.io.Result<T, std.io.TaskError>` and
   distinguishes `TaskError.Failed(String)` from `TaskError.Cancelled`.
-  Primitive Int/Bool failures are normalized to owned strings, and String
-  failures preserve their detail through a joined outcome. Cancellation
-  ownership, cleanup, repeated-join semantics, and arbitrary typed payload
-  transfer remain open.
+  Primitive Int/Bool failures are normalized to owned strings, String
+  failures preserve their detail, and no-await typed String spawn success is
+  owned across repeated joins. Cancellation ownership and arbitrary typed
+  payload transfer remain open.
 - Next step: extend the runtime outcome ABI and generated clone/destroy path so
   `TaskError.Failed(error)` can own arbitrary original typed payloads; that work
   is intentionally outside this compiler-only slice.

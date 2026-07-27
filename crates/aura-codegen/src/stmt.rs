@@ -217,6 +217,12 @@ fn is_task_result_string_owner_key(key: &str) -> bool {
     key == "std_io_Result_String_std_io_TaskError"
 }
 
+fn task_result_array_owner_key(key: &str) -> Option<&str> {
+    key.strip_prefix("std_io_Result_")
+        .and_then(|rest| rest.strip_suffix("_std_io_TaskError"))
+        .filter(|payload| is_array_type_key(payload))
+}
+
 pub(crate) fn emit_free_task_result_owners(
     out: &mut String,
     indent: usize,
@@ -234,6 +240,15 @@ pub(crate) fn emit_free_task_result_owners(
             format!(
                 "if ({n}.tag == 0 && {n}.data.Ok.owned) {{ free((void *){n}.data.Ok.value); {n}.data.Ok.value = NULL; {n}.data.Ok.owned = false; }} "
             )
+        } else if let Some(array_key) = task_result_array_owner_key(&key) {
+            let mut cleanup = String::new();
+            crate::array_emit::emit_array_contents_free(
+                &mut cleanup,
+                0,
+                &format!("{n}.data.Ok.value"),
+                array_key,
+            );
+            format!("if ({n}.tag == 0) {{ {cleanup} }} ")
         } else {
             String::new()
         };

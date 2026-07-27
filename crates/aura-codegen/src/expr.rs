@@ -386,7 +386,12 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
             Some(Stmt::Expr(e)) => infer_type_name(e, ctx),
             _ => "Int".into(),
         },
-        Expr::Async(AsyncExpr::Spawn(_)) => "TaskHandle_Unit".into(),
+        Expr::Async(AsyncExpr::Spawn(s)) => {
+            format!(
+                "TaskHandle_{}",
+                full_type_mono(&spawn_result_key(&s.body, ctx), ctx.checked)
+            )
+        }
         Expr::Async(AsyncExpr::Join(j)) => {
             let inner = async_inner_key_for_infer(&j.handle, ctx);
             format!(
@@ -1750,6 +1755,32 @@ fn async_inner_key_for_infer(expr: &Expr, ctx: &EmitCtx<'_>) -> String {
     task_inner_key(&key).unwrap_or("Unit").to_string()
 }
 
+pub(crate) fn spawn_result_key(body: &Block, ctx: &EmitCtx<'_>) -> String {
+    body.stmts
+        .iter()
+        .rev()
+        .find_map(|stmt| match stmt {
+            Stmt::Return(ReturnStmt {
+                value: Some(value), ..
+            }) => {
+                if let Expr::Ident(id) = value {
+                    if let Some(Stmt::Var(local)) = body
+                        .stmts
+                        .iter()
+                        .find(|stmt| matches!(stmt, Stmt::Var(local) if local.name.name == id.name))
+                    {
+                        if let Some(ty) = &local.ty {
+                            return Some(type_ref_local_key_expand(ty, &[], &[], ctx.checked));
+                        }
+                    }
+                }
+                Some(infer_type_name(value, ctx))
+            }
+            _ => None,
+        })
+        .unwrap_or_else(|| "Unit".into())
+}
+
 pub(crate) fn async_inner_key(expr: &Expr, ctx: &EmitCtx<'_>) -> String {
     let key = infer_type_name(expr, ctx);
     task_inner_key(&key).unwrap_or("Unit").to_string()
@@ -1904,6 +1935,11 @@ fn emit_join(j: &JoinExpr, ctx: &mut EmitCtx<'_>, owned_error: bool) -> String {
     } else if owned_error && inner == "String" {
         out.push_str(&format!(
             "else {{ size_t __join_success_len = __join_result.data != NULL ? strlen((const char *)__join_result.data) : 0; char *__join_success_owned = (char *)malloc(__join_success_len + 1); if (__join_success_owned == NULL) abort(); if (__join_success_len != 0) memcpy(__join_success_owned, __join_result.data, __join_success_len); __join_success_owned[__join_success_len] = '\\0'; __join_value = {result_ok}Owned(__join_success_owned); }} "
+        ));
+    } else if owned_error && is_array_type_key(&inner) {
+        let clone = crate::names::c_method_name(&inner, "clone");
+        out.push_str(&format!(
+            "else {{ {cty} __join_array = __join_result.data != NULL ? *(({cty} *)__join_result.data) : ({cty}){{0}}; __join_value = {result_ok}({clone}(&__join_array)); }} "
         ));
     } else {
         out.push_str(&format!(

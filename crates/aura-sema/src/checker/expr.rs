@@ -697,9 +697,13 @@ impl Checker {
                     });
                 }
                 self.async_depth += 1;
+                let prior_ret_infer = self.ret_infer.take();
+                self.ret_infer = Some(None);
                 let result = self.check_block(&s.body, &Ty::Unit);
+                let inferred = self.ret_infer.take().flatten().unwrap_or(Ty::Unit);
+                self.ret_infer = prior_ret_infer;
                 self.async_depth -= 1;
-                result.map(|_| Ty::TaskHandle(Box::new(Ty::Unit)))
+                result.map(|_| Ty::TaskHandle(Box::new(inferred)))
             }
             AsyncExpr::Join(j) => {
                 let handle = self.check_expr(&j.handle)?;
