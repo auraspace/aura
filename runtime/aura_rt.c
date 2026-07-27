@@ -7512,10 +7512,19 @@ AuraTaskOutcome aura_task_executor_join_outcome(AuraTaskExecutor *executor,
     return outcome;
   }
 
-  while (frame->state == AURA_TASK_READY &&
-         aura_task_executor_run_one(executor) != 0)
+  while (frame->state != AURA_TASK_COMPLETE &&
+         frame->state != AURA_TASK_FAILED &&
+         frame->state != AURA_TASK_CANCELLED)
   {
-    /* Only advance the executor; ownership remains with it. */
+    if (aura_task_executor_run_one(executor) != 0)
+    {
+      continue;
+    }
+    /* A compiler-generated I/O frame can be the only ready source left. */
+    if (aura_task_executor_poll_waiting(executor, 1000) == 0)
+    {
+      break;
+    }
   }
 
   outcome.state = frame->state;
@@ -7745,6 +7754,24 @@ void aura_task_executor_shutdown(AuraTaskExecutor *executor)
     frame = next;
   }
   free(executor);
+}
+
+/* Small POSIX descriptor bridge used by compiler-generated std.io frames.
+ * Encode errno as a negative result so generated C can retry EAGAIN without
+ * exposing a process-global error slot across suspension. */
+int64_t aura_io_read_fd(int fd, void *buffer, uint64_t capacity)
+{
+  ssize_t result;
+  if (fd < 0 || (capacity != 0 && buffer == NULL) || capacity > SIZE_MAX)
+  {
+    return -EINVAL;
+  }
+  result = read(fd, buffer, (size_t)capacity);
+  if (result < 0)
+  {
+    return -(int64_t)errno;
+  }
+  return (int64_t)result;
 }
 
 /* ---- G3 asynchronous file/TCP operation handles ----

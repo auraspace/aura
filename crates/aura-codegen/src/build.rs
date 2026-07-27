@@ -69,7 +69,11 @@ pub(crate) fn build_from_file_with(
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, process::Command};
+    use std::{
+        fs,
+        io::Write,
+        process::{Command, Stdio},
+    };
 
     use aura_ast::{
         AsyncExpr, AsyncFunDecl, AwaitExpr, Block, CallExpr, CancelExpr, ChannelCloseExpr,
@@ -534,6 +538,70 @@ fun main() {
         assert!(status.success());
         let _ = std::fs::remove_file(&bin);
         let _ = std::fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_compiler_generated_async_read_fd() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+async fun readFd(fd: Int, capacity: Int): String { return "" }
+fun main() {
+  val task = spawn {
+    val value: String = await readFd(0, 1)
+    return value
+  }
+  gc_collect()
+  val outcome: Result<String, TaskError> = join(task)
+  match (outcome) {
+    case Ok(value) => { println(value) }
+    case Err(error) => { println("failed") }
+  }
+  val cancelled = spawn {
+    val value: String = await readFd(0, 1)
+    return value
+  }
+  cancel(cancelled)
+  gc_collect()
+}
+"#,
+        )
+        .expect("parse generated async readFd fixture");
+        let generated = emit_c_from_ast(&file).expect("emit generated async readFd fixture");
+        assert!(generated.contains("compiler-generated std.io.readFd"));
+        assert!(generated.contains("aura_task_frame_wait_fd(frame"));
+        assert!(generated.contains("aura_task_frame_set_resume_state(frame, 1)"));
+        assert!(generated.contains("aura_io_read_fd"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-async-read-fd-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile generated async readFd fixture");
+        let mut child = Command::new(&bin)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .expect("spawn generated async readFd fixture");
+        child
+            .stdin
+            .take()
+            .expect("readFd stdin")
+            .write_all(b"A")
+            .expect("write readFd input");
+        let output = child
+            .wait_with_output()
+            .expect("wait generated async readFd fixture");
+        assert!(output.status.success(), "readFd fixture failed: {output:?}");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "A\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
     }
 
     #[test]

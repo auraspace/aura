@@ -120,7 +120,8 @@ child frame, registers a parent-child wait when the child is pending, and
 resumes exactly once when the runtime wakes the parent. `Int` and `String`
 locals used after that await are retained in frame data and cleaned up by the
 frame destroy hook. Control-flow partitioning, richer owned values, and full
-async I/O operation wiring remain open.
+async I/O operation wiring remains open beyond the bounded `std.io.readFd`
+descriptor slice.
 
 **Checklist:**
 
@@ -129,8 +130,9 @@ async I/O operation wiring remain open.
       arrays, classes, and control-flow-sensitive locals remain open.
 - [x] Resume exactly once for non-waiting pending frames when the operation
       completes; adapter-owned waiting-token registration and clear-before-wake
-      resumption are covered by the bounded runtime fixture. Generated await
-      operation wiring remains open.
+      resumption are covered by the bounded runtime fixture. Compiler-generated
+      `std.io.readFd` wiring now covers one descriptor-read operation; generic
+      file/TCP operation lowering remains open.
 - [x] Prevent executor-owned frame destruction while pending.
 
 **Acceptance:** Immediate and delayed completion produce the same result.
