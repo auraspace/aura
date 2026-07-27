@@ -43,8 +43,11 @@ When you resolve debt, update or remove the matching entry.
   payloads still need a corresponding generated ownership path. Native typed
   spawn coverage now includes suspended String, Int, Bool, and heap-class
   returns (including a child async single-await class result), repeated success joins, typed cancellation, and direct producer-side
-  `Array<Int>` payloads with repeated owning joins; richer typed payloads still
-  need matching poller ownership paths.
+  `Array<Int>` payloads with repeated owning joins; a branch-join `Array<Int>`
+  result now deep-clones into the parent result slot, destroys nested owned
+  contents exactly once, survives forced GC, and has native repeated-join and
+  cancellation coverage. Rarer aggregate payloads still need matching poller
+  ownership paths.
 - Next step: connect richer aggregate payload ownership and suspended await
   failure propagation to the clone/destroy boundary.
 

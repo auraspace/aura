@@ -2497,15 +2497,11 @@ fn emit_async_fun_if_else_single_await(
     checked: &CheckedFile,
     detector: bool,
 ) -> bool {
-    if f.return_type
-        .as_ref()
-        .map(|t| {
-            !matches!(
-                type_ref_local_key_expand(t, &[], &[], checked).as_str(),
-                "Int" | "Bool" | "String"
-            )
-        })
-        .unwrap_or(true)
+    let Some(return_type) = f.return_type.as_ref() else {
+        return false;
+    };
+    let return_key = type_ref_local_key_expand(return_type, &[], &[], checked);
+    if !(matches!(return_key.as_str(), "Int" | "Bool" | "String") || is_array_type_key(&return_key))
         || f.body.stmts.len() != 1
     {
         return false;
@@ -2562,6 +2558,14 @@ fn emit_async_fun_if_else_single_await(
     );
     if ret == "const char *" {
         out.push_str("  (void)size;\n  if (data != NULL) free((void *)*((const char **)data));\n  free(data);\n}\n\n");
+    } else if is_array_type_key(&return_key) {
+        let ret_cty = crate::stmt::local_key_to_c(&return_key, checked);
+        let _ = writeln!(
+            out,
+            "  (void)size; if (data != NULL) {{ {ret_cty} *result = ({ret_cty} *)data;"
+        );
+        crate::array_emit::emit_array_contents_free(out, 2, "(*result)", &return_key);
+        out.push_str("  free(result); }\n}\n\n");
     } else {
         out.push_str("  (void)size;\n  free(data);\n}\n\n");
     }
@@ -2608,6 +2612,12 @@ fn emit_async_fun_if_else_single_await(
     out.push_str("      if (result == NULL) return AURA_TASK_FAILED;\n");
     if ret == "const char *" {
         out.push_str("      const char *__value = child_result.data == NULL ? NULL : *((const char **)child_result.data); if (__value == NULL) { *result = NULL; } else { size_t __len = strlen(__value); char *__copy = (char *)malloc(__len + 1); if (__copy == NULL) { free(result); return AURA_TASK_FAILED; } memcpy(__copy, __value, __len + 1); *result = __copy; }\n");
+    } else if is_array_type_key(&return_key) {
+        let clone = crate::names::c_method_name(&return_key, "clone");
+        let _ = writeln!(
+            out,
+            "      {ret} __value = child_result.data == NULL ? ({ret}){{0}} : *(({ret} *)child_result.data); *result = {clone}(&__value);"
+        );
     } else {
         let _ = writeln!(
             out,
@@ -2654,10 +2664,8 @@ fn branch_await_return<'a>(
         .ty
         .as_ref()
         .map(|t| {
-            !matches!(
-                type_ref_local_key_expand(t, &[], &[], checked).as_str(),
-                "Int" | "Bool" | "String"
-            )
+            let key = type_ref_local_key_expand(t, &[], &[], checked);
+            !(matches!(key.as_str(), "Int" | "Bool" | "String") || is_array_type_key(&key))
         })
         .unwrap_or(true)
     {
