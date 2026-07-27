@@ -1588,7 +1588,9 @@ fun main() {
         )
         .expect("parse three conditional await fixture");
         let generated = emit_c_from_ast(&file).expect("emit three conditional await fixture");
-        assert!(generated.contains("aura async loop three-conditional suspension states=4"));
+        assert!(
+            generated.contains("aura async loop multi-conditional suspension states=4 branches=3")
+        );
         assert!(generated.contains("aura_task_frame_set_resume_state(frame, 3)"));
         assert!(generated.contains("data->await_task_2"));
         assert!(generated.contains("aura_gc_collect"));
@@ -1613,6 +1615,92 @@ fun main() {
         assert_eq!(
             String::from_utf8_lossy(&output.stdout),
             "180\n180\ncancelled\n"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_loop_with_four_conditional_await_states() {
+        let file = parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+async fun worker(value: Int): Int { return value }
+async fun sum(): Int {
+  var i: Int = 0
+  var total: Int = 0
+  var first: Int = 0
+  var second: Int = 0
+  var third: Int = 0
+  var fourth: Int = 0
+  while (i < 4) {
+    if (i < 1) { first = await worker(10) }
+    if (i < 2) { second = await worker(20) }
+    if (i < 3) { third = await worker(30) }
+    if (i < 4) { fourth = await worker(40) }
+    total = total + first + second + third + fourth
+    gc_collect()
+    i = i + 1
+  }
+  return total
+}
+fun main() {
+  val task = spawn { val value: Int = await sum() return value }
+  val first: Result<Int, TaskError> = join(task)
+  match (first) {
+    case Ok(value) => { println(value.toString()) }
+    case Err(error) => { println("unexpected-error") }
+  }
+  val second: Result<Int, TaskError> = join(task)
+  match (second) {
+    case Ok(value) => { println(value.toString()) }
+    case Err(error) => { println("unexpected-error") }
+  }
+  val cancelled = spawn { val value: Int = await sum() return value }
+  cancel(cancelled)
+  val cancelled_result: Result<Int, TaskError> = join(cancelled)
+  match (cancelled_result) {
+    case Ok(value) => { println("unexpected-success") }
+    case Err(error) => {
+      match (error) {
+        case Failed(message) => { println("unexpected-failure") }
+        case Cancelled => { println("cancelled") }
+      }
+    }
+  }
+}
+"#,
+        )
+        .expect("parse four conditional await fixture");
+        let generated = emit_c_from_ast(&file).expect("emit four conditional await fixture");
+        assert!(
+            generated.contains("aura async loop multi-conditional suspension states=5 branches=4")
+        );
+        assert!(generated.contains("aura_task_frame_set_resume_state(frame, 4)"));
+        assert!(generated.contains("data->await_task_3"));
+        assert!(generated.contains("aura_gc_collect"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-loop-four-conditional-await-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile four conditional await fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run four conditional await fixture");
+        assert!(
+            output.status.success(),
+            "four conditional await fixture failed: {output:?}"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "400\n400\ncancelled\n"
         );
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);

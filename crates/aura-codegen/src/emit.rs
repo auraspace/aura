@@ -606,7 +606,7 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
                 lowered,
                 checked,
                 opts.detector,
-            ) && !emit_async_fun_while_three_conditional_await_int(
+            ) && !emit_async_fun_while_multi_conditional_await_int(
                 &mut out,
                 lowered,
                 checked,
@@ -1329,10 +1329,10 @@ fn emit_async_fun_nested_while_await_int(
     true
 }
 
-/// Lower one bounded loop iteration with three independent conditional awaits.
+/// Lower one bounded loop iteration with three or more independent conditional awaits.
 /// Each selected child owns a distinct resume state; a false condition jumps
 /// directly to the next gate without allocating or waiting on a task.
-fn emit_async_fun_while_three_conditional_await_int(
+fn emit_async_fun_while_multi_conditional_await_int(
     out: &mut String,
     f: &AsyncFunDecl,
     checked: &CheckedFile,
@@ -1345,7 +1345,11 @@ fn emit_async_fun_while_three_conditional_await_int(
     {
         return false;
     }
-    let initial_count = 5usize;
+    let initial_count = f.body.stmts.len().saturating_sub(2);
+    if initial_count < 5 {
+        return false;
+    }
+    let branch_count = initial_count - 2;
     if f.body.stmts.len() != initial_count + 2 {
         return false;
     }
@@ -1384,12 +1388,12 @@ fn emit_async_fun_while_three_conditional_await_int(
                 || matches!(&var.init, Expr::Async(_))
         })
         || !matches!(&loop_stmt.cond, Expr::Binary(_))
-        || loop_stmt.body.stmts.len() != 6
+        || loop_stmt.body.stmts.len() != branch_count + 3
     {
         return false;
     }
-    let mut awaits = Vec::with_capacity(3);
-    for (branch_stmt, branch_var) in loop_stmt.body.stmts[..3].iter().zip(branch_vars) {
+    let mut awaits = Vec::with_capacity(branch_count);
+    for (branch_stmt, branch_var) in loop_stmt.body.stmts[..branch_count].iter().zip(branch_vars) {
         let Stmt::If(branch) = branch_stmt else {
             return false;
         };
@@ -1406,13 +1410,13 @@ fn emit_async_fun_while_three_conditional_await_int(
         };
         awaits.push((branch, await_expr));
     }
-    let Stmt::Expr(Expr::Assign(total_assign)) = &loop_stmt.body.stmts[3] else {
+    let Stmt::Expr(Expr::Assign(total_assign)) = &loop_stmt.body.stmts[branch_count] else {
         return false;
     };
-    let Stmt::Expr(Expr::Call(gc_call)) = &loop_stmt.body.stmts[4] else {
+    let Stmt::Expr(Expr::Call(gc_call)) = &loop_stmt.body.stmts[branch_count + 1] else {
         return false;
     };
-    let Stmt::Expr(Expr::Assign(index_assign)) = &loop_stmt.body.stmts[5] else {
+    let Stmt::Expr(Expr::Assign(index_assign)) = &loop_stmt.body.stmts[branch_count + 2] else {
         return false;
     };
     if total_assign.name.name != total_var.name.name
@@ -1435,14 +1439,14 @@ fn emit_async_fun_while_three_conditional_await_int(
         .iter()
         .map(|var| mangle_ident(&var.name.name))
         .collect();
-    let head_label = format!("aura_async_{base}_three_cond_head");
-    let post_label = format!("aura_async_{base}_three_cond_post");
-    let done_label = format!("aura_async_{base}_three_cond_done");
-    let gate_labels: Vec<String> = (1..3)
-        .map(|i| format!("aura_async_{base}_three_cond_gate_{i}"))
+    let head_label = format!("aura_async_{base}_multi_cond_head");
+    let post_label = format!("aura_async_{base}_multi_cond_post");
+    let done_label = format!("aura_async_{base}_multi_cond_done");
+    let gate_labels: Vec<String> = (1..branch_count)
+        .map(|i| format!("aura_async_{base}_multi_cond_gate_{i}"))
         .collect();
-    let poll_labels: Vec<String> = (0..3)
-        .map(|i| format!("aura_async_{base}_three_cond_poll_{i}"))
+    let poll_labels: Vec<String> = (0..branch_count)
+        .map(|i| format!("aura_async_{base}_multi_cond_poll_{i}"))
         .collect();
 
     let mut entry_ctx = async_ctx(checked, detector, &params, &f.params, &f.return_type);
@@ -1472,7 +1476,9 @@ fn emit_async_fun_while_three_conditional_await_int(
 
     let _ = writeln!(
         out,
-        "/* aura async loop three-conditional suspension states=4 */"
+        "/* aura async loop multi-conditional suspension states={} branches={} */",
+        branch_count + 1,
+        branch_count
     );
     let _ = writeln!(out, "typedef struct {data_ty} {{");
     for p in &f.params {
@@ -1486,7 +1492,7 @@ fn emit_async_fun_while_three_conditional_await_int(
     for name in &names {
         let _ = writeln!(out, "  int64_t {name};");
     }
-    for i in 0..3 {
+    for i in 0..branch_count {
         let _ = writeln!(out, "  AuraTaskFrame *await_task_{i};");
     }
     let _ = writeln!(out, "}} {data_ty};\n");
@@ -1518,7 +1524,7 @@ fn emit_async_fun_while_three_conditional_await_int(
     for (name, init) in names.iter().zip(&inits) {
         let _ = writeln!(out, "      data->{name} = {init};");
     }
-    for i in 0..3 {
+    for i in 0..branch_count {
         let _ = writeln!(out, "      data->await_task_{i} = NULL;");
     }
     let _ = writeln!(
@@ -1535,8 +1541,8 @@ fn emit_async_fun_while_three_conditional_await_int(
         let _ = writeln!(out, "    {name} = data->{name};");
     }
     let _ = writeln!(out, "    if (!({loop_cond})) goto {done_label};");
-    for i in 0..3 {
-        let next = if i + 1 < 3 {
+    for i in 0..branch_count {
+        let next = if i + 1 < branch_count {
             gate_labels[i].as_str()
         } else {
             post_label.as_str()
@@ -1550,7 +1556,7 @@ fn emit_async_fun_while_three_conditional_await_int(
             poll_labels[i]
         );
         let _ = writeln!(out, "    goto {next};");
-        if i + 1 < 3 {
+        if i + 1 < branch_count {
             let _ = writeln!(out, "\n{}:", gate_labels[i]);
             for name in &names {
                 let _ = writeln!(out, "  {name} = data->{name};");
@@ -1559,8 +1565,8 @@ fn emit_async_fun_while_three_conditional_await_int(
     }
     out.push_str("  }\n\n");
 
-    for i in 0..3 {
-        let next = if i + 1 < 3 {
+    for i in 0..branch_count {
+        let next = if i + 1 < branch_count {
             gate_labels[i].as_str()
         } else {
             post_label.as_str()
@@ -1603,7 +1609,7 @@ fn emit_async_fun_while_three_conditional_await_int(
         let n = mangle_ident(&p.name.name);
         let _ = writeln!(out, "  data->{n} = {n};");
     }
-    for i in 0..3 {
+    for i in 0..branch_count {
         let _ = writeln!(out, "  data->await_task_{i} = NULL;");
     }
     out.push_str("  if (__aura_task_executor != NULL && !aura_task_executor_submit(__aura_task_executor, frame)) { aura_task_frame_destroy(frame); return NULL; } return frame;\n}");

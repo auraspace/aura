@@ -112,7 +112,8 @@ When you resolve debt, update or remove the matching entry.
   awaits with four distinct resume states, forced GC, repeated joins, and
   queued cancellation coverage.
 - Why still deferred: arbitrary nested loops beyond the supported two-level
-  Int shape, more than three conditional awaits,
+  Int shape, unbounded conditional-await counts beyond the current bounded
+  fixture shape,
   nested branch-local values, and richer payload types still fall back to the
   existing bounded-shape rejection path; `break`/`continue` outside the new
   top-level Int loop CFG slice remain unsupported.
