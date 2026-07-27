@@ -1685,6 +1685,8 @@ fun main() {
         );
         assert!(generated.contains("aura_task_frame_set_resume_state(frame, 4)"));
         assert!(generated.contains("data->await_task_3"));
+        assert!(generated
+            .contains("aura_task_executor_release(__aura_task_executor, &data->await_task_3)"));
         assert!(generated.contains("aura_gc_collect"));
 
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

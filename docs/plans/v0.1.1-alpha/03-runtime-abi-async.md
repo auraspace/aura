@@ -174,6 +174,10 @@ The sequential multi-await loop lowering applies the same rule per iteration:
 temporary children are released after payload copy and any live child is
 released by frame destruction on cancellation.
 
+The multi-conditional loop lowering also releases the selected temporary child
+after terminal payload copy and retains caller-owned handles without taking
+their ownership.
+
 **Verification:** Run multi-await, forced-GC, cancellation, and failure fixtures
 under sanitizers.
 

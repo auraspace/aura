@@ -1434,6 +1434,7 @@ fn emit_async_fun_while_multi_conditional_await_int(
     let base = format!("{}_{}", mangle_package(&pkg), mangle_ident(&f.name.name));
     let data_ty = format!("aura_async_data_{base}");
     let poll_fn = format!("aura_async_poll_{base}");
+    let destroy_data = format!("aura_async_destroy_{base}");
     let destroy_result = format!("aura_async_result_destroy_{base}");
     let names: Vec<String> = vars
         .iter()
@@ -1466,6 +1467,10 @@ fn emit_async_fun_while_multi_conditional_await_int(
         .iter()
         .map(|(_, await_expr)| emit_expr(&await_expr.operand, &mut entry_ctx))
         .collect();
+    let branch_owns_task: Vec<bool> = awaits
+        .iter()
+        .map(|(_, await_expr)| await_operand_is_temporary(&await_expr.operand, checked))
+        .collect();
 
     let mut post_ctx = async_ctx(checked, detector, &params, &f.params, &f.return_type);
     for var in &vars {
@@ -1496,6 +1501,17 @@ fn emit_async_fun_while_multi_conditional_await_int(
         let _ = writeln!(out, "  AuraTaskFrame *await_task_{i};");
     }
     let _ = writeln!(out, "}} {data_ty};\n");
+    let _ = writeln!(out, "static void {destroy_data}(AuraTaskFrame *frame) {{");
+    let _ = writeln!(
+        out,
+        "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame);"
+    );
+    for (index, owns_task) in branch_owns_task.iter().enumerate() {
+        if *owns_task {
+            let _ = writeln!(out, "  if (data->await_task_{index} != NULL && __aura_task_executor != NULL) {{ (void)aura_task_executor_release(__aura_task_executor, &data->await_task_{index}); }}");
+        }
+    }
+    out.push_str("}\n\n");
     let _ = writeln!(
         out,
         "static void {destroy_result}(void *data, size_t size) {{ (void)size; free(data); }}\n"
@@ -1575,6 +1591,9 @@ fn emit_async_fun_while_multi_conditional_await_int(
         out.push_str(&format!(
             "    AuraTaskPollState child_state = aura_task_frame_state(data->await_task_{i}); if (child_state == AURA_TASK_READY) child_state = aura_task_frame_poll_once(data->await_task_{i}); if (child_state == AURA_TASK_PENDING) {{ if (!aura_task_frame_wait_on(frame, data->await_task_{i})) return AURA_TASK_FAILED; return AURA_TASK_PENDING; }} if (child_state == AURA_TASK_CANCELLED) return AURA_TASK_CANCELLED; if (child_state == AURA_TASK_FAILED) {{ (void)aura_task_frame_propagate_error(frame, data->await_task_{i}); return AURA_TASK_FAILED; }} if (child_state != AURA_TASK_COMPLETE) return AURA_TASK_FAILED; AuraTaskResult child_result = aura_task_frame_result(data->await_task_{i});\n"
         ));
+        if branch_owns_task[i] {
+            let _ = writeln!(out, "    if (__aura_task_executor != NULL) {{ (void)aura_task_executor_release(__aura_task_executor, &data->await_task_{i}); }}");
+        }
         let _ = writeln!(
             out,
             "    data->{} = child_result.data == NULL ? 0 : *((int64_t *)child_result.data); data->await_task_{i} = NULL; goto {next};\n  }}\n",
@@ -1599,7 +1618,7 @@ fn emit_async_fun_while_multi_conditional_await_int(
     let _ = writeln!(out, "{} {{", c_async_fun_signature(f, checked));
     let _ = writeln!(
         out,
-        "  AuraTaskFrame *frame = aura_task_frame_new(sizeof({data_ty}), {poll_fn}, NULL); if (frame == NULL) return NULL;"
+        "  AuraTaskFrame *frame = aura_task_frame_new(sizeof({data_ty}), {poll_fn}, {destroy_data}); if (frame == NULL) return NULL;"
     );
     let _ = writeln!(
         out,
