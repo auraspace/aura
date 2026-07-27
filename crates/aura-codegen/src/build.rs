@@ -1082,6 +1082,54 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_loop_with_multiple_await_states() {
+        let source = r#"package demo
+async fun worker(value: Int): Int { return value }
+async fun sum(limit: Int): Int {
+  var i: Int = 0
+  var total: Int = 0
+  while (i < limit) {
+    val first: Int = await worker(i)
+    val second: Int = await worker(first + 1)
+    total = total + first + second
+    i = i + 1
+  }
+  return total
+}
+fun main() {
+  val task = spawn { val result: Int = await sum(3) println(result.toString()) return }
+  join(task)
+}
+"#;
+        let file = parse_file(source).expect("parse multi-await loop fixture");
+        let generated = emit_c_from_ast(&file).expect("emit multi-await loop fixture");
+        assert!(generated.contains("aura async loop multi-await suspension states=2"));
+        assert!(generated.contains("aura_task_frame_set_resume_state(frame, 2)"));
+        assert!(generated.contains("aura_task_frame_wait_on(frame, data->await_task_1)"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-loop-multi-await-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile multi-await loop fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run multi-await loop fixture");
+        assert!(
+            output.status.success(),
+            "multi-await loop fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "9\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn lowers_while_await_for_checked_task_parameter() {
         let source = r#"package demo
 async fun sum(task: Task<Int>): Int {

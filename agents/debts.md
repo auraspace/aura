@@ -37,7 +37,7 @@ When you resolve debt, update or remove the matching entry.
   propagation to the clone/destroy boundary, then add cancellation and
   forced-GC evidence.
 
-### ASYNC-003 conditional await inside bounded loops remains partial (updated 2026-07-24)
+### ASYNC-003 conditional await inside bounded loops remains partial (updated 2026-07-27)
 
 - Area: compiler-generated async state-machine control flow
 - Progress: the C backend now lowers the bounded post-await branch continuation
@@ -45,13 +45,15 @@ When you resolve debt, update or remove the matching entry.
   `while (...) { if (cond) { val x: Int = await task } index = ... }` with
   the loop index and child handle stored in the frame. False branches skip
   task creation; pending true branches resume without repeating the
-  iteration. `aura-codegen` has a native regression covering both paths.
+  iteration. A sequential multi-await loop body now uses one frame state and
+  child slot per await, persists loop locals across every suspension, and
+  continues the next iteration only after the final child completes.
+  `aura-codegen` has native regressions covering both loop paths.
 - Why still deferred: arbitrary nested loops, multiple conditional awaits,
   break/continue, branch-local values, and richer payload types still fall
   back to the existing bounded-shape rejection path.
-- Next step: generalize the control-flow graph/state numbering after the
-  compiler has frame-root and typed-outcome ownership support for those
-  additional shapes.
+- Next step: generalize the control-flow graph/state numbering to those
+  remaining shapes after frame-root and typed-outcome ownership coverage grows.
 
 ### SAN-002 broader compiler-generated ownership remains out of scope (resolved mandatory gate, 2026-07-23)
 
