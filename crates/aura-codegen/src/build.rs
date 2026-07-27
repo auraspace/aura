@@ -1448,6 +1448,67 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_for_range_await_with_gc_repeated_join_and_cancel() {
+        let source = r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+async fun worker(value: Int): Int { return value }
+async fun sum(): Int {
+  var total: Int = 0
+  for (i in 1..4) {
+    val value: Int = await worker(i)
+    total = total + value
+    gc_collect()
+  }
+  return total
+}
+fun main() {
+  val task = spawn { val value: Int = await sum() return value }
+  val first: Result<Int, TaskError> = join(task)
+  match (first) {
+    case Ok(value) => { println(value.toString()) }
+    case Err(error) => { println("failed") }
+  }
+  val second: Result<Int, TaskError> = join(task)
+  match (second) {
+    case Ok(value) => { println(value.toString()) }
+    case Err(error) => { println("failed") }
+  }
+  val cancelled = spawn { val value: Int = await sum() return value }
+  cancel(cancelled)
+  join(cancelled)
+}
+"#;
+        let file = parse_file(source).expect("parse for-range await fixture");
+        let generated = emit_c_from_ast(&file).expect("emit for-range await fixture");
+        assert!(generated.contains("/* aura async for-range-await Int lowering */"));
+        assert!(generated.contains("aura_task_frame_set_resume_state(frame, 1)"));
+        assert!(generated.contains("data->await_task = aura_fn_std_io_worker(i);"));
+        assert!(generated.contains("aura_task_frame_propagate_error(frame, data->await_task)"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-for-range-await-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile for-range await fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run for-range await fixture");
+        assert!(
+            output.status.success(),
+            "for-range await fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "6\n6\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_loop_branch_join_with_gc_and_cancellation() {
         let source = r#"package demo
 async fun worker(value: Int): Int { return value }

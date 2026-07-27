@@ -127,6 +127,10 @@ When you resolve debt, update or remove the matching entry.
   and queued cancellation. The same lowering now supports three conditional
   awaits with four distinct resume states, forced GC, repeated joins, and
   queued cancellation coverage.
+- A range `for (i in start..end)` body with one awaited `Task<Int>` now persists
+  the cursor, endpoint, accumulator, and temporary child across suspension;
+  forced GC, repeated typed joins, and queued cancellation are covered by a
+  native codegen fixture.
 - Why still deferred: arbitrary nested loops beyond the supported two-level
   Int shape, unbounded conditional-await counts beyond the current bounded
   fixture shape,
