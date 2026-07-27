@@ -1665,6 +1665,52 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_single_await_bool_result() {
+        let file = aura_parser::parse_file(
+            r#"package demo
+async fun ready(): Bool { return true }
+async fun wrapper(): Bool {
+  val value: Bool = await ready()
+  return value
+}
+fun main() {
+  val task = spawn {
+    val value: Bool = await wrapper()
+    if (value) { println("bool-await-ok") }
+    return
+  }
+  join(task)
+}
+"#,
+        )
+        .expect("parse single-await Bool result");
+        let generated = emit_c_from_ast(&file).expect("emit single-await Bool result");
+        assert!(generated.contains("static bool aura_async_resume_demo_wrapper"));
+        assert!(generated.contains("bool observed = 0;"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-single-await-bool-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile single-await Bool result");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run single-await Bool result");
+        assert!(
+            output.status.success(),
+            "single-await Bool fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "bool-await-ok\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_spawn_capture_through_forced_gc() {
         let file = aura_parser::parse_file(
             "package demo\nclass Box(var value: Int) {}\nfun main() { var box: Box = Box(7)\nval task = spawn { gc_collect() println(box.value.toString()) return }\ngc_collect()\njoin(task) }\n",

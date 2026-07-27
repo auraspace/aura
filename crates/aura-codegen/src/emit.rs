@@ -2950,7 +2950,7 @@ fn emit_async_fun_single_await(
         return false;
     };
     let await_key = type_ref_local_key_expand(await_ty, &[], &[], checked);
-    if await_key != "Int" {
+    if await_key != "Int" && await_key != "Bool" {
         return false;
     }
     let mut locals = Vec::new();
@@ -2976,6 +2976,7 @@ fn emit_async_fun_single_await(
     let destroy_data = format!("aura_async_destroy_{base}");
     let destroy_result = format!("aura_async_result_destroy_{base}");
     let ret = c_type_from_opt(&f.return_type, checked, &params, &[]);
+    let await_cty = crate::stmt::local_key_to_c(&await_key, checked);
 
     let _ = writeln!(
         out,
@@ -3014,10 +3015,10 @@ fn emit_async_fun_single_await(
     for (v, key) in &locals {
         resume_ctx.define_local(&v.name.name, full_type_mono(key, checked));
     }
-    resume_ctx.define_local(&await_var.name.name, "Int".into());
+    resume_ctx.define_local(&await_var.name.name, full_type_mono(&await_key, checked));
     let _ = writeln!(
         out,
-        "static {ret} {resume_fn}({data_ty} *data, int64_t await_value) {{"
+        "static {ret} {resume_fn}({data_ty} *data, {await_cty} await_value) {{"
     );
     for p in &f.params {
         let n = mangle_ident(&p.name.name);
@@ -3037,7 +3038,7 @@ fn emit_async_fun_single_await(
     }
     let _ = writeln!(
         out,
-        "  int64_t {} = await_value;",
+        "  {await_cty} {} = await_value;",
         mangle_ident(&await_var.name.name)
     );
     for stmt in &f.body.stmts[await_index + 1..] {
@@ -3111,7 +3112,7 @@ fn emit_async_fun_single_await(
     out.push_str("      if (data->await_task == NULL) return AURA_TASK_FAILED;\n");
     out.push_str("      aura_task_frame_set_resume_state(frame, 1);\n");
     out.push_str("      /* fall through to poll an immediately-ready child. */\n");
-    out.push_str("    case 1:\n");
+    out.push_str("    case 1: {\n");
     out.push_str(
         "      AuraTaskPollState child_state = aura_task_frame_state(data->await_task);\n",
     );
@@ -3126,9 +3127,10 @@ fn emit_async_fun_single_await(
     out.push_str("      if (child_state == AURA_TASK_FAILED) { (void)aura_task_frame_propagate_error(frame, data->await_task); return AURA_TASK_FAILED; }\n");
     out.push_str("      if (child_state != AURA_TASK_COMPLETE) return AURA_TASK_FAILED;\n");
     out.push_str("      AuraTaskResult child_result = aura_task_frame_result(data->await_task);\n");
-    out.push_str("      int64_t observed = 0;\n");
-    out.push_str(
-        "      if (child_result.data != NULL) observed = *((int64_t *)child_result.data);\n",
+    let _ = writeln!(out, "      {await_cty} observed = 0;");
+    let _ = writeln!(
+        out,
+        "      if (child_result.data != NULL) observed = *(({await_cty} *)child_result.data);"
     );
     if ret == "void" {
         let _ = writeln!(out, "      {resume_fn}(data, observed);",);
@@ -3145,7 +3147,7 @@ fn emit_async_fun_single_await(
             "      aura_task_frame_set_result(frame, result, sizeof(*result), {destroy_result});"
         );
     }
-    out.push_str("      return AURA_TASK_COMPLETE;\n");
+    out.push_str("      return AURA_TASK_COMPLETE;\n    }\n");
     out.push_str("    default: return AURA_TASK_FAILED;\n  }\n}\n\n");
 
     let _ = writeln!(out, "{} {{", c_async_fun_signature(f, checked));
