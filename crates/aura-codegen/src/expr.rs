@@ -1901,6 +1901,10 @@ fn emit_join(j: &JoinExpr, ctx: &mut EmitCtx<'_>, owned_error: bool) -> String {
     }
     if inner == "Unit" {
         out.push_str(&format!("else {{ __join_value = {result_ok}(); }} "));
+    } else if owned_error && inner == "String" {
+        out.push_str(&format!(
+            "else {{ size_t __join_success_len = __join_result.data != NULL ? strlen((const char *)__join_result.data) : 0; char *__join_success_owned = (char *)malloc(__join_success_len + 1); if (__join_success_owned == NULL) abort(); if (__join_success_len != 0) memcpy(__join_success_owned, __join_result.data, __join_success_len); __join_success_owned[__join_success_len] = '\\0'; __join_value = {result_ok}Owned(__join_success_owned); }} "
+        ));
     } else {
         out.push_str(&format!(
             "else {{ __join_value = {result_ok}(__join_result.data != NULL ? *(({cty} *)__join_result.data) : ({cty}){{0}}); }} "

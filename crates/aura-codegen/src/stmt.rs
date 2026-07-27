@@ -213,6 +213,10 @@ pub(crate) fn is_task_result_owner_key(key: &str) -> bool {
     key.starts_with("std_io_Result_") && key.ends_with("_std_io_TaskError")
 }
 
+fn is_task_result_string_owner_key(key: &str) -> bool {
+    key == "std_io_Result_String_std_io_TaskError"
+}
+
 pub(crate) fn emit_free_task_result_owners(
     out: &mut String,
     indent: usize,
@@ -226,9 +230,16 @@ pub(crate) fn emit_free_task_result_owners(
         }
         let p = pad(indent);
         let n = mangle_ident(name);
+        let ok_cleanup = if is_task_result_string_owner_key(&key) {
+            format!(
+                "if ({n}.tag == 0 && {n}.data.Ok.owned) {{ free((void *){n}.data.Ok.value); {n}.data.Ok.value = NULL; {n}.data.Ok.owned = false; }} "
+            )
+        } else {
+            String::new()
+        };
         let _ = writeln!(
             out,
-            "{p}if ({n}.tag == 1 && {n}.data.Err.error.tag == 0 && {n}.data.Err.error.data.Failed.owned) {{ free((void *){n}.data.Err.error.data.Failed.error); {n}.data.Err.error.data.Failed.error = NULL; {n}.data.Err.error.data.Failed.owned = false; }}"
+            "{p}{ok_cleanup}if ({n}.tag == 1 && {n}.data.Err.error.tag == 0 && {n}.data.Err.error.data.Failed.owned) {{ free((void *){n}.data.Err.error.data.Failed.error); {n}.data.Err.error.data.Failed.error = NULL; {n}.data.Err.error.data.Failed.owned = false; }}"
         );
     }
 }

@@ -7,7 +7,7 @@ When you resolve debt, update or remove the matching entry.
 
 ## Open
 
-### ASYNC-002 generated payload clone integration remains partial (updated 2026-07-24)
+### ASYNC-002 generated payload clone integration remains partial (updated 2026-07-27)
 
 - Area: compiler-generated async child-to-parent failure propagation
 - Progress: native task outcomes now support clone-based terminal result
@@ -36,8 +36,13 @@ When you resolve debt, update or remove the matching entry.
   `aura_task_owned_outcome_destroy`, proving an owned terminal snapshot can
   outlive its frame for success/error/cancel states. A local
   `Result<*, TaskError> = join(task)` now clones `Failed` detail and releases
-  it at scope exit; bare joins remain borrowed, and successful rich payloads
-  still need a corresponding generated ownership path.
+  it at scope exit; local `Result<String, TaskError>` joins also clone
+  successful strings through an owned `Ok` constructor and release them at
+  scope exit. Bare joins remain borrowed, while successful non-String/richer
+  payloads still need a corresponding generated ownership path. The codegen
+  regression covers the typed `TaskHandle<String>` path; native coverage
+  remains blocked until `spawn` can produce typed handles instead of its
+  current `TaskHandle<Unit>`.
 - Next step: connect generated class payload ownership and suspended await
   propagation and generated `Result`/`TaskError` cleanup to the clone/destroy
   boundary, then add cancellation and forced-GC evidence.

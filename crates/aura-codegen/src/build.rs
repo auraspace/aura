@@ -1816,6 +1816,26 @@ fun main() {
     }
 
     #[test]
+    fn emits_owned_string_success_for_local_task_result_join() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+fun observe(handle: TaskHandle<String>): Result<String, TaskError> {
+  val outcome: Result<String, TaskError> = join(handle)
+  return outcome
+}
+fun main() { }
+"#,
+        )
+        .expect("parse String join-success codegen fixture");
+        let generated = emit_c_from_ast(&file).expect("emit String join-success codegen fixture");
+        assert!(generated.contains("aura_var_std_io_Result_String_std_io_TaskError_OkOwned"));
+        assert!(generated.contains("data.Ok.owned"));
+        assert!(generated.contains("__join_success_owned"));
+    }
+
+    #[test]
     fn builds_and_runs_bounded_non_empty_spawn_once() {
         let file = aura_parser::parse_file(
             "package demo\nfun main() { val task = spawn { println(\"bounded spawn\") } join(task) }\n",
