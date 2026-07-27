@@ -1448,6 +1448,64 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_general_cfg_branch_containing_loop_await() {
+        let source = r#"package demo
+async fun worker(value: Int): Int { return value }
+async fun nested(flag: Bool): Int {
+  var total: Int = 0
+  if (flag) {
+    var i: Int = 0
+    while (i < 2) {
+      val value: Int = await worker(i)
+      total = total + value
+      i = i + 1
+      gc_collect()
+    }
+  } else {
+    total = 7
+  }
+  return total
+}
+fun main() {
+  val first = spawn { val value: Int = await nested(true) println(value.toString()) return }
+  join(first)
+  val second = spawn { val value: Int = await nested(false) println(value.toString()) return }
+  join(second)
+  val cancelled = spawn { val value: Int = await nested(true) println("unexpected-cancel") return }
+  cancel(cancelled)
+  join(cancelled)
+}
+"#;
+        let file = parse_file(source).expect("parse general CFG await fixture");
+        let generated = emit_c_from_ast(&file).expect("emit general CFG await fixture");
+        assert!(generated.contains("/* aura async general CFG Int lowering"));
+        assert!(generated.contains("aura_task_frame_set_resume_state(frame"));
+        assert!(generated.contains("aura_task_frame_propagate_error(frame, data->await_task)"));
+        assert!(generated.contains("data->await_task_owned"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-general-cfg-await-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile general CFG await fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run general CFG await fixture");
+        assert!(
+            output.status.success(),
+            "general CFG await fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "1\n7\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_for_range_await_with_gc_repeated_join_and_cancel() {
         let source = r#"package std.io
 enum TaskError { case Failed(error: String) case Cancelled }

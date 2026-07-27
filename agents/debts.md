@@ -896,6 +896,17 @@ When you resolve debt, update or remove the matching entry.
   object remains internal to the frame ABI; exposing it publicly still needs a
   deliberate typed object/FFI contract rather than a borrowed pointer.
 
+### ASYNC-003 general CFG lowering remains scalar-first (updated 2026-07-27)
+
+- The compiler now emits an explicit state graph for a nested `if -> while -> await`
+  shape. Each await persists the graph state, child ownership bit, scalar locals,
+  and propagates failure/cancellation across pending polls; the native fixture also
+  exercises `gc_collect()` and queued cancellation.
+- The implementation currently accepts only `Int`/`Bool` locals and `Int` results.
+  Array/String/class locals, richer statement expressions, `match`/`try`, and
+  arbitrary CFG joins still need aggregate ownership and cleanup rules before this
+  can replace the bounded lowering families.
+
 ### IO-002 compiler-generated descriptor I/O remains bounded (updated 2026-07-27)
 
 - `std.io.readFd(fd, capacity)` now lowers to a compiler-generated frame with

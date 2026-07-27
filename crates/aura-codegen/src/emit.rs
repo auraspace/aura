@@ -590,6 +590,7 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
             let emitted_std_io =
                 emit_async_fun_std_io_fd(&mut out, lowered, checked, opts.detector);
             if !emitted_std_io
+                && !emit_async_fun_cfg_int(&mut out, lowered, checked, opts.detector)
                 && !emit_async_fun_while_branch_join_await_array(
                     &mut out,
                     lowered,
@@ -938,6 +939,551 @@ fn emit_async_fun_while_branch_join_await_array(
         let _ = writeln!(out, "  data->{n} = {n};");
     }
     out.push_str("  data->await_task = NULL; if (__aura_task_executor != NULL && !aura_task_executor_submit(__aura_task_executor, frame)) { aura_task_frame_destroy(frame); return NULL; } return frame;\n}");
+    true
+}
+
+#[derive(Clone)]
+enum AsyncCfgNode {
+    Action {
+        code: String,
+        next: usize,
+    },
+    Branch {
+        condition: String,
+        then_state: usize,
+        else_state: usize,
+    },
+    Await {
+        value: String,
+        operand: String,
+        owns_task: bool,
+        next: usize,
+    },
+    Return {
+        value: String,
+    },
+}
+
+struct AsyncCfgBuilder<'a> {
+    nodes: Vec<Option<AsyncCfgNode>>,
+    ctx: EmitCtx<'a>,
+    locals: HashMap<String, String>,
+    supported: bool,
+}
+
+impl<'a> AsyncCfgBuilder<'a> {
+    fn new(ctx: EmitCtx<'a>, locals: HashMap<String, String>) -> Self {
+        Self {
+            nodes: Vec::new(),
+            ctx,
+            locals,
+            supported: true,
+        }
+    }
+
+    fn alloc(&mut self) -> usize {
+        let state = self.nodes.len();
+        self.nodes.push(None);
+        state
+    }
+
+    fn finish(&mut self, state: usize, node: AsyncCfgNode) {
+        self.nodes[state] = Some(node);
+    }
+
+    fn emit_block(
+        &mut self,
+        stmts: &[Stmt],
+        next: usize,
+        break_state: Option<usize>,
+        continue_state: Option<usize>,
+    ) -> usize {
+        let mut entry = next;
+        for stmt in stmts.iter().rev() {
+            entry = self.emit_stmt(stmt, entry, break_state, continue_state);
+        }
+        entry
+    }
+
+    fn emit_stmt(
+        &mut self,
+        stmt: &Stmt,
+        next: usize,
+        break_state: Option<usize>,
+        continue_state: Option<usize>,
+    ) -> usize {
+        if !self.supported {
+            return next;
+        }
+        match stmt {
+            Stmt::Var(var) => {
+                let name = var.name.name.clone();
+                let Some(key) = self.locals.get(&name).cloned() else {
+                    self.supported = false;
+                    return next;
+                };
+                if let Expr::Async(AsyncExpr::Await(await_expr)) = &var.init {
+                    if key != "Int"
+                        || expr_contains_async(&await_expr.operand)
+                        || !self.locals.contains_key(&name)
+                    {
+                        self.supported = false;
+                        return next;
+                    }
+                    let operand = emit_expr(&await_expr.operand, &mut self.ctx);
+                    let state = self.alloc();
+                    self.finish(
+                        state,
+                        AsyncCfgNode::Await {
+                            value: mangle_ident(&name),
+                            operand,
+                            owns_task: await_operand_is_temporary(
+                                &await_expr.operand,
+                                self.ctx.checked,
+                            ),
+                            next,
+                        },
+                    );
+                    state
+                } else {
+                    if expr_contains_async(&var.init) || !matches!(key.as_str(), "Int" | "Bool") {
+                        self.supported = false;
+                        return next;
+                    }
+                    let init = coerce_expr(&var.init, &key, &mut self.ctx);
+                    let state = self.alloc();
+                    self.finish(
+                        state,
+                        AsyncCfgNode::Action {
+                            code: format!("{} = {init};", mangle_ident(&name)),
+                            next,
+                        },
+                    );
+                    state
+                }
+            }
+            Stmt::If(branch) => {
+                if expr_contains_async(&branch.cond) {
+                    self.supported = false;
+                    return next;
+                }
+                let then_state =
+                    self.emit_block(&branch.then_block.stmts, next, break_state, continue_state);
+                let else_state = branch
+                    .else_block
+                    .as_ref()
+                    .map(|block| self.emit_block(&block.stmts, next, break_state, continue_state))
+                    .unwrap_or(next);
+                let condition = emit_expr(&branch.cond, &mut self.ctx);
+                let state = self.alloc();
+                self.finish(
+                    state,
+                    AsyncCfgNode::Branch {
+                        condition,
+                        then_state,
+                        else_state,
+                    },
+                );
+                state
+            }
+            Stmt::While(loop_stmt) => {
+                if expr_contains_async(&loop_stmt.cond) {
+                    self.supported = false;
+                    return next;
+                }
+                let condition_state = self.alloc();
+                let body_state = self.emit_block(
+                    &loop_stmt.body.stmts,
+                    condition_state,
+                    break_state.or(Some(next)),
+                    Some(condition_state),
+                );
+                let condition = emit_expr(&loop_stmt.cond, &mut self.ctx);
+                self.finish(
+                    condition_state,
+                    AsyncCfgNode::Branch {
+                        condition,
+                        then_state: body_state,
+                        else_state: next,
+                    },
+                );
+                condition_state
+            }
+            Stmt::Break(_) => break_state.unwrap_or_else(|| {
+                self.supported = false;
+                next
+            }),
+            Stmt::Continue(_) => continue_state.unwrap_or_else(|| {
+                self.supported = false;
+                next
+            }),
+            Stmt::Return(ret) => {
+                let Some(value) = &ret.value else {
+                    self.supported = false;
+                    return next;
+                };
+                if expr_contains_async(value) {
+                    self.supported = false;
+                    return next;
+                }
+                let value = coerce_expr(value, "Int", &mut self.ctx);
+                let state = self.alloc();
+                self.finish(state, AsyncCfgNode::Return { value });
+                state
+            }
+            Stmt::Expr(Expr::Assign(assign)) => {
+                let Some(key) = self.locals.get(&assign.name.name).cloned() else {
+                    self.supported = false;
+                    return next;
+                };
+                if expr_contains_async(&assign.value) || !matches!(key.as_str(), "Int" | "Bool") {
+                    self.supported = false;
+                    return next;
+                }
+                let value = coerce_expr(&assign.value, &key, &mut self.ctx);
+                let state = self.alloc();
+                self.finish(
+                    state,
+                    AsyncCfgNode::Action {
+                        code: format!("{} = {value};", mangle_ident(&assign.name.name)),
+                        next,
+                    },
+                );
+                state
+            }
+            Stmt::Expr(expr) if is_gc_collect_expr(expr) => {
+                let code = emit_expr(expr, &mut self.ctx);
+                let state = self.alloc();
+                self.finish(
+                    state,
+                    AsyncCfgNode::Action {
+                        code: format!("{code};"),
+                        next,
+                    },
+                );
+                state
+            }
+            Stmt::Expr(_) => {
+                self.supported = false;
+                next
+            }
+            _ => {
+                self.supported = false;
+                next
+            }
+        }
+    }
+}
+
+fn is_gc_collect_expr(expr: &Expr) -> bool {
+    matches!(
+        expr,
+        Expr::Call(call)
+            if call.args.is_empty()
+                && matches!(call.callee.as_ref(), Expr::Ident(id) if id.name == "gc_collect")
+    )
+}
+
+fn expr_contains_async(expr: &Expr) -> bool {
+    match expr {
+        Expr::Async(_) => true,
+        Expr::Binary(binary) => {
+            expr_contains_async(&binary.left) || expr_contains_async(&binary.right)
+        }
+        Expr::Unary(unary) => expr_contains_async(&unary.expr),
+        Expr::Group(inner, _) | Expr::ForceUnwrap(ForceUnwrapExpr { expr: inner, .. }) => {
+            expr_contains_async(inner)
+        }
+        Expr::Call(call) => {
+            expr_contains_async(&call.callee) || call.args.iter().any(expr_contains_async)
+        }
+        Expr::Field(field) => expr_contains_async(&field.object),
+        Expr::Assign(assign) => expr_contains_async(&assign.value),
+        Expr::If(if_expr) => {
+            expr_contains_async(&if_expr.cond)
+                || if_expr.then_block.stmts.iter().any(stmt_contains_async)
+                || if_expr.else_block.stmts.iter().any(stmt_contains_async)
+        }
+        _ => false,
+    }
+}
+
+fn stmt_contains_async(stmt: &Stmt) -> bool {
+    match stmt {
+        Stmt::Var(var) => expr_contains_async(&var.init),
+        Stmt::If(branch) => {
+            expr_contains_async(&branch.cond)
+                || branch.then_block.stmts.iter().any(stmt_contains_async)
+                || branch
+                    .else_block
+                    .as_ref()
+                    .is_some_and(|block| block.stmts.iter().any(stmt_contains_async))
+        }
+        Stmt::While(loop_stmt) => {
+            expr_contains_async(&loop_stmt.cond)
+                || loop_stmt.body.stmts.iter().any(stmt_contains_async)
+        }
+        Stmt::Return(ret) => ret.value.as_ref().is_some_and(expr_contains_async),
+        Stmt::Expr(expr) => expr_contains_async(expr),
+        _ => false,
+    }
+}
+
+fn contains_stmt_kind(stmts: &[Stmt], predicate: fn(&Stmt) -> bool) -> bool {
+    stmts.iter().any(|stmt| {
+        predicate(stmt)
+            || match stmt {
+                Stmt::If(branch) => {
+                    contains_stmt_kind(&branch.then_block.stmts, predicate)
+                        || branch
+                            .else_block
+                            .as_ref()
+                            .is_some_and(|block| contains_stmt_kind(&block.stmts, predicate))
+                }
+                Stmt::While(loop_stmt) => contains_stmt_kind(&loop_stmt.body.stmts, predicate),
+                _ => false,
+            }
+    })
+}
+
+fn contains_if_with_while(stmts: &[Stmt]) -> bool {
+    stmts.iter().any(|stmt| match stmt {
+        Stmt::If(branch) => {
+            contains_stmt_kind(&branch.then_block.stmts, |nested| {
+                matches!(nested, Stmt::While(_))
+            }) || branch.else_block.as_ref().is_some_and(|block| {
+                contains_stmt_kind(&block.stmts, |nested| matches!(nested, Stmt::While(_)))
+            }) || contains_if_with_while(&branch.then_block.stmts)
+                || branch
+                    .else_block
+                    .as_ref()
+                    .is_some_and(|block| contains_if_with_while(&block.stmts))
+        }
+        Stmt::While(loop_stmt) => contains_if_with_while(&loop_stmt.body.stmts),
+        _ => false,
+    })
+}
+
+fn collect_async_cfg_vars<'a>(
+    stmts: &'a [Stmt],
+    checked: &CheckedFile,
+    vars: &mut Vec<(&'a VarStmt, String)>,
+) -> bool {
+    for stmt in stmts {
+        match stmt {
+            Stmt::Var(var) => {
+                let key = var
+                    .ty
+                    .as_ref()
+                    .map(|ty| type_ref_local_key_expand(ty, &[], &[], checked))
+                    .unwrap_or_else(|| "Int".into());
+                vars.push((var, key));
+                if let Expr::Async(_) = var.init {
+                    continue;
+                }
+                if expr_contains_async(&var.init) {
+                    return false;
+                }
+            }
+            Stmt::If(branch) => {
+                if !collect_async_cfg_vars(&branch.then_block.stmts, checked, vars) {
+                    return false;
+                }
+                if let Some(block) = &branch.else_block {
+                    if !collect_async_cfg_vars(&block.stmts, checked, vars) {
+                        return false;
+                    }
+                }
+            }
+            Stmt::While(loop_stmt) => {
+                if !collect_async_cfg_vars(&loop_stmt.body.stmts, checked, vars) {
+                    return false;
+                }
+            }
+            _ => {}
+        }
+    }
+    true
+}
+
+/// Lower nested branch/loop control flow into a small explicit CFG. This is
+/// intentionally limited to scalar state first; the same graph can grow to
+/// owned aggregate slots after its transition and cancellation invariants are
+/// proven by native fixtures.
+fn emit_async_fun_cfg_int(
+    out: &mut String,
+    f: &AsyncFunDecl,
+    checked: &CheckedFile,
+    detector: bool,
+) -> bool {
+    let Some(ret) = &f.return_type else {
+        return false;
+    };
+    if type_ref_local_key_expand(ret, &[], &[], checked) != "Int"
+        || !contains_if_with_while(&f.body.stmts)
+    {
+        return false;
+    }
+    let mut vars = Vec::new();
+    if !collect_async_cfg_vars(&f.body.stmts, checked, &mut vars) {
+        return false;
+    }
+    if !vars.iter().any(|(_, key)| key == "Int") {
+        return false;
+    }
+    let mut locals = HashMap::new();
+    for (var, key) in &vars {
+        if !matches!(key.as_str(), "Int" | "Bool")
+            || locals.insert(var.name.name.clone(), key.clone()).is_some()
+        {
+            return false;
+        }
+    }
+    let params: Vec<String> = f.type_params.iter().map(|p| p.name.name.clone()).collect();
+    let mut ctx = async_ctx(checked, detector, &params, &f.params, &f.return_type);
+    for param in &f.params {
+        let key = type_ref_local_key_expand(&param.ty, &params, &[], checked);
+        if !matches!(key.as_str(), "Int" | "Bool") {
+            return false;
+        }
+        ctx.define_local(&param.name.name, full_type_mono(&key, checked));
+    }
+    for (var, key) in &vars {
+        ctx.define_local(&var.name.name, full_type_mono(key, checked));
+    }
+    let mut builder = AsyncCfgBuilder::new(ctx, locals.clone());
+    let terminal = builder.alloc();
+    builder.finish(
+        terminal,
+        AsyncCfgNode::Return {
+            value: "INT64_C(0)".into(),
+        },
+    );
+    let entry = builder.emit_block(&f.body.stmts, terminal, None, None);
+    if !builder.supported || builder.nodes.iter().any(Option::is_none) {
+        return false;
+    }
+    let pkg = async_fun_decl_package(f, checked);
+    let base = format!("{}_{}", mangle_package(&pkg), mangle_ident(&f.name.name));
+    let data_ty = format!("aura_async_data_{base}");
+    let poll_fn = format!("aura_async_poll_{base}");
+    let destroy_data = format!("aura_async_destroy_{base}");
+    let destroy_result = format!("aura_async_result_destroy_{base}");
+    let _ = writeln!(
+        out,
+        "/* aura async general CFG Int lowering states={} */",
+        builder.nodes.len()
+    );
+    let _ = writeln!(out, "typedef struct {data_ty} {{");
+    for param in &f.params {
+        let _ = writeln!(
+            out,
+            "  {} {};",
+            c_type_ref_subst(&param.ty, checked, &params, &[]),
+            mangle_ident(&param.name.name)
+        );
+    }
+    for (var, key) in &vars {
+        let _ = writeln!(
+            out,
+            "  {} {};",
+            crate::stmt::local_key_to_c(key, checked),
+            mangle_ident(&var.name.name)
+        );
+    }
+    out.push_str("  AuraTaskFrame *await_task; bool await_task_owned;\n");
+    let _ = writeln!(out, "}} {data_ty};\n");
+    let _ = writeln!(
+        out,
+        "static void {destroy_data}(AuraTaskFrame *frame) {{ {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame); if (data != NULL && data->await_task != NULL && data->await_task_owned && __aura_task_executor != NULL) (void)aura_task_executor_release(__aura_task_executor, &data->await_task); }}"
+    );
+    let _ = writeln!(
+        out,
+        "static void {destroy_result}(void *data, size_t size) {{ (void)size; free(data); }}\n"
+    );
+    let _ = writeln!(
+        out,
+        "static AuraTaskPollState {poll_fn}(AuraTaskFrame *frame) {{"
+    );
+    let _ = writeln!(
+        out,
+        "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame);"
+    );
+    out.push_str("  if (aura_task_frame_cancel_requested(frame)) return AURA_TASK_CANCELLED;\n");
+    for param in &f.params {
+        let name = mangle_ident(&param.name.name);
+        let _ = writeln!(
+            out,
+            "  {} {name} = data->{name};",
+            c_type_ref_subst(&param.ty, checked, &params, &[])
+        );
+    }
+    for (var, key) in &vars {
+        let name = mangle_ident(&var.name.name);
+        let _ = writeln!(
+            out,
+            "  {} {name} = data->{name};",
+            crate::stmt::local_key_to_c(key, checked)
+        );
+    }
+    out.push_str("  for (;;) {\n    switch (aura_task_frame_resume_state(frame)) {\n");
+    let sync = vars
+        .iter()
+        .map(|(var, _)| {
+            let name = mangle_ident(&var.name.name);
+            format!("data->{name} = {name};")
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    for (state, node) in builder.nodes.into_iter().enumerate() {
+        let node = node.expect("validated CFG node");
+        let _ = writeln!(out, "      case {state}: {{");
+        match node {
+            AsyncCfgNode::Action { code, next } => {
+                let _ = writeln!(
+                    out,
+                    "        {code} aura_task_frame_set_resume_state(frame, {next}); continue;"
+                );
+            }
+            AsyncCfgNode::Branch {
+                condition,
+                then_state,
+                else_state,
+            } => {
+                let _ = writeln!(out, "        aura_task_frame_set_resume_state(frame, ({condition}) ? {then_state} : {else_state}); continue;");
+            }
+            AsyncCfgNode::Await {
+                value,
+                operand,
+                owns_task,
+                next,
+            } => {
+                let _ = writeln!(out, "        if (data->await_task == NULL) {{ data->await_task = {operand}; data->await_task_owned = {}; }}", if owns_task { "true" } else { "false" });
+                out.push_str("        if (data->await_task == NULL) return AURA_TASK_FAILED;\n");
+                out.push_str("        AuraTaskPollState child_state = aura_task_frame_state(data->await_task); if (child_state == AURA_TASK_READY) child_state = aura_task_frame_poll_once(data->await_task);\n");
+                let _ = writeln!(out, "        if (child_state == AURA_TASK_PENDING) {{ {sync} aura_task_frame_set_resume_state(frame, {state}); if (!aura_task_frame_wait_on(frame, data->await_task)) return AURA_TASK_FAILED; return AURA_TASK_PENDING; }}");
+                out.push_str("        if (child_state == AURA_TASK_CANCELLED) return AURA_TASK_CANCELLED;\n        if (child_state == AURA_TASK_FAILED) { (void)aura_task_frame_propagate_error(frame, data->await_task); return AURA_TASK_FAILED; }\n        if (child_state != AURA_TASK_COMPLETE) return AURA_TASK_FAILED;\n");
+                let _ = writeln!(out, "        if (aura_task_frame_result(data->await_task).data != NULL) {value} = *((int64_t *)aura_task_frame_result(data->await_task).data); if (data->await_task_owned && __aura_task_executor != NULL) (void)aura_task_executor_release(__aura_task_executor, &data->await_task); data->await_task = NULL; data->await_task_owned = false; aura_task_frame_set_resume_state(frame, {next}); continue;");
+            }
+            AsyncCfgNode::Return { value } => {
+                let _ = writeln!(out, "        int64_t *result = (int64_t *)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; *result = {value}; aura_task_frame_set_result(frame, result, sizeof(*result), {destroy_result}); return AURA_TASK_COMPLETE;");
+            }
+        }
+        out.push_str("      }\n");
+    }
+    out.push_str("      default: return AURA_TASK_FAILED;\n    }\n  }\n}\n\n");
+    let _ = writeln!(out, "{} {{", c_async_fun_signature(f, checked));
+    let _ = writeln!(out, "  AuraTaskFrame *frame = aura_task_frame_new(sizeof({data_ty}), {poll_fn}, {destroy_data}); if (frame == NULL) return NULL;");
+    let _ = writeln!(
+        out,
+        "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame);"
+    );
+    for param in &f.params {
+        let name = mangle_ident(&param.name.name);
+        let _ = writeln!(out, "  data->{name} = {name};");
+    }
+    let _ = writeln!(out, "  data->await_task = NULL; data->await_task_owned = false; aura_task_frame_set_resume_state(frame, {entry});");
+    out.push_str("  if (__aura_task_executor != NULL && !aura_task_executor_submit(__aura_task_executor, frame)) { aura_task_frame_destroy(frame); return NULL; }\n  return frame;\n}\n");
     true
 }
 
