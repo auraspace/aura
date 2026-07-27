@@ -13,6 +13,7 @@ typedef struct
 
 static int drops;
 static int capture_gc_drops;
+static int outcome_gc_drops;
 
 static void drop_gc(void *data)
 {
@@ -30,6 +31,18 @@ static void drop_capture_gc(void *data)
 {
   (void)data;
   capture_gc_drops++;
+}
+
+static void drop_outcome(void *data, size_t size)
+{
+  (void)size;
+  free(data);
+}
+
+static void drop_outcome_gc(void *data)
+{
+  (void)data;
+  outcome_gc_drops++;
 }
 
 static AuraTaskPollState poll_pending(AuraTaskFrame *frame)
@@ -66,9 +79,43 @@ static void test_capture_storage_is_scanned_without_callback(void)
   aura_gc_remove_root(&sentinel);
 }
 
+static void test_outcome_storage_is_scanned_without_callback(void)
+{
+  void *sentinel = NULL;
+  aura_gc_add_root(&sentinel);
+  AuraTaskFrame *frame = aura_task_frame_new(0, poll_pending, NULL);
+  assert(frame != NULL);
+
+  void *result_child =
+      aura_gc_alloc_full(sizeof(uint64_t), drop_outcome_gc, NULL);
+  void *error_child =
+      aura_gc_alloc_full(sizeof(uint64_t), drop_outcome_gc, NULL);
+  assert(result_child != NULL && error_child != NULL);
+  *(uint64_t *)result_child = UINT64_C(0xabcddcba);
+  *(uint64_t *)error_child = UINT64_C(0x12344321);
+
+  void **result = (void **)malloc(sizeof(*result));
+  void **error = (void **)malloc(sizeof(*error));
+  assert(result != NULL && error != NULL);
+  *result = result_child;
+  *error = error_child;
+  aura_task_frame_set_result(frame, result, sizeof(*result), drop_outcome);
+  aura_task_frame_set_error(frame, error, sizeof(*error), drop_outcome);
+
+  aura_gc_collect();
+  assert(*(uint64_t *)result_child == UINT64_C(0xabcddcba));
+  assert(*(uint64_t *)error_child == UINT64_C(0x12344321));
+
+  aura_task_frame_destroy(frame);
+  aura_gc_collect();
+  assert(outcome_gc_drops == 2);
+  aura_gc_remove_root(&sentinel);
+}
+
 int main(void)
 {
   test_capture_storage_is_scanned_without_callback();
+  test_outcome_storage_is_scanned_without_callback();
   void *sentinel = aura_gc_alloc(1);
   assert(sentinel != NULL);
   aura_gc_add_root(&sentinel);

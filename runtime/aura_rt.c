@@ -5631,6 +5631,26 @@ static void aura_gc_mark_task_frames(void)
         aura_gc_mark_ptr(candidate);
       }
     }
+    /* Terminal outcomes are allocator-owned payloads too.  Scan their
+     * pointer-sized words so a class/array payload remains live until the
+     * owning task frame is released. */
+    const AuraTaskResult *outcomes[] = {&frame->result, &frame->error};
+    for (size_t o = 0; o < sizeof(outcomes) / sizeof(outcomes[0]); o++)
+    {
+      const unsigned char *bytes =
+          (const unsigned char *)outcomes[o]->data;
+      size_t words = outcomes[o]->size / sizeof(void *);
+      if (outcomes[o]->data != NULL)
+      {
+        aura_gc_mark_ptr(outcomes[o]->data);
+      }
+      for (size_t i = 0; bytes != NULL && i < words; i++)
+      {
+        void *candidate = NULL;
+        memcpy(&candidate, bytes + i * sizeof(candidate), sizeof(candidate));
+        aura_gc_mark_ptr(candidate);
+      }
+    }
     if (frame->gc_mark != NULL)
     {
       frame->gc_mark(frame);
