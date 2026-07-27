@@ -5486,6 +5486,26 @@ typedef struct
   AuraTaskResult error;
 } AuraTaskOutcome;
 
+/* An owned copy of a terminal outcome.  Unlike AuraTaskOutcome, this value
+ * remains valid after the task frame is released.  The caller supplies clone
+ * and destroy functions because the runtime cannot infer payload ownership. */
+typedef struct
+{
+  AuraTaskPollState state;
+  AuraTaskResult result;
+  AuraTaskResult error;
+  AuraTaskResultDestroyFn result_destroy;
+  AuraTaskResultDestroyFn error_destroy;
+} AuraTaskOwnedOutcome;
+
+int aura_task_outcome_clone(const AuraTaskOutcome *source,
+                            AuraTaskResultCloneFn result_clone,
+                            AuraTaskResultDestroyFn result_destroy,
+                            AuraTaskResultCloneFn error_clone,
+                            AuraTaskResultDestroyFn error_destroy,
+                            AuraTaskOwnedOutcome *out);
+void aura_task_owned_outcome_destroy(AuraTaskOwnedOutcome *out);
+
 typedef struct
 {
   uint64_t task_id;
@@ -7379,6 +7399,73 @@ AuraTaskOutcome aura_task_executor_join_outcome(AuraTaskExecutor *executor,
                                    NULL);
   }
   return outcome;
+}
+
+int aura_task_outcome_clone(const AuraTaskOutcome *source,
+                            AuraTaskResultCloneFn result_clone,
+                            AuraTaskResultDestroyFn result_destroy,
+                            AuraTaskResultCloneFn error_clone,
+                            AuraTaskResultDestroyFn error_destroy,
+                            AuraTaskOwnedOutcome *out)
+{
+  size_t cloned_size = 0;
+
+  if (source == NULL || out == NULL)
+  {
+    return 0;
+  }
+  *out = (AuraTaskOwnedOutcome){source->state, {NULL, 0}, {NULL, 0}, NULL, NULL};
+  if (source->state == AURA_TASK_COMPLETE && source->result.data != NULL)
+  {
+    if (result_clone == NULL || result_destroy == NULL)
+    {
+      return 0;
+    }
+    out->result.data = result_clone(source->result.data, source->result.size,
+                                    &cloned_size);
+    if (out->result.data == NULL)
+    {
+      return 0;
+    }
+    out->result.size = cloned_size;
+    out->result_destroy = result_destroy;
+  }
+  if (source->state == AURA_TASK_FAILED && source->error.data != NULL)
+  {
+    cloned_size = 0;
+    if (error_clone == NULL || error_destroy == NULL)
+    {
+      aura_task_owned_outcome_destroy(out);
+      return 0;
+    }
+    out->error.data = error_clone(source->error.data, source->error.size,
+                                  &cloned_size);
+    if (out->error.data == NULL)
+    {
+      aura_task_owned_outcome_destroy(out);
+      return 0;
+    }
+    out->error.size = cloned_size;
+    out->error_destroy = error_destroy;
+  }
+  return 1;
+}
+
+void aura_task_owned_outcome_destroy(AuraTaskOwnedOutcome *out)
+{
+  if (out == NULL)
+  {
+    return;
+  }
+  if (out->result.data != NULL && out->result_destroy != NULL)
+  {
+    out->result_destroy(out->result.data, out->result.size);
+  }
+  if (out->error.data != NULL && out->error_destroy != NULL)
+  {
+    out->error_destroy(out->error.data, out->error.size);
+  }
+  *out = (AuraTaskOwnedOutcome){0, {NULL, 0}, {NULL, 0}, NULL, NULL};
 }
 
 AuraTaskPollState aura_task_executor_join(AuraTaskExecutor *executor,

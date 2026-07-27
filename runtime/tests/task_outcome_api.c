@@ -87,9 +87,18 @@ int main(void)
          *(int *)success_first.result.data == 42);
   assert(success_first.error.data == NULL);
   assert_same_outcome(success_first, success_second);
+  AuraTaskOwnedOutcome owned_success = {0};
+  assert(aura_task_outcome_clone(&success_first, clone_payload, drop_payload,
+                                 clone_payload, drop_payload, &owned_success));
+  assert(owned_success.state == AURA_TASK_COMPLETE);
+  assert(owned_success.result.data != NULL &&
+         *(int *)owned_success.result.data == 42);
   assert(aura_task_executor_release(executor, &success) == 1);
   assert(success == NULL);
   assert(payload_drops == 1);
+  assert(*(int *)owned_success.result.data == 42);
+  aura_task_owned_outcome_destroy(&owned_success);
+  assert(payload_drops == 2);
 
   AuraTaskFrame *failed = new_outcome_api_task(1);
   AuraTaskOutcome failed_first =
@@ -102,8 +111,17 @@ int main(void)
          *(int *)failed_first.error.data == 17);
   assert_same_outcome(failed_first, failed_second);
   assert(aura_task_frame_error_source_id(failed) == UINT32_C(0xabad));
+  AuraTaskOwnedOutcome owned_failed = {0};
+  assert(aura_task_outcome_clone(&failed_first, clone_payload, drop_payload,
+                                 clone_payload, drop_payload, &owned_failed));
+  assert(owned_failed.state == AURA_TASK_FAILED);
+  assert(owned_failed.error.data != NULL &&
+         *(int *)owned_failed.error.data == 17);
   assert(aura_task_executor_release(executor, &failed) == 1);
-  assert(payload_drops == 2);
+  assert(payload_drops == 3);
+  assert(*(int *)owned_failed.error.data == 17);
+  aura_task_owned_outcome_destroy(&owned_failed);
+  assert(payload_drops == 4);
 
   AuraTaskFrame *cancelled = new_outcome_api_task(0);
   assert(aura_task_executor_submit(executor, cancelled) == 1);
@@ -116,8 +134,14 @@ int main(void)
   assert(cancelled_first.result.data == NULL);
   assert(cancelled_first.error.data == NULL);
   assert_same_outcome(cancelled_first, cancelled_second);
+  AuraTaskOwnedOutcome owned_cancelled = {0};
+  assert(aura_task_outcome_clone(&cancelled_first, clone_payload, drop_payload,
+                                 clone_payload, drop_payload, &owned_cancelled));
+  assert(owned_cancelled.state == AURA_TASK_CANCELLED);
+  assert(owned_cancelled.result.data == NULL && owned_cancelled.error.data == NULL);
+  aura_task_owned_outcome_destroy(&owned_cancelled);
   assert(aura_task_executor_release(executor, &cancelled) == 1);
-  assert(payload_drops == 2);
+  assert(payload_drops == 4);
 
   /* Full outcome propagation clones a successful payload, so repeated
    * observations remain valid even when the parent is released first. */
@@ -133,7 +157,7 @@ int main(void)
   assert(*(int *)copied.data == 42);
   aura_task_frame_destroy(source);
   aura_task_frame_destroy(parent);
-  assert(payload_drops == 4);
+  assert(payload_drops == 6);
 
   /* Cancellation is an explicit terminal outcome, not a failed payload. */
   AuraTaskFrame *cancel_source = new_outcome_api_task(0);

@@ -32,10 +32,13 @@ When you resolve debt, update or remove the matching entry.
   state-machine paths remain open. The no-await primitive failure leak was
   fixed by allocating the result slot only after the body returns, avoiding a
   `longjmp`-orphaned allocation; this does not close the broader ownership
-  contract.
+  contract. The runtime now also exposes `aura_task_outcome_clone` and
+  `aura_task_owned_outcome_destroy`, proving an owned terminal snapshot can
+  outlive its frame for success/error/cancel states; generated `join` still
+  constructs `TaskError` from borrowed frame bytes.
 - Next step: connect generated class payload ownership and suspended await
-  propagation to the clone/destroy boundary, then add cancellation and
-  forced-GC evidence.
+  propagation and generated `Result`/`TaskError` cleanup to the clone/destroy
+  boundary, then add cancellation and forced-GC evidence.
 
 ### ASYNC-003 conditional await inside bounded loops remains partial (updated 2026-07-27)
 
