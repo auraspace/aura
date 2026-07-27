@@ -1293,6 +1293,54 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_two_await_string_state_machine() {
+        let file = aura_parser::parse_file(
+            r#"package demo
+async fun answer(): String { return "multi-string" }
+async fun twice(): String {
+  val first: String = await answer()
+  val second: String = await answer()
+  return second
+}
+fun main() {
+  val task = spawn {
+    val value: String = await twice()
+    println(value)
+    return
+  }
+  join(task)
+}
+"#,
+        )
+        .expect("parse two-await String fixture");
+        let generated = emit_c_from_ast(&file).expect("emit two-await String fixture");
+        assert!(generated.contains("aura async suspension state=2 kind=await"));
+        assert!(generated.contains("AuraTaskFrame *await_task_1;"));
+        assert!(generated.contains("strlen(__s)"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-async-two-string-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile two-await String fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run two-await String fixture");
+        assert!(
+            output.status.success(),
+            "two-await String fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "multi-string\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_corpus_four_await_fixture() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
