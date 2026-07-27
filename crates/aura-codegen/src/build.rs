@@ -547,7 +547,7 @@ fun main() { fail() }
         .expect("parse async primitive failure fixture");
         let generated = emit_c_from_ast(&file).expect("emit async primitive failure fixture");
         assert!(generated.contains("aura_task_frame_set_error_span_with_clone"));
-        assert!(generated.contains("aura_async_error_clone_demo_fail"));
+        assert!(generated.contains("aura_async_string_error_clone_demo_fail"));
         assert!(generated.contains("aura_ex_matches(\"Int\")"));
 
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -1620,6 +1620,58 @@ fun main() {
         assert!(
             output.status.success(),
             "catchable join failure fixture failed: {output:?}"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn joined_string_failure_preserves_error_detail() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+async fun fail(): String { throw "detail-preserved" }
+fun main() {
+  val task = spawn { val value: String = await fail() println("unexpected") return }
+  val outcome = join(task)
+  match (outcome) {
+    case Ok(value) => { println("unexpected") }
+    case Err(error) => {
+      match (error) {
+        case Failed(message) => { println(message) }
+        case Cancelled => { println("cancelled") }
+      }
+    }
+  }
+}
+"#,
+        )
+        .expect("parse String join-failure fixture");
+        let generated = emit_c_from_ast(&file).expect("emit String join-failure fixture");
+        assert!(generated.contains("const char *__join_error"));
+        assert!(generated.contains("aura_ex_matches(\"String\")"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-join-string-failure-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile String join-failure fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run String join-failure fixture");
+        assert!(
+            output.status.success(),
+            "String join-failure fixture failed: {output:?}"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "detail-preserved\n"
         );
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);

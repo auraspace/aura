@@ -802,17 +802,17 @@ When you resolve debt, update or remove the matching entry.
   still unavailable in this environment; the validator intentionally rejects
   any report that claims those checks.
 
-### ASYNC-002 task outcome representation remains open (2026-07-23)
+### ASYNC-002 task outcome representation remains open (updated 2026-07-27)
 
 - Generated `join` now exposes `std.io.Result<T, std.io.TaskError>` and
   distinguishes `TaskError.Failed(String)` from `TaskError.Cancelled`.
-  Because the permitted slice cannot change the runtime ABI, the compiler uses
-  stable diagnostics rather than reifying arbitrary runtime error payloads.
-  Payload preservation, cancellation ownership, cleanup, and repeated-join
-  semantics remain open.
+  Primitive Int/Bool failures are normalized to owned strings, and String
+  failures preserve their detail through a joined outcome. Cancellation
+  ownership, cleanup, repeated-join semantics, and arbitrary typed payload
+  transfer remain open.
 - Next step: extend the runtime outcome ABI and generated clone/destroy path so
-  `TaskError.Failed(error)` can own the original typed payload; that work is
-  intentionally outside this compiler-only slice.
+  `TaskError.Failed(error)` can own arbitrary original typed payloads; that work
+  is intentionally outside this compiler-only slice.
 
 ### REG-002 production trust remains open (updated 2026-07-23)
 

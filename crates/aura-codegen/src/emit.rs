@@ -3531,13 +3531,13 @@ fn emit_async_fun_no_await(
         );
     }
     out.push_str("    return AURA_TASK_COMPLETE;\n  }\n");
-    out.push_str("  if (aura_ex_matches(\"Int\")) { int64_t *error = (int64_t *)malloc(sizeof(*error)); if (error == NULL) { aura_ex_clear(); aura_try_leave(); return AURA_TASK_FAILED; } *error = aura_ex_as_int(); aura_ex_clear(); aura_try_leave(); aura_task_frame_set_error_span_with_clone(frame, error, sizeof(*error), ");
-    out.push_str(&clone_bytes);
+    out.push_str("  if (aura_ex_matches(\"Int\")) { char *error = (char *)malloc(32); if (error == NULL) { aura_ex_clear(); aura_try_leave(); return AURA_TASK_FAILED; } (void)snprintf(error, 32, \"%lld\", (long long)aura_ex_as_int()); aura_ex_clear(); aura_try_leave(); aura_task_frame_set_error_span_with_clone(frame, error, strlen(error) + 1, ");
+    out.push_str(&clone_string);
     out.push_str(", ");
     out.push_str(&destroy_error);
     out.push_str(", 0, 0, 0); return AURA_TASK_FAILED; }\n");
-    out.push_str("  if (aura_ex_matches(\"Bool\")) { bool *error = (bool *)malloc(sizeof(*error)); if (error == NULL) { aura_ex_clear(); aura_try_leave(); return AURA_TASK_FAILED; } *error = aura_ex_as_bool(); aura_ex_clear(); aura_try_leave(); aura_task_frame_set_error_span_with_clone(frame, error, sizeof(*error), ");
-    out.push_str(&clone_bytes);
+    out.push_str("  if (aura_ex_matches(\"Bool\")) { const char *text = aura_ex_as_bool() ? \"true\" : \"false\"; size_t len = strlen(text); char *error = (char *)malloc(len + 1); if (error == NULL) { aura_ex_clear(); aura_try_leave(); return AURA_TASK_FAILED; } memcpy(error, text, len + 1); aura_ex_clear(); aura_try_leave(); aura_task_frame_set_error_span_with_clone(frame, error, len + 1, ");
+    out.push_str(&clone_string);
     out.push_str(", ");
     out.push_str(&destroy_error);
     out.push_str(", 0, 0, 0); return AURA_TASK_FAILED; }\n");

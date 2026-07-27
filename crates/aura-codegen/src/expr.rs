@@ -1842,10 +1842,10 @@ fn emit_async_expr(expr: &AsyncExpr, ctx: &mut EmitCtx<'_>) -> String {
             out.push_str(&result_ty);
             out.push_str(" __join_value; AuraTaskFrame *__join = (");
             out.push_str(&handle);
-            out.push_str(&format!("); aura_race_set_source_id(UINT32_C({})); AuraTaskOutcome __join_outcome = aura_task_executor_join_outcome(__aura_task_executor, __join); AuraTaskPollState __join_state = __join_outcome.state; AuraTaskResult __join_result = __join_outcome.result; aura_race_set_source_id(0); ", j.span.start));
+            out.push_str(&format!("); aura_race_set_source_id(UINT32_C({})); AuraTaskOutcome __join_outcome = aura_task_executor_join_outcome(__aura_task_executor, __join); AuraTaskPollState __join_state = __join_outcome.state; AuraTaskResult __join_result = __join_outcome.result; const char *__join_error = (__join_outcome.error.data != NULL && __join_outcome.error.size != 0) ? (const char *)__join_outcome.error.data : \"joined task failed\"; aura_race_set_source_id(0); ", j.span.start));
             out.push_str(
                 &format!(
-                    "if (__join_state == AURA_TASK_FAILED) {{ __join_value = {result_err}({task_failed}(\"joined task failed\")); }} "
+                    "if (__join_state == AURA_TASK_FAILED) {{ __join_value = {result_err}({task_failed}(__join_error)); }} "
                 ),
             );
             out.push_str(
