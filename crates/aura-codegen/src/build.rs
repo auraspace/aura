@@ -1158,6 +1158,60 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_nested_branch_await_state_machine() {
+        let file = aura_parser::parse_file(
+            r#"package demo
+async fun leaf(value: Int): Int { return value }
+async fun nested(outer: Bool, inner: Bool): Int {
+  if (outer) {
+    if (inner) { val value: Int = await leaf(1) return value }
+    else { val value: Int = await leaf(2) return value }
+  } else {
+    if (inner) { val value: Int = await leaf(3) return value }
+    else { val value: Int = await leaf(4) return value }
+  }
+}
+fun main() {
+  val first = spawn { val value: Int = await nested(true, true) println(value.toString()) return }
+  join(first)
+  val second = spawn { val value: Int = await nested(true, false) println(value.toString()) return }
+  join(second)
+  val third = spawn { val value: Int = await nested(false, true) println(value.toString()) return }
+  join(third)
+  val fourth = spawn { val value: Int = await nested(false, false) println(value.toString()) return }
+  join(fourth)
+}
+"#,
+        )
+        .expect("parse nested branch-await fixture");
+        let generated = emit_c_from_ast(&file).expect("emit nested branch-await fixture");
+        assert!(generated.contains("aura async nested-branch suspension states=1 leaves=4"));
+        assert!(generated.contains("uint8_t selected_path;"));
+        assert!(generated.contains("aura_task_frame_set_resume_state(frame, 1)"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-nested-branch-await-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile nested branch-await fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run nested branch-await fixture");
+        assert!(
+            output.status.success(),
+            "nested branch-await fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "1\n2\n3\n4\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_corpus_four_await_fixture() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
