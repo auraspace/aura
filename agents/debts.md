@@ -108,9 +108,11 @@ When you resolve debt, update or remove the matching entry.
   child handles and resume states, skips unselected awaits without allocation,
   and runs its shared GC/accumulator continuation exactly once per iteration.
   Native coverage exercises all four condition combinations, repeated joins,
-  and queued cancellation.
+  and queued cancellation. The same lowering now supports three conditional
+  awaits with four distinct resume states, forced GC, repeated joins, and
+  queued cancellation coverage.
 - Why still deferred: arbitrary nested loops beyond the supported two-level
-  Int shape, more than two conditional awaits,
+  Int shape, more than three conditional awaits,
   nested branch-local values, and richer payload types still fall back to the
   existing bounded-shape rejection path; `break`/`continue` outside the new
   top-level Int loop CFG slice remain unsupported.
