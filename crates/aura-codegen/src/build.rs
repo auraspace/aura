@@ -1082,6 +1082,64 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_loop_await_with_break_continue_and_gc() {
+        let source = r#"package demo
+async fun worker(value: Int): Int { return value }
+async fun guarded(limit: Int): Int {
+  var i: Int = 0
+  while (i < limit) {
+    if (i == 1) {
+      i = i + 1
+      continue
+    }
+    if (i == 4) { break }
+    val value: Int = await worker(i)
+    i = i + 1
+    gc_collect()
+  }
+  return i
+}
+fun main() {
+  val first = spawn { val result: Int = await guarded(6) println(result.toString()) return }
+  join(first)
+  gc_collect()
+  val second = spawn { val result: Int = await guarded(2) println(result.toString()) return }
+  join(second)
+  val cancelled = spawn { val result: Int = await guarded(6) println("unexpected-cancel") return }
+  cancel(cancelled)
+  join(cancelled)
+}
+"#;
+        let file = parse_file(source).expect("parse guarded loop-await fixture");
+        let generated = emit_c_from_ast(&file).expect("emit guarded loop-await fixture");
+        assert!(generated.contains("aura async loop CFG suspension states=1"));
+        assert!(generated.contains("aura_async_loop_cfg_head"));
+        assert!(generated.contains("aura_task_frame_set_resume_state(frame, 2)"));
+        assert!(generated.contains("aura_task_frame_propagate_error(frame, data->await_task)"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-loop-guarded-await-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile guarded loop-await fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run guarded loop-await fixture");
+        assert!(
+            output.status.success(),
+            "guarded loop-await fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "4\n2\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_loop_with_multiple_await_states() {
         let source = r#"package demo
 async fun worker(value: Int): Int { return value }

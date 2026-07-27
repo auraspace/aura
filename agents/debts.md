@@ -63,10 +63,14 @@ When you resolve debt, update or remove the matching entry.
   loop paths. A bounded branch-then-second-await shape now persists the
   selected branch, carries two child slots across three resume states, runs
   `gc_collect()` between awaits, and rejects cancellation before worker
-  execution in a native regression.
+  execution in a native regression. A loop CFG slice now supports multiple
+  pre-await guard branches with `break`/`continue`, a distinct resumed child
+  state, forced GC after completion, and queued-task cancellation in a native
+  regression.
 - Why still deferred: arbitrary nested loops, multiple conditional awaits,
-  break/continue, branch-local values, and richer payload types still fall
-  back to the existing bounded-shape rejection path.
+  nested branch-local values, and richer payload types still fall back to the
+  existing bounded-shape rejection path; `break`/`continue` outside the new
+  top-level Int loop CFG slice remain unsupported.
 - Next step: generalize the control-flow graph/state numbering to those
   remaining shapes after frame-root and typed-outcome ownership coverage grows.
 
