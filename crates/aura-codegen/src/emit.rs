@@ -4097,7 +4097,12 @@ fn emit_async_fun_single_await(
         return false;
     };
     let await_key = type_ref_local_key_expand(await_ty, &[], &[], checked);
-    if await_key != "Int" && await_key != "Bool" && await_key != "String" {
+    if await_key != "Int"
+        && await_key != "Bool"
+        && await_key != "String"
+        && !is_array_type_key(&await_key)
+        && !is_heap_class_mono(&await_key, checked)
+    {
         return false;
     }
     let mut locals = Vec::new();
@@ -4210,8 +4215,23 @@ fn emit_async_fun_single_await(
         out,
         "static void {destroy_result}(void *data, size_t size) {{"
     );
+    let ret_key = f
+        .return_type
+        .as_ref()
+        .map(|t| type_ref_local_key_expand(t, &params, &[], checked))
+        .unwrap_or_else(|| "Unit".into());
     if ret == "const char *" {
         out.push_str("  (void)size;\n  if (data != NULL) free((void *)*((const char **)data));\n  free(data);\n}\n\n");
+    } else if is_heap_class_mono(&ret_key, checked) {
+        out.push_str("  (void)size;\n  if (data != NULL) { aura_gc_remove_root((void **)data); free(data); }\n}\n\n");
+    } else if is_array_type_key(&ret_key) {
+        let ret_cty = crate::stmt::local_key_to_c(&ret_key, checked);
+        let _ = writeln!(
+            out,
+            "  (void)size; if (data != NULL) {{ {ret_cty} *result = ({ret_cty} *)data;"
+        );
+        crate::array_emit::emit_array_contents_free(out, 2, "(*result)", &ret_key);
+        out.push_str("  free(result); }\n}\n\n");
     } else {
         out.push_str("  (void)size;\n  free(data);\n}\n\n");
     }
@@ -4298,6 +4318,9 @@ fn emit_async_fun_single_await(
             out.push_str("      if (__returned == NULL) { *result = NULL; } else { size_t __len = strlen(__returned); char *__copy = (char *)malloc(__len + 1); if (__copy == NULL) { free(result); return AURA_TASK_FAILED; } memcpy(__copy, __returned, __len + 1); *result = __copy; }\n");
         } else {
             let _ = writeln!(out, "      *result = {resume_fn}(data, observed);");
+        }
+        if is_heap_class_mono(&ret_key, checked) {
+            out.push_str("      aura_gc_add_root((void **)result);\n");
         }
         let _ = writeln!(
             out,

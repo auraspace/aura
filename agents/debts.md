@@ -42,7 +42,7 @@ When you resolve debt, update or remove the matching entry.
   scope exit. Bare joins remain borrowed, while successful non-String/richer
   payloads still need a corresponding generated ownership path. Native typed
   spawn coverage now includes suspended String, Int, Bool, and heap-class
-  returns, repeated success joins, typed cancellation, and direct producer-side
+  returns (including a child async single-await class result), repeated success joins, typed cancellation, and direct producer-side
   `Array<Int>` payloads with repeated owning joins; richer typed payloads still
   need matching poller ownership paths.
 - Next step: connect richer aggregate payload ownership and suspended await

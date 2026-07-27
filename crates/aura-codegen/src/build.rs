@@ -2279,7 +2279,8 @@ fun main() {
 enum TaskError { case Failed(error: String) case Cancelled }
 enum Result<T, E> { case Ok(value: T) case Err(error: E) }
 class Box(val value: Int) {}
-async fun answer(): Box { return Box(91) }
+async fun leaf(): Box { return Box(91) }
+async fun answer(): Box { return await leaf() }
 fun main() {
   val task = spawn {
     val value: Box = await answer()
