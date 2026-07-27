@@ -47,8 +47,10 @@ When you resolve debt, update or remove the matching entry.
   task creation; pending true branches resume without repeating the
   iteration. A sequential multi-await loop body now uses one frame state and
   child slot per await, persists loop locals across every suspension, and
-  continues the next iteration only after the final child completes.
-  `aura-codegen` has native regressions covering both loop paths.
+  continues the next iteration only after the final child completes. Native
+  coverage now also forces GC between iterations and cancels a queued loop
+  task before its first poll. `aura-codegen` has regressions covering both
+  loop paths.
 - Why still deferred: arbitrary nested loops, multiple conditional awaits,
   break/continue, branch-local values, and richer payload types still fall
   back to the existing bounded-shape rejection path.

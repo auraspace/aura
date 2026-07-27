@@ -731,7 +731,12 @@ fn emit_async_fun_while_multi_await_int(
     }
     if loop_stmt.body.stmts[loop_awaits.len()..]
         .iter()
-        .any(|stmt| !matches!(stmt, Stmt::Expr(Expr::Assign(_))))
+        .any(|stmt| {
+            !matches!(
+                stmt,
+                Stmt::Expr(Expr::Assign(_)) | Stmt::Expr(Expr::Call(_))
+            )
+        })
     {
         return false;
     }

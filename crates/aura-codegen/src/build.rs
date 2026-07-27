@@ -1092,6 +1092,7 @@ async fun sum(limit: Int): Int {
     val first: Int = await worker(i)
     val second: Int = await worker(first + 1)
     total = total + first + second
+    gc_collect()
     i = i + 1
   }
   return total
@@ -1099,6 +1100,9 @@ async fun sum(limit: Int): Int {
 fun main() {
   val task = spawn { val result: Int = await sum(3) println(result.toString()) return }
   join(task)
+  val cancelled = spawn { val result: Int = await sum(3) println("unexpected-cancel") return }
+  cancel(cancelled)
+  join(cancelled)
 }
 "#;
         let file = parse_file(source).expect("parse multi-await loop fixture");
