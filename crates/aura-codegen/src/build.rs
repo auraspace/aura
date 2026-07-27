@@ -1250,6 +1250,49 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_spawn_string_await_with_repeated_join() {
+        let file = aura_parser::parse_file(
+            r#"package demo
+async fun answer(): String { return "spawn-string" }
+fun main() {
+  val task = spawn {
+    val value: String = await answer()
+    println(value)
+    return
+  }
+  join(task)
+  join(task)
+}
+"#,
+        )
+        .expect("parse spawned String-await fixture");
+        let generated = emit_c_from_ast(&file).expect("emit spawned String-await fixture");
+        assert!(generated.contains("const char * await_value;"));
+        assert!(generated.contains("aura_task_executor_join_outcome"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-async-spawn-string-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile spawned String-await fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run spawned String-await fixture");
+        assert!(
+            output.status.success(),
+            "spawned String-await fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "spawn-string\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_corpus_four_await_fixture() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()

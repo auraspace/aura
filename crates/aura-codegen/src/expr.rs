@@ -1025,8 +1025,8 @@ pub(crate) fn mutable_spawn_capture_names(block: &Block) -> HashSet<String> {
     mutable.intersection(&spawned).cloned().collect()
 }
 
-/// Bounded spawn suspension shape: the first statement awaits an `Int` or
-/// `Bool` task, and the remaining body is synchronous. Captures are copied into
+/// Bounded spawn suspension shape: the first statement awaits a primitive task,
+/// and the remaining body is synchronous. Captures are copied into
 /// the frame before submission and materialized only after the child reaches
 /// a terminal state, so temporary Array/Fun clones never span a pending poll.
 pub(crate) fn bounded_spawn_await_shape<'a>(
@@ -1045,7 +1045,7 @@ pub(crate) fn bounded_spawn_await_shape<'a>(
         .map(|ty| {
             matches!(
                 type_ref_local_key_expand(ty, &[], &[], checked).as_str(),
-                "Int" | "Bool"
+                "Int" | "Bool" | "String"
             )
         })
         .unwrap_or(false)
