@@ -53,6 +53,14 @@ trap 'rm -rf "$tmp"' EXIT
 
 native_asan_options="${AURA_SANITIZER_NATIVE_ASAN_OPTIONS:-detect_leaks=1:halt_on_error=1}"
 aura_asan_options="${AURA_SANITIZER_AURA_ASAN_OPTIONS:-detect_leaks=1:halt_on_error=1}"
+if [[ "$(uname -s)" == Darwin ]]; then
+  if [[ -z "${AURA_SANITIZER_NATIVE_ASAN_OPTIONS+x}" ]]; then
+    native_asan_options='detect_leaks=0:halt_on_error=1'
+  fi
+  if [[ -z "${AURA_SANITIZER_AURA_ASAN_OPTIONS+x}" ]]; then
+    aura_asan_options='detect_leaks=0:halt_on_error=1'
+  fi
+fi
 ubsan_options="${UBSAN_OPTIONS:-halt_on_error=1:print_stacktrace=1}"
 
 run_native_fixture() {

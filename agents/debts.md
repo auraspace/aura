@@ -41,13 +41,12 @@ When you resolve debt, update or remove the matching entry.
   successful strings through an owned `Ok` constructor and release them at
   scope exit. Bare joins remain borrowed, while successful non-String/richer
   payloads still need a corresponding generated ownership path. Native typed
-  spawn coverage now includes suspended String, Int, and Bool returns,
-  repeated success joins, typed cancellation, and direct producer-side
-  `Array<Int>` payloads with repeated owning joins; aggregate and richer typed
-  payloads still need matching poller ownership paths.
-- Next step: connect generated class payload ownership and suspended await
-  propagation and generated `Result`/`TaskError` cleanup to the clone/destroy
-  boundary, then add cancellation and forced-GC evidence.
+  spawn coverage now includes suspended String, Int, Bool, and heap-class
+  returns, repeated success joins, typed cancellation, and direct producer-side
+  `Array<Int>` payloads with repeated owning joins; richer typed payloads still
+  need matching poller ownership paths.
+- Next step: connect richer aggregate payload ownership and suspended await
+  failure propagation to the clone/destroy boundary.
 
 ### ASYNC-003 conditional await inside bounded loops remains partial (updated 2026-07-27)
 
@@ -835,9 +834,10 @@ When you resolve debt, update or remove the matching entry.
 - Generated `join` now exposes `std.io.Result<T, std.io.TaskError>` and
   distinguishes `TaskError.Failed(String)` from `TaskError.Cancelled`.
   Primitive Int/Bool failures are normalized to owned strings, String
-  failures preserve their detail, and no-await typed String spawn success is
-  owned across repeated joins. Cancellation ownership and arbitrary typed
-  payload transfer remain open.
+  failures preserve their detail, and no-await typed String plus heap-class
+  spawn success is owned across repeated joins. Direct `Array<Int>` success is
+  cloned for owning joins; cancellation ownership and arbitrary typed payload
+  transfer remain open.
 - Next step: extend the runtime outcome ABI and generated clone/destroy path so
   `TaskError.Failed(error)` can own arbitrary original typed payloads; that work
   is intentionally outside this compiler-only slice.

@@ -559,6 +559,66 @@ impl Checker {
                 });
         }
 
+        // Register class headers before async signatures are resolved. Async
+        // return types may legitimately carry a class payload.
+        for c in &file.classes {
+            let pkg = decl_package(&c.origin_package, &file_pkg).to_string();
+            if self
+                .interfaces
+                .get(&c.name.name)
+                .map(|v| v.iter().any(|i| i.package == pkg))
+                .unwrap_or(false)
+                || self
+                    .functions
+                    .get(&c.name.name)
+                    .map(|v| v.iter().any(|f| f.package == pkg))
+                    .unwrap_or(false)
+            {
+                self.errors.push(SemaError {
+                    message: format!(
+                        "duplicate type/function name `{}` in package `{pkg}`",
+                        c.name.name
+                    ),
+                    span: c.name.span,
+                });
+                continue;
+            }
+            if let Some(existing) = self.classes.get(&c.name.name) {
+                if existing.iter().any(|s| s.package == pkg) {
+                    self.errors.push(SemaError {
+                        message: format!(
+                            "duplicate type/function name `{}` in package `{pkg}`",
+                            c.name.name
+                        ),
+                        span: c.name.span,
+                    });
+                    continue;
+                }
+            }
+            if c.kind == NominalKind::Struct && !c.implements.is_empty() {
+                self.errors.push(SemaError {
+                    message: "structs cannot implement interfaces".into(),
+                    span: c.name.span,
+                });
+                continue;
+            }
+            self.classes
+                .entry(c.name.name.clone())
+                .or_default()
+                .push(ClassSig {
+                    name: c.name.name.clone(),
+                    is_pub: c.is_pub,
+                    package: pkg,
+                    is_struct: c.kind == NominalKind::Struct,
+                    type_params: c.type_params.iter().map(|p| p.name.name.clone()).collect(),
+                    bounds: Self::bounds_map_from_params(&c.type_params),
+                    implements: Vec::new(),
+                    fields: Vec::new(),
+                    methods: HashMap::new(),
+                    span: c.span,
+                });
+        }
+
         for f in &file.async_functions {
             let pkg = decl_package(&f.origin_package, &file_pkg).to_string();
             self.current_package = pkg.clone();
@@ -639,79 +699,6 @@ impl Checker {
                     span: f.span,
                 });
             self.type_params.clear();
-        }
-
-        for f in &file.async_functions {
-            let pkg = decl_package(&f.origin_package, &file_pkg).to_string();
-            let Some(sig) = self.fun_in_package(&f.name.name, &pkg).cloned() else {
-                continue;
-            };
-            self.current_package = pkg;
-            if let Ty::Task(result_ty) = sig.ret {
-                if let Err(err) = self.check_async_fun(f, &result_ty) {
-                    self.errors.push(err);
-                }
-            }
-            self.type_params.clear();
-        }
-
-        for c in &file.classes {
-            let pkg = decl_package(&c.origin_package, &file_pkg).to_string();
-            if self
-                .interfaces
-                .get(&c.name.name)
-                .map(|v| v.iter().any(|i| i.package == pkg))
-                .unwrap_or(false)
-                || self
-                    .functions
-                    .get(&c.name.name)
-                    .map(|v| v.iter().any(|f| f.package == pkg))
-                    .unwrap_or(false)
-            {
-                self.errors.push(SemaError {
-                    message: format!(
-                        "duplicate type/function name `{}` in package `{pkg}`",
-                        c.name.name
-                    ),
-                    span: c.name.span,
-                });
-                continue;
-            }
-            if let Some(existing) = self.classes.get(&c.name.name) {
-                if existing.iter().any(|s| s.package == pkg) {
-                    self.errors.push(SemaError {
-                        message: format!(
-                            "duplicate type/function name `{}` in package `{pkg}`",
-                            c.name.name
-                        ),
-                        span: c.name.span,
-                    });
-                    continue;
-                }
-            }
-            if c.kind == NominalKind::Struct && !c.implements.is_empty() {
-                self.errors.push(SemaError {
-                    message: "structs cannot implement interfaces".into(),
-                    span: c.name.span,
-                });
-                continue;
-            }
-            // C9a: generic classes may implement interfaces (`class Box<T> : Iface<T>`).
-            self.classes
-                .entry(c.name.name.clone())
-                .or_default()
-                .push(ClassSig {
-                    name: c.name.name.clone(),
-                    is_pub: c.is_pub,
-                    package: pkg,
-                    is_struct: c.kind == NominalKind::Struct,
-                    type_params: c.type_params.iter().map(|p| p.name.name.clone()).collect(),
-                    bounds: Self::bounds_map_from_params(&c.type_params),
-                    implements: Vec::new(),
-                    fields: Vec::new(),
-                    methods: HashMap::new(),
-                    span: c.span,
-                });
         }
 
         for c in &file.classes {
@@ -1152,6 +1139,22 @@ impl Checker {
                 }
             }
             self.current_class = None;
+            self.type_params.clear();
+        }
+
+        // Check async bodies only after all class signatures are complete so
+        // constructors and class members are available in async code.
+        for f in &file.async_functions {
+            let pkg = decl_package(&f.origin_package, &file_pkg).to_string();
+            let Some(sig) = self.fun_in_package(&f.name.name, &pkg).cloned() else {
+                continue;
+            };
+            self.current_package = pkg;
+            if let Ty::Task(result_ty) = sig.ret {
+                if let Err(err) = self.check_async_fun(f, &result_ty) {
+                    self.errors.push(err);
+                }
+            }
             self.type_params.clear();
         }
 

@@ -1048,10 +1048,10 @@ pub(crate) fn bounded_spawn_await_shape<'a>(
         .ty
         .as_ref()
         .map(|ty| {
-            matches!(
-                type_ref_local_key_expand(ty, &[], &[], checked).as_str(),
-                "Int" | "Bool" | "String"
-            )
+            let key = type_ref_local_key_expand(ty, &[], &[], checked);
+            matches!(key.as_str(), "Int" | "Bool" | "String")
+                || is_array_type_key(&key)
+                || is_heap_class_mono(&key, checked)
         })
         .unwrap_or(false)
         && !spawn_body_contains_await(&Block {
@@ -1940,6 +1940,10 @@ fn emit_join(j: &JoinExpr, ctx: &mut EmitCtx<'_>, owned_error: bool) -> String {
         let clone = crate::names::c_method_name(&inner, "clone");
         out.push_str(&format!(
             "else {{ {cty} __join_array = __join_result.data != NULL ? *(({cty} *)__join_result.data) : ({cty}){{0}}; __join_value = {result_ok}({clone}(&__join_array)); }} "
+        ));
+    } else if owned_error && is_heap_class_mono(&inner, ctx.checked) {
+        out.push_str(&format!(
+            "else {{ {cty} __join_class = __join_result.data != NULL ? *(({cty} *)__join_result.data) : NULL; __join_value = {result_ok}(__join_class); }} "
         ));
     } else {
         out.push_str(&format!(

@@ -4432,7 +4432,26 @@ fn emit_async_fun_no_await(
         out,
         "static void {destroy_result}(void *data, size_t size) {{"
     );
-    out.push_str("  (void)size;\n  free(data);\n}\n\n");
+    out.push_str("  (void)size;\n");
+    let ret_key = f
+        .return_type
+        .as_ref()
+        .map(|t| type_ref_local_key_expand(t, &params, &[], checked))
+        .unwrap_or_else(|| "Unit".into());
+    if is_array_type_key(&ret_key) {
+        let ret_cty = crate::stmt::local_key_to_c(&ret_key, checked);
+        let _ = writeln!(
+            out,
+            "  if (data != NULL) {{ {ret_cty} *result = ({ret_cty} *)data;"
+        );
+        crate::array_emit::emit_array_contents_free(out, 2, "(*result)", &ret_key);
+        out.push_str("    free(result); }\n");
+    } else if is_heap_class_mono(&ret_key, checked) {
+        out.push_str("  if (data != NULL) { aura_gc_remove_root((void **)data); free(data); }\n");
+    } else {
+        out.push_str("  free(data);\n");
+    }
+    out.push_str("}\n\n");
     let clone_bytes = format!("aura_async_error_clone_{base}");
     let clone_string = format!("aura_async_string_error_clone_{base}");
     let destroy_error = format!("aura_async_error_destroy_{base}");
@@ -4501,6 +4520,9 @@ fn emit_async_fun_no_await(
         let _ = writeln!(out, "    {ret} *result = ({ret} *)malloc(sizeof(*result));");
         out.push_str("    if (result == NULL) return AURA_TASK_FAILED;\n");
         out.push_str("    *result = body_value;\n");
+        if is_heap_class_mono(&ret_key, checked) {
+            out.push_str("    aura_gc_add_root((void **)result);\n");
+        }
         let _ = writeln!(
             out,
             "    aura_task_frame_set_result(frame, result, sizeof(*result), {destroy_result});"
@@ -4816,6 +4838,19 @@ fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile, detector:
             );
             continue;
         }
+        if let Some(class_key) = bounded_spawn_class_return_key(&spawn.body, checked) {
+            emit_bounded_spawn_class_return_poller(
+                out,
+                &spawn.body,
+                &captures,
+                checked,
+                detector,
+                (&data_ty, &poll),
+                spawn.span,
+                &class_key,
+            );
+            continue;
+        }
         let _ = writeln!(
             out,
             "static AuraTaskPollState {poll}(AuraTaskFrame *frame) {{"
@@ -4936,6 +4971,31 @@ fn bounded_spawn_array_return_key(body: &Block, checked: &CheckedFile) -> Option
     Some(format!("Array_{elem}"))
 }
 
+fn bounded_spawn_class_return_key(body: &Block, checked: &CheckedFile) -> Option<String> {
+    let Some(Stmt::Return(ReturnStmt {
+        value: Some(Expr::Call(call)),
+        ..
+    })) = body.stmts.last()
+    else {
+        return None;
+    };
+    let Expr::Ident(callee) = call.callee.as_ref() else {
+        return None;
+    };
+    let inst = checked.call_instantiations.get(&call.span.start)?;
+    if !inst.is_constructor
+        || inst.name == "Array"
+        || !checked
+            .ast
+            .classes
+            .iter()
+            .any(|class| class.name.name == callee.name && class.kind == NominalKind::Class)
+    {
+        return None;
+    }
+    Some(type_mono(&inst.package, &inst.name, &inst.type_args))
+}
+
 fn emit_bounded_spawn_array_return_poller(
     out: &mut String,
     body: &Block,
@@ -5032,6 +5092,109 @@ fn emit_bounded_spawn_array_return_poller(
     );
     out.push_str("  if (result == NULL) return AURA_TASK_FAILED;\n");
     let _ = writeln!(out, "  *result = {value_code};");
+    let _ = writeln!(
+        out,
+        "  aura_task_frame_set_result(frame, result, sizeof(*result), {result_destroy});"
+    );
+    out.push_str("  return AURA_TASK_COMPLETE;\n}\n\n");
+}
+
+fn emit_bounded_spawn_class_return_poller(
+    out: &mut String,
+    body: &Block,
+    captures: &[BoundedSpawnCapture],
+    checked: &CheckedFile,
+    detector: bool,
+    names: (&str, &str),
+    span: Span,
+    class_key: &str,
+) {
+    let (data_ty, poll) = names;
+    let result_destroy = format!("aura_spawn_result_destroy_{}", span.start);
+    let class_cty = crate::stmt::local_key_to_c(class_key, checked);
+    let _ = writeln!(
+        out,
+        "static void {result_destroy}(void *data, size_t size) {{"
+    );
+    let _ = writeln!(out, "  (void)size;");
+    let _ = writeln!(out, "  if (data != NULL) {{");
+    let _ = writeln!(out, "    {class_cty} *result = ({class_cty} *)data;");
+    out.push_str("    aura_gc_remove_root((void **)result);\n    free(result);\n  }\n}\n\n");
+    let _ = writeln!(
+        out,
+        "static AuraTaskPollState {poll}(AuraTaskFrame *frame) {{"
+    );
+    if !captures.is_empty() {
+        let _ = writeln!(
+            out,
+            "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame);"
+        );
+    }
+    out.push_str("  if (aura_task_frame_cancel_requested(frame)) return AURA_TASK_CANCELLED;\n");
+    out.push_str("  if (aura_task_frame_resume_state(frame) != 0) return AURA_TASK_COMPLETE;\n");
+    out.push_str("  aura_task_frame_set_resume_state(frame, 1);\n");
+    let mut ctx = EmitCtx {
+        checked,
+        detector,
+        method_class: None,
+        type_params: Vec::new(),
+        type_args: Vec::new(),
+        locals: vec![HashMap::new()],
+        array_owners: vec![HashSet::new()],
+        fun_owners: vec![HashSet::new()],
+        string_owners: vec![HashSet::new()],
+        channel_owners: vec![HashSet::new()],
+        task_result_owners: vec![HashSet::new()],
+        box_locals: vec![HashSet::new()],
+        box_owners: vec![HashSet::new()],
+        gc_roots: vec![HashSet::new()],
+        array_gc_roots: vec![HashSet::new()],
+        return_key: Some(class_key.to_string()),
+        lambda_ids: build_lambda_ids(checked),
+        spawn_params: HashSet::new(),
+        mutable_spawn_captures: HashSet::new(),
+        async_frame: None,
+        task_poller: true,
+    };
+    for capture in captures {
+        let name = &capture.name;
+        let key = &capture.key;
+        let n = mangle_ident(name);
+        let cty = if capture.boxed {
+            match bounded_capture_box_kind(capture) {
+                "string" => "aura_box_str *".to_string(),
+                "i64" => "aura_box_i64 *".to_string(),
+                "bool" => "aura_box_bool *".to_string(),
+                _ => "aura_box_ptr *".to_string(),
+            }
+        } else if key == "String" {
+            "aura_box_str *".to_string()
+        } else {
+            crate::stmt::local_key_to_c(key, checked)
+        };
+        let _ = writeln!(out, "  {cty}{n} = data->{n};");
+        ctx.define_local(name, key.clone());
+        if capture.boxed {
+            ctx.mark_box_local(name);
+        }
+    }
+    let Some(Stmt::Return(ReturnStmt {
+        value: Some(value), ..
+    })) = body.stmts.last()
+    else {
+        unreachable!()
+    };
+    for stmt in &body.stmts[..body.stmts.len() - 1] {
+        crate::stmt::emit_stmt(out, stmt, 1, &mut ctx);
+    }
+    let value_code = emit_expr(value, &mut ctx);
+    let _ = writeln!(
+        out,
+        "  {class_cty} *result = ({class_cty} *)malloc(sizeof(*result));"
+    );
+    out.push_str("  if (result == NULL) return AURA_TASK_FAILED;\n");
+    let _ = writeln!(out, "  *result = {value_code};");
+    out.push_str("  aura_gc_add_root((void **)result);\n");
     let _ = writeln!(
         out,
         "  aura_task_frame_set_result(frame, result, sizeof(*result), {result_destroy});"
@@ -5207,7 +5370,9 @@ fn emit_bounded_spawn_await_poller(
             value: Some(Expr::Ident(id)),
             ..
         })) if id.name == await_var.name.name
-    ) && matches!(await_key.as_str(), "Int" | "Bool" | "String")
+    ) && (matches!(await_key.as_str(), "Int" | "Bool" | "String")
+        || is_array_type_key(&await_key)
+        || is_heap_class_mono(&await_key, checked))
     {
         Some(await_key.as_str())
     } else {
@@ -5310,16 +5475,29 @@ fn emit_bounded_spawn_await_poller(
                 "      const char *result = {}; if (result == NULL) return AURA_TASK_FAILED; aura_task_frame_set_result(frame, (void *)result, strlen(result) + 1, {result_destroy}); return AURA_TASK_COMPLETE;",
                 owned_string_copy_expr("data->await_value".into(), await_expr.span)
             );
+        } else if is_heap_class_mono(key, checked) {
+            let _ = writeln!(
+                out,
+                "      {await_cty} *result = ({await_cty} *)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; *result = data->await_value; aura_gc_add_root((void **)result); aura_task_frame_set_result(frame, result, sizeof(*result), {result_destroy}); return AURA_TASK_COMPLETE;"
+            );
         } else {
             let _ = writeln!(
                 out,
                 "      {await_cty} *result = ({await_cty} *)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; *result = data->await_value; aura_task_frame_set_result(frame, result, sizeof(*result), {result_destroy}); return AURA_TASK_COMPLETE;"
             );
         }
-        let _ = writeln!(
-            out,
-            "    }}\n    default: return AURA_TASK_FAILED;\n  }}\n}}\n\nstatic void {result_destroy}(void *data, size_t size) {{ (void)size; free(data); }}\n\n"
-        );
+        out.push_str("    }\n    default: return AURA_TASK_FAILED;\n  }\n}\n\n");
+        if is_heap_class_mono(key, checked) {
+            let _ = writeln!(
+                out,
+                "static void {result_destroy}(void *data, size_t size) {{ (void)size; if (data != NULL) {{ aura_gc_remove_root((void **)data); free(data); }} }}\n\n"
+            );
+        } else {
+            let _ = writeln!(
+                out,
+                "static void {result_destroy}(void *data, size_t size) {{ (void)size; free(data); }}\n\n"
+            );
+        }
         return;
     }
     let array_owners = ctx.array_owners_all();

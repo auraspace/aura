@@ -223,6 +223,13 @@ fn task_result_array_owner_key(key: &str) -> Option<&str> {
         .filter(|payload| is_array_type_key(payload))
 }
 
+fn task_result_class_owner_key<'a>(key: &'a str, ctx: &EmitCtx<'_>) -> Option<&'a str> {
+    let payload = key
+        .strip_prefix("std_io_Result_")
+        .and_then(|rest| rest.strip_suffix("_std_io_TaskError"))?;
+    is_heap_class_mono(payload, ctx.checked).then_some(payload)
+}
+
 pub(crate) fn emit_free_task_result_owners(
     out: &mut String,
     indent: usize,
@@ -249,6 +256,10 @@ pub(crate) fn emit_free_task_result_owners(
                 array_key,
             );
             format!("if ({n}.tag == 0) {{ {cleanup} }} ")
+        } else if task_result_class_owner_key(&key, ctx).is_some() {
+            format!(
+                "if ({n}.tag == 0 && {n}.data.Ok.value != NULL) {{ aura_gc_remove_root((void **)&{n}.data.Ok.value); {n}.data.Ok.value = NULL; }} "
+            )
         } else {
             String::new()
         };
@@ -630,6 +641,12 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                 );
             } else {
                 let _ = writeln!(out, "{p}{ty} {dst} = {init};");
+            }
+            if owns_task_result && task_result_class_owner_key(&ty_name, ctx).is_some() {
+                let _ = writeln!(
+                    out,
+                    "{p}if ({dst}.tag == 0 && {dst}.data.Ok.value != NULL) aura_gc_add_root((void **)&{dst}.data.Ok.value);"
+                );
             }
             if let Some(src) = string_move_src {
                 let source = mangle_ident(&src);
