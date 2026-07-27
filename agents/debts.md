@@ -892,17 +892,19 @@ When you resolve debt, update or remove the matching entry.
   object remains internal to the frame ABI; exposing it publicly still needs a
   deliberate typed object/FFI contract rather than a borrowed pointer.
 
-### IO-002 compiler-generated descriptor read remains bounded (updated 2026-07-27)
+### IO-002 compiler-generated descriptor I/O remains bounded (updated 2026-07-27)
 
 - `std.io.readFd(fd, capacity)` now lowers to a compiler-generated frame with
   explicit fd wait/resume state, nonblocking read completion, owned String
   result/error storage, forced-GC retention, and cancellation cleanup. Joining
   a pending frame drives the executor's registered fd readiness.
+- `std.io.writeFd(fd, content)` now copies its String input into the task frame,
+  waits for `POLLOUT`, resumes after short writes, and returns an owned byte
+  count. The generated fixture covers forced GC and cancellation cleanup.
 - The slice intentionally does not claim portable regular-file async I/O,
-  compiler lowering for `AuraFile`/`AuraTcpStream` operation handles, buffered
-  partial-write continuation, or a general reactor policy. Keep IO-002 partial
-  until those boundaries have typed Aura-facing contracts and native sanitizer
-  coverage.
+  compiler lowering for `AuraFile`/`AuraTcpStream` operation handles, or a
+  general reactor policy. Keep IO-002 partial until those boundaries have typed
+  Aura-facing contracts and native sanitizer coverage.
 
 ### REG-002 production trust remains open (updated 2026-07-23)
 

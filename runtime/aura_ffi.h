@@ -248,6 +248,7 @@ typedef struct AuraIoOperationResult {
 /* Compiler bridge for the bounded generated descriptor-read frame.  A
  * nonnegative return is a byte count; a negative return is -errno. */
 int64_t aura_io_read_fd(int fd, void *buffer, uint64_t capacity);
+int64_t aura_io_write_fd(int fd, const void *buffer, uint64_t length);
 
 /* A suspended frame owns its opaque data, but the runtime cannot infer which
  * fields contain GC references.  The mark callback must call aura_gc_mark_ptr

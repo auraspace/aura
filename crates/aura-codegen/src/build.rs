@@ -605,6 +605,64 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_compiler_generated_async_write_fd() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+async fun writeFd(fd: Int, content: String): Int { return 0 }
+async fun readFd(fd: Int, capacity: Int): String { return "" }
+fun main() {
+  val task = spawn {
+    val count: Int = await writeFd(2, "B")
+    return count
+  }
+  gc_collect()
+  val outcome: Result<Int, TaskError> = join(task)
+  match (outcome) {
+    case Ok(value) => { println(value.toString()) }
+    case Err(error) => { println("failed") }
+  }
+  val cancelled = spawn {
+    val value: String = await readFd(0, 1)
+    return value
+  }
+  cancel(cancelled)
+  gc_collect()
+}
+"#,
+        )
+        .expect("parse generated async writeFd fixture");
+        let generated = emit_c_from_ast(&file).expect("emit generated async writeFd fixture");
+        assert!(generated.contains("compiler-generated std.io.writeFd"));
+        assert!(generated.contains("aura_io_write_fd"));
+        assert!(generated.contains("data->offset"));
+        assert!(generated.contains("aura_task_frame_wait_fd(frame, (int)data->fd, 4)"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-async-write-fd-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile generated async writeFd fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run generated async writeFd fixture");
+        assert!(
+            output.status.success(),
+            "writeFd fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "1\n");
+        assert_eq!(String::from_utf8_lossy(&output.stderr), "B");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_no_await_async_primitive_failure() {
         let file = aura_parser::parse_file(
             r#"package demo

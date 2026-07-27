@@ -7774,6 +7774,23 @@ int64_t aura_io_read_fd(int fd, void *buffer, uint64_t capacity)
   return (int64_t)result;
 }
 
+/* Encode errno as a negative result so generated C can retry EAGAIN after
+ * suspension without exposing a process-global error slot. */
+int64_t aura_io_write_fd(int fd, const void *buffer, uint64_t length)
+{
+  ssize_t result;
+  if (fd < 0 || (length != 0 && buffer == NULL) || length > SIZE_MAX)
+  {
+    return -EINVAL;
+  }
+  result = write(fd, buffer, (size_t)length);
+  if (result < 0)
+  {
+    return -(int64_t)errno;
+  }
+  return (int64_t)result;
+}
+
 /* ---- G3 asynchronous file/TCP operation handles ----
  *
  * File and TCP adapters need a lifetime-bearing token in addition to the

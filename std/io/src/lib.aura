@@ -140,3 +140,8 @@ pub fun fileSize(path: String): Int {
 pub async fun readFd(fd: Int, capacity: Int): String {
   return ""
 }
+
+/// Write all content to a nonblocking descriptor and return its byte count.
+pub async fun writeFd(fd: Int, content: String): Int {
+  return 0
+}

@@ -50,6 +50,7 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("_Bool aura_file_exists(const char *path);\n");
     out.push_str("int64_t aura_file_size(const char *path);\n");
     out.push_str("int64_t aura_io_read_fd(int fd, void *buffer, uint64_t capacity);\n");
+    out.push_str("int64_t aura_io_write_fd(int fd, const void *buffer, uint64_t length);\n");
     out.push_str("int64_t aura_args_count(void);\n");
     out.push_str("const char *aura_args_get(int64_t i);\n");
     out.push_str("const char *aura_read_line(void);\n");
@@ -587,7 +588,7 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
             let normalized = normalize_async_return_await(f);
             let lowered = normalized.as_ref().unwrap_or(f);
             let emitted_std_io =
-                emit_async_fun_std_io_read_fd(&mut out, lowered, checked, opts.detector);
+                emit_async_fun_std_io_fd(&mut out, lowered, checked, opts.detector);
             if !emitted_std_io
                 && !emit_async_fun_while_branch_join_await_array(
                     &mut out,
@@ -4516,19 +4517,34 @@ fn c_async_fun_signature(f: &AsyncFunDecl, checked: &CheckedFile) -> String {
     )
 }
 
+fn emit_async_fun_std_io_fd(
+    out: &mut String,
+    f: &AsyncFunDecl,
+    checked: &CheckedFile,
+    _detector: bool,
+) -> bool {
+    if async_fun_decl_package(f, checked) != "std.io" || f.params.len() != 2 {
+        return false;
+    }
+    if f.name.name == "readFd"
+        && f.return_type.as_ref().map(|t| t.name.name.as_str()) == Some("String")
+    {
+        return emit_async_fun_std_io_read_fd(out, f, checked, _detector);
+    }
+    if f.name.name != "writeFd"
+        || f.return_type.as_ref().map(|t| t.name.name.as_str()) != Some("Int")
+    {
+        return false;
+    }
+    emit_async_fun_std_io_write_fd(out, f, checked, _detector)
+}
+
 fn emit_async_fun_std_io_read_fd(
     out: &mut String,
     f: &AsyncFunDecl,
     checked: &CheckedFile,
     _detector: bool,
 ) -> bool {
-    if async_fun_decl_package(f, checked) != "std.io"
-        || f.name.name != "readFd"
-        || f.params.len() != 2
-        || f.return_type.as_ref().map(|t| t.name.name.as_str()) != Some("String")
-    {
-        return false;
-    }
     let base = c_fun_name("std.io", "readFd", &[]);
     let data_ty = format!("aura_async_data_{base}");
     let poll_fn = format!("aura_async_poll_{base}");
@@ -4592,6 +4608,76 @@ fn emit_async_fun_std_io_read_fd(
         out,
         "  data->fd = {fd}; data->capacity = (uint64_t){capacity}; data->buffer = NULL;"
     );
+    out.push_str("  if (__aura_task_executor != NULL && !aura_task_executor_submit(__aura_task_executor, frame)) { aura_task_frame_destroy(frame); return NULL; }\n  return frame;\n}\n");
+    true
+}
+
+fn emit_async_fun_std_io_write_fd(
+    out: &mut String,
+    f: &AsyncFunDecl,
+    checked: &CheckedFile,
+    _detector: bool,
+) -> bool {
+    let base = c_fun_name("std.io", "writeFd", &[]);
+    let data_ty = format!("aura_async_data_{base}");
+    let poll_fn = format!("aura_async_poll_{base}");
+    let destroy_data = format!("aura_async_destroy_{base}");
+    let destroy_result = format!("aura_async_result_destroy_{base}");
+    let destroy_error = format!("aura_async_error_destroy_{base}");
+    out.push_str(
+        "/* compiler-generated std.io.writeFd: owned buffer + short-write resume state */\n",
+    );
+    let _ = writeln!(
+        out,
+        "typedef struct {data_ty} {{ int64_t fd; uint64_t length; uint64_t offset; char *buffer; }} {data_ty};"
+    );
+    let _ = writeln!(out, "static void {destroy_data}(AuraTaskFrame *frame) {{ {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame); if (data != NULL) free(data->buffer); }}");
+    let _ = writeln!(
+        out,
+        "static void {destroy_result}(void *data, size_t size) {{ (void)size; free(data); }}"
+    );
+    let _ = writeln!(
+        out,
+        "static void {destroy_error}(void *data, size_t size) {{ (void)size; free(data); }}"
+    );
+    let _ = writeln!(
+        out,
+        "static AuraTaskPollState {poll_fn}(AuraTaskFrame *frame) {{"
+    );
+    let _ = writeln!(
+        out,
+        "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame);"
+    );
+    out.push_str("  if (aura_task_frame_cancel_requested(frame)) return AURA_TASK_CANCELLED;\n");
+    out.push_str("  switch (aura_task_frame_resume_state(frame)) {\n    case 0:\n");
+    out.push_str("      if (data == NULL || data->fd < 0 || data->length > SIZE_MAX) return AURA_TASK_FAILED;\n");
+    out.push_str("      data->offset = 0;\n");
+    out.push_str("      if (data->length == 0) { int64_t *result = (int64_t *)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; *result = 0; aura_task_frame_set_result(frame, result, sizeof(*result), ");
+    out.push_str(&destroy_result);
+    out.push_str("); return AURA_TASK_COMPLETE; }\n");
+    out.push_str("      if (!aura_task_frame_wait_fd(frame, (int)data->fd, 4)) return AURA_TASK_FAILED;\n      aura_task_frame_set_resume_state(frame, 1);\n      /* fall through for descriptors that were already ready */\n    case 1: {\n");
+    out.push_str("      int64_t count = aura_io_write_fd((int)data->fd, data->buffer + data->offset, data->length - data->offset);\n");
+    out.push_str("      if (count == -EAGAIN || count == -EWOULDBLOCK) { if (!aura_task_frame_wait_fd(frame, (int)data->fd, 4)) return AURA_TASK_FAILED; return AURA_TASK_PENDING; }\n");
+    out.push_str("      if (count <= 0) { const char *message = \"writeFd failed\"; size_t length = strlen(message) + 1; char *error = (char *)malloc(length); if (error == NULL) return AURA_TASK_FAILED; memcpy(error, message, length); aura_task_frame_set_error_at(frame, error, length, ");
+    out.push_str(&destroy_error);
+    out.push_str(", UINT32_C(0)); return AURA_TASK_FAILED; }\n");
+    out.push_str("      data->offset += (uint64_t)count; if (data->offset < data->length) { if (!aura_task_frame_wait_fd(frame, (int)data->fd, 4)) return AURA_TASK_FAILED; return AURA_TASK_PENDING; }\n");
+    out.push_str("      int64_t *result = (int64_t *)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; *result = (int64_t)data->offset; free(data->buffer); data->buffer = NULL; aura_task_frame_set_result(frame, result, sizeof(*result), ");
+    out.push_str(&destroy_result);
+    out.push_str(
+        "); return AURA_TASK_COMPLETE;\n    }\n    default: return AURA_TASK_FAILED;\n  }\n}\n",
+    );
+    let _ = writeln!(out, "{} {{", c_async_fun_signature(f, checked));
+    let _ = writeln!(out, "  AuraTaskFrame *frame = aura_task_frame_new(sizeof({data_ty}), {poll_fn}, {destroy_data});");
+    out.push_str("  if (frame == NULL) return NULL;\n");
+    let _ = writeln!(
+        out,
+        "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame);"
+    );
+    let fd = mangle_ident(&f.params[0].name.name);
+    let content = mangle_ident(&f.params[1].name.name);
+    let _ = writeln!(out, "  data->fd = {fd}; data->length = {content} == NULL ? 0 : (uint64_t)strlen({content}); data->offset = 0; data->buffer = NULL;");
+    let _ = writeln!(out, "  if (data->length != 0) {{ data->buffer = (char *)malloc((size_t)data->length); if (data->buffer == NULL) {{ aura_task_frame_destroy(frame); return NULL; }} memcpy(data->buffer, {content}, (size_t)data->length); }}");
     out.push_str("  if (__aura_task_executor != NULL && !aura_task_executor_submit(__aura_task_executor, frame)) { aura_task_frame_destroy(frame); return NULL; }\n  return frame;\n}\n");
     true
 }

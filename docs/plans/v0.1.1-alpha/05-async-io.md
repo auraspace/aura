@@ -75,10 +75,13 @@ a portable readiness source; that broader scheduler integration remains open.
 
 The compiler now lowers `std.io.readFd(fd, capacity)` into an explicit async
 frame with a descriptor wait, resume state, nonblocking read, owned String
-result, failure payload, forced-GC retention, and cancellation cleanup. The
-executor join path drives registered fd readiness so this generated operation
-does not stop at `PENDING`. Generic `AuraFile`/`AuraTcpStream` operation
-lowering and richer buffered read/write APIs remain open.
+result, failure payload, forced-GC retention, and cancellation cleanup. It also
+lowers `std.io.writeFd(fd, content)` into an owned-input frame that waits for
+`POLLOUT`, resumes after short writes, returns the byte count, and releases its
+buffer on completion, failure, cancellation, or executor shutdown. The
+executor join path drives registered fd readiness so these generated operations
+do not stop at `PENDING`. Generic `AuraFile`/`AuraTcpStream` operation lowering,
+portable regular-file async I/O, and a general reactor abstraction remain open.
 
 ## IO3. TCP listener and stream integration
 
@@ -137,7 +140,7 @@ with a readiness source or scheduler. A bounded POSIX `fd/events` wait is now
 stored inline in the frame; `aura_task_executor_poll_waiting` polls all
 registered descriptors in one bounded turn and wakes each ready frame, with
 timeout, multi-wait, and cancellation coverage. The compiler-generated
-`std.io.readFd` slice now consumes this wake path; adapter-specific
+`std.io.readFd` and `std.io.writeFd` slices now consume this wake path; adapter-specific
 `AuraFile`/`AuraTcpStream` operation lowering remains open.
 
 **Checklist:**

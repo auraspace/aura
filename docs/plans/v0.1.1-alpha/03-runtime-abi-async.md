@@ -131,8 +131,9 @@ descriptor slice.
 - [x] Resume exactly once for non-waiting pending frames when the operation
       completes; adapter-owned waiting-token registration and clear-before-wake
       resumption are covered by the bounded runtime fixture. Compiler-generated
-      `std.io.readFd` wiring now covers one descriptor-read operation; generic
-      file/TCP operation lowering remains open.
+      `std.io.readFd` and `std.io.writeFd` wiring now cover bounded descriptor
+      read/write operations, including owned buffers and short-write continuation;
+      generic file/TCP operation lowering remains open.
 - [x] Prevent executor-owned frame destruction while pending.
 
 **Acceptance:** Immediate and delayed completion produce the same result.
