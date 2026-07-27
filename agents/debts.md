@@ -879,16 +879,18 @@ When you resolve debt, update or remove the matching entry.
 ### ASYNC-002 task outcome representation remains open (updated 2026-07-27)
 
 - Generated `join` now exposes `std.io.Result<T, std.io.TaskError>` and
-  distinguishes `TaskError.Failed(String)` from `TaskError.Cancelled`.
+  distinguishes `TaskError.Failed(String)`, additive
+  `TaskError.FailedTyped(message, typeName)`, and `TaskError.Cancelled`.
   Primitive Int/Bool failures are normalized to owned strings, String
   failures preserve their detail, and no-await typed String plus heap-class
   spawn success is owned across repeated joins. Direct `Array<Int>` success is
   cloned for owning joins; pending handle release now cancels and reclaims the
   executor-owned frame synchronously. Cancellation ownership for richer
   payloads and arbitrary typed payload transfer remain open.
-- Next step: expose the cloned raw payload through a typed `TaskError.Failed`
-  representation; the current ABI keeps raw payload storage internal while the
-  public join result remains `Failed(String)`.
+- Class failures preserve an owned normalized type name across nested awaits,
+  forced GC, repeated owning joins, and lexical result cleanup. The raw class
+  object remains internal to the frame ABI; exposing it publicly still needs a
+  deliberate typed object/FFI contract rather than a borrowed pointer.
 
 ### REG-002 production trust remains open (updated 2026-07-23)
 

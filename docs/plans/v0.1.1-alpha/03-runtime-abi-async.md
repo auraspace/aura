@@ -149,7 +149,8 @@ legacy two/three-await helper remains covered, while the general path derives
 one resume state and child slot per await; locals initialized between awaits
 are stored only after the earlier child completes, and owned String locals are
 released exactly once by the frame destroy hook. Branches, loops,
-arrays/classes, typed failures, and panic unwinding remain open.
+arrays/classes and panic unwinding remain open; the current typed failure
+slice is covered under A7.
 
 **Checklist:**
 
@@ -197,9 +198,12 @@ under sanitizers.
 **Objective:** Make async success, exception, and cancellation observable and
 composable by callers.
 **Implementation status:** The bounded one- and two-await codegen now maps a
-cancelled child to a cancelled parent and copies a failed child error payload
-and numeric source ID into an independently owned parent error slot. The frame
-also carries bounded source-span start/end offsets through that propagation.
+cancelled child to a cancelled parent and copies a failed child error payload,
+normalized message, class type name, and numeric source ID into independently
+owned parent slots. Owning joins expose class failures as
+`TaskError.FailedTyped(message, typeName)` when that variant is declared, while
+legacy `Failed(message)` joins remain compatible. The frame also carries
+bounded source-span start/end offsets through that propagation.
 Compiler file/line mapping and nested exception chains remain open. The
 bounded ABI defines a cancellation handler: cleanup runs first, then a handler
 may publish a failure payload/span; otherwise cancellation remains terminal.
@@ -208,6 +212,8 @@ may publish a failure payload/span; otherwise cancellation remains terminal.
 
 - [x] Define successful values and failure payload representation for the
       bounded frame ABI.
+- [x] Preserve normalized class type names through child propagation and
+      expose them through the additive owning-join variant.
 - [x] Preserve bounded source-span start/end metadata through one/two-await
       child-error propagation; compiler file/line mapping remains open.
 - [x] Run cleanup before publishing an outcome in the bounded executor ABI.

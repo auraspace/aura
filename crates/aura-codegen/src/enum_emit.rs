@@ -66,6 +66,9 @@ pub(crate) fn emit_enum_typedef(
             if task_error && v.name.name == "Failed" {
                 out.push_str("      bool owned;\n");
             }
+            if task_error && v.name.name == "FailedTyped" {
+                out.push_str("      bool owned;\n");
+            }
             if task_result_string_ok(e, &pkg, args, &v.name.name) {
                 out.push_str("      bool owned;\n");
             }
@@ -151,8 +154,12 @@ pub(crate) fn emit_enum_defs(out: &mut String, checked: &CheckedFile, e: &EnumDe
                 n,
                 n
             );
-            if task_error && v.name.name == "Failed" {
-                out.push_str("  self.data.Failed.owned = false;\n");
+            if task_error && (v.name.name == "Failed" || v.name.name == "FailedTyped") {
+                let _ = writeln!(
+                    out,
+                    "  self.data.{}.owned = false;",
+                    mangle_ident(&v.name.name)
+                );
             }
             if task_result_string_ok(e, &pkg, args, &v.name.name) {
                 let _ = writeln!(out, "  self.data.Ok.owned = false;");
@@ -168,6 +175,15 @@ pub(crate) fn emit_enum_defs(out: &mut String, checked: &CheckedFile, e: &EnumDe
             format!("{} {}(const char *error)", c_enum_type(&mono), ctor),
             c_enum_type(&mono)
         );
+        if let Some(typed_tag) = e.variants.iter().position(|v| v.name.name == "FailedTyped") {
+            let ctor = c_variant_ctor_name(&mono, "FailedTypedOwned");
+            let _ = writeln!(
+                out,
+                "{} {{ {} self; self.tag = {typed_tag}; self.data.FailedTyped.error = error; self.data.FailedTyped.typeName = typeName; self.data.FailedTyped.owned = true; return self; }}",
+                format!("{} {}(const char *error, const char *typeName)", c_enum_type(&mono), ctor),
+                c_enum_type(&mono)
+            );
+        }
     }
     if task_result_string_ok(e, &pkg, args, "Ok") {
         let ctor = c_variant_ctor_name(&mono, "OkOwned");

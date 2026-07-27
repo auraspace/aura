@@ -149,6 +149,7 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("uint32_t aura_task_frame_error_source_id(const AuraTaskFrame *frame);\n");
     out.push_str("uint32_t aura_task_frame_error_span_start(const AuraTaskFrame *frame);\n");
     out.push_str("uint32_t aura_task_frame_error_span_end(const AuraTaskFrame *frame);\n");
+    out.push_str("const char *aura_task_frame_error_type_name(const AuraTaskFrame *frame);\n");
     out.push_str(
         "int aura_task_frame_propagate_error(AuraTaskFrame *frame, const AuraTaskFrame *source);\n",
     );
@@ -156,6 +157,9 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("void aura_task_frame_set_error_span(AuraTaskFrame *frame, void *data, size_t size, AuraTaskResultDestroyFn destroy, uint32_t source_id, uint32_t span_start, uint32_t span_end);\n");
     out.push_str("void aura_task_frame_set_error_span_with_clone(AuraTaskFrame *frame, void *data, size_t size, AuraTaskResultCloneFn clone, AuraTaskResultDestroyFn destroy, uint32_t source_id, uint32_t span_start, uint32_t span_end);\n");
     out.push_str("void aura_task_frame_set_error_payload_with_clone(AuraTaskFrame *frame, void *data, size_t size, AuraTaskResultCloneFn clone, AuraTaskResultDestroyFn destroy);\n");
+    out.push_str(
+        "void aura_task_frame_set_error_type_name(AuraTaskFrame *frame, const char *type_name);\n",
+    );
     out.push_str("AuraTaskResult aura_task_frame_error_payload(const AuraTaskFrame *frame);\n");
     out.push_str("void aura_task_frame_set_error_at(AuraTaskFrame *frame, void *data, size_t size, AuraTaskResultDestroyFn destroy, uint32_t source_id);\n");
     out.push_str("AuraTaskPollState aura_task_frame_poll_once(AuraTaskFrame *frame);\n");
@@ -6046,7 +6050,7 @@ fn emit_async_fun_no_await(
         );
         let _ = writeln!(
             out,
-            "  if (aura_ex_matches(\"{type_name}\")) {{ uint32_t __error_start = aura_ex_source_span_start(); uint32_t __error_end = aura_ex_source_span_end(); void *__error_obj = aura_ex_take_obj(); if (__error_obj == NULL) {{ aura_ex_clear(); aura_try_leave(); return AURA_TASK_FAILED; }} const char *__class_error_text = {message_expr}; size_t __class_error_len = __class_error_text != NULL ? strlen(__class_error_text) : 0; char *__class_error_copy = (char *)malloc(__class_error_len + 1); if (__class_error_copy == NULL) abort(); if (__class_error_text != NULL) memcpy(__class_error_copy, __class_error_text, __class_error_len + 1); else __class_error_copy[0] = '\\0'; aura_try_leave(); aura_task_frame_set_error_span_with_clone(frame, __class_error_copy, __class_error_len + 1, {clone_string}, {destroy_error}, 0, __error_start, __error_end); aura_task_frame_set_error_payload_with_clone(frame, __error_obj, sizeof({cty}), {clone}, {destroy}); return AURA_TASK_FAILED; }}"
+            "  if (aura_ex_matches(\"{type_name}\")) {{ uint32_t __error_start = aura_ex_source_span_start(); uint32_t __error_end = aura_ex_source_span_end(); void *__error_obj = aura_ex_take_obj(); if (__error_obj == NULL) {{ aura_ex_clear(); aura_try_leave(); return AURA_TASK_FAILED; }} const char *__class_error_text = {message_expr}; size_t __class_error_len = __class_error_text != NULL ? strlen(__class_error_text) : 0; char *__class_error_copy = (char *)malloc(__class_error_len + 1); if (__class_error_copy == NULL) abort(); if (__class_error_text != NULL) memcpy(__class_error_copy, __class_error_text, __class_error_len + 1); else __class_error_copy[0] = '\\0'; aura_try_leave(); aura_task_frame_set_error_span_with_clone(frame, __class_error_copy, __class_error_len + 1, {clone_string}, {destroy_error}, 0, __error_start, __error_end); aura_task_frame_set_error_payload_with_clone(frame, __error_obj, sizeof({cty}), {clone}, {destroy}); aura_task_frame_set_error_type_name(frame, \"{type_name}\"); return AURA_TASK_FAILED; }}"
         );
     }
     out.push_str("  { const char *type = aura_ex_type_name(); size_t len = type ? strlen(type) : 0; char *error = (char *)malloc(len + 1); if (error == NULL) { aura_ex_clear(); aura_try_leave(); return AURA_TASK_FAILED; } if (type != NULL) memcpy(error, type, len + 1); else error[0] = '\\0'; aura_ex_clear(); aura_try_leave(); aura_task_frame_set_error_span_with_clone(frame, error, len + 1, ");

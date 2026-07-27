@@ -264,9 +264,20 @@ pub(crate) fn emit_free_task_result_owners(
         } else {
             String::new()
         };
+        let typed_tag = ctx
+            .checked
+            .ast
+            .enums
+            .iter()
+            .find(|e| e.name.name == "TaskError")
+            .filter(|e| crate::names::enum_decl_package(e, ctx.checked) == "std.io")
+            .and_then(|e| e.variants.iter().position(|v| v.name.name == "FailedTyped"));
+        let typed_cleanup = typed_tag.map_or_else(String::new, |tag| {
+            format!(" if ({n}.tag == 1 && {n}.data.Err.error.tag == {tag} && {n}.data.Err.error.data.FailedTyped.owned) {{ free((void *){n}.data.Err.error.data.FailedTyped.error); free((void *){n}.data.Err.error.data.FailedTyped.typeName); {n}.data.Err.error.data.FailedTyped.error = NULL; {n}.data.Err.error.data.FailedTyped.typeName = NULL; {n}.data.Err.error.data.FailedTyped.owned = false; }}")
+        });
         let _ = writeln!(
             out,
-            "{p}{ok_cleanup}if ({n}.tag == 1 && {n}.data.Err.error.tag == 0 && {n}.data.Err.error.data.Failed.owned) {{ free((void *){n}.data.Err.error.data.Failed.error); {n}.data.Err.error.data.Failed.error = NULL; {n}.data.Err.error.data.Failed.owned = false; }}"
+            "{p}{ok_cleanup}if ({n}.tag == 1 && {n}.data.Err.error.tag == 0 && {n}.data.Err.error.data.Failed.owned) {{ free((void *){n}.data.Err.error.data.Failed.error); {n}.data.Err.error.data.Failed.error = NULL; {n}.data.Err.error.data.Failed.owned = false; }}{typed_cleanup}"
         );
     }
 }

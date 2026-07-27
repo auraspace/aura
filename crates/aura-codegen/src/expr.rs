@@ -1878,6 +1878,17 @@ pub(crate) fn emit_join_owned(j: &JoinExpr, ctx: &mut EmitCtx<'_>) -> String {
     emit_join(j, ctx, true)
 }
 
+fn has_typed_task_error(ctx: &EmitCtx<'_>) -> bool {
+    ctx.checked
+        .ast
+        .enums
+        .iter()
+        .find(|e| e.name.name == "TaskError" && enum_decl_package(e, ctx.checked) == "std.io")
+        .map_or(false, |e| {
+            e.variants.iter().any(|v| v.name.name == "FailedTyped")
+        })
+}
+
 fn emit_join(j: &JoinExpr, ctx: &mut EmitCtx<'_>, owned_error: bool) -> String {
     let handle = emit_expr(&j.handle, ctx);
     let inner = async_inner_key(&j.handle, ctx);
@@ -1897,26 +1908,32 @@ fn emit_join(j: &JoinExpr, ctx: &mut EmitCtx<'_>, owned_error: bool) -> String {
         "aura_var_std_io_TaskError_Failed"
     };
     let task_cancelled = "aura_var_std_io_TaskError_Cancelled";
+    let typed_task_error = owned_error && has_typed_task_error(ctx);
     let mut out = String::new();
     out.push_str("({ ");
     out.push_str(&result_ty);
     out.push_str(" __join_value; AuraTaskFrame *__join = (");
     out.push_str(&handle);
     out.push_str(&format!(
-        "); aura_race_set_source_id(UINT32_C({})); AuraTaskOutcome __join_outcome = aura_task_executor_join_outcome(__aura_task_executor, __join); AuraTaskPollState __join_state = __join_outcome.state; AuraTaskResult __join_result = __join_outcome.result; const char *__join_error = (__join_outcome.error.data != NULL && __join_outcome.error.size != 0) ? (const char *)__join_outcome.error.data : \"joined task failed\"; aura_race_set_source_id(0); ",
+        "); aura_race_set_source_id(UINT32_C({})); AuraTaskOutcome __join_outcome = aura_task_executor_join_outcome(__aura_task_executor, __join); AuraTaskPollState __join_state = __join_outcome.state; AuraTaskResult __join_result = __join_outcome.result; const char *__join_error = (__join_outcome.error.data != NULL && __join_outcome.error.size != 0) ? (const char *)__join_outcome.error.data : \"joined task failed\"; const char *__join_type_name = aura_task_frame_error_type_name(__join); aura_race_set_source_id(0); ",
         j.span.start
     ));
     if owned_error {
         out.push_str("char *__join_error_owned = NULL; if (__join_state == AURA_TASK_FAILED) { size_t __join_error_len = strlen(__join_error); __join_error_owned = (char *)malloc(__join_error_len + 1); if (__join_error_owned == NULL) abort(); memcpy(__join_error_owned, __join_error, __join_error_len + 1); } ");
-    }
-    out.push_str(&format!(
-        "if (__join_state == AURA_TASK_FAILED) {{ __join_value = {result_err}({task_failed}({})); }} ",
-        if owned_error {
-            "__join_error_owned"
-        } else {
-            "__join_error"
+        if typed_task_error {
+            out.push_str("char *__join_type_name_owned = NULL; if (__join_state == AURA_TASK_FAILED && __join_type_name != NULL && __join_type_name[0] != '\\0') { size_t __join_type_name_len = strlen(__join_type_name); __join_type_name_owned = (char *)malloc(__join_type_name_len + 1); if (__join_type_name_owned == NULL) abort(); memcpy(__join_type_name_owned, __join_type_name, __join_type_name_len + 1); } ");
         }
-    ));
+    }
+    if typed_task_error {
+        out.push_str(&format!(
+            "if (__join_state == AURA_TASK_FAILED) {{ if (__join_type_name_owned != NULL) __join_value = {result_err}(aura_var_std_io_TaskError_FailedTypedOwned(__join_error_owned, __join_type_name_owned)); else __join_value = {result_err}({task_failed}(__join_error_owned)); }} "
+        ));
+    } else {
+        out.push_str(&format!(
+            "if (__join_state == AURA_TASK_FAILED) {{ __join_value = {result_err}({task_failed}({})); }} ",
+            if owned_error { "__join_error_owned" } else { "__join_error" }
+        ));
+    }
     out.push_str(&format!(
         "else if (__join_state == AURA_TASK_CANCELLED) {{ __join_value = {result_err}({task_cancelled}()); }} "
     ));

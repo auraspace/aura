@@ -5589,6 +5589,7 @@ struct AuraTaskFrame
   AuraTaskResultCloneFn error_payload_clone;
   AuraTaskResultDestroyFn error_payload_destroy;
   int error_payload_rooted;
+  char *error_type_name;
   uint32_t error_source_id;
   uint32_t error_span_start;
   uint32_t error_span_end;
@@ -6587,6 +6588,11 @@ AuraTaskResult aura_task_frame_error_payload(const AuraTaskFrame *frame)
   return frame != NULL ? frame->error_payload : empty;
 }
 
+const char *aura_task_frame_error_type_name(const AuraTaskFrame *frame)
+{
+  return frame != NULL ? frame->error_type_name : NULL;
+}
+
 uint32_t aura_task_frame_error_source_id(const AuraTaskFrame *frame)
 {
   return frame != NULL ? frame->error_source_id : 0;
@@ -6635,6 +6641,40 @@ static void aura_task_result_release(AuraTaskResult *result,
   }
 }
 
+static void aura_task_frame_clear_error_type_name(AuraTaskFrame *frame)
+{
+  if (frame == NULL)
+  {
+    return;
+  }
+  free(frame->error_type_name);
+  frame->error_type_name = NULL;
+}
+
+void aura_task_frame_set_error_type_name(AuraTaskFrame *frame,
+                                         const char *type_name)
+{
+  size_t length;
+  char *copy;
+  if (frame == NULL)
+  {
+    return;
+  }
+  aura_task_frame_clear_error_type_name(frame);
+  if (type_name == NULL)
+  {
+    return;
+  }
+  length = strlen(type_name);
+  copy = (char *)malloc(length + 1);
+  if (copy == NULL)
+  {
+    abort();
+  }
+  memcpy(copy, type_name, length + 1);
+  frame->error_type_name = copy;
+}
+
 void aura_task_frame_set_error_span_with_clone(
     AuraTaskFrame *frame, void *data, size_t size, AuraTaskResultCloneFn clone,
     AuraTaskResultDestroyFn destroy, uint32_t source_id, uint32_t span_start,
@@ -6651,6 +6691,7 @@ void aura_task_frame_set_error_span_with_clone(
   aura_task_result_release(&frame->error, &frame->error_clone,
                            &frame->error_destroy,
                            &frame->error_rooted);
+  aura_task_frame_clear_error_type_name(frame);
   frame->error = (AuraTaskResult){data, size};
   frame->error_clone = clone;
   frame->error_destroy = destroy;
@@ -6817,6 +6858,7 @@ int aura_task_frame_propagate_error(AuraTaskFrame *frame,
   aura_task_frame_set_error_payload_with_clone(
       frame, copy, cloned_size, source->error_payload_clone,
       source->error_payload_destroy);
+  aura_task_frame_set_error_type_name(frame, source->error_type_name);
   return 1;
 }
 
@@ -6925,6 +6967,7 @@ void aura_task_frame_destroy(AuraTaskFrame *frame)
                            &frame->error_payload_clone,
                            &frame->error_payload_destroy,
                            &frame->error_payload_rooted);
+  aura_task_frame_clear_error_type_name(frame);
   if (frame->data != NULL)
   {
     aura_gc_remove_root(&frame->data);

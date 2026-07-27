@@ -5,6 +5,7 @@ package std.io
 /// Terminal outcome for an asynchronous task join.
 pub enum TaskError {
   case Failed(error: String)
+  case FailedTyped(error: String, typeName: String)
   case Cancelled
 }
 
