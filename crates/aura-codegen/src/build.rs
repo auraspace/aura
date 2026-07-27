@@ -1821,6 +1821,8 @@ fun main() {
         assert!(generated.contains("bool selected_then;"));
         assert!(generated.contains("data->selected_then ?"));
         assert!(generated.contains("aura_task_frame_propagate_error(frame, data->await_task)"));
+        assert!(generated
+            .contains("aura_task_executor_release(__aura_task_executor, &data->await_task)"));
 
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()

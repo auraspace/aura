@@ -105,7 +105,9 @@ When you resolve debt, update or remove the matching entry.
   cancellation coverage. Sequential multi-await loop frames now release
   compiler-created child frames after each terminal result and from frame
   destruction; caller-owned handles remain borrowed. Multi-conditional branch
-  loops now apply the same cleanup for each selected temporary child.
+  loops now apply the same cleanup for each selected temporary child. The
+  common `if/else` single-await branch join now releases the selected temporary
+  child after copying its result and on parent destruction.
   The same bounded branch continuation now owns copied `String` payloads in
   the frame and result slot, with forced-GC and repeated-join native coverage.
   A bounded Int loop now supports an if/else await at each iteration, with one

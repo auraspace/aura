@@ -3349,9 +3349,17 @@ fn emit_async_fun_if_else_single_await(
     }
     out.push_str("  bool selected_then;\n  AuraTaskFrame *await_task;\n");
     let _ = writeln!(out, "}} {data_ty};\n");
+    let then_owns_task = await_operand_is_temporary(&then_await.operand, checked);
+    let else_owns_task = await_operand_is_temporary(&else_await.operand, checked);
+    let owned_condition = match (then_owns_task, else_owns_task) {
+        (true, true) => "true".to_string(),
+        (true, false) => "data->selected_then".to_string(),
+        (false, true) => "!data->selected_then".to_string(),
+        (false, false) => "false".to_string(),
+    };
     let _ = writeln!(
         out,
-        "static void {destroy_data}(AuraTaskFrame *frame) {{ (void)frame; }}\n"
+        "static void {destroy_data}(AuraTaskFrame *frame) {{ if (frame != NULL && __aura_task_executor != NULL) {{ {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame); if ({owned_condition} && data->await_task != NULL) (void)aura_task_executor_release(__aura_task_executor, &data->await_task); }} }}\n"
     );
     let _ = writeln!(
         out,
@@ -3425,6 +3433,19 @@ fn emit_async_fun_if_else_single_await(
             "      *result = child_result.data == NULL ? ({ret}){{0}} : *(({ret} *)child_result.data);"
         );
     }
+    if then_owns_task || else_owns_task {
+        let owned_condition = match (then_owns_task, else_owns_task) {
+            (true, true) => "true".to_string(),
+            (true, false) => "data->selected_then".to_string(),
+            (false, true) => "!data->selected_then".to_string(),
+            (false, false) => "false".to_string(),
+        };
+        let _ = writeln!(
+            out,
+            "      if (__aura_task_executor != NULL && {owned_condition}) {{ (void)aura_task_executor_release(__aura_task_executor, &data->await_task); }}"
+        );
+    }
+    out.push_str("      data->await_task = NULL;\n");
     let _ = writeln!(
         out,
         "      aura_task_frame_set_result(frame, result, sizeof(*result), {destroy_result});"
