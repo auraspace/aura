@@ -2200,16 +2200,27 @@ fn emit_async_fun_general_multi_await(
             Some((index, v, a))
         })
         .collect();
+    let await_keys: Vec<String> = awaits
+        .iter()
+        .map(|(_, v, _)| {
+            v.ty.as_ref()
+                .map(|t| type_ref_local_key_expand(t, &[], &[], checked))
+                .unwrap_or_else(|| "Int".into())
+        })
+        .collect();
     if awaits.len() < 4
         || f.return_type
             .as_ref()
-            .map(|t| type_ref_local_key_expand(t, &[], &[], checked) != "Int")
+            .map(|t| {
+                !matches!(
+                    type_ref_local_key_expand(t, &[], &[], checked).as_str(),
+                    "Int" | "Bool" | "String"
+                )
+            })
             .unwrap_or(true)
-        || awaits.iter().any(|(_, v, _)| {
-            v.ty.as_ref()
-                .map(|t| type_ref_local_key_expand(t, &[], &[], checked) != "Int")
-                .unwrap_or(true)
-        })
+        || await_keys
+            .iter()
+            .any(|key| !matches!(key.as_str(), "Int" | "Bool" | "String"))
     {
         return false;
     }
@@ -2302,8 +2313,13 @@ fn emit_async_fun_general_multi_await(
             let _ = writeln!(out, "  bool {n}__owned;");
         }
     }
-    for (_, v, _) in &awaits {
-        let _ = writeln!(out, "  int64_t {};", mangle_ident(&v.name.name));
+    for ((_, v, _), key) in awaits.iter().zip(&await_keys) {
+        let _ = writeln!(
+            out,
+            "  {} {};",
+            crate::stmt::local_key_to_c(key, checked),
+            mangle_ident(&v.name.name)
+        );
     }
     for index in 0..awaits.len() {
         let _ = writeln!(out, "  AuraTaskFrame *await_task_{index};");
@@ -2314,8 +2330,8 @@ fn emit_async_fun_general_multi_await(
     for (v, key) in &locals {
         resume_ctx.define_local(&v.name.name, full_type_mono(key, checked));
     }
-    for (_, v, _) in &awaits {
-        resume_ctx.define_local(&v.name.name, "Int".into());
+    for ((_, v, _), key) in awaits.iter().zip(&await_keys) {
+        resume_ctx.define_local(&v.name.name, full_type_mono(key, checked));
     }
     let _ = writeln!(out, "static {ret} {resume_fn}({data_ty} *data) {{");
     for p in &f.params {
@@ -2334,9 +2350,13 @@ fn emit_async_fun_general_multi_await(
             crate::stmt::local_key_to_c(key, checked)
         );
     }
-    for (_, v, _) in &awaits {
+    for ((_, v, _), key) in awaits.iter().zip(&await_keys) {
         let n = mangle_ident(&v.name.name);
-        let _ = writeln!(out, "  int64_t {n} = data->{n};");
+        let _ = writeln!(
+            out,
+            "  {} {n} = data->{n};",
+            crate::stmt::local_key_to_c(key, checked)
+        );
     }
     for stmt in &f.body.stmts[awaits.last().unwrap().0 + 1..] {
         crate::stmt::emit_stmt(out, stmt, 1, &mut resume_ctx);
@@ -2355,11 +2375,22 @@ fn emit_async_fun_general_multi_await(
             let _ = writeln!(out, "  if (data->{n}__owned) free((void *)data->{n});");
         }
     }
+    for ((_, v, _), key) in awaits.iter().zip(&await_keys) {
+        if key == "String" {
+            let n = mangle_ident(&v.name.name);
+            let _ = writeln!(out, "  if (data->{n} != NULL) free((void *)data->{n});");
+        }
+    }
     out.push_str("}\n\n");
     let _ = writeln!(
         out,
-        "static void {destroy_result}(void *data, size_t size) {{ (void)size; free(data); }}\n"
+        "static void {destroy_result}(void *data, size_t size) {{"
     );
+    if ret == "const char *" {
+        out.push_str("  (void)size;\n  if (data != NULL) free((void *)*((const char **)data));\n  free(data);\n}\n\n");
+    } else {
+        out.push_str("  (void)size;\n  free(data);\n}\n\n");
+    }
 
     let _ = writeln!(
         out,
@@ -2411,12 +2442,20 @@ fn emit_async_fun_general_multi_await(
         ));
         out.push_str(&format!("      AuraTaskResult child_result_{index} = aura_task_frame_result(data->await_task_{index});\n"));
         let value_name = mangle_ident(&awaits[index].1.name.name);
-        out.push_str(&format!("      if (child_result_{index}.data != NULL) data->{value_name} = *((int64_t *)child_result_{index}.data);\n"));
+        if await_keys[index] == "String" {
+            out.push_str(&format!("      if (data->{value_name} != NULL) free((void *)data->{value_name}); data->{value_name} = NULL; if (child_result_{index}.data != NULL) {{ const char *__s = *((const char **)child_result_{index}.data); if (__s != NULL) {{ size_t __len = strlen(__s); data->{value_name} = (char *)malloc(__len + 1); if (data->{value_name} == NULL) return AURA_TASK_FAILED; memcpy((void *)data->{value_name}, __s, __len + 1); }} }}\n"));
+        } else {
+            let cty = crate::stmt::local_key_to_c(&await_keys[index], checked);
+            out.push_str(&format!("      if (child_result_{index}.data != NULL) data->{value_name} = *(({cty} *)child_result_{index}.data);\n"));
+        }
         if index + 1 < awaits.len() {
             let next_index = awaits[index + 1].0;
             let mut ctx = async_ctx(checked, detector, &params, &f.params, &f.return_type);
-            for (_, v, _) in &awaits[..=index] {
-                ctx.define_local(&v.name.name, "Int".into());
+            for (await_pos, (_, v, _)) in awaits[..=index].iter().enumerate() {
+                ctx.define_local(
+                    &v.name.name,
+                    full_type_mono(&await_keys[await_pos], checked),
+                );
             }
             for stmt in &f.body.stmts[..stmt_index] {
                 if let Stmt::Var(v) = stmt {
@@ -2459,7 +2498,13 @@ fn emit_async_fun_general_multi_await(
                 "      {ret} *result = ({ret} *)malloc(sizeof(*result));"
             );
             out.push_str("      if (result == NULL) return AURA_TASK_FAILED;\n");
-            let _ = writeln!(out, "      *result = {resume_fn}(data);");
+            if ret == "const char *" {
+                out.push_str("      const char *__returned = ");
+                let _ = writeln!(out, "{resume_fn}(data);");
+                out.push_str("      if (__returned == NULL) { *result = NULL; } else { size_t __len = strlen(__returned); char *__copy = (char *)malloc(__len + 1); if (__copy == NULL) { free(result); return AURA_TASK_FAILED; } memcpy(__copy, __returned, __len + 1); *result = __copy; }\n");
+            } else {
+                let _ = writeln!(out, "      *result = {resume_fn}(data);");
+            }
             let _ = writeln!(out, "      aura_task_frame_set_result(frame, result, sizeof(*result), {destroy_result});");
             out.push_str("      return AURA_TASK_COMPLETE;\n    }\n");
         }

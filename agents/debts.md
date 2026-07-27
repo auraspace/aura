@@ -25,10 +25,11 @@ When you resolve debt, update or remove the matching entry.
   preservation, and automatic completed-handle release remain open. The
   single-await lowering now clones primitive `String` results into an owned
   parent result slot, and bounded `spawn` bodies can await String with repeated
-  join observations; the bounded two/three-await state machine now clones each
-  primitive String suspension value into parent frame storage as well. Richer
-  ownership and general state-machine paths remain open. The no-await primitive
-  failure leak was
+  join observations; the bounded two/three-await and dynamic four-plus-await
+  state machines now clone each primitive String suspension value into parent
+  frame storage as well. Richer ownership, branch/loop CFG lowering and
+  general state-machine paths remain open. The no-await primitive failure leak
+  was
   fixed by allocating the result slot only after the body returns, avoiding a
   `longjmp`-orphaned allocation; this does not close the broader ownership
   contract.
