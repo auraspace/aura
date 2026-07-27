@@ -23,7 +23,7 @@ run() {
 }
 
 run "registry package fixture acceptance" \
-  env AURA_U8_REPORT="$u8_report" cargo test -p aura-cli u8_local_registry_release_acceptance -- --nocapture
+  env AURA_U8_REPORT="$u8_report" cargo test -p aura-cli u8_local_registry_release_acceptance_publishes_installs_updates_rolls_back_and_runs -- --nocapture
 [[ -s "$u8_report" ]] || { printf 'registry acceptance: U8 test produced no evidence report\n' >&2; exit 1; }
 run "publish receipt and update verification regressions" \
   cargo test -p aura-cli publish_fixture -- --nocapture

@@ -8,6 +8,14 @@
 #include <errno.h>
 #include <inttypes.h>
 #include <sys/stat.h>
+#if defined(__unix__) || defined(__APPLE__)
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#ifndef INADDR_LOOPBACK
+#define INADDR_LOOPBACK 0x7f000001U
+#endif
+#endif
 #if defined(__has_include)
 #if __has_include("aura_ffi.h")
 #include "aura_ffi.h"

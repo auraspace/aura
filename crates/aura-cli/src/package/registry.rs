@@ -2139,9 +2139,16 @@ mod unit {
         fs::remove_dir_all(root).unwrap();
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
     fn u8_local_registry_release_acceptance_publishes_installs_updates_rolls_back_and_runs() {
+        let target = match (std::env::consts::OS, std::env::consts::ARCH) {
+            ("linux", "x86_64") => "linux-amd64",
+            ("linux", "aarch64") => "linux-arm64",
+            ("macos", "x86_64") => "darwin-amd64",
+            ("macos", "aarch64") => "darwin-arm64",
+            _ => panic!("unsupported registry acceptance host"),
+        };
         let root = activation_root("release-acceptance");
         let package = root.join("package");
         let registry = root.join("registry");
@@ -2181,7 +2188,7 @@ mod unit {
             cksum: preview.checksum.clone(),
             yanked: false,
             repository: None,
-            targets: Some(vec!["linux-amd64".into()]),
+            targets: Some(vec![target.into()]),
             min_aura: None,
             max_aura: None,
             revoked: false,
@@ -2225,7 +2232,7 @@ mod unit {
         fs::write(
             index.join("packages/release.fixture/versions.json"),
             format!(
-                "[{{\"name\":\"release.fixture\",\"vers\":\"1.1.0\",\"cksum\":\"{new_checksum}\",\"targets\":[\"linux-amd64\"],\"min_aura\":\"0.1.0\"}}]"
+                "[{{\"name\":\"release.fixture\",\"vers\":\"1.1.0\",\"cksum\":\"{new_checksum}\",\"targets\":[\"{target}\"],\"min_aura\":\"0.1.0\"}}]"
             ),
         )
         .unwrap();
@@ -2233,7 +2240,7 @@ mod unit {
         // U6: discover the compatible target; U7: verify and activate it.
         let registry_index = RegistryIndex::open(&index).unwrap();
         let decision = registry_index
-            .discover_update("release.fixture", "1.0.0", "0.1.0", "linux-amd64")
+            .discover_update("release.fixture", "1.0.0", "0.1.0", target)
             .unwrap();
         let candidate = match decision {
             UpdateDecision::Update(candidate) => candidate,
@@ -2254,10 +2261,11 @@ mod unit {
         assert_eq!(run_fixture_binary(&active), "release-v1");
 
         let report = format!(
-            "{{\"package\":\"release.fixture\",\"published_version\":\"1.0.0\",\"published_checksum\":\"{}\",\"installed\":true,\"update_version\":\"{}\",\"update_checksum\":\"{}\",\"target\":\"linux-amd64\",\"host\":\"{}-{}\",\"outcome\":\"pass\"}}",
+            "{{\"package\":\"release.fixture\",\"published_version\":\"1.0.0\",\"published_checksum\":\"{}\",\"installed\":true,\"update_version\":\"{}\",\"update_checksum\":\"{}\",\"target\":\"{}\",\"host\":\"{}-{}\",\"outcome\":\"pass\"}}",
             published_meta.cksum,
             candidate.meta.vers,
             candidate.meta.cksum,
+            target,
             std::env::consts::OS,
             std::env::consts::ARCH,
         );

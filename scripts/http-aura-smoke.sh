@@ -42,6 +42,10 @@ else
   export DYLD_LIBRARY_PATH="$tmp${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
 fi
 
-ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=1:halt_on_error=1}" \
+asan_options="${ASAN_OPTIONS:-detect_leaks=1:halt_on_error=1}"
+if [[ "$(uname -s)" == Darwin && -z "${ASAN_OPTIONS+x}" ]]; then
+  asan_options='detect_leaks=0:halt_on_error=1'
+fi
+ASAN_OPTIONS="$asan_options" \
 UBSAN_OPTIONS="${UBSAN_OPTIONS:-halt_on_error=1:print_stacktrace=1}" \
   target/debug/aura run examples/http-health-aura

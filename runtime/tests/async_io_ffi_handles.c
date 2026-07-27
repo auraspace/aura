@@ -9,6 +9,10 @@
 #include <string.h>
 #include <unistd.h>
 
+#ifndef MSG_DONTWAIT
+#define MSG_DONTWAIT 0
+#endif
+
 #define AURA_RUNTIME_NO_MAIN
 #include "../aura_rt.c"
 

@@ -50,8 +50,11 @@ const char *aura_net_loopback_echo(const char *payload, int64_t timeout_ms)
   address.sin_port = htons(0);
   if (bind(listener, (struct sockaddr *)&address, sizeof(address)) != 0 ||
       listen(listener, 1) != 0 ||
-      getsockname(listener, (struct sockaddr *)&address, &address_len) != 0 ||
-      connect(client, (struct sockaddr *)&address, address_len) != 0)
+      getsockname(listener, (struct sockaddr *)&address, &address_len) != 0)
+    goto fail;
+  /* macOS may leave the bound address as 0.0.0.0; connect to loopback explicitly. */
+  address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  if (connect(client, (struct sockaddr *)&address, address_len) != 0)
     goto fail;
   peer = accept(listener, NULL, NULL);
   if (peer < 0 || (length != 0 && send(client, payload, length, 0) != (ssize_t)length))

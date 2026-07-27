@@ -19,20 +19,31 @@ package_script="${AURA_PACKAGE_SCRIPT_FILE:-scripts/package-release.sh}"
 [[ -f "$package_script" ]] || die "missing package script: $package_script"
 [[ -x "$package_script" ]] || die "package script is not executable: $package_script"
 
-mapfile -t rows < <(awk -F '\t' '!/^([[:space:]]*#|[[:space:]]*$)/ { print }' "$manifest")
+rows=()
+while IFS= read -r row; do
+  rows+=("$row")
+done < <(awk -F '\t' '!/^([[:space:]]*#|[[:space:]]*$)/ { print }' "$manifest")
 [[ ${#rows[@]} -gt 0 ]] || die "target manifest is empty"
 
-declare -A tier acceptance package runner
 required=()
+contains_value() {
+  local wanted="$1" value
+  shift
+  for value in "$@"; do
+    [[ "$value" == "$wanted" ]] && return 0
+  done
+  return 1
+}
+manifest_field() {
+  local wanted="$1" field="$2"
+  awk -F '\t' -v target="$wanted" -v column="$field" '$1 == target { print $column; exit }' "$manifest"
+}
 for row in "${rows[@]}"; do
   IFS=$'\t' read -r target target_tier target_runner target_package _installer target_acceptance extra <<<"$row"
   [[ -z "${extra:-}" && -n "${target:-}" && -n "${target_tier:-}" && -n "${target_package:-}" && -n "${target_acceptance:-}" ]] \
     || die "malformed target row: $row"
-  [[ -z "${tier[$target]+x}" ]] || die "duplicate target row: $target"
-  tier["$target"]="$target_tier"
-  acceptance["$target"]="$target_acceptance"
-  package["$target"]="$target_package"
-  runner["$target"]="$target_runner"
+  contains_value "$target" "${seen_targets[@]:-}" && die "duplicate target row: $target"
+  seen_targets+=("$target")
   [[ "$target_tier" == required ]] && required+=("$target")
 done
 [[ ${#required[@]} -gt 0 ]] || die "manifest has no required targets"
@@ -63,14 +74,22 @@ workflow_target_pairs() {
 
 # Compare target/runner pairs, not substring presence. This catches removed,
 # duplicated, unapproved, and silently re-homed native targets.
-declare -A workflow_runner ci_runner
+workflow_rows=()
 while IFS=$'\t' read -r target target_runner; do
   [[ -n "$target" && -n "$target_runner" ]] || die "malformed release workflow matrix entry"
-  [[ -z "${workflow_runner[$target]+x}" ]] || die "duplicate release workflow target: $target"
-  workflow_runner["$target"]="$target_runner"
+  contains_value "$target" "${workflow_targets[@]:-}" && die "duplicate release workflow target: $target"
+  workflow_targets+=("$target")
+  workflow_rows+=("$target"$'\t'"$target_runner")
 done < <(workflow_target_pairs "$workflow" build)
+workflow_runner_for() {
+  local wanted="$1" row
+  for row in "${workflow_rows[@]}"; do
+    [[ "${row%%$'\t'*}" == "$wanted" ]] && printf '%s\n' "${row#*$'\t'}" && return 0
+  done
+  return 1
+}
 expected_sorted="$(printf '%s\n' "${required[@]}" | sort -u)"
-actual_sorted="$(printf '%s\n' "${!workflow_runner[@]}" | sed '/^$/d' | sort -u)"
+actual_sorted="$(printf '%s\n' "${workflow_targets[@]}" | sed '/^$/d' | sort -u)"
 [[ "$expected_sorted" == "$actual_sorted" ]] \
   || die "workflow target set differs: expected=[$(tr '\n' ' ' <<<"$expected_sorted")] actual=[$(tr '\n' ' ' <<<"$actual_sorted")]"
 
@@ -78,28 +97,39 @@ actual_sorted="$(printf '%s\n' "${!workflow_runner[@]}" | sed '/^$/d' | sort -u)
 # release matrix so a green pull request cannot validate a different artifact
 # set from the tag workflow. Parse only that job's matrix; unrelated CI jobs
 # (for example FFI-native) are intentionally outside this comparison.
+ci_rows=()
 while IFS=$'\t' read -r target target_runner; do
   [[ -n "$target" && -n "$target_runner" ]] || die "malformed CI platform-contract matrix entry"
-  [[ -z "${ci_runner[$target]+x}" ]] || die "duplicate CI platform-contract target: $target"
-  ci_runner["$target"]="$target_runner"
+  contains_value "$target" "${ci_targets[@]:-}" && die "duplicate CI platform-contract target: $target"
+  ci_targets+=("$target")
+  ci_rows+=("$target"$'\t'"$target_runner")
 done < <(workflow_target_pairs "$ci_workflow" platform-contract)
-ci_sorted="$(printf '%s\n' "${!ci_runner[@]}" | sed '/^$/d' | sort -u)"
+ci_runner_for() {
+  local wanted="$1" row
+  for row in "${ci_rows[@]}"; do
+    [[ "${row%%$'\t'*}" == "$wanted" ]] && printf '%s\n' "${row#*$'\t'}" && return 0
+  done
+  return 1
+}
+ci_sorted="$(printf '%s\n' "${ci_targets[@]}" | sed '/^$/d' | sort -u)"
 [[ "$expected_sorted" == "$ci_sorted" ]] \
   || die "CI platform-contract target set differs: expected=[$(tr '\n' ' ' <<<"$expected_sorted")] actual=[$(tr '\n' ' ' <<<"$ci_sorted")]"
 
 for target in "${required[@]}"; do
-  [[ "${package[$target]}" == tar.gz ]] || die "required target $target is not tar.gz packaged"
-  [[ "${workflow_runner[$target]}" == "${runner[$target]}" ]] \
-    || die "release workflow runner differs for $target: expected=${runner[$target]} actual=${workflow_runner[$target]}"
-  [[ "${ci_runner[$target]}" == "${runner[$target]}" ]] \
-    || die "CI platform-contract runner differs for $target: expected=${runner[$target]} actual=${ci_runner[$target]}"
+  expected_runner="$(manifest_field "$target" 3)"
+  [[ "$(manifest_field "$target" 4)" == tar.gz ]] || die "required target $target is not tar.gz packaged"
+  [[ "$(workflow_runner_for "$target")" == "$expected_runner" ]] \
+    || die "release workflow runner differs for $target"
+  [[ "$(ci_runner_for "$target")" == "$expected_runner" ]] \
+    || die "CI platform-contract runner differs for $target"
   "$package_script" --validate-target "$target" >/dev/null \
     || die "package script rejected required target $target"
 done
 
-for target in "${!tier[@]}"; do
-  if [[ "${tier[$target]}" == tier2 ]]; then
-    [[ "${acceptance[$target]}" == policy-only ]] \
+for row in "${rows[@]}"; do
+  IFS=$'\t' read -r target target_tier _target_runner _target_package _installer target_acceptance _extra <<<"$row"
+  if [[ "$target_tier" == tier2 ]]; then
+    [[ "$target_acceptance" == policy-only ]] \
       || die "tier2 target $target has an artifact/acceptance claim"
     if "$package_script" --validate-target "$target" >/dev/null 2>&1; then
       die "package script accepted policy-only target $target"

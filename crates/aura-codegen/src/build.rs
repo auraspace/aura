@@ -1696,6 +1696,16 @@ fun main() {
       }
     }
   }
+  val repeated = join(task)
+  match (repeated) {
+    case Ok(value) => { println("unexpected") }
+    case Err(error) => {
+      match (error) {
+        case Failed(message) => { println(message) }
+        case Cancelled => { println("cancelled") }
+      }
+    }
+  }
 }
 "#,
         )
@@ -1723,7 +1733,7 @@ fun main() {
         );
         assert_eq!(
             String::from_utf8_lossy(&output.stdout),
-            "detail-preserved\n"
+            "detail-preserved\ndetail-preserved\n"
         );
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);

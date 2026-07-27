@@ -627,11 +627,13 @@ When you resolve debt, update or remove the matching entry.
   activates a candidate. Signature verification, atomic replacement, rollback,
   and executable handoff remain U7 by dependency design.
 
-### U8 cross-host release acceptance (2026-07-22)
+### U8 cross-host release acceptance (updated 2026-07-27)
 
 - The deterministic release-integration fixture now covers publish, install,
   checksum verification, discovery, activation, rollback, and execution on
-  native Linux. A native macOS run is still required before claiming macOS
+  native Linux. The fixture and evidence writer now select Linux/Darwin target
+  metadata from the actual host, and the acceptance script invokes the exact
+  U8 test name. A native macOS run is still required before claiming macOS
   execution evidence; the fixture intentionally does not emulate another host.
 
 ### BUILD-002 / REL-003 target-host boundary (2026-07-23)
