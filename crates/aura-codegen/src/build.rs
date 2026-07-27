@@ -2566,6 +2566,79 @@ fun main() {
     }
 
     #[test]
+    fn nested_class_failure_normalizes_owned_type_across_repeated_joins() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+class Failure(var message: String) {}
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+async fun leaf(): Int { throw Failure("class-detail" + "") }
+async fun middle(): Int {
+  val value: Int = await leaf()
+  return value
+}
+fun main() {
+  val task = spawn {
+    val value: Int = await middle()
+    return value
+  }
+  val first: Result<Int, TaskError> = join(task)
+  match (first) {
+    case Ok(value) => { println("unexpected") }
+    case Err(error) => {
+      match (error) {
+        case Failed(message) => { println(message) }
+        case Cancelled => { println("cancelled") }
+      }
+    }
+  }
+  gc_collect()
+  val second: Result<Int, TaskError> = join(task)
+  match (second) {
+    case Ok(value) => { println("unexpected") }
+    case Err(error) => {
+      match (error) {
+        case Failed(message) => { println(message) }
+        case Cancelled => { println("cancelled") }
+      }
+    }
+  }
+}
+"#,
+        )
+        .expect("parse nested class failure fixture");
+        let generated = emit_c_from_ast(&file).expect("emit nested class failure fixture");
+        assert!(generated.contains("aura_ex_type_name"));
+        assert!(generated.contains("aura_throw_obj_with_destructor"));
+        assert!(generated.contains("aura_task_frame_set_error_span_with_clone"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-nested-class-failure-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile nested class failure fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run nested class failure fixture");
+        assert!(
+            output.status.success(),
+            "nested class failure fixture failed: {output:?}"
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let lines: Vec<&str> = stdout.lines().collect();
+        assert_eq!(lines.len(), 2, "unexpected class failure output: {stdout}");
+        assert_eq!(lines[0], lines[1]);
+        assert!(lines[0].contains("Failure"));
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn emits_owned_string_success_for_local_task_result_join() {
         let file = aura_parser::parse_file(
             r#"package std.io

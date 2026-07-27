@@ -75,6 +75,7 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("void aura_throw_obj(const char *type_name, void *obj);\n");
     out.push_str("void aura_throw_obj_with_destructor(const char *type_name, void *obj, void (*destroy_obj)(void *));\n");
     out.push_str("int aura_ex_matches(const char *type_name);\n");
+    out.push_str("const char *aura_ex_type_name(void);\n");
     out.push_str("const char *aura_ex_as_string(void);\n");
     out.push_str("int64_t aura_ex_as_int(void);\n");
     out.push_str("_Bool aura_ex_as_bool(void);\n");
@@ -5508,6 +5509,11 @@ fn emit_async_fun_no_await(
     out.push_str(&destroy_error);
     out.push_str(", 0, 0, 0); return AURA_TASK_FAILED; }\n");
     out.push_str("  if (aura_ex_matches(\"String\")) { const char *value = aura_ex_as_string(); size_t len = value ? strlen(value) : 0; char *error = (char *)malloc(len + 1); if (error == NULL) { aura_ex_clear(); aura_try_leave(); return AURA_TASK_FAILED; } if (value != NULL) memcpy(error, value, len + 1); else error[0] = '\\0'; aura_ex_clear(); aura_try_leave(); aura_task_frame_set_error_span_with_clone(frame, error, len + 1, ");
+    out.push_str(&clone_string);
+    out.push_str(", ");
+    out.push_str(&destroy_error);
+    out.push_str(", 0, 0, 0); return AURA_TASK_FAILED; }\n");
+    out.push_str("  { const char *type = aura_ex_type_name(); size_t len = type ? strlen(type) : 0; char *error = (char *)malloc(len + 1); if (error == NULL) { aura_ex_clear(); aura_try_leave(); return AURA_TASK_FAILED; } if (type != NULL) memcpy(error, type, len + 1); else error[0] = '\\0'; aura_ex_clear(); aura_try_leave(); aura_task_frame_set_error_span_with_clone(frame, error, len + 1, ");
     out.push_str(&clone_string);
     out.push_str(", ");
     out.push_str(&destroy_error);

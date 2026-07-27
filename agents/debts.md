@@ -7,6 +7,17 @@ When you resolve debt, update or remove the matching entry.
 
 ## Open
 
+### CLASS-001 constructor String ownership for literals remains ambiguous (2026-07-27)
+
+- Area: generated class constructors with owned `String` fields
+- Symptom: a class destructor frees a constructor argument, so passing a
+  literal directly can attempt to free static storage; heap-owned expressions
+  remain safe.
+- Why deferred: constructor argument ownership needs one consistent move/clone
+  rule across ordinary calls, exceptions, and GC-managed class fields.
+- Next step: clone non-owned String arguments at constructor boundaries or make
+  ownership explicit in the type checker before broadening class payload tests.
+
 ### ASYNC-002 generated payload clone integration remains partial (updated 2026-07-27)
 
 - Area: compiler-generated async child-to-parent failure propagation
@@ -21,10 +32,13 @@ When you resolve debt, update or remove the matching entry.
   unexpected pending states to a failed diagnostic; typed `spawn` now infers
   its return payload and native `TaskHandle<String>` success is covered by
   two repeated joins.
-- Why still deferred: generated class payload failures, full
+- Why still deferred: raw generated class payload preservation, full
   `TaskError.Failed(error)` preservation, and automatic completed-handle release
-  remain open. Primitive `String` failure detail now survives a nested
-  `leaf -> await middle -> spawned parent` chain and two repeated typed joins.
+  remain open. Class exceptions now normalize their owned type name into an
+  independently cloned `TaskError.Failed(String)` payload; a nested class
+  failure survives GC and two repeated typed joins. Primitive `String` failure
+  detail also survives a nested `leaf -> await middle -> spawned parent` chain
+  and two repeated typed joins.
   The
   single-await lowering now clones primitive `String` results into an owned
   parent result slot, and bounded `spawn` bodies can await String with repeated

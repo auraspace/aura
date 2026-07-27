@@ -3582,6 +3582,15 @@ int aura_ex_matches(const char *type_name)
   return f->type_name && type_name && strcmp(f->type_name, type_name) == 0;
 }
 
+const char *aura_ex_type_name(void)
+{
+  if (aura_ex_sp == 0 || !aura_ex_pending)
+  {
+    return NULL;
+  }
+  return aura_ex_stack[aura_ex_sp - 1].type_name;
+}
+
 const char *aura_ex_as_string(void)
 {
   if (aura_ex_sp == 0)
