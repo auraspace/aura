@@ -816,7 +816,12 @@ fn emit_async_fun_top_level_while_conditional_await_int(
 ) -> bool {
     if f.return_type
         .as_ref()
-        .map(|t| type_ref_local_key_expand(t, &[], &[], checked) != "Int")
+        .map(|t| {
+            !matches!(
+                type_ref_local_key_expand(t, &[], &[], checked).as_str(),
+                "Int" | "Bool" | "String"
+            )
+        })
         .unwrap_or(true)
         || f.body.stmts.len() != 3
     {
@@ -1215,8 +1220,9 @@ fn emit_async_fun_nested_if_branch_awaits(
         "      {ret} *result = ({ret} *)malloc(sizeof(*result));"
     );
     out.push_str("      if (result == NULL) return AURA_TASK_FAILED;\n");
-    out.push_str(
-        "      *result = child_result.data == NULL ? 0 : *((int64_t *)child_result.data);\n",
+    let _ = writeln!(
+        out,
+        "      *result = child_result.data == NULL ? ({ret}){{0}} : *(({ret} *)child_result.data);"
     );
     let _ = writeln!(
         out,
@@ -1248,7 +1254,12 @@ fn emit_async_fun_if_else_single_await(
 ) -> bool {
     if f.return_type
         .as_ref()
-        .map(|t| type_ref_local_key_expand(t, &[], &[], checked) != "Int")
+        .map(|t| {
+            !matches!(
+                type_ref_local_key_expand(t, &[], &[], checked).as_str(),
+                "Int" | "Bool" | "String"
+            )
+        })
         .unwrap_or(true)
         || f.body.stmts.len() != 1
     {
@@ -1302,8 +1313,13 @@ fn emit_async_fun_if_else_single_await(
     );
     let _ = writeln!(
         out,
-        "static void {destroy_result}(void *data, size_t size) {{ (void)size; free(data); }}\n"
+        "static void {destroy_result}(void *data, size_t size) {{"
     );
+    if ret == "const char *" {
+        out.push_str("  (void)size;\n  if (data != NULL) free((void *)*((const char **)data));\n  free(data);\n}\n\n");
+    } else {
+        out.push_str("  (void)size;\n  free(data);\n}\n\n");
+    }
     let _ = writeln!(
         out,
         "static AuraTaskPollState {poll_fn}(AuraTaskFrame *frame) {{"
@@ -1345,9 +1361,14 @@ fn emit_async_fun_if_else_single_await(
         "      {ret} *result = ({ret} *)malloc(sizeof(*result));"
     );
     out.push_str("      if (result == NULL) return AURA_TASK_FAILED;\n");
-    out.push_str(
-        "      *result = child_result.data == NULL ? 0 : *((int64_t *)child_result.data);\n",
-    );
+    if ret == "const char *" {
+        out.push_str("      const char *__value = child_result.data == NULL ? NULL : *((const char **)child_result.data); if (__value == NULL) { *result = NULL; } else { size_t __len = strlen(__value); char *__copy = (char *)malloc(__len + 1); if (__copy == NULL) { free(result); return AURA_TASK_FAILED; } memcpy(__copy, __value, __len + 1); *result = __copy; }\n");
+    } else {
+        let _ = writeln!(
+            out,
+            "      *result = child_result.data == NULL ? ({ret}){{0}} : *(({ret} *)child_result.data);"
+        );
+    }
     let _ = writeln!(
         out,
         "      aura_task_frame_set_result(frame, result, sizeof(*result), {destroy_result});"
@@ -1387,7 +1408,12 @@ fn branch_await_return<'a>(
     if var
         .ty
         .as_ref()
-        .map(|t| type_ref_local_key_expand(t, &[], &[], checked) != "Int")
+        .map(|t| {
+            !matches!(
+                type_ref_local_key_expand(t, &[], &[], checked).as_str(),
+                "Int" | "Bool" | "String"
+            )
+        })
         .unwrap_or(true)
     {
         return None;

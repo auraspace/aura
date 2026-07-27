@@ -1343,6 +1343,55 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_string_branch_join_await_state_machine() {
+        let file = aura_parser::parse_file(
+            r#"package demo
+async fun answer(value: String): String { return value }
+async fun choose(flag: Bool): String {
+  if (flag) {
+    val value: String = await answer("then")
+    return value
+  } else {
+    val value: String = await answer("else")
+    return value
+  }
+}
+fun main() {
+  val first = spawn { val value: String = await choose(true) println(value) return }
+  join(first)
+  val second = spawn { val value: String = await choose(false) println(value) return }
+  join(second)
+}
+"#,
+        )
+        .expect("parse String branch-await fixture");
+        let generated = emit_c_from_ast(&file).expect("emit String branch-await fixture");
+        assert!(generated.contains("branch-join suspension state=1"));
+        assert!(generated.contains("strlen(__value)"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-async-branch-string-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile String branch-await fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run String branch-await fixture");
+        assert!(
+            output.status.success(),
+            "String branch-await fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "then\nelse\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_two_await_string_state_machine() {
         let file = aura_parser::parse_file(
             r#"package demo
