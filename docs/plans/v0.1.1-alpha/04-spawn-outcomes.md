@@ -101,17 +101,18 @@ shapes and broader ownership remain open.
 
 **Implementation status:** Complete for the bounded single-threaded executor
 slice. A terminal frame can be released through its handle slot after
-observation; release unlinks the frame before destruction and clears the slot,
-so repeated release is a no-op. Suspended/non-terminal dropped handles remain
-executor-owned until cancellation or shutdown and are outside this S3 slice.
+observation; a suspended/non-terminal handle is cancelled, removed from the
+ready queue, polled to acknowledge cancellation, and then destroyed. Release
+unlinks the frame before destruction and clears the slot, so repeated release
+is a no-op.
 
 **Checklist:**
 
 - [x] Allow repeated join observation without resubmitting the executor-owned
-      frame; handle/frame release after observation remains open.
+      frame; terminal and pending handle release clear the caller slot.
 - [x] Observe an executor-owned frame through the currently available ready
-      queue until terminal; a genuinely pending frame remains unsupported by
-      this bounded helper.
+      queue until terminal; dropping a genuinely pending frame acknowledges
+      cancellation synchronously through the release path.
 - [x] Retain the result in executor-owned frame storage and expose a borrowed
       observation snapshot; no transfer occurs during join.
 - [x] Release an executor-owned terminal frame and clear its handle through an
@@ -151,8 +152,9 @@ violation.
 
 **Verification:** `runtime/tests/task_join.c` covers thrown-error, repeated
 join, stable source identity, terminal release, and cleanup re-entrancy
-inspection. Nested compiler error lowering and forced-GC end-to-end cases remain
-deferred with the async state-machine work.
+inspection. `runtime/tests/task_cancellation.c` covers immediate pending-handle
+cancel/reclaim and queue unlinking. Nested compiler error lowering and
+forced-GC end-to-end cases remain deferred with the async state-machine work.
 
 **Dependencies:** S3, A7.
 

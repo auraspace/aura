@@ -177,11 +177,37 @@ static void test_completion_wins_if_published_first(void)
   aura_task_executor_shutdown(executor);
 }
 
+static void test_release_pending_cancels_and_reclaims(void)
+{
+  int cleanups = 0;
+  int observed_state = AURA_TASK_PENDING;
+  AuraTaskExecutor *executor = aura_task_executor_new();
+  assert(executor != NULL);
+
+  AuraTaskFrame *frame = new_task(AURA_TASK_PENDING, &cleanups,
+                                  &observed_state);
+  assert(aura_task_executor_submit(executor, frame) == 1);
+  assert(aura_task_executor_run_one(executor) == 1);
+  assert(aura_task_frame_state(frame) == AURA_TASK_PENDING);
+  assert(aura_task_executor_task_count(executor) == 1);
+
+  /* Dropping a pending handle is an acknowledged cancellation, not a leak. */
+  assert(aura_task_executor_release(executor, &frame) == 1);
+  assert(frame == NULL);
+  assert(cleanups == 1);
+  assert(aura_task_executor_ready_count(executor) == 0);
+  assert(aura_task_executor_task_count(executor) == 0);
+  assert(aura_task_executor_release(executor, &frame) == 1);
+
+  aura_task_executor_shutdown(executor);
+}
+
 int main(void)
 {
   test_ready_request_ack_and_join();
   test_pending_request_ack_and_unjoined_shutdown();
   test_completion_wins_if_published_first();
+  test_release_pending_cancels_and_reclaims();
   aura_gc_shutdown();
   return 0;
 }

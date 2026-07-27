@@ -33,12 +33,13 @@ When you resolve debt, update or remove the matching entry.
   its return payload and native `TaskHandle<String>` success is covered by
   two repeated joins.
 - Why still deferred: full `TaskError.Failed(error)` surface preservation and
-  pending-handle cancellation/reclamation remain open. Generated class exceptions
+  public raw typed outcomes and richer aggregate failures remain open. Generated class exceptions
   now retain an independently cloned raw payload alongside normalized owned
   error text; nested class payloads survive GC, parent propagation, and source
   release before two repeated typed joins. Lexical cleanup now automatically
   releases terminal `TaskHandle` bindings after their last scope, while
-  pending handles remain executor-owned. Primitive `String` failure detail
+  pending handles now cancel and reclaim synchronously through handle release;
+  executor ownership ends at the release boundary. Primitive `String` failure detail
   also survives a nested `leaf -> await middle -> spawned parent` chain and
   two repeated typed joins.
   The
@@ -396,17 +397,6 @@ When you resolve debt, update or remove the matching entry.
   and terminal release is covered by `runtime/tests/task_join.c`.
 - Next step: extend the typed compiler outcome ABI when async lowering defines
   source spans and nested failure representation.
-
-### Executor-owned non-terminal handle drop (S3, 2026-07-22)
-
-- Area: bounded task executor ownership
-- Symptom: `aura_task_executor_release` safely releases only terminal frames;
-  a ready or pending dropped handle remains executor-owned until cancellation
-  or shutdown.
-- Why deferred: releasing a live frame would race its queue/waiter links and
-  requires the cancellation and suspension lifecycle from S4/S5.
-- Next step: define live-handle drop semantics together with cancellation and
-  waiter unlinking; do not infer them from terminal release.
 
 ### S3 release rehearsal external blockers
 
@@ -881,12 +871,12 @@ When you resolve debt, update or remove the matching entry.
   Primitive Int/Bool failures are normalized to owned strings, String
   failures preserve their detail, and no-await typed String plus heap-class
   spawn success is owned across repeated joins. Direct `Array<Int>` success is
-  cloned for owning joins; cancellation ownership and arbitrary typed payload
-  transfer remain open.
+  cloned for owning joins; pending handle release now cancels and reclaims the
+  executor-owned frame synchronously. Cancellation ownership for richer
+  payloads and arbitrary typed payload transfer remain open.
 - Next step: expose the cloned raw payload through a typed `TaskError.Failed`
-  representation and define cancellation/reclamation for pending handles; the
-  current ABI keeps raw payload storage internal while the public join result
-  remains `Failed(String)`.
+  representation; the current ABI keeps raw payload storage internal while the
+  public join result remains `Failed(String)`.
 
 ### REG-002 production trust remains open (updated 2026-07-23)
 

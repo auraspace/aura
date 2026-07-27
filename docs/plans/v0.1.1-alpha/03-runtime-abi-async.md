@@ -235,8 +235,10 @@ handler publishes a failure payload and source span.
 **Bounded evidence (2026-07-22):**
 `runtime/tests/task_frame_sanitizer.c` covers a pending frame retaining a GC
 capture across `aura_gc_collect`, repeated direct polling, executor
-cancellation, a dropped pending handle cleaned by executor shutdown, and a
-failed frame whose error payload is observed and released. This is a C ABI
+cancellation, and a dropped pending handle. `runtime/tests/task_cancellation.c`
+also proves that release cancels and reclaims a pending handle immediately,
+without leaving a queued frame or double-running cleanup. A failed frame whose
+error payload is observed and released is covered as well. This is a C ABI
 fixture for the existing single-threaded frame/executor APIs; it does not claim
 full async state-machine lowering or delayed wakeup support. The fixture is
 run with ASAN/UBSAN and, when supported by the host toolchain, LSAN.

@@ -7580,15 +7580,52 @@ AuraTaskPollState aura_task_executor_join(AuraTaskExecutor *executor,
   return outcome.state;
 }
 
-/* Release an executor-owned terminal frame through its task-handle slot.
+/* Remove a frame from the FIFO ready queue before releasing it. */
+static int aura_task_executor_unqueue(AuraTaskExecutor *executor,
+                                       AuraTaskFrame *frame)
+{
+  AuraTaskFrame **link;
+
+  if (executor == NULL || frame == NULL || !frame->queued)
+  {
+    return frame != NULL && !frame->queued;
+  }
+  link = &executor->ready_head;
+  while (*link != NULL && *link != frame)
+  {
+    link = &(*link)->queue_next;
+  }
+  if (*link == NULL)
+  {
+    return 0;
+  }
+  *link = frame->queue_next;
+  if (executor->ready_tail == frame)
+  {
+    executor->ready_tail = NULL;
+    for (AuraTaskFrame *tail = executor->ready_head; tail != NULL;
+         tail = tail->queue_next)
+    {
+      executor->ready_tail = tail;
+    }
+  }
+  frame->queue_next = NULL;
+  frame->queued = 0;
+  if (executor->ready_count != 0)
+  {
+    executor->ready_count--;
+  }
+  return 1;
+}
+
+/* Release an executor-owned frame through its task-handle slot.
  *
  * The pointer-to-pointer API is intentional: releasing also clears the
  * caller's handle, making repeated release and dropped-handle cleanup
  * idempotent without dereferencing freed storage.  A non-terminal frame is
- * left owned by the executor and rejected; callers must not release a frame
- * while it can still be queued or waiting on a channel.  The owned list is
- * singly linked, so unlink the exact node before destroying it; shutdown can
- * then walk the remaining list without observing freed nodes.
+ * cancelled and polled to acknowledge cancellation before it is unlinked.
+ * The owned list is singly linked, so unlink the exact node before destroying
+ * it; shutdown can then walk the remaining list without observing freed nodes.
  */
 int aura_task_executor_release(AuraTaskExecutor *executor, AuraTaskFrame **handle)
 {
@@ -7600,10 +7637,26 @@ int aura_task_executor_release(AuraTaskExecutor *executor, AuraTaskFrame **handl
     return 1;
   }
   frame = *handle;
-  if (executor == NULL || executor->shutdown || frame->executor != executor ||
-      (frame->state != AURA_TASK_COMPLETE && frame->state != AURA_TASK_FAILED &&
-       frame->state != AURA_TASK_CANCELLED) || frame->queued ||
-      frame->waiting_channel != NULL || frame->waiting_node != NULL)
+  if (executor == NULL || executor->shutdown || frame->executor != executor)
+  {
+    return 0;
+  }
+  if (frame->state != AURA_TASK_COMPLETE && frame->state != AURA_TASK_FAILED &&
+      frame->state != AURA_TASK_CANCELLED)
+  {
+    if (!aura_task_executor_cancel(executor, frame) ||
+        !aura_task_executor_unqueue(executor, frame))
+    {
+      return 0;
+    }
+    if (aura_task_frame_poll_once(frame) != AURA_TASK_CANCELLED &&
+        frame->state != AURA_TASK_FAILED)
+    {
+      return 0;
+    }
+  }
+  if (frame->queued || frame->waiting_channel != NULL ||
+      frame->waiting_node != NULL)
   {
     return 0;
   }
