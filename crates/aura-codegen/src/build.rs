@@ -1223,6 +1223,8 @@ fun main() {
         let file = parse_file(source).expect("parse multi-await loop fixture");
         let generated = emit_c_from_ast(&file).expect("emit multi-await loop fixture");
         assert!(generated.contains("aura async loop multi-await suspension states=2"));
+        assert!(generated
+            .contains("aura_task_executor_release(__aura_task_executor, &data->await_task_0)"));
         assert!(generated.contains("aura_task_frame_set_resume_state(frame, 2)"));
         assert!(generated.contains("aura_task_frame_wait_on(frame, data->await_task_1)"));
 

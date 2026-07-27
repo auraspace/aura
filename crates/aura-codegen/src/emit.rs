@@ -1961,6 +1961,7 @@ fn emit_async_fun_while_multi_await_int(
     let base = format!("{}_{}", mangle_package(&pkg), mangle_ident(&f.name.name));
     let data_ty = format!("aura_async_data_{base}");
     let poll_fn = format!("aura_async_poll_{base}");
+    let destroy_data = format!("aura_async_destroy_{base}");
     let destroy_result = format!("aura_async_result_destroy_{base}");
     let mut entry_ctx = async_ctx(checked, detector, &params, &f.params, &f.return_type);
     for local in top_locals {
@@ -1975,6 +1976,10 @@ fn emit_async_fun_while_multi_await_int(
         .map(|local| coerce_expr(&local.init, "Int", &mut entry_ctx))
         .collect();
     let first_task = emit_expr(&loop_awaits[0].1.operand, &mut entry_ctx);
+    let await_owns_task: Vec<bool> = loop_awaits
+        .iter()
+        .map(|(_, await_expr)| await_operand_is_temporary(&await_expr.operand, checked))
+        .collect();
     let return_expr = emit_expr(return_value, &mut entry_ctx);
 
     let _ = writeln!(
@@ -2001,6 +2006,17 @@ fn emit_async_fun_while_multi_await_int(
         let _ = writeln!(out, "  AuraTaskFrame *await_task_{index};");
     }
     let _ = writeln!(out, "}} {data_ty};\n");
+    let _ = writeln!(out, "static void {destroy_data}(AuraTaskFrame *frame) {{");
+    let _ = writeln!(
+        out,
+        "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame);"
+    );
+    for (index, owns_task) in await_owns_task.iter().enumerate() {
+        if *owns_task {
+            let _ = writeln!(out, "  if (data->await_task_{index} != NULL && __aura_task_executor != NULL) {{ (void)aura_task_executor_release(__aura_task_executor, &data->await_task_{index}); }}");
+        }
+    }
+    out.push_str("}\n\n");
     let _ = writeln!(
         out,
         "static void {destroy_result}(void *data, size_t size) {{ (void)size; free(data); }}\n"
@@ -2055,6 +2071,10 @@ fn emit_async_fun_while_multi_await_int(
         out.push_str("        if (child_state != AURA_TASK_COMPLETE) return AURA_TASK_FAILED;\n");
         let value_name = mangle_ident(&loop_awaits[index].0.name.name);
         let _ = writeln!(out, "        AuraTaskResult child_result = aura_task_frame_result(data->await_task_{index}); if (child_result.data != NULL) data->{value_name} = *((int64_t *)child_result.data);");
+        if await_owns_task[index] {
+            let _ = writeln!(out, "        if (__aura_task_executor != NULL) {{ (void)aura_task_executor_release(__aura_task_executor, &data->await_task_{index}); }}");
+        }
+        let _ = writeln!(out, "        data->await_task_{index} = NULL;");
         if index + 1 < loop_awaits.len() {
             for p in &f.params {
                 let n = mangle_ident(&p.name.name);
@@ -2126,7 +2146,7 @@ fn emit_async_fun_while_multi_await_int(
     }
     out.push_str("      default: return AURA_TASK_FAILED;\n    }\n  }\n}\n\n");
     let _ = writeln!(out, "{} {{", c_async_fun_signature(f, checked));
-    let _ = writeln!(out, "  AuraTaskFrame *frame = aura_task_frame_new(sizeof({data_ty}), {poll_fn}, NULL); if (frame == NULL) return NULL;");
+    let _ = writeln!(out, "  AuraTaskFrame *frame = aura_task_frame_new(sizeof({data_ty}), {poll_fn}, {destroy_data}); if (frame == NULL) return NULL;");
     let _ = writeln!(
         out,
         "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame);"

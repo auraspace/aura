@@ -170,6 +170,10 @@ pending cancellation path. Await operands that are caller-owned handles are
 not released by this path; broader control-flow lowerings still need the same
 ownership classification.
 
+The sequential multi-await loop lowering applies the same rule per iteration:
+temporary children are released after payload copy and any live child is
+released by frame destruction on cancellation.
+
 **Verification:** Run multi-await, forced-GC, cancellation, and failure fixtures
 under sanitizers.
 

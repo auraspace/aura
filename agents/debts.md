@@ -102,7 +102,9 @@ When you resolve debt, update or remove the matching entry.
   A branch join whose two arms assign awaited `Task<Int>` values to one local
   now persists the selected child through a shared resume state and emits a
   common post-join continuation, including GC calls, repeated joins, and
-  cancellation coverage.
+  cancellation coverage. Sequential multi-await loop frames now release
+  compiler-created child frames after each terminal result and from frame
+  destruction; caller-owned handles remain borrowed.
   The same bounded branch continuation now owns copied `String` payloads in
   the frame and result slot, with forced-GC and repeated-join native coverage.
   A bounded Int loop now supports an if/else await at each iteration, with one
