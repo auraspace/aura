@@ -70,6 +70,10 @@ When you resolve debt, update or remove the matching entry.
   regression. A nested outer/inner Int loop slice now persists both loop
   counters and the accumulator across an inner await, resumes at the inner
   loop head, and forces GC after each child completion in a native regression.
+  A branch join whose two arms assign awaited `Task<Int>` values to one local
+  now persists the selected child through a shared resume state and emits a
+  common post-join continuation, including GC calls, repeated joins, and
+  cancellation coverage.
 - Why still deferred: arbitrary nested loops beyond the supported two-level
   Int shape, multiple conditional awaits,
   nested branch-local values, and richer payload types still fall back to the

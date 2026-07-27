@@ -1445,6 +1445,59 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_branch_join_with_common_continuation() {
+        let source = r#"package demo
+async fun worker(value: Int): Int { return value }
+async fun combine(flag: Bool, first: Task<Int>, second: Task<Int>): Int {
+  var value: Int = 0
+  if (flag) { value = await first }
+  else { value = await second }
+  gc_collect()
+  return value + 1
+}
+fun main() {
+  val first = spawn { val value: Int = await combine(true, worker(1), worker(2)) println(value.toString()) return }
+  join(first)
+  join(first)
+  val second = spawn { val value: Int = await combine(false, worker(3), worker(4)) println(value.toString()) return }
+  join(second)
+  val cancelled = spawn { val value: Int = await combine(true, worker(5), worker(6)) println("unexpected-cancel") return }
+  cancel(cancelled)
+  join(cancelled)
+}
+"#;
+        let file = parse_file(source).expect("parse branch-join continuation fixture");
+        let generated = emit_c_from_ast(&file).expect("emit branch-join continuation fixture");
+        assert!(generated.contains("aura async branch-join continuation states=1"));
+        assert!(generated.contains("aura_task_frame_set_resume_state(frame, 1)"));
+        assert!(generated.contains("aura_task_frame_wait_on(frame, data->await_task)"));
+        assert!(generated.contains("aura_task_frame_propagate_error(frame, data->await_task)"));
+        assert!(generated.contains("aura_task_frame_cancel_requested(frame)"));
+        assert!(generated.contains("aura_gc_collect"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-branch-join-continuation-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile branch-join continuation fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run branch-join continuation fixture");
+        assert!(
+            output.status.success(),
+            "branch-join continuation fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "2\n5\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_nested_branch_await_state_machine() {
         let file = aura_parser::parse_file(
             r#"package demo
