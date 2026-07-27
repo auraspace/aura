@@ -639,8 +639,9 @@ fn emit_fallback_unit_join_result(out: &mut String, checked: &CheckedFile) {
     if has_std_task_error_decl || has_std_result_decl {
         return;
     }
-    out.push_str("typedef struct aura_enum_std_io_TaskError { int tag; union { struct { const char *error; } Failed; char as_Cancelled; } data; } aura_enum_std_io_TaskError;\n");
-    out.push_str("static __attribute__((unused)) aura_enum_std_io_TaskError aura_var_std_io_TaskError_Failed(const char *error) { aura_enum_std_io_TaskError self; self.tag = 0; self.data.Failed.error = error; return self; }\n");
+    out.push_str("typedef struct aura_enum_std_io_TaskError { int tag; union { struct { const char *error; bool owned; } Failed; char as_Cancelled; } data; } aura_enum_std_io_TaskError;\n");
+    out.push_str("static __attribute__((unused)) aura_enum_std_io_TaskError aura_var_std_io_TaskError_Failed(const char *error) { aura_enum_std_io_TaskError self; self.tag = 0; self.data.Failed.error = error; self.data.Failed.owned = false; return self; }\n");
+    out.push_str("static __attribute__((unused)) aura_enum_std_io_TaskError aura_var_std_io_TaskError_FailedOwned(const char *error) { aura_enum_std_io_TaskError self; self.tag = 0; self.data.Failed.error = error; self.data.Failed.owned = true; return self; }\n");
     out.push_str("static __attribute__((unused)) aura_enum_std_io_TaskError aura_var_std_io_TaskError_Cancelled(void) { aura_enum_std_io_TaskError self; self.tag = 1; return self; }\n");
     if !has_result_unit {
         out.push_str("typedef struct aura_enum_std_io_Result_Unit_std_io_TaskError { int tag; union { char as_Ok; struct { aura_enum_std_io_TaskError error; } Err; } data; } aura_enum_std_io_Result_Unit_std_io_TaskError;\n");
@@ -3856,6 +3857,7 @@ fn async_ctx<'a>(
         fun_owners: vec![std::collections::HashSet::new()],
         string_owners: vec![std::collections::HashSet::new()],
         channel_owners: vec![std::collections::HashSet::new()],
+        task_result_owners: vec![std::collections::HashSet::new()],
         box_locals: vec![std::collections::HashSet::new()],
         box_owners: vec![std::collections::HashSet::new()],
         gc_roots: vec![std::collections::HashSet::new()],
@@ -4078,6 +4080,7 @@ fn emit_async_body(
         fun_owners: vec![std::collections::HashSet::new()],
         string_owners: vec![std::collections::HashSet::new()],
         channel_owners: vec![std::collections::HashSet::new()],
+        task_result_owners: vec![std::collections::HashSet::new()],
         box_locals: vec![std::collections::HashSet::new()],
         box_owners: vec![std::collections::HashSet::new()],
         gc_roots: vec![std::collections::HashSet::new()],
@@ -4363,6 +4366,7 @@ fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile, detector:
             fun_owners: vec![std::collections::HashSet::new()],
             string_owners: vec![std::collections::HashSet::new()],
             channel_owners: vec![std::collections::HashSet::new()],
+            task_result_owners: vec![std::collections::HashSet::new()],
             box_locals: vec![std::collections::HashSet::new()],
             box_owners: vec![std::collections::HashSet::new()],
             gc_roots: vec![std::collections::HashSet::new()],
@@ -4430,6 +4434,7 @@ fn emit_bounded_spawn_await_poller(
         fun_owners: vec![HashSet::new()],
         string_owners: vec![HashSet::new()],
         channel_owners: vec![HashSet::new()],
+        task_result_owners: vec![HashSet::new()],
         box_locals: vec![HashSet::new()],
         box_owners: vec![HashSet::new()],
         gc_roots: vec![HashSet::new()],
@@ -4476,6 +4481,7 @@ fn emit_bounded_spawn_await_poller(
         fun_owners: vec![HashSet::new()],
         string_owners: vec![HashSet::new()],
         channel_owners: vec![HashSet::new()],
+        task_result_owners: vec![HashSet::new()],
         box_locals: vec![HashSet::new()],
         box_owners: vec![HashSet::new()],
         gc_roots: vec![HashSet::new()],
@@ -5156,6 +5162,7 @@ fn emit_lambda_fns(out: &mut String, checked: &CheckedFile, detector: bool) {
             fun_owners: vec![std::collections::HashSet::new()],
             string_owners: vec![std::collections::HashSet::new()],
             channel_owners: vec![std::collections::HashSet::new()],
+            task_result_owners: vec![std::collections::HashSet::new()],
             box_locals: vec![std::collections::HashSet::new()],
             box_owners: vec![std::collections::HashSet::new()],
             gc_roots: vec![std::collections::HashSet::new()],
@@ -5354,6 +5361,7 @@ pub(crate) fn emit_fun(
         fun_owners: vec![std::collections::HashSet::new()],
         string_owners: vec![std::collections::HashSet::new()],
         channel_owners: vec![std::collections::HashSet::new()],
+        task_result_owners: vec![std::collections::HashSet::new()],
         box_locals: vec![std::collections::HashSet::new()],
         box_owners: vec![std::collections::HashSet::new()],
         gc_roots: vec![std::collections::HashSet::new()],

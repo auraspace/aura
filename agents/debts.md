@@ -34,8 +34,10 @@ When you resolve debt, update or remove the matching entry.
   `longjmp`-orphaned allocation; this does not close the broader ownership
   contract. The runtime now also exposes `aura_task_outcome_clone` and
   `aura_task_owned_outcome_destroy`, proving an owned terminal snapshot can
-  outlive its frame for success/error/cancel states; generated `join` still
-  constructs `TaskError` from borrowed frame bytes.
+  outlive its frame for success/error/cancel states. A local
+  `Result<*, TaskError> = join(task)` now clones `Failed` detail and releases
+  it at scope exit; bare joins remain borrowed, and successful rich payloads
+  still need a corresponding generated ownership path.
 - Next step: connect generated class payload ownership and suspended await
   propagation and generated `Result`/`TaskError` cleanup to the clone/destroy
   boundary, then add cancellation and forced-GC evidence.

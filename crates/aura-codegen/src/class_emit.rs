@@ -398,6 +398,7 @@ pub(crate) fn emit_method_mono(
         fun_owners: vec![std::collections::HashSet::new()],
         string_owners: vec![std::collections::HashSet::new()],
         channel_owners: vec![std::collections::HashSet::new()],
+        task_result_owners: vec![std::collections::HashSet::new()],
         box_locals: vec![std::collections::HashSet::new()],
         box_owners: vec![std::collections::HashSet::new()],
         gc_roots: vec![std::collections::HashSet::new()],

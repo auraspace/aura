@@ -22,6 +22,8 @@ pub(crate) struct EmitCtx<'a> {
     pub(crate) string_owners: Vec<HashSet<String>>,
     /// Per-scope locals that own runtime channels.
     pub(crate) channel_owners: Vec<HashSet<String>>,
+    /// Per-scope `Result<*, std.io.TaskError>` locals that own Failed strings.
+    pub(crate) task_result_owners: Vec<HashSet<String>>,
     /// Per-scope locals that are box pointers (access via `->value`; C12m).
     /// Includes by-ref capture aliases (not owners).
     pub(crate) box_locals: Vec<HashSet<String>>,
@@ -54,6 +56,7 @@ impl<'a> EmitCtx<'a> {
         self.fun_owners.push(HashSet::new());
         self.string_owners.push(HashSet::new());
         self.channel_owners.push(HashSet::new());
+        self.task_result_owners.push(HashSet::new());
         self.box_locals.push(HashSet::new());
         self.box_owners.push(HashSet::new());
         self.gc_roots.push(HashSet::new());
@@ -66,6 +69,7 @@ impl<'a> EmitCtx<'a> {
         self.fun_owners.pop();
         self.string_owners.pop();
         self.channel_owners.pop();
+        self.task_result_owners.pop();
         self.box_locals.pop();
         self.box_owners.pop();
         self.gc_roots.pop();
@@ -224,6 +228,33 @@ impl<'a> EmitCtx<'a> {
         if let Some(scope) = self.channel_owners.last_mut() {
             scope.insert(name.to_string());
         }
+    }
+
+    pub(crate) fn mark_task_result_owner(&mut self, name: &str) {
+        if let Some(scope) = self.task_result_owners.last_mut() {
+            scope.insert(name.to_string());
+        }
+    }
+
+    pub(crate) fn task_result_owners_current(&self) -> Vec<String> {
+        self.task_result_owners
+            .last()
+            .map(|scope| {
+                let mut names: Vec<_> = scope.iter().cloned().collect();
+                names.sort();
+                names
+            })
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn task_result_owners_all(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        for scope in self.task_result_owners.iter().rev() {
+            let mut names: Vec<_> = scope.iter().cloned().collect();
+            names.sort();
+            out.extend(names);
+        }
+        out
     }
 
     pub(crate) fn channel_owners_all(&self) -> Vec<String> {

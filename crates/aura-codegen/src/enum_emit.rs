@@ -40,6 +40,7 @@ pub(crate) fn emit_enum_typedef(
     let params: Vec<String> = e.type_params.iter().map(|p| p.name.name.clone()).collect();
     let pkg = enum_decl_package(e, checked);
     let mono = type_mono(&pkg, &e.name.name, args);
+    let task_error = pkg == "std.io" && e.name.name == "TaskError";
     let _ = writeln!(out, "typedef struct {} {{", c_enum_type(&mono));
     out.push_str("  int tag;\n  union {\n");
     for v in &e.variants {
@@ -54,6 +55,9 @@ pub(crate) fn emit_enum_typedef(
                     enum_field_c_type(f, &params, args, checked),
                     mangle_ident(&f.name.name)
                 );
+            }
+            if task_error && v.name.name == "Failed" {
+                out.push_str("      bool owned;\n");
             }
             let _ = writeln!(out, "    }} {};", mangle_ident(&v.name.name));
         }
@@ -116,6 +120,7 @@ pub(crate) fn emit_enum_defs(out: &mut String, checked: &CheckedFile, e: &EnumDe
     let params: Vec<String> = e.type_params.iter().map(|p| p.name.name.clone()).collect();
     let pkg = enum_decl_package(e, checked);
     let mono = type_mono(&pkg, &e.name.name, args);
+    let task_error = pkg == "std.io" && e.name.name == "TaskError";
     for (tag, v) in e.variants.iter().enumerate() {
         let _ = writeln!(
             out,
@@ -136,7 +141,19 @@ pub(crate) fn emit_enum_defs(out: &mut String, checked: &CheckedFile, e: &EnumDe
                 n,
                 n
             );
+            if task_error && v.name.name == "Failed" {
+                out.push_str("  self.data.Failed.owned = false;\n");
+            }
         }
         out.push_str("  return self;\n}\n");
+    }
+    if task_error {
+        let ctor = c_variant_ctor_name(&mono, "FailedOwned");
+        let _ = writeln!(
+            out,
+            "{} {{ {} self; self.tag = 0; self.data.Failed.error = error; self.data.Failed.owned = true; return self; }}",
+            format!("{} {}(const char *error)", c_enum_type(&mono), ctor),
+            c_enum_type(&mono)
+        );
     }
 }

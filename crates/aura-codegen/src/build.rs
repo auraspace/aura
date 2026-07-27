@@ -1786,6 +1786,8 @@ fun main() {
         .expect("parse String join-failure fixture");
         let generated = emit_c_from_ast(&file).expect("emit String join-failure fixture");
         assert!(generated.contains("const char *__join_error"));
+        assert!(generated.contains("aura_var_std_io_TaskError_FailedOwned"));
+        assert!(generated.contains(".data.Err.error.data.Failed.owned"));
         assert!(generated.contains("aura_ex_matches(\"String\")"));
 
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
