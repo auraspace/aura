@@ -2950,7 +2950,7 @@ fn emit_async_fun_single_await(
         return false;
     };
     let await_key = type_ref_local_key_expand(await_ty, &[], &[], checked);
-    if await_key != "Int" && await_key != "Bool" {
+    if await_key != "Int" && await_key != "Bool" && await_key != "String" {
         return false;
     }
     let mut locals = Vec::new();
@@ -3063,7 +3063,11 @@ fn emit_async_fun_single_await(
         out,
         "static void {destroy_result}(void *data, size_t size) {{"
     );
-    out.push_str("  (void)size;\n  free(data);\n}\n\n");
+    if ret == "const char *" {
+        out.push_str("  (void)size;\n  if (data != NULL) free((void *)*((const char **)data));\n  free(data);\n}\n\n");
+    } else {
+        out.push_str("  (void)size;\n  free(data);\n}\n\n");
+    }
     let mut init_ctx = async_ctx(checked, detector, &params, &f.params, &f.return_type);
     for p in &f.params {
         init_ctx.define_local(
@@ -3141,7 +3145,13 @@ fn emit_async_fun_single_await(
             "      {ret} *result = ({ret} *)malloc(sizeof(*result));"
         );
         out.push_str("      if (result == NULL) return AURA_TASK_FAILED;\n");
-        let _ = writeln!(out, "      *result = {resume_fn}(data, observed);");
+        if ret == "const char *" {
+            out.push_str("      const char *__returned = ");
+            let _ = writeln!(out, "{resume_fn}(data, observed);");
+            out.push_str("      if (__returned == NULL) { *result = NULL; } else { size_t __len = strlen(__returned); char *__copy = (char *)malloc(__len + 1); if (__copy == NULL) { free(result); return AURA_TASK_FAILED; } memcpy(__copy, __returned, __len + 1); *result = __copy; }\n");
+        } else {
+            let _ = writeln!(out, "      *result = {resume_fn}(data, observed);");
+        }
         let _ = writeln!(
             out,
             "      aura_task_frame_set_result(frame, result, sizeof(*result), {destroy_result});"

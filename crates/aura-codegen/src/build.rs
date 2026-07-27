@@ -1212,6 +1212,44 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_single_await_string_payload() {
+        let file = aura_parser::parse_file(
+            r#"package demo
+async fun answer(): String { return "hello" }
+async fun relay(): String {
+  val value: String = await answer()
+  println(value)
+  return value
+}
+fun main() {
+  relay()
+}
+"#,
+        )
+        .expect("parse single-await String fixture");
+        let generated = emit_c_from_ast(&file).expect("emit single-await String fixture");
+        assert!(generated.contains("strlen(__returned)"));
+        assert!(generated.contains("free((void *)*((const char **)data))"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-async-string-await-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile single-await String fixture");
+        assert!(Command::new(&bin)
+            .status()
+            .expect("run single-await String fixture")
+            .success());
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_corpus_four_await_fixture() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()

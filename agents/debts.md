@@ -21,8 +21,12 @@ When you resolve debt, update or remove the matching entry.
   unexpected pending states to a failed diagnostic; the task-outcome corpus
   fixture covers the typed failure path.
 - Why still deferred: generated class payloads, suspended await continuation
-  payload failures, full `TaskError.Failed(error)` preservation, and automatic
-  completed-handle release remain open. The no-await primitive failure leak was
+  payload failures, spawn/task-handle execution for richer suspended payloads,
+  full `TaskError.Failed(error)` preservation, and automatic completed-handle
+  release remain open. The single-await lowering now clones primitive `String`
+  results into an owned parent result slot; this is compile/native codegen
+  evidence only and does not close the broader ownership contract. The no-await
+  primitive failure leak was
   fixed by allocating the result slot only after the body returns, avoiding a
   `longjmp`-orphaned allocation; this does not close the broader ownership
   contract.
