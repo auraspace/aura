@@ -3627,6 +3627,28 @@ void *aura_ex_as_obj(void)
   return aura_ex_stack[aura_ex_sp - 1].payload.as_obj;
 }
 
+/* Transfer an object payload out of the active exception frame. */
+void *aura_ex_take_obj(void)
+{
+  AuraExFrame *f;
+  void *obj;
+
+  if (aura_ex_sp == 0 || !aura_ex_pending)
+  {
+    return NULL;
+  }
+  f = &aura_ex_stack[aura_ex_sp - 1];
+  if (!f->owns_obj)
+  {
+    return NULL;
+  }
+  obj = f->payload.as_obj;
+  f->payload.as_obj = NULL;
+  f->owns_obj = 0;
+  f->destroy_obj = NULL;
+  return obj;
+}
+
 void aura_ex_clear(void)
 {
   if (aura_ex_sp > 0)
@@ -5563,6 +5585,10 @@ struct AuraTaskFrame
   AuraTaskResultCloneFn error_clone;
   AuraTaskResultDestroyFn error_destroy;
   int error_rooted;
+  AuraTaskResult error_payload;
+  AuraTaskResultCloneFn error_payload_clone;
+  AuraTaskResultDestroyFn error_payload_destroy;
+  int error_payload_rooted;
   uint32_t error_source_id;
   uint32_t error_span_start;
   uint32_t error_span_end;
@@ -6555,6 +6581,12 @@ AuraTaskResult aura_task_frame_error(const AuraTaskFrame *frame)
   return frame != NULL ? frame->error : empty;
 }
 
+AuraTaskResult aura_task_frame_error_payload(const AuraTaskFrame *frame)
+{
+  AuraTaskResult empty = {NULL, 0};
+  return frame != NULL ? frame->error_payload : empty;
+}
+
 uint32_t aura_task_frame_error_source_id(const AuraTaskFrame *frame)
 {
   return frame != NULL ? frame->error_source_id : 0;
@@ -6612,6 +6644,10 @@ void aura_task_frame_set_error_span_with_clone(
   {
     return;
   }
+  aura_task_result_release(&frame->error_payload,
+                           &frame->error_payload_clone,
+                           &frame->error_payload_destroy,
+                           &frame->error_payload_rooted);
   aura_task_result_release(&frame->error, &frame->error_clone,
                            &frame->error_destroy,
                            &frame->error_rooted);
@@ -6626,6 +6662,28 @@ void aura_task_frame_set_error_span_with_clone(
     aura_gc_add_root(&frame->error.data);
     frame->error_rooted = 1;
     frame->state = AURA_TASK_FAILED;
+  }
+}
+
+void aura_task_frame_set_error_payload_with_clone(
+    AuraTaskFrame *frame, void *data, size_t size,
+    AuraTaskResultCloneFn clone, AuraTaskResultDestroyFn destroy)
+{
+  if (frame == NULL)
+  {
+    return;
+  }
+  aura_task_result_release(&frame->error_payload,
+                           &frame->error_payload_clone,
+                           &frame->error_payload_destroy,
+                           &frame->error_payload_rooted);
+  frame->error_payload = (AuraTaskResult){data, size};
+  frame->error_payload_clone = clone;
+  frame->error_payload_destroy = destroy;
+  if (data != NULL)
+  {
+    aura_gc_add_root(&frame->error_payload.data);
+    frame->error_payload_rooted = 1;
   }
 }
 
@@ -6728,14 +6786,38 @@ int aura_task_frame_propagate_error_with_clone(
 int aura_task_frame_propagate_error(AuraTaskFrame *frame,
                                     const AuraTaskFrame *source)
 {
+  int propagated;
   if (source != NULL && source->error_clone != NULL)
   {
-    return aura_task_frame_propagate_error_with_clone(
+    propagated = aura_task_frame_propagate_error_with_clone(
         frame, source, source->error_clone, source->error_destroy);
   }
-  return aura_task_frame_propagate_error_with_clone(
-      frame, source, aura_task_error_shallow_clone,
-      aura_task_error_copy_destroy);
+  else
+  {
+    propagated = aura_task_frame_propagate_error_with_clone(
+        frame, source, aura_task_error_shallow_clone,
+        aura_task_error_copy_destroy);
+  }
+  if (!propagated || source == NULL || source->error_payload.data == NULL)
+  {
+    return propagated;
+  }
+  if (source->error_payload_clone == NULL ||
+      source->error_payload_destroy == NULL)
+  {
+    return 0;
+  }
+  size_t cloned_size = 0;
+  void *copy = source->error_payload_clone(
+      source->error_payload.data, source->error_payload.size, &cloned_size);
+  if (copy == NULL)
+  {
+    return 0;
+  }
+  aura_task_frame_set_error_payload_with_clone(
+      frame, copy, cloned_size, source->error_payload_clone,
+      source->error_payload_destroy);
+  return 1;
 }
 
 void aura_task_frame_set_result(AuraTaskFrame *frame,
@@ -6839,6 +6921,10 @@ void aura_task_frame_destroy(AuraTaskFrame *frame)
   aura_task_result_release(&frame->error, &frame->error_clone,
                            &frame->error_destroy,
                            &frame->error_rooted);
+  aura_task_result_release(&frame->error_payload,
+                           &frame->error_payload_clone,
+                           &frame->error_payload_destroy,
+                           &frame->error_payload_rooted);
   if (frame->data != NULL)
   {
     aura_gc_remove_root(&frame->data);

@@ -175,6 +175,26 @@ int main(void)
   aura_task_frame_destroy(cancel_parent);
   assert(aura_task_executor_release(executor, &cancel_source) == 1);
 
+  /* Error text and raw class-like payloads travel independently through a
+   * parent frame, and both remain valid after the source is released. */
+  AuraTaskFrame *payload_source = new_outcome_api_task(1);
+  assert(aura_task_executor_join_outcome(executor, payload_source).state ==
+         AURA_TASK_FAILED);
+  int *raw_error = (int *)malloc(sizeof(*raw_error));
+  assert(raw_error != NULL);
+  *raw_error = 73;
+  aura_task_frame_set_error_payload_with_clone(
+      payload_source, raw_error, sizeof(*raw_error), clone_payload, drop_payload);
+  AuraTaskFrame *payload_parent = new_empty_frame();
+  assert(aura_task_frame_propagate_error(payload_parent, payload_source) == 1);
+  AuraTaskResult raw_copy = aura_task_frame_error_payload(payload_parent);
+  assert(raw_copy.data != NULL && *(int *)raw_copy.data == 73);
+  assert(raw_copy.data != aura_task_frame_error_payload(payload_source).data);
+  assert(aura_task_executor_release(executor, &payload_source) == 1);
+  assert(*(int *)raw_copy.data == 73);
+  aura_task_frame_destroy(payload_parent);
+  assert(payload_drops == 9);
+
   aura_task_executor_shutdown(executor);
   return 0;
 }

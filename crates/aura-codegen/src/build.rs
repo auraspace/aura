@@ -2608,7 +2608,9 @@ fun main() {
         )
         .expect("parse nested class failure fixture");
         let generated = emit_c_from_ast(&file).expect("emit nested class failure fixture");
-        assert!(generated.contains("aura_ex_type_name"));
+        assert!(generated.contains("aura_ex_take_obj"));
+        assert!(generated.contains("aura_async_class_error_clone_"));
+        assert!(generated.contains("aura_task_frame_set_error_payload_with_clone"));
         assert!(generated.contains("aura_throw_obj_with_destructor"));
         assert!(generated.contains("aura_task_frame_set_error_span_with_clone"));
 
@@ -2633,7 +2635,7 @@ fun main() {
         let lines: Vec<&str> = stdout.lines().collect();
         assert_eq!(lines.len(), 2, "unexpected class failure output: {stdout}");
         assert_eq!(lines[0], lines[1]);
-        assert!(lines[0].contains("Failure"));
+        assert_eq!(lines[0], "class-detail");
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);
     }

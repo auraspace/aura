@@ -32,12 +32,12 @@ When you resolve debt, update or remove the matching entry.
   unexpected pending states to a failed diagnostic; typed `spawn` now infers
   its return payload and native `TaskHandle<String>` success is covered by
   two repeated joins.
-- Why still deferred: raw generated class payload preservation, full
-  `TaskError.Failed(error)` preservation, and automatic completed-handle release
-  remain open. Class exceptions now normalize their owned type name into an
-  independently cloned `TaskError.Failed(String)` payload; a nested class
-  failure survives GC and two repeated typed joins. Primitive `String` failure
-  detail also survives a nested `leaf -> await middle -> spawned parent` chain
+- Why still deferred: full `TaskError.Failed(error)` surface preservation and
+  automatic completed-handle release remain open. Generated class exceptions
+  now retain an independently cloned raw payload alongside normalized owned
+  error text; nested class payloads survive GC, parent propagation, and source
+  release before two repeated typed joins. Primitive `String` failure detail
+  also survives a nested `leaf -> await middle -> spawned parent` chain
   and two repeated typed joins.
   The
   single-await lowering now clones primitive `String` results into an owned
@@ -875,9 +875,10 @@ When you resolve debt, update or remove the matching entry.
   spawn success is owned across repeated joins. Direct `Array<Int>` success is
   cloned for owning joins; cancellation ownership and arbitrary typed payload
   transfer remain open.
-- Next step: extend the runtime outcome ABI and generated clone/destroy path so
-  `TaskError.Failed(error)` can own arbitrary original typed payloads; that work
-  is intentionally outside this compiler-only slice.
+- Next step: expose the cloned raw payload through a typed `TaskError.Failed`
+  representation and add automatic completed-handle release; the current ABI
+  keeps raw payload storage internal while the public join result remains
+  `Failed(String)`.
 
 ### REG-002 production trust remains open (updated 2026-07-23)
 
