@@ -2495,6 +2495,77 @@ fun main() {
     }
 
     #[test]
+    fn nested_suspended_failure_preserves_owned_detail_across_repeated_joins() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+async fun leaf(): String { throw "nested-detail" }
+async fun middle(): String {
+  val value: String = await leaf()
+  return value
+}
+fun main() {
+  val task = spawn {
+    val value: String = await middle()
+    return value
+  }
+  val first: Result<String, TaskError> = join(task)
+  match (first) {
+    case Ok(value) => { println("unexpected") }
+    case Err(error) => {
+      match (error) {
+        case Failed(message) => { println(message) }
+        case Cancelled => { println("cancelled") }
+      }
+    }
+  }
+  gc_collect()
+  val second: Result<String, TaskError> = join(task)
+  match (second) {
+    case Ok(value) => { println("unexpected") }
+    case Err(error) => {
+      match (error) {
+        case Failed(message) => { println(message) }
+        case Cancelled => { println("cancelled") }
+      }
+    }
+  }
+}
+"#,
+        )
+        .expect("parse nested suspended failure fixture");
+        let generated = emit_c_from_ast(&file).expect("emit nested suspended failure fixture");
+        assert!(generated.contains("aura_task_frame_propagate_error(frame, data->await_task)"));
+        assert!(generated.contains("aura_task_frame_set_error_span_with_clone"));
+        assert!(generated.contains("aura_var_std_io_TaskError_FailedOwned"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-nested-suspended-failure-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile nested suspended failure fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run nested suspended failure fixture");
+        assert!(
+            output.status.success(),
+            "nested suspended failure fixture failed: {output:?}"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "nested-detail\nnested-detail\n"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn emits_owned_string_success_for_local_task_result_join() {
         let file = aura_parser::parse_file(
             r#"package std.io

@@ -21,9 +21,11 @@ When you resolve debt, update or remove the matching entry.
   unexpected pending states to a failed diagnostic; typed `spawn` now infers
   its return payload and native `TaskHandle<String>` success is covered by
   two repeated joins.
-- Why still deferred: generated class payloads, suspended await continuation
-  payload failures, full `TaskError.Failed(error)` preservation, and automatic
-  completed-handle release remain open. The
+- Why still deferred: generated class payload failures, full
+  `TaskError.Failed(error)` preservation, and automatic completed-handle release
+  remain open. Primitive `String` failure detail now survives a nested
+  `leaf -> await middle -> spawned parent` chain and two repeated typed joins.
+  The
   single-await lowering now clones primitive `String` results into an owned
   parent result slot, and bounded `spawn` bodies can await String with repeated
   join observations; the bounded two/three-await and dynamic four-plus-await
