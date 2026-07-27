@@ -86,8 +86,13 @@ When you resolve debt, update or remove the matching entry.
   each await, clones the selected child result before replacing the previous
   value, destroys the frame value on cancellation, and has forced-GC,
   repeated-join, and queued-task cancellation native coverage.
+  A bounded loop with two independent conditional awaits now persists separate
+  child handles and resume states, skips unselected awaits without allocation,
+  and runs its shared GC/accumulator continuation exactly once per iteration.
+  Native coverage exercises all four condition combinations, repeated joins,
+  and queued cancellation.
 - Why still deferred: arbitrary nested loops beyond the supported two-level
-  Int shape, multiple conditional awaits,
+  Int shape, more than two conditional awaits,
   nested branch-local values, and richer payload types still fall back to the
   existing bounded-shape rejection path; `break`/`continue` outside the new
   top-level Int loop CFG slice remain unsupported.

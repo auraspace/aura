@@ -1445,6 +1445,98 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_loop_with_two_conditional_await_states() {
+        let file = parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+async fun first_worker(value: Int): Int { return value }
+async fun second_worker(value: Int): Int { return value + 10 }
+async fun sum(first_flag: Bool, second_flag: Bool, limit: Int): Int {
+  var i: Int = 0
+  var total: Int = 0
+  var first: Int = 0
+  var second: Int = 0
+  while (i < limit) {
+    if (first_flag) { first = await first_worker(i) }
+    if (second_flag) { second = await second_worker(i) }
+    total = total + first + second
+    gc_collect()
+    i = i + 1
+  }
+  return total
+}
+fun main() {
+  val both = spawn { val value: Int = await sum(true, true, 2) return value }
+  val both_first: Result<Int, TaskError> = join(both)
+  match (both_first) {
+    case Ok(value) => { println(value.toString()) }
+    case Err(error) => { println("unexpected-error") }
+  }
+  val both_second: Result<Int, TaskError> = join(both)
+  match (both_second) {
+    case Ok(value) => { println(value.toString()) }
+    case Err(error) => { println("unexpected-error") }
+  }
+  val first_only = spawn { val value: Int = await sum(true, false, 2) return value }
+  val first_result: Result<Int, TaskError> = join(first_only)
+  match (first_result) {
+    case Ok(value) => { println(value.toString()) }
+    case Err(error) => { println("unexpected-error") }
+  }
+  val second_only = spawn { val value: Int = await sum(false, true, 2) return value }
+  val second_result: Result<Int, TaskError> = join(second_only)
+  match (second_result) {
+    case Ok(value) => { println(value.toString()) }
+    case Err(error) => { println("unexpected-error") }
+  }
+  val neither = spawn { val value: Int = await sum(false, false, 2) return value }
+  val neither_result: Result<Int, TaskError> = join(neither)
+  match (neither_result) {
+    case Ok(value) => { println(value.toString()) }
+    case Err(error) => { println("unexpected-error") }
+  }
+  val cancelled = spawn { val value: Int = await sum(true, true, 5) return value }
+  cancel(cancelled)
+  join(cancelled)
+}
+"#,
+        )
+        .expect("parse two conditional await fixture");
+        let generated = emit_c_from_ast(&file).expect("emit two conditional await fixture");
+        assert!(generated.contains("aura async loop two-conditional suspension states=3"));
+        assert!(generated.contains("aura_task_frame_set_resume_state(frame, 1)"));
+        assert!(generated.contains("aura_task_frame_set_resume_state(frame, 2)"));
+        assert!(generated.contains("data->await_task_1"));
+        assert!(generated.contains("aura_gc_collect"));
+        assert!(generated.contains("aura_task_frame_propagate_error(frame, data->await_task_0)"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-loop-two-conditional-await-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile two conditional await fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run two conditional await fixture");
+        assert!(
+            output.status.success(),
+            "two conditional await fixture failed: {output:?}"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "22\n22\n1\n21\n0\n"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_branch_then_second_await_state_machine() {
         let source = r#"package demo
 async fun worker(value: Int): Int {
