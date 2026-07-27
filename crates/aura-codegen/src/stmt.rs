@@ -145,6 +145,7 @@ pub(crate) fn emit_block(out: &mut String, block: &Block, indent: usize, ctx: &m
     emit_free_string_owners(out, indent, &ctx.string_owners_current());
     emit_destroy_channel_owners(out, indent, &ctx.channel_owners_current());
     emit_free_task_result_owners(out, indent, ctx, &ctx.task_result_owners_current());
+    emit_release_task_handle_owners(out, indent, ctx, &ctx.task_handle_owners_current());
     // C12m: release by-ref boxes owned by this block (after Fun envs drop their retains).
     emit_release_box_locals(out, indent, ctx, &ctx.box_owners_current());
     ctx.pop_scope();
@@ -266,6 +267,26 @@ pub(crate) fn emit_free_task_result_owners(
         let _ = writeln!(
             out,
             "{p}{ok_cleanup}if ({n}.tag == 1 && {n}.data.Err.error.tag == 0 && {n}.data.Err.error.data.Failed.owned) {{ free((void *){n}.data.Err.error.data.Failed.error); {n}.data.Err.error.data.Failed.error = NULL; {n}.data.Err.error.data.Failed.owned = false; }}"
+        );
+    }
+}
+
+pub(crate) fn emit_release_task_handle_owners(
+    out: &mut String,
+    indent: usize,
+    ctx: &EmitCtx<'_>,
+    owners: &[String],
+) {
+    for name in owners {
+        let key = ctx.lookup_local(name).unwrap_or_default();
+        if !(key == "TaskHandle" || key.starts_with("TaskHandle_")) {
+            continue;
+        }
+        let p = pad(indent);
+        let n = mangle_ident(name);
+        let _ = writeln!(
+            out,
+            "{p}if (__aura_task_executor != NULL) (void)aura_task_executor_release(__aura_task_executor, &{n});"
         );
     }
 }
@@ -440,6 +461,9 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                 && matches!(v.init, Expr::Async(AsyncExpr::Join(_)));
             if owns_task_result {
                 ctx.mark_task_result_owner(&v.name.name);
+            }
+            if ty_name == "TaskHandle" || ty_name.starts_with("TaskHandle_") {
+                ctx.mark_task_handle_owner(&v.name.name);
             }
             // C22l: make bindings visible to a later bounded spawn in the same
             // lexical scope. `bounded_spawn_captures` still filters the actual
@@ -726,6 +750,12 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
             emit_free_fun_owners(out, indent + 2, ctx, &ctx.fun_owners_current());
             emit_free_string_owners(out, indent + 2, &ctx.string_owners_current());
             emit_free_task_result_owners(out, indent + 2, ctx, &ctx.task_result_owners_current());
+            emit_release_task_handle_owners(
+                out,
+                indent + 2,
+                ctx,
+                &ctx.task_handle_owners_current(),
+            );
             emit_release_box_locals(out, indent + 2, ctx, &ctx.box_owners_current());
             ctx.pop_scope();
             let _ = writeln!(out, "{p}  }}");
@@ -762,6 +792,12 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                 emit_free_array_owners(out, indent + 2, ctx, &ctx.array_owners_current());
                 emit_free_fun_owners(out, indent + 2, ctx, &ctx.fun_owners_current());
                 emit_free_string_owners(out, indent + 2, &ctx.string_owners_current());
+                emit_release_task_handle_owners(
+                    out,
+                    indent + 2,
+                    ctx,
+                    &ctx.task_handle_owners_current(),
+                );
                 emit_release_box_locals(out, indent + 2, ctx, &ctx.box_owners_current());
                 ctx.pop_scope();
                 let _ = writeln!(out, "{p}  }}");
@@ -798,6 +834,12 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                 emit_free_array_owners(out, indent + 2, ctx, &ctx.array_owners_current());
                 emit_free_fun_owners(out, indent + 2, ctx, &ctx.fun_owners_current());
                 emit_free_string_owners(out, indent + 2, &ctx.string_owners_current());
+                emit_release_task_handle_owners(
+                    out,
+                    indent + 2,
+                    ctx,
+                    &ctx.task_handle_owners_current(),
+                );
                 emit_release_box_locals(out, indent + 2, ctx, &ctx.box_owners_current());
                 ctx.pop_scope();
                 let _ = writeln!(out, "{p}  }}");
@@ -839,6 +881,12 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                 emit_free_array_owners(out, indent + 2, ctx, &ctx.array_owners_current());
                 emit_free_fun_owners(out, indent + 2, ctx, &ctx.fun_owners_current());
                 emit_free_string_owners(out, indent + 2, &ctx.string_owners_current());
+                emit_release_task_handle_owners(
+                    out,
+                    indent + 2,
+                    ctx,
+                    &ctx.task_handle_owners_current(),
+                );
                 emit_release_box_locals(out, indent + 2, ctx, &ctx.box_owners_current());
                 ctx.pop_scope();
                 let _ = writeln!(out, "{p}  }}");
@@ -909,6 +957,12 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                 emit_free_array_owners(out, indent + 2, ctx, &ctx.array_owners_current());
                 emit_free_fun_owners(out, indent + 2, ctx, &ctx.fun_owners_current());
                 emit_free_string_owners(out, indent + 2, &ctx.string_owners_current());
+                emit_release_task_handle_owners(
+                    out,
+                    indent + 2,
+                    ctx,
+                    &ctx.task_handle_owners_current(),
+                );
                 emit_release_box_locals(out, indent + 2, ctx, &ctx.box_owners_current());
                 ctx.pop_scope();
                 let _ = writeln!(out, "{p}  }}");

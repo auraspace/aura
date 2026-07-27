@@ -2884,6 +2884,7 @@ fun main() {
             .expect("compile bounded non-empty spawn");
         let generated = fs::read_to_string(&generated_c).expect("read generated bounded spawn C");
         assert!(generated.contains("aura_spawn_poll_"));
+        assert!(generated.contains("aura_task_executor_release(__aura_task_executor, &task)"));
         let output = Command::new(&bin).output().expect("run bounded spawn");
         assert!(output.status.success());
         assert_eq!(String::from_utf8_lossy(&output.stdout), "bounded spawn\n");

@@ -5314,6 +5314,7 @@ fn async_ctx<'a>(
         string_owners: vec![std::collections::HashSet::new()],
         channel_owners: vec![std::collections::HashSet::new()],
         task_result_owners: vec![std::collections::HashSet::new()],
+        task_handle_owners: vec![std::collections::HashSet::new()],
         box_locals: vec![std::collections::HashSet::new()],
         box_owners: vec![std::collections::HashSet::new()],
         gc_roots: vec![std::collections::HashSet::new()],
@@ -5623,6 +5624,7 @@ fn emit_async_body(
         string_owners: vec![std::collections::HashSet::new()],
         channel_owners: vec![std::collections::HashSet::new()],
         task_result_owners: vec![std::collections::HashSet::new()],
+        task_handle_owners: vec![std::collections::HashSet::new()],
         box_locals: vec![std::collections::HashSet::new()],
         box_owners: vec![std::collections::HashSet::new()],
         gc_roots: vec![std::collections::HashSet::new()],
@@ -5639,6 +5641,7 @@ fn emit_async_body(
         ctx.define_local(&p.name.name, full_type_mono(&key, checked));
     }
     emit_block(out, &f.body, 1, &mut ctx);
+    crate::stmt::emit_release_task_handle_owners(out, 1, &ctx, &ctx.task_handle_owners_all());
     crate::stmt::emit_free_fun_owners(out, 1, &ctx, &ctx.fun_owners_all());
     crate::stmt::emit_release_box_locals(out, 1, &ctx, &ctx.box_owners_all());
     emit_return_fallback(out, &f.return_type, checked, params, &[]);
@@ -5954,6 +5957,7 @@ fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile, detector:
             string_owners: vec![std::collections::HashSet::new()],
             channel_owners: vec![std::collections::HashSet::new()],
             task_result_owners: vec![std::collections::HashSet::new()],
+            task_handle_owners: vec![std::collections::HashSet::new()],
             box_locals: vec![std::collections::HashSet::new()],
             box_owners: vec![std::collections::HashSet::new()],
             gc_roots: vec![std::collections::HashSet::new()],
@@ -6079,6 +6083,7 @@ fn emit_bounded_spawn_array_return_poller(
         string_owners: vec![HashSet::new()],
         channel_owners: vec![HashSet::new()],
         task_result_owners: vec![HashSet::new()],
+        task_handle_owners: vec![std::collections::HashSet::new()],
         box_locals: vec![HashSet::new()],
         box_owners: vec![HashSet::new()],
         gc_roots: vec![HashSet::new()],
@@ -6181,6 +6186,7 @@ fn emit_bounded_spawn_class_return_poller(
         string_owners: vec![HashSet::new()],
         channel_owners: vec![HashSet::new()],
         task_result_owners: vec![HashSet::new()],
+        task_handle_owners: vec![std::collections::HashSet::new()],
         box_locals: vec![HashSet::new()],
         box_owners: vec![HashSet::new()],
         gc_roots: vec![HashSet::new()],
@@ -6276,6 +6282,7 @@ fn emit_bounded_spawn_string_return_poller(
         string_owners: vec![HashSet::new()],
         channel_owners: vec![HashSet::new()],
         task_result_owners: vec![HashSet::new()],
+        task_handle_owners: vec![std::collections::HashSet::new()],
         box_locals: vec![HashSet::new()],
         box_owners: vec![HashSet::new()],
         gc_roots: vec![HashSet::new()],
@@ -6370,6 +6377,7 @@ fn emit_bounded_spawn_await_poller(
         string_owners: vec![HashSet::new()],
         channel_owners: vec![HashSet::new()],
         task_result_owners: vec![HashSet::new()],
+        task_handle_owners: vec![std::collections::HashSet::new()],
         box_locals: vec![HashSet::new()],
         box_owners: vec![HashSet::new()],
         gc_roots: vec![HashSet::new()],
@@ -6437,6 +6445,7 @@ fn emit_bounded_spawn_await_poller(
         string_owners: vec![HashSet::new()],
         channel_owners: vec![HashSet::new()],
         task_result_owners: vec![HashSet::new()],
+        task_handle_owners: vec![std::collections::HashSet::new()],
         box_locals: vec![HashSet::new()],
         box_owners: vec![HashSet::new()],
         gc_roots: vec![HashSet::new()],
@@ -7155,6 +7164,7 @@ fn emit_lambda_fns(out: &mut String, checked: &CheckedFile, detector: bool) {
             string_owners: vec![std::collections::HashSet::new()],
             channel_owners: vec![std::collections::HashSet::new()],
             task_result_owners: vec![std::collections::HashSet::new()],
+            task_handle_owners: vec![std::collections::HashSet::new()],
             box_locals: vec![std::collections::HashSet::new()],
             box_owners: vec![std::collections::HashSet::new()],
             gc_roots: vec![std::collections::HashSet::new()],
@@ -7354,6 +7364,7 @@ pub(crate) fn emit_fun(
         string_owners: vec![std::collections::HashSet::new()],
         channel_owners: vec![std::collections::HashSet::new()],
         task_result_owners: vec![std::collections::HashSet::new()],
+        task_handle_owners: vec![std::collections::HashSet::new()],
         box_locals: vec![std::collections::HashSet::new()],
         box_owners: vec![std::collections::HashSet::new()],
         gc_roots: vec![std::collections::HashSet::new()],
@@ -7395,6 +7406,7 @@ pub(crate) fn emit_fun(
         }
     }
     emit_block(out, &f.body, 1, &mut ctx);
+    crate::stmt::emit_release_task_handle_owners(out, 1, &ctx, &ctx.task_handle_owners_all());
     // Function parameters live in the outer emission scope, so the block
     // cleanup above does not release owning Array parameters that were not
     // moved or returned. Keep the parameter ownership invariant symmetric

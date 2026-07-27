@@ -399,6 +399,7 @@ pub(crate) fn emit_method_mono(
         string_owners: vec![std::collections::HashSet::new()],
         channel_owners: vec![std::collections::HashSet::new()],
         task_result_owners: vec![std::collections::HashSet::new()],
+        task_handle_owners: vec![std::collections::HashSet::new()],
         box_locals: vec![std::collections::HashSet::new()],
         box_owners: vec![std::collections::HashSet::new()],
         gc_roots: vec![std::collections::HashSet::new()],
@@ -449,6 +450,7 @@ pub(crate) fn emit_method_mono(
         out.push_str("  aura_gc_add_root((void **)&this);\n");
     }
     emit_block(out, &m.body, 1, &mut ctx);
+    crate::stmt::emit_release_task_handle_owners(out, 1, &ctx, &ctx.task_handle_owners_all());
     for name in ctx.array_gc_roots_all() {
         let n = mangle_ident(&name);
         let _ = writeln!(out, "  aura_gc_remove_array_root((void **)&{n}.data);");

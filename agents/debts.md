@@ -33,12 +33,14 @@ When you resolve debt, update or remove the matching entry.
   its return payload and native `TaskHandle<String>` success is covered by
   two repeated joins.
 - Why still deferred: full `TaskError.Failed(error)` surface preservation and
-  automatic completed-handle release remain open. Generated class exceptions
+  pending-handle cancellation/reclamation remain open. Generated class exceptions
   now retain an independently cloned raw payload alongside normalized owned
   error text; nested class payloads survive GC, parent propagation, and source
-  release before two repeated typed joins. Primitive `String` failure detail
-  also survives a nested `leaf -> await middle -> spawned parent` chain
-  and two repeated typed joins.
+  release before two repeated typed joins. Lexical cleanup now automatically
+  releases terminal `TaskHandle` bindings after their last scope, while
+  pending handles remain executor-owned. Primitive `String` failure detail
+  also survives a nested `leaf -> await middle -> spawned parent` chain and
+  two repeated typed joins.
   The
   single-await lowering now clones primitive `String` results into an owned
   parent result slot, and bounded `spawn` bodies can await String with repeated
@@ -876,9 +878,9 @@ When you resolve debt, update or remove the matching entry.
   cloned for owning joins; cancellation ownership and arbitrary typed payload
   transfer remain open.
 - Next step: expose the cloned raw payload through a typed `TaskError.Failed`
-  representation and add automatic completed-handle release; the current ABI
-  keeps raw payload storage internal while the public join result remains
-  `Failed(String)`.
+  representation and define cancellation/reclamation for pending handles; the
+  current ABI keeps raw payload storage internal while the public join result
+  remains `Failed(String)`.
 
 ### REG-002 production trust remains open (updated 2026-07-23)
 
