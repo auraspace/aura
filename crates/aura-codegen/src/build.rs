@@ -1372,6 +1372,79 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_loop_branch_array_payload_with_repeated_join_and_cancel() {
+        let file = parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+async fun left(size: Int): Array<Int> { return Array<Int>(size) }
+async fun right(size: Int): Array<Int> { return Array<Int>(size + 1) }
+async fun collect(flag: Bool, limit: Int): Array<Int> {
+  var i: Int = 0
+  var value: Array<Int> = Array<Int>(0)
+  while (i < limit) {
+    if (flag) { value = await left(i + 1) }
+    else { value = await right(i + 1) }
+    gc_collect()
+    i = i + 1
+  }
+  return value
+}
+fun main() {
+  val task = spawn { val value: Array<Int> = await collect(true, 3) return value }
+  val first: Result<Array<Int>, TaskError> = join(task)
+  match (first) {
+    case Ok(value) => { println(value.len.toString()) }
+    case Err(error) => { println("unexpected-error") }
+  }
+  gc_collect()
+  val second: Result<Array<Int>, TaskError> = join(task)
+  match (second) {
+    case Ok(value) => { println(value.len.toString()) }
+    case Err(error) => { println("unexpected-error") }
+  }
+  gc_collect()
+  val cancelled = spawn { val value: Array<Int> = await collect(false, 3) return value }
+  cancel(cancelled)
+  val outcome: Result<Array<Int>, TaskError> = join(cancelled)
+  match (outcome) {
+    case Ok(value) => { println("unexpected-success") }
+    case Err(error) => { println("cancelled") }
+  }
+}
+"#,
+        )
+        .expect("parse loop Array payload fixture");
+        let generated = emit_c_from_ast(&file).expect("emit loop Array payload fixture");
+        assert!(generated.contains("aura async loop branch-join Array suspension states=2"));
+        assert!(generated.contains("aura_method_Array_Int_clone"));
+        assert!(generated.contains("aura_async_destroy_std_io_collect"));
+        assert!(generated.contains("aura_task_frame_set_resume_state(frame, 2)"));
+        assert!(generated.contains("aura_gc_collect"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-loop-array-branch-await-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile loop Array payload fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run loop Array payload fixture");
+        assert!(
+            output.status.success(),
+            "loop Array payload fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "3\n3\ncancelled\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_branch_then_second_await_state_machine() {
         let source = r#"package demo
 async fun worker(value: Int): Int {

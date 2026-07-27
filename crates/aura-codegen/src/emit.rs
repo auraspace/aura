@@ -577,7 +577,12 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
             // backend-only unsupported hole for an equivalent program shape.
             let normalized = normalize_async_return_await(f);
             let lowered = normalized.as_ref().unwrap_or(f);
-            if !emit_async_fun_while_branch_join_await_int(
+            if !emit_async_fun_while_branch_join_await_array(
+                &mut out,
+                lowered,
+                checked,
+                opts.detector,
+            ) && !emit_async_fun_while_branch_join_await_int(
                 &mut out,
                 lowered,
                 checked,
@@ -690,6 +695,224 @@ fn emit_fallback_unit_join_result(out: &mut String, checked: &CheckedFile) {
         out.push_str("static aura_enum_std_io_Result_Unit_std_io_TaskError aura_var_std_io_Result_Unit_std_io_TaskError_Ok(void) { aura_enum_std_io_Result_Unit_std_io_TaskError self; self.tag = 0; return self; }\n");
         out.push_str("static aura_enum_std_io_Result_Unit_std_io_TaskError aura_var_std_io_Result_Unit_std_io_TaskError_Err(aura_enum_std_io_TaskError error) { aura_enum_std_io_Result_Unit_std_io_TaskError self; self.tag = 1; self.data.Err.error = error; return self; }\n");
     }
+}
+
+/// Lower a bounded loop whose branch arms await `Task<Array<T>>` and replace
+/// one frame-owned Array value on every iteration. The child payload is cloned
+/// before the previous frame value is released, so the child frame can retain
+/// its terminal result for repeated joins.
+fn emit_async_fun_while_branch_join_await_array(
+    out: &mut String,
+    f: &AsyncFunDecl,
+    checked: &CheckedFile,
+    detector: bool,
+) -> bool {
+    let Some(return_type) = f.return_type.as_ref() else {
+        return false;
+    };
+    let return_key = type_ref_local_key_expand(return_type, &[], &[], checked);
+    if !is_array_type_key(&return_key) || f.body.stmts.len() != 4 {
+        return false;
+    }
+    let Stmt::Var(index_var) = &f.body.stmts[0] else {
+        return false;
+    };
+    let Stmt::Var(value_var) = &f.body.stmts[1] else {
+        return false;
+    };
+    let Stmt::While(loop_stmt) = &f.body.stmts[2] else {
+        return false;
+    };
+    let Some(index_ty) = index_var.ty.as_ref() else {
+        return false;
+    };
+    let Some(value_ty) = value_var.ty.as_ref() else {
+        return false;
+    };
+    if !index_var.mutable
+        || !value_var.mutable
+        || type_ref_local_key_expand(index_ty, &[], &[], checked) != "Int"
+        || type_ref_local_key_expand(value_ty, &[], &[], checked) != return_key
+        || matches!(&index_var.init, Expr::Async(_))
+        || matches!(&value_var.init, Expr::Async(_))
+        || !matches!(loop_stmt.cond, Expr::Binary(_))
+        || loop_stmt.body.stmts.len() != 3
+    {
+        return false;
+    }
+    let Stmt::If(branch) = &loop_stmt.body.stmts[0] else {
+        return false;
+    };
+    let Some(else_block) = &branch.else_block else {
+        return false;
+    };
+    if branch.then_block.stmts.len() != 1 || else_block.stmts.len() != 1 {
+        return false;
+    }
+    let Some(then_await) = branch_assign_await(&branch.then_block.stmts[0], &value_var.name.name)
+    else {
+        return false;
+    };
+    let Some(else_await) = branch_assign_await(&else_block.stmts[0], &value_var.name.name) else {
+        return false;
+    };
+    if matches!(branch.cond, Expr::Async(_)) {
+        return false;
+    }
+    let Stmt::Expr(Expr::Call(gc_call)) = &loop_stmt.body.stmts[1] else {
+        return false;
+    };
+    if !matches!(gc_call.callee.as_ref(), Expr::Ident(id) if id.name == "gc_collect")
+        || !gc_call.args.is_empty()
+    {
+        return false;
+    }
+    let Stmt::Expr(Expr::Assign(index_assign)) = &loop_stmt.body.stmts[2] else {
+        return false;
+    };
+    if index_assign.name.name != index_var.name.name {
+        return false;
+    }
+    let Some(Stmt::Return(return_stmt)) = f.body.stmts.last() else {
+        return false;
+    };
+    if !matches!(return_stmt.value.as_ref(), Some(Expr::Ident(id)) if id.name == value_var.name.name)
+    {
+        return false;
+    }
+
+    let params: Vec<String> = f.type_params.iter().map(|p| p.name.name.clone()).collect();
+    let pkg = async_fun_decl_package(f, checked);
+    let base = format!("{}_{}", mangle_package(&pkg), mangle_ident(&f.name.name));
+    let data_ty = format!("aura_async_data_{base}");
+    let poll_fn = format!("aura_async_poll_{base}");
+    let destroy_data = format!("aura_async_destroy_{base}");
+    let destroy_result = format!("aura_async_result_destroy_{base}");
+    let index_name = mangle_ident(&index_var.name.name);
+    let value_name = mangle_ident(&value_var.name.name);
+    let value_cty = crate::stmt::local_key_to_c(&return_key, checked);
+    let clone_fn = crate::names::c_method_name(&return_key, "clone");
+    let head_label = format!("aura_async_{base}_array_branch_head");
+    let poll_label = format!("aura_async_{base}_array_branch_poll");
+
+    let mut entry_ctx = async_ctx(checked, detector, &params, &f.params, &f.return_type);
+    let index_init = coerce_expr(&index_var.init, "Int", &mut entry_ctx);
+    entry_ctx.define_local(&index_var.name.name, "Int".into());
+    let value_init = coerce_expr(&value_var.init, &return_key, &mut entry_ctx);
+    entry_ctx.define_local(&value_var.name.name, return_key.clone());
+    let loop_cond = emit_expr(&loop_stmt.cond, &mut entry_ctx);
+    let branch_cond = emit_expr(&branch.cond, &mut entry_ctx);
+    let then_task = emit_expr(&then_await.operand, &mut entry_ctx);
+    let else_task = emit_expr(&else_await.operand, &mut entry_ctx);
+
+    let mut post_ctx = async_ctx(checked, detector, &params, &f.params, &f.return_type);
+    post_ctx.define_local(&index_var.name.name, "Int".into());
+    post_ctx.define_local(&value_var.name.name, return_key.clone());
+    let index_rhs = coerce_expr(&index_assign.value, "Int", &mut post_ctx);
+
+    let _ = writeln!(
+        out,
+        "/* aura async loop branch-join Array suspension states=2 spans={}:{}|{}:{} */",
+        then_await.span.start, then_await.span.end, else_await.span.start, else_await.span.end
+    );
+    let _ = writeln!(out, "typedef struct {data_ty} {{");
+    for p in &f.params {
+        let _ = writeln!(
+            out,
+            "  {} {};",
+            c_type_ref_subst(&p.ty, checked, &params, &[]),
+            mangle_ident(&p.name.name)
+        );
+    }
+    let _ = writeln!(
+        out,
+        "  int64_t {index_name}; {value_cty} {value_name}; AuraTaskFrame *await_task;\n}} {data_ty};\n"
+    );
+    let _ = writeln!(out, "static void {destroy_data}(AuraTaskFrame *frame) {{");
+    let _ = writeln!(
+        out,
+        "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame);"
+    );
+    crate::array_emit::emit_array_contents_free(
+        out,
+        2,
+        &format!("data->{value_name}"),
+        &return_key,
+    );
+    out.push_str("}\n\n");
+    let _ = writeln!(
+        out,
+        "static void {destroy_result}(void *data, size_t size) {{"
+    );
+    let _ = writeln!(
+        out,
+        "  (void)size; if (data != NULL) {{ {value_cty} *result = ({value_cty} *)data;"
+    );
+    crate::array_emit::emit_array_contents_free(out, 2, "(*result)", &return_key);
+    out.push_str("  free(result); }\n}\n\n");
+    let _ = writeln!(
+        out,
+        "static AuraTaskPollState {poll_fn}(AuraTaskFrame *frame) {{"
+    );
+    let _ = writeln!(
+        out,
+        "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame);"
+    );
+    out.push_str("  if (aura_task_frame_cancel_requested(frame)) return AURA_TASK_CANCELLED;\n");
+    out.push_str("  switch (aura_task_frame_resume_state(frame)) {\n    case 0: {\n");
+    let _ = writeln!(
+        out,
+        "      data->{index_name} = {index_init}; data->{value_name} = {value_init}; data->await_task = NULL; aura_task_frame_set_resume_state(frame, 1);"
+    );
+    let _ = writeln!(out, "      goto {head_label};\n    }}\n    case 1: goto {head_label};\n    case 2: goto {poll_label};\n    default: return AURA_TASK_FAILED;\n  }}\n");
+    let _ = writeln!(out, "{head_label}:\n  for (;;) {{");
+    for p in &f.params {
+        let n = mangle_ident(&p.name.name);
+        let _ = writeln!(
+            out,
+            "    {} {n} = data->{n};",
+            c_type_ref_subst(&p.ty, checked, &params, &[])
+        );
+    }
+    let _ = writeln!(out, "    int64_t {index_name} = data->{index_name}; {value_cty} {value_name} = data->{value_name};");
+    let _ = writeln!(out, "    if (!({loop_cond})) break;");
+    let _ = writeln!(
+        out,
+        "    data->await_task = ({branch_cond}) ? {then_task} : {else_task};"
+    );
+    let _ = writeln!(out, "    if (data->await_task == NULL) return AURA_TASK_FAILED;\n    aura_task_frame_set_resume_state(frame, 2);\n    goto {poll_label};\n  }}");
+    let _ = writeln!(out, "  {value_cty} *result = ({value_cty} *)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; *result = {clone_fn}(&data->{value_name}); aura_task_frame_set_result(frame, result, sizeof(*result), {destroy_result}); return AURA_TASK_COMPLETE;\n");
+    let _ = writeln!(out, "{poll_label}:");
+    out.push_str("  { AuraTaskPollState child_state = aura_task_frame_state(data->await_task); if (child_state == AURA_TASK_READY) child_state = aura_task_frame_poll_once(data->await_task); if (child_state == AURA_TASK_PENDING) { if (!aura_task_frame_wait_on(frame, data->await_task)) return AURA_TASK_FAILED; return AURA_TASK_PENDING; } if (child_state == AURA_TASK_CANCELLED) return AURA_TASK_CANCELLED; if (child_state == AURA_TASK_FAILED) { (void)aura_task_frame_propagate_error(frame, data->await_task); return AURA_TASK_FAILED; } if (child_state != AURA_TASK_COMPLETE) return AURA_TASK_FAILED; AuraTaskResult child_result = aura_task_frame_result(data->await_task); ");
+    let _ = writeln!(
+        out,
+        "{value_cty} __next = child_result.data == NULL ? ({value_cty}){{0}} : *(({value_cty} *)child_result.data); {value_cty} __copy = {clone_fn}(&__next);"
+    );
+    crate::array_emit::emit_array_contents_free(
+        out,
+        2,
+        &format!("data->{value_name}"),
+        &return_key,
+    );
+    let _ = writeln!(
+        out,
+        " data->{value_name} = __copy; data->await_task = NULL; int64_t {index_name} = data->{index_name}; {value_cty} {value_name} = data->{value_name}; aura_gc_collect(); data->{index_name} = {index_rhs}; goto {head_label}; }}\n}}"
+    );
+    let _ = writeln!(out, "{} {{", c_async_fun_signature(f, checked));
+    let _ = writeln!(
+        out,
+        "  AuraTaskFrame *frame = aura_task_frame_new(sizeof({data_ty}), {poll_fn}, {destroy_data}); if (frame == NULL) return NULL;"
+    );
+    let _ = writeln!(
+        out,
+        "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame);"
+    );
+    for p in &f.params {
+        let n = mangle_ident(&p.name.name);
+        let _ = writeln!(out, "  data->{n} = {n};");
+    }
+    out.push_str("  data->await_task = NULL; if (__aura_task_executor != NULL && !aura_task_executor_submit(__aura_task_executor, frame)) { aura_task_frame_destroy(frame); return NULL; } return frame;\n}");
+    true
 }
 
 /// Lower the smallest nested-loop CFG slice: an outer Int loop containing an
