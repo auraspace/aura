@@ -47,8 +47,11 @@ When you resolve debt, update or remove the matching entry.
   join observations; the bounded two/three-await and dynamic four-plus-await
   state machines now clone each primitive String suspension value into parent
   frame storage as well, and branch-join String payloads are cloned into owned
-  result slots. Richer ownership, branch/loop CFG lowering and general
-  state-machine paths remain open. The no-await primitive failure leak was
+  result slots. The general four-plus-await state machine now also deep-clones
+  `Array<Int>` suspension values into frame slots, permits forced GC between
+  awaits, and deep-clones the final aggregate for repeated owning joins. Richer
+  ownership, branch/loop CFG lowering and general state-machine paths remain
+  open. The no-await primitive failure leak was
   fixed by allocating the result slot only after the body returns, avoiding a
   `longjmp`-orphaned allocation; this does not close the broader ownership
   contract. The runtime now also exposes `aura_task_outcome_clone` and

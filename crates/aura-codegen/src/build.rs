@@ -2415,6 +2415,81 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_general_four_await_array_state_machine() {
+        let file = parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+async fun worker(value: Int): Array<Int> { return Array<Int>(value) }
+async fun collect(): Array<Int> {
+  val first: Array<Int> = await worker(1)
+  gc_collect()
+  val second: Array<Int> = await worker(2)
+  gc_collect()
+  val third: Array<Int> = await worker(3)
+  gc_collect()
+  val fourth: Array<Int> = await worker(4)
+  return fourth
+}
+fun main() {
+  val task = spawn { val value: Array<Int> = await collect() return value }
+  val first: Result<Array<Int>, TaskError> = join(task)
+  match (first) {
+    case Ok(value) => { println(value.len.toString()) }
+    case Err(error) => { println("unexpected-error") }
+  }
+  gc_collect()
+  val second: Result<Array<Int>, TaskError> = join(task)
+  match (second) {
+    case Ok(value) => { println(value.len.toString()) }
+    case Err(error) => { println("unexpected-error") }
+  }
+  val cancelled = spawn { val value: Array<Int> = await collect() return value }
+  cancel(cancelled)
+  val cancelled_result: Result<Array<Int>, TaskError> = join(cancelled)
+  match (cancelled_result) {
+    case Ok(value) => { println("unexpected-success") }
+    case Err(error) => {
+      match (error) {
+        case Failed(message) => { println("unexpected-failure") }
+        case Cancelled => { println("cancelled") }
+      }
+    }
+  }
+}
+"#,
+        )
+        .expect("parse general four-await Array fixture");
+        let generated = emit_c_from_ast(&file).expect("emit general four-await Array fixture");
+        assert!(generated.contains("aura async general suspension state=4"));
+        assert!(generated.contains("aura_method_Array_Int_clone"));
+        assert!(generated.contains("aura_async_result_destroy_"));
+        assert!(generated.contains("aura_task_frame_wait_on(frame, data->await_task_3)"));
+        assert!(generated.contains("aura_gc_collect"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-await-general-four-array-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile general four-await Array fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run general four-await Array fixture");
+        assert!(
+            output.status.success(),
+            "general four-await Array fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "4\n4\ncancelled\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_corpus_four_await_fixture() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()

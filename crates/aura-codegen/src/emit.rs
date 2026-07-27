@@ -4415,14 +4415,13 @@ fn c_async_fun_signature(f: &AsyncFunDecl, checked: &CheckedFile) -> String {
     )
 }
 
-/// Emit an unbounded straight-line sequence of four or more `Task<Int>` awaits.
+/// Emit an unbounded straight-line sequence of four or more awaits.
 ///
 /// The older A6 helper deliberately spells out two and three awaits.  This
 /// helper uses the same frame ABI but derives every resume state from the AST,
 /// so adding another await does not require another hand-written state arm.
-/// It intentionally keeps the value domain to the currently supported
-/// Int/String frame slots; branches, loops, and richer captures remain a
-/// separate lowering slice.
+/// Primitive values and `Array<Int>` use independent frame ownership so a
+/// repeated join never aliases a child result or a frame-local aggregate.
 fn emit_async_fun_general_multi_await(
     out: &mut String,
     f: &AsyncFunDecl,
@@ -4456,13 +4455,13 @@ fn emit_async_fun_general_multi_await(
             .map(|t| {
                 !matches!(
                     type_ref_local_key_expand(t, &[], &[], checked).as_str(),
-                    "Int" | "Bool" | "String"
+                    "Int" | "Bool" | "String" | "Array_Int"
                 )
             })
             .unwrap_or(true)
         || await_keys
             .iter()
-            .any(|key| !matches!(key.as_str(), "Int" | "Bool" | "String"))
+            .any(|key| !matches!(key.as_str(), "Int" | "Bool" | "String" | "Array_Int"))
     {
         return false;
     }
@@ -4479,7 +4478,14 @@ fn emit_async_fun_general_multi_await(
                     Some("Int") | Some("String")
                 ) || matches!(v.init, Expr::Async(_))
             }
-            Stmt::Return(_) | Stmt::Expr(_) => index <= awaits.last().unwrap().0,
+            Stmt::Return(_) => index <= awaits.last().unwrap().0,
+            Stmt::Expr(Expr::Call(call))
+                if matches!(call.callee.as_ref(), Expr::Ident(id) if id.name == "gc_collect")
+                    && call.args.is_empty() =>
+            {
+                false
+            }
+            Stmt::Expr(_) => index <= awaits.last().unwrap().0,
             _ => true,
         };
         invalid
@@ -4489,7 +4495,15 @@ fn emit_async_fun_general_multi_await(
     for pair in awaits.windows(2) {
         if f.body.stmts[pair[0].0 + 1..pair[1].0]
             .iter()
-            .any(|s| !matches!(s, Stmt::Var(_)))
+            .any(|s| {
+                !matches!(s, Stmt::Var(_))
+                    && !matches!(
+                        s,
+                        Stmt::Expr(Expr::Call(call))
+                            if matches!(call.callee.as_ref(), Expr::Ident(id) if id.name == "gc_collect")
+                                && call.args.is_empty()
+                    )
+            })
         {
             return false;
         }
@@ -4504,6 +4518,12 @@ fn emit_async_fun_general_multi_await(
     let destroy_data = format!("aura_async_destroy_{base}");
     let destroy_result = format!("aura_async_result_destroy_{base}");
     let ret = c_type_from_opt(&f.return_type, checked, &params, &[]);
+    let ret_key = f
+        .return_type
+        .as_ref()
+        .map(|t| type_ref_local_key_expand(t, &params, &[], checked))
+        .unwrap_or_else(|| "Unit".into());
+    let ret_is_array = is_array_type_key(&ret_key);
     let last_await_index = awaits.last().map(|(index, _, _)| *index).unwrap_or(0);
     let locals: Vec<(&VarStmt, String)> = f
         .body
@@ -4621,6 +4641,9 @@ fn emit_async_fun_general_multi_await(
         if key == "String" {
             let n = mangle_ident(&v.name.name);
             let _ = writeln!(out, "  if (data->{n} != NULL) free((void *)data->{n});");
+        } else if is_array_type_key(key) {
+            let n = mangle_ident(&v.name.name);
+            crate::array_emit::emit_array_contents_free(out, 2, &format!("data->{n}"), key);
         }
     }
     out.push_str("}\n\n");
@@ -4628,7 +4651,15 @@ fn emit_async_fun_general_multi_await(
         out,
         "static void {destroy_result}(void *data, size_t size) {{"
     );
-    if ret == "const char *" {
+    if ret_is_array {
+        let ret_cty = crate::stmt::local_key_to_c(&ret_key, checked);
+        let _ = writeln!(
+            out,
+            "  (void)size; if (data != NULL) {{ {ret_cty} *result = ({ret_cty} *)data;"
+        );
+        crate::array_emit::emit_array_contents_free(out, 2, "(*result)", &ret_key);
+        out.push_str("  free(result); }\n}\n\n");
+    } else if ret == "const char *" {
         out.push_str("  (void)size;\n  if (data != NULL) free((void *)*((const char **)data));\n  free(data);\n}\n\n");
     } else {
         out.push_str("  (void)size;\n  free(data);\n}\n\n");
@@ -4686,6 +4717,19 @@ fn emit_async_fun_general_multi_await(
         let value_name = mangle_ident(&awaits[index].1.name.name);
         if await_keys[index] == "String" {
             out.push_str(&format!("      if (data->{value_name} != NULL) free((void *)data->{value_name}); data->{value_name} = NULL; if (child_result_{index}.data != NULL) {{ const char *__s = *((const char **)child_result_{index}.data); if (__s != NULL) {{ size_t __len = strlen(__s); data->{value_name} = (char *)malloc(__len + 1); if (data->{value_name} == NULL) return AURA_TASK_FAILED; memcpy((void *)data->{value_name}, __s, __len + 1); }} }}\n"));
+        } else if is_array_type_key(&await_keys[index]) {
+            let cty = crate::stmt::local_key_to_c(&await_keys[index], checked);
+            let clone = crate::names::c_method_name(&await_keys[index], "clone");
+            let mut free_code = String::new();
+            crate::array_emit::emit_array_contents_free(
+                &mut free_code,
+                0,
+                &format!("data->{value_name}"),
+                &await_keys[index],
+            );
+            out.push_str(&format!(
+                "      {free_code} data->{value_name} = ({cty}){{0}}; if (child_result_{index}.data != NULL) data->{value_name} = {clone}(({cty} *)child_result_{index}.data);\n"
+            ));
         } else {
             let cty = crate::stmt::local_key_to_c(&await_keys[index], checked);
             out.push_str(&format!("      if (child_result_{index}.data != NULL) data->{value_name} = *(({cty} *)child_result_{index}.data);\n"));
@@ -4707,6 +4751,15 @@ fn emit_async_fun_general_multi_await(
                 }
             }
             for stmt in &f.body.stmts[stmt_index + 1..next_index] {
+                if matches!(
+                    stmt,
+                    Stmt::Expr(Expr::Call(call))
+                        if matches!(call.callee.as_ref(), Expr::Ident(id) if id.name == "gc_collect")
+                            && call.args.is_empty()
+                ) {
+                    crate::stmt::emit_stmt(out, stmt, 2, &mut ctx);
+                    continue;
+                }
                 let Stmt::Var(v) = stmt else { continue };
                 let key = locals
                     .iter()
@@ -4744,6 +4797,12 @@ fn emit_async_fun_general_multi_await(
                 out.push_str("      const char *__returned = ");
                 let _ = writeln!(out, "{resume_fn}(data);");
                 out.push_str("      if (__returned == NULL) { *result = NULL; } else { size_t __len = strlen(__returned); char *__copy = (char *)malloc(__len + 1); if (__copy == NULL) { free(result); return AURA_TASK_FAILED; } memcpy(__copy, __returned, __len + 1); *result = __copy; }\n");
+            } else if ret_is_array {
+                let clone = crate::names::c_method_name(&ret_key, "clone");
+                let _ = writeln!(
+                    out,
+                    "      {ret} __returned = {resume_fn}(data); *result = {clone}(&__returned);"
+                );
             } else {
                 let _ = writeln!(out, "      *result = {resume_fn}(data);");
             }
