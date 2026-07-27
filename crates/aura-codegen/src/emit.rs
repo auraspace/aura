@@ -3760,12 +3760,14 @@ fn emit_async_fun_if_await_then_continue(
     let base = format!("{}_{}", mangle_package(&pkg), mangle_ident(&f.name.name));
     let data_ty = format!("aura_async_data_{base}");
     let poll_fn = format!("aura_async_poll_{base}");
+    let destroy_data = format!("aura_async_destroy_{base}");
     let destroy_result = format!("aura_async_result_destroy_{base}");
     let ret_ty = c_type_from_opt(&f.return_type, checked, &params, &[]);
     let value_name = mangle_ident(&await_var.name.name);
     let mut entry_ctx = async_ctx(checked, detector, &params, &f.params, &f.return_type);
     let condition = emit_expr(&branch.cond, &mut entry_ctx);
     let task = emit_expr(&await_expr.operand, &mut entry_ctx);
+    let owns_task = await_operand_is_temporary(&await_expr.operand, checked);
     entry_ctx.define_local(&await_var.name.name, "Int".into());
     let Stmt::Expr(Expr::Call(call)) = &branch.then_block.stmts[1] else {
         unreachable!()
@@ -3789,6 +3791,14 @@ fn emit_async_fun_if_await_then_continue(
     }
     out.push_str("  int64_t awaited_value;\n  AuraTaskFrame *await_task;\n");
     let _ = writeln!(out, "}} {data_ty};\n");
+    if owns_task {
+        let _ = writeln!(out, "static void {destroy_data}(AuraTaskFrame *frame) {{ if (frame != NULL && __aura_task_executor != NULL) {{ {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame); if (data->await_task != NULL) (void)aura_task_executor_release(__aura_task_executor, &data->await_task); }} }}\n");
+    } else {
+        let _ = writeln!(
+            out,
+            "static void {destroy_data}(AuraTaskFrame *frame) {{ (void)frame; }}\n"
+        );
+    }
     let _ = writeln!(
         out,
         "static void {destroy_result}(void *data, size_t size) {{ (void)size; free(data); }}"
@@ -3814,13 +3824,17 @@ fn emit_async_fun_if_await_then_continue(
     let _ = writeln!(out, "      if ({condition}) {{ data->await_task = {task}; if (data->await_task == NULL) return AURA_TASK_FAILED; aura_task_frame_set_resume_state(frame, 1); }} else {{");
     let _ = writeln!(out, "        {ret_ty} *result = ({ret_ty} *)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; *result = {fallback}; aura_task_frame_set_result(frame, result, sizeof(*result), {destroy_result}); return AURA_TASK_COMPLETE; }}\n    }}\n    case 1: {{");
     out.push_str("      AuraTaskPollState child_state = aura_task_frame_state(data->await_task);\n      if (child_state == AURA_TASK_READY) child_state = aura_task_frame_poll_once(data->await_task);\n      if (child_state == AURA_TASK_PENDING) { if (!aura_task_frame_wait_on(frame, data->await_task)) return AURA_TASK_FAILED; return AURA_TASK_PENDING; }\n      if (child_state == AURA_TASK_CANCELLED) return AURA_TASK_CANCELLED;\n      if (child_state == AURA_TASK_FAILED) { (void)aura_task_frame_propagate_error(frame, data->await_task); return AURA_TASK_FAILED; }\n      if (child_state != AURA_TASK_COMPLETE) return AURA_TASK_FAILED;\n      AuraTaskResult child_result = aura_task_frame_result(data->await_task);\n      data->awaited_value = child_result.data == NULL ? 0 : *((int64_t *)child_result.data);\n");
+    if owns_task {
+        out.push_str("      if (__aura_task_executor != NULL) (void)aura_task_executor_release(__aura_task_executor, &data->await_task);\n");
+    }
+    out.push_str("      data->await_task = NULL;\n");
     let _ = writeln!(
         out,
         "      int64_t {value_name} = data->awaited_value; (void){continuation};"
     );
     let _ = writeln!(out, "      {ret_ty} *result = ({ret_ty} *)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; *result = {fallback}; aura_task_frame_set_result(frame, result, sizeof(*result), {destroy_result}); return AURA_TASK_COMPLETE;\n    }}\n    default: return AURA_TASK_FAILED;\n  }}\n}}\n");
     let _ = writeln!(out, "{} {{", c_async_fun_signature(f, checked));
-    let _ = writeln!(out, "  AuraTaskFrame *frame = aura_task_frame_new(sizeof({data_ty}), {poll_fn}, NULL); if (frame == NULL) return NULL;");
+    let _ = writeln!(out, "  AuraTaskFrame *frame = aura_task_frame_new(sizeof({data_ty}), {poll_fn}, {destroy_data}); if (frame == NULL) return NULL;");
     let _ = writeln!(
         out,
         "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame);"

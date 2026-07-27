@@ -184,6 +184,9 @@ child rule for terminal result copy and parent-frame destruction.
 The one-armed `if` assignment continuation also releases a compiler-created
 temporary child after copying the result and on parent-frame destruction.
 
+The post-suspend call continuation now preserves caller-owned task handles and
+reclaims compiler-created temporary children at terminal copy or destruction.
+
 **Verification:** Run multi-await, forced-GC, cancellation, and failure fixtures
 under sanitizers.
 
