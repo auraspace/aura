@@ -2241,6 +2241,104 @@ fun main() {{
     }
 
     #[test]
+    fn builds_and_runs_general_cfg_caller_owned_foreign_handle_task_outcomes() {
+        let path = format!(
+            "/tmp/aura-general-cfg-owned-task-handle-{}",
+            std::process::id()
+        );
+        let source = format!(
+            r#"package std.io
+enum TaskError {{ case Failed(error: String) case Cancelled }}
+enum Result<T, E> {{ case Ok(value: T) case Err(error: E) }}
+fun openFile(path: String, mode: Int): ForeignHandle<Int> {{ throw "intrinsic" }}
+fun accept(outcome: Result<ForeignHandle<Int>, TaskError>) {{ }}
+async fun leaf(file: ForeignHandle<Int>): ForeignHandle<Int> {{ return file }}
+async fun fail(): ForeignHandle<Int> {{ throw "handle-failure" }}
+async fun nested(seed: ForeignHandle<Int>, task: Task<ForeignHandle<Int>>): Int {{
+  var result: ForeignHandle<Int> = seed
+  var i: Int = 0
+  while (i < 2) {{
+    val value: ForeignHandle<Int> = await task
+    result = value
+    gc_collect()
+    i = i + 1
+  }}
+  return i
+}}
+fun main() {{
+  val success = spawn {{ val value: Int = await nested(openFile("{path}", 1), leaf(openFile("{path}", 1))) return value }}
+  val first: Result<Int, TaskError> = join(success)
+  match (first) {{
+    case Ok(value) => {{ println("ok") }}
+    case Err(error) => {{ println("success-failed") }}
+  }}
+  val second: Result<Int, TaskError> = join(success)
+  match (second) {{
+    case Ok(value) => {{ println("ok") }}
+    case Err(error) => {{ println("success-failed") }}
+  }}
+  val failed = spawn {{ val value: Int = await nested(openFile("{path}", 1), fail()) return value }}
+  val failed_result: Result<Int, TaskError> = join(failed)
+  match (failed_result) {{
+    case Ok(value) => {{ println("unexpected-success") }}
+    case Err(error) => {{
+      match (error) {{
+        case Failed(message) => {{ println(message) }}
+        case Cancelled => {{ println("unexpected-cancel") }}
+      }}
+    }}
+  }}
+  val cancelled = spawn {{ val value: Int = await nested(openFile("{path}", 1), leaf(openFile("{path}", 1))) return value }}
+  cancel(cancelled)
+  val cancelled_result: Result<Int, TaskError> = join(cancelled)
+  match (cancelled_result) {{
+    case Ok(value) => {{ println("unexpected-success") }}
+    case Err(error) => {{
+      match (error) {{
+        case Failed(message) => {{ println("unexpected-failure") }}
+        case Cancelled => {{ println("cancelled") }}
+      }}
+    }}
+  }}
+}}
+"#
+        );
+        let file = parse_file(&source).expect("parse caller-owned handle CFG fixture");
+        let generated = emit_c_from_ast(&file).expect("emit caller-owned handle CFG fixture");
+        assert!(generated.contains("aura async general CFG Int lowering"));
+        assert!(generated.contains("data->await_task_owned = false"));
+        assert!(generated.contains("aura_ffi_handle_drop(&result)"));
+        assert!(
+            generated.contains("aura_var_std_io_Result_ForeignHandle_Int_std_io_TaskError_OkOwned")
+        );
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-general-cfg-owned-task-handle-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile caller-owned handle CFG fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run caller-owned handle CFG fixture");
+        assert!(
+            output.status.success(),
+            "caller-owned handle CFG fixture failed: {output:?}"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "ok\nok\nhandle-failure\ncancelled\n"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
     fn builds_and_runs_general_cfg_caller_owned_string_task_outcomes() {
         let source = r#"package std.io
 enum TaskError { case Failed(error: String) case Cancelled }

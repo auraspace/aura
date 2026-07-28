@@ -1256,6 +1256,16 @@ fn async_cfg_assignment_code(
         }
         return format!("{cty} __cfg_next = {value}; {cleanup} {name} = __cfg_next;");
     }
+    if key == "ForeignHandle" || key.starts_with("ForeignHandle_") {
+        if let Some(source) = async_cfg_move_source(init) {
+            let source = mangle_ident(&source.name);
+            if source != name {
+                return format!(
+                    "if ({name} != NULL) (void)aura_ffi_handle_drop(&{name}); {name} = {source}; {source} = NULL;"
+                );
+            }
+        }
+    }
     format!("{name} = {value};")
 }
 
@@ -1707,7 +1717,7 @@ fn emit_async_fun_cfg_int(
                     let result_cty = crate::stmt::local_key_to_c(&value_key, checked);
                     let _ = writeln!(
                         out,
-                        "        {result_cty} *result = ({result_cty} *)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; *result = {value}; if (*result != NULL && aura_ffi_handle_retain(*result) != AURA_FFI_OK) {{ free(result); return AURA_TASK_FAILED; }} aura_task_frame_set_result(frame, result, sizeof(*result), {destroy_result}); return AURA_TASK_COMPLETE;"
+                        "        {result_cty} *__aura_result = ({result_cty} *)malloc(sizeof(*__aura_result)); if (__aura_result == NULL) return AURA_TASK_FAILED; *__aura_result = {value}; if (*__aura_result != NULL && aura_ffi_handle_retain(*__aura_result) != AURA_FFI_OK) {{ free(__aura_result); return AURA_TASK_FAILED; }} aura_task_frame_set_result(frame, __aura_result, sizeof(*__aura_result), {destroy_result}); return AURA_TASK_COMPLETE;"
                     );
                 } else {
                     let _ = writeln!(out, "        {result_cty} *result = ({result_cty} *)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; *result = {value}; aura_task_frame_set_result(frame, result, sizeof(*result), {destroy_result}); return AURA_TASK_COMPLETE;");

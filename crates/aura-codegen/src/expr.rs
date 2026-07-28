@@ -1905,6 +1905,7 @@ fn emit_join(j: &JoinExpr, ctx: &mut EmitCtx<'_>, owned_error: bool) -> String {
     );
     let result_ty = format!("aura_enum_{result_mono}");
     let result_ok = format!("aura_var_{result_mono}_Ok");
+    let result_ok_owned = format!("aura_var_{result_mono}_OkOwned");
     let result_err = format!("aura_var_{result_mono}_Err");
     let task_failed = if owned_error {
         "aura_var_std_io_TaskError_FailedOwned"
@@ -1968,7 +1969,7 @@ fn emit_join(j: &JoinExpr, ctx: &mut EmitCtx<'_>, owned_error: bool) -> String {
         ));
     } else if owned_error && (inner == "ForeignHandle" || inner.starts_with("ForeignHandle_")) {
         out.push_str(&format!(
-            "else {{ {cty} __join_handle = __join_result.data != NULL ? *(({cty} *)__join_result.data) : NULL; if (__join_handle != NULL && aura_ffi_handle_retain(__join_handle) != AURA_FFI_OK) __join_handle = NULL; __join_value = {result_ok}(__join_handle); }} "
+            "else {{ {cty} __join_handle = __join_result.data != NULL ? *(({cty} *)__join_result.data) : NULL; if (__join_handle != NULL && aura_ffi_handle_retain(__join_handle) != AURA_FFI_OK) __join_handle = NULL; __join_value = {result_ok_owned}(__join_handle); }} "
         ));
     } else {
         out.push_str(&format!(

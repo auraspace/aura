@@ -23,6 +23,13 @@ fn task_result_string_ok(e: &EnumDecl, pkg: &str, args: &[Ty], variant: &str) ->
         && matches!(args, [Ty::String, Ty::Enum(name)] if name == "TaskError@std.io")
 }
 
+fn task_result_foreign_handle_ok(e: &EnumDecl, pkg: &str, args: &[Ty], variant: &str) -> bool {
+    pkg == "std.io"
+        && e.name.name == "Result"
+        && variant == "Ok"
+        && matches!(args, [Ty::ForeignHandle(_), Ty::Enum(name)] if name == "TaskError@std.io")
+}
+
 fn enum_field_c_type(
     field: &Param,
     params: &[String],
@@ -70,6 +77,9 @@ pub(crate) fn emit_enum_typedef(
                 out.push_str("      bool owned;\n");
             }
             if task_result_string_ok(e, &pkg, args, &v.name.name) {
+                out.push_str("      bool owned;\n");
+            }
+            if task_result_foreign_handle_ok(e, &pkg, args, &v.name.name) {
                 out.push_str("      bool owned;\n");
             }
             let _ = writeln!(out, "    }} {};", mangle_ident(&v.name.name));
@@ -164,6 +174,9 @@ pub(crate) fn emit_enum_defs(out: &mut String, checked: &CheckedFile, e: &EnumDe
             if task_result_string_ok(e, &pkg, args, &v.name.name) {
                 let _ = writeln!(out, "  self.data.Ok.owned = false;");
             }
+            if task_result_foreign_handle_ok(e, &pkg, args, &v.name.name) {
+                let _ = writeln!(out, "  self.data.Ok.owned = false;");
+            }
         }
         out.push_str("  return self;\n}\n");
     }
@@ -191,6 +204,19 @@ pub(crate) fn emit_enum_defs(out: &mut String, checked: &CheckedFile, e: &EnumDe
             out,
             "{} {{ {} self; self.tag = 0; self.data.Ok.value = value; self.data.Ok.owned = true; return self; }}",
             format!("{} {}(const char *value)", c_enum_type(&mono), ctor),
+            c_enum_type(&mono)
+        );
+    }
+    if task_result_foreign_handle_ok(e, &pkg, args, "Ok") {
+        let ctor = c_variant_ctor_name(&mono, "OkOwned");
+        let _ = writeln!(
+            out,
+            "{} {{ {} self; self.tag = 0; self.data.Ok.value = value; self.data.Ok.owned = true; return self; }}",
+            format!(
+                "{} {}(AuraFfiOpaqueHandle *value)",
+                c_enum_type(&mono),
+                ctor
+            ),
             c_enum_type(&mono)
         );
     }

@@ -503,6 +503,9 @@ fn type_ref_to_ty_subst(ty: &TypeRef, checked: &CheckedFile, params: &[String], 
         "Task" => Ty::Task(Box::new(type_args.into_iter().next().unwrap_or(Ty::Unit))),
         "TaskHandle" => Ty::TaskHandle(Box::new(type_args.into_iter().next().unwrap_or(Ty::Unit))),
         "Channel" => Ty::Channel(Box::new(type_args.into_iter().next().unwrap_or(Ty::Unit))),
+        "ForeignHandle" => {
+            Ty::ForeignHandle(Box::new(type_args.into_iter().next().unwrap_or(Ty::Unit)))
+        }
         "Array" => Ty::ClassApp {
             name: "Array".into(),
             args: type_args,
@@ -980,6 +983,23 @@ pub(crate) fn type_ref_local_key_expand(
     args: &[Ty],
     checked: &CheckedFile,
 ) -> String {
+    if !ty.type_args.is_empty() {
+        if let Some(enum_decl) = checked.ast.enums.iter().find(|e| {
+            e.name.name == ty.name.name
+                && enum_decl_package(e, checked) == resolve_type_ref_package(ty, checked)
+        }) {
+            let type_args: Vec<Ty> = ty
+                .type_args
+                .iter()
+                .map(|arg| type_ref_to_ty_subst(arg, checked, params, args))
+                .collect();
+            return type_mono(
+                &enum_decl_package(enum_decl, checked),
+                &enum_decl.name.name,
+                &type_args,
+            );
+        }
+    }
     // Resolve alias name → underlying TypeRef (one hop).
     if let Some(alias) = checked
         .ast

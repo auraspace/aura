@@ -150,6 +150,10 @@ When you resolve debt, update or remove the matching entry.
   primitive `String` locals and return values, including owned suspension
   cloning, failure propagation, repeated joins, forced GC, and queued
   cancellation in a native regression.
+- General CFG handle locals now transfer ownership between locals and retain
+  caller-owned `Task<ForeignHandle<T>>` results across repeated awaits. A native
+  fixture covers forced GC, typed failure/cancellation, repeated joins, and
+  `Result<ForeignHandle<T>, TaskError>` ABI generation.
 - General CFG actions now synchronize frame slots after local ownership moves,
   preventing stale aggregate aliases after a completed await. Repeated
   caller-owned `Task<String>` and `Task<Array<String>>` awaits through a loop
@@ -965,9 +969,10 @@ TaskError>` locals release their payload at scope exit. Nested
 - The general CFG path now accepts caller-owned `Task<Int>` and `Task<String>`
   parameters, records `await_task_owned = false`, clones the String success
   payload across a branch/loop suspension, and preserves child failure and
-  cancellation while repeated joins observe the parent. Caller-owned aggregate
-  payloads beyond the covered primitive/String cases, task-handle transfer, and
-  public raw payloads remain open.
+  cancellation while repeated joins observe the parent. It now also retains
+  and transfers `ForeignHandle<T>` values across caller-owned task awaits;
+  typed handle results use an owned `Result.Ok` join payload. Public raw
+  payloads and richer aggregate failures remain open.
 
 ### ASYNC-003 general CFG lowering remains bounded (updated 2026-07-28)
 
