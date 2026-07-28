@@ -741,10 +741,14 @@ enum Result<T, E> {{ case Ok(value: T) case Err(error: E) }}
 fun openFile(path: String, mode: Int): ForeignHandle<Int> {{ throw "intrinsic" }}
 async fun writeFile(file: ForeignHandle<Int>, content: String): Int {{ return 0 }}
 async fun readFile(file: ForeignHandle<Int>, capacity: Int): String {{ return "" }}
+async fun writeThrough(file: ForeignHandle<Int>): Int {{
+  val count: Int = await writeFile(file, "round-trip")
+  return count
+}}
 fun main() {{
   val output: ForeignHandle<Int> = openFile("{path}", 1)
   val writer = spawn {{
-    val count: Int = await writeFile(output, "round-trip")
+    val count: Int = await writeThrough(output)
     return count
   }}
   gc_collect()
@@ -787,6 +791,7 @@ fun main() {{
         let generated = emit_c_from_ast(&file).expect("emit async file round-trip fixture");
         assert!(generated.contains("compiler-generated std.io.readFile"));
         assert!(generated.contains("compiler-generated std.io.writeFile"));
+        assert!(generated.contains("aura_ffi_handle_retain(data->file)"));
         assert!(generated.contains("aura_ffi_handle_pin_for_boundary"));
         assert!(generated.contains("aura_task_frame_wait_file"));
 

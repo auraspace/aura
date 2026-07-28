@@ -6488,6 +6488,16 @@ fn emit_async_fun_multi_await(
         out,
         "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame);"
     );
+    for p in &f.params {
+        let key = type_ref_local_key_expand(&p.ty, &params, &[], checked);
+        if key == "ForeignHandle" || key.starts_with("ForeignHandle_") {
+            let name = mangle_ident(&p.name.name);
+            let _ = writeln!(
+                out,
+                "  if (data->{name} != NULL) (void)aura_ffi_handle_drop(&data->{name});"
+            );
+        }
+    }
     for (v, key) in &locals {
         if key == "String" && matches!(&v.init, Expr::Binary(_)) {
             let n = mangle_ident(&v.name.name);
@@ -6823,6 +6833,13 @@ fn emit_async_fun_multi_await(
     for p in &f.params {
         let n = mangle_ident(&p.name.name);
         let _ = writeln!(out, "  data->{n} = {n};");
+        let key = type_ref_local_key_expand(&p.ty, &params, &[], checked);
+        if key == "ForeignHandle" || key.starts_with("ForeignHandle_") {
+            let _ = writeln!(
+                out,
+                "  if (data->{n} != NULL && aura_ffi_handle_retain(data->{n}) != AURA_FFI_OK) {{ aura_task_frame_destroy(frame); return NULL; }}"
+            );
+        }
     }
     out.push_str("  if (__aura_task_executor != NULL && !aura_task_executor_submit(__aura_task_executor, frame)) { aura_task_frame_destroy(frame); return NULL; }\n  return frame;\n}\n");
     true
@@ -6985,6 +7002,16 @@ fn emit_async_fun_single_await(
         out,
         "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame);"
     );
+    for p in &f.params {
+        let key = type_ref_local_key_expand(&p.ty, &params, &[], checked);
+        if key == "ForeignHandle" || key.starts_with("ForeignHandle_") {
+            let name = mangle_ident(&p.name.name);
+            let _ = writeln!(
+                out,
+                "  if (data->{name} != NULL) (void)aura_ffi_handle_drop(&data->{name});"
+            );
+        }
+    }
     for (v, key) in &locals {
         if key == "String" && matches!(&v.init, Expr::Binary(_)) {
             let n = mangle_ident(&v.name.name);
@@ -7121,6 +7148,13 @@ fn emit_async_fun_single_await(
     for p in &f.params {
         let n = mangle_ident(&p.name.name);
         let _ = writeln!(out, "  data->{n} = {n};");
+        let key = type_ref_local_key_expand(&p.ty, &params, &[], checked);
+        if key == "ForeignHandle" || key.starts_with("ForeignHandle_") {
+            let _ = writeln!(
+                out,
+                "  if (data->{n} != NULL && aura_ffi_handle_retain(data->{n}) != AURA_FFI_OK) {{ aura_task_frame_destroy(frame); return NULL; }}"
+            );
+        }
     }
     out.push_str("  if (__aura_task_executor != NULL && !aura_task_executor_submit(__aura_task_executor, frame)) { aura_task_frame_destroy(frame); return NULL; }\n");
     out.push_str("  return frame;\n}\n");
