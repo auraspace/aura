@@ -520,6 +520,8 @@ fn spawn_capture_type_supported(key: &str, checked: &CheckedFile) -> bool {
     key == "Int"
         || key == "Bool"
         || key == "String"
+        || key == "ForeignHandle"
+        || key.starts_with("ForeignHandle_")
         || is_array_type_key(key)
         || is_fun_type_key(key)
         || is_heap_class_mono(key, checked)
@@ -1829,6 +1831,8 @@ fn emit_async_expr(expr: &AsyncExpr, ctx: &mut EmitCtx<'_>) -> String {
                             format!("__spawn_data->{n} = {n}; {retain}(__spawn_data->{n});")
                         } else if key == "String" {
                             format!("__spawn_data->{n} = aura_box_str_new({n});")
+                        } else if key == "ForeignHandle" || key.starts_with("ForeignHandle_") {
+                            format!("__spawn_data->{n} = {n}; (void)aura_ffi_handle_retain(__spawn_data->{n});")
                         } else if is_heap_class_mono(key, ctx.checked) {
                             format!("__spawn_data->{n} = {n}; aura_gc_add_root((void **)&__spawn_data->{n});")
                         } else if is_array_type_key(key) {

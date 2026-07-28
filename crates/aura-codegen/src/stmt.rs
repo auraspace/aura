@@ -293,10 +293,7 @@ pub(crate) fn emit_release_task_handle_owners(
         let p = pad(indent);
         let n = mangle_ident(name);
         if key == "ForeignHandle" || key.starts_with("ForeignHandle_") {
-            let _ = writeln!(
-                out,
-                "{p}if ({n} != NULL) (void)aura_ffi_handle_destroy(&{n});"
-            );
+            let _ = writeln!(out, "{p}if ({n} != NULL) (void)aura_ffi_handle_drop(&{n});");
         } else if key == "TaskHandle" || key.starts_with("TaskHandle_") {
             let _ = writeln!(
                 out,

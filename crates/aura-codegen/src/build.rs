@@ -653,7 +653,7 @@ fun main() {
         assert!(generated.contains("aura_file_open"));
         assert!(generated.contains("aura_ffi_handle_new"));
         assert!(generated.contains("aura_destroy_file_resource"));
-        assert!(generated.contains("aura_ffi_handle_destroy(&file)"));
+        assert!(generated.contains("aura_ffi_handle_drop(&file)"));
 
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
@@ -672,6 +672,60 @@ fun main() {
             output.status.success(),
             "owned file fixture failed: {output:?}"
         );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn builds_and_runs_spawn_capture_of_owned_file_handle() {
+        let path = format!("/tmp/aura-spawn-file-handle-{}", std::process::id());
+        let file = aura_parser::parse_file(
+            &r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+fun openFile(path: String, mode: Int): ForeignHandle<Int> { throw "intrinsic" }
+async fun writeFile(file: ForeignHandle<Int>, content: String): Int { return 0 }
+fun readFile(path: String): String { return "" }
+fun main() {
+  val output: ForeignHandle<Int> = openFile("/tmp/aura-spawn-file-handle", 1)
+  val task = spawn {
+    val written: Int = await writeFile(output, "alpha-io")
+    return written
+  }
+  val outcome: Result<Int, TaskError> = join(task)
+  match (outcome) {
+    case Ok(value) => { println(value.toString()) }
+    case Err(error) => { println("failed") }
+  }
+  println(readFile("/tmp/aura-spawn-file-handle"))
+}
+"#
+            .replace("/tmp/aura-spawn-file-handle", &path),
+        )
+        .expect("parse spawn file-handle fixture");
+        let generated = emit_c_from_ast(&file).expect("emit spawn file-handle fixture");
+        assert!(generated.contains("aura_ffi_handle_retain(__spawn_data->output)"));
+        assert!(generated.contains("aura_ffi_handle_drop(&data->output)"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-spawn-file-handle-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile spawn file-handle fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run spawn file-handle fixture");
+        assert!(
+            output.status.success(),
+            "spawn file-handle fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "8\nalpha-io\n");
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);
         let _ = fs::remove_file(path);

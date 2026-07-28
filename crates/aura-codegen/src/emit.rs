@@ -4980,6 +4980,8 @@ fn emit_ffi_abi_declarations(out: &mut String) {
     out.push_str("typedef struct { AuraFfiOpaqueHandle *handle; void *resource; uint64_t generation; } AuraFfiHandlePin;\n");
     out.push_str("typedef enum { AURA_FFI_BOUNDARY_SYNC = 0, AURA_FFI_BOUNDARY_TASK = 1, AURA_FFI_BOUNDARY_AWAIT = 2, AURA_FFI_BOUNDARY_CHANNEL = 3, AURA_FFI_BOUNDARY_CALLBACK = 4 } AuraFfiBoundary;\n");
     out.push_str("AuraFfiStatus aura_ffi_handle_destroy(AuraFfiOpaqueHandle **);\n");
+    out.push_str("AuraFfiStatus aura_ffi_handle_retain(AuraFfiOpaqueHandle *);\n");
+    out.push_str("AuraFfiStatus aura_ffi_handle_drop(AuraFfiOpaqueHandle **);\n");
     out.push_str("AuraFfiStatus aura_ffi_handle_pin_for_boundary(AuraFfiOpaqueHandle *, AuraFfiBoundary, AuraFfiHandlePin *);\n");
     out.push_str("AuraFfiStatus aura_ffi_handle_unpin(AuraFfiHandlePin *);\n");
     out.push_str("AuraFfiStatus aura_task_frame_pin_foreign_handle(AuraTaskFrame *, AuraFfiOpaqueHandle *, AuraFfiBoundary);\n");
@@ -7402,6 +7404,8 @@ fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile, detector:
                     }
                 } else if key == "String" {
                     "aura_box_str *".to_string()
+                } else if key == "ForeignHandle" || key.starts_with("ForeignHandle_") {
+                    "AuraFfiOpaqueHandle *".to_string()
                 } else {
                     crate::stmt::local_key_to_c(key, checked)
                 };
@@ -7443,6 +7447,11 @@ fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile, detector:
                     let _ = writeln!(
                         out,
                         "  if (data != NULL && data->{n} != NULL) aura_box_str_release(data->{n});"
+                    );
+                } else if key == "ForeignHandle" || key.starts_with("ForeignHandle_") {
+                    let _ = writeln!(
+                        out,
+                        "  if (data != NULL && data->{n} != NULL) (void)aura_ffi_handle_drop(&data->{n});"
                     );
                 } else if is_heap_class_mono(key, checked) {
                     let _ = writeln!(
@@ -8022,6 +8031,33 @@ fn emit_bounded_spawn_await_poller(
         async_frame: None,
         task_poller: false,
     };
+    for capture in captures {
+        let name = &capture.name;
+        let key = &capture.key;
+        let n = mangle_ident(name);
+        if capture.boxed {
+            let cty = match bounded_capture_box_kind(capture) {
+                "string" => "aura_box_str *",
+                "i64" => "aura_box_i64 *",
+                "bool" => "aura_box_bool *",
+                _ => "aura_box_ptr *",
+            };
+            let _ = writeln!(out, "      {cty}{n} = data->{n};");
+            initial_ctx.mark_box_local(name);
+        } else if key == "String" {
+            let _ = writeln!(
+                out,
+                "      const char *{n} = data->{n} != NULL ? data->{n}->value : NULL;"
+            );
+        } else {
+            let _ = writeln!(
+                out,
+                "      {} {n} = data->{n};",
+                crate::stmt::local_key_to_c(key, checked)
+            );
+        }
+        initial_ctx.define_local(name, key.clone());
+    }
     let task = emit_expr(&await_expr.operand, &mut initial_ctx);
     let _ = writeln!(out, "      data->await_task = {task};");
     out.push_str("      if (data->await_task == NULL) return AURA_TASK_FAILED;\n");
@@ -8108,6 +8144,8 @@ fn emit_bounded_spawn_await_poller(
                 out,
                 "      const char *{n} = data->{n} != NULL ? data->{n}->value : NULL;"
             );
+        } else if key == "ForeignHandle" || key.starts_with("ForeignHandle_") {
+            let _ = writeln!(out, "      AuraFfiOpaqueHandle *{n} = data->{n};");
         } else if is_array_type_key(key) {
             let _ = writeln!(
                 out,

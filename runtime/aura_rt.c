@@ -4640,6 +4640,7 @@ struct AuraFfiOpaqueHandle
   AuraFfiHandleDestroyFn destroy;
   uint64_t generation;
   size_t pins;
+  uint32_t owners;
   int nullable;
   int released;
   int destroyed;
@@ -4680,6 +4681,7 @@ static AuraFfiStatus aura_ffi_handle_new_impl(void *resource,
   handle->resource = resource;
   handle->destroy = destroy;
   handle->generation = 1;
+  handle->owners = 1;
   handle->nullable = nullable;
   *out = handle;
   return AURA_FFI_OK;
@@ -4739,6 +4741,17 @@ AuraFfiStatus aura_ffi_handle_pin_for_boundary(AuraFfiOpaqueHandle *handle,
     return AURA_FFI_BOUNDARY_REJECTED;
   }
   return aura_ffi_handle_pin(handle, out);
+}
+
+AuraFfiStatus aura_ffi_handle_retain(AuraFfiOpaqueHandle *handle)
+{
+  if (handle == NULL || handle->released || handle->destroyed ||
+      handle->owners == UINT32_MAX)
+  {
+    return AURA_FFI_INVALID;
+  }
+  handle->owners++;
+  return AURA_FFI_OK;
 }
 
 AuraFfiStatus aura_ffi_handle_pin_resource(const AuraFfiHandlePin *pin,
@@ -4805,8 +4818,38 @@ AuraFfiStatus aura_ffi_handle_destroy(AuraFfiOpaqueHandle **handle)
   {
     return AURA_FFI_BUSY;
   }
-  aura_ffi_handle_finish(value);
-  free(value);
+  if (value->owners == 0)
+  {
+    return AURA_FFI_INVALID;
+  }
+  value->owners--;
+  if (value->owners == 0)
+  {
+    aura_ffi_handle_finish(value);
+    free(value);
+  }
+  *handle = NULL;
+  return AURA_FFI_OK;
+}
+
+AuraFfiStatus aura_ffi_handle_drop(AuraFfiOpaqueHandle **handle)
+{
+  if (handle == NULL || *handle == NULL)
+  {
+    return AURA_FFI_INVALID;
+  }
+  AuraFfiOpaqueHandle *value = *handle;
+  if (value->pins != 0 || value->owners == 0)
+  {
+    return value->pins != 0 ? AURA_FFI_BUSY : AURA_FFI_INVALID;
+  }
+  value->owners--;
+  if (value->owners == 0)
+  {
+    value->released = 1;
+    aura_ffi_handle_finish(value);
+    free(value);
+  }
   *handle = NULL;
   return AURA_FFI_OK;
 }

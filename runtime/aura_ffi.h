@@ -316,6 +316,9 @@ int aura_ffi_handle_is_null(const AuraFfiOpaqueHandle *handle);
 /* Pinning grants a checked, synchronous operation window. */
 AuraFfiStatus aura_ffi_handle_pin(AuraFfiOpaqueHandle *handle,
                                   AuraFfiHandlePin *out);
+/* Retain one independent owner for a task/frame capture.  The retained
+ * owner keeps the resource live until its matching drop call. */
+AuraFfiStatus aura_ffi_handle_retain(AuraFfiOpaqueHandle *handle);
 /* Pin a handle for a specific ownership boundary.  SYNC, TASK, and AWAIT
  * pins are valid while the caller retains the token; CHANNEL and CALLBACK
  * crossings remain rejected until those ownership contracts are defined. */
@@ -332,6 +335,8 @@ AuraFfiStatus aura_ffi_handle_unpin(AuraFfiHandlePin *pin);
 AuraFfiStatus aura_ffi_handle_release(AuraFfiOpaqueHandle *handle);
 AuraFfiStatus aura_ffi_handle_invalidate(AuraFfiOpaqueHandle *handle);
 AuraFfiStatus aura_ffi_handle_destroy(AuraFfiOpaqueHandle **handle);
+/* Drop one lexical/frame owner without invalidating other retained owners. */
+AuraFfiStatus aura_ffi_handle_drop(AuraFfiOpaqueHandle **handle);
 
 /* Direct unpinned pointer use is synchronous-only.  Use
  * aura_ffi_handle_pin_for_boundary for a checked TASK or AWAIT transfer. */

@@ -90,8 +90,11 @@ returns the transferred byte count. `std.net.readStream` and
 typed `AuraTcpStream`: task-scoped pinning, readiness waits, EOF/error mapping,
 short-write continuation, and cancellation cleanup are emitted in the frame.
 `std.io.openFile(path, mode)` now creates an owned typed handle and releases it
-lexically after the enclosing Aura binding leaves scope. Typed-handle capture
-through general async callers, portable regular-file async I/O, and a general
+lexically after the enclosing Aura binding leaves scope. Bounded `spawn` now
+retains captured typed file handles and drops the frame owner independently,
+so `spawn { await writeFile(handle, ...) }` survives outer lexical cleanup;
+native coverage verifies the write and subsequent read. Typed-handle capture
+through broader async callers, portable regular-file async I/O, and a general
 reactor abstraction remain open.
 
 ## IO3. TCP listener and stream integration

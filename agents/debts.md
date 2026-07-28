@@ -925,12 +925,15 @@ When you resolve debt, update or remove the matching entry.
   its `AuraFile` resource, owns the result buffer, and unpins on terminal frame
   cleanup. `std.io.openFile(path, mode)` now creates the owned
   `AuraFfiOpaqueHandle`; a native Aura fixture covers construction and lexical
-  cleanup. Native Aura-level async read execution remains open because
-  ForeignHandle capture through non-empty `spawn` is still rejected.
+  cleanup. Native async read execution and broader caller coverage remain open.
 - `std.io.writeFile(file: ForeignHandle<Int>, content)` now mirrors that pin
   lifetime, owns the input buffer, handles short writes through the frame wait
-  state, and returns the transferred byte count. It has the same compile-only
-  coverage limitation until Aura can construct an owned file handle.
+  state, and returns the transferred byte count. Bounded `spawn` now retains a
+  captured `ForeignHandle` and drops the frame owner independently from the
+  outer lexical binding; native coverage proves
+  `openFile -> spawn { await writeFile(...) } -> join -> readFile`, while the
+  runtime fixture proves the resource destructor runs once after both owners
+  leave. Broader async caller capture remains deferred.
 - `std.net.readStream` and `std.net.writeStream` now lower typed
   `ForeignHandle<Int>` values to task-pinned `AuraTcpStream` operations with
   readiness waits, EOF/error handling, short-write continuation, and terminal

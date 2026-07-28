@@ -246,6 +246,27 @@ static void test_frame_owned_pin_survives_owner_release(void)
   assert(aura_ffi_handle_destroy(&handle) == AURA_FFI_OK);
 }
 
+static void test_retained_owner_survives_lexical_drop(void)
+{
+  int *value = (int *)malloc(sizeof(*value));
+  AuraFfiOpaqueHandle *owner = NULL;
+  AuraFfiOpaqueHandle *captured = NULL;
+  AuraFfiHandlePin pin = {0};
+  unsigned before = released_resources;
+  assert(value != NULL);
+  assert(aura_ffi_handle_new(value, destroy_resource, &owner) == AURA_FFI_OK);
+  captured = owner;
+  assert(aura_ffi_handle_retain(captured) == AURA_FFI_OK);
+  assert(aura_ffi_handle_drop(&owner) == AURA_FFI_OK);
+  assert(owner == NULL);
+  assert(released_resources == before);
+  assert(aura_ffi_handle_pin(captured, &pin) == AURA_FFI_OK);
+  assert(aura_ffi_handle_unpin(&pin) == AURA_FFI_OK);
+  assert(aura_ffi_handle_drop(&captured) == AURA_FFI_OK);
+  assert(captured == NULL);
+  assert(released_resources == before + 1);
+}
+
 int main(void)
 {
   test_nullable_and_boundaries();
@@ -255,6 +276,7 @@ int main(void)
   test_checked_task_and_await_boundaries();
   test_task_frame_pin_owns_foreign_resource();
   test_frame_owned_pin_survives_owner_release();
-  assert(released_resources == 8);
+  test_retained_owner_survives_lexical_drop();
+  assert(released_resources == 9);
   return 0;
 }
