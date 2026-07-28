@@ -1341,6 +1341,13 @@ impl<'a> AsyncCfgBuilder<'a> {
                         format!("{binding} = {get_fn}(&{iterator}, {index});"),
                     )
                 };
+                let bind_code = if elem_key == "String" {
+                    format!(
+                        "if ({binding}__owned && {binding} != NULL) free((void *){binding}); {bind_code} {binding}__owned = true;"
+                    )
+                } else {
+                    bind_code
+                };
                 self.finish(
                     bind_state,
                     AsyncCfgNode::Action {
@@ -1687,6 +1694,46 @@ fn async_cfg_move_source(expr: &Expr) -> Option<&Ident> {
     }
 }
 
+fn emit_owned_value_cleanup(
+    out: &mut String,
+    indent: usize,
+    expr: &str,
+    key: &str,
+    checked: &CheckedFile,
+) {
+    if is_array_type_key(key) {
+        crate::array_emit::emit_array_contents_free(out, indent, expr, key);
+        return;
+    }
+    let Some(base) = crate::expr::mono_base_name(key, checked) else {
+        return;
+    };
+    let Some(enum_decl) = checked.ast.enums.iter().find(|e| e.name.name == base) else {
+        return;
+    };
+    let pad = "  ".repeat(indent);
+    for (tag, variant) in enum_decl.variants.iter().enumerate() {
+        for field in &variant.fields {
+            let field_key = type_ref_local_key_expand(&field.ty, &[], &[], checked);
+            let field_expr = format!(
+                "{expr}.data.{}.{}",
+                mangle_ident(&variant.name.name),
+                mangle_ident(&field.name.name)
+            );
+            if is_array_type_key(&field_key) {
+                let _ = writeln!(out, "{pad}if ({expr}.tag == {tag}) {{");
+                crate::array_emit::emit_array_contents_free(
+                    out,
+                    indent + 1,
+                    &field_expr,
+                    &field_key,
+                );
+                let _ = writeln!(out, "{pad}}}");
+            }
+        }
+    }
+}
+
 fn is_gc_collect_expr(expr: &Expr) -> bool {
     matches!(
         expr,
@@ -1974,6 +2021,9 @@ fn emit_async_fun_cfg_int(
             crate::stmt::local_key_to_c(key, checked),
             mangle_ident(name)
         );
+        if key == "String" {
+            let _ = writeln!(out, "  bool {}__owned;", mangle_ident(name));
+        }
     }
     for (name, key) in &match_bindings {
         let _ = writeln!(
@@ -1996,8 +2046,13 @@ fn emit_async_fun_cfg_int(
     out.push_str("  if (data != NULL && data->await_task != NULL && data->await_task_owned && __aura_task_executor != NULL) (void)aura_task_executor_release(__aura_task_executor, &data->await_task);\n");
     for param in &f.params {
         let key = type_ref_local_key_expand(&param.ty, &params, &[], checked);
-        if key == "ForeignHandle" || key.starts_with("ForeignHandle_") {
-            let name = mangle_ident(&param.name.name);
+        let name = mangle_ident(&param.name.name);
+        if is_array_type_key(&key)
+            || crate::expr::mono_base_name(&key, checked)
+                .is_some_and(|base| checked.ast.enums.iter().any(|e| e.name.name == base))
+        {
+            emit_owned_value_cleanup(out, 1, &format!("data->{name}"), &key, checked);
+        } else if key == "ForeignHandle" || key.starts_with("ForeignHandle_") {
             let _ = writeln!(
                 out,
                 "  if (data->{name} != NULL) (void)aura_ffi_handle_drop(&data->{name});"
@@ -2043,6 +2098,13 @@ fn emit_async_fun_cfg_int(
         }
     }
     for (name, key) in &cfg_locals {
+        if key == "String" {
+            let name = mangle_ident(name);
+            let _ = writeln!(
+                out,
+                "  if (data->{name}__owned && data->{name} != NULL) free((void *)data->{name});"
+            );
+        }
         if is_array_type_key(key) {
             crate::array_emit::emit_array_contents_free(
                 out,
@@ -2109,6 +2171,9 @@ fn emit_async_fun_cfg_int(
             "  {} {name} = data->{name};",
             crate::stmt::local_key_to_c(key, checked)
         );
+        if key == "String" {
+            let _ = writeln!(out, "  bool {name}__owned = data->{name}__owned;");
+        }
     }
     for (name, key) in &match_bindings {
         let name = mangle_ident(name);
@@ -2136,9 +2201,13 @@ fn emit_async_fun_cfg_int(
             }
         })
         .collect::<Vec<_>>();
-    sync_parts.extend(cfg_locals.iter().map(|(name, _)| {
+    sync_parts.extend(cfg_locals.iter().map(|(name, key)| {
         let name = mangle_ident(name);
-        format!("data->{name} = {name};")
+        if key == "String" {
+            format!("data->{name} = {name}; data->{name}__owned = {name}__owned;")
+        } else {
+            format!("data->{name} = {name};")
+        }
     }));
     sync_parts.extend(match_bindings.iter().map(|(name, key)| {
         let name = mangle_ident(name);
@@ -8445,6 +8514,21 @@ fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile, detector:
                     );
                 }
             }
+            if let Some((await_var, _)) = await_shape.as_ref() {
+                let await_key = await_var
+                    .ty
+                    .as_ref()
+                    .map(|ty| type_ref_local_key_expand(ty, &[], &[], checked))
+                    .unwrap_or_else(|| "Int".into());
+                if is_array_type_key(&await_key) {
+                    crate::array_emit::emit_array_contents_free(
+                        out,
+                        2,
+                        "data->await_value",
+                        &await_key,
+                    );
+                }
+            }
             out.push_str("}\n\n");
         }
         if let Some((await_var, await_expr)) = await_shape {
@@ -9175,6 +9259,13 @@ fn emit_bounded_spawn_await_poller(
                 out,
                 "      const char *{n} = data->{n} != NULL ? data->{n}->value : NULL;"
             );
+        } else if is_array_type_key(key) {
+            let _ = writeln!(
+                out,
+                "      {} {n} = {}(&data->{n});",
+                crate::stmt::local_key_to_c(key, checked),
+                crate::names::c_method_name(key, "clone")
+            );
         } else {
             let _ = writeln!(
                 out,
@@ -9202,6 +9293,7 @@ fn emit_bounded_spawn_await_poller(
         .as_ref()
         .map(|ty| type_ref_local_key_expand(ty, &[], &[], checked))
         .unwrap_or_else(|| "Int".into());
+    let await_is_temporary = await_operand_is_temporary(&await_expr.operand, checked);
     let await_cty = crate::stmt::local_key_to_c(&await_key, checked);
     let typed_return_key = if matches!(
         body.stmts.last(),
@@ -9223,10 +9315,29 @@ fn emit_bounded_spawn_await_poller(
             "      /* typed suspended {key} result is copied into spawn-owned storage */"
         );
     }
-    let _ = writeln!(
-        out,
-        "      if (child_result.data != NULL) data->await_value = *(({await_cty} *)child_result.data);"
-    );
+    if is_array_type_key(&await_key) {
+        let clone = crate::names::c_method_name(&await_key, "clone");
+        let mut free_old = String::new();
+        crate::array_emit::emit_array_contents_free(
+            &mut free_old,
+            0,
+            "data->await_value",
+            &await_key,
+        );
+        let _ = writeln!(
+            out,
+            "      if (child_result.data != NULL) {{ {await_cty} *__child = ({await_cty} *)child_result.data; {free_old} data->await_value = {clone}(__child); }}"
+        );
+    } else {
+        let _ = writeln!(
+            out,
+            "      if (child_result.data != NULL) data->await_value = *(({await_cty} *)child_result.data);"
+        );
+    }
+    if await_is_temporary {
+        out.push_str("      if (data->await_task != NULL && __aura_task_executor != NULL) (void)aura_task_executor_release(__aura_task_executor, &data->await_task);\n");
+        out.push_str("      data->await_task = NULL;\n");
+    }
 
     let mut ctx = EmitCtx {
         checked,
@@ -9317,6 +9428,19 @@ fn emit_bounded_spawn_await_poller(
                 "      const char *result = {}; if (result == NULL) return AURA_TASK_FAILED; aura_task_frame_set_result(frame, (void *)result, strlen(result) + 1, {result_destroy}); return AURA_TASK_COMPLETE;",
                 owned_string_copy_expr("data->await_value".into(), await_expr.span)
             );
+        } else if is_array_type_key(key) {
+            let clone = crate::names::c_method_name(key, "clone");
+            let mut free_await_value = String::new();
+            crate::array_emit::emit_array_contents_free(
+                &mut free_await_value,
+                0,
+                "data->await_value",
+                key,
+            );
+            let _ = writeln!(
+                out,
+                "      {await_cty} *result = ({await_cty} *)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; *result = {clone}(&data->await_value); {free_await_value} memset(&data->await_value, 0, sizeof(data->await_value)); aura_task_frame_set_result(frame, result, sizeof(*result), {result_destroy}); return AURA_TASK_COMPLETE;"
+            );
         } else if is_heap_class_mono(key, checked) {
             let _ = writeln!(
                 out,
@@ -9329,7 +9453,15 @@ fn emit_bounded_spawn_await_poller(
             );
         }
         out.push_str("    }\n    default: return AURA_TASK_FAILED;\n  }\n}\n\n");
-        if is_heap_class_mono(key, checked) {
+        if is_array_type_key(key) {
+            let result_cty = crate::stmt::local_key_to_c(key, checked);
+            let _ = writeln!(
+                out,
+                "static void {result_destroy}(void *data, size_t size) {{ (void)size; if (data != NULL) {{ {result_cty} *result = ({result_cty} *)data;"
+            );
+            crate::array_emit::emit_array_contents_free(out, 2, "(*result)", key);
+            out.push_str(" free(result); } }\n\n");
+        } else if is_heap_class_mono(key, checked) {
             let _ = writeln!(
                 out,
                 "static void {result_destroy}(void *data, size_t size) {{ (void)size; if (data != NULL) {{ aura_gc_remove_root((void **)data); free(data); }} }}\n\n"
