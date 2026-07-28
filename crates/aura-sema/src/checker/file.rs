@@ -162,25 +162,13 @@ impl Checker {
             });
         }
         if let Ok(ref ret) = ret {
-            if valid_foreign_handle_tag(ret) {
+            if let Some(kind) = foreign_handle_kind(ret) {
                 self.errors.push(SemaError {
-                    message: "[AURA-F4-BOUNDARY] a typed ForeignHandle<T> may only be borrowed as a foreign parameter; returning an owned handle is rejected until Aura drop/transfer semantics exist".into(),
+                    message: format!(
+                        "[AURA-F4-BOUNDARY] foreign return cannot expose runtime-owned `{kind}`; typed foreign handles are rejected until their async pin/ownership proof exists"
+                    ),
                     span: foreign.span,
                 });
-            } else if let Some(kind) = foreign_handle_kind(ret) {
-                if valid_foreign_handle_tag(ret) {
-                    self.errors.push(SemaError {
-                        message: "[AURA-F4-BOUNDARY] a typed ForeignHandle<T> may only be borrowed as a foreign parameter; returning an owned handle is rejected until Aura drop/transfer semantics exist".into(),
-                        span: foreign.span,
-                    });
-                } else {
-                    self.errors.push(SemaError {
-                        message: format!(
-                            "[AURA-F4-BOUNDARY] foreign return cannot expose runtime-owned `{kind}`; typed foreign handles are rejected until their async pin/ownership proof exists"
-                        ),
-                        span: foreign.span,
-                    });
-                }
             } else if !supported_ty(ret) && !valid_foreign_handle_tag(ret) {
                 self.errors.push(SemaError {
                     message: "[AURA-F1-TYPE] foreign return type must be Int, Bool, String, Unit, or a tagged ForeignHandle<T>".into(),
@@ -670,13 +658,12 @@ impl Checker {
                 },
                 None => Ty::Unit,
             };
-            // Every generated async poller owns a concrete task frame. Borrowed
-            // foreign parameters are pinned in that frame for the task's full
-            // lifetime; an owned ForeignHandle result remains rejected because
-            // Task<T> still has no transfer/destructor contract for it.
-            if contains_foreign_handle(&result_ty) {
+            // Direct ForeignHandle results have an explicit task-result
+            // destructor/retain contract. Nested runtime handles remain
+            // rejected because their crossing rules are still undefined.
+            if contains_foreign_handle(&result_ty) && !matches!(result_ty, Ty::ForeignHandle(_)) {
                 self.errors.push(SemaError {
-                    message: "[AURA-F4-BOUNDARY] ForeignHandle values cannot be captured by an async function or stored in Task<T> until compiler-generated TASK/AWAIT pin lifetime is implemented".into(),
+                    message: "[AURA-F4-BOUNDARY] ForeignHandle values cannot be nested in Task<T> until compiler-generated TASK/AWAIT transfer lifetime is implemented".into(),
                     span: f.span,
                 });
                 self.type_params.clear();

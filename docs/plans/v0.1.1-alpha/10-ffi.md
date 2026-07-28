@@ -104,9 +104,13 @@ the borrowed resource for one synchronous operation window. Release and
 invalidation immediately tombstone the handle, reject stale aliases and
 double-release, and defer the destructor until outstanding pins are returned.
 Tombstones are explicitly destroyed after release; destroying an active handle
-or one with pins is rejected. Handle values are rejected at task, await,
-channel, and callback boundaries; this matches the existing sema rule that
-borrowed values cannot cross those asynchronous/ownership boundaries.
+or one with pins is rejected. Direct owned `ForeignHandle<T>` foreign returns
+and bounded async task results now have an explicit drop/retain contract:
+task-result destruction drops exactly once, repeated owning joins retain an
+independent alias, and owned `Result<ForeignHandle<T>, TaskError>` locals
+release their success payload lexically. Nested runtime handles,
+CHANNEL/CALLBACK crossings, and general arbitrary-CFG handle result lowering
+remain outside this slice.
 
 **Verification:** `runtime/tests/ffi_handles.c` is compiled with strict C11
 warnings and exercises nullable construction, null and boundary behavior,
@@ -162,7 +166,8 @@ and exception-object translation remain outside F5.
   - [x] Run the same acceptance matrix on macOS via the native `macos-14`
         arm64 CI runner.
 - [x] Verify no unowned opaque foreign handle crosses task, await, channel,
-      or callback boundaries; general foreign values remain bounded to the
+      or callback boundaries; direct owned task results use the bounded
+      transfer contract and general foreign values remain bounded to the
       synchronous FFI contract.
       **Acceptance:** FFI failures are safe, diagnosed, and reproducible.
       **Verification:** Execute the FFI stage from clean checkouts and release builds.

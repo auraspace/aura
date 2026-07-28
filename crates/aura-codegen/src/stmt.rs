@@ -257,6 +257,10 @@ pub(crate) fn emit_free_task_result_owners(
                 array_key,
             );
             format!("if ({n}.tag == 0) {{ {cleanup} }} ")
+        } else if task_result_foreign_handle_owner_key(&key).is_some() {
+            format!(
+                "if ({n}.tag == 0 && {n}.data.Ok.owned && {n}.data.Ok.value != NULL) {{ (void)aura_ffi_handle_drop(&{n}.data.Ok.value); {n}.data.Ok.owned = false; }}"
+            )
         } else if task_result_class_owner_key(&key, ctx).is_some() {
             format!(
                 "if ({n}.tag == 0 && {n}.data.Ok.value != NULL) {{ aura_gc_remove_root((void **)&{n}.data.Ok.value); {n}.data.Ok.value = NULL; }} "
@@ -280,6 +284,13 @@ pub(crate) fn emit_free_task_result_owners(
             "{p}{ok_cleanup}if ({n}.tag == 1 && {n}.data.Err.error.tag == 0 && {n}.data.Err.error.data.Failed.owned) {{ free((void *){n}.data.Err.error.data.Failed.error); {n}.data.Err.error.data.Failed.error = NULL; {n}.data.Err.error.data.Failed.owned = false; }}{typed_cleanup}"
         );
     }
+}
+
+fn task_result_foreign_handle_owner_key(key: &str) -> Option<&str> {
+    let payload = key
+        .strip_prefix("std_io_Result_")
+        .and_then(|rest| rest.strip_suffix("_std_io_TaskError"))?;
+    payload.starts_with("ForeignHandle_").then_some(payload)
 }
 
 pub(crate) fn emit_release_task_handle_owners(
@@ -478,11 +489,11 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                 ctx.mark_task_handle_owner(&v.name.name);
             }
             let owned_foreign_handle_init = ty_name.starts_with("ForeignHandle_")
-                && matches!(&v.init, Expr::Call(call) if ctx
-                    .checked
-                    .call_instantiations
-                    .get(&call.span.start)
-                    .is_some_and(|inst| inst.package == "std.io" && inst.name == "openFile"));
+                && matches!(&v.init, Expr::Call(call) if ctx.checked.ast.foreign_functions.iter().any(|foreign| {
+                    matches!(call.callee.as_ref(), Expr::Ident(id) if id.name == foreign.name.name)
+                }) || ctx.checked.call_instantiations.get(&call.span.start).is_some_and(|inst| {
+                    inst.package == "std.io" && inst.name == "openFile"
+                }));
             if owned_foreign_handle_init {
                 ctx.mark_task_handle_owner(&v.name.name);
             }
@@ -1141,10 +1152,21 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                         Expr::Ident(id) if ret_key == "String" => Some(id.name.as_str()),
                         _ => None,
                     };
+                    let skip_foreign_handle = match e {
+                        Expr::Ident(id) if ret_key.starts_with("ForeignHandle_") => {
+                            Some(id.name.as_str())
+                        }
+                        _ => None,
+                    };
                     let owners: Vec<String> = ctx
                         .array_owners_all()
                         .into_iter()
                         .filter(|n| skip != Some(n.as_str()))
+                        .collect();
+                    let task_handle_owners: Vec<String> = ctx
+                        .task_handle_owners_all()
+                        .into_iter()
+                        .filter(|n| skip_foreign_handle != Some(n.as_str()))
                         .collect();
                     let fun_owners: Vec<String> = ctx
                         .fun_owners_all()
@@ -1170,6 +1192,7 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                             ctx,
                             &ctx.task_result_owners_all(),
                         );
+                        emit_release_task_handle_owners(out, indent, ctx, &task_handle_owners);
                         emit_release_box_locals(out, indent, ctx, &ctx.box_owners_all());
                         let ret_stmt = if ctx.task_poller {
                             "return AURA_TASK_COMPLETE;"
@@ -1213,6 +1236,7 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                             ctx,
                             &ctx.task_result_owners_all(),
                         );
+                        emit_release_task_handle_owners(out, indent, ctx, &task_handle_owners);
                         emit_release_box_locals(out, indent, ctx, &ctx.box_owners_all());
                         if ctx.task_poller {
                             let _ = writeln!(out, "{p}return AURA_TASK_COMPLETE;");

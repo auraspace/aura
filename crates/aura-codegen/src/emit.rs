@@ -5249,15 +5249,40 @@ fun main(handle: ForeignHandle<Int>) { native_use(handle) }\n",
     }
 
     #[test]
-    fn typed_foreign_handle_return_remains_fail_closed() {
+    fn typed_foreign_handle_return_emits_opaque_prototype() {
         let file = parse_file(
             "package demo\n\
 @foreign(library = \"m\", target = \"native\", link = \"dynamic\", abi = 1, abi_id = \"c\")\n\
 extern \"C\" fun native_open(): ForeignHandle<Int>\n",
         )
         .expect("parse typed foreign handle return fixture");
-        let error = aura_sema::check_file(&file).expect_err("owned return is not proven");
-        assert!(error.to_string().contains("drop/transfer semantics"));
+        let checked = aura_sema::check_file(&file).expect("owned foreign return is supported");
+        let generated = emit_c_with(&checked, EmitOptions::default());
+        assert!(generated.contains("native_open") && generated.contains("AuraFfiOpaqueHandle *"));
+    }
+
+    #[test]
+    fn async_foreign_handle_result_retains_each_owned_join() {
+        let file = parse_file(
+            "package demo\n\
+@foreign(library = \"m\", target = \"native\", link = \"dynamic\", abi = 1, abi_id = \"c\")\n\
+extern \"C\" fun native_open(): ForeignHandle<Int>\n\
+async fun produce(): ForeignHandle<Int> { return native_open() }\n\
+fun main() {\n\
+  val task = spawn { return native_open() }\n\
+  val first = join(task)\n\
+  val second = join(task)\n\
+  gc_collect()\n\
+}\n",
+        )
+        .expect("parse async foreign handle result fixture");
+        let checked = aura_sema::check_file(&file).expect("async foreign handle result checks");
+        let generated = emit_c_with(&checked, EmitOptions::default());
+        assert!(generated.contains("aura_async_result_destroy_demo_produce"));
+        assert!(generated.contains("aura_ffi_handle_drop(result)"));
+        assert!(generated.contains("aura_ffi_handle_retain(__join_handle)"));
+        assert!(generated.contains("aura_ffi_handle_drop(&first"));
+        assert!(generated.contains("aura_ffi_handle_drop(&second"));
     }
 
     #[test]
@@ -7228,6 +7253,8 @@ fn emit_async_fun_no_await(
         out.push_str("    free(result); }\n");
     } else if is_heap_class_mono(&ret_key, checked) {
         out.push_str("  if (data != NULL) { aura_gc_remove_root((void **)data); free(data); }\n");
+    } else if ret_key.starts_with("ForeignHandle_") {
+        out.push_str("  if (data != NULL) { AuraFfiOpaqueHandle **result = (AuraFfiOpaqueHandle **)data; if (*result != NULL) (void)aura_ffi_handle_drop(result); free(result); }\n");
     } else {
         out.push_str("  free(data);\n");
     }
@@ -7349,6 +7376,9 @@ fn emit_async_fun_no_await(
         let _ = writeln!(out, "    {ret} *result = ({ret} *)malloc(sizeof(*result));");
         out.push_str("    if (result == NULL) return AURA_TASK_FAILED;\n");
         out.push_str("    *result = body_value;\n");
+        if ret_key.starts_with("ForeignHandle_") {
+            out.push_str("    if (*result == NULL) { free(result); return AURA_TASK_FAILED; }\n");
+        }
         if is_heap_class_mono(&ret_key, checked) {
             out.push_str("    aura_gc_add_root((void **)result);\n");
         }
@@ -7675,6 +7705,19 @@ fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile, detector:
                 detector,
                 (&data_ty, &poll),
                 spawn.span,
+            );
+            continue;
+        }
+        if let Some(handle_key) = bounded_spawn_foreign_handle_return_key(&spawn.body, checked) {
+            emit_bounded_spawn_foreign_handle_return_poller(
+                out,
+                &spawn.body,
+                &captures,
+                checked,
+                detector,
+                (&data_ty, &poll),
+                spawn.span,
+                &handle_key,
             );
             continue;
         }
@@ -8056,6 +8099,142 @@ fn emit_bounded_spawn_class_return_poller(
         "  aura_task_frame_set_result(frame, result, sizeof(*result), {result_destroy});"
     );
     out.push_str("  return AURA_TASK_COMPLETE;\n}\n\n");
+}
+
+fn bounded_spawn_foreign_handle_return_key(body: &Block, checked: &CheckedFile) -> Option<String> {
+    let Some(Stmt::Return(ReturnStmt {
+        value: Some(value), ..
+    })) = body.stmts.last()
+    else {
+        return None;
+    };
+    let key = infer_type_name(
+        value,
+        &EmitCtx {
+            checked,
+            detector: false,
+            method_class: None,
+            type_params: Vec::new(),
+            type_args: Vec::new(),
+            locals: vec![HashMap::new()],
+            array_owners: vec![HashSet::new()],
+            fun_owners: vec![HashSet::new()],
+            string_owners: vec![HashSet::new()],
+            channel_owners: vec![HashSet::new()],
+            task_result_owners: vec![HashSet::new()],
+            task_handle_owners: vec![HashSet::new()],
+            box_locals: vec![HashSet::new()],
+            box_owners: vec![HashSet::new()],
+            gc_roots: vec![HashSet::new()],
+            array_gc_roots: vec![HashSet::new()],
+            return_key: None,
+            lambda_ids: HashMap::new(),
+            spawn_params: HashSet::new(),
+            mutable_spawn_captures: HashSet::new(),
+            async_frame: None,
+            task_poller: true,
+        },
+    );
+    key.starts_with("ForeignHandle_").then_some(key)
+}
+
+fn emit_bounded_spawn_foreign_handle_return_poller(
+    out: &mut String,
+    body: &Block,
+    captures: &[BoundedSpawnCapture],
+    checked: &CheckedFile,
+    detector: bool,
+    names: (&str, &str),
+    span: Span,
+    handle_key: &str,
+) {
+    let (data_ty, poll) = names;
+    let result_destroy = format!("aura_spawn_result_destroy_{}", span.start);
+    let handle_cty = crate::stmt::local_key_to_c(handle_key, checked);
+    let _ = writeln!(
+        out,
+        "static void {result_destroy}(void *data, size_t size) {{ (void)size; if (data != NULL) {{ AuraFfiOpaqueHandle **result = (AuraFfiOpaqueHandle **)data; if (*result != NULL) (void)aura_ffi_handle_drop(result); free(result); }} }}\n"
+    );
+    let _ = writeln!(
+        out,
+        "static AuraTaskPollState {poll}(AuraTaskFrame *frame) {{"
+    );
+    if !captures.is_empty() {
+        let _ = writeln!(
+            out,
+            "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame);"
+        );
+    }
+    out.push_str("  if (aura_task_frame_cancel_requested(frame)) return AURA_TASK_CANCELLED;\n");
+    out.push_str("  if (aura_task_frame_resume_state(frame) != 0) return AURA_TASK_COMPLETE;\n");
+    out.push_str("  aura_task_frame_set_resume_state(frame, 1);\n");
+    let mut ctx = EmitCtx {
+        checked,
+        detector,
+        method_class: None,
+        type_params: Vec::new(),
+        type_args: Vec::new(),
+        locals: vec![HashMap::new()],
+        array_owners: vec![HashSet::new()],
+        fun_owners: vec![HashSet::new()],
+        string_owners: vec![HashSet::new()],
+        channel_owners: vec![HashSet::new()],
+        task_result_owners: vec![HashSet::new()],
+        task_handle_owners: vec![HashSet::new()],
+        box_locals: vec![HashSet::new()],
+        box_owners: vec![HashSet::new()],
+        gc_roots: vec![HashSet::new()],
+        array_gc_roots: vec![HashSet::new()],
+        return_key: Some(handle_key.to_string()),
+        lambda_ids: build_lambda_ids(checked),
+        spawn_params: HashSet::new(),
+        mutable_spawn_captures: HashSet::new(),
+        async_frame: None,
+        task_poller: true,
+    };
+    for capture in captures {
+        let name = &capture.name;
+        let key = &capture.key;
+        let n = mangle_ident(name);
+        let cty = if capture.boxed {
+            match bounded_capture_box_kind(capture) {
+                "string" => "aura_box_str *".to_string(),
+                "i64" => "aura_box_i64 *".to_string(),
+                "bool" => "aura_box_bool *".to_string(),
+                _ => "aura_box_ptr *".to_string(),
+            }
+        } else if key == "String" {
+            "aura_box_str *".to_string()
+        } else {
+            crate::stmt::local_key_to_c(key, checked)
+        };
+        let _ = writeln!(out, "  {cty}{n} = data->{n};");
+        ctx.define_local(name, key.clone());
+        if capture.boxed {
+            ctx.mark_box_local(name);
+        }
+    }
+    let Some(Stmt::Return(ReturnStmt {
+        value: Some(value), ..
+    })) = body.stmts.last()
+    else {
+        unreachable!()
+    };
+    for stmt in &body.stmts[..body.stmts.len() - 1] {
+        crate::stmt::emit_stmt(out, stmt, 1, &mut ctx);
+    }
+    let value_code = emit_expr(value, &mut ctx);
+    let _ = writeln!(
+        out,
+        "  {handle_cty} *result = ({handle_cty} *)malloc(sizeof(*result));"
+    );
+    out.push_str("  if (result == NULL) return AURA_TASK_FAILED;\n");
+    let _ = writeln!(out, "  *result = {value_code};");
+    out.push_str("  if (*result == NULL) { free(result); return AURA_TASK_FAILED; }\n");
+    let _ = writeln!(
+        out,
+        "  aura_task_frame_set_result(frame, result, sizeof(*result), {result_destroy}); return AURA_TASK_COMPLETE;\n}}\n\n"
+    );
 }
 
 fn emit_bounded_spawn_string_return_poller(

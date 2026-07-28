@@ -1966,6 +1966,10 @@ fn emit_join(j: &JoinExpr, ctx: &mut EmitCtx<'_>, owned_error: bool) -> String {
         out.push_str(&format!(
             "else {{ {cty} __join_class = __join_result.data != NULL ? *(({cty} *)__join_result.data) : NULL; __join_value = {result_ok}(__join_class); }} "
         ));
+    } else if owned_error && (inner == "ForeignHandle" || inner.starts_with("ForeignHandle_")) {
+        out.push_str(&format!(
+            "else {{ {cty} __join_handle = __join_result.data != NULL ? *(({cty} *)__join_result.data) : NULL; if (__join_handle != NULL && aura_ffi_handle_retain(__join_handle) != AURA_FFI_OK) __join_handle = NULL; __join_value = {result_ok}(__join_handle); }} "
+        ));
     } else {
         out.push_str(&format!(
             "else {{ __join_value = {result_ok}(__join_result.data != NULL ? *(({cty} *)__join_result.data) : ({cty}){{0}}); }} "

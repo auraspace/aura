@@ -776,12 +776,14 @@ When you resolve debt, update or remove the matching entry.
   crossings remain rejected. The compiler now fail-closes foreign declarations
   that expose `Task`, `TaskHandle`, or `Channel` (including nullable forms),
   while keeping primitive foreign declarations on the existing supported ABI.
-  The compiler now accepts borrowed tagged `ForeignHandle<T>` parameters and
-  emits the checked pin/unpin ABI for synchronous foreign calls, while rejecting
-  owned returns and unproven nested async handles. Bounded no-await compiler-
-  generated async pollers now invoke the frame-owned pin API across their
-  suspension states; owned async transfer is still not defined. Callbacks and
-  foreign error mapping belong to F5.
+  Tagged `ForeignHandle<T>` parameters use the checked pin/unpin ABI for
+  synchronous calls and compiler-generated async pollers. Direct owned
+  `ForeignHandle<T>` returns are now supported for foreign calls and bounded
+  async task results: task-result destruction drops exactly once, owning joins
+  retain one alias per observation, and owned `Result<ForeignHandle<T>,
+TaskError>` locals release their payload at scope exit. Nested runtime handles,
+  CHANNEL/CALLBACK crossings, and broader arbitrary CFG handle results remain
+  deferred. Callbacks and foreign error mapping belong to F5.
 
 ### F5 callback portability (2026-07-22)
 

@@ -147,6 +147,17 @@ extern \"C\" fun native_use(handle: ForeignHandle<Int>): Unit\n",
 }
 
 #[test]
+fn foreign_declaration_accepts_owned_tagged_opaque_return() {
+    let file = parse_file(
+        "package demo\n\
+@foreign(library = \"m\", target = \"native\", link = \"dynamic\", abi = 1, abi_id = \"c\")\n\
+extern \"C\" fun native_open(): ForeignHandle<Int>\n",
+    )
+    .expect("parse owned typed opaque-handle declaration");
+    check_file(&file).expect("owned tagged opaque returns have an explicit drop contract");
+}
+
+#[test]
 fn foreign_declaration_keeps_unproven_async_handles_fail_closed() {
     for ty in ["ForeignHandle<Task<Int>>", "ForeignHandle<TaskHandle<Int>>"] {
         let source = format!(
