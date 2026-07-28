@@ -1028,6 +1028,10 @@ TaskError>` locals release their payload at scope exit. Nested
   frame across multiple branch/loop awaits and drops that retain during frame
   teardown; native coverage forces GC and repeats owning joins while passing
   through a multi-await `writeTwice(file)` caller.
+- A caller-owned `Task<ForeignHandle<Int>>` can now cross a CFG loop await and
+  feed a second compiler-generated `readFile` await; a native fixture covers
+  `writeFile -> reopen -> task-handle transfer -> readFile`, forced GC, and
+  repeated owning joins.
 - The runtime now has a regular-file async operation fixture: a real temporary
   file is opened, scheduled through the file readiness handle, resumed by the
   executor, read, and closed exactly once. This proves the POSIX regular-file

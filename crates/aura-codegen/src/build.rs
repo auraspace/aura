@@ -825,6 +825,92 @@ fun main() {{
     }
 
     #[test]
+    fn builds_and_runs_caller_owned_file_task_through_two_async_io_awaits() {
+        let path = format!("/tmp/aura-caller-owned-file-task-{}", std::process::id());
+        let source = format!(
+            r#"package std.io
+enum TaskError {{ case Failed(error: String) case Cancelled }}
+enum Result<T, E> {{ case Ok(value: T) case Err(error: E) }}
+fun openFile(path: String, mode: Int): ForeignHandle<Int> {{ throw "intrinsic" }}
+async fun writeFile(file: ForeignHandle<Int>, content: String): Int {{ return 0 }}
+async fun readFile(file: ForeignHandle<Int>, capacity: Int): String {{ return "" }}
+async fun produce(file: ForeignHandle<Int>): ForeignHandle<Int> {{
+  return file
+}}
+async fun readThrough(file_task: Task<ForeignHandle<Int>>): String {{
+  var file: ForeignHandle<Int> = openFile("{path}", 0)
+  var i: Int = 0
+  while (i < 1) {{
+    val received: ForeignHandle<Int> = await file_task
+    file = received
+    i = i + 1
+  }}
+  val value: String = await readFile(file, 64)
+  gc_collect()
+  return value
+}}
+fun main() {{
+  val output: ForeignHandle<Int> = openFile("{path}", 1)
+  val writer = spawn {{
+    val count: Int = await writeFile(output, "caller-owned")
+    return count
+  }}
+  val written: Result<Int, TaskError> = join(writer)
+  val input: ForeignHandle<Int> = openFile("{path}", 0)
+  val task = spawn {{
+    val value: String = await readThrough(produce(input))
+    return value
+  }}
+  gc_collect()
+  val first: Result<String, TaskError> = join(task)
+  match (first) {{
+    case Ok(value) => {{ println(value) }}
+    case Err(error) => {{ println("failed") }}
+  }}
+  val second: Result<String, TaskError> = join(task)
+  match (second) {{
+    case Ok(value) => {{ println(value) }}
+    case Err(error) => {{ println("failed-repeat") }}
+  }}
+}}
+"#
+        );
+        let file = parse_file(&source).expect("parse caller-owned file task fixture");
+        let generated = emit_c_from_ast(&file).expect("emit caller-owned file task fixture");
+        assert!(generated.contains("aura async general CFG String lowering"));
+        assert!(generated.contains("compiler-generated std.io.readFile"));
+        assert!(generated.contains("compiler-generated std.io.writeFile"));
+        assert!(generated.contains("data->await_task_owned = false"));
+        assert!(generated.contains("aura_ffi_handle_pin_for_boundary"));
+        assert!(generated.contains("aura_ffi_handle_drop(&file)"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-caller-owned-file-task-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile caller-owned file task fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run caller-owned file task fixture");
+        assert!(
+            output.status.success(),
+            "caller-owned file task fixture failed: {output:?}"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "caller-owned\ncaller-owned\n"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
     fn compiles_compiler_generated_async_write_file_foreign_handle() {
         let file = aura_parser::parse_file(
             r#"package std.io
