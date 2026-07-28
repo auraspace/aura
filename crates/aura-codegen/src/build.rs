@@ -1695,6 +1695,106 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_general_cfg_array_branch_loop_with_owned_outcome() {
+        let source = r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+async fun worker(value: Int, fail: Bool): Array<Int> {
+  if (fail) { throw "aggregate-failure" }
+  return Array<Int>(value)
+}
+async fun nested(flag: Bool): Array<Int> {
+  if (flag) {
+    var i: Int = 0
+    while (i < 1) {
+      val value: Array<Int> = await worker(3, false)
+      gc_collect()
+      return value
+    }
+  }
+  return Array<Int>(0)
+}
+async fun broken(): Array<Int> {
+  if (true) {
+    var i: Int = 0
+    while (i < 1) {
+      val value: Array<Int> = await worker(3, true)
+      return value
+    }
+  }
+  return Array<Int>(0)
+}
+fun main() {
+  val task = spawn { val value: Array<Int> = await nested(true) return value }
+  val first: Result<Array<Int>, TaskError> = join(task)
+  match (first) {
+    case Ok(value) => { println(value.len.toString()) }
+    case Err(error) => { println("unexpected-error") }
+  }
+  gc_collect()
+  val second: Result<Array<Int>, TaskError> = join(task)
+  match (second) {
+    case Ok(value) => { println(value.len.toString()) }
+    case Err(error) => { println("unexpected-error") }
+  }
+  val failed = spawn { val value: Array<Int> = await broken() return value }
+  val failed_result: Result<Array<Int>, TaskError> = join(failed)
+  match (failed_result) {
+    case Ok(value) => { println("unexpected-success") }
+    case Err(error) => {
+      match (error) {
+        case Failed(message) => { println(message) }
+        case Cancelled => { println("unexpected-cancel") }
+      }
+    }
+  }
+  val cancelled = spawn { val value: Array<Int> = await nested(true) return value }
+  cancel(cancelled)
+  val cancelled_result: Result<Array<Int>, TaskError> = join(cancelled)
+  match (cancelled_result) {
+    case Ok(value) => { println("unexpected-success") }
+    case Err(error) => {
+      match (error) {
+        case Failed(message) => { println("unexpected-failure") }
+        case Cancelled => { println("cancelled") }
+      }
+    }
+  }
+}
+"#;
+        let file = parse_file(source).expect("parse aggregate CFG await fixture");
+        let generated = emit_c_from_ast(&file).expect("emit aggregate CFG await fixture");
+        assert!(generated.contains("aura async general CFG Array lowering"));
+        assert!(generated.contains("aura_method_Array_Int_clone"));
+        assert!(generated.contains("aura_task_frame_propagate_error(frame, data->await_task)"));
+        assert!(generated.contains("aura_async_result_destroy_"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-general-cfg-array-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile aggregate CFG await fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run aggregate CFG await fixture");
+        assert!(
+            output.status.success(),
+            "aggregate CFG await fixture failed: {output:?}"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "3\n3\naggregate-failure\ncancelled\n"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn lowers_general_cfg_caller_owned_task_parameter_without_static_release() {
         let source = r#"package demo
 async fun nested(flag: Bool, task: Task<Int>): Int {

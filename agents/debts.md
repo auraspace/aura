@@ -72,12 +72,14 @@ When you resolve debt, update or remove the matching entry.
   `Array<Int>` payloads with repeated owning joins; a branch-join `Array<Int>`
   result now deep-clones into the parent result slot, destroys nested owned
   contents exactly once, survives forced GC, and has native repeated-join and
-  cancellation coverage. Rarer aggregate payloads still need matching poller
-  ownership paths.
+  cancellation coverage. The general nested branch/loop CFG now also accepts
+  an `Array<Int>` return and awaited slot, clones it at the await boundary,
+  frees frame slots on cancellation, and proves two repeated owning joins.
+  Rarer aggregate payloads still need matching poller ownership paths.
 - Next step: connect richer aggregate payload ownership and suspended await
   failure propagation to the clone/destroy boundary.
 
-### ASYNC-003 conditional await inside bounded loops remains partial (updated 2026-07-27)
+### ASYNC-003 conditional await inside bounded loops remains partial (updated 2026-07-28)
 
 - Area: compiler-generated async state-machine control flow
 - Progress: the C backend now lowers the bounded post-await branch continuation
@@ -906,7 +908,11 @@ When you resolve debt, update or remove the matching entry.
   shape. Each await persists the graph state, child ownership bit, scalar locals,
   and propagates failure/cancellation across pending polls; the native fixture also
   exercises `gc_collect()` and queued cancellation.
-- The implementation currently accepts only `Int`/`Bool` locals and `Int` results.
+- The same graph now accepts an `Array<Int>` awaited slot and return value,
+  deep-clones child payloads, releases frame-owned arrays on replacement and
+  cancellation, and covers forced GC plus repeated typed joins.
+- The implementation still accepts only scalar/`Array<Int>` locals and
+  `Int`/`Array<Int>` results.
   Array/String/class locals, richer statement expressions, `match`/`try`, and
   arbitrary CFG joins still need aggregate ownership and cleanup rules before this
   can replace the bounded lowering families.
