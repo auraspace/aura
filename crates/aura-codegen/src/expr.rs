@@ -1106,6 +1106,12 @@ pub(crate) fn string_expr_is_owned_temp(e: &Expr, ctx: &EmitCtx<'_>) -> bool {
         }
         Expr::Binary(b) => matches!(b.op, BinOp::Add),
         Expr::Call(_) => crate::stmt::string_call_owns_result(e, ctx),
+        Expr::Field(field) => {
+            let receiver = resolve_type_name(&field.object, ctx)
+                .or_else(|| Some(infer_type_name(&field.object, ctx)))
+                .unwrap_or_default();
+            receiver == "Int" && field.field.name == "toString"
+        }
         Expr::ForceUnwrap(f) => string_expr_is_owned_temp(&f.expr, ctx),
         Expr::Group(inner, _) => string_expr_is_owned_temp(inner, ctx),
         _ => false,

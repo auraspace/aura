@@ -839,16 +839,40 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                 };
             }
             if id.name == "print" && c.args.len() == 1 {
-                return format!("aura_print({})", coerce_expr(&c.args[0], "String", ctx));
+                let arg = coerce_expr(&c.args[0], "String", ctx);
+                if string_expr_is_owned_temp(&c.args[0], ctx) {
+                    return format!(
+                        "({{ const char *__s = ({arg}); aura_print(__s); free((void *)__s); }})"
+                    );
+                }
+                return format!("aura_print({arg})");
             }
             if id.name == "println" && c.args.len() == 1 {
-                return format!("aura_println({})", coerce_expr(&c.args[0], "String", ctx));
+                let arg = coerce_expr(&c.args[0], "String", ctx);
+                if string_expr_is_owned_temp(&c.args[0], ctx) {
+                    return format!(
+                        "({{ const char *__s = ({arg}); aura_println(__s); free((void *)__s); }})"
+                    );
+                }
+                return format!("aura_println({arg})");
             }
             if id.name == "eprint" && c.args.len() == 1 {
-                return format!("aura_eprint({})", coerce_expr(&c.args[0], "String", ctx));
+                let arg = coerce_expr(&c.args[0], "String", ctx);
+                if string_expr_is_owned_temp(&c.args[0], ctx) {
+                    return format!(
+                        "({{ const char *__s = ({arg}); aura_eprint(__s); free((void *)__s); }})"
+                    );
+                }
+                return format!("aura_eprint({arg})");
             }
             if id.name == "eprintln" && c.args.len() == 1 {
-                return format!("aura_eprintln({})", coerce_expr(&c.args[0], "String", ctx));
+                let arg = coerce_expr(&c.args[0], "String", ctx);
+                if string_expr_is_owned_temp(&c.args[0], ctx) {
+                    return format!(
+                        "({{ const char *__s = ({arg}); aura_eprintln(__s); free((void *)__s); }})"
+                    );
+                }
+                return format!("aura_eprintln({arg})");
             }
             // C5m: builtin STW GC collect.
             if id.name == "gc_collect" && c.args.is_empty() {
