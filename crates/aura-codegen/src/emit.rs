@@ -134,10 +134,13 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("typedef struct AuraTcpListener AuraTcpListener;\n");
     out.push_str("typedef struct AuraTcpStream AuraTcpStream;\n");
     out.push_str("typedef enum { AURA_TCP_OK = 0, AURA_TCP_PENDING = 1, AURA_TCP_EOF = 2, AURA_TCP_TIMEOUT = 3, AURA_TCP_ERROR = -1, AURA_TCP_CLOSED = -2, AURA_TCP_UNSUPPORTED = -3 } AuraTcpStatus;\n");
+    out.push_str("AuraTcpStatus aura_tcp_stream_connect(uint16_t, int, AuraTcpStream **);\n");
+    out.push_str("void aura_tcp_stream_destroy(AuraTcpStream *);\n");
     out.push_str(
         "AuraTcpStatus aura_tcp_stream_read(AuraTcpStream *, void *, size_t, size_t *, int);\n",
     );
     out.push_str("AuraTcpStatus aura_tcp_stream_write(AuraTcpStream *, const void *, size_t, size_t *, int);\n");
+    out.push_str("static void aura_destroy_tcp_stream_resource(void *resource) { if (resource != NULL) aura_tcp_stream_destroy((AuraTcpStream *)resource); }\n");
     out.push_str("typedef struct AuraRaceTracker AuraRaceTracker;\n");
     out.push_str("typedef enum { AURA_RACE_READ = 0, AURA_RACE_WRITE = 1, AURA_RACE_TASK_SPAWN = 2, AURA_RACE_TASK_JOIN = 3, AURA_RACE_SYNC_ACQUIRE = 4, AURA_RACE_SYNC_RELEASE = 5, AURA_RACE_TASK_COMPLETE = 6, AURA_RACE_TASK_FAILED = 7, AURA_RACE_TASK_CANCELLED = 8, AURA_RACE_CHANNEL_SEND = 9, AURA_RACE_CHANNEL_RECEIVE = 10, AURA_RACE_CHANNEL_CLOSE = 11 } AuraRaceEventKind;\n");
     out.push_str("AuraRaceTracker *aura_race_tracker_new(void);\n");
@@ -9817,6 +9820,22 @@ pub(crate) fn emit_fun(
                 return;
             }
             _ => {}
+        }
+    }
+    if pkg == "std.net" {
+        if let ("connect", 2) = (f.name.name.as_str(), f.params.len()) {
+            let port = mangle_ident(&f.params[0].name.name);
+            let timeout = mangle_ident(&f.params[1].name.name);
+            out.push_str(
+                "  AuraTcpStream *__stream = NULL; AuraFfiOpaqueHandle *__handle = NULL;\n",
+            );
+            let _ = writeln!(
+                out,
+                "  if (aura_tcp_stream_connect((uint16_t){port}, (int){timeout}, &__stream) != AURA_TCP_OK || __stream == NULL) {{ aura_throw_string(\"std.net.connect failed\"); return NULL; }}"
+            );
+            out.push_str("  if (aura_ffi_handle_new((void *)__stream, aura_destroy_tcp_stream_resource, &__handle) != AURA_FFI_OK) { aura_tcp_stream_destroy(__stream); aura_throw_string(\"std.net.connect failed\"); return NULL; }\n");
+            out.push_str("  return __handle;\n}\n");
+            return;
         }
     }
     // C4h: std.assert.assert → aura_assert.

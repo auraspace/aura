@@ -89,6 +89,10 @@ returns the transferred byte count. `std.net.readStream` and
 `std.net.writeStream` now provide the matching bounded compiler lowering for a
 typed `AuraTcpStream`: task-scoped pinning, readiness waits, EOF/error mapping,
 short-write continuation, and cancellation cleanup are emitted in the frame.
+`std.net.connect(port, timeout)` now lowers to an owned
+`ForeignHandle<Int>` around a connected `AuraTcpStream`; the compiler ABI
+fixture proves constructor wiring and destroy ownership, while native loopback
+execution remains host-gated.
 `std.io.openFile(path, mode)` now creates an owned typed handle and releases it
 lexically after the enclosing Aura binding leaves scope. Bounded `spawn` now
 retains captured typed file handles and drops the frame owner independently,

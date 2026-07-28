@@ -1041,7 +1041,9 @@ TaskError>` locals release their payload at scope exit. Nested
   `ForeignHandle<Int>` values to task-pinned `AuraTcpStream` operations with
   readiness waits, EOF/error handling, short-write continuation, and terminal
   unpin cleanup. The fixture proves generated C compilation and ABI wiring;
-  native Aura-level TCP handle construction and transfer remain open.
+  `std.net.connect(port, timeout)` now constructs an owned typed stream handle
+  with a compiler ABI fixture; native Aura-level loopback construction and
+  transfer remain host-gated and open.
 - The slice intentionally does not claim arbitrary aggregate caller capture or
   a general reactor policy. Portable regular-file behavior is covered for the
   currently supported POSIX hosts; cross-platform reactor semantics remain

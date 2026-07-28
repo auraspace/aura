@@ -973,6 +973,35 @@ fun main() {}
     }
 
     #[test]
+    fn compiles_std_net_connect_to_owned_tcp_foreign_handle() {
+        let file = aura_parser::parse_file(
+            r#"package std.net
+fun connect(port: Int, timeout: Int): ForeignHandle<Int> { throw "intrinsic" }
+async fun readStream(stream: ForeignHandle<Int>, capacity: Int): String { return "" }
+fun main() {}
+"#,
+        )
+        .expect("parse std.net.connect fixture");
+        let generated = emit_c_from_ast(&file).expect("emit std.net.connect fixture");
+        assert!(generated.contains("aura_tcp_stream_connect"));
+        assert!(generated.contains("aura_destroy_tcp_stream_resource"));
+        assert!(generated.contains("aura_ffi_handle_new((void *)__stream"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-std-net-connect-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile std.net.connect fixture");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_compiler_generated_async_write_fd() {
         let file = aura_parser::parse_file(
             r#"package std.io
