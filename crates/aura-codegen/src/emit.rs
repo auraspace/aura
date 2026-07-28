@@ -1206,7 +1206,7 @@ impl<'a> AsyncCfgBuilder<'a> {
                     let mut bind_code = Vec::new();
                     for (binding, field) in bindings.iter().zip(&variant.fields) {
                         let key = type_ref_local_key(&field.ty, &[], &[]);
-                        if !matches!(key.as_str(), "Int" | "Bool") {
+                        if !matches!(key.as_str(), "Int" | "Bool" | "String") {
                             self.supported = false;
                             return next;
                         }
@@ -1218,15 +1218,23 @@ impl<'a> AsyncCfgBuilder<'a> {
                         } else {
                             self.locals.insert(binding.name.clone(), key.clone());
                             self.ctx.define_local(&binding.name, key.clone());
-                            self.match_bindings.push((binding.name.clone(), key));
+                            self.match_bindings
+                                .push((binding.name.clone(), key.clone()));
                         }
-                        bind_code.push(format!(
-                            "{} = {}.data.{}.{};",
-                            mangle_ident(&binding.name),
+                        let binding_name = mangle_ident(&binding.name);
+                        let field_name = format!(
+                            "{}.data.{}.{}",
                             scrutinee,
                             mangle_ident(&variant.name.name),
                             mangle_ident(&field.name.name)
-                        ));
+                        );
+                        if key == "String" {
+                            bind_code.push(format!(
+                                "if ({binding_name}__owned && {binding_name} != NULL) free((void *){binding_name}); {binding_name} = NULL; {binding_name}__owned = false; if ({field_name} != NULL) {{ size_t __match_len = strlen({field_name}); {binding_name} = (char *)malloc(__match_len + 1); if ({binding_name} == NULL) return AURA_TASK_FAILED; memcpy((void *){binding_name}, {field_name}, __match_len + 1); {binding_name}__owned = true; }}"
+                            ));
+                        } else {
+                            bind_code.push(format!("{binding_name} = {field_name};"));
+                        }
                     }
                     let body_state =
                         self.emit_block(&arm.body.stmts, next, break_state, continue_state);
@@ -1657,6 +1665,9 @@ fn emit_async_fun_cfg_int(
             crate::stmt::local_key_to_c(key, checked),
             mangle_ident(name)
         );
+        if key == "String" {
+            let _ = writeln!(out, "  bool {}__owned;", mangle_ident(name));
+        }
     }
     out.push_str("  AuraTaskFrame *await_task; bool await_task_owned;\n");
     let _ = writeln!(out, "}} {data_ty};\n");
@@ -1695,6 +1706,15 @@ fn emit_async_fun_cfg_int(
             let _ = writeln!(
                 out,
                 "  if (data->{name} != NULL) (void)aura_ffi_handle_drop(&data->{name});"
+            );
+        }
+    }
+    for (name, key) in &match_bindings {
+        if key == "String" {
+            let name = mangle_ident(name);
+            let _ = writeln!(
+                out,
+                "  if (data->{name}__owned && data->{name} != NULL) free((void *)data->{name});"
             );
         }
     }
@@ -1755,6 +1775,9 @@ fn emit_async_fun_cfg_int(
             "  {} {name} = data->{name};",
             crate::stmt::local_key_to_c(key, checked)
         );
+        if key == "String" {
+            let _ = writeln!(out, "  bool {name}__owned = data->{name}__owned;");
+        }
     }
     out.push_str("  for (;;) {\n    switch (aura_task_frame_resume_state(frame)) {\n");
     let mut sync_parts = vars
@@ -1771,9 +1794,13 @@ fn emit_async_fun_cfg_int(
             }
         })
         .collect::<Vec<_>>();
-    sync_parts.extend(match_bindings.iter().map(|(name, _)| {
+    sync_parts.extend(match_bindings.iter().map(|(name, key)| {
         let name = mangle_ident(name);
-        format!("data->{name} = {name};")
+        if key == "String" {
+            format!("data->{name} = {name}; data->{name}__owned = {name}__owned;")
+        } else {
+            format!("data->{name} = {name};")
+        }
     }));
     let sync = sync_parts.join(" ");
     for (state, node) in builder.nodes.into_iter().enumerate() {
@@ -1900,6 +1927,12 @@ fn emit_async_fun_cfg_int(
         let key = type_ref_local_key_expand(&param.ty, &params, &[], checked);
         if key == "ForeignHandle" || key.starts_with("ForeignHandle_") {
             let _ = writeln!(out, "  if (data->{name} != NULL && aura_ffi_handle_retain(data->{name}) != AURA_FFI_OK) {{ aura_task_frame_destroy(frame); return NULL; }}");
+        }
+    }
+    for (name, key) in &match_bindings {
+        if key == "String" {
+            let name = mangle_ident(name);
+            let _ = writeln!(out, "  data->{name} = NULL; data->{name}__owned = false;");
         }
     }
     let _ = writeln!(out, "  data->await_task = NULL; data->await_task_owned = false; aura_task_frame_set_resume_state(frame, {entry});");
