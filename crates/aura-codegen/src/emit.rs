@@ -8462,7 +8462,7 @@ fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile, detector:
                 let await_cty = crate::stmt::local_key_to_c(&await_key, checked);
                 let _ = writeln!(
                     out,
-                    "  AuraTaskFrame *await_task;\n  {await_cty} await_value;"
+                    "  AuraTaskFrame *await_task;\n  bool await_task_owned;\n  {await_cty} await_value;"
                 );
             }
             let _ = writeln!(out, "}} {data_ty};\n");
@@ -8471,6 +8471,9 @@ fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile, detector:
                 out,
                 "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame);"
             );
+            if await_shape.is_some() {
+                out.push_str("  if (data != NULL && data->await_task != NULL && data->await_task_owned && __aura_task_executor != NULL) (void)aura_task_executor_release(__aura_task_executor, &data->await_task);\n");
+            }
             for capture in &captures {
                 let key = &capture.key;
                 let n = mangle_ident(&capture.name);
@@ -9276,7 +9279,13 @@ fn emit_bounded_spawn_await_poller(
         initial_ctx.define_local(name, key.clone());
     }
     let task = emit_expr(&await_expr.operand, &mut initial_ctx);
+    let await_is_temporary = await_operand_is_temporary(&await_expr.operand, checked);
     let _ = writeln!(out, "      data->await_task = {task};");
+    let _ = writeln!(
+        out,
+        "      data->await_task_owned = {};",
+        if await_is_temporary { "true" } else { "false" }
+    );
     out.push_str("      if (data->await_task == NULL) return AURA_TASK_FAILED;\n");
     out.push_str("      aura_task_frame_set_resume_state(frame, 1);\n    }\n    case 1: {\n");
     out.push_str(
@@ -9293,7 +9302,6 @@ fn emit_bounded_spawn_await_poller(
         .as_ref()
         .map(|ty| type_ref_local_key_expand(ty, &[], &[], checked))
         .unwrap_or_else(|| "Int".into());
-    let await_is_temporary = await_operand_is_temporary(&await_expr.operand, checked);
     let await_cty = crate::stmt::local_key_to_c(&await_key, checked);
     let typed_return_key = if matches!(
         body.stmts.last(),
@@ -9337,8 +9345,14 @@ fn emit_bounded_spawn_await_poller(
     if await_is_temporary {
         out.push_str("      if (data->await_task != NULL && __aura_task_executor != NULL) (void)aura_task_executor_release(__aura_task_executor, &data->await_task);\n");
         out.push_str("      data->await_task = NULL;\n");
+        out.push_str("      data->await_task_owned = false;\n");
     }
 
+    let body_tail = if typed_return_key.is_some() {
+        &body.stmts[1..body.stmts.len() - 1]
+    } else {
+        &body.stmts[1..]
+    };
     let mut ctx = EmitCtx {
         checked,
         detector,
@@ -9363,49 +9377,51 @@ fn emit_bounded_spawn_await_poller(
         async_frame: None,
         task_poller: true,
     };
-    for capture in captures {
-        let name = &capture.name;
-        let key = &capture.key;
-        let n = mangle_ident(name);
-        if capture.boxed {
-            let cty = match bounded_capture_box_kind(capture) {
-                "string" => "aura_box_str *",
-                "i64" => "aura_box_i64 *",
-                "bool" => "aura_box_bool *",
-                _ => "aura_box_ptr *",
-            };
-            let _ = writeln!(out, "      {cty}{n} = data->{n};");
-            ctx.mark_box_local(name);
-        } else if key == "String" {
-            let _ = writeln!(
-                out,
-                "      const char *{n} = data->{n} != NULL ? data->{n}->value : NULL;"
-            );
-        } else if key == "ForeignHandle" || key.starts_with("ForeignHandle_") {
-            let _ = writeln!(out, "      AuraFfiOpaqueHandle *{n} = data->{n};");
-        } else if is_array_type_key(key) {
-            let _ = writeln!(
-                out,
-                "      {} {n} = {}(&data->{n});",
-                crate::stmt::local_key_to_c(key, checked),
-                crate::names::c_method_name(key, "clone")
-            );
-            ctx.mark_array_owner(name);
-        } else if is_fun_type_key(key) {
-            let _ = writeln!(
-                out,
-                "      {} {n} = data->{n}; if ({n}.env != NULL) aura_fun_env_retain({n}.env);",
-                crate::stmt::local_key_to_c(key, checked)
-            );
-            ctx.mark_fun_owner(name);
-        } else {
-            let _ = writeln!(
-                out,
-                "      {} {n} = data->{n};",
-                crate::stmt::local_key_to_c(key, checked)
-            );
+    if !body_tail.is_empty() {
+        for capture in captures {
+            let name = &capture.name;
+            let key = &capture.key;
+            let n = mangle_ident(name);
+            if capture.boxed {
+                let cty = match bounded_capture_box_kind(capture) {
+                    "string" => "aura_box_str *",
+                    "i64" => "aura_box_i64 *",
+                    "bool" => "aura_box_bool *",
+                    _ => "aura_box_ptr *",
+                };
+                let _ = writeln!(out, "      {cty}{n} = data->{n};");
+                ctx.mark_box_local(name);
+            } else if key == "String" {
+                let _ = writeln!(
+                    out,
+                    "      const char *{n} = data->{n} != NULL ? data->{n}->value : NULL;"
+                );
+            } else if key == "ForeignHandle" || key.starts_with("ForeignHandle_") {
+                let _ = writeln!(out, "      AuraFfiOpaqueHandle *{n} = data->{n};");
+            } else if is_array_type_key(key) {
+                let _ = writeln!(
+                    out,
+                    "      {} {n} = {}(&data->{n});",
+                    crate::stmt::local_key_to_c(key, checked),
+                    crate::names::c_method_name(key, "clone")
+                );
+                ctx.mark_array_owner(name);
+            } else if is_fun_type_key(key) {
+                let _ = writeln!(
+                    out,
+                    "      {} {n} = data->{n}; if ({n}.env != NULL) aura_fun_env_retain({n}.env);",
+                    crate::stmt::local_key_to_c(key, checked)
+                );
+                ctx.mark_fun_owner(name);
+            } else {
+                let _ = writeln!(
+                    out,
+                    "      {} {n} = data->{n};",
+                    crate::stmt::local_key_to_c(key, checked)
+                );
+            }
+            ctx.define_local(name, key.clone());
         }
-        ctx.define_local(name, key.clone());
     }
     ctx.define_local(&await_var.name.name, await_key.clone());
     let _ = writeln!(
@@ -9413,11 +9429,6 @@ fn emit_bounded_spawn_await_poller(
         "      {await_cty} {} = data->await_value;",
         mangle_ident(&await_var.name.name)
     );
-    let body_tail = if typed_return_key.is_some() {
-        &body.stmts[1..body.stmts.len() - 1]
-    } else {
-        &body.stmts[1..]
-    };
     for stmt in body_tail {
         crate::stmt::emit_stmt(out, stmt, 3, &mut ctx);
     }
