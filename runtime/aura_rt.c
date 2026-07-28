@@ -4762,6 +4762,15 @@ static void aura_ffi_handle_finish(AuraFfiOpaqueHandle *handle)
   }
 }
 
+static void aura_ffi_handle_free_if_unowned(AuraFfiOpaqueHandle *handle)
+{
+  if (handle != NULL && handle->released && handle->pins == 0 &&
+      handle->owners == 0)
+  {
+    free(handle);
+  }
+}
+
 static AuraFfiStatus aura_ffi_handle_new_impl(void *resource,
                                                AuraFfiHandleDestroyFn destroy,
                                                int nullable,
@@ -4884,6 +4893,7 @@ AuraFfiStatus aura_ffi_handle_unpin(AuraFfiHandlePin *pin)
   handle->pins--;
   memset(pin, 0, sizeof(*pin));
   aura_ffi_handle_finish(handle);
+  aura_ffi_handle_free_if_unowned(handle);
   return AURA_FFI_OK;
 }
 
@@ -4939,16 +4949,17 @@ AuraFfiStatus aura_ffi_handle_drop(AuraFfiOpaqueHandle **handle)
     return AURA_FFI_INVALID;
   }
   AuraFfiOpaqueHandle *value = *handle;
-  if (value->pins != 0 || value->owners == 0)
+  if (value->owners == 0)
   {
-    return value->pins != 0 ? AURA_FFI_BUSY : AURA_FFI_INVALID;
+    return AURA_FFI_INVALID;
   }
   value->owners--;
   if (value->owners == 0)
   {
     value->released = 1;
     aura_ffi_handle_finish(value);
-    free(value);
+    /* A task pin may outlive the lexical owner; unpin performs the final free. */
+    aura_ffi_handle_free_if_unowned(value);
   }
   *handle = NULL;
   return AURA_FFI_OK;
