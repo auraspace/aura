@@ -85,8 +85,11 @@ do not stop at `PENDING`. The compiler now also emits a bounded
 handle, reads its `AuraFile` resource, owns the String buffer, and unpins during
 frame teardown. Its `std.io.writeFile(ForeignHandle<Int>, content)` counterpart
 pins the same resource, owns the input buffer, resumes short writes, and
-returns the transferred byte count. Generic `AuraTcpStream` operation lowering,
-portable regular-file async I/O, and a general reactor abstraction remain open.
+returns the transferred byte count. `std.net.readStream` and
+`std.net.writeStream` now provide the matching bounded compiler lowering for a
+typed `AuraTcpStream`: task-scoped pinning, readiness waits, EOF/error mapping,
+short-write continuation, and cancellation cleanup are emitted in the frame.
+Portable regular-file async I/O and a general reactor abstraction remain open.
 
 ## IO3. TCP listener and stream integration
 

@@ -665,6 +665,38 @@ fun main() {}
     }
 
     #[test]
+    fn compiles_compiler_generated_async_tcp_stream_foreign_handle() {
+        let file = aura_parser::parse_file(
+            r#"package std.net
+async fun readStream(stream: ForeignHandle<Int>, capacity: Int): String { return "" }
+async fun writeStream(stream: ForeignHandle<Int>, content: String): Int { return 0 }
+fun main() {}
+"#,
+        )
+        .expect("parse generated async TCP stream fixture");
+        let generated = emit_c_from_ast(&file).expect("emit generated async TCP stream fixture");
+        assert!(generated.contains("compiler-generated std.net.readStream"));
+        assert!(generated.contains("compiler-generated std.net.writeStream"));
+        assert!(generated.contains("aura_tcp_stream_read"));
+        assert!(generated.contains("aura_tcp_stream_write"));
+        assert!(generated.contains("aura_task_frame_wait_tcp_stream"));
+        assert!(generated.contains("aura_ffi_handle_unpin(&data->pin)"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-async-tcp-stream-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile generated async TCP stream fixture");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_compiler_generated_async_write_fd() {
         let file = aura_parser::parse_file(
             r#"package std.io

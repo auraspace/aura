@@ -929,10 +929,15 @@ When you resolve debt, update or remove the matching entry.
   lifetime, owns the input buffer, handles short writes through the frame wait
   state, and returns the transferred byte count. It has the same compile-only
   coverage limitation until Aura can construct an owned file handle.
+- `std.net.readStream` and `std.net.writeStream` now lower typed
+  `ForeignHandle<Int>` values to task-pinned `AuraTcpStream` operations with
+  readiness waits, EOF/error handling, short-write continuation, and terminal
+  unpin cleanup. The fixture proves generated C compilation and ABI wiring;
+  native Aura-level handle construction and transfer remain open.
 - The slice intentionally does not claim portable regular-file async I/O,
-  compiler lowering for `AuraFile`/`AuraTcpStream` operation handles, or a
-  general reactor policy. Keep IO-002 partial until those boundaries have typed
-  Aura-facing contracts and native sanitizer coverage.
+  native execution of typed file/TCP operations, or a general reactor policy.
+  Keep IO-002 partial until those boundaries have typed Aura-facing contracts
+  and native sanitizer coverage.
 
 ### REG-002 production trust remains open (updated 2026-07-23)
 

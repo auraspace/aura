@@ -125,6 +125,11 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     );
     out.push_str("typedef struct AuraTcpListener AuraTcpListener;\n");
     out.push_str("typedef struct AuraTcpStream AuraTcpStream;\n");
+    out.push_str("typedef enum { AURA_TCP_OK = 0, AURA_TCP_PENDING = 1, AURA_TCP_EOF = 2, AURA_TCP_TIMEOUT = 3, AURA_TCP_ERROR = -1, AURA_TCP_CLOSED = -2, AURA_TCP_UNSUPPORTED = -3 } AuraTcpStatus;\n");
+    out.push_str(
+        "AuraTcpStatus aura_tcp_stream_read(AuraTcpStream *, void *, size_t, size_t *, int);\n",
+    );
+    out.push_str("AuraTcpStatus aura_tcp_stream_write(AuraTcpStream *, const void *, size_t, size_t *, int);\n");
     out.push_str("typedef struct AuraRaceTracker AuraRaceTracker;\n");
     out.push_str("typedef enum { AURA_RACE_READ = 0, AURA_RACE_WRITE = 1, AURA_RACE_TASK_SPAWN = 2, AURA_RACE_TASK_JOIN = 3, AURA_RACE_SYNC_ACQUIRE = 4, AURA_RACE_SYNC_RELEASE = 5, AURA_RACE_TASK_COMPLETE = 6, AURA_RACE_TASK_FAILED = 7, AURA_RACE_TASK_CANCELLED = 8, AURA_RACE_CHANNEL_SEND = 9, AURA_RACE_CHANNEL_RECEIVE = 10, AURA_RACE_CHANNEL_CLOSE = 11 } AuraRaceEventKind;\n");
     out.push_str("AuraRaceTracker *aura_race_tracker_new(void);\n");
@@ -594,7 +599,13 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
             let lowered = normalized.as_ref().unwrap_or(f);
             let emitted_std_io =
                 emit_async_fun_std_io_fd(&mut out, lowered, checked, opts.detector);
+            let emitted_std_net = async_fun_decl_package(lowered, checked) == "std.net"
+                && ((lowered.name.name == "readStream"
+                    && emit_async_fun_std_net_stream(&mut out, lowered, checked, true))
+                    || (lowered.name.name == "writeStream"
+                        && emit_async_fun_std_net_stream(&mut out, lowered, checked, false)));
             if !emitted_std_io
+                && !emitted_std_net
                 && !emit_async_fun_cfg_int(&mut out, lowered, checked, opts.detector)
                 && !emit_async_fun_while_branch_join_await_array(
                     &mut out,
@@ -5267,6 +5278,96 @@ fn emit_async_fun_std_io_fd(
         return false;
     }
     emit_async_fun_std_io_write_fd(out, f, checked, _detector)
+}
+
+fn emit_async_fun_std_net_stream(
+    out: &mut String,
+    f: &AsyncFunDecl,
+    checked: &CheckedFile,
+    is_read: bool,
+) -> bool {
+    let second_key = type_ref_local_key_expand(&f.params[1].ty, &[], &[], checked);
+    if (is_read && second_key != "Int") || (!is_read && second_key != "String") {
+        return false;
+    }
+    let base = c_fun_name("std.net", &f.name.name, &[]);
+    let data_ty = format!("aura_async_data_{base}");
+    let poll_fn = format!("aura_async_poll_{base}");
+    let destroy_data = format!("aura_async_destroy_{base}");
+    let destroy_result = format!("aura_async_result_destroy_{base}");
+    let destroy_error = format!("aura_async_error_destroy_{base}");
+    let description = if is_read { "readStream" } else { "writeStream" };
+    out.push_str(&format!(
+        "/* compiler-generated std.net.{description}: pinned AuraTcpStream + readiness resume */\n"
+    ));
+    let _ = writeln!(
+        out,
+        "typedef struct {data_ty} {{ AuraFfiOpaqueHandle *handle; AuraFfiHandlePin pin; bool pinned; uint64_t capacity; uint64_t length; uint64_t offset; char *buffer; }} {data_ty};"
+    );
+    let _ = writeln!(
+        out,
+        "static void {destroy_data}(AuraTaskFrame *frame) {{ {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame); if (data != NULL) {{ if (data->buffer != NULL) free(data->buffer); if (data->pinned) (void)aura_ffi_handle_unpin(&data->pin); }} }}"
+    );
+    if is_read {
+        let _ = writeln!(out, "static void {destroy_result}(void *data, size_t size) {{ (void)size; if (data != NULL) {{ char **value = (char **)data; free(*value); free(value); }} }}");
+    } else {
+        let _ = writeln!(
+            out,
+            "static void {destroy_result}(void *data, size_t size) {{ (void)size; free(data); }}"
+        );
+    }
+    let _ = writeln!(
+        out,
+        "static void {destroy_error}(void *data, size_t size) {{ (void)size; free(data); }}"
+    );
+    let _ = writeln!(
+        out,
+        "static AuraTaskPollState {poll_fn}(AuraTaskFrame *frame) {{"
+    );
+    let _ = writeln!(
+        out,
+        "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame);"
+    );
+    out.push_str("  if (aura_task_frame_cancel_requested(frame)) return AURA_TASK_CANCELLED;\n  switch (aura_task_frame_resume_state(frame)) {\n    case 0:\n");
+    if is_read {
+        out.push_str("      if (data == NULL || data->handle == NULL || data->capacity > SIZE_MAX - 1) return AURA_TASK_FAILED;\n      if (aura_ffi_handle_pin_for_boundary(data->handle, AURA_FFI_BOUNDARY_TASK, &data->pin) != AURA_FFI_OK) return AURA_TASK_FAILED; data->pinned = true;\n      data->buffer = (char *)malloc((size_t)data->capacity + 1); if (data->buffer == NULL) return AURA_TASK_FAILED;\n      aura_task_frame_set_resume_state(frame, 1);\n    case 1: {\n      size_t count = 0; AuraTcpStatus status = aura_tcp_stream_read((AuraTcpStream *)data->pin.resource, data->buffer, (size_t)data->capacity, &count, 0);\n      if (status == AURA_TCP_PENDING || status == AURA_TCP_TIMEOUT) { if (!aura_task_frame_wait_tcp_stream(frame, (const AuraTcpStream *)data->pin.resource, 1)) return AURA_TASK_FAILED; return AURA_TASK_PENDING; }\n      if (status != AURA_TCP_OK && status != AURA_TCP_EOF) { const char *message = \"readStream failed\"; size_t length = strlen(message) + 1; char *error = (char *)malloc(length); if (error == NULL) return AURA_TASK_FAILED; memcpy(error, message, length); aura_task_frame_set_error_at(frame, error, length, ");
+    } else {
+        out.push_str("      if (data == NULL || data->handle == NULL || data->length > SIZE_MAX) return AURA_TASK_FAILED;\n      if (aura_ffi_handle_pin_for_boundary(data->handle, AURA_FFI_BOUNDARY_TASK, &data->pin) != AURA_FFI_OK) return AURA_TASK_FAILED; data->pinned = true;\n      data->offset = 0; if (data->length == 0) { int64_t *result = (int64_t *)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; *result = 0; aura_task_frame_set_result(frame, result, sizeof(*result), ");
+        out.push_str(&destroy_result);
+        out.push_str("); return AURA_TASK_COMPLETE; }\n      aura_task_frame_set_resume_state(frame, 1);\n    case 1: {\n      size_t count = 0; AuraTcpStatus status = aura_tcp_stream_write((AuraTcpStream *)data->pin.resource, data->buffer + data->offset, (size_t)(data->length - data->offset), &count, 0);\n      if (status == AURA_TCP_PENDING || status == AURA_TCP_TIMEOUT) { if (!aura_task_frame_wait_tcp_stream(frame, (const AuraTcpStream *)data->pin.resource, 4)) return AURA_TASK_FAILED; return AURA_TASK_PENDING; }\n      if (status != AURA_TCP_OK || count == 0) { const char *message = \"writeStream failed\"; size_t length = strlen(message) + 1; char *error = (char *)malloc(length); if (error == NULL) return AURA_TASK_FAILED; memcpy(error, message, length); aura_task_frame_set_error_at(frame, error, length, ");
+    }
+    out.push_str(&destroy_error);
+    let _ = writeln!(out, ", UINT32_C(0)); return AURA_TASK_FAILED; }}");
+    if is_read {
+        out.push_str("\n      data->buffer[count] = '\\0'; char **result = (char **)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; *result = data->buffer; data->buffer = NULL; aura_task_frame_set_result(frame, result, sizeof(*result), ");
+        out.push_str(&destroy_result);
+        out.push_str(
+            "); return AURA_TASK_COMPLETE;\n    }\n    default: return AURA_TASK_FAILED;\n  }\n}\n",
+        );
+    } else {
+        out.push_str("\n      data->offset += count; if (data->offset < data->length) { if (!aura_task_frame_wait_tcp_stream(frame, (const AuraTcpStream *)data->pin.resource, 4)) return AURA_TASK_FAILED; return AURA_TASK_PENDING; }\n      int64_t *result = (int64_t *)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; *result = (int64_t)data->offset; free(data->buffer); data->buffer = NULL; aura_task_frame_set_result(frame, result, sizeof(*result), ");
+        out.push_str(&destroy_result);
+        out.push_str(
+            "); return AURA_TASK_COMPLETE;\n    }\n    default: return AURA_TASK_FAILED;\n  }\n}\n",
+        );
+    }
+    let _ = writeln!(out, "{} {{", c_async_fun_signature(f, checked));
+    let _ = writeln!(out, "  AuraTaskFrame *frame = aura_task_frame_new(sizeof({data_ty}), {poll_fn}, {destroy_data});");
+    out.push_str("  if (frame == NULL) return NULL;\n");
+    let _ = writeln!(
+        out,
+        "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame);"
+    );
+    let handle = mangle_ident(&f.params[0].name.name);
+    let value = mangle_ident(&f.params[1].name.name);
+    if is_read {
+        let _ = writeln!(out, "  data->handle = {handle}; data->capacity = (uint64_t){value}; data->length = 0; data->offset = 0; data->pinned = false; data->buffer = NULL;");
+    } else {
+        let _ = writeln!(out, "  data->handle = {handle}; data->length = {value} == NULL ? 0 : (uint64_t)strlen({value}); data->capacity = 0; data->offset = 0; data->pinned = false; data->buffer = NULL;");
+        let _ = writeln!(out, "  if (data->length != 0) {{ data->buffer = (char *)malloc((size_t)data->length); if (data->buffer == NULL) {{ aura_task_frame_destroy(frame); return NULL; }} memcpy(data->buffer, {value}, (size_t)data->length); }}");
+    }
+    out.push_str("  if (__aura_task_executor != NULL && !aura_task_executor_submit(__aura_task_executor, frame)) { aura_task_frame_destroy(frame); return NULL; }\n  return frame;\n}\n");
+    true
 }
 
 fn emit_async_fun_std_io_read_file(

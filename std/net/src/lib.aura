@@ -36,3 +36,15 @@ pub fun requestStatus(request: String): Int {
 pub fun response(status: Int, body: String): String {
   return aura_net_http_response(status, body)
 }
+
+/// Read up to `capacity` bytes from a typed TCP stream and suspend until it
+/// is readable. EOF returns an empty String.
+pub async fun readStream(stream: ForeignHandle<Int>, capacity: Int): String {
+  return ""
+}
+
+/// Write all content to a typed TCP stream and return the transferred byte
+/// count. The input is copied into the task frame before the first await.
+pub async fun writeStream(stream: ForeignHandle<Int>, content: String): Int {
+  return 0
+}
