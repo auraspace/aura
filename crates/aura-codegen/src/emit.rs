@@ -1051,7 +1051,8 @@ impl<'a> AsyncCfgBuilder<'a> {
                     return next;
                 };
                 if let Expr::Async(AsyncExpr::Await(await_expr)) = &var.init {
-                    if !matches!(key.as_str(), "Int" | "Bool" | "String" | "Array_Int")
+                    if !matches!(key.as_str(), "Int" | "Bool" | "String")
+                        && !is_array_type_key(&key)
                         || expr_contains_async(&await_expr.operand)
                         || !self.locals.contains_key(&name)
                     {
@@ -1076,7 +1077,8 @@ impl<'a> AsyncCfgBuilder<'a> {
                     state
                 } else {
                     if expr_contains_async(&var.init)
-                        || !matches!(key.as_str(), "Int" | "Bool" | "String" | "Array_Int")
+                        || (!matches!(key.as_str(), "Int" | "Bool" | "String")
+                            && !is_array_type_key(&key))
                     {
                         self.supported = false;
                         return next;
@@ -1189,7 +1191,8 @@ impl<'a> AsyncCfgBuilder<'a> {
                     return next;
                 };
                 if expr_contains_async(&assign.value)
-                    || !matches!(key.as_str(), "Int" | "Bool" | "String" | "Array_Int")
+                    || (!matches!(key.as_str(), "Int" | "Bool" | "String")
+                        && !is_array_type_key(&key))
                 {
                     self.supported = false;
                     return next;
@@ -1388,7 +1391,7 @@ fn emit_async_fun_cfg_int(
         return false;
     };
     let return_key = type_ref_local_key_expand(ret, &[], &[], checked);
-    if !matches!(return_key.as_str(), "Int" | "String" | "Array_Int")
+    if !matches!(return_key.as_str(), "Int" | "String") && !is_array_type_key(&return_key)
         || !contains_if_with_while(&f.body.stmts)
     {
         return false;
@@ -1399,13 +1402,13 @@ fn emit_async_fun_cfg_int(
     }
     if !vars
         .iter()
-        .any(|(_, key)| matches!(key.as_str(), "Int" | "String" | "Array_Int"))
+        .any(|(_, key)| matches!(key.as_str(), "Int" | "String") || is_array_type_key(key))
     {
         return false;
     }
     let mut locals = HashMap::new();
     for (var, key) in &vars {
-        if !matches!(key.as_str(), "Int" | "Bool" | "String" | "Array_Int")
+        if !matches!(key.as_str(), "Int" | "Bool" | "String") && !is_array_type_key(key)
             || locals.insert(var.name.name.clone(), key.clone()).is_some()
         {
             return false;
@@ -1415,10 +1418,9 @@ fn emit_async_fun_cfg_int(
     let mut ctx = async_ctx(checked, detector, &params, &f.params, &f.return_type);
     for param in &f.params {
         let key = type_ref_local_key_expand(&param.ty, &params, &[], checked);
-        if !matches!(
-            key.as_str(),
-            "Int" | "Bool" | "String" | "Array_Int" | "Task_Int"
-        ) {
+        if !matches!(key.as_str(), "Int" | "Bool" | "String" | "Task_Int")
+            && !is_array_type_key(&key)
+        {
             return false;
         }
         ctx.define_local(&param.name.name, full_type_mono(&key, checked));
@@ -1517,7 +1519,7 @@ fn emit_async_fun_cfg_int(
     );
     if return_key == "String" {
         out.push_str("  (void)size; if (data != NULL) { const char **result = (const char **)data; if (*result != NULL) free((void *)*result); free(result); }\n}\n\n");
-    } else if return_key == "Array_Int" {
+    } else if is_array_type_key(&return_key) {
         let result_cty = crate::stmt::local_key_to_c(&return_key, checked);
         let _ = writeln!(
             out,

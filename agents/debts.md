@@ -84,6 +84,10 @@ When you resolve debt, update or remove the matching entry.
   suspension and return payloads, deep-clones each suspended array including
   owned String elements, survives forced GC between awaits, and passes repeated
   owning join plus queued-cancellation native coverage.
+- Progress: the general nested `if -> while -> await` CFG now accepts any
+  supported `Array<T>` payload, including deep cloning and destruction of owned
+  `Array<String>` elements across success, failure, forced-GC, cancellation,
+  and repeated owning joins.
 - Next step: connect remaining richer aggregate payload ownership and
   suspended await failure propagation to the clone/destroy boundary.
 
