@@ -120,6 +120,9 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("typedef struct AuraFile AuraFile;\n");
     out.push_str("typedef enum { AURA_FILE_OK = 0, AURA_FILE_PENDING = 1, AURA_FILE_EOF = 2, AURA_FILE_ERROR = -1, AURA_FILE_CLOSED = -2, AURA_FILE_UNSUPPORTED = -3, AURA_FILE_PERMISSION = -4 } AuraFileStatus;\n");
     out.push_str("AuraFileStatus aura_file_read(AuraFile *, void *, uint64_t, uint64_t *);\n");
+    out.push_str(
+        "AuraFileStatus aura_file_write(AuraFile *, const void *, uint64_t, uint64_t *);\n",
+    );
     out.push_str("typedef struct AuraTcpListener AuraTcpListener;\n");
     out.push_str("typedef struct AuraTcpStream AuraTcpStream;\n");
     out.push_str("typedef struct AuraRaceTracker AuraRaceTracker;\n");
@@ -5251,6 +5254,13 @@ fn emit_async_fun_std_io_fd(
     {
         return emit_async_fun_std_io_read_file(out, f, checked);
     }
+    if f.name.name == "writeFile"
+        && f.return_type.as_ref().map(|t| t.name.name.as_str()) == Some("Int")
+        && type_ref_local_key_expand(&f.params[0].ty, &[], &[], checked)
+            .starts_with("ForeignHandle_")
+    {
+        return emit_async_fun_std_io_write_file(out, f, checked);
+    }
     if f.name.name != "writeFd"
         || f.return_type.as_ref().map(|t| t.name.name.as_str()) != Some("Int")
     {
@@ -5324,6 +5334,82 @@ fn emit_async_fun_std_io_read_file(
     let handle = mangle_ident(&f.params[0].name.name);
     let capacity = mangle_ident(&f.params[1].name.name);
     let _ = writeln!(out, "  data->handle = {handle}; data->capacity = (uint64_t){capacity}; data->pinned = false; data->buffer = NULL;");
+    out.push_str("  if (__aura_task_executor != NULL && !aura_task_executor_submit(__aura_task_executor, frame)) { aura_task_frame_destroy(frame); return NULL; }\n  return frame;\n}\n");
+    true
+}
+
+fn emit_async_fun_std_io_write_file(
+    out: &mut String,
+    f: &AsyncFunDecl,
+    checked: &CheckedFile,
+) -> bool {
+    if type_ref_local_key_expand(&f.params[1].ty, &[], &[], checked) != "String" {
+        return false;
+    }
+    let base = c_fun_name("std.io", "writeFile", &[]);
+    let data_ty = format!("aura_async_data_{base}");
+    let poll_fn = format!("aura_async_poll_{base}");
+    let destroy_data = format!("aura_async_destroy_{base}");
+    let destroy_result = format!("aura_async_result_destroy_{base}");
+    let destroy_error = format!("aura_async_error_destroy_{base}");
+    out.push_str(
+        "/* compiler-generated std.io.writeFile: pinned AuraFile + short-write resume */\n",
+    );
+    let _ = writeln!(
+        out,
+        "typedef struct {data_ty} {{ AuraFfiOpaqueHandle *handle; AuraFfiHandlePin pin; bool pinned; uint64_t length; uint64_t offset; char *buffer; }} {data_ty};"
+    );
+    let _ = writeln!(
+        out,
+        "static void {destroy_data}(AuraTaskFrame *frame) {{ {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame); if (data != NULL) {{ if (data->buffer != NULL) free(data->buffer); if (data->pinned) (void)aura_ffi_handle_unpin(&data->pin); }} }}"
+    );
+    let _ = writeln!(
+        out,
+        "static void {destroy_result}(void *data, size_t size) {{ (void)size; free(data); }}"
+    );
+    let _ = writeln!(
+        out,
+        "static void {destroy_error}(void *data, size_t size) {{ (void)size; free(data); }}"
+    );
+    let _ = writeln!(
+        out,
+        "static AuraTaskPollState {poll_fn}(AuraTaskFrame *frame) {{"
+    );
+    let _ = writeln!(
+        out,
+        "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame);"
+    );
+    out.push_str("  if (aura_task_frame_cancel_requested(frame)) return AURA_TASK_CANCELLED;\n  switch (aura_task_frame_resume_state(frame)) {\n    case 0:\n");
+    out.push_str("      if (data == NULL || data->handle == NULL || data->length > SIZE_MAX) return AURA_TASK_FAILED;\n");
+    out.push_str("      if (aura_ffi_handle_pin_for_boundary(data->handle, AURA_FFI_BOUNDARY_TASK, &data->pin) != AURA_FFI_OK) return AURA_TASK_FAILED; data->pinned = true;\n");
+    out.push_str("      data->offset = 0; if (data->length == 0) { int64_t *result = (int64_t *)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; *result = 0; aura_task_frame_set_result(frame, result, sizeof(*result), ");
+    out.push_str(&destroy_result);
+    out.push_str("); return AURA_TASK_COMPLETE; }\n");
+    out.push_str("      aura_task_frame_set_resume_state(frame, 1);\n    case 1: {\n");
+    out.push_str("      uint64_t count = 0; AuraFileStatus status = aura_file_write((AuraFile *)data->pin.resource, data->buffer + data->offset, data->length - data->offset, &count);\n");
+    out.push_str("      if (status == AURA_FILE_PENDING) { if (!aura_task_frame_wait_file(frame, (const AuraFile *)data->pin.resource, 4)) return AURA_TASK_FAILED; return AURA_TASK_PENDING; }\n");
+    out.push_str("      if (status != AURA_FILE_OK || count == 0) { const char *message = \"writeFile failed\"; size_t length = strlen(message) + 1; char *error = (char *)malloc(length); if (error == NULL) return AURA_TASK_FAILED; memcpy(error, message, length); aura_task_frame_set_error_at(frame, error, length, ");
+    out.push_str(&destroy_error);
+    out.push_str(", UINT32_C(0)); return AURA_TASK_FAILED; }\n");
+    out.push_str("      data->offset += count; if (data->offset < data->length) { if (!aura_task_frame_wait_file(frame, (const AuraFile *)data->pin.resource, 4)) return AURA_TASK_FAILED; return AURA_TASK_PENDING; }\n");
+    out.push_str("      int64_t *result = (int64_t *)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; *result = (int64_t)data->offset; free(data->buffer); data->buffer = NULL; aura_task_frame_set_result(frame, result, sizeof(*result), ");
+    out.push_str(&destroy_result);
+    out.push_str(
+        "); return AURA_TASK_COMPLETE;\n    }\n    default: return AURA_TASK_FAILED;\n  }\n}\n",
+    );
+    let _ = writeln!(out, "{} {{", c_async_fun_signature(f, checked));
+    let _ = writeln!(out, "  AuraTaskFrame *frame = aura_task_frame_new(sizeof({data_ty}), {poll_fn}, {destroy_data});");
+    out.push_str("  if (frame == NULL) return NULL;\n");
+    let _ = writeln!(
+        out,
+        "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame);"
+    );
+    let handle = mangle_ident(&f.params[0].name.name);
+    let content = mangle_ident(&f.params[1].name.name);
+    let _ = writeln!(out, "  data->handle = {handle}; data->length = {content} == NULL ? 0 : (uint64_t)strlen({content}); data->offset = 0; data->pinned = false; data->buffer = NULL;");
+    out.push_str("  if (data->length != 0) { data->buffer = (char *)malloc((size_t)data->length); if (data->buffer == NULL) { aura_task_frame_destroy(frame); return NULL; } memcpy(data->buffer, ");
+    out.push_str(&content);
+    out.push_str(", (size_t)data->length); }\n");
     out.push_str("  if (__aura_task_executor != NULL && !aura_task_executor_submit(__aura_task_executor, frame)) { aura_task_frame_destroy(frame); return NULL; }\n  return frame;\n}\n");
     true
 }

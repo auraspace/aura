@@ -925,6 +925,10 @@ When you resolve debt, update or remove the matching entry.
   its `AuraFile` resource, owns the result buffer, and unpins on terminal frame
   cleanup. Current coverage proves generated C compilation and ABI wiring; a
   native Aura-level handle constructor and runtime execution fixture remain open.
+- `std.io.writeFile(file: ForeignHandle<Int>, content)` now mirrors that pin
+  lifetime, owns the input buffer, handles short writes through the frame wait
+  state, and returns the transferred byte count. It has the same compile-only
+  coverage limitation until Aura can construct an owned file handle.
 - The slice intentionally does not claim portable regular-file async I/O,
   compiler lowering for `AuraFile`/`AuraTcpStream` operation handles, or a
   general reactor policy. Keep IO-002 partial until those boundaries have typed

@@ -83,7 +83,9 @@ executor join path drives registered fd readiness so these generated operations
 do not stop at `PENDING`. The compiler now also emits a bounded
 `std.io.readFile(ForeignHandle<Int>, capacity)` frame that pins the opaque
 handle, reads its `AuraFile` resource, owns the String buffer, and unpins during
-frame teardown. Generic `AuraTcpStream` operation lowering,
+frame teardown. Its `std.io.writeFile(ForeignHandle<Int>, content)` counterpart
+pins the same resource, owns the input buffer, resumes short writes, and
+returns the transferred byte count. Generic `AuraTcpStream` operation lowering,
 portable regular-file async I/O, and a general reactor abstraction remain open.
 
 ## IO3. TCP listener and stream integration
