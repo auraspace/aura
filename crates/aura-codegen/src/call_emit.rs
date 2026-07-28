@@ -989,19 +989,37 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
             }) {
                 let params: Vec<String> =
                     f.type_params.iter().map(|p| p.name.name.clone()).collect();
-                let param_keys: Vec<String> = c
-                    .args
-                    .iter()
-                    .zip(f.params.iter())
-                    .map(|(a, p)| {
-                        let expected = type_ref_local_key(&p.ty, &params, &targs);
-                        coerce_owner_arg_expr(a, &expected, ctx)
-                    })
-                    .collect();
-                return format!(
+                let mut args = Vec::new();
+                let mut prelude = String::new();
+                let mut cleanup = String::new();
+                for (index, (a, p)) in c.args.iter().zip(f.params.iter()).enumerate() {
+                    let expected = type_ref_local_key(&p.ty, &params, &targs);
+                    let value = coerce_owner_arg_expr(a, &expected, ctx);
+                    if (expected == "ForeignHandle" || expected.starts_with("ForeignHandle_"))
+                        && matches!(a, Expr::Call(_))
+                    {
+                        let name = format!("__aura_async_handle_{}_{}", c.span.start, index);
+                        prelude.push_str(&format!(
+                            "AuraFfiOpaqueHandle *{name} = (AuraFfiOpaqueHandle *)({value}); "
+                        ));
+                        cleanup.push_str(&format!(
+                            "if ({name} != NULL) (void)aura_ffi_handle_drop(&{name}); "
+                        ));
+                        args.push(name);
+                    } else {
+                        args.push(value);
+                    }
+                }
+                let call = format!(
                     "{}({})",
                     c_fun_name(&async_fun_decl_package(f, ctx.checked), &id.name, &targs),
-                    param_keys.join(", ")
+                    args.join(", ")
+                );
+                if prelude.is_empty() {
+                    return call;
+                }
+                return format!(
+                    "({{ {prelude} AuraTaskFrame *__aura_async_result = ({call}); {cleanup} __aura_async_result; }})"
                 );
             }
             let args = c

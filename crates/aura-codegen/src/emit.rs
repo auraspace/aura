@@ -2045,6 +2045,7 @@ fn emit_async_fun_cfg_int(
         "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame);"
     );
     out.push_str("  if (data != NULL && data->await_task != NULL && data->await_task_owned && __aura_task_executor != NULL) (void)aura_task_executor_release(__aura_task_executor, &data->await_task);\n");
+    out.push_str("  AuraFfiOpaqueHandle *__aura_released_handle = NULL;\n");
     for param in &f.params {
         let key = type_ref_local_key_expand(&param.ty, &params, &[], checked);
         let name = mangle_ident(&param.name.name);
@@ -2056,7 +2057,7 @@ fn emit_async_fun_cfg_int(
         } else if key == "ForeignHandle" || key.starts_with("ForeignHandle_") {
             let _ = writeln!(
                 out,
-                "  if (data->{name} != NULL) (void)aura_ffi_handle_drop(&data->{name});"
+                "  if (data->{name} != NULL && data->{name} != __aura_released_handle) {{ __aura_released_handle = data->{name}; (void)aura_ffi_handle_drop(&data->{name}); }}"
             );
         }
     }
@@ -2078,7 +2079,7 @@ fn emit_async_fun_cfg_int(
             let name = mangle_ident(&var.name.name);
             let _ = writeln!(
                 out,
-                "  if (data->{name} != NULL) (void)aura_ffi_handle_drop(&data->{name});"
+                "  if (data->{name} != NULL && data->{name} != __aura_released_handle) {{ __aura_released_handle = data->{name}; (void)aura_ffi_handle_drop(&data->{name}); }}"
             );
         }
     }
@@ -2188,20 +2189,32 @@ fn emit_async_fun_cfg_int(
         }
     }
     out.push_str("  for (;;) {\n    switch (aura_task_frame_resume_state(frame)) {\n");
-    let mut sync_parts = vars
+    let mut sync_parts = f
+        .params
         .iter()
-        .map(|(var, _)| {
-            let name = mangle_ident(&var.name.name);
-            if locals
-                .get(&var.name.name)
-                .is_some_and(|key| key == "String")
-            {
-                format!("data->{name} = {name}; data->{name}__owned = {name}__owned;")
-            } else {
-                format!("data->{name} = {name};")
-            }
+        .map(|param| {
+            format!(
+                "data->{} = {};",
+                mangle_ident(&param.name.name),
+                mangle_ident(&param.name.name)
+            )
         })
         .collect::<Vec<_>>();
+    sync_parts.extend(
+        vars.iter()
+            .map(|(var, _)| {
+                let name = mangle_ident(&var.name.name);
+                if locals
+                    .get(&var.name.name)
+                    .is_some_and(|key| key == "String")
+                {
+                    format!("data->{name} = {name}; data->{name}__owned = {name}__owned;")
+                } else {
+                    format!("data->{name} = {name};")
+                }
+            })
+            .collect::<Vec<_>>(),
+    );
     sync_parts.extend(cfg_locals.iter().map(|(name, key)| {
         let name = mangle_ident(name);
         if key == "String" {
@@ -8026,6 +8039,7 @@ fn emit_async_fun_no_await(
     let data_ty = format!("aura_async_data_{base}");
     let body_fn = format!("aura_async_body_{base}");
     let poll_fn = format!("aura_async_poll_{base}");
+    let destroy_data = format!("aura_async_destroy_{base}");
     let destroy_result = format!("aura_async_result_destroy_{base}");
     let ret = c_type_from_opt(&f.return_type, checked, &params, &[]);
 
@@ -8050,6 +8064,23 @@ fn emit_async_fun_no_await(
         );
     }
     let _ = writeln!(out, "}} {data_ty};\n");
+
+    let _ = writeln!(out, "static void {destroy_data}(AuraTaskFrame *frame) {{");
+    let _ = writeln!(
+        out,
+        "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame);"
+    );
+    for p in &f.params {
+        let key = type_ref_local_key_expand(&p.ty, &params, &[], checked);
+        if key == "ForeignHandle" || key.starts_with("ForeignHandle_") {
+            let n = mangle_ident(&p.name.name);
+            let _ = writeln!(
+                out,
+                "  if (data != NULL && data->{n} != NULL) (void)aura_ffi_handle_drop(&data->{n});"
+            );
+        }
+    }
+    out.push_str("}\n\n");
 
     let body_params = f
         .params
@@ -8264,7 +8295,7 @@ fn emit_async_fun_no_await(
     let _ = writeln!(out, "{} {{", c_async_fun_signature(f, checked));
     let _ = writeln!(
         out,
-        "  AuraTaskFrame *frame = aura_task_frame_new(sizeof({data_ty}), {poll_fn}, NULL);"
+        "  AuraTaskFrame *frame = aura_task_frame_new(sizeof({data_ty}), {poll_fn}, {destroy_data});"
     );
     out.push_str("  if (frame == NULL) return NULL;\n");
     let _ = writeln!(
@@ -8274,6 +8305,13 @@ fn emit_async_fun_no_await(
     for p in &f.params {
         let n = mangle_ident(&p.name.name);
         let _ = writeln!(out, "  data->{n} = {n};");
+        let key = type_ref_local_key_expand(&p.ty, &params, &[], checked);
+        if key == "ForeignHandle" || key.starts_with("ForeignHandle_") {
+            let _ = writeln!(
+                out,
+                "  if (data->{n} != NULL && aura_ffi_handle_retain(data->{n}) != AURA_FFI_OK) {{ aura_task_frame_destroy(frame); return NULL; }}"
+            );
+        }
     }
     out.push_str("  if (__aura_task_executor != NULL && !aura_task_executor_submit(__aura_task_executor, frame)) { aura_task_frame_destroy(frame); return NULL; }\n");
     out.push_str("  return frame;\n}\n");
