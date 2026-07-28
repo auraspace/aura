@@ -732,6 +732,91 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_async_file_round_trip_with_repeated_joins_and_gc() {
+        let path = format!("/tmp/aura-async-file-round-trip-{}", std::process::id());
+        let source = format!(
+            r#"package std.io
+enum TaskError {{ case Failed(error: String) case Cancelled }}
+enum Result<T, E> {{ case Ok(value: T) case Err(error: E) }}
+fun openFile(path: String, mode: Int): ForeignHandle<Int> {{ throw "intrinsic" }}
+async fun writeFile(file: ForeignHandle<Int>, content: String): Int {{ return 0 }}
+async fun readFile(file: ForeignHandle<Int>, capacity: Int): String {{ return "" }}
+fun main() {{
+  val output: ForeignHandle<Int> = openFile("{path}", 1)
+  val writer = spawn {{
+    val count: Int = await writeFile(output, "round-trip")
+    return count
+  }}
+  gc_collect()
+  val written: Result<Int, TaskError> = join(writer)
+  match (written) {{
+    case Ok(value) => {{ println(value.toString()) }}
+    case Err(error) => {{ println("write-failed") }}
+  }}
+  val written_again: Result<Int, TaskError> = join(writer)
+  match (written_again) {{
+    case Ok(value) => {{ println(value.toString()) }}
+    case Err(error) => {{ println("write-failed") }}
+  }}
+  val input: ForeignHandle<Int> = openFile("{path}", 0)
+  val reader = spawn {{
+    val value: String = await readFile(input, 64)
+    return value
+  }}
+  gc_collect()
+  val read: Result<String, TaskError> = join(reader)
+  match (read) {{
+    case Ok(value) => {{ println(value) }}
+    case Err(error) => {{ println("read-failed") }}
+  }}
+  val read_again: Result<String, TaskError> = join(reader)
+  match (read_again) {{
+    case Ok(value) => {{ println(value) }}
+    case Err(error) => {{ println("read-failed") }}
+  }}
+  val cancelled = spawn {{
+    val value: String = await readFile(input, 64)
+    return value
+  }}
+  cancel(cancelled)
+  gc_collect()
+}}
+"#
+        );
+        let file = aura_parser::parse_file(&source).expect("parse async file round-trip fixture");
+        let generated = emit_c_from_ast(&file).expect("emit async file round-trip fixture");
+        assert!(generated.contains("compiler-generated std.io.readFile"));
+        assert!(generated.contains("compiler-generated std.io.writeFile"));
+        assert!(generated.contains("aura_ffi_handle_pin_for_boundary"));
+        assert!(generated.contains("aura_task_frame_wait_file"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-async-file-round-trip-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile async file round-trip fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run async file round-trip fixture");
+        assert!(
+            output.status.success(),
+            "async file round-trip fixture failed: {output:?}"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "10\n10\nround-trip\nround-trip\n"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
     fn compiles_compiler_generated_async_write_file_foreign_handle() {
         let file = aura_parser::parse_file(
             r#"package std.io

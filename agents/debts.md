@@ -166,6 +166,18 @@ When you resolve debt, update or remove the matching entry.
   temporaries, lambda boxes, and the complete current Aura sanitizer leg now
   pass with `detect_leaks=1`.
 
+### SAN-003 ephemeral TCP bind is unavailable in this host sandbox (2026-07-28)
+
+- Area: native sanitizer smoke environment
+- Symptom: `scripts/sanitizer-smoke.sh --native-only` reaches
+  `task_io_cleanup_sanitizer` but `aura_tcp_listener_bind(0, ...)` fails before
+  the fixture can exercise its cleanup assertions.
+- Why deferred: this is an environment-level socket capability failure, not a
+  regression in the compiler-generated file round-trip slice; the same failure
+  reproduces on an immediate retry.
+- Next step: rerun the complete sanitizer gate on a supported host with
+  ephemeral loopback binding, then remove this entry if the seed passes.
+
 ### RUNTIME-003 exception cleanup and bounded cause API (resolved 2026-07-26)
 
 - Area: unchecked exception payload ABI
@@ -925,7 +937,7 @@ When you resolve debt, update or remove the matching entry.
   arbitrary CFG joins still need aggregate ownership and cleanup rules before this
   can replace the bounded lowering families.
 
-### IO-002 compiler-generated descriptor I/O remains bounded (updated 2026-07-27)
+### IO-002 compiler-generated descriptor I/O remains bounded (updated 2026-07-28)
 
 - `std.io.readFd(fd, capacity)` now lowers to a compiler-generated frame with
   explicit fd wait/resume state, nonblocking read completion, owned String
@@ -948,6 +960,11 @@ When you resolve debt, update or remove the matching entry.
   `openFile -> spawn { await writeFile(...) } -> join -> readFile`, while the
   runtime fixture proves the resource destructor runs once after both owners
   leave. Broader async caller capture remains deferred.
+- A native Aura round-trip now executes `openFile -> spawn { await writeFile }
+-> repeated join -> spawn { await readFile } -> repeated owning join`, with
+  forced GC between suspensions and queued cancellation cleanup for a second
+  reader. This proves the compiler-generated file operations beyond
+  compile-only ABI checks.
 - `std.net.readStream` and `std.net.writeStream` now lower typed
   `ForeignHandle<Int>` values to task-pinned `AuraTcpStream` operations with
   readiness waits, EOF/error handling, short-write continuation, and terminal
