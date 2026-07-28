@@ -3298,6 +3298,95 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_match_await_state_machine_with_typed_outcomes() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+enum Choice { case First case Second }
+async fun leaf(value: Int): Int { return value }
+async fun fail(): Int { throw "match-failure" }
+async fun choose(choice: Choice, first: Task<Int>, second: Task<Int>): Int {
+  var value: Int = 0
+  match (choice) {
+    case First => { val first_value: Int = await first value = first_value }
+    case Second => { val second_value: Int = await second value = second_value }
+  }
+  gc_collect()
+  return value
+}
+fun main() {
+  val first = spawn { val value: Int = await choose(First(), leaf(11), leaf(22)) return value }
+  val first_result: Result<Int, TaskError> = join(first)
+  match (first_result) {
+    case Ok(value) => { println(value.toString()) }
+    case Err(error) => { println("first-failed") }
+  }
+  val first_again: Result<Int, TaskError> = join(first)
+  match (first_again) {
+    case Ok(value) => { println(value.toString()) }
+    case Err(error) => { println("first-repeat-failed") }
+  }
+  val failed = spawn { val value: Int = await choose(Second(), leaf(33), fail()) return value }
+  val failed_result: Result<Int, TaskError> = join(failed)
+  match (failed_result) {
+    case Ok(value) => { println("unexpected-success") }
+    case Err(error) => {
+      match (error) {
+        case Failed(message) => { println(message) }
+        case Cancelled => { println("unexpected-cancel") }
+      }
+    }
+  }
+  val cancelled = spawn { val value: Int = await choose(First(), leaf(44), leaf(55)) return value }
+  cancel(cancelled)
+  val cancelled_result: Result<Int, TaskError> = join(cancelled)
+  match (cancelled_result) {
+    case Ok(value) => { println("unexpected-success") }
+    case Err(error) => {
+      match (error) {
+        case Failed(message) => { println("unexpected-failure") }
+        case Cancelled => { println("cancelled") }
+      }
+    }
+  }
+}
+"#,
+        )
+        .expect("parse match-await state machine fixture");
+        let generated = emit_c_from_ast(&file).expect("emit match-await state machine fixture");
+        assert!(generated.contains("aura async general CFG Int lowering"));
+        assert!(generated.contains(".tag == 0"));
+        assert!(generated.contains(".tag == 1"));
+        assert!(generated.contains("aura_task_frame_set_resume_state(frame"));
+        assert!(generated.contains("aura_task_frame_propagate_error(frame"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-match-await-state-machine-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile match-await state machine fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run match-await state machine fixture");
+        assert!(
+            output.status.success(),
+            "match-await state machine fixture failed: {output:?}"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "11\n11\nmatch-failure\ncancelled\n"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_nested_branch_await_state_machine() {
         let file = aura_parser::parse_file(
             r#"package demo

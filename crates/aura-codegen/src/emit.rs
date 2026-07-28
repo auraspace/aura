@@ -13,7 +13,8 @@ use crate::enum_emit::*;
 use crate::expr::{
     async_inner_key, bounded_capture_box_kind, bounded_spawn_await_shape, bounded_spawn_captures,
     bounded_spawn_destroy_name, bounded_spawn_poll_name, coerce_expr, emit_expr, full_type_mono,
-    infer_type_name, mutable_spawn_capture_names, owned_string_copy_expr, BoundedSpawnCapture,
+    infer_type_name, mono_base_name, mutable_spawn_capture_names, owned_string_copy_expr,
+    BoundedSpawnCapture,
 };
 use crate::iface::*;
 use crate::names::*;
@@ -1136,6 +1137,80 @@ impl<'a> AsyncCfgBuilder<'a> {
                 );
                 condition_state
             }
+            Stmt::Match(m) => {
+                if expr_contains_async(&m.scrutinee)
+                    || m.arms.is_empty()
+                    || m.arms.iter().any(|arm| {
+                        matches!(
+                            &arm.pattern,
+                            Pattern::Variant { bindings, .. } if !bindings.is_empty()
+                        )
+                    })
+                {
+                    self.supported = false;
+                    return next;
+                }
+                let Some(scrutinee_ident) = async_cfg_move_source(&m.scrutinee) else {
+                    self.supported = false;
+                    return next;
+                };
+                let scrutinee = mangle_ident(&scrutinee_ident.name);
+                let scrutinee_key = infer_type_name(&m.scrutinee, &self.ctx);
+                let enum_name = mono_base_name(&scrutinee_key, self.ctx.checked)
+                    .or_else(|| {
+                        if is_enum_name(self.ctx.checked, &scrutinee_key) {
+                            Some(scrutinee_key.as_str())
+                        } else {
+                            self.ctx
+                                .checked
+                                .mono_enums
+                                .iter()
+                                .find(|(name, args)| mono_key(name, args) == scrutinee_key)
+                                .map(|(name, _)| name.as_str())
+                        }
+                    })
+                    .map(str::to_owned);
+                let Some(enum_name) = enum_name else {
+                    self.supported = false;
+                    return next;
+                };
+                let Some(enum_decl) = self
+                    .ctx
+                    .checked
+                    .ast
+                    .enums
+                    .iter()
+                    .find(|decl| decl.name.name == enum_name)
+                else {
+                    self.supported = false;
+                    return next;
+                };
+                let mut arm_state = next;
+                for arm in m.arms.iter().rev() {
+                    let Pattern::Variant { name, .. } = &arm.pattern;
+                    let Some(tag) = enum_decl
+                        .variants
+                        .iter()
+                        .position(|variant| variant.name.name == name.name)
+                    else {
+                        self.supported = false;
+                        return next;
+                    };
+                    let body_state =
+                        self.emit_block(&arm.body.stmts, next, break_state, continue_state);
+                    let branch_state = self.alloc();
+                    self.finish(
+                        branch_state,
+                        AsyncCfgNode::Branch {
+                            condition: format!("({scrutinee}).tag == {tag}"),
+                            then_state: body_state,
+                            else_state: arm_state,
+                        },
+                    );
+                    arm_state = branch_state;
+                }
+                arm_state
+            }
             Stmt::Break(_) => break_state.unwrap_or_else(|| {
                 self.supported = false;
                 next
@@ -1217,6 +1292,7 @@ fn async_cfg_value_supported(key: &str, checked: &CheckedFile) -> bool {
         || key.starts_with("ForeignHandle_")
         || is_array_type_key(key)
         || is_heap_class_mono(key, checked)
+        || mono_base_name(key, checked).is_some_and(|base| is_enum_name(checked, base))
 }
 
 fn async_cfg_task_supported(key: &str, checked: &CheckedFile) -> bool {
@@ -1326,6 +1402,12 @@ fn stmt_contains_async(stmt: &Stmt) -> bool {
             expr_contains_async(&loop_stmt.cond)
                 || loop_stmt.body.stmts.iter().any(stmt_contains_async)
         }
+        Stmt::Match(m) => {
+            expr_contains_async(&m.scrutinee)
+                || m.arms
+                    .iter()
+                    .any(|arm| arm.body.stmts.iter().any(stmt_contains_async))
+        }
         Stmt::Return(ret) => ret.value.as_ref().is_some_and(expr_contains_async),
         Stmt::Expr(expr) => expr_contains_async(expr),
         _ => false,
@@ -1345,6 +1427,12 @@ fn contains_async_cfg_control_flow(stmts: &[Stmt]) -> bool {
         Stmt::While(loop_stmt) => {
             stmt_contains_async(&Stmt::While(loop_stmt.clone()))
                 || contains_async_cfg_control_flow(&loop_stmt.body.stmts)
+        }
+        Stmt::Match(m) => {
+            stmt_contains_async(&Stmt::Match(m.clone()))
+                || m.arms
+                    .iter()
+                    .any(|arm| contains_async_cfg_control_flow(&arm.body.stmts))
         }
         _ => false,
     })
@@ -1384,6 +1472,13 @@ fn collect_async_cfg_vars<'a>(
             Stmt::While(loop_stmt) => {
                 if !collect_async_cfg_vars(&loop_stmt.body.stmts, checked, vars) {
                     return false;
+                }
+            }
+            Stmt::Match(m) => {
+                for arm in &m.arms {
+                    if !collect_async_cfg_vars(&arm.body.stmts, checked, vars) {
+                        return false;
+                    }
                 }
             }
             _ => {}

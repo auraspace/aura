@@ -988,7 +988,10 @@ TaskError>` locals release their payload at scope exit. Nested
   borrowed across nested awaits; native coverage proves success, failure,
   cancellation, forced GC, and repeated owning joins without static child
   release.
-- Richer aggregate locals, `match`/`try`, arbitrary CFG joins, unbounded
+- Enum `match` statements with binding-free arms now lower to explicit tag
+  branches in the same graph; native coverage proves branch selection,
+  repeated joins, typed failure/cancellation, and forced GC. Pattern bindings,
+  `try`, richer aggregate locals, arbitrary CFG joins, unbounded
   conditional-await counts, and full public typed outcome payloads still need
   dedicated ownership and cleanup rules before this can replace all bounded
   lowering families.
