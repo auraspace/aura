@@ -113,9 +113,11 @@ run_stage "release target and signing policy" bash scripts/tests/release-policy.
 run_stage "registry and cross-host acceptance fixture" bash scripts/registry-release-acceptance.sh
 run_stage "workspace tests" cargo test --workspace
 run_stage "Clippy warnings gate" cargo clippy --workspace --all-targets -- -D warnings
+# Cross-target packaging may leave only a foreign binary under target/<triple>.
+# Build the host-native CLI before corpus/regression scripts select a binary.
+run_stage "debug CLI build for corpus and sanitizer gates" cargo build -p aura-cli
 run_stage "corpus gate" bash scripts/check-corpus.sh
 run_stage "compiler regression matrix" bash scripts/compiler-regression.sh
-run_stage "debug CLI build for sanitizer gate" cargo build -p aura-cli
 run_stage "sanitizer smoke gate" bash scripts/sanitizer-smoke.sh
 run_stage "local release package and install smoke" bash scripts/install-smoke.sh --local-pkg
 
