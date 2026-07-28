@@ -3483,20 +3483,16 @@ async fun leaf(value: Bool): Bool { return value }
 async fun choose(flag: Bool, first: Task<Bool>, second: Task<Bool>): Bool {
   var index: Int = 0
   var value: Bool = false
-  if (flag) {
-    while (index < 2) {
+  while (index < 2) {
+    if (flag) {
       val next: Bool = await first
       value = next
-      gc_collect()
-      index = index + 1
-    }
-  } else {
-    while (index < 2) {
+    } else {
       val alternate: Bool = await second
       value = alternate
-      gc_collect()
-      index = index + 1
     }
+    gc_collect()
+    index = index + 1
   }
   return value
 }

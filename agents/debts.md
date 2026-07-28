@@ -949,20 +949,20 @@ TaskError>` locals release their payload at scope exit. Nested runtime handles,
   caller's child frame. A compile-and-link fixture covers this distinction;
   caller-owned aggregate/task-handle transfer and public raw payloads remain open.
 
-### ASYNC-003 general CFG lowering remains scalar-first (updated 2026-07-27)
+### ASYNC-003 general CFG lowering remains bounded (updated 2026-07-28)
 
-- The compiler now emits an explicit state graph for a nested `if -> while -> await`
-  shape. Each await persists the graph state, child ownership bit, scalar locals,
-  and propagates failure/cancellation across pending polls; the native fixture also
-  exercises `gc_collect()` and queued cancellation.
-- The same graph now accepts an `Array<Int>` awaited slot and return value,
-  deep-clones child payloads, releases frame-owned arrays on replacement and
-  cancellation, and covers forced GC plus repeated typed joins.
-- The implementation still accepts only scalar/`Array<Int>` locals and
-  `Int`/`Array<Int>` results.
-  Array/String/class locals, richer statement expressions, `match`/`try`, and
-  arbitrary CFG joins still need aggregate ownership and cleanup rules before this
-  can replace the bounded lowering families.
+- The compiler now emits an explicit state graph for nested `if -> while -> await`
+  and `while -> if -> await` shapes. Each await persists the graph state, child
+  ownership bit, and live locals while propagating failure/cancellation across
+  pending polls; native fixtures exercise forced GC, repeated joins, and queued
+  cancellation.
+- The same graph accepts `Int`, `Bool`, `String`, heap-class, and supported array
+  values. String/array values are cloned at suspension and return boundaries;
+  class results use the frame GC scan plus explicit terminal roots.
+- Richer aggregate locals, `match`/`try`, arbitrary CFG joins, unbounded
+  conditional-await counts, and full public typed outcome payloads still need
+  dedicated ownership and cleanup rules before this can replace all bounded
+  lowering families.
 
 ### IO-002 compiler-generated descriptor I/O remains bounded (updated 2026-07-28)
 
