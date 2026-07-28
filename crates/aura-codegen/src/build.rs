@@ -682,7 +682,7 @@ fun main() {
 
     #[test]
     fn builds_and_runs_spawn_capture_of_owned_file_handle() {
-        let path = format!("/tmp/aura-spawn-file-handle-{}", std::process::id());
+        let path = format!("/tmp/aura-spawn-file-handle-{}-data", std::process::id());
         let file = aura_parser::parse_file(
             &r#"package std.io
 enum TaskError { case Failed(error: String) case Cancelled }
@@ -736,7 +736,10 @@ fun main() {
 
     #[test]
     fn builds_and_runs_async_file_round_trip_with_repeated_joins_and_gc() {
-        let path = format!("/tmp/aura-async-file-round-trip-{}", std::process::id());
+        let path = format!(
+            "/tmp/aura-async-file-round-trip-{}-data",
+            std::process::id()
+        );
         let source = format!(
             r#"package std.io
 enum TaskError {{ case Failed(error: String) case Cancelled }}
@@ -826,7 +829,10 @@ fun main() {{
 
     #[test]
     fn builds_and_runs_caller_owned_file_task_through_two_async_io_awaits() {
-        let path = format!("/tmp/aura-caller-owned-file-task-{}", std::process::id());
+        let path = format!(
+            "/tmp/aura-caller-owned-file-task-{}-data",
+            std::process::id()
+        );
         let source = format!(
             r#"package std.io
 enum TaskError {{ case Failed(error: String) case Cancelled }}
@@ -2327,7 +2333,7 @@ fun main() {}
 
     #[test]
     fn builds_and_runs_general_cfg_foreign_handle_parameter_across_multiple_awaits() {
-        let path = format!("/tmp/aura-general-cfg-handle-{}", std::process::id());
+        let path = format!("/tmp/aura-general-cfg-handle-{}-data", std::process::id());
         let source = format!(
             r#"package std.io
 enum TaskError {{ case Failed(error: String) case Cancelled }}
@@ -2398,7 +2404,7 @@ fun main() {{
     #[test]
     fn builds_and_runs_general_cfg_caller_owned_foreign_handle_task_outcomes() {
         let path = format!(
-            "/tmp/aura-general-cfg-owned-task-handle-{}",
+            "/tmp/aura-general-cfg-owned-task-handle-{}-data",
             std::process::id()
         );
         let source = format!(
@@ -6458,7 +6464,10 @@ fun main() {
 
     #[test]
     fn builds_and_runs_owned_foreign_handle_channel_transfer() {
-        let path = format!("/tmp/aura-channel-foreign-handle-{}", std::process::id());
+        let path = format!(
+            "/tmp/aura-channel-foreign-handle-{}-data",
+            std::process::id()
+        );
         let source = format!(
             r#"package std.io
 fun openFile(path: String, mode: Int): ForeignHandle<Int> {{ throw "intrinsic" }}
