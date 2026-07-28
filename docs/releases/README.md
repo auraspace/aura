@@ -120,10 +120,12 @@ their Rust and C toolchains are available.
 In machine-readable target names, these are `linux-arm64`, `windows-amd64`, and
 `windows-arm64`; all remain policy-only until native acceptance is added.
 
-Production release tags require `AURA_MINISIGN_SECRET_KEY` and
-`AURA_MINISIGN_PUBLIC_KEY`; the workflow signs and verifies `SHA256SUMS` and
-publishes `SHA256SUMS.minisig` plus `minisign.pub`. Missing or invalid signing
-material is a release failure, not an unsigned success.
+Production release tags require the GitHub `production` environment, with
+`AURA_MINISIGN_SECRET_KEY` configured as an environment secret and
+`AURA_MINISIGN_PUBLIC_KEY` as its matching environment variable. The workflow
+signs and verifies `SHA256SUMS` and publishes `SHA256SUMS.minisig` plus
+`minisign.pub`. Missing or invalid signing material is a release failure, not
+an unsigned success.
 
 ## Evidence boundary for v0.1.1-alpha
 

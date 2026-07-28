@@ -109,6 +109,8 @@ for target in sorted(tier2):
         raise SystemExit(f"tier2 fixture needs a non-empty limitation reason: {target}")
 PY
 contains 'validate-release-policy\.sh' "$workflow" || die "release workflow does not run policy validation"
+contains 'environment:' "$workflow" || die "release workflow has no GitHub environment"
+contains 'name: production' "$workflow" || die "release workflow is not protected by the production environment"
 contains 'AURA_MINISIGN_SECRET_KEY' "$workflow" || die "release workflow has no minisign secret input"
 contains 'AURA_MINISIGN_PUBLIC_KEY' "$workflow" || die "release workflow has no minisign public-key input"
 contains 'minisign -Vm' "$workflow" || die "release workflow does not verify its signature"
