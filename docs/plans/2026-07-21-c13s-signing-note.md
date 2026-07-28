@@ -9,7 +9,9 @@
 
 ## Status
 
-**Design note only.** No secrets, no CI signing steps, no Apple/Microsoft account setup, no Windows job.
+**Historical design note.** The bounded `0.1.1-alpha` release now has aggregate
+checksums and a detached minisign signature in the production workflow. No
+Apple/Microsoft account setup or Windows release job exists.
 
 **C13s choice:** **B** — short signing/notarization design note.  
 **Not chosen:** **A** — best-effort Windows CI (`continue-on-error`). C12s already skipped Windows as a release gate; `.github/workflows/ci.yml` and `release.yml` remain Unix-only (Linux amd64, macOS arm64/amd64). A non-blocking Windows job is still valuable later, but integrity of published artifacts is the higher Dist/DX gap for pre-1.0.
@@ -20,13 +22,13 @@
 | ----------------------------- | -------------------------------------------------------------------------------------------- |
 | Release tarballs              | Tag `v*` → `release.yml` → GitHub Release assets                                             |
 | Per-archive checksum          | `scripts/package-release.sh` writes `*.tar.gz.sha256` (local + CI artifact)                  |
-| Aggregated `SHA256SUMS`       | Not published as a single signed manifest yet                                                |
-| minisign / cosign / sigstore  | Not wired                                                                                    |
+| Aggregated `SHA256SUMS`       | Published by the `0.1.1-alpha` release workflow                                              |
+| minisign / cosign / sigstore  | minisign wired for production release; cosign/sigstore remain optional future work           |
 | macOS notarization / stapling | Not done (unsigned CLI; Gatekeeper may warn on first run of downloaded binary)               |
 | Windows Authenticode          | N/A until Windows tarballs / installers ship                                                 |
 | Installer trust model         | `curl \| bash` from site CDN; script source is monorepo `scripts/install.sh` (document risk) |
 
-Users can verify a single archive with the adjacent `.sha256` file if they download both; there is no offline **signed** sum file or key fingerprint in docs yet.
+Users can verify a single archive with the adjacent `.sha256` file if they download both. The release record documents the signed aggregate; installer-side signature fetching and verification remain a follow-up.
 
 ## Target model (RFC-013 aligned)
 
@@ -47,15 +49,15 @@ Prefer **minisign** for the first signed layer (RFC-013 §6.5): small offline ve
 ### Phase 0 — already true / cheap
 
 - [x] Per-tarball `.sha256` from `package-release.sh`
-- [ ] Publish a root-level `SHA256SUMS` (or `SHA256SUMS.txt`) on each GitHub Release covering all assets
+- [x] Publish a root-level `SHA256SUMS` (or `SHA256SUMS.txt`) on each GitHub Release covering all assets
 - [ ] Document verify one-liner in [install.md](../guide/install.md) (checksum only)
 
 ### Phase 1 — signed sums (first real signing work)
 
-- [ ] Generate long-lived **minisign** keypair offline; store secret outside the repo (1Password / org secret store)
+- [x] Generate long-lived **minisign** keypair offline; store secret outside the repo (1Password / org secret store)
 - [ ] Publish public key in-repo (e.g. `keys/minisign.pub`) and fingerprint on the website install page
-- [ ] Release workflow: after all matrix artifacts land, job aggregates sums → `minisign -Sm SHA256SUMS`
-- [ ] Attach `SHA256SUMS` + `SHA256SUMS.minisig` to the GitHub Release
+- [x] Release workflow: after all matrix artifacts land, job aggregates sums → `minisign -Sm SHA256SUMS`
+- [x] Attach `SHA256SUMS` + `SHA256SUMS.minisig` to the GitHub Release
 - [ ] `install.sh` / `install-smoke.sh`: optional `AURA_VERIFY=1` (default on for non-CI?) — fetch sums + sig, verify, then unpack
 - [ ] Document: `minisign -Vm SHA256SUMS -p keys/minisign.pub` then `sha256sum -c`
 
@@ -102,7 +104,7 @@ Alpha remains **honest about TOFU**: the design goal is verifiable releases, not
 
 ## Explicit non-goals (this note / C13)
 
-- Implementing notarization, Authenticode, or minisign in CI
+- Implementing notarization or Authenticode
 - Purchasing certificates or creating Apple/Microsoft accounts
 - Windows CI matrix as a merge gate
 - Changing `install.sh` behavior in this slice (pointer only)
@@ -110,7 +112,7 @@ Alpha remains **honest about TOFU**: the design goal is verifiable releases, not
 
 ## Recommended next slice (post-C13)
 
-1. **Phase 0–1 only:** aggregate `SHA256SUMS` + minisign in `release.yml` + verify hook in `install.sh`.
+1. Add installer-side aggregate/signature verification and document the trusted public-key bootstrap.
 2. Separately: optional best-effort Windows **compile** job (former C13s option A) without making it a release gate.
 3. Notarization only when macOS support load justifies Apple Program + secrets ops.
 

@@ -24,7 +24,7 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 AURA_HOME="${AURA_HOME:-${HOME}/.aura}"
 AURA_INSTALL_URL="${AURA_INSTALL_URL:-https://aura.fadosoft.com/install.sh}"
-AURA_VERSION="${AURA_VERSION:-0.1.0-alpha}"
+AURA_VERSION="${AURA_VERSION:-0.1.1-alpha}"
 mode="default"
 fail=0
 
@@ -48,7 +48,7 @@ usage() {
     '' \
     '  1. Install (pin recommended):' \
     '       curl -fsSL https://aura.fadosoft.com/install.sh \' \
-    '         | AURA_VERSION=0.1.0-alpha bash' \
+    '         | AURA_VERSION=0.1.1-alpha bash' \
     '' \
     '  2. PATH — prefer versioned layout:' \
     '       export PATH="$HOME/.aura/bin:$HOME/.local/bin:$PATH"' \
@@ -68,8 +68,8 @@ usage() {
     '' \
     '  5. Side-by-side install (optional):' \
     '       curl -fsSL https://aura.fadosoft.com/install.sh \' \
-    '         | AURA_VERSION=0.1.0-alpha AURA_SET_DEFAULT=0 bash' \
-    '       avm 0.1.0-alpha && avm --show' \
+    '         | AURA_VERSION=0.1.1-alpha AURA_SET_DEFAULT=0 bash' \
+    '       avm 0.1.1-alpha && avm --show' \
     '' \
     '  6. Wrong binary on PATH?' \
     '       which -a aura' \
@@ -77,7 +77,7 @@ usage() {
     '' \
     'Maintainer local path (no CDN):' \
     '' \
-    '  TAG_VERSION=0.1.0-alpha bash scripts/package-release.sh' \
+    '  TAG_VERSION=0.1.1-alpha bash scripts/package-release.sh' \
     '  bash scripts/install-smoke.sh --local-pkg' \
     '' \
     'See also: docs/guide/install.md'

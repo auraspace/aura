@@ -47,7 +47,7 @@ These topics match **in-tree** behavior (corpus + CLI), not only Accepted RFCs:
 - `type` aliases, top-level `const`, `is` type test
 - Expression-body functions `fun f(): T = expr`
 - First-class functions / lambdas: `(x: T) => expr`, block body, fun type `(T) -> U`
-- Captures: outer `val` of `Int` / `Bool` / `String` / class / Array; outer `var` of `Int` / `Bool` by ref (no nested Fun or `var` String/class/Array yet)
+- Captures: outer `val` of `Int` / `Bool` / `String` / class / Array / Fun; outer `var` of scalar, String, class, Array, or Fun values through shared boxes (C20c–e)
 - Multi-file packages, imports, path deps; `aura new` / `init` / `version`
 - `aura run` / `test` pass-through after `--`; `aura test` + `@test`
 - `std.io` console + file + **argv** / **stdin** / **exit** / `tryReadFile`; `std.assert`
@@ -56,13 +56,13 @@ These topics match **in-tree** behavior (corpus + CLI), not only Accepted RFCs:
 
 ## Still design-first (limited or deferred in code)
 
-- Remaining **lambda captures** (nested Fun; `var` String/class/Array) — see repo debts
-- Full **task / async** surface ([RFC-003](/rfc/003), [RFC-006](/rfc/006))
+- General lambda capture/control-flow combinations beyond the covered ownership fixtures — see repo debts
+- Full **task / async** surface: bounded await/spawn/channel slices ship, but arbitrary lowering and all outcome/IO shapes do not ([RFC-003](/rfc/003), [RFC-006](/rfc/006))
 - Macros / plugins ([RFC-010](/rfc/010))
 - Reflection ([RFC-009](/rfc/009))
 - LLVM backend as default ([RFC-004](/rfc/004) — C backend is what runs now)
 - Registry fetch / semver ([RFC-005](/rfc/005) — path deps + lock schema only)
-- Generic `HashMap<K,V>` and `HashSet<T>` with `Hashable` keys (`Int` and `String`)
+- Live collection views and mutation-through-entry; current iterators are deterministic read-only snapshots
 
 See the [roadmap map](./roadmap.md#rfc-accepted-vs-implemented) for a per-RFC table.
 

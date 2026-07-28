@@ -1,6 +1,6 @@
 # S2 — Production Toolchain & Release Readiness
 
-**Status:** Deferred — implementation complete; release execution moved to S3
+**Status:** Complete — implementation and `0.1.1-alpha` release evidence closed
 
 ## Objective
 
@@ -312,10 +312,10 @@ production ship decision from one source of truth.
 - Acceptance run: `bash scripts/release-acceptance.sh` passed on 2026-07-21.
 - Network smoke remains opt-in because it depends on the published CDN; the
   offline gate is the required local/PR gate.
-- The S2 implementation and local acceptance gate are complete.
-- The release execution decision is deferred to [S3 — Production Release
-  Execution](./2026-07-21-s3-production-release.md); S2 remains the completed
-  toolchain foundation and is not itself the release plan.
+- The S2 implementation, local acceptance gate, and bounded `0.1.1-alpha`
+  release execution are complete.
+- Remaining work is post-release follow-up tracked in the v0.1.1-alpha
+  contract matrix and `agents/debts.md`.
 
 ## Open questions
 

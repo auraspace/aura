@@ -8,7 +8,7 @@
 | **Layer**    | Toolchain        |
 | **Authors**  |                  |
 | **Created**  | 2026-07-15       |
-| **Updated**  | 2026-07-16       |
+| **Updated**  | 2026-07-28       |
 | **Estimate** | 20–40 pages      |
 | **Depends**  | RFC-004, RFC-005 |
 | **Blocks**   | RFC-012, RFC-013 |
@@ -20,6 +20,13 @@
 This RFC defines how Aura **builds** packages into artifacts: target graph (bin/lib/test), feature flags, profiles (`dev`/`release`), caching, cross-compilation, and the default product—a **single native executable** linking user code and the runtime.
 
 The build orchestrator is implemented in **Rust** and invoked via `aura build` / `aura check` / `aura test`.
+
+**Toolchain today (2026-07-28):** package loading, path and locked registry
+resolution, native C builds, test harness builds, release profiles/cache
+contracts, and supported Unix release packaging are present. The public CLI
+does not yet expose the full profile/target/caching configuration described by
+this RFC; cross-target native execution and stable library artifacts remain
+partial.
 
 ## 2. Motivation
 

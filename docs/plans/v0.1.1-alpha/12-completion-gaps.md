@@ -1,4 +1,4 @@
-# v0.1.1-alpha completion backlog
+# v0.1.1-alpha post-release follow-up backlog
 
 The original 72 workstream tasks are complete as bounded slices. DIAG-002 and
 ASYNC-001 are now closed by negative/native corpus fixtures and focused
@@ -37,10 +37,10 @@ complete while any matrix row is `partial`, `deferred`, or `blocked`, or while
 the alpha harness reports a deferred stage. Run
 `bash scripts/audit-alpha-completion.sh --profile full` for that gate.
 
-The release planned for today uses the explicitly narrower `bounded-alpha`
-profile. It includes only rows with `release_claim=alpha-required`; the ten
-rows with `release_claim=post-alpha` remain `partial`, are excluded from the
-current release claim, and stay tracked by G1-G8. Run
+The published release used the explicitly narrower `bounded-alpha` profile. It
+included only rows with `release_claim=alpha-required`; the ten rows with
+`release_claim=post-alpha` remain `partial`, were excluded from the release
+claim, and stay tracked by G1-G8. Run
 `bash scripts/audit-alpha-completion.sh --profile bounded` for the bounded
 release gate. This is a scope change, not a metadata-only promotion of
 unfinished work.

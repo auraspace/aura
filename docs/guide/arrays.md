@@ -57,7 +57,7 @@ fun stack() {
 
 ## Higher-order helpers (C10i / C12o)
 
-`std.collections` provides concrete free functions that take first-class funs (see [syntax cheatsheet](./syntax-cheatsheet.md#lambdas-c10) for lambda forms). Generic map/filter is deferred.
+`std.collections` provides concrete and generic free functions that take first-class funs (see [syntax cheatsheet](./syntax-cheatsheet.md#lambdas-c10) for lambda forms). Generic array HOFs are available for the covered element families; ownership still follows the move rules.
 
 | Helper           | Signature                                                              |
 | ---------------- | ---------------------------------------------------------------------- |

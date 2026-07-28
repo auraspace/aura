@@ -88,17 +88,17 @@ The CLI can auto-prelude `std.io` for package builds and resolve `std.*` path de
 
 `aura.lock` records path dependencies (including transitive `# transitive` lines) so builds stay reproducible in the monorepo / path-dep workflow.
 
-**Registry schema v0** may appear as structured entries (`version` / `source` / `checksum` form) for forward compatibility — **there is no registry fetch or semver resolve yet**. Multi-package work in alpha is **path deps only**.
+**Registry schema v0** may appear as structured entries (`version` / `source` / `checksum` form). Locked registry consumption now supports HTTPS metadata/archive fetch, semver pinning, SHA-256 verification, cache extraction, and offline locked inputs. Live credentialed publication, `git=`/`github=` sources, and workspaces remain deferred.
 
 When registry lands, the **default backend is GitHub** (index repo + Release `.crate` assets, plus direct `github = "owner/repo"` deps). Design: [RFC-005](../rfc/RFC-005-package-manager.md) §6.5–6.6.
 
 ## Alpha limits
 
-- No package registry download / publish
-- No caret/semver range resolution
+- No live credentialed package publish/update workflow
+- No `git=` / `github=` sources or workspaces
 - Prefer monorepo-local or sibling `path = "…"` deps
 
-See [0.1.0-alpha freeze](https://github.com/auraspace/aura/blob/main/docs/releases/0.1.0-alpha.md).
+See the [current 0.1.1-alpha release notes](../releases/0.1.1-alpha.md); the [0.1.0-alpha freeze](../releases/0.1.0-alpha.md) is historical.
 
 ## Next
 

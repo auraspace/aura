@@ -8,7 +8,7 @@
 | **Layer**    | Runtime                            |
 | **Authors**  |                                    |
 | **Created**  | 2026-07-15                         |
-| **Updated**  | 2026-07-22                         |
+| **Updated**  | 2026-07-28                         |
 | **Estimate** | 40–80 pages                        |
 | **Depends**  | RFC-001, RFC-002, RFC-003, RFC-006 |
 | **Blocks**   | RFC-011                            |
@@ -21,7 +21,7 @@ This RFC outlines the **Aura standard library** for servers and CLIs: prelude, c
 
 Implementation is primarily **Aura**, with thin runtime/FFI bridges where required.
 
-**Toolchain today (2026-07-26, C22t):** repo packages `std/io` (console, file, process, stdin, exit, and non-throwing `readFileResult`/`writeFileResult`), `std/assert`, and `std/collections` (Map/Set, generic `HashMap<K,V>`/`HashSet<T>`, Iterable, generic map/filter/fold, join, hash-collection snapshots/HOFs, read-only snapshot iterators, and `HashMapEntry` snapshots with direct `for-in`). C22 and the alpha follow-up add deterministic task frames, bounded await/control-flow lowering, bounded channels, typed payload cleanup, typed exception causes, and bounded FFI pin retention; there is not yet a complete `std/task` or typed async networking package. Strict file I/O still throws `String`; Result wrappers provide structured failures. Live iterators/views, mutation-through-entry, JSON, logging, crypto, synchronization, and full async I/O remain deferred.
+**Toolchain today (2026-07-28, C22t + alpha follow-up):** repo packages `std/io` (console, file, process, stdin, exit, and non-throwing `readFileResult`/`writeFileResult`), `std/assert`, and `std/collections` (Map/Set, generic `HashMap<K,V>`/`HashSet<T>`, Iterable, generic map/filter/fold, join, hash-collection snapshots/HOFs, read-only snapshot iterators, and `HashMapEntry` snapshots with direct `for-in`). C22 and the alpha follow-up add deterministic task frames, bounded await/control-flow lowering, bounded channels, typed payload cleanup, typed exception causes, and bounded FFI pin retention; there is not yet a complete `std/task` or typed async networking package. Strict file I/O still throws `String`; Result wrappers provide structured failures. Live iterators/views, mutation-through-entry, JSON, logging, crypto, synchronization, and full async I/O remain deferred.
 
 ## 2. Motivation
 

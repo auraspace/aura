@@ -2,9 +2,10 @@
 
 How Aura cuts a public toolchain release (alpha → stable uses the same path).
 
-Current release: `0.1.0-alpha` is published with GitHub Release assets. The
-local `v0.1.0-alpha` tag does not point to the current `main` HEAD; changes
-after that tag belong to a subsequent release or maintenance update.
+Current release: `0.1.1-alpha` is published with GitHub Release assets. The
+older `0.1.0-alpha` release remains available for compatibility and history;
+changes after `v0.1.1-alpha` belong to a subsequent release or maintenance
+update.
 
 ## Flow
 
@@ -29,7 +30,7 @@ after that tag belong to a subsequent release or maintenance update.
            │
            ▼
 ┌─────────────────────┐
-│ git tag v<version>  │  e.g. v0.1.0-alpha
+│ git tag v<version>  │  e.g. v0.2.0-alpha
 │ git push origin tag │
 └──────────┬──────────┘
            │
@@ -55,29 +56,29 @@ after that tag belong to a subsequent release or maintenance update.
 
 ```bash
 # 1) Working tree should only have intentional changes (or use --force).
-scripts/prepare-release.sh 0.1.0-alpha --message "First dogfood freeze"
+scripts/prepare-release.sh 0.2.0-alpha --message "Next alpha release"
 
 # 2) Edit freeze notes if needed
-$EDITOR docs/releases/0.1.0-alpha.md CHANGELOG.md
+$EDITOR docs/releases/0.2.0-alpha.md CHANGELOG.md
 
 # 3) If you edited after the script commit:
-git add docs/releases/0.1.0-alpha.md CHANGELOG.md
+git add docs/releases/0.2.0-alpha.md CHANGELOG.md
 git commit --amend --no-edit   # only if not pushed yet
 
 # 4) Publish the release commit + tag
 git push origin HEAD
-git tag v0.1.0-alpha
-git push origin v0.1.0-alpha
+git tag v0.2.0-alpha
+git push origin v0.2.0-alpha
 
 # 5) Wait for Actions → GitHub Release assets, then:
-curl -fsSL https://aura.fadosoft.com/install.sh | AURA_VERSION=0.1.0-alpha bash
+curl -fsSL https://aura.fadosoft.com/install.sh | AURA_VERSION=0.2.0-alpha bash
 aura version
 ```
 
 Dry-run without touching the tree:
 
 ```bash
-scripts/prepare-release.sh 0.1.0-alpha --dry-run
+scripts/prepare-release.sh 0.2.0-alpha --dry-run
 ```
 
 Files only (no commit):
@@ -152,10 +153,10 @@ run IDs for the following:
 
 | Concept             | Example                                | Where                                              |
 | ------------------- | -------------------------------------- | -------------------------------------------------- |
-| Release version     | `0.1.0-alpha`                          | CHANGELOG, notes, install `AURA_VERSION`           |
-| Git tag             | `v0.1.0-alpha`                         | Triggers CI; GitHub Release name                   |
-| Cargo workspace ver | `0.1.0-alpha`                          | `Cargo.toml` `[workspace.package]`; `aura version` |
-| Artifact name       | `aura-0.1.0-alpha-darwin-arm64.tar.gz` | GH Release assets                                  |
+| Release version     | `0.1.1-alpha`                          | CHANGELOG, notes, install `AURA_VERSION`           |
+| Git tag             | `v0.1.1-alpha`                         | Triggers CI; GitHub Release name                   |
+| Cargo workspace ver | `0.1.1-alpha`                          | `Cargo.toml` `[workspace.package]`; `aura version` |
+| Artifact name       | `aura-0.1.1-alpha-darwin-arm64.tar.gz` | GH Release assets                                  |
 
 Prerelease tags (`*alpha*`, `*beta*`, `*rc*`) create a **prerelease** on GitHub.
 
@@ -172,6 +173,6 @@ docs/releases/<version>.md
 ## Local package only (no publish)
 
 ```bash
-TAG_VERSION=0.1.0-alpha bash scripts/package-release.sh
-# → dist/aura-0.1.0-alpha-<os>-<arch>.tar.gz
+TAG_VERSION=0.1.1-alpha bash scripts/package-release.sh
+# → dist/aura-0.1.1-alpha-<os>-<arch>.tar.gz
 ```

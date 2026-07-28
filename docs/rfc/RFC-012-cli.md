@@ -8,7 +8,7 @@
 | **Layer**    | Toolchain                          |
 | **Authors**  |                                    |
 | **Created**  | 2026-07-15                         |
-| **Updated**  | 2026-07-22                         |
+| **Updated**  | 2026-07-28                         |
 | **Estimate** | 20–30 pages                        |
 | **Depends**  | RFC-005, RFC-008, RFC-011, RFC-013 |
 | **Blocks**   | —                                  |
@@ -19,7 +19,7 @@
 
 This RFC defines the unified **`aura` CLI** (implemented in **Rust**): the single entrypoint for create, build, run, test, check, format, package, and toolchain management. Subcommands delegate to compiler, package manager, build, and test subsystems while presenting a consistent UX, exit codes, and machine-readable output modes.
 
-**Toolchain today (2026-07-26, S2/C22):** shipped subcommands — `new`, `init`, `version`, `check`, `build`, `run`, `test`, `fmt`, and `emit-c` — on files or package dirs (`aura.toml`). `run`/`test` forward args after `--`; `test` supports name filters and structured JSON reports. Programs read argv via `std.io.args()`. Pretty diagnostics include path, line/column, source context, and notes; structured diagnostic models/JSON are available to tooling. Locked registry dependencies are supported by the package commands. Not yet: `add`, live `publish`, a complete `aura http serve` path, or a full `aura toolchain` manager.
+**Toolchain today (2026-07-28, S2/C22):** shipped subcommands — `new`, `init`, `version`, `check`, `build`, `run`, `test`, `race`, `fmt`, and `emit-c` — on files or package dirs (`aura.toml`). `run`/`test`/`race` forward args after `--`; `test` supports substring filters and structured JSON reports. Programs read argv via `std.io.args()`. Pretty diagnostics include path, line/column, source context, and notes; structured diagnostic models/JSON are available to tooling. Locked registry dependencies are consumed by the package commands. Not yet: `add`, live credentialed publish/update, a complete `aura http serve` path, or a full `aura toolchain` manager.
 
 ## 2. Motivation
 
@@ -73,6 +73,7 @@ All toolchain RFCs need a user-facing contract.
 | `aura run [path] [-- args…]`      | Build (if needed) + execute bin; args after `--` go to the process |
 | `aura check`                      | Typecheck/parse without full link                                  |
 | `aura test [path] [-- args…]`     | Build & run tests; same `--` pass-through as `run`                 |
+| `aura race [path] [-- args…]`     | Run the test workflow with runtime race tracking                   |
 | `aura fmt`                        | Format sources                                                     |
 | `aura fix`                        | Apply machine-applicable fixes (later)                             |
 | `aura doc`                        | Generate docs (later)                                              |
@@ -104,7 +105,7 @@ All toolchain RFCs need a user-facing contract.
 | 2    | CLI usage error                        |
 | >2   | Reserved (signals-related)             |
 
-`--format json` on `check`/`test` where supported for tooling. Check diagnostics use
+`--format json` on `check`/`test`/`race` where supported for tooling. Check diagnostics use
 stable `code` values, preserve byte and line/column `span` data, and include an
 `operation` field for async/task errors (`await`, `spawn`, `join`, `cancel`, or
 channel operations). Pretty diagnostics show the same code and operation label.

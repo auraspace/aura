@@ -11,7 +11,7 @@ summary: Common questions about install, null, errors, GC, and docs vs RFCs.
 
 ### Do I need to install Aura globally?
 
-For **0.1.0-alpha**, prefer the installer (versioned under `~/.aura`):
+For the current public **0.1.1-alpha** release, prefer the installer (versioned under `~/.aura`):
 
 ```bash
 curl -fsSL https://aura.fadosoft.com/install.sh | bash
@@ -21,7 +21,7 @@ aura new hello && aura run hello
 
 Contributors can still `cargo install --path crates/aura-cli` from a clone, or run in-tree: `cargo run -p aura-cli -- …`.
 
-Details: [Install](./install.md). Freeze notes: [0.1.0-alpha on GitHub](https://github.com/auraspace/aura/blob/main/docs/releases/0.1.0-alpha.md).
+Details: [Install](./install.md). Current release notes: [0.1.1-alpha](../releases/0.1.1-alpha.md); the [0.1.0-alpha notes](../releases/0.1.0-alpha.md) are historical.
 
 ### Why is a C compiler required?
 
@@ -50,7 +50,7 @@ No — **identity** (reference). Compare fields explicitly if you need structura
 
 ### Are tasks / async ready?
 
-Vision and RFCs are Accepted, but full task runtime surface is still limited in code. Check the [roadmap map](./roadmap.md#rfc-accepted-vs-implemented).
+Vision and RFCs are Accepted, but the task runtime is intentionally bounded: task frames, channels, and selected await/control-flow shapes work, while arbitrary async lowering and full async I/O remain partial. Check the [roadmap map](./roadmap.md#rfc-accepted-vs-implemented).
 
 ## Toolchain
 

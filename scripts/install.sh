@@ -80,7 +80,7 @@ resolve_version() {
     | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
     | head -1)" || true
   if [[ -z "$tag" ]]; then
-    die "could not resolve latest release (set AURA_VERSION=0.1.0-alpha or install from source)"
+    die "could not resolve latest release (set AURA_VERSION=0.1.1-alpha or install from source)"
   fi
   validate_version "${tag#v}"
   printf '%s\n' "${tag#v}"
@@ -88,7 +88,7 @@ resolve_version() {
 
 validate_version() {
   [[ "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]] \
-    || die "invalid version: $1 (expected semver such as 0.1.0-alpha)"
+    || die "invalid version: $1 (expected semver such as 0.1.1-alpha)"
 }
 
 version_dir() {
@@ -368,7 +368,7 @@ Then:
 
   aura version
   avm --list                  # installed versions
-  avm 0.1.0-alpha             # switch active (after multi-version install)
+  avm 0.1.1-alpha             # switch active (after multi-version install)
   aura new hello && aura run hello
 
 Docs: https://aura.fadosoft.com/docs/install

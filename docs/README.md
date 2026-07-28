@@ -8,7 +8,7 @@ Design documents and specifications for the **Aura** language core and toolchain
 docs/
 ├── README.md          ← you are here
 ├── roadmap.md         ← execution phases (P0–P3, compiler C-series)
-├── releases/          ← freeze / release notes (e.g. 0.1.0-alpha)
+├── releases/          ← release notes (published 0.1.0-alpha, 0.1.1-alpha)
 ├── guide/             ← user-facing docs (site /docs)
 │   ├── introduction.md
 │   ├── install.md
@@ -26,19 +26,20 @@ docs/
 
 ## Where to start
 
-| If you want…                     | Read…                                                                              |
-| -------------------------------- | ---------------------------------------------------------------------------------- |
-| **Install the CLI**              | [guide/install.md](guide/install.md)                                               |
-| **0.1.0-alpha freeze**           | [releases/0.1.0-alpha.md](releases/0.1.0-alpha.md)                                 |
-| **How to cut a release**         | [releases/README.md](releases/README.md)                                           |
-| **User guide (site)**            | [guide/](guide/) → published at `/docs`                                            |
-| Execution roadmap (phases)       | [roadmap.md](roadmap.md)                                                           |
-| Vision & design principles       | [RFC-000](rfc/RFC-000-vision-design-principles.md)                                 |
-| Syntax & core language semantics | [RFC-001](rfc/RFC-001-language-specification.md)                                   |
-| MVP surface for compiler C0–C1   | [RFC-001 §6.0](rfc/RFC-001-language-specification.md#60-mvp-surface-compiler-c0c1) |
-| Type system                      | [RFC-002](rfc/RFC-002-type-system.md)                                              |
-| Memory model & concurrency       | [RFC-003](rfc/RFC-003-memory-model-concurrency.md)                                 |
-| Full RFC catalog                 | [rfc/README.md](rfc/README.md)                                                     |
+| If you want…                      | Read…                                                                              |
+| --------------------------------- | ---------------------------------------------------------------------------------- |
+| **Install the CLI**               | [guide/install.md](guide/install.md)                                               |
+| **Current published release**     | [releases/0.1.1-alpha.md](releases/0.1.1-alpha.md)                                 |
+| **Historical 0.1.0-alpha freeze** | [releases/0.1.0-alpha.md](releases/0.1.0-alpha.md)                                 |
+| **How to cut a release**          | [releases/README.md](releases/README.md)                                           |
+| **User guide (site)**             | [guide/](guide/) → published at `/docs`                                            |
+| Execution roadmap (phases)        | [roadmap.md](roadmap.md)                                                           |
+| Vision & design principles        | [RFC-000](rfc/RFC-000-vision-design-principles.md)                                 |
+| Syntax & core language semantics  | [RFC-001](rfc/RFC-001-language-specification.md)                                   |
+| MVP surface for compiler C0–C1    | [RFC-001 §6.0](rfc/RFC-001-language-specification.md#60-mvp-surface-compiler-c0c1) |
+| Type system                       | [RFC-002](rfc/RFC-002-type-system.md)                                              |
+| Memory model & concurrency        | [RFC-003](rfc/RFC-003-memory-model-concurrency.md)                                 |
+| Full RFC catalog                  | [rfc/README.md](rfc/README.md)                                                     |
 
 ## User guide pages (`docs/guide/`)
 

@@ -7,7 +7,7 @@ summary: Install aura, scaffold Hello, and run examples.
 
 # Getting started
 
-Preferred install: the **one-liner** (after [0.1.0-alpha](https://github.com/auraspace/aura/blob/main/docs/releases/0.1.0-alpha.md) Release assets exist). Full layout and switches: [Install](./install.md).
+Preferred install: the **one-liner** for the published [0.1.1-alpha](../releases/0.1.1-alpha.md). Full layout and switches: [Install](./install.md).
 
 ## Prerequisites
 
@@ -20,7 +20,7 @@ Preferred install: the **one-liner** (after [0.1.0-alpha](https://github.com/aur
 
 ```bash
 curl -fsSL https://aura.fadosoft.com/install.sh | bash
-# pin: curl -fsSL https://aura.fadosoft.com/install.sh | AURA_VERSION=0.1.0-alpha bash
+# pin: curl -fsSL https://aura.fadosoft.com/install.sh | AURA_VERSION=0.1.1-alpha bash
 
 export PATH="$HOME/.aura/bin:$HOME/.local/bin:$PATH"
 aura version

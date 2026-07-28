@@ -4,21 +4,21 @@ Living plan for docs, language specs, and the Rust toolchain. RFCs remain the de
 
 | Field        | Value                                                                          |
 | ------------ | ------------------------------------------------------------------------------ |
-| **Updated**  | 2026-07-22                                                                     |
+| **Updated**  | 2026-07-28                                                                     |
 | **Strategy** | Dual-track: freeze MVP surface in RFCs while shipping vertical compiler slices |
 | **License**  | MIT (see root `LICENSE`)                                                       |
 
 ## Status snapshot
 
-| Track                       | Status                                                                                                           |
-| --------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| RFC static site (`site/`)   | Implemented; Cloudflare Pages → **https://aura.fadosoft.com**                                                    |
-| RFC-000 … RFC-013           | **All Accepted** — open questions resolved or Deferred (2026-07-16)                                              |
-| Language MVP                | RFC-001 §6.0 + post-C1; C22 async/task surface is parsed and type-checked, with lowering limited to no-await MVP |
-| Compiler                    | **C0–C21j closed; C22a–s landed**; await state machines and non-empty spawn captures remain deferred             |
-| Runtime / packages / stdlib | GC + String Array free; deterministic task executor; bounded channels; async I/O and full task outcomes deferred |
-| Distribution contract       | **S2 complete:** Linux amd64, macOS arm64, macOS amd64; Windows amd64 deferred                                   |
-| Release metadata            | **0.1.0-alpha published**; subsequent release work tracks changes after `v0.1.0-alpha`                           |
+| Track                       | Status                                                                                                            |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| RFC static site (`site/`)   | Implemented; Cloudflare Pages → **https://aura.fadosoft.com**                                                     |
+| RFC-000 … RFC-013           | **All Accepted** — open questions resolved or Deferred (2026-07-16)                                               |
+| Language MVP                | RFC-001 §6.0 + post-C1; C22 syntax/barriers plus bounded await, spawn, channel, and outcome slices are covered    |
+| Compiler                    | **C0–C21j closed; C22a–s landed**; await state machines and non-empty spawn captures remain deferred              |
+| Runtime / packages / stdlib | GC + deterministic executor/channels; registry consumption, typed I/O/FFI slices, and collection snapshots landed |
+| Distribution contract       | **S2 complete:** Linux amd64, macOS arm64, macOS amd64; Windows amd64 deferred                                    |
+| Release metadata            | **0.1.1-alpha published**; tier-2/native evidence and live registry publication remain follow-up work             |
 
 ## Phases
 
@@ -268,7 +268,7 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C22l–m** | Lower async bodies and task operations                             | **Partial** — bounded await/control-flow shapes and typed outcomes landed; general lowering, captures, and full failure propagation remain deferred |
 | **C22n–o** | Add bounded channels and typed channel lowering                    | **Done for MVP slice** — Int/String/class payloads; `1064aeb`, `4d4929f`                                                                            |
 | **C22p–s** | Add corpus, diagnostics, churn, and ownership/GC audit             | **Done with residual debt** — task storage scans, exception causes, FFI pin retention, corpus, and sanitizer evidence are recorded                  |
-| **C22t**   | Close C22 documentation/status; keep release deferred              | **Done** — status/hash/deferred-work synchronization                                                                                                |
+| **C22t**   | Close C22 documentation/status and release scope                   | **Done** — bounded release scope published; post-release follow-up remains                                                                          |
 
 Plans:
 
@@ -286,9 +286,9 @@ Plans:
 
 1. ~~Language surface through C21~~ (funs/lambdas, mutable captures, scoped `ref T`, borrow-safe field returns) → C22 surface/borrow rules and bounded await lowering landed; general lowering, richer captures, and Array-of-interface remain later work
 2. Runtime: ~~GC + process I/O + String Array free + Fun env RC~~ → C22 deterministic executor/channels, task storage scans, typed causes, and bounded FFI pin retention landed; OS-thread scheduling, full async I/O, concurrent GC, and richer frame ownership remain later work
-3. Toolchain: ~~path deps + registry K1 offline~~ → ~~**S2:** verified HTTPS + nested locked registry deps~~ → live publish/update, signing, and production release acceptance remain open
+3. Toolchain: ~~path deps + registry K1 offline~~ → ~~**S2:** verified HTTPS + nested locked registry deps and published `0.1.1-alpha`~~ → live publish/update and tier-2/native evidence remain open
 4. Stdlib: ~~io + collections + C13 toString/case/eprint/tryWrite + C14 generic HashMap + C15 generic HashSet + C18 hash-collection HOFs + C19 accessors/entry snapshots/entry for-in + C20 snapshot iterators + C21i Result I/O~~ → live iterator/entry-view APIs and entry mutation remain deferred
-5. Cross targets + signed releases — ~~**S2 contract:** Linux amd64, macOS arm64/amd64~~; Windows amd64 deferred → ~~**C13s** signing note~~ → later: minisign / notarization
+5. Cross targets + signed releases — ~~**S2 contract:** Linux amd64, macOS arm64/amd64~~; minisign-signed release manifests are shipped; Windows amd64 and OS notarization remain deferred
 
 S2 production toolchain implementation: [`docs/plans/2026-07-21-s2-production-toolchain.md`](plans/2026-07-21-s2-production-toolchain.md). The v0.1.1-alpha workstreams and completion backlog track the remaining release claims.
 

@@ -8,7 +8,7 @@
 | **Layer**    | Toolchain                                   |
 | **Authors**  |                                             |
 | **Created**  | 2026-07-15                                  |
-| **Updated**  | 2026-07-16                                  |
+| **Updated**  | 2026-07-28                                  |
 | **Estimate** | 60–100 pages                                |
 | **Depends**  | RFC-001, RFC-002, RFC-003, RFC-009, RFC-010 |
 | **Blocks**   | RFC-008, RFC-012, RFC-013                   |
@@ -18,6 +18,12 @@
 ## 1. Abstract
 
 This RFC describes the **Aura compiler**, implemented in **Rust**: pipeline from source through parse, macro expansion, name resolution, type checking, HIR/MIR, optimization, and **LLVM** codegen, then object emission for linking with the Aura runtime into a **single native binary**. It covers incremental compilation strategy, diagnostics, IR layering, and bootstrapping.
+
+**Toolchain today (2026-07-28):** the checked-in implementation is a Rust
+frontend plus a C backend: lexer, parser, name resolution, type checking,
+diagnostics, package loading, monomorphized code generation, embedded runtime
+linking, and native corpus/codegen regressions. LLVM, a stable public IR, and
+incremental compilation are still design targets.
 
 ## 2. Motivation
 

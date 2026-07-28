@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Deterministic v0.1.1-alpha acceptance harness.
+# Historical deterministic v0.1.1-alpha acceptance harness.
+# The current CI path uses generic compiler, corpus, and release-infrastructure gates.
 set -Eeuo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"

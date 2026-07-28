@@ -5,10 +5,10 @@
 #   scripts/prepare-release.sh <version> [options]
 #
 # Examples:
-#   scripts/prepare-release.sh 0.1.0-alpha
+#   scripts/prepare-release.sh 0.2.0-alpha
 #   scripts/prepare-release.sh 0.1.0 --dry-run
 #   scripts/prepare-release.sh 0.2.0-beta.1 --no-commit
-#   scripts/prepare-release.sh 0.1.0-alpha --message "First public dogfood"
+#   scripts/prepare-release.sh 0.2.0-alpha --message "Next public alpha"
 #
 # Options:
 #   --dry-run       Print planned changes; do not write or commit

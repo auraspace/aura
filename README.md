@@ -9,7 +9,7 @@ This repository currently holds:
 | [`docs/guide/`](docs/guide/)         | User guide (site `/docs`)                                            |
 | [`docs/rfc/`](docs/rfc/)             | Language & toolchain RFCs                                            |
 | [`docs/roadmap.md`](docs/roadmap.md) | Execution phases (P0–P3; C22 partial implementation closed)          |
-| [`docs/releases/`](docs/releases/)   | Freeze / release notes (`0.1.0-alpha` history; next release work)    |
+| [`docs/releases/`](docs/releases/)   | Release notes (`0.1.0-alpha`; published `0.1.1-alpha`)               |
 | [`site/`](site/)                     | Homepage + docs + RFC site (Vite + React)                            |
 | [`crates/`](crates/)                 | Rust toolchain (`aura` CLI) — check / build / run / test (C backend) |
 | [`corpus/`](corpus/)                 | Sample `.aura` programs for the compiler                             |
@@ -46,6 +46,7 @@ cargo run -p aura-cli -- version
 cargo run -p aura-cli -- check corpus/hello/main.aura   # parse + typecheck
 cargo run -p aura-cli -- run corpus/hello/main.aura     # build & execute
 cargo run -p aura-cli -- test corpus/test/smoke.aura    # run @test functions
+cargo run -p aura-cli -- race corpus/test/smoke.aura   # test-shaped race detector workflow
 cargo run -p aura-cli -- build corpus/hello/main.aura -o target/aura/hello
 cargo run -p aura-cli -- check corpus/multi             # multi-file + aura.toml
 cargo run -p aura-cli -- run corpus/multi
@@ -243,8 +244,8 @@ when their Rust and C toolchains are available.
 - **Docs C12t** C12a–C12t batch closed — post-alpha CLI/String/captures shippable ([plan](docs/plans/2026-07-21-next-20-c12a-c12t.md))
 - **Debts** Tracked in [`agents/debts.md`](agents/debts.md)
 - **Docs C13t:** C13a–C13t batch closed — dogfood/captures/registry K1 foundation ([plan](docs/plans/2026-07-21-next-20-c13a-c13t.md))
-- **S2:** the production-toolchain implementation covers verified HTTPS/nested locked registry consumption, Unix artifacts, installer safety, and acceptance wiring; live publication and production signing remain release work ([plan](docs/plans/2026-07-21-s2-production-toolchain.md))
-- **C22:** async/task syntax, borrow barriers, deterministic task frames/executor, bounded channels, typed channel lowering, corpus, diagnostics, and ownership audits are landed. Bounded await/control-flow shapes, task-frame storage scans, typed exception causes, and bounded async FFI pin retention now have evidence. General async lowering, richer captures/outcomes, typed async HTTP handles, live registry publication, and production release acceptance remain partial; see the [C22 plan](docs/plans/2026-07-22-next-20-c22-async-tasks.md) and [v0.1.1-alpha contract](docs/plans/v0.1.1-alpha/contract-matrix.tsv).
+- **S2:** verified HTTPS/nested locked registry consumption, Unix artifacts, installer safety, acceptance wiring, and the `0.1.1-alpha` release are complete; live registry publication and tier-2/native evidence remain follow-up work ([plan](docs/plans/2026-07-21-s2-production-toolchain.md))
+- **C22 / v0.1.1-alpha:** async/task syntax, borrow barriers, deterministic task frames/executor, bounded channels, typed channel lowering, corpus, diagnostics, ownership audits, and the bounded release scope are shipped. General async lowering, richer captures/outcomes, typed async HTTP handles, live registry publication, and tier-2/native evidence remain partial; see the [C22 plan](docs/plans/2026-07-22-next-20-c22-async-tasks.md) and [v0.1.1-alpha contract](docs/plans/v0.1.1-alpha/contract-matrix.tsv).
 
 ### Mutable capture status
 

@@ -64,17 +64,17 @@ Details and residual trade-offs are expanded in individual RFCs. Locked cross-cu
 
 **Total estimate (core):** ~505–860 pages.
 
-### Implementation pulse (2026-07-22)
+### Implementation pulse (2026-07-28)
 
-Living execution status is [docs/roadmap.md](../roadmap.md) (compiler **C0–C19d**, plus **S2** release/toolchain work). RFCs stay design docs; each has a short **Toolchain today** note where relevant.
+Living execution status is [docs/roadmap.md](../roadmap.md) (compiler **C0–C22 bounded async slices**, plus **S2** release/toolchain work). RFCs stay design docs; each has a short **Toolchain today** note where relevant.
 
-| Layer            | Shipped (subset)                                                                                   | Still deferred                   |
-| ---------------- | -------------------------------------------------------------------------------------------------- | -------------------------------- |
-| Language / types | classes, iface, generics, struct/enum, null ops, Array, packages, lambdas MVP, generic collections | async, richer captures, macros   |
-| Compiler         | C backend + `aura check/build/run/test`, diagnostics, C19 generic substitution                     | LLVM, incremental                |
-| Runtime          | embedded runtime, println/I/O, exceptions, Array ownership, GC mark/sweep                          | tasks, channels, concurrent GC   |
-| Packages / CLI   | path + locked registry deps, core subcommands, release tooling                                     | publish, fmt, workspaces         |
-| Stdlib / test    | `std.io` / `assert` / generic collections + HOFs, `@test`                                          | net, JSON, async tests, coverage |
+| Layer            | Shipped (subset)                                                                                | Still deferred                           |
+| ---------------- | ----------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| Language / types | classes, iface, generics, struct/enum, null ops, Array, packages, lambdas/captures, scoped refs | general async ownership, macros          |
+| Compiler         | C backend + `aura check/build/run/test/race/fmt`, diagnostics, generic substitution             | LLVM, incremental                        |
+| Runtime          | embedded runtime, I/O, exceptions/causes, Array ownership, GC mark/sweep, task frames/channels  | worker pools, concurrent GC              |
+| Packages / CLI   | path + locked registry consumption, core commands, release tooling                              | live publish, workspaces                 |
+| Stdlib / test    | `std.io` / `assert` / generic collections + HOFs, filters, race mode, JSON reports              | net/JSON packages, async tests, coverage |
 
 ## Synopsis (one glance per RFC)
 
@@ -92,7 +92,7 @@ Living execution status is [docs/roadmap.md](../roadmap.md) (compiler **C0–C19
 | **RFC-009** | Attributes/annotations and metadata retention for language tooling, derives, and optional runtime type info.                    |
 | **RFC-010** | Hygienic/declarative macros, procedural derives, and sandboxed compiler plugins (Rust-hosted where appropriate).                |
 | **RFC-011** | Built-in testing: discovery, assertions, async tests, integration layout, coverage hooks.                                       |
-| **RFC-012** | Unified `aura` CLI (Rust): new/build/run/test/check/fmt/pkg — one entrypoint for daily workflow.                                |
+| **RFC-012** | Unified `aura` CLI (Rust): new/build/run/test/check/fmt/race/pkg — one entrypoint for daily workflow.                           |
 | **RFC-013** | How toolchain and apps are released: platform matrix, installers, signing, self-update, single-file app packaging.              |
 | **RFC-014** | Editor integration via LSP: shared compiler analysis, workspace snapshots, diagnostics, navigation, completion, and safe edits. |
 

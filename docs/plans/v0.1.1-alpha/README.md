@@ -1,4 +1,8 @@
-# Aura v0.1.1-alpha Workstreams
+# Aura v0.1.1-alpha Workstreams (Release Record)
+
+The bounded `0.1.1-alpha` release scope is published and these workstreams are
+closed as an implementation record. The remaining partial rows are explicit
+post-release follow-ups, not unfinished requirements hidden from the release.
 
 This directory decomposes the mandatory alpha scope into 72 S/M tasks across
 10 workstreams. Every task must leave the repository buildable and add or

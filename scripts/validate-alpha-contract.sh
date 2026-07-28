@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Validate the C1 alpha contract matrix.
+# Validate the historical v0.1.1-alpha contract matrix.
+# This is an evidence audit for that published release, not a current CI gate.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"

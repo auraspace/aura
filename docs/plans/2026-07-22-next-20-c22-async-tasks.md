@@ -1,10 +1,10 @@
 # Implementation Plan: C22 Async, Tasks, and Channels
 
-| Field  | Value                                                     |
-| ------ | --------------------------------------------------------- |
-| Opened | 2026-07-22                                                |
-| Status | Closed with partial implementation; release work deferred |
-| Scope  | Single-threaded async/task MVP; release work excluded     |
+| Field  | Value                                                                            |
+| ------ | -------------------------------------------------------------------------------- |
+| Opened | 2026-07-22                                                                       |
+| Status | Closed with partial implementation; bounded release scope subsequently published |
+| Scope  | Single-threaded async/task MVP; release integration tracked separately           |
 
 ## Overview
 
@@ -255,9 +255,9 @@ Each task should land as one focused commit. Agents must use disjoint write sets
 
 ### Task C22t: Close C22 and refresh status
 
-**Description:** Synchronize plan, RFCs, roadmap, README, corpus guidance, and technical debt; keep release deferred.
+**Description:** Synchronize plan, RFCs, roadmap, README, corpus guidance, and technical debt; record the bounded published release scope and remaining follow-up.
 
-- [x] C22 statuses/hashes and deferred next steps are recorded; release remains deferred.
+- [x] C22 statuses/hashes, published release scope, and deferred next steps are recorded.
       **Verification:** Add focused tests/checks for this task; preserve all existing regressions.
       **Dependencies:** C22a–s
       **Write set:** `docs/plans/**; docs/rfc/**; docs/roadmap.md; README.md; agents/debts.md`
@@ -299,4 +299,4 @@ Shared contracts land first. Agents must not edit another lane's write set.
 - [x] Supported single-threaded task, cancellation, and bounded-channel examples pass; await and non-empty spawn remain unsupported.
 - [ ] Full C21 borrow/GC regression gate is not claimed complete; see verification limitations above and `agents/debts.md`.
 - [x] Verification results and commit hashes are recorded.
-- [x] Release remains deferred unless separately requested.
+- [x] Release integration is complete for the published bounded scope; broader work remains follow-up.

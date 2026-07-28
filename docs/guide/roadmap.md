@@ -35,9 +35,9 @@ Aura is **spec-first**: RFCs lock design; the compiler and runtime land vertical
 | [008](/rfc/008) | Build system               | Accepted   | **Partial**             | `aura.toml`, profiles/cache APIs, package build/run/test; cross-host evidence remains open                                         |
 | [009](/rfc/009) | Reflection / metadata      | Accepted   | **Deferred / limited**  | Not a day-one teach path                                                                                                           |
 | [010](/rfc/010) | Plugins / macros           | Accepted   | **Deferred / limited**  | Not required for hello                                                                                                             |
-| [011](/rfc/011) | Testing framework          | Accepted   | **Partial**             | `aura test` + `@test` MVP                                                                                                          |
-| [012](/rfc/012) | CLI                        | Accepted   | **Partial**             | `new` / `init` / `version` / `check` / `build` / `run` / `test` / `emit-c`; `--` args pass-through (C12c)                          |
-| [013](/rfc/013) | Binary distribution        | Accepted   | **Partial**             | `v0.1.0-alpha` tarballs + installer; v0.1.1-alpha signing and production acceptance remain open                                    |
+| [011](/rfc/011) | Testing framework          | Accepted   | **Partial**             | `aura test` + `@test`, substring filters, race mode, and JSON reports; parallel/async/coverage remain open                         |
+| [012](/rfc/012) | CLI                        | Accepted   | **Partial**             | `new` / `init` / `version` / `check` / `build` / `run` / `test` / `race` / `fmt` / `emit-c`; publish/update remain bounded         |
+| [013](/rfc/013) | Binary distribution        | Accepted   | **Partial**             | Published `v0.1.0-alpha` and `v0.1.1-alpha` tarballs + installer; tier-2 targets and broader native evidence remain open           |
 | [014](/rfc/014) | Language server            | Draft      | **Deferred / planned**  | LSP contract drafted; implementation follows shared compiler queries                                                               |
 
 ## Compiler milestone band
@@ -58,15 +58,18 @@ Public README and repo `docs/roadmap.md` track **C0 → C22** with C22's impleme
 | C13a–t | **Done:** method-on-temp, `Int.toString`, String array free, Fun/`var` String capture, registry K1 offline, eprint/tryWrite, signing note    |
 | C20c–i | **Done/deferred:** mutable class/Array/Fun captures, snapshot iterator contract and fixtures; `Array<Interface>` and entry mutation deferred |
 
-**Shipped:** tag `v0.1.0-alpha` + multi-OS tarballs ([release notes](https://github.com/auraspace/aura/blob/main/docs/releases/0.1.0-alpha.md)); C12 + **C13** batches closed.
+**Shipped:** tags `v0.1.0-alpha` and `v0.1.1-alpha` + multi-OS tarballs; C12,
+**C13**, S2, and the bounded v0.1.1-alpha release scope are closed.
 
-**Next:** close the v0.1.1-alpha completion backlog: general async lowering/captures, async I/O and HTTP handles, live registry publication, FFI boundary gaps, and release evidence. See the [contract matrix](https://github.com/auraspace/aura/blob/main/docs/plans/v0.1.1-alpha/contract-matrix.tsv) and residual [debts](https://github.com/auraspace/aura/blob/main/agents/debts.md).
+**Next:** post-release follow-up covers general async lowering/captures, richer
+async I/O and HTTP handles, live registry publication, FFI boundary gaps, and
+tier-2/native evidence. See the [contract matrix](https://github.com/auraspace/aura/blob/main/docs/plans/v0.1.1-alpha/contract-matrix.tsv) and residual [debts](https://github.com/auraspace/aura/blob/main/agents/debts.md).
 
 Exact bullet lists live in the root [README](https://github.com/auraspace/aura) and repo [`docs/roadmap.md`](https://github.com/auraspace/aura/blob/main/docs/roadmap.md).
 
 ## Near-term product shape
 
-1. Keep **check / build / run / test** solid on packages
+1. Keep **check / build / run / test / fmt / race** solid on packages
 2. Grow **stdlib** and package ergonomics (generic collections, richer String)
 3. Deepen **closures / GC** while C backend stays useful
 4. Move toward **LLVM** without abandoning shippable binaries

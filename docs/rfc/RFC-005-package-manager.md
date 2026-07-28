@@ -8,7 +8,7 @@
 | **Layer**    | Toolchain                 |
 | **Authors**  |                           |
 | **Created**  | 2026-07-15                |
-| **Updated**  | 2026-07-21                |
+| **Updated**  | 2026-07-28                |
 | **Estimate** | 20–40 pages               |
 | **Depends**  | RFC-000                   |
 | **Blocks**   | RFC-008, RFC-012, RFC-013 |
@@ -19,7 +19,7 @@
 
 This RFC defines the **Aura package manager**: manifest format (`aura.toml`), lockfile, dependency resolver, registry client, workspaces, and publish flow. The **default registry is GitHub-backed** (index repository + Release crate artifacts; optional direct `github =` deps). Implemented in **Rust** as part of the `aura` CLI, it ensures **reproducible** dependency graphs for libraries and binaries.
 
-**Toolchain today (2026-07-26, S2 + v0.1.1-alpha follow-up):** multi-file packages with minimal `aura.toml`, path dependencies, and `aura.lock` write/verify including nested/transitive entries. Locked registry dependencies are consumed through HTTPS metadata and archive downloads with semver pinning, SHA-256 verification, cache extraction, and atomic cache publication. Offline publish/update receipts, rollback, and signature fixtures exist; live registry publishing/authentication, `git=`/`github=` sources, and workspaces remain deferred — see [roadmap](../roadmap.md) and `agents/debts.md`.
+**Toolchain today (2026-07-28, S2 + v0.1.1-alpha follow-up):** multi-file packages with minimal `aura.toml`, path dependencies, and `aura.lock` write/verify including nested/transitive entries. Locked registry dependencies are consumed through HTTPS metadata and archive downloads with semver pinning, SHA-256 verification, cache extraction, and atomic cache publication. Offline publish/update receipts, rollback, and signature fixtures exist; live registry publishing/authentication, `git=`/`github=` sources, and workspaces remain deferred — see [roadmap](../roadmap.md) and `agents/debts.md`.
 
 ## 2. Motivation
 
@@ -127,7 +127,7 @@ path = "src/lib.aura"
   local_lib = "../local_lib"
   local_lib = { path = "../local_lib", source = "path" }
 
-  # registry pin (fetch not implemented yet)
+  # registry pin (locked HTTPS consumption)
   http = { version = "1.2.3", checksum = "sha256:…", source = "registry" }
   ```
 
@@ -358,13 +358,13 @@ Cargo-like design is proven for compiled languages with features and workspaces.
 
 ## 11. Implementation plan (optional)
 
-| Phase | Scope                                        | Exit criteria                              | Status                                |
-| ----- | -------------------------------------------- | ------------------------------------------ | ------------------------------------- |
-| K0    | Path deps + lock                             | Multi-package build                        | **Done** (incl. nested path lock C4j) |
-| K0b   | Lock schema v0 (`registry` pins)             | Parse/verify without fetch                 | **Done** (C8k)                        |
-| K1    | GitHub index client + tarball fetch + semver | Hello dep from default registry or fixture | Deferred                              |
-| K1b   | Direct `github =` / `git =` deps             | Lock pins rev + checksum                   | Deferred                              |
-| K2    | `aura publish` (Release + index PR/push)     | Round-trip public package                  | Deferred                              |
+| Phase | Scope                                        | Exit criteria                           | Status                                                                  |
+| ----- | -------------------------------------------- | --------------------------------------- | ----------------------------------------------------------------------- |
+| K0    | Path deps + lock                             | Multi-package build                     | **Done** (incl. nested path lock C4j)                                   |
+| K0b   | Lock schema v0 (`registry` pins)             | Parse/verify without fetch              | **Done** (C8k)                                                          |
+| K1    | GitHub index client + tarball fetch + semver | Locked registry consumption and fixture | **Partial** — read/verify/cache path landed; live compatibility remains |
+| K1b   | Direct `github =` / `git =` deps             | Lock pins rev + checksum                | Deferred                                                                |
+| K2    | `aura publish` (Release + index PR/push)     | Round-trip public package               | Deferred                                                                |
 
 ## 12. References
 

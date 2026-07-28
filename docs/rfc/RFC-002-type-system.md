@@ -8,7 +8,7 @@
 | **Layer**    | Language                  |
 | **Authors**  |                           |
 | **Created**  | 2026-07-15                |
-| **Updated**  | 2026-07-16                |
+| **Updated**  | 2026-07-28                |
 | **Estimate** | 40–60 pages               |
 | **Depends**  | RFC-000, RFC-001          |
 | **Blocks**   | RFC-004, RFC-007, RFC-009 |
@@ -21,7 +21,7 @@ This RFC specifies Aura’s **static type system**: nominal class/interface type
 
 It assumes the surface from **RFC-001** and leaves runtime representation details to **RFC-004** / **RFC-006**.
 
-**Toolchain today (2026-07-26, C22t):** nominal classes/interfaces/`struct`/`enum`, monomorphized generics + bounds, local null flow + `!!` / `?:` / `?.`, type-argument inference, fun types/`Ty::Fun`, lambdas with value and reference captures, scoped non-owning `ref T` with lexical escape checks, borrow-safe Array field returns, generic HOFs, nested generic substitution in codegen, MVP shared mutable `var` captures for class/Array/Fun, read-only collection snapshots/iterators, async/task types with borrow barriers, formatter/structured diagnostics/test reports, and Result-based std.io wrappers. Not yet: inheritance hierarchy, full overloading, structural typing, mutable/nullable/nested refs, `Array<Interface>`, live collection views, mutation-through-entry, general async ownership, or a complete ownership contract for escaping captured Array views.
+**Toolchain today (2026-07-28, C22t + alpha follow-up):** nominal classes/interfaces/`struct`/`enum`, monomorphized generics + bounds, local null flow + `!!` / `?:` / `?.`, type-argument inference, fun types/`Ty::Fun`, lambdas with value and reference captures, scoped non-owning `ref T` with lexical escape checks, borrow-safe Array field returns, generic HOFs, nested generic substitution in codegen, MVP shared mutable `var` captures for class/Array/Fun, read-only collection snapshots/iterators, async/task types with borrow barriers, formatter/structured diagnostics/test reports, and Result-based std.io wrappers. Not yet: inheritance hierarchy, full overloading, structural typing, mutable/nullable/nested refs, `Array<Interface>`, live collection views, mutation-through-entry, general async ownership, or a complete ownership contract for escaping captured Array views.
 
 ## 2. Motivation
 

@@ -35,9 +35,6 @@ jobs:
       - name: Build aura CLI
         run: cargo build -p aura-cli
 
-      - name: Validate alpha contract matrix
-        run: bash scripts/validate-alpha-contract.sh
-
       - name: Validate release target and signing policy
         run: bash scripts/validate-release-policy.sh
 
@@ -63,11 +60,6 @@ jobs:
           AURA_BIN: target/debug/aura
         run: |
           bash scripts/compiler-regression.sh
-
-      - name: Alpha harness backend stage
-        env:
-          AURA_BIN: target/debug/aura
-        run: bash scripts/alpha-harness.sh --stage backend --offline --profile test
 
       - name: Embedded runtime (no monorepo path)
         run: |

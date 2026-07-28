@@ -9,7 +9,7 @@ The `bounded-alpha` release profile ships only rows with
 `release_claim=alpha-required`; rows marked `post-alpha` remain visible
 follow-up work and are not included in the release claim.
 
-## Implementation status (2026-07-22)
+## Historical implementation status (2026-07-22; published in `v0.1.1-alpha`)
 
 - **C1:** Complete — 29-row contract matrix and validator are shipped in
   `contract-matrix.tsv` and `scripts/validate-alpha-contract.sh`.
@@ -22,8 +22,9 @@ follow-up work and are not included in the release claim.
   target, profile, offline/network, rerun, and versioned JSON report support.
 - **C5:** Partial — alpha corpus layout and golden policy are documented;
   capability-specific fixtures will land with their owning workstreams.
-- **C6:** Complete — clean-host procedure is documented and the canonical
-  release acceptance gate is wired into CI/release workflows.
+- **C6:** Complete — clean-host procedure was documented and the canonical
+  release acceptance gate was wired into the `v0.1.1-alpha` CI/release
+  workflows; current CI retains only reusable release-infrastructure gates.
 
 ## C1. Alpha contract matrix
 

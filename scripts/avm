@@ -68,11 +68,11 @@ usage() {
     'Examples:' \
     '  avm --list' \
     '  avm --show' \
-    '  avm 0.1.0-alpha' \
+    '  avm 0.1.1-alpha' \
     '  AURA_HOME=/opt/aura avm 0.2.0' \
     '' \
     'Install a version first:' \
-    '  curl -fsSL https://aura.fadosoft.com/install.sh | AURA_VERSION=0.1.0-alpha bash' \
+    '  curl -fsSL https://aura.fadosoft.com/install.sh | AURA_VERSION=0.1.1-alpha bash' \
     '' \
     'PATH: put $AURA_HOME/bin (or ~/.local/bin after install) ahead of other aura binaries.' \
     'Verify:  scripts/install-smoke.sh   (see docs/guide/install.md)'
@@ -100,7 +100,7 @@ esac
 
 ver="${cmd#v}"
 if ! target="$(version_target "$ver")"; then
-  die "invalid version: ${ver} (expected semver such as 0.1.0-alpha)"
+  die "invalid version: ${ver} (expected semver such as 0.1.1-alpha)"
 fi
 if ! valid_install "$target"; then
   die "version not installed: ${ver}

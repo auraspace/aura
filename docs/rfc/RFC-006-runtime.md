@@ -8,7 +8,7 @@
 | **Layer**    | Runtime                   |
 | **Authors**  |                           |
 | **Created**  | 2026-07-15                |
-| **Updated**  | 2026-07-16                |
+| **Updated**  | 2026-07-28                |
 | **Estimate** | 40–60 pages               |
 | **Depends**  | RFC-000, RFC-001, RFC-003 |
 | **Blocks**   | RFC-007, RFC-008, RFC-013 |
@@ -19,7 +19,7 @@
 
 This RFC specifies the **Aura runtime** linked into application binaries: tracing **GC**, **M:N task scheduler**, async I/O reactor, exception personality support, panic/abort paths, timers, and **C ABI FFI** bridges. The runtime is shipped as libraries produced by the Rust toolchain and linked by `aura build`, not installed as a separate end-user package.
 
-**Toolchain today (2026-07-26, C22t + alpha follow-up):** embedded C runtime [`runtime/aura_rt.c`](../../runtime/aura_rt.c) linked by the C backend — console/file/process I/O, exception frames with typed causes, Array/String ownership helpers, stop-the-world mark/sweep GC with registered roots and task storage scans, task-frame ABI, deterministic FIFO executor, bounded channels, and bounded FFI pin retention. The full RFC scheduler remains incomplete: arbitrary await lowering, non-empty capture transfer, complete task failure propagation, scheduler-integrated async I/O, concurrent GC, and typed HTTP handles remain deferred.
+**Toolchain today (2026-07-28, C22t + alpha follow-up):** embedded C runtime [`runtime/aura_rt.c`](../../runtime/aura_rt.c) linked by the C backend — console/file/process I/O, exception frames with typed causes, Array/String ownership helpers, stop-the-world mark/sweep GC with registered roots and task storage scans, task-frame ABI, deterministic FIFO executor, bounded channels, and bounded FFI pin retention. The full RFC scheduler remains incomplete: arbitrary await lowering, non-empty capture transfer, complete task failure propagation, scheduler-integrated async I/O, concurrent GC, and typed HTTP handles remain deferred.
 
 ## 2. Motivation
 

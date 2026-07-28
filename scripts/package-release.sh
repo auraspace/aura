@@ -30,9 +30,9 @@ fi
 [[ $# -eq 0 ]] || die "unknown option: $1"
 
 VERSION="$(grep -E '^version = ' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')"
-VERSION="${VERSION:-0.1.0}"
+VERSION="${VERSION:-0.1.1-alpha}"
 
-# Prefer explicit TAG_VERSION, then git tag (v0.1.0-alpha → 0.1.0-alpha), then Cargo + -alpha.
+# Prefer explicit TAG_VERSION, then the pushed tag, then Cargo + -alpha.
 if [[ -z "${TAG_VERSION:-}" ]]; then
   if [[ -n "${GITHUB_REF_NAME:-}" && "${GITHUB_REF_NAME}" == v* ]]; then
     TAG_VERSION="${GITHUB_REF_NAME#v}"
@@ -40,7 +40,7 @@ if [[ -z "${TAG_VERSION:-}" ]]; then
     TAG_VERSION="${VERSION}-alpha"
   fi
 else
-  # Allow callers to pass v0.1.0-alpha
+  # Allow callers to pass a tag with a leading v.
   TAG_VERSION="${TAG_VERSION#v}"
 fi
 
@@ -135,7 +135,7 @@ Standard library:
   Optional: export AURA_STD="\$PWD/share/aura/std"
 
 Docs: https://aura.fadosoft.com
-Freeze: docs/releases/0.1.0-alpha.md
+Release notes: docs/releases/${TAG_VERSION}.md
 EOF
 
 TAR="$DIST/${NAME}.tar.gz"

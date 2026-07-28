@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Fail-closed completion audit for the v0.1.1-alpha contract.
+# Historical completion audit for the published v0.1.1-alpha contract.
+# Release-infrastructure CI uses generic policy/bundle checks instead.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"

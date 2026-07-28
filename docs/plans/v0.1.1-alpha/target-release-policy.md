@@ -1,6 +1,6 @@
 # C2: Target and Release Policy
 
-This policy defines the v0.1.1-alpha bounded release targets and the claims
+This policy records the v0.1.1-alpha bounded release targets and the claims
 made by the CI and release workflows. It does not claim completion of the
 post-alpha async, I/O, HTTP, FFI, registry, or cross-host follow-up rows.
 
@@ -16,7 +16,7 @@ The release matrix contains exactly these Unix targets:
 
 `darwin-*` is the artifact target spelling for macOS. Linux arm64 and Windows
 targets are policy-only until their native artifact and installer acceptance
-evidence exists; they are not release claims in this alpha. The explicit
+evidence exists; they were not release claims in this alpha. The explicit
 non-claims are checked by JSON fixtures under
 `scripts/fixtures/target-policy/`.
 

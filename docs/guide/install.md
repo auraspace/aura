@@ -11,8 +11,8 @@ Aura’s toolchain is the **`aura` CLI** (Rust crate `aura-cli`). User programs 
 
 ## One-liner (release tarball)
 
-The `0.1.0-alpha` GitHub Release assets are available for the supported Unix
-targets.
+The public `0.1.1-alpha` GitHub Release assets are available for the supported
+Unix targets. `0.1.0-alpha` remains available as the previous public alpha.
 
 ```bash
 curl -fsSL https://aura.fadosoft.com/install.sh | bash
@@ -23,14 +23,14 @@ curl -fsSL https://aura.fadosoft.com/install.sh | bash
 ```text
 $AURA_HOME/
   versions/
-    0.1.0-alpha/
+    0.1.1-alpha/
       bin/aura
       share/aura/aura_rt.c    # from the release archive (optional)
       meta/version, os, arch, installed_at
     0.2.0/
       bin/aura
       …
-  current -> versions/0.1.0-alpha     # active toolchain
+  current -> versions/0.1.1-alpha     # active toolchain
   bin/
     aura -> ../current/bin/aura       # put this on PATH
     avm                               # Aura Version Manager
@@ -46,7 +46,7 @@ targets; use a source install instead.
 
 ```bash
 # Pin a version (tag without leading v)
-curl -fsSL https://aura.fadosoft.com/install.sh | AURA_VERSION=0.1.0-alpha bash
+curl -fsSL https://aura.fadosoft.com/install.sh | AURA_VERSION=0.1.1-alpha bash
 
 # Custom home (multi-user or CI)
 curl -fsSL https://aura.fadosoft.com/install.sh | AURA_HOME=/opt/aura bash
@@ -61,7 +61,7 @@ avm 0.2.0
 ```bash
 avm --list
 avm --show
-avm 0.1.0-alpha
+avm 0.1.1-alpha
 aura version
 ```
 
@@ -147,11 +147,11 @@ Pushing a tag `v*` runs [`.github/workflows/release.yml`](../../.github/workflow
 
 ### Integrity & signing (roadmap)
 
-Alpha releases ship per-archive `.sha256` files from packaging, and
-`install.sh` verifies the selected archive before activation. There is **no**
-signed manifest or OS notarization yet. The planned path (minisign-signed
-`SHA256SUMS` → later macOS notarization / deferred Windows Authenticode) is recorded in
-[C13s signing design note](../plans/2026-07-21-c13s-signing-note.md).
+Alpha releases ship per-archive `.sha256` files, an aggregate `SHA256SUMS`, and
+a detached minisign signature. `install.sh` verifies the selected archive
+checksum before activation; production tag workflows fail closed when signing
+material is missing or invalid. OS notarization and Windows Authenticode remain
+deferred; see [RFC-013](../rfc/RFC-013-binary-distribution.md).
 
 Maintainer flow (version dump → changelog → commit → tag → CI):
 
@@ -173,8 +173,8 @@ Or use the installer (recommended): it unpacks into `$AURA_HOME/versions/<ver>/`
 Local package without publishing:
 
 ```bash
-TAG_VERSION=0.1.0-alpha bash scripts/package-release.sh
-# → dist/aura-0.1.0-alpha-<os>-<arch>.tar.gz
+TAG_VERSION=0.1.1-alpha bash scripts/package-release.sh
+# → dist/aura-0.1.1-alpha-<os>-<arch>.tar.gz
 ```
 
 ## Verify install
@@ -201,11 +201,11 @@ bash scripts/install-smoke.sh --checklist
 bash scripts/install-smoke.sh
 
 # Maintainer: package this checkout into a temp $AURA_HOME and smoke
-TAG_VERSION=0.1.0-alpha bash scripts/package-release.sh
+TAG_VERSION=0.1.1-alpha bash scripts/package-release.sh
 bash scripts/install-smoke.sh --local-pkg
 
 # Optional: curl the published installer into a temp home (network)
-# AURA_VERSION=0.1.0-alpha bash scripts/install-smoke.sh --from-release
+# AURA_VERSION=0.1.1-alpha bash scripts/install-smoke.sh --from-release
 ```
 
 Source: [`scripts/install-smoke.sh`](https://github.com/auraspace/aura/blob/main/scripts/install-smoke.sh).
@@ -224,4 +224,5 @@ Source: [`scripts/install-smoke.sh`](https://github.com/auraspace/aura/blob/main
 
 - [Getting started](./getting-started.md)
 - [CLI](./cli.md)
-- [Release notes 0.1.0-alpha](../releases/0.1.0-alpha.md)
+- [Release notes 0.1.1-alpha](../releases/0.1.1-alpha.md)
+- [Historical 0.1.0-alpha release notes](../releases/0.1.0-alpha.md)

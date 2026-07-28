@@ -8,7 +8,7 @@
 | **Layer**    | Language                   |
 | **Authors**  |                            |
 | **Created**  | 2026-07-15                 |
-| **Updated**  | 2026-07-16                 |
+| **Updated**  | 2026-07-28                 |
 | **Estimate** | 40–80 pages                |
 | **Depends**  | RFC-000, RFC-001, RFC-002  |
 | **Blocks**   | RFC-004, RFC-006, RFC-007  |
@@ -21,7 +21,7 @@ This RFC defines Aura’s **memory and concurrency model**: tracing GC, referenc
 
 Runtime implementation details (scheduler, collector algorithm) are expanded in **RFC-006**; this document is the language-level contract.
 
-**Toolchain today (2026-07-26, C22t + alpha follow-up):** class instances are GC heap references, `struct` values remain by-value, and execution is single-threaded. The runtime has stop-the-world mark/sweep with registered roots and task-frame storage scans, plus ownership handling for Array/String values, captured environments, typed exception causes, and bounded FFI pins. C20c–e add MVP shared pointer boxes for mutable class, Array, and nested Fun captures; C20g adds read-only collection snapshots. C21b–e add sema-checked scoped refs and borrow-safe Array field returns. C22a–i land async/task syntax and barriers; C22j–k task frames/executor; C22n–o bounded channels and typed payloads. C22l–m and the v0.1.1-alpha follow-up remain partial: bounded await/control-flow shapes are executable, while arbitrary lowering, richer captures, full outcome propagation, async I/O, and typed HTTP handles remain open.
+**Toolchain today (2026-07-28, C22t + alpha follow-up):** class instances are GC heap references, `struct` values remain by-value, and execution is single-threaded. The runtime has stop-the-world mark/sweep with registered roots and task-frame storage scans, plus ownership handling for Array/String values, captured environments, typed exception causes, and bounded FFI pins. C20c–e add MVP shared pointer boxes for mutable class, Array, and nested Fun captures; C20g adds read-only collection snapshots. C21b–e add sema-checked scoped refs and borrow-safe Array field returns. C22a–i land async/task syntax and barriers; C22j–k task frames/executor; C22n–o bounded channels and typed payloads. C22l–m and the v0.1.1-alpha follow-up remain partial: bounded await/control-flow shapes are executable, while arbitrary lowering, richer captures, full outcome propagation, async I/O, and typed HTTP handles remain open.
 
 ## 2. Motivation
 

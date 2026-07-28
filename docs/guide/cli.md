@@ -2,7 +2,7 @@
 title: CLI
 section: Toolchain
 order: 40
-summary: aura new, init, version, check, build, run, and test — the verbs you use every day.
+summary: aura new, init, version, check, build, run, test, fmt, and race — the verbs you use every day.
 ---
 
 # CLI
@@ -21,7 +21,7 @@ From this monorepo without a global install:
 cargo run -p aura-cli -- <command> [args]
 ```
 
-## Commands (0.1.0-alpha + C12 process args)
+## Commands (0.1.1-alpha)
 
 | Command              | Purpose                                   |
 | -------------------- | ----------------------------------------- |
@@ -31,8 +31,10 @@ cargo run -p aura-cli -- <command> [args]
 | `build <file\|dir>`  | Emit native binary (`-o` for output path) |
 | `run <file\|dir>`    | Build and execute                         |
 | `test <file\|dir>`   | Run `@test` functions                     |
+| `race <file\|dir>`   | Run tests with the runtime race detector  |
+| `fmt <file>`         | Format one Aura source file in place      |
 | `emit-c <file\|dir>` | Emit C (advanced / debugging)             |
-| `version`            | Print CLI version (`aura 0.1.0-alpha`)    |
+| `version`            | Print CLI version (`aura 0.1.1-alpha`)    |
 
 Examples:
 
@@ -42,6 +44,9 @@ aura run hello
 aura check path
 aura build path -o out
 aura test path
+aura test path --test-name filter --format json
+aura race path --format json
+aura fmt path/src/main.aura
 aura version
 ```
 
@@ -99,9 +104,9 @@ aura init                # same layout in `.` (name from directory)
 
 Hyphens in the path become underscores in the package name (`my-app` → package `my_app`). Existing `aura.toml` / `src/` are never overwritten.
 
-## Not in alpha / deferred
+## Not yet available
 
-RFC-012 also describes `fmt`, package registry flows, and `doc`. Those are **not** implemented yet. Process argv, stdin (`readLine` / `readAllStdin`), and `exit` **are** available post-alpha via `std.io` (C12b–e).
+RFC-012 also describes `add`, `doc`, `clean`, and a complete toolchain manager; those remain deferred. `publish` and `update` exist for the release/registry workflow, but live credentialed publication and broader package UX are not yet a stable end-user path. Process argv, stdin (`readLine` / `readAllStdin`), and `exit` are available via `std.io`.
 
 ## Next
 

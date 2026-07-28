@@ -1,5 +1,5 @@
 # Build toolchain tarballs and publish a GitHub Release when a version tag is pushed.
-# Tag format: v0.1.0-alpha, v0.1.0, v1.2.3-rc.1, …
+# Tag format: v0.1.1-alpha, v0.1.0, v1.2.3-rc.1, …
 name: Release
 
 on:
@@ -62,7 +62,7 @@ jobs:
           RUST_TARGET: ${{ matrix.rust_target }}
         run: bash scripts/package-release.sh
 
-      - name: Alpha release acceptance gate
+      - name: Release acceptance gate
         run: bash scripts/release-acceptance.sh
 
       # Native artifacts only: a cross-built x86_64 binary cannot run on arm64 runners.
