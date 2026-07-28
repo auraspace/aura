@@ -8140,7 +8140,7 @@ fn emit_async_fun_no_await(
         out.push_str("    if (result == NULL) return AURA_TASK_FAILED;\n");
         out.push_str("    *result = body_value;\n");
         if ret_key.starts_with("ForeignHandle_") {
-            out.push_str("    if (*result == NULL) { free(result); return AURA_TASK_FAILED; }\n");
+            out.push_str("    if (*result == NULL || aura_ffi_handle_retain(*result) != AURA_FFI_OK) { free(result); return AURA_TASK_FAILED; }\n");
         }
         if is_heap_class_mono(&ret_key, checked) {
             out.push_str("    aura_gc_add_root((void **)result);\n");
