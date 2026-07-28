@@ -88,6 +88,11 @@ When you resolve debt, update or remove the matching entry.
   supported `Array<T>` payload, including deep cloning and destruction of owned
   `Array<String>` elements across success, failure, forced-GC, cancellation,
   and repeated owning joins.
+- Progress: general CFG assignments now transfer `String` and array ownership
+  when moving from one local to another and synchronize moved frame slots after
+  each action. Native coverage exercises repeated awaits of caller-owned
+  `Task<String>` and `Task<Array<String>>` through a loop, forced GC, failure,
+  cancellation, and repeated owning joins under ASAN.
 - Next step: connect remaining richer aggregate payload ownership and
   suspended await failure propagation to the clone/destroy boundary.
 
@@ -145,6 +150,11 @@ When you resolve debt, update or remove the matching entry.
   primitive `String` locals and return values, including owned suspension
   cloning, failure propagation, repeated joins, forced GC, and queued
   cancellation in a native regression.
+- General CFG actions now synchronize frame slots after local ownership moves,
+  preventing stale aggregate aliases after a completed await. Repeated
+  caller-owned `Task<String>` and `Task<Array<String>>` awaits through a loop
+  are covered with multiple resume states, forced GC, typed failure/cancel, and
+  repeated joins.
 - The same general CFG lowering now accepts `Bool` return values and
   `Task<Bool>` operands. A native branch/loop fixture exercises both selected
   paths, multiple resume states, forced GC between iterations, repeated joins,

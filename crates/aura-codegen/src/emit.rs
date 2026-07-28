@@ -1082,26 +1082,8 @@ impl<'a> AsyncCfgBuilder<'a> {
                         return next;
                     }
                     let init = coerce_expr(&var.init, &key, &mut self.ctx);
-                    let cleanup = if is_array_type_key(&key) {
-                        crate::array_emit::array_contents_free_expr(&mangle_ident(&name), &key)
-                    } else {
-                        String::new()
-                    };
-                    let code = if key == "String" {
-                        format!(
-                            "{} = {init}; {}__owned = false;",
-                            mangle_ident(&name),
-                            mangle_ident(&name)
-                        )
-                    } else if is_array_type_key(&key) {
-                        let cty = crate::stmt::local_key_to_c(&key, self.ctx.checked);
-                        format!(
-                            "{cty} __cfg_next = {init}; {cleanup}{} = __cfg_next;",
-                            mangle_ident(&name)
-                        )
-                    } else {
-                        format!("{} = {init};", mangle_ident(&name))
-                    };
+                    let code =
+                        async_cfg_assignment_code(&name, &key, &var.init, &init, self.ctx.checked);
                     let state = self.alloc();
                     self.finish(state, AsyncCfgNode::Action { code, next });
                     state
@@ -1195,28 +1177,13 @@ impl<'a> AsyncCfgBuilder<'a> {
                     return next;
                 }
                 let value = coerce_expr(&assign.value, &key, &mut self.ctx);
-                let cleanup = if is_array_type_key(&key) {
-                    crate::array_emit::array_contents_free_expr(
-                        &mangle_ident(&assign.name.name),
-                        &key,
-                    )
-                } else {
-                    String::new()
-                };
-                let code = if key == "String" {
-                    let name = mangle_ident(&assign.name.name);
-                    format!(
-                        "const char *__cfg_next = {value}; if ({name}__owned) free((void *){name}); {name} = __cfg_next; {name}__owned = false;"
-                    )
-                } else if is_array_type_key(&key) {
-                    let cty = crate::stmt::local_key_to_c(&key, self.ctx.checked);
-                    format!(
-                        "{cty} __cfg_next = {value}; {cleanup}{} = __cfg_next;",
-                        mangle_ident(&assign.name.name)
-                    )
-                } else {
-                    format!("{} = {value};", mangle_ident(&assign.name.name))
-                };
+                let code = async_cfg_assignment_code(
+                    &assign.name.name,
+                    &key,
+                    &assign.value,
+                    &value,
+                    self.ctx.checked,
+                );
                 let state = self.alloc();
                 self.finish(state, AsyncCfgNode::Action { code, next });
                 state
@@ -1255,6 +1222,50 @@ fn async_cfg_value_supported(key: &str, checked: &CheckedFile) -> bool {
 fn async_cfg_task_supported(key: &str, checked: &CheckedFile) -> bool {
     key.strip_prefix("Task_")
         .is_some_and(|value| async_cfg_value_supported(value, checked))
+}
+
+fn async_cfg_assignment_code(
+    name: &str,
+    key: &str,
+    init: &Expr,
+    value: &str,
+    checked: &CheckedFile,
+) -> String {
+    let name = mangle_ident(name);
+    if key == "String" {
+        if let Some(source) = async_cfg_move_source(init) {
+            let source = mangle_ident(&source.name);
+            if source != name {
+                return format!(
+                    "if ({name}__owned && {name} != NULL) free((void *){name}); {name} = {source}; {name}__owned = {source}__owned; {source} = NULL; {source}__owned = false;"
+                );
+            }
+        }
+        return format!("{name} = {value}; {name}__owned = false;");
+    }
+    if is_array_type_key(key) {
+        let cty = crate::stmt::local_key_to_c(key, checked);
+        let cleanup = crate::array_emit::array_contents_free_expr(&name, key);
+        if let Some(source) = async_cfg_move_source(init) {
+            let source = mangle_ident(&source.name);
+            if source != name {
+                return format!(
+                    "{cty} __cfg_next = {source}; {cleanup} {name} = __cfg_next; {source} = ({cty}){{0}};"
+                );
+            }
+        }
+        return format!("{cty} __cfg_next = {value}; {cleanup} {name} = __cfg_next;");
+    }
+    format!("{name} = {value};")
+}
+
+fn async_cfg_move_source(expr: &Expr) -> Option<&Ident> {
+    match expr {
+        Expr::Ident(id) => Some(id),
+        Expr::Group(inner, _) => async_cfg_move_source(inner),
+        Expr::ForceUnwrap(ForceUnwrapExpr { expr: inner, .. }) => async_cfg_move_source(inner),
+        _ => None,
+    }
 }
 
 fn is_gc_collect_expr(expr: &Expr) -> bool {
@@ -1601,7 +1612,7 @@ fn emit_async_fun_cfg_int(
             AsyncCfgNode::Action { code, next } => {
                 let _ = writeln!(
                     out,
-                    "        {code} aura_task_frame_set_resume_state(frame, {next}); continue;"
+                    "        {code} {sync} aura_task_frame_set_resume_state(frame, {next}); continue;"
                 );
             }
             AsyncCfgNode::Branch {
@@ -1672,7 +1683,7 @@ fn emit_async_fun_cfg_int(
                     if value_is_ident {
                         let _ = writeln!(
                             out,
-                            "        {result_cty} *result = ({result_cty} *)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; *result = {clone}(&{value}); aura_task_frame_set_result(frame, result, sizeof(*result), {destroy_result}); return AURA_TASK_COMPLETE;"
+                            "        {result_cty} *__aura_result = ({result_cty} *)malloc(sizeof(*__aura_result)); if (__aura_result == NULL) return AURA_TASK_FAILED; *__aura_result = {clone}(&{value}); aura_task_frame_set_result(frame, __aura_result, sizeof(*__aura_result), {destroy_result}); return AURA_TASK_COMPLETE;"
                         );
                     } else {
                         let mut free_code = String::new();
@@ -1684,7 +1695,7 @@ fn emit_async_fun_cfg_int(
                         );
                         let _ = writeln!(
                             out,
-                            "        {result_cty} *result = ({result_cty} *)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; {result_cty} __returned = {value}; *result = {clone}(&__returned); {free_code} aura_task_frame_set_result(frame, result, sizeof(*result), {destroy_result}); return AURA_TASK_COMPLETE;"
+                            "        {result_cty} *__aura_result = ({result_cty} *)malloc(sizeof(*__aura_result)); if (__aura_result == NULL) return AURA_TASK_FAILED; {result_cty} __returned = {value}; *__aura_result = {clone}(&__returned); {free_code} aura_task_frame_set_result(frame, __aura_result, sizeof(*__aura_result), {destroy_result}); return AURA_TASK_COMPLETE;"
                         );
                     }
                 } else if is_heap_class_mono(&value_key, checked) {
