@@ -1795,6 +1795,106 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_general_cfg_string_branch_loop_with_owned_outcome() {
+        let source = r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+async fun worker(fail: Bool): String {
+  if (fail) { throw "string-failure" }
+  return "cfg-string"
+}
+async fun nested(flag: Bool): String {
+  if (flag) {
+    var i: Int = 0
+    while (i < 1) {
+      val value: String = await worker(false)
+      gc_collect()
+      return value
+    }
+  }
+  return "empty"
+}
+async fun broken(): String {
+  if (true) {
+    var i: Int = 0
+    while (i < 1) {
+      val value: String = await worker(true)
+      return value
+    }
+  }
+  return "empty"
+}
+fun main() {
+  val task = spawn { val value: String = await nested(true) return value }
+  val first: Result<String, TaskError> = join(task)
+  match (first) {
+    case Ok(value) => { println(value) }
+    case Err(error) => { println("unexpected-error") }
+  }
+  gc_collect()
+  val second: Result<String, TaskError> = join(task)
+  match (second) {
+    case Ok(value) => { println(value) }
+    case Err(error) => { println("unexpected-error") }
+  }
+  val failed = spawn { val value: String = await broken() return value }
+  val failed_result: Result<String, TaskError> = join(failed)
+  match (failed_result) {
+    case Ok(value) => { println("unexpected-success") }
+    case Err(error) => {
+      match (error) {
+        case Failed(message) => { println(message) }
+        case Cancelled => { println("unexpected-cancel") }
+      }
+    }
+  }
+  val cancelled = spawn { val value: String = await nested(true) return value }
+  cancel(cancelled)
+  val cancelled_result: Result<String, TaskError> = join(cancelled)
+  match (cancelled_result) {
+    case Ok(value) => { println("unexpected-success") }
+    case Err(error) => {
+      match (error) {
+        case Failed(message) => { println("unexpected-failure") }
+        case Cancelled => { println("cancelled") }
+      }
+    }
+  }
+}
+"#;
+        let file = parse_file(source).expect("parse String CFG await fixture");
+        let generated = emit_c_from_ast(&file).expect("emit String CFG await fixture");
+        assert!(generated.contains("aura async general CFG String lowering"));
+        assert!(generated.contains("aura_async_result_destroy_"));
+        assert!(generated.contains("data->value__owned"));
+        assert!(generated.contains("aura_task_frame_propagate_error(frame, data->await_task)"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-general-cfg-string-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile String CFG await fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run String CFG await fixture");
+        assert!(
+            output.status.success(),
+            "String CFG await fixture failed: {output:?}"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "cfg-string\ncfg-string\nstring-failure\ncancelled\n"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn lowers_general_cfg_caller_owned_task_parameter_without_static_release() {
         let source = r#"package demo
 async fun nested(flag: Bool, task: Task<Int>): Int {

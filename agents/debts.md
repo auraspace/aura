@@ -18,7 +18,7 @@ When you resolve debt, update or remove the matching entry.
 - Next step: clone non-owned String arguments at constructor boundaries or make
   ownership explicit in the type checker before broadening class payload tests.
 
-### ASYNC-002 generated payload clone integration remains partial (updated 2026-07-27)
+### ASYNC-002 generated payload clone integration remains partial (updated 2026-07-28)
 
 - Area: compiler-generated async child-to-parent failure propagation
 - Progress: native task outcomes now support clone-based terminal result
@@ -75,7 +75,11 @@ When you resolve debt, update or remove the matching entry.
   cancellation coverage. The general nested branch/loop CFG now also accepts
   an `Array<Int>` return and awaited slot, clones it at the await boundary,
   frees frame slots on cancellation, and proves two repeated owning joins.
-  Rarer aggregate payloads still need matching poller ownership paths.
+  Rarer aggregate payloads still need matching poller ownership paths. A
+  general nested `if -> while -> await` CFG now also clones suspended and
+  returned `String` payloads into owned frame/result storage, with native
+  success, repeated-join, failure-detail, queued-cancellation, and forced-GC
+  coverage.
 - Next step: connect richer aggregate payload ownership and suspended await
   failure propagation to the clone/destroy boundary.
 
@@ -129,6 +133,10 @@ When you resolve debt, update or remove the matching entry.
   and queued cancellation. The same lowering now supports three conditional
   awaits with four distinct resume states, forced GC, repeated joins, and
   queued cancellation coverage.
+  The general nested `if -> while -> await` CFG shape now also supports
+  primitive `String` locals and return values, including owned suspension
+  cloning, failure propagation, repeated joins, forced GC, and queued
+  cancellation in a native regression.
 - A range `for (i in start..end)` body with one awaited `Task<Int>` now persists
   the cursor, endpoint, accumulator, and temporary child across suspension;
   forced GC, repeated typed joins, and queued cancellation are covered by a

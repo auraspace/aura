@@ -1051,7 +1051,7 @@ impl<'a> AsyncCfgBuilder<'a> {
                     return next;
                 };
                 if let Expr::Async(AsyncExpr::Await(await_expr)) = &var.init {
-                    if !matches!(key.as_str(), "Int" | "Bool" | "Array_Int")
+                    if !matches!(key.as_str(), "Int" | "Bool" | "String" | "Array_Int")
                         || expr_contains_async(&await_expr.operand)
                         || !self.locals.contains_key(&name)
                     {
@@ -1076,7 +1076,7 @@ impl<'a> AsyncCfgBuilder<'a> {
                     state
                 } else {
                     if expr_contains_async(&var.init)
-                        || !matches!(key.as_str(), "Int" | "Bool" | "Array_Int")
+                        || !matches!(key.as_str(), "Int" | "Bool" | "String" | "Array_Int")
                     {
                         self.supported = false;
                         return next;
@@ -1087,7 +1087,13 @@ impl<'a> AsyncCfgBuilder<'a> {
                     } else {
                         String::new()
                     };
-                    let code = if is_array_type_key(&key) {
+                    let code = if key == "String" {
+                        format!(
+                            "{} = {init}; {}__owned = false;",
+                            mangle_ident(&name),
+                            mangle_ident(&name)
+                        )
+                    } else if is_array_type_key(&key) {
                         let cty = crate::stmt::local_key_to_c(&key, self.ctx.checked);
                         format!(
                             "{cty} __cfg_next = {init}; {cleanup}{} = __cfg_next;",
@@ -1183,7 +1189,7 @@ impl<'a> AsyncCfgBuilder<'a> {
                     return next;
                 };
                 if expr_contains_async(&assign.value)
-                    || !matches!(key.as_str(), "Int" | "Bool" | "Array_Int")
+                    || !matches!(key.as_str(), "Int" | "Bool" | "String" | "Array_Int")
                 {
                     self.supported = false;
                     return next;
@@ -1197,7 +1203,12 @@ impl<'a> AsyncCfgBuilder<'a> {
                 } else {
                     String::new()
                 };
-                let code = if is_array_type_key(&key) {
+                let code = if key == "String" {
+                    let name = mangle_ident(&assign.name.name);
+                    format!(
+                        "const char *__cfg_next = {value}; if ({name}__owned) free((void *){name}); {name} = __cfg_next; {name}__owned = false;"
+                    )
+                } else if is_array_type_key(&key) {
                     let cty = crate::stmt::local_key_to_c(&key, self.ctx.checked);
                     format!(
                         "{cty} __cfg_next = {value}; {cleanup}{} = __cfg_next;",
@@ -1377,7 +1388,8 @@ fn emit_async_fun_cfg_int(
         return false;
     };
     let return_key = type_ref_local_key_expand(ret, &[], &[], checked);
-    if !matches!(return_key.as_str(), "Int" | "Array_Int") || !contains_if_with_while(&f.body.stmts)
+    if !matches!(return_key.as_str(), "Int" | "String" | "Array_Int")
+        || !contains_if_with_while(&f.body.stmts)
     {
         return false;
     }
@@ -1387,13 +1399,13 @@ fn emit_async_fun_cfg_int(
     }
     if !vars
         .iter()
-        .any(|(_, key)| matches!(key.as_str(), "Int" | "Array_Int"))
+        .any(|(_, key)| matches!(key.as_str(), "Int" | "String" | "Array_Int"))
     {
         return false;
     }
     let mut locals = HashMap::new();
     for (var, key) in &vars {
-        if !matches!(key.as_str(), "Int" | "Bool" | "Array_Int")
+        if !matches!(key.as_str(), "Int" | "Bool" | "String" | "Array_Int")
             || locals.insert(var.name.name.clone(), key.clone()).is_some()
         {
             return false;
@@ -1403,7 +1415,10 @@ fn emit_async_fun_cfg_int(
     let mut ctx = async_ctx(checked, detector, &params, &f.params, &f.return_type);
     for param in &f.params {
         let key = type_ref_local_key_expand(&param.ty, &params, &[], checked);
-        if !matches!(key.as_str(), "Int" | "Bool" | "Array_Int" | "Task_Int") {
+        if !matches!(
+            key.as_str(),
+            "Int" | "Bool" | "String" | "Array_Int" | "Task_Int"
+        ) {
             return false;
         }
         ctx.define_local(&param.name.name, full_type_mono(&key, checked));
@@ -1413,7 +1428,9 @@ fn emit_async_fun_cfg_int(
     }
     let mut builder = AsyncCfgBuilder::new(ctx, locals.clone(), return_key.clone());
     let terminal = builder.alloc();
-    let terminal_value = if is_array_type_key(&return_key) {
+    let terminal_value = if return_key == "String" {
+        "NULL".into()
+    } else if is_array_type_key(&return_key) {
         format!(
             "({}){{0}}",
             crate::stmt::local_key_to_c(&return_key, checked)
@@ -1439,7 +1456,11 @@ fn emit_async_fun_cfg_int(
     let poll_fn = format!("aura_async_poll_{base}");
     let destroy_data = format!("aura_async_destroy_{base}");
     let destroy_result = format!("aura_async_result_destroy_{base}");
-    let lowering_kind = if return_key == "Int" { "Int" } else { "Array" };
+    let lowering_kind = match return_key.as_str() {
+        "Int" => "Int",
+        "String" => "String",
+        _ => "Array",
+    };
     let _ = writeln!(
         out,
         "/* aura async general CFG {lowering_kind} lowering states={} */",
@@ -1461,6 +1482,9 @@ fn emit_async_fun_cfg_int(
             crate::stmt::local_key_to_c(key, checked),
             mangle_ident(&var.name.name)
         );
+        if key == "String" {
+            let _ = writeln!(out, "  bool {}__owned;", mangle_ident(&var.name.name));
+        }
     }
     out.push_str("  AuraTaskFrame *await_task; bool await_task_owned;\n");
     let _ = writeln!(out, "}} {data_ty};\n");
@@ -1471,7 +1495,13 @@ fn emit_async_fun_cfg_int(
     );
     out.push_str("  if (data != NULL && data->await_task != NULL && data->await_task_owned && __aura_task_executor != NULL) (void)aura_task_executor_release(__aura_task_executor, &data->await_task);\n");
     for (var, key) in &vars {
-        if is_array_type_key(key) {
+        if key == "String" {
+            let name = mangle_ident(&var.name.name);
+            let _ = writeln!(
+                out,
+                "  if (data->{name}__owned && data->{name} != NULL) free((void *)data->{name});"
+            );
+        } else if is_array_type_key(key) {
             crate::array_emit::emit_array_contents_free(
                 out,
                 2,
@@ -1485,7 +1515,9 @@ fn emit_async_fun_cfg_int(
         out,
         "static void {destroy_result}(void *data, size_t size) {{"
     );
-    if return_key == "Array_Int" {
+    if return_key == "String" {
+        out.push_str("  (void)size; if (data != NULL) { const char **result = (const char **)data; if (*result != NULL) free((void *)*result); free(result); }\n}\n\n");
+    } else if return_key == "Array_Int" {
         let result_cty = crate::stmt::local_key_to_c(&return_key, checked);
         let _ = writeln!(
             out,
@@ -1520,13 +1552,23 @@ fn emit_async_fun_cfg_int(
             "  {} {name} = data->{name};",
             crate::stmt::local_key_to_c(key, checked)
         );
+        if key == "String" {
+            let _ = writeln!(out, "  bool {name}__owned = data->{name}__owned;");
+        }
     }
     out.push_str("  for (;;) {\n    switch (aura_task_frame_resume_state(frame)) {\n");
     let sync = vars
         .iter()
         .map(|(var, _)| {
             let name = mangle_ident(&var.name.name);
-            format!("data->{name} = {name};")
+            if locals
+                .get(&var.name.name)
+                .is_some_and(|key| key == "String")
+            {
+                format!("data->{name} = {name}; data->{name}__owned = {name}__owned;")
+            } else {
+                format!("data->{name} = {name};")
+            }
         })
         .collect::<Vec<_>>()
         .join(" ");
@@ -1559,7 +1601,12 @@ fn emit_async_fun_cfg_int(
                 out.push_str("        AuraTaskPollState child_state = aura_task_frame_state(data->await_task); if (child_state == AURA_TASK_READY) child_state = aura_task_frame_poll_once(data->await_task);\n");
                 let _ = writeln!(out, "        if (child_state == AURA_TASK_PENDING) {{ {sync} aura_task_frame_set_resume_state(frame, {state}); if (!aura_task_frame_wait_on(frame, data->await_task)) return AURA_TASK_FAILED; return AURA_TASK_PENDING; }}");
                 out.push_str("        if (child_state == AURA_TASK_CANCELLED) return AURA_TASK_CANCELLED;\n        if (child_state == AURA_TASK_FAILED) { (void)aura_task_frame_propagate_error(frame, data->await_task); return AURA_TASK_FAILED; }\n        if (child_state != AURA_TASK_COMPLETE) return AURA_TASK_FAILED;\n");
-                if is_array_type_key(&value_key) {
+                if value_key == "String" {
+                    let _ = writeln!(
+                        out,
+                        "        if (data->await_task != NULL && aura_task_frame_result(data->await_task).data != NULL) {{ const char *__src = *((const char **)aura_task_frame_result(data->await_task).data); if (data->{value}__owned && data->{value} != NULL) free((void *)data->{value}); data->{value} = NULL; data->{value}__owned = false; if (__src != NULL) {{ size_t __len = strlen(__src); data->{value} = (char *)malloc(__len + 1); if (data->{value} == NULL) return AURA_TASK_FAILED; memcpy((void *)data->{value}, __src, __len + 1); data->{value}__owned = true; {value} = data->{value}; {value}__owned = true; }} }} if (data->await_task_owned && __aura_task_executor != NULL) (void)aura_task_executor_release(__aura_task_executor, &data->await_task); data->await_task = NULL; data->await_task_owned = false; aura_task_frame_set_resume_state(frame, {next}); continue;"
+                    );
+                } else if is_array_type_key(&value_key) {
                     let cty = crate::stmt::local_key_to_c(&value_key, checked);
                     let clone = crate::names::c_method_name(&value_key, "clone");
                     let mut free_code = String::new();
@@ -1587,7 +1634,12 @@ fn emit_async_fun_cfg_int(
                 value_is_ident,
             } => {
                 let result_cty = crate::stmt::local_key_to_c(&value_key, checked);
-                if is_array_type_key(&value_key) {
+                if value_key == "String" {
+                    let _ = writeln!(
+                        out,
+                        "        const char *__src = {value}; const char *__copy = NULL; if (__src != NULL) {{ size_t __len = strlen(__src); char *__owned = (char *)malloc(__len + 1); if (__owned == NULL) return AURA_TASK_FAILED; memcpy(__owned, __src, __len + 1); __copy = __owned; }} const char **result = (const char **)malloc(sizeof(*result)); if (result == NULL) {{ free((void *)__copy); return AURA_TASK_FAILED; }} *result = __copy; aura_task_frame_set_result(frame, result, sizeof(*result), {destroy_result}); return AURA_TASK_COMPLETE;"
+                    );
+                } else if is_array_type_key(&value_key) {
                     let clone = crate::names::c_method_name(&value_key, "clone");
                     if value_is_ident {
                         let _ = writeln!(
