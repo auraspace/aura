@@ -1,5 +1,94 @@
 # Changelog
 
+## 0.1.1-alpha (2026-07-28)
+
+Production-facing alpha release
+
+Full notes: [`docs/releases/0.1.1-alpha.md`](docs/releases/0.1.1-alpha.md).
+
+### Changes
+
+- feat(package): update packaging script to use custom distribution directory feat(install): modify local package smoke mode to create temporary package directory feat(emit): adjust C emission for async function to improve structure
+- feat(release): configure production environment for signing releases
+- feat(audit): simplify incomplete contract row handling in alpha completion audit
+- feat(validate): refactor duplicate ID check to improve validation logic
+- feat(emit): enhance async function emission with foreign handle management and cleanup
+- feat(tests): update file path formats in test cases to include '-data' suffix
+- feat(file): improve file opening with retry on EINTR and add last error function
+- feat(emit): enhance task management in bounded spawn pollers with ownership tracking
+- feat(emit): enhance memory management for owned String and array types in async functions
+- feat(call): enhance handling of owned temporary string arguments in call emission
+- feat(call): enhance string handling in print functions for owned temporary expressions
+- feat(ffi): enhance foreign handle null check in async function
+- feat(http): manage async handle frame in HTTP connection
+- feat(ffi): add handle free function for unowned opaque handles
+- feat(release): implement bounded alpha release profile and update audit scripts
+- test(async): cover string array match bindings
+- feat(async): extend CFG for-in lowering
+- feat(async): lower array for-in awaits in general CFG
+- feat(ffi): transfer foreign handles through channels
+- feat(http): expose typed borrowed accessors
+- feat(async): lower range loops in general CFG
+- feat(io): expose owned std.net connect handle
+- feat(async): clone array match bindings across await
+- feat(async): own string match bindings across await
+- feat(async): support primitive match bindings across await
+- test(io): cover caller-owned file task awaits
+- test(io): cover regular file async readiness
+- feat(async): lower match branches across await
+- fix(ffi): retain foreign handles across cfg awaits
+- fix(async): preserve aggregate moves across CFG awaits
+- test(async): cover caller-owned string task CFG outcomes
+- feat(async): retain handles across general CFG awaits
+- feat(ffi): support nested opaque handle crossings
+- feat(http): expose borrowed typed request response views
+- test(async): cover loop branch CFG awaits
+- feat(async): generalize CFG await shape detection
+- feat(async): preserve heap classes across CFG awaits
+- feat(async): extend general CFG awaits to Bool
+- feat(async-io): retain handles across caller awaits
+- feat(async): support aggregate arrays in CFG awaits
+- feat(async): clone string arrays across general awaits
+- feat(ffi): transfer owned handles through bounded tasks
+- feat(http): pin typed handles across async handlers
+- test(async-io): cover native file round trips
+- feat(async): extend general CFG lowering to String
+- feat(async): generalize CFG aggregate suspension
+- feat(async-io): retain foreign handles across spawn
+- feat(async-io): own typed file handles
+- feat(async-io): lower typed TCP stream operations
+- feat(async-io): lower typed AuraFile writes
+- feat(async-io): lower typed AuraFile reads
+- feat(async): preserve caller-owned task children
+- feat(async): add explicit scalar CFG lowering
+- feat(async): lower range-for awaits into task frames
+- feat(async-io): lower descriptor writes into task frames
+- feat(async-io): lower descriptor reads into task frames
+- feat(async): expose typed class failure outcomes
+- feat(async): reclaim continuation children
+- feat(async): reclaim if assignment children
+- feat(async): reclaim branch join children
+- feat(async): reclaim conditional loop children
+- feat(async): reclaim loop await children
+- feat(async): reclaim multi-await child frames
+- feat(runtime): reclaim pending task handles
+- feat(async): own aggregate values across awaits
+- feat(async): generalize conditional loop awaits
+- feat(async): lower three conditional loop awaits
+- feat(async): release terminal task handles by scope
+- feat(async): preserve raw class error payloads
+- feat(async): normalize class failures into owned outcomes
+- test(async): cover nested suspended failures
+- feat(async): resume conditional loop awaits
+- feat(async): preserve arrays across loop awaits
+- feat(async): own array branch join outcomes
+- feat(async): own string branch join outcomes
+- feat(async): lower loop branch await joins
+- feat(async): resume branch joins through common continuation
+- feat(async): await heap class child results
+- feat(async): own heap class task outcomes
+- feat(async): support typed array spawn outcomes
+
 ## 0.1.0-alpha (2026-07-21)
 
 Release `0.1.0-alpha` is published with GitHub Release assets and the public
