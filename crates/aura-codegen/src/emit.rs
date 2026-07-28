@@ -1206,7 +1206,9 @@ impl<'a> AsyncCfgBuilder<'a> {
                     let mut bind_code = Vec::new();
                     for (binding, field) in bindings.iter().zip(&variant.fields) {
                         let key = type_ref_local_key(&field.ty, &[], &[]);
-                        if !matches!(key.as_str(), "Int" | "Bool" | "String") {
+                        if !matches!(key.as_str(), "Int" | "Bool" | "String")
+                            && !is_array_type_key(&key)
+                        {
                             self.supported = false;
                             return next;
                         }
@@ -1231,6 +1233,19 @@ impl<'a> AsyncCfgBuilder<'a> {
                         if key == "String" {
                             bind_code.push(format!(
                                 "if ({binding_name}__owned && {binding_name} != NULL) free((void *){binding_name}); {binding_name} = NULL; {binding_name}__owned = false; if ({field_name} != NULL) {{ size_t __match_len = strlen({field_name}); {binding_name} = (char *)malloc(__match_len + 1); if ({binding_name} == NULL) return AURA_TASK_FAILED; memcpy((void *){binding_name}, {field_name}, __match_len + 1); {binding_name}__owned = true; }}"
+                            ));
+                        } else if is_array_type_key(&key) {
+                            let cty = crate::stmt::local_key_to_c(&key, self.ctx.checked);
+                            let clone = crate::names::c_method_name(&key, "clone");
+                            let mut free_code = String::new();
+                            crate::array_emit::emit_array_contents_free(
+                                &mut free_code,
+                                0,
+                                &binding_name,
+                                &key,
+                            );
+                            bind_code.push(format!(
+                                "{cty} __match_value = {field_name}; {free_code} {binding_name} = {clone}(&__match_value);"
                             ));
                         } else {
                             bind_code.push(format!("{binding_name} = {field_name};"));
@@ -1716,6 +1731,13 @@ fn emit_async_fun_cfg_int(
                 out,
                 "  if (data->{name}__owned && data->{name} != NULL) free((void *)data->{name});"
             );
+        } else if is_array_type_key(key) {
+            crate::array_emit::emit_array_contents_free(
+                out,
+                2,
+                &format!("data->{}", mangle_ident(name)),
+                key,
+            );
         }
     }
     out.push_str("}\n\n");
@@ -1933,6 +1955,10 @@ fn emit_async_fun_cfg_int(
         if key == "String" {
             let name = mangle_ident(name);
             let _ = writeln!(out, "  data->{name} = NULL; data->{name}__owned = false;");
+        } else if is_array_type_key(key) {
+            let name = mangle_ident(name);
+            let cty = crate::stmt::local_key_to_c(key, checked);
+            let _ = writeln!(out, "  data->{name} = ({cty}){{0}};");
         }
     }
     let _ = writeln!(out, "  data->await_task = NULL; data->await_task_owned = false; aura_task_frame_set_resume_state(frame, {entry});");

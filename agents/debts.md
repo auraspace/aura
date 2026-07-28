@@ -1049,10 +1049,10 @@ TaskError>` locals release their payload at scope exit. Nested
   Keep IO-002 partial until those boundaries have typed Aura-facing contracts
   and native sanitizer coverage.
 
-### ASYNC-004 primitive/string enum bindings in general CFG (bounded, updated 2026-07-28)
+### ASYNC-004 primitive/string/array enum bindings in general CFG (bounded, updated 2026-07-28)
 
-- `Int`/`Bool` enum pattern bindings persist in the async CFG frame, restore as poll locals, and synchronize across suspension/resume. `String` bindings are cloned into owned frame locals and released on frame teardown; native match-await fixtures cover forced GC and repeated owning joins.
-- Aggregate bindings, binding ownership beyond primitive/String payloads, and `try`/richer pattern control flow remain unsupported; extend frame scan, clone/drop rules, and corpus before widening the contract.
+- `Int`/`Bool` enum pattern bindings persist in the async CFG frame, restore as poll locals, and synchronize across suspension/resume. `String` bindings are cloned into owned frame locals, while `Array<Int>` bindings use deep clone/drop helpers; native match-await fixtures cover forced GC and repeated owning joins.
+- Aggregate bindings beyond `Array<Int>`, binding ownership for richer element types, and `try`/richer pattern control flow remain unsupported; extend frame scan, clone/drop rules, and corpus before widening the contract.
 
 ### REG-002 production trust remains open (updated 2026-07-23)
 

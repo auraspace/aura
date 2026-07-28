@@ -3595,6 +3595,64 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_match_await_state_machine_with_array_bindings() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+enum Choice { case First(value: Array<Int>) case Second(value: Array<Int>) }
+async fun leaf(value: Array<Int>): Array<Int> { return value }
+async fun choose(choice: Choice, task: Task<Array<Int>>): Array<Int> {
+  match (choice) {
+    case First(seed) => { val first_value: Array<Int> = await task gc_collect() return seed }
+    case Second(seed) => { val second_value: Array<Int> = await task gc_collect() return seed }
+  }
+  return Array<Int>(0)
+}
+fun main() {
+  val task = spawn { val value: Array<Int> = await choose(First(Array<Int>(3)), leaf(Array<Int>(1))) return value }
+  val first: Result<Array<Int>, TaskError> = join(task)
+  match (first) {
+    case Ok(value) => { println(value.len.toString()) }
+    case Err(error) => { println("failed") }
+  }
+  val second: Result<Array<Int>, TaskError> = join(task)
+  match (second) {
+    case Ok(value) => { println(value.len.toString()) }
+    case Err(error) => { println("failed-repeat") }
+  }
+}
+"#,
+        )
+        .expect("parse array match-await binding fixture");
+        let generated = emit_c_from_ast(&file).expect("emit array match-await binding fixture");
+        assert!(generated.contains("aura async general CFG Array lowering"));
+        assert!(generated.contains("__match_value = choice.data.First.value"));
+        assert!(generated.contains("data->seed.data"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-match-await-array-bindings-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile array match-await binding fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run array match-await binding fixture");
+        assert!(
+            output.status.success(),
+            "array match-await binding fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "3\n3\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_nested_branch_await_state_machine() {
         let file = aura_parser::parse_file(
             r#"package demo
