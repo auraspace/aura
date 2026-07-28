@@ -1230,6 +1230,104 @@ impl<'a> AsyncCfgBuilder<'a> {
                 );
                 start_state
             }
+            Stmt::ForIn(for_in) => {
+                if expr_contains_async(&for_in.iterable)
+                    || self.locals.contains_key(&for_in.name.name)
+                {
+                    self.supported = false;
+                    return next;
+                }
+                let iterable_key = infer_type_name(&for_in.iterable, &self.ctx);
+                let iterable_key = if iterable_key == "Array" {
+                    "Array_Int".to_string()
+                } else {
+                    full_type_mono(&iterable_key, self.ctx.checked)
+                };
+                if !is_array_type_key(&iterable_key)
+                    || iterable_key.strip_prefix("Array_") != Some("Int")
+                {
+                    self.supported = false;
+                    return next;
+                }
+                let slot = self.cfg_locals.len();
+                let iterator = format!("__aura_for_iter_{slot}");
+                let index = format!("__aura_for_index_{slot}");
+                let binding = for_in.name.name.clone();
+                let Some(elem_key) = iterable_key.strip_prefix("Array_") else {
+                    self.supported = false;
+                    return next;
+                };
+                if self.locals.contains_key(&binding) {
+                    self.supported = false;
+                    return next;
+                }
+                self.locals.insert(binding.clone(), elem_key.to_string());
+                self.cfg_locals
+                    .push((iterator.clone(), iterable_key.clone()));
+                self.cfg_locals.push((index.clone(), "Int".into()));
+                self.cfg_locals.push((binding.clone(), elem_key.into()));
+                self.ctx
+                    .define_local(&iterator, full_type_mono(&iterable_key, self.ctx.checked));
+                self.ctx.define_local(&index, "Int".into());
+                self.ctx.define_local(&binding, "Int".into());
+
+                let condition_state = self.alloc();
+                let increment_state = self.alloc();
+                let body_state = self.emit_block(
+                    &for_in.body.stmts,
+                    increment_state,
+                    break_state.or(Some(next)),
+                    Some(increment_state),
+                );
+                let bind_state = self.alloc();
+                let get_fn = crate::names::c_method_name(&iterable_key, "get");
+                self.finish(
+                    bind_state,
+                    AsyncCfgNode::Action {
+                        code: format!("{binding} = {get_fn}(&{iterator}, {index});"),
+                        next: body_state,
+                    },
+                );
+                self.finish(
+                    condition_state,
+                    AsyncCfgNode::Branch {
+                        condition: format!("({index} < {iterator}.len)"),
+                        then_state: bind_state,
+                        else_state: next,
+                    },
+                );
+                self.finish(
+                    increment_state,
+                    AsyncCfgNode::Action {
+                        code: format!("{index} = {index} + INT64_C(1);"),
+                        next: condition_state,
+                    },
+                );
+                let init = coerce_expr(&for_in.iterable, &iterable_key, &mut self.ctx);
+                let index_init_state = self.alloc();
+                self.finish(
+                    index_init_state,
+                    AsyncCfgNode::Action {
+                        code: format!("{index} = INT64_C(0);"),
+                        next: condition_state,
+                    },
+                );
+                let init_state = self.alloc();
+                self.finish(
+                    init_state,
+                    AsyncCfgNode::Action {
+                        code: async_cfg_assignment_code(
+                            &iterator,
+                            &iterable_key,
+                            &for_in.iterable,
+                            &init,
+                            self.ctx.checked,
+                        ),
+                        next: index_init_state,
+                    },
+                );
+                init_state
+            }
             Stmt::Match(m) => {
                 if expr_contains_async(&m.scrutinee) || m.arms.is_empty() {
                     self.supported = false;
@@ -1599,6 +1697,10 @@ fn contains_async_cfg_control_flow(stmts: &[Stmt]) -> bool {
             stmt_contains_async(&Stmt::ForRange(range.clone()))
                 || contains_async_cfg_control_flow(&range.body.stmts)
         }
+        Stmt::ForIn(for_in) => {
+            stmt_contains_async(&Stmt::ForIn(for_in.clone()))
+                || contains_async_cfg_control_flow(&for_in.body.stmts)
+        }
         Stmt::Match(m) => {
             stmt_contains_async(&Stmt::Match(m.clone()))
                 || m.arms
@@ -1647,6 +1749,11 @@ fn collect_async_cfg_vars<'a>(
             }
             Stmt::ForRange(range) => {
                 if !collect_async_cfg_vars(&range.body.stmts, checked, vars) {
+                    return false;
+                }
+            }
+            Stmt::ForIn(for_in) => {
+                if !collect_async_cfg_vars(&for_in.body.stmts, checked, vars) {
                     return false;
                 }
             }
@@ -1849,6 +1956,16 @@ fn emit_async_fun_cfg_int(
                 "  if (data->{name}__owned && data->{name} != NULL) free((void *)data->{name});"
             );
         } else if is_array_type_key(key) {
+            crate::array_emit::emit_array_contents_free(
+                out,
+                2,
+                &format!("data->{}", mangle_ident(name)),
+                key,
+            );
+        }
+    }
+    for (name, key) in &cfg_locals {
+        if is_array_type_key(key) {
             crate::array_emit::emit_array_contents_free(
                 out,
                 2,

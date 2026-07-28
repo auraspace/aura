@@ -174,8 +174,14 @@ When you resolve debt, update or remove the matching entry.
   the cursor, endpoint, accumulator, and temporary child across suspension;
   forced GC, repeated typed joins, and queued cancellation are covered by a
   native codegen fixture.
+- A general CFG `for (item in Array<Int>)` body with an awaited `Task<Int>` now
+  persists the moved iterator, index, binding, and temporary child across
+  suspension; forced GC, repeated typed joins, and queued cancellation are
+  covered by a native codegen fixture. String, interface, and non-`Int` element
+  iterators remain deliberately outside this slice.
 - Why still deferred: arbitrary nested loops beyond the supported two-level
-  Int shape, unbounded conditional-await counts beyond the current bounded
+  Int shape, String/interface/aggregate `for-in`, unbounded conditional-await
+  counts beyond the current bounded
   fixture shape,
   nested branch-local values, and richer payload types still fall back to the
   existing bounded-shape rejection path; `break`/`continue` outside the new

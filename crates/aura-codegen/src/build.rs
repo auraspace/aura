@@ -3043,6 +3043,79 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_general_cfg_for_in_array_await_with_gc_repeated_join_and_cancel() {
+        let file = parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+async fun worker(value: Int): Int { return value }
+async fun sum(values: Array<Int>): Int {
+  var total: Int = 0
+  for (item in values) {
+    val value: Int = await worker(1)
+    total = total + value
+    gc_collect()
+  }
+  return total
+}
+fun main() {
+  val task = spawn { val value: Int = await sum(Array<Int>(4)) return value }
+  val first: Result<Int, TaskError> = join(task)
+  match (first) {
+    case Ok(value) => { println(value.toString()) }
+    case Err(error) => { println("failed") }
+  }
+  val second: Result<Int, TaskError> = join(task)
+  match (second) {
+    case Ok(value) => { println(value.toString()) }
+    case Err(error) => { println("failed-repeat") }
+  }
+  val cancelled = spawn { val value: Int = await sum(Array<Int>(100)) return value }
+  cancel(cancelled)
+  val cancelled_result: Result<Int, TaskError> = join(cancelled)
+  match (cancelled_result) {
+    case Ok(value) => { println("unexpected") }
+    case Err(error) => {
+      match (error) {
+        case Cancelled => { println("cancelled") }
+        case Failed(message) => { println(message) }
+      }
+    }
+  }
+}
+"#,
+        )
+        .expect("parse general CFG for-in await fixture");
+        let generated = emit_c_from_ast(&file).expect("emit general CFG for-in await fixture");
+        assert!(generated.contains("aura async general CFG Int lowering"));
+        assert!(generated.contains("__aura_for_iter_0"));
+        assert!(generated.contains("__aura_for_index_0"));
+        assert!(generated.contains("aura_method_Array_Int_get"));
+        assert!(generated.contains("aura_task_frame_set_resume_state(frame"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-general-cfg-for-in-await-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile general CFG for-in await fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run general CFG for-in await fixture");
+        assert!(
+            output.status.success(),
+            "general CFG for-in await fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "4\n4\ncancelled\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_loop_with_three_conditional_await_states() {
         let file = parse_file(
             r#"package std.io
