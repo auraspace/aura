@@ -1051,8 +1051,7 @@ impl<'a> AsyncCfgBuilder<'a> {
                     return next;
                 };
                 if let Expr::Async(AsyncExpr::Await(await_expr)) = &var.init {
-                    if !matches!(key.as_str(), "Int" | "Bool" | "String")
-                        && !is_array_type_key(&key)
+                    if !async_cfg_value_supported(&key, self.ctx.checked)
                         || expr_contains_async(&await_expr.operand)
                         || !self.locals.contains_key(&name)
                     {
@@ -1077,8 +1076,7 @@ impl<'a> AsyncCfgBuilder<'a> {
                     state
                 } else {
                     if expr_contains_async(&var.init)
-                        || (!matches!(key.as_str(), "Int" | "Bool" | "String")
-                            && !is_array_type_key(&key))
+                        || !async_cfg_value_supported(&key, self.ctx.checked)
                     {
                         self.supported = false;
                         return next;
@@ -1191,8 +1189,7 @@ impl<'a> AsyncCfgBuilder<'a> {
                     return next;
                 };
                 if expr_contains_async(&assign.value)
-                    || (!matches!(key.as_str(), "Int" | "Bool" | "String")
-                        && !is_array_type_key(&key))
+                    || !async_cfg_value_supported(&key, self.ctx.checked)
                 {
                     self.supported = false;
                     return next;
@@ -1246,6 +1243,17 @@ impl<'a> AsyncCfgBuilder<'a> {
             }
         }
     }
+}
+
+fn async_cfg_value_supported(key: &str, checked: &CheckedFile) -> bool {
+    matches!(key, "Int" | "Bool" | "String")
+        || is_array_type_key(key)
+        || is_heap_class_mono(key, checked)
+}
+
+fn async_cfg_task_supported(key: &str, checked: &CheckedFile) -> bool {
+    key.strip_prefix("Task_")
+        .is_some_and(|value| async_cfg_value_supported(value, checked))
 }
 
 fn is_gc_collect_expr(expr: &Expr) -> bool {
@@ -1391,9 +1399,7 @@ fn emit_async_fun_cfg_int(
         return false;
     };
     let return_key = type_ref_local_key_expand(ret, &[], &[], checked);
-    if !matches!(return_key.as_str(), "Int" | "Bool" | "String") && !is_array_type_key(&return_key)
-        || !contains_if_with_while(&f.body.stmts)
-    {
+    if !async_cfg_value_supported(&return_key, checked) || !contains_if_with_while(&f.body.stmts) {
         return false;
     }
     let mut vars = Vec::new();
@@ -1402,13 +1408,13 @@ fn emit_async_fun_cfg_int(
     }
     if !vars
         .iter()
-        .any(|(_, key)| matches!(key.as_str(), "Int" | "String") || is_array_type_key(key))
+        .any(|(_, key)| async_cfg_value_supported(key, checked))
     {
         return false;
     }
     let mut locals = HashMap::new();
     for (var, key) in &vars {
-        if !matches!(key.as_str(), "Int" | "Bool" | "String") && !is_array_type_key(key)
+        if !async_cfg_value_supported(key, checked)
             || locals.insert(var.name.name.clone(), key.clone()).is_some()
         {
             return false;
@@ -1418,11 +1424,7 @@ fn emit_async_fun_cfg_int(
     let mut ctx = async_ctx(checked, detector, &params, &f.params, &f.return_type);
     for param in &f.params {
         let key = type_ref_local_key_expand(&param.ty, &params, &[], checked);
-        if !matches!(
-            key.as_str(),
-            "Int" | "Bool" | "String" | "Task_Int" | "Task_Bool"
-        ) && !is_array_type_key(&key)
-        {
+        if !async_cfg_value_supported(&key, checked) && !async_cfg_task_supported(&key, checked) {
             return false;
         }
         ctx.define_local(&param.name.name, full_type_mono(&key, checked));
@@ -1441,6 +1443,8 @@ fn emit_async_fun_cfg_int(
         )
     } else if return_key == "Bool" {
         "false".into()
+    } else if is_heap_class_mono(&return_key, checked) {
+        "NULL".into()
     } else {
         "INT64_C(0)".into()
     };
@@ -1466,6 +1470,7 @@ fn emit_async_fun_cfg_int(
         "Int" => "Int",
         "Bool" => "Bool",
         "String" => "String",
+        _ if is_heap_class_mono(&return_key, checked) => "Class",
         _ => "Array",
     };
     let _ = writeln!(
@@ -1532,6 +1537,8 @@ fn emit_async_fun_cfg_int(
         );
         crate::array_emit::emit_array_contents_free(out, 2, "(*result)", &return_key);
         out.push_str("    free(result); }\n}\n\n");
+    } else if is_heap_class_mono(&return_key, checked) {
+        out.push_str("  (void)size; if (data != NULL) { aura_gc_remove_root((void **)data); free(data); }\n}\n\n");
     } else {
         out.push_str("  (void)size; free(data);\n}\n\n");
     }
@@ -1666,6 +1673,11 @@ fn emit_async_fun_cfg_int(
                             "        {result_cty} *result = ({result_cty} *)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; {result_cty} __returned = {value}; *result = {clone}(&__returned); {free_code} aura_task_frame_set_result(frame, result, sizeof(*result), {destroy_result}); return AURA_TASK_COMPLETE;"
                         );
                     }
+                } else if is_heap_class_mono(&value_key, checked) {
+                    let _ = writeln!(
+                        out,
+                        "        {result_cty} *result = ({result_cty} *)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; *result = {value}; aura_gc_add_root((void **)result); aura_task_frame_set_result(frame, result, sizeof(*result), {destroy_result}); return AURA_TASK_COMPLETE;"
+                    );
                 } else {
                     let _ = writeln!(out, "        {result_cty} *result = ({result_cty} *)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; *result = {value}; aura_task_frame_set_result(frame, result, sizeof(*result), {destroy_result}); return AURA_TASK_COMPLETE;");
                 }
@@ -5466,6 +5478,43 @@ fun main() {}
         assert!(generated.contains("AURA_TASK_CANCELLED"));
         assert!(generated.contains("aura_task_frame_propagate_error(frame, data->await_task)"));
         assert!(generated.contains("aura_task_frame_set_result(frame, result"));
+    }
+
+    #[test]
+    fn lowers_general_cfg_heap_class_return_with_loop_awaits() {
+        let file = parse_file(
+            r#"package demo
+class Box(val value: Int) {}
+async fun choose(flag: Bool, first: Task<Box>, second: Task<Box>): Box {
+  var index: Int = 0
+  var value: Box = Box(0)
+  if (flag) {
+    while (index < 2) {
+      val next: Box = await first
+      value = next
+      gc_collect()
+      index = index + 1
+    }
+  } else {
+    while (index < 2) {
+      val alternate: Box = await second
+      value = alternate
+      gc_collect()
+      index = index + 1
+    }
+  }
+  return value
+}
+fun main() {}
+"#,
+        )
+        .expect("parse general CFG class fixture");
+        let checked = aura_sema::check_file(&file).expect("general CFG class fixture checks");
+        let generated = emit_c_with(&checked, EmitOptions::default());
+        assert!(generated.contains("aura async general CFG Class lowering"));
+        assert!(generated.contains("aura_gc_add_root((void **)result)"));
+        assert!(generated.contains("aura_gc_remove_root((void **)data)"));
+        assert!(generated.contains("aura_task_frame_propagate_error(frame, data->await_task)"));
     }
 }
 

@@ -149,6 +149,10 @@ When you resolve debt, update or remove the matching entry.
   `Task<Bool>` operands. A native branch/loop fixture exercises both selected
   paths, multiple resume states, forced GC between iterations, repeated joins,
   and queued cancellation.
+- It now also accepts heap-class return values and `Task<Class>` operands. The
+  native fixture proves class pointers survive branch/loop suspension, frame
+  GC scanning, repeated owning joins, and queued cancellation; terminal class
+  results use explicit GC root/remove-root cleanup.
 - A range `for (i in start..end)` body with one awaited `Task<Int>` now persists
   the cursor, endpoint, accumulator, and temporary child across suspension;
   forced GC, repeated typed joins, and queued cancellation are covered by a

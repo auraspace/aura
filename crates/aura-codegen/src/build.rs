@@ -3563,6 +3563,96 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_general_cfg_heap_class_branch_loop_fixture() {
+        let source = r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+class Box(val value: Int) {}
+async fun leaf(value: Int): Box { return Box(value) }
+async fun choose(flag: Bool, first: Task<Box>, second: Task<Box>): Box {
+  var index: Int = 0
+  var value: Box = Box(0)
+  if (flag) {
+    while (index < 2) {
+      val next: Box = await first
+      value = next
+      gc_collect()
+      index = index + 1
+    }
+  } else {
+    while (index < 2) {
+      val alternate: Box = await second
+      value = alternate
+      gc_collect()
+      index = index + 1
+    }
+  }
+  return value
+}
+fun main() {
+  val task = spawn {
+    val value: Box = await choose(true, leaf(73), leaf(11))
+    return value
+  }
+  val first: Result<Box, TaskError> = join(task)
+  match (first) {
+    case Ok(value) => { println(value.value.toString()) }
+    case Err(error) => { println("class-error") }
+  }
+  gc_collect()
+  val second: Result<Box, TaskError> = join(task)
+  match (second) {
+    case Ok(value) => { println(value.value.toString()) }
+    case Err(error) => { println("class-repeat-error") }
+  }
+  val cancelled = spawn {
+    val value: Box = await choose(false, leaf(1), leaf(2))
+    return value
+  }
+  cancel(cancelled)
+  val cancelled_result: Result<Box, TaskError> = join(cancelled)
+  match (cancelled_result) {
+    case Ok(value) => { println("class-cancel-bad") }
+    case Err(error) => {
+      match (error) {
+        case Failed(message) => { println("class-failure") }
+        case Cancelled => { println("class-cancelled") }
+      }
+    }
+  }
+}
+"#;
+        let file = aura_parser::parse_file(source).expect("parse general CFG class fixture");
+        let generated = emit_c_from_ast(&file).expect("emit general CFG class fixture");
+        assert!(generated.contains("aura async general CFG Class lowering"));
+        assert!(generated.contains("aura_gc_add_root((void **)result)"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-async-general-class-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile general CFG class fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run general CFG class fixture");
+        assert!(
+            output.status.success(),
+            "general CFG class fixture failed: {output:?}"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "73\n73\nclass-cancelled\n"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_spawn_join_cancel() {
         let span = Span::new(0, 1);
         let ident = |name: &str| Ident {
