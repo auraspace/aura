@@ -6080,4 +6080,48 @@ fun main() {
         let _ = std::fs::remove_file(&bin);
         let _ = std::fs::remove_file(dir.join(format!("aura-c22o-{}.aura.c", std::process::id())));
     }
+
+    #[test]
+    fn builds_and_runs_owned_foreign_handle_channel_transfer() {
+        let path = format!("/tmp/aura-channel-foreign-handle-{}", std::process::id());
+        let source = format!(
+            r#"package std.io
+fun openFile(path: String, mode: Int): ForeignHandle<Int> {{ throw "intrinsic" }}
+fun main() {{
+  val file: ForeignHandle<Int> = openFile("{path}", 1)
+  val channel: Channel<ForeignHandle<Int>> = Channel<ForeignHandle<Int>>(1)
+  channel.send(file)
+  val received: ForeignHandle<Int>? = channel.receive()
+  gc_collect()
+}}
+"#
+        );
+        let file = parse_file(&source).expect("parse foreign-handle channel fixture");
+        let generated = emit_c_from_ast(&file).expect("emit foreign-handle channel fixture");
+        assert!(generated.contains("aura_task_channel_value_destroy_foreign_handle"));
+        assert!(generated.contains("aura_ffi_handle_retain(__handle)"));
+        assert!(generated.contains("aura_ffi_handle_drop(handle)"));
+        assert!(generated.contains("*__payload = NULL"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-channel-foreign-handle-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile foreign-handle channel fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run foreign-handle channel fixture");
+        assert!(
+            output.status.success(),
+            "foreign-handle channel fixture failed: {output:?}"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+        let _ = fs::remove_file(path);
+    }
 }

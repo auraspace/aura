@@ -108,10 +108,13 @@ or one with pins is rejected. Direct owned `ForeignHandle<T>` foreign returns
 and bounded async task results now have an explicit drop/retain contract:
 task-result destruction drops exactly once, repeated owning joins retain an
 independent alias, and owned `Result<ForeignHandle<T>, TaskError>` locals
-release their success payload lexically. Nested `ForeignHandle` values use the
-same outer opaque-pointer retain/drop contract; strict compiler and runtime
-fixtures cover foreign parameters, direct returns, async task results, and
-repeated owning joins. CHANNEL/CALLBACK crossings and general arbitrary-CFG
+release their success payload lexically. Aura `Channel<ForeignHandle<T>>`
+payloads retain at enqueue, transfer one owned alias on receive, and drop
+queued values exactly once. Nested `ForeignHandle` values use the same outer
+opaque-pointer retain/drop contract; strict compiler and runtime fixtures cover
+foreign parameters, direct returns, async task results, repeated owning joins,
+and a native compiler channel-transfer fixture. Foreign ABI CHANNEL/CALLBACK
+crossings and general arbitrary-CFG
 handle result lowering remain outside this slice.
 
 **Verification:** `runtime/tests/ffi_handles.c` is compiled with strict C11

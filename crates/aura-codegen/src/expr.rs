@@ -2021,6 +2021,8 @@ fn channel_payload_kind(key: &str, ctx: &EmitCtx<'_>) -> Option<&'static str> {
         Some("free")
     } else if is_heap_class_mono(key, ctx.checked) {
         Some("class")
+    } else if key == "ForeignHandle" || key.starts_with("ForeignHandle_") {
+        Some("foreign_handle")
     } else {
         None
     }
@@ -2039,6 +2041,7 @@ fn emit_channel_send(s: &ChannelSendExpr, ctx: &mut EmitCtx<'_>) -> String {
         "int" => (format!("int64_t *__p = (int64_t *)malloc(sizeof(*__p)); if (__p == NULL) abort(); *__p = (int64_t)({value});"), "aura_task_channel_value_destroy_free"),
         "free" => (format!("const char *__s = ({value}); size_t __n = __s == NULL ? 0 : strlen(__s); char *__p = (char *)malloc(__n + 1); if (__p == NULL) abort(); if (__n != 0) memcpy(__p, __s, __n); __p[__n] = '\\0';"), "aura_task_channel_value_destroy_free"),
         "class" => (format!("void *__obj = (void *)({value}); void **__p = (void **)malloc(sizeof(*__p)); if (__p == NULL) abort(); *__p = __obj; aura_gc_add_root(__p);"), "aura_task_channel_value_destroy_class"),
+        "foreign_handle" => (format!("AuraFfiOpaqueHandle *__handle = (AuraFfiOpaqueHandle *)({value}); if (__handle != NULL && aura_ffi_handle_retain(__handle) != AURA_FFI_OK) abort(); AuraFfiOpaqueHandle **__p = (AuraFfiOpaqueHandle **)malloc(sizeof(*__p)); if (__p == NULL) abort(); *__p = __handle;"), "aura_task_channel_value_destroy_foreign_handle"),
         _ => unreachable!(),
     };
     format!("({{ {alloc} AuraTaskChannelValue __v = {{ __p, sizeof(*__p), {destroy} }}; aura_race_set_source_id(UINT32_C({})); AuraTaskChannelStatus __s = aura_task_channel_send({channel}, NULL, __v); aura_race_set_source_id(0); if (__s == AURA_CHANNEL_PENDING || __s == AURA_CHANNEL_ERROR) {destroy}(__v.data, __v.size); (void)__s; (void)0; }})", s.span.start)
@@ -2054,6 +2057,8 @@ fn emit_channel_receive(r: &ChannelReceiveExpr, ctx: &mut EmitCtx<'_>) -> String
     };
     let destroy = if kind == "class" {
         "aura_task_channel_value_destroy_class"
+    } else if kind == "foreign_handle" {
+        "aura_task_channel_value_destroy_foreign_handle"
     } else {
         "aura_task_channel_value_destroy_free"
     };
@@ -2061,6 +2066,7 @@ fn emit_channel_receive(r: &ChannelReceiveExpr, ctx: &mut EmitCtx<'_>) -> String
         "int" => format!("({{ aura_opt_i64 __r = {{ false, 0 }}; AuraTaskChannelValue __v = {{0}}; aura_race_set_source_id(UINT32_C({})); if (aura_task_channel_receive({channel}, NULL, &__v) == AURA_CHANNEL_OK) {{ __r = (aura_opt_i64){{ true, *((int64_t *)__v.data) }}; {destroy}(__v.data, __v.size); }} aura_race_set_source_id(0); __r; }})", r.span.start),
         "free" => format!("({{ const char *__r = NULL; AuraTaskChannelValue __v = {{0}}; aura_race_set_source_id(UINT32_C({})); if (aura_task_channel_receive({channel}, NULL, &__v) == AURA_CHANNEL_OK) {{ __r = (const char *)__v.data; __v.data = NULL; {destroy}(__v.data, __v.size); }} aura_race_set_source_id(0); __r; }})", r.span.start),
         "class" => format!("({{ void *__r = NULL; AuraTaskChannelValue __v = {{0}}; aura_race_set_source_id(UINT32_C({})); if (aura_task_channel_receive({channel}, NULL, &__v) == AURA_CHANNEL_OK) {{ __r = *((void **)__v.data); {destroy}(__v.data, __v.size); }} aura_race_set_source_id(0); __r; }})", r.span.start),
+        "foreign_handle" => format!("({{ AuraFfiOpaqueHandle *__r = NULL; AuraTaskChannelValue __v = {{0}}; aura_race_set_source_id(UINT32_C({})); if (aura_task_channel_receive({channel}, NULL, &__v) == AURA_CHANNEL_OK) {{ AuraFfiOpaqueHandle **__payload = (AuraFfiOpaqueHandle **)__v.data; if (__payload != NULL) {{ __r = *__payload; *__payload = NULL; }} {destroy}(__v.data, __v.size); }} aura_race_set_source_id(0); __r; }})", r.span.start),
         _ => unreachable!(),
     }
 }

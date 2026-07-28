@@ -493,7 +493,9 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                     matches!(call.callee.as_ref(), Expr::Ident(id) if id.name == foreign.name.name)
                 }) || ctx.checked.call_instantiations.get(&call.span.start).is_some_and(|inst| {
                     inst.package == "std.io" && inst.name == "openFile"
-                }));
+                }))
+                || (ty_name.starts_with("ForeignHandle_")
+                    && matches!(v.init, Expr::Async(AsyncExpr::ChannelReceive(_))));
             if owned_foreign_handle_init {
                 ctx.mark_task_handle_owner(&v.name.name);
             }

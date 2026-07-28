@@ -813,8 +813,10 @@ When you resolve debt, update or remove the matching entry.
 
 - F4 provides a tombstoned opaque-handle ABI with deferred destruction while
   pinned. `aura_ffi_handle_pin_for_boundary` now validates and retains a live
-  handle through bounded TASK and AWAIT ownership windows; CHANNEL and CALLBACK
-  crossings remain rejected. The compiler now fail-closes foreign declarations
+  handle through bounded TASK and AWAIT ownership windows; foreign ABI CHANNEL
+  and CALLBACK crossings remain rejected. Aura `Channel<ForeignHandle<T>>`
+  payloads now retain on enqueue, transfer on receive, and drop queued refs
+  exactly once. The compiler now fail-closes foreign declarations
   that expose `Task`, `TaskHandle`, or `Channel` (including nullable forms),
   while keeping primitive foreign declarations on the existing supported ABI.
   Tagged `ForeignHandle<T>` parameters use the checked pin/unpin ABI for

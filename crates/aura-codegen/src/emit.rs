@@ -257,6 +257,7 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("void aura_task_channel_destroy(AuraTaskChannel *channel);\n");
     out.push_str("void aura_task_channel_value_destroy_free(void *data, size_t size);\n");
     out.push_str("void aura_task_channel_value_destroy_class(void *data, size_t size);\n");
+    out.push_str("static void aura_task_channel_value_destroy_foreign_handle(void *data, size_t size) { (void)size; if (data != NULL) { AuraFfiOpaqueHandle **handle = (AuraFfiOpaqueHandle **)data; if (*handle != NULL) (void)aura_ffi_handle_drop(handle); free(data); } }\n");
     // C12m/C13f: shared mutable boxes for var Int/Bool/String captures.
     out.push_str("typedef struct aura_box_i64 { int64_t value; int32_t refs; } aura_box_i64;\n");
     out.push_str("typedef struct aura_box_bool { _Bool value; int32_t refs; } aura_box_bool;\n");
