@@ -5870,7 +5870,7 @@ fn emit_async_fun_std_io_write_fd(
 /// The older A6 helper deliberately spells out two and three awaits.  This
 /// helper uses the same frame ABI but derives every resume state from the AST,
 /// so adding another await does not require another hand-written state arm.
-/// Primitive values and `Array<Int>` use independent frame ownership so a
+/// Primitive values and aggregate arrays use independent frame ownership so a
 /// repeated join never aliases a child result or a frame-local aggregate.
 fn emit_async_fun_general_multi_await(
     out: &mut String,
@@ -5907,15 +5907,13 @@ fn emit_async_fun_general_multi_await(
         || f.return_type
             .as_ref()
             .map(|t| {
-                !matches!(
-                    type_ref_local_key_expand(t, &[], &[], checked).as_str(),
-                    "Int" | "Bool" | "String" | "Array_Int"
-                )
+                let key = type_ref_local_key_expand(t, &[], &[], checked);
+                !matches!(key.as_str(), "Int" | "Bool" | "String") && !is_array_type_key(&key)
             })
             .unwrap_or(true)
-        || await_keys
-            .iter()
-            .any(|key| !matches!(key.as_str(), "Int" | "Bool" | "String" | "Array_Int"))
+        || await_keys.iter().any(|key| {
+            !matches!(key.as_str(), "Int" | "Bool" | "String") && !is_array_type_key(key)
+        })
     {
         return false;
     }
@@ -5925,12 +5923,12 @@ fn emit_async_fun_general_multi_await(
         }
         let invalid = match stmt {
             Stmt::Var(v) => {
-                !matches!(
+                let key =
                     v.ty.as_ref()
                         .map(|t| type_ref_local_key_expand(t, &[], &[], checked))
-                        .as_deref(),
-                    Some("Int") | Some("String")
-                ) || matches!(v.init, Expr::Async(_))
+                        .unwrap_or_default();
+                !(matches!(key.as_str(), "Int" | "String") || is_array_type_key(&key))
+                    || matches!(v.init, Expr::Async(_))
             }
             Stmt::Return(_) => index <= awaits.last().unwrap().0,
             Stmt::Expr(Expr::Call(call))

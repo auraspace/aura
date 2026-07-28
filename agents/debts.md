@@ -80,8 +80,12 @@ When you resolve debt, update or remove the matching entry.
   returned `String` payloads into owned frame/result storage, with native
   success, repeated-join, failure-detail, queued-cancellation, and forced-GC
   coverage.
-- Next step: connect richer aggregate payload ownership and suspended await
-  failure propagation to the clone/destroy boundary.
+- Progress: the general four-await state machine now accepts `Array<String>`
+  suspension and return payloads, deep-clones each suspended array including
+  owned String elements, survives forced GC between awaits, and passes repeated
+  owning join plus queued-cancellation native coverage.
+- Next step: connect remaining richer aggregate payload ownership and
+  suspended await failure propagation to the clone/destroy boundary.
 
 ### ASYNC-003 conditional await inside bounded loops remains partial (updated 2026-07-28)
 
