@@ -123,9 +123,11 @@ HTTP/1.1 keep-alive when request, handler, and request-count policy allow it;
 consumed bytes are compacted so pipelined requests are served without losing
 the next request. Partial writes retain their offset and resume on `POLLOUT`,
 so a slow client applies bounded socket backpressure without blocking other
-tasks. The handler callback is still synchronous in this native ABI; async
-handler suspension and handler-owned values across an await remain outside
-this runtime-only slice.
+tasks. The handler callback is still synchronous in the legacy native ABI. The
+task handler entry point now also accepts a typed `AuraFfiOpaqueHandle`
+connection owner and pins it across request-readiness and handler suspension,
+releasing it after terminal response or cancellation cleanup. Aura-level typed
+request/response values and compiler-generated handlers remain open.
 **Checklist:**
 
 - [x] Suspend on partial reads and writes without blocking other tasks; retain

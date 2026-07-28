@@ -139,6 +139,8 @@ typedef enum AuraFfiOutcome
 typedef struct AuraTaskExecutor AuraTaskExecutor;
 typedef struct AuraTaskFrame AuraTaskFrame;
 
+#ifndef AURA_TASK_POLL_STATE_DEFINED
+#define AURA_TASK_POLL_STATE_DEFINED 1
 typedef enum AuraTaskPollState
 {
   AURA_TASK_READY = 0,
@@ -147,6 +149,7 @@ typedef enum AuraTaskPollState
   AURA_TASK_FAILED = 3,
   AURA_TASK_CANCELLED = 4
 } AuraTaskPollState;
+#endif
 
 #ifndef AURA_FILE_H
 #define AURA_FILE_H
@@ -993,7 +996,7 @@ typedef struct
   char *value;
 } AuraHttpHeader;
 
-typedef struct
+typedef struct AuraHttpRequest
 {
   char *method;
   char *target;
@@ -1560,7 +1563,7 @@ typedef enum
   AURA_HTTP_RESPONSE_KEEP_ALIVE = 1
 } AuraHttpResponseConnection;
 
-typedef struct
+typedef struct AuraHttpResponse
 {
   int status_code;
   AuraHttpHeader *headers;
@@ -2160,6 +2163,8 @@ struct AuraHttpConnection
   AuraHttpRequest async_request;
   int async_request_active;
   int async_handler_started;
+  AuraFfiHandlePin async_handle_pin;
+  int async_handle_pin_active;
 };
 
 struct AuraHttpServer
@@ -6008,6 +6013,16 @@ static void aura_http_connection_async_reset(AuraHttpConnection *connection)
   connection->async_handler_started = 0;
 }
 
+static void aura_http_connection_async_release_handle_pin(
+    AuraHttpConnection *connection)
+{
+  if (connection != NULL && connection->async_handle_pin_active)
+  {
+    (void)aura_ffi_handle_unpin(&connection->async_handle_pin);
+    connection->async_handle_pin_active = 0;
+  }
+}
+
 static void aura_http_connection_async_cleanup(void *data)
 {
   AuraHttpConnection *connection = (AuraHttpConnection *)data;
@@ -6015,16 +6030,18 @@ static void aura_http_connection_async_cleanup(void *data)
   {
     return;
   }
-  aura_http_connection_async_reset(connection);
   (void)aura_http_connection_close(connection);
+  aura_http_connection_async_reset(connection);
+  aura_http_connection_async_release_handle_pin(connection);
 }
 
 static AuraTaskPollState aura_http_connection_async_failure(
     AuraTaskFrame *frame, AuraHttpConnection *connection)
 {
   aura_task_frame_clear_cleanup(frame);
-  aura_http_connection_async_reset(connection);
   (void)aura_http_connection_close(connection);
+  aura_http_connection_async_reset(connection);
+  aura_http_connection_async_release_handle_pin(connection);
   return AURA_TASK_FAILED;
 }
 
@@ -6405,8 +6422,9 @@ AuraTaskPollState aura_http_connection_poll_async(AuraTaskFrame *frame,
       if (connection->async_close_after_write)
       {
         aura_task_frame_clear_cleanup(frame);
-        aura_http_connection_async_reset(connection);
         (void)aura_http_connection_close(connection);
+        aura_http_connection_async_reset(connection);
+        aura_http_connection_async_release_handle_pin(connection);
         return AURA_TASK_COMPLETE;
       }
       connection->async_close_after_write = 0;
@@ -6434,6 +6452,35 @@ AuraTaskPollState aura_http_connection_poll_async_task(
     connection->async_user_data = user_data;
   }
   return aura_http_connection_poll_async(frame, connection, NULL, NULL);
+}
+
+AuraTaskPollState aura_http_connection_poll_async_task_handle(
+    AuraTaskFrame *frame, AuraFfiOpaqueHandle *handle,
+    AuraHttpTaskHandler handler, void *user_data)
+{
+  AuraFfiHandlePin pin;
+  AuraHttpConnection *connection;
+  if (frame == NULL || handle == NULL || handler == NULL)
+  {
+    return AURA_TASK_FAILED;
+  }
+  memset(&pin, 0, sizeof(pin));
+  if (aura_ffi_handle_pin_for_boundary(handle, AURA_FFI_BOUNDARY_TASK, &pin) !=
+      AURA_FFI_OK)
+  {
+    return AURA_TASK_FAILED;
+  }
+  connection = (AuraHttpConnection *)pin.resource;
+  if (connection == NULL || connection->closed || connection->stream == NULL ||
+      connection->async_handle_pin_active)
+  {
+    (void)aura_ffi_handle_unpin(&pin);
+    return AURA_TASK_FAILED;
+  }
+  connection->async_handle_pin = pin;
+  connection->async_handle_pin_active = 1;
+  return aura_http_connection_poll_async_task(frame, connection, handler,
+                                               user_data);
 }
 
 uint32_t aura_task_frame_resume_state(const AuraTaskFrame *frame)

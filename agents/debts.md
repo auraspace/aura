@@ -375,7 +375,7 @@ When you resolve debt, update or remove the matching entry.
   then add supported-host evidence once the documented Aura-level server path
   exists.
 
-### HTTP async handler and Aura typed-handle gaps remain (H5, updated 2026-07-24)
+### HTTP async handler and Aura typed-handle gaps remain (H5, updated 2026-07-28)
 
 - Area: async HTTP connection integration
 - Symptom: the runtime bridge now has a suspending native task-handler callback,
@@ -391,8 +391,14 @@ When you resolve debt, update or remove the matching entry.
   bounded POLLOUT response backpressure; all `runtime/tests/http*.c` fixtures
   and both HTTP health smoke paths run directly under ASAN/UBSAN. The full
   sanitizer manifest now includes this fixture under native ASAN/UBSAN.
-- Next step: add Aura-level typed-handle and compiler-generated suspending
-  handler evidence; keep HTTP-001 partial until then.
+- Progress: `aura_http_connection_poll_async_task_handle` now pins a typed
+  `AuraFfiOpaqueHandle` across request-readiness and handler suspension, and
+  releases the pin only after terminal response/cancellation cleanup. The HTTP
+  async fixture covers dropping the lexical handle owner while the task is
+  pending; the connection remains live through the pin.
+- Next step: add Aura-level typed request/response values and
+  compiler-generated suspending handler evidence; keep HTTP-001 partial until
+  then.
 
 ### Async suspension GC roots and ownership (C22s, 2026-07-22)
 

@@ -205,10 +205,32 @@ typedef enum AuraFfiBoundary {
 typedef struct AuraTaskExecutor AuraTaskExecutor;
 typedef struct AuraTaskFrame AuraTaskFrame;
 typedef void (*AuraTaskFrameGcMarkFn)(AuraTaskFrame *frame);
+#define AURA_TASK_POLL_STATE_DEFINED 1
+typedef enum AuraTaskPollState {
+  AURA_TASK_READY = 0,
+  AURA_TASK_PENDING = 1,
+  AURA_TASK_COMPLETE = 2,
+  AURA_TASK_FAILED = 3,
+  AURA_TASK_CANCELLED = 4
+} AuraTaskPollState;
 typedef struct AuraTcpListener AuraTcpListener;
 typedef struct AuraTcpStream AuraTcpStream;
 typedef struct AuraIoOperationHandle AuraIoOperationHandle;
 typedef void (*AuraIoOperationCleanupFn)(void *resource);
+
+/* HTTP task handlers borrow request/response objects while the connection
+ * frame is polling. A handle-aware entry point pins the connection resource
+ * across readiness waits and releases it only after terminal cleanup. */
+typedef struct AuraHttpConnection AuraHttpConnection;
+typedef struct AuraHttpRequest AuraHttpRequest;
+typedef struct AuraHttpResponse AuraHttpResponse;
+typedef AuraTaskPollState (*AuraHttpTaskHandler)(AuraTaskFrame *frame,
+                                                  const AuraHttpRequest *request,
+                                                  AuraHttpResponse *response,
+                                                  void *user_data);
+AuraTaskPollState aura_http_connection_poll_async_task_handle(
+    AuraTaskFrame *frame, AuraFfiOpaqueHandle *handle,
+    AuraHttpTaskHandler handler, void *user_data);
 
 typedef enum AuraIoOperationKind {
   AURA_IO_OPERATION_FILE_READ = 1,

@@ -282,6 +282,102 @@ static void test_task_handler_cancellation_closes_owned_connection(void)
   assert(close(wake_pipe[1]) == 0);
 }
 
+typedef struct
+{
+  AuraFfiOpaqueHandle *handle;
+} HandleHttpTask;
+
+static void destroy_http_connection_resource(void *resource)
+{
+  aura_http_connection_destroy((AuraHttpConnection *)resource);
+}
+
+static AuraTaskPollState immediate_ok_task_handler(
+    AuraTaskFrame *frame, const AuraHttpRequest *request,
+    AuraHttpResponse *response, void *user_data)
+{
+  (void)frame;
+  return ok_handler(request, response, user_data) == AURA_HTTP_HANDLER_ERROR
+             ? AURA_TASK_FAILED
+             : AURA_TASK_COMPLETE;
+}
+
+static AuraTaskPollState poll_handle_http(AuraTaskFrame *frame)
+{
+  HandleHttpTask *task = (HandleHttpTask *)aura_task_frame_data(frame);
+  return aura_http_connection_poll_async_task_handle(
+      frame, task->handle, immediate_ok_task_handler, NULL);
+}
+
+static void test_task_handler_pins_typed_connection_handle_across_await(void)
+{
+  AuraHttpConnectionConfig config;
+  AuraHttpServer *server = NULL;
+  AuraTcpListener *listener = NULL;
+  AuraHttpConnection *connection = NULL;
+  AuraTcpStream *client = NULL;
+  AuraTaskExecutor *executor = NULL;
+  AuraTaskFrame *frame = NULL;
+  HandleHttpTask *task;
+  AuraFfiOpaqueHandle *handle = NULL;
+  uint16_t port = 0;
+  const char request[] = "GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n";
+  char response[512] = {0};
+  size_t written = 0;
+  size_t received = 0;
+
+  aura_http_connection_config_init(&config);
+  config.max_requests = 1;
+  assert(aura_tcp_listener_bind(0, &port, &listener) == AURA_TCP_OK);
+  assert(aura_http_server_create(listener, 1, &config, &server) ==
+         AURA_HTTP_CONNECTION_OK);
+  assert(aura_tcp_stream_connect(port, 1000, &client) == AURA_TCP_OK);
+  assert(aura_http_server_accept(server, 1000, &connection) ==
+         AURA_HTTP_CONNECTION_OK);
+  assert(aura_ffi_handle_new(connection, destroy_http_connection_resource,
+                              &handle) == AURA_FFI_OK);
+  executor = aura_task_executor_new();
+  assert(executor != NULL);
+  frame = aura_task_frame_new(sizeof(*task), poll_handle_http, NULL);
+  assert(frame != NULL);
+  task = (HandleHttpTask *)aura_task_frame_data(frame);
+  task->handle = handle;
+  assert(aura_task_executor_submit(executor, frame) == 1);
+  assert(aura_task_executor_run_one(executor) == 1);
+  assert(aura_task_frame_state(frame) == AURA_TASK_PENDING);
+  assert(aura_task_frame_is_waiting(frame));
+
+  /* Drop the only lexical owner while the task is suspended. The TASK pin
+   * must keep the connection alive until the response reaches a terminal
+   * state. */
+  assert(aura_ffi_handle_drop(&handle) == AURA_FFI_OK);
+  aura_gc_collect();
+  assert(aura_tcp_stream_write(client, request, sizeof(request) - 1, &written,
+                               1000) == AURA_TCP_OK);
+  assert(written == sizeof(request) - 1);
+  assert(aura_task_executor_poll_waiting(executor, 1000) == 1);
+  assert(aura_task_executor_run_one(executor) == 1);
+  assert(aura_task_frame_state(frame) == AURA_TASK_COMPLETE);
+  while (received + 1 < sizeof(response) &&
+         strstr(response, "\r\n\r\nok") == NULL)
+  {
+    size_t chunk = 0;
+    assert(aura_tcp_stream_read(client, response + received,
+                                sizeof(response) - received - 1, &chunk, 1000) ==
+           AURA_TCP_OK);
+    assert(chunk > 0);
+    received += chunk;
+    response[received] = '\0';
+  }
+  assert(strstr(response, "HTTP/1.1 200 OK") != NULL);
+  assert(strstr(response, "\r\n\r\nok") != NULL);
+  assert(aura_task_executor_release(executor, &frame) == 1);
+  aura_tcp_stream_destroy(client);
+  aura_task_executor_shutdown(executor);
+  assert(aura_http_server_shutdown(server) == 1);
+  assert(aura_http_server_destroy(server) == 1);
+}
+
 static void test_two_pending_connections_progress_independently(void)
 {
   AuraHttpConnectionConfig config;
@@ -667,6 +763,7 @@ int main(void)
 {
   test_task_handler_suspends_with_owned_request_and_cancels();
   test_task_handler_cancellation_closes_owned_connection();
+  test_task_handler_pins_typed_connection_handle_across_await();
   test_two_pending_connections_progress_independently();
   test_pending_connection_cancels_and_closes();
   test_peer_disconnect_completes_pending_request();
