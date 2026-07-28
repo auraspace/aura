@@ -1011,6 +1011,7 @@ enum AsyncCfgNode {
         value: String,
         value_key: String,
         value_is_ident: bool,
+        value_is_owned_temp: bool,
     },
 }
 
@@ -1556,6 +1557,8 @@ impl<'a> AsyncCfgBuilder<'a> {
                     self.supported = false;
                     return next;
                 }
+                let value_is_owned_temp = self.return_key == "String"
+                    && crate::expr::string_expr_is_owned_temp(value, &self.ctx);
                 let value = coerce_expr(value, &self.return_key, &mut self.ctx);
                 let state = self.alloc();
                 self.finish(
@@ -1564,6 +1567,7 @@ impl<'a> AsyncCfgBuilder<'a> {
                         value,
                         value_key: self.return_key.clone(),
                         value_is_ident: matches!(ret.value.as_ref(), Some(Expr::Ident(_))),
+                        value_is_owned_temp,
                     },
                 );
                 state
@@ -1914,6 +1918,7 @@ fn emit_async_fun_cfg_int(
             value: terminal_value,
             value_key: return_key.clone(),
             value_is_ident: false,
+            value_is_owned_temp: false,
         },
     );
     let entry = builder.emit_block(&f.body.stmts, terminal, None, None);
@@ -2210,12 +2215,15 @@ fn emit_async_fun_cfg_int(
                 value,
                 value_key,
                 value_is_ident,
+                value_is_owned_temp,
             } => {
                 let result_cty = crate::stmt::local_key_to_c(&value_key, checked);
                 if value_key == "String" {
                     let _ = writeln!(
                         out,
-                        "        const char *__src = {value}; const char *__copy = NULL; if (__src != NULL) {{ size_t __len = strlen(__src); char *__owned = (char *)malloc(__len + 1); if (__owned == NULL) return AURA_TASK_FAILED; memcpy(__owned, __src, __len + 1); __copy = __owned; }} const char **result = (const char **)malloc(sizeof(*result)); if (result == NULL) {{ free((void *)__copy); return AURA_TASK_FAILED; }} *result = __copy; aura_task_frame_set_result(frame, result, sizeof(*result), {destroy_result}); return AURA_TASK_COMPLETE;"
+                        "        const char *__src = {value}; const char *__copy = NULL; if (__src != NULL) {{ size_t __len = strlen(__src); char *__owned = (char *)malloc(__len + 1); if (__owned == NULL) {{ {free_src_on_error} return AURA_TASK_FAILED; }} memcpy(__owned, __src, __len + 1); __copy = __owned; }} {free_src} const char **result = (const char **)malloc(sizeof(*result)); if (result == NULL) {{ free((void *)__copy); return AURA_TASK_FAILED; }} *result = __copy; aura_task_frame_set_result(frame, result, sizeof(*result), {destroy_result}); return AURA_TASK_COMPLETE;",
+                        free_src_on_error = if value_is_owned_temp { "free((void *)__src);" } else { "" },
+                        free_src = if value_is_owned_temp { "if (__src != NULL) free((void *)__src);" } else { "" },
                     );
                 } else if is_array_type_key(&value_key) {
                     let clone = crate::names::c_method_name(&value_key, "clone");

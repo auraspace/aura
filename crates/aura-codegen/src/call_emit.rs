@@ -941,21 +941,47 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                 let params: Vec<String> =
                     f.type_params.iter().map(|p| p.name.name.clone()).collect();
                 let mut param_keys = Vec::new();
+                let mut owned_string_args = Vec::new();
                 let args = c
                     .args
                     .iter()
                     .zip(f.params.iter())
-                    .map(|(a, p)| {
+                    .enumerate()
+                    .map(|(index, (a, p))| {
                         let expected = type_ref_local_key(&p.ty, &params, &targs);
                         param_keys.push(expected.clone());
-                        coerce_owner_arg_expr(a, &expected, ctx)
+                        let value = coerce_owner_arg_expr(a, &expected, ctx);
+                        if expected == "String" && string_expr_is_owned_temp(a, ctx) {
+                            let temp = format!("__aura_string_arg_{index}");
+                            owned_string_args.push((temp.clone(), value));
+                            temp
+                        } else {
+                            value
+                        }
                     })
                     .collect::<Vec<_>>()
                     .join(", ");
                 let ret_c = c_type_from_opt(&f.return_type, ctx.checked, &params, &targs);
                 let fpkg = fun_decl_package(f, ctx.checked);
                 let call = format!("{}({args})", c_fun_name(&fpkg, &id.name, &targs));
-                return wrap_owner_arg_moves(call, &c.args, &param_keys, &ret_c, ctx);
+                let call = wrap_owner_arg_moves(call, &c.args, &param_keys, &ret_c, ctx);
+                if owned_string_args.is_empty() {
+                    return call;
+                }
+                let prelude = owned_string_args
+                    .iter()
+                    .map(|(name, value)| format!("const char *{name} = ({value});"))
+                    .collect::<String>();
+                let cleanup = owned_string_args
+                    .iter()
+                    .map(|(name, _)| format!("free((void *){name});"))
+                    .collect::<String>();
+                if ret_c == "void" {
+                    return format!("({{ {prelude} {call}; {cleanup} }})");
+                }
+                return format!(
+                    "({{ {prelude} {ret_c} __aura_call_result = ({call}); {cleanup} __aura_call_result; }})"
+                );
             }
             if let Some(f) = ctx.checked.ast.async_functions.iter().find(|f| {
                 f.name.name == id.name
