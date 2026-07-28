@@ -94,9 +94,9 @@ lexically after the enclosing Aura binding leaves scope. Bounded `spawn` now
 retains captured typed file handles and drops the frame owner independently,
 so `spawn { await writeFile(handle, ...) }` survives outer lexical cleanup;
 native coverage now verifies a write/read round trip with forced GC, repeated
-typed joins, and queued cancellation cleanup. Typed-handle capture
-through broader async callers, portable regular-file async I/O, and a general
-reactor abstraction remain open.
+typed joins, and queued cancellation cleanup. General CFG async callers now
+retain typed-handle parameters across multiple awaits in branch/loop frames;
+portable regular-file async I/O and a general reactor abstraction remain open.
 
 ## IO3. TCP listener and stream integration
 

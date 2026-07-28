@@ -1000,18 +1000,17 @@ TaskError>` locals release their payload at scope exit. Nested
   forced GC between suspensions and queued cancellation cleanup for a second
   reader. This proves the compiler-generated file operations beyond
   compile-only ABI checks.
-- A bounded general async caller now retains `ForeignHandle<T>` parameters in
-  its frame across a single await and drops that retain during frame teardown;
-  the native round-trip passes through `writeThrough(file)` to cover this
-  caller boundary instead of invoking the file intrinsic directly.
+- A general CFG async caller now retains `ForeignHandle<T>` parameters in its
+  frame across multiple branch/loop awaits and drops that retain during frame
+  teardown; native coverage forces GC and repeats owning joins while passing
+  through a multi-await `writeTwice(file)` caller.
 - `std.net.readStream` and `std.net.writeStream` now lower typed
   `ForeignHandle<Int>` values to task-pinned `AuraTcpStream` operations with
   readiness waits, EOF/error handling, short-write continuation, and terminal
   unpin cleanup. The fixture proves generated C compilation and ABI wiring;
   native Aura-level TCP handle construction and transfer remain open.
 - The slice intentionally does not claim portable regular-file async I/O,
-  native execution of typed file/TCP operations through general async callers,
-  or a general reactor policy.
+  arbitrary aggregate caller capture, or a general reactor policy.
   Keep IO-002 partial until those boundaries have typed Aura-facing contracts
   and native sanitizer coverage.
 

@@ -1246,7 +1246,8 @@ impl<'a> AsyncCfgBuilder<'a> {
 }
 
 fn async_cfg_value_supported(key: &str, checked: &CheckedFile) -> bool {
-    matches!(key, "Int" | "Bool" | "String")
+    matches!(key, "Int" | "Bool" | "String" | "ForeignHandle")
+        || key.starts_with("ForeignHandle_")
         || is_array_type_key(key)
         || is_heap_class_mono(key, checked)
 }
@@ -1430,6 +1431,8 @@ fn emit_async_fun_cfg_int(
         "false".into()
     } else if is_heap_class_mono(&return_key, checked) {
         "NULL".into()
+    } else if return_key == "ForeignHandle" || return_key.starts_with("ForeignHandle_") {
+        "NULL".into()
     } else {
         "INT64_C(0)".into()
     };
@@ -1455,6 +1458,8 @@ fn emit_async_fun_cfg_int(
         "Int" => "Int",
         "Bool" => "Bool",
         "String" => "String",
+        "ForeignHandle" => "ForeignHandle",
+        _ if return_key.starts_with("ForeignHandle_") => "ForeignHandle",
         _ if is_heap_class_mono(&return_key, checked) => "Class",
         _ => "Array",
     };
@@ -1491,6 +1496,16 @@ fn emit_async_fun_cfg_int(
         "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame);"
     );
     out.push_str("  if (data != NULL && data->await_task != NULL && data->await_task_owned && __aura_task_executor != NULL) (void)aura_task_executor_release(__aura_task_executor, &data->await_task);\n");
+    for param in &f.params {
+        let key = type_ref_local_key_expand(&param.ty, &params, &[], checked);
+        if key == "ForeignHandle" || key.starts_with("ForeignHandle_") {
+            let name = mangle_ident(&param.name.name);
+            let _ = writeln!(
+                out,
+                "  if (data->{name} != NULL) (void)aura_ffi_handle_drop(&data->{name});"
+            );
+        }
+    }
     for (var, key) in &vars {
         if key == "String" {
             let name = mangle_ident(&var.name.name);
@@ -1504,6 +1519,12 @@ fn emit_async_fun_cfg_int(
                 2,
                 &format!("data->{}", mangle_ident(&var.name.name)),
                 key,
+            );
+        } else if key == "ForeignHandle" || key.starts_with("ForeignHandle_") {
+            let name = mangle_ident(&var.name.name);
+            let _ = writeln!(
+                out,
+                "  if (data->{name} != NULL) (void)aura_ffi_handle_drop(&data->{name});"
             );
         }
     }
@@ -1524,6 +1545,8 @@ fn emit_async_fun_cfg_int(
         out.push_str("    free(result); }\n}\n\n");
     } else if is_heap_class_mono(&return_key, checked) {
         out.push_str("  (void)size; if (data != NULL) { aura_gc_remove_root((void **)data); free(data); }\n}\n\n");
+    } else if return_key == "ForeignHandle" || return_key.starts_with("ForeignHandle_") {
+        out.push_str("  (void)size; if (data != NULL) { AuraFfiOpaqueHandle **result = (AuraFfiOpaqueHandle **)data; if (*result != NULL) (void)aura_ffi_handle_drop(result); free(result); }\n}\n\n");
     } else {
         out.push_str("  (void)size; free(data);\n}\n\n");
     }
@@ -1619,6 +1642,12 @@ fn emit_async_fun_cfg_int(
                         out,
                         "        if (aura_task_frame_result(data->await_task).data != NULL) {{ {cty} *__child = ({cty} *)aura_task_frame_result(data->await_task).data; {free_code} data->{value} = {clone}(__child); {value} = data->{value}; }} if (data->await_task_owned && __aura_task_executor != NULL) (void)aura_task_executor_release(__aura_task_executor, &data->await_task); data->await_task = NULL; data->await_task_owned = false; aura_task_frame_set_resume_state(frame, {next}); continue;"
                     );
+                } else if value_key == "ForeignHandle" || value_key.starts_with("ForeignHandle_") {
+                    let cty = crate::stmt::local_key_to_c(&value_key, checked);
+                    let _ = writeln!(
+                        out,
+                        "        if (aura_task_frame_result(data->await_task).data != NULL) {{ {cty} __child = *(({cty} *)aura_task_frame_result(data->await_task).data); if (__child != NULL && aura_ffi_handle_retain(__child) != AURA_FFI_OK) return AURA_TASK_FAILED; if (data->{value} != NULL) (void)aura_ffi_handle_drop(&data->{value}); data->{value} = __child; {value} = __child; }} if (data->await_task_owned && __aura_task_executor != NULL) (void)aura_task_executor_release(__aura_task_executor, &data->await_task); data->await_task = NULL; data->await_task_owned = false; aura_task_frame_set_resume_state(frame, {next}); continue;"
+                    );
                 } else {
                     let cty = crate::stmt::local_key_to_c(&value_key, checked);
                     let _ = writeln!(
@@ -1663,6 +1692,12 @@ fn emit_async_fun_cfg_int(
                         out,
                         "        {result_cty} *result = ({result_cty} *)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; *result = {value}; aura_gc_add_root((void **)result); aura_task_frame_set_result(frame, result, sizeof(*result), {destroy_result}); return AURA_TASK_COMPLETE;"
                     );
+                } else if value_key == "ForeignHandle" || value_key.starts_with("ForeignHandle_") {
+                    let result_cty = crate::stmt::local_key_to_c(&value_key, checked);
+                    let _ = writeln!(
+                        out,
+                        "        {result_cty} *result = ({result_cty} *)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; *result = {value}; if (*result != NULL && aura_ffi_handle_retain(*result) != AURA_FFI_OK) {{ free(result); return AURA_TASK_FAILED; }} aura_task_frame_set_result(frame, result, sizeof(*result), {destroy_result}); return AURA_TASK_COMPLETE;"
+                    );
                 } else {
                     let _ = writeln!(out, "        {result_cty} *result = ({result_cty} *)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; *result = {value}; aura_task_frame_set_result(frame, result, sizeof(*result), {destroy_result}); return AURA_TASK_COMPLETE;");
                 }
@@ -1680,6 +1715,10 @@ fn emit_async_fun_cfg_int(
     for param in &f.params {
         let name = mangle_ident(&param.name.name);
         let _ = writeln!(out, "  data->{name} = {name};");
+        let key = type_ref_local_key_expand(&param.ty, &params, &[], checked);
+        if key == "ForeignHandle" || key.starts_with("ForeignHandle_") {
+            let _ = writeln!(out, "  if (data->{name} != NULL && aura_ffi_handle_retain(data->{name}) != AURA_FFI_OK) {{ aura_task_frame_destroy(frame); return NULL; }}");
+        }
     }
     let _ = writeln!(out, "  data->await_task = NULL; data->await_task_owned = false; aura_task_frame_set_resume_state(frame, {entry});");
     out.push_str("  if (__aura_task_executor != NULL && !aura_task_executor_submit(__aura_task_executor, frame)) { aura_task_frame_destroy(frame); return NULL; }\n  return frame;\n}\n");

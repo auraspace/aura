@@ -2159,6 +2159,76 @@ fun main() {}
     }
 
     #[test]
+    fn builds_and_runs_general_cfg_foreign_handle_parameter_across_multiple_awaits() {
+        let path = format!("/tmp/aura-general-cfg-handle-{}", std::process::id());
+        let source = format!(
+            r#"package std.io
+enum TaskError {{ case Failed(error: String) case Cancelled }}
+enum Result<T, E> {{ case Ok(value: T) case Err(error: E) }}
+fun openFile(path: String, mode: Int): ForeignHandle<Int> {{ throw "intrinsic" }}
+async fun writeFile(file: ForeignHandle<Int>, content: String): Int {{ return 0 }}
+async fun writeTwice(file: ForeignHandle<Int>): Int {{
+  var total: Int = 0
+  if (true) {{
+    var i: Int = 0
+    while (i < 2) {{
+      val count: Int = await writeFile(file, "x")
+      total = total + count
+      i = i + 1
+    }}
+  }}
+  return total
+}}
+fun main() {{
+  val output: ForeignHandle<Int> = openFile("{path}", 1)
+  val task = spawn {{
+    val count: Int = await writeTwice(output)
+    return count
+  }}
+  gc_collect()
+  val first: Result<Int, TaskError> = join(task)
+  match (first) {{
+    case Ok(value) => {{ println(value.toString()) }}
+    case Err(error) => {{ println("failed") }}
+  }}
+  val second: Result<Int, TaskError> = join(task)
+  match (second) {{
+    case Ok(value) => {{ println(value.toString()) }}
+    case Err(error) => {{ println("failed") }}
+  }}
+}}
+"#
+        );
+        let file = parse_file(&source).expect("parse general CFG handle fixture");
+        let generated = emit_c_from_ast(&file).expect("emit general CFG handle fixture");
+        assert!(generated.contains("aura async general CFG Int lowering"));
+        assert!(generated.contains("aura_ffi_handle_retain(data->file)"));
+        assert!(generated.contains("aura_ffi_handle_drop(&data->file)"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-general-cfg-handle-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile general CFG handle fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run general CFG handle fixture");
+        assert!(
+            output.status.success(),
+            "general CFG handle fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "2\n2\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
     fn builds_and_runs_for_range_await_with_gc_repeated_join_and_cancel() {
         let source = r#"package std.io
 enum TaskError { case Failed(error: String) case Cancelled }
