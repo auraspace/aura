@@ -923,8 +923,10 @@ When you resolve debt, update or remove the matching entry.
 - `std.io.readFile(file: ForeignHandle<Int>, capacity)` now has a compiler
   intrinsic that pins the borrowed opaque handle in the task frame, reads from
   its `AuraFile` resource, owns the result buffer, and unpins on terminal frame
-  cleanup. Current coverage proves generated C compilation and ABI wiring; a
-  native Aura-level handle constructor and runtime execution fixture remain open.
+  cleanup. `std.io.openFile(path, mode)` now creates the owned
+  `AuraFfiOpaqueHandle`; a native Aura fixture covers construction and lexical
+  cleanup. Native Aura-level async read execution remains open because
+  ForeignHandle capture through non-empty `spawn` is still rejected.
 - `std.io.writeFile(file: ForeignHandle<Int>, content)` now mirrors that pin
   lifetime, owns the input buffer, handles short writes through the frame wait
   state, and returns the transferred byte count. It has the same compile-only
@@ -933,9 +935,10 @@ When you resolve debt, update or remove the matching entry.
   `ForeignHandle<Int>` values to task-pinned `AuraTcpStream` operations with
   readiness waits, EOF/error handling, short-write continuation, and terminal
   unpin cleanup. The fixture proves generated C compilation and ABI wiring;
-  native Aura-level handle construction and transfer remain open.
+  native Aura-level TCP handle construction and transfer remain open.
 - The slice intentionally does not claim portable regular-file async I/O,
-  native execution of typed file/TCP operations, or a general reactor policy.
+  native execution of typed file/TCP operations through general async callers,
+  or a general reactor policy.
   Keep IO-002 partial until those boundaries have typed Aura-facing contracts
   and native sanitizer coverage.
 

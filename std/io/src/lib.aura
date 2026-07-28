@@ -135,6 +135,13 @@ pub fun fileSize(path: String): Int {
   return 0
 }
 
+/// Open a regular file and return an owned opaque handle. Mode is 0 for read,
+/// 1 for write/truncate, 2 for read/write, and 3 for append. The binding
+/// closes and destroys the resource when it leaves lexical scope.
+pub fun openFile(path: String, mode: Int): ForeignHandle<Int> {
+  throw "openFile intrinsic"
+}
+
 /// Read up to `capacity` bytes from a nonblocking descriptor and suspend the
 /// current task until the descriptor is readable. EOF returns an empty String.
 pub async fun readFd(fd: Int, capacity: Int): String {

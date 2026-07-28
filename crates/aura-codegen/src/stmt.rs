@@ -290,15 +290,19 @@ pub(crate) fn emit_release_task_handle_owners(
 ) {
     for name in owners {
         let key = ctx.lookup_local(name).unwrap_or_default();
-        if !(key == "TaskHandle" || key.starts_with("TaskHandle_")) {
-            continue;
-        }
         let p = pad(indent);
         let n = mangle_ident(name);
-        let _ = writeln!(
-            out,
-            "{p}if (__aura_task_executor != NULL) (void)aura_task_executor_release(__aura_task_executor, &{n});"
-        );
+        if key == "ForeignHandle" || key.starts_with("ForeignHandle_") {
+            let _ = writeln!(
+                out,
+                "{p}if ({n} != NULL) (void)aura_ffi_handle_destroy(&{n});"
+            );
+        } else if key == "TaskHandle" || key.starts_with("TaskHandle_") {
+            let _ = writeln!(
+                out,
+                "{p}if (__aura_task_executor != NULL) (void)aura_task_executor_release(__aura_task_executor, &{n});"
+            );
+        }
     }
 }
 
@@ -474,6 +478,15 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                 ctx.mark_task_result_owner(&v.name.name);
             }
             if ty_name == "TaskHandle" || ty_name.starts_with("TaskHandle_") {
+                ctx.mark_task_handle_owner(&v.name.name);
+            }
+            let owned_foreign_handle_init = ty_name.starts_with("ForeignHandle_")
+                && matches!(&v.init, Expr::Call(call) if ctx
+                    .checked
+                    .call_instantiations
+                    .get(&call.span.start)
+                    .is_some_and(|inst| inst.package == "std.io" && inst.name == "openFile"));
+            if owned_foreign_handle_init {
                 ctx.mark_task_handle_owner(&v.name.name);
             }
             // C22l: make bindings visible to a later bounded spawn in the same

@@ -635,6 +635,49 @@ fun main() {}
     }
 
     #[test]
+    fn builds_owned_std_io_file_handle_and_releases_it_lexically() {
+        let path = format!("/tmp/aura-owned-file-{}", std::process::id());
+        let file = aura_parser::parse_file(
+            &r#"package std.io
+fun openFile(path: String, mode: Int): ForeignHandle<Int> { throw "intrinsic" }
+async fun readFile(file: ForeignHandle<Int>, capacity: Int): String { return "" }
+fun main() {
+  val file: ForeignHandle<Int> = openFile("/tmp/aura-owned-file", 1)
+  gc_collect()
+}
+"#
+            .replace("/tmp/aura-owned-file", &path),
+        )
+        .expect("parse owned std.io file fixture");
+        let generated = emit_c_from_ast(&file).expect("emit owned std.io file fixture");
+        assert!(generated.contains("aura_file_open"));
+        assert!(generated.contains("aura_ffi_handle_new"));
+        assert!(generated.contains("aura_destroy_file_resource"));
+        assert!(generated.contains("aura_ffi_handle_destroy(&file)"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-owned-file-handle-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile owned std.io file fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run owned std.io file fixture");
+        assert!(
+            output.status.success(),
+            "owned file fixture failed: {output:?}"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
     fn compiles_compiler_generated_async_write_file_foreign_handle() {
         let file = aura_parser::parse_file(
             r#"package std.io
