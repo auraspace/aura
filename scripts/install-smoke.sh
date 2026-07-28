@@ -334,10 +334,15 @@ mode_local_pkg() {
   command -v cargo >/dev/null || die "cargo required for --local-pkg"
   command -v cc >/dev/null || command -v clang >/dev/null || die "C compiler required for --local-pkg"
   local ver="${AURA_VERSION}"
+  local tmp
+  tmp="$(mktemp -d "${TMPDIR:-/tmp}/aura-local-smoke.XXXXXX")"
+  # Keep the locally-built smoke package out of the release artifact directory.
+  local package_dist="$tmp/package-dist"
+  mkdir -p "$package_dist"
   info "Local package smoke (TAG_VERSION=$ver)"
   (
     cd "$root"
-    TAG_VERSION="$ver" bash scripts/package-release.sh
+    AURA_DIST_DIR="$package_dist" TAG_VERSION="$ver" bash scripts/package-release.sh
   )
   local host_os host_arch
   case "$(uname -s)" in
@@ -351,14 +356,12 @@ mode_local_pkg() {
     *) die "unsupported host architecture for --local-pkg: $(uname -m)" ;;
   esac
   local tarball
-  tarball="$root/dist/aura-${ver}-${host_os}-${host_arch}.tar.gz"
+  tarball="$package_dist/aura-${ver}-${host_os}-${host_arch}.tar.gz"
   [[ -n "$tarball" && -f "$tarball" ]] || die "no tarball under dist/ after package-release.sh"
   local artifact_name
   artifact_name="$(basename "$tarball" .tar.gz)"
   verify_archive_contract "$tarball" "$artifact_name"
 
-  local tmp
-  tmp="$(mktemp -d "${TMPDIR:-/tmp}/aura-local-smoke.XXXXXX")"
   # shellcheck disable=SC2064
   [[ "${SMOKE_KEEP:-0}" == "1" ]] || trap "rm -rf '$tmp'" EXIT
 

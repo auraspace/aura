@@ -89,7 +89,7 @@ else
 fi
 
 NAME="aura-${TAG_VERSION}-${OS}-${ARCH}"
-DIST="$ROOT/dist"
+DIST="${AURA_DIST_DIR:-$ROOT/dist}"
 STAGE="$DIST/$NAME"
 
 echo "packaging $NAME"

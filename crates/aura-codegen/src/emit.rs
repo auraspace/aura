@@ -7883,7 +7883,7 @@ fn emit_async_fun_single_await(
     );
     out.push_str("  if (aura_task_frame_cancel_requested(frame)) return AURA_TASK_CANCELLED;\n");
     out.push_str("  switch (aura_task_frame_resume_state(frame)) {\n");
-    out.push_str("    case 0:\n");
+    out.push_str("    case 0: {\n");
     for p in &f.params {
         let n = mangle_ident(&p.name.name);
         let _ = writeln!(
@@ -7910,7 +7910,7 @@ fn emit_async_fun_single_await(
     let _ = writeln!(out, "      data->await_task = {task};");
     out.push_str("      if (data->await_task == NULL) return AURA_TASK_FAILED;\n");
     out.push_str("      aura_task_frame_set_resume_state(frame, 1);\n");
-    out.push_str("      /* fall through to poll an immediately-ready child. */\n");
+    out.push_str("      /* fall through to poll an immediately-ready child. */\n    }\n");
     out.push_str("    case 1: {\n");
     out.push_str(
         "      AuraTaskPollState child_state = aura_task_frame_state(data->await_task);\n",
