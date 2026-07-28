@@ -1391,7 +1391,7 @@ fn emit_async_fun_cfg_int(
         return false;
     };
     let return_key = type_ref_local_key_expand(ret, &[], &[], checked);
-    if !matches!(return_key.as_str(), "Int" | "String") && !is_array_type_key(&return_key)
+    if !matches!(return_key.as_str(), "Int" | "Bool" | "String") && !is_array_type_key(&return_key)
         || !contains_if_with_while(&f.body.stmts)
     {
         return false;
@@ -1418,8 +1418,10 @@ fn emit_async_fun_cfg_int(
     let mut ctx = async_ctx(checked, detector, &params, &f.params, &f.return_type);
     for param in &f.params {
         let key = type_ref_local_key_expand(&param.ty, &params, &[], checked);
-        if !matches!(key.as_str(), "Int" | "Bool" | "String" | "Task_Int")
-            && !is_array_type_key(&key)
+        if !matches!(
+            key.as_str(),
+            "Int" | "Bool" | "String" | "Task_Int" | "Task_Bool"
+        ) && !is_array_type_key(&key)
         {
             return false;
         }
@@ -1437,6 +1439,8 @@ fn emit_async_fun_cfg_int(
             "({}){{0}}",
             crate::stmt::local_key_to_c(&return_key, checked)
         )
+    } else if return_key == "Bool" {
+        "false".into()
     } else {
         "INT64_C(0)".into()
     };
@@ -1460,6 +1464,7 @@ fn emit_async_fun_cfg_int(
     let destroy_result = format!("aura_async_result_destroy_{base}");
     let lowering_kind = match return_key.as_str() {
         "Int" => "Int",
+        "Bool" => "Bool",
         "String" => "String",
         _ => "Array",
     };
@@ -5426,6 +5431,41 @@ fun main() {}
         assert!(generated.contains("aura_task_frame_wait_on(frame, data->await_task)"));
         assert!(generated.contains("aura_task_frame_propagate_error(frame, data->await_task)"));
         assert!(generated.contains("aura_task_frame_cancel_requested(frame)"));
+    }
+
+    #[test]
+    fn lowers_general_cfg_bool_return_with_loop_awaits() {
+        let file = parse_file(
+            r#"package demo
+async fun choose(flag: Bool, first: Task<Bool>, second: Task<Bool>): Bool {
+  var index: Int = 0
+  var value: Bool = false
+  if (flag) {
+    while (index < 2) {
+      val next: Bool = await first
+      value = next
+      index = index + 1
+    }
+  } else {
+    while (index < 2) {
+      val alternate: Bool = await second
+      value = alternate
+      index = index + 1
+    }
+  }
+  return value
+}
+fun main() {}
+"#,
+        )
+        .expect("parse general CFG Bool fixture");
+        let checked = aura_sema::check_file(&file).expect("general CFG Bool fixture checks");
+        let generated = emit_c_with(&checked, EmitOptions::default());
+        assert!(generated.contains("aura async general CFG Bool lowering"));
+        assert!(generated.contains("bool value;"));
+        assert!(generated.contains("AURA_TASK_CANCELLED"));
+        assert!(generated.contains("aura_task_frame_propagate_error(frame, data->await_task)"));
+        assert!(generated.contains("aura_task_frame_set_result(frame, result"));
     }
 }
 

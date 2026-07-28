@@ -3475,6 +3475,94 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_general_cfg_bool_branch_loop_fixture() {
+        let source = r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+async fun leaf(value: Bool): Bool { return value }
+async fun choose(flag: Bool, first: Task<Bool>, second: Task<Bool>): Bool {
+  var index: Int = 0
+  var value: Bool = false
+  if (flag) {
+    while (index < 2) {
+      val next: Bool = await first
+      value = next
+      gc_collect()
+      index = index + 1
+    }
+  } else {
+    while (index < 2) {
+      val alternate: Bool = await second
+      value = alternate
+      gc_collect()
+      index = index + 1
+    }
+  }
+  return value
+}
+fun main() {
+  val task = spawn {
+    val value: Bool = await choose(true, leaf(true), leaf(false))
+    return value
+  }
+  val first: Result<Bool, TaskError> = join(task)
+  match (first) {
+    case Ok(value) => { if (value) { println("bool-ok") } else { println("bool-bad") } }
+    case Err(error) => { println("bool-error") }
+  }
+  gc_collect()
+  val second: Result<Bool, TaskError> = join(task)
+  match (second) {
+    case Ok(value) => { if (value) { println("bool-repeat-ok") } else { println("bool-repeat-bad") } }
+    case Err(error) => { println("bool-repeat-error") }
+  }
+  val cancelled = spawn {
+    val value: Bool = await choose(false, leaf(true), leaf(false))
+    return value
+  }
+  cancel(cancelled)
+  val cancelled_result: Result<Bool, TaskError> = join(cancelled)
+  match (cancelled_result) {
+    case Ok(value) => { println("bool-cancel-bad") }
+    case Err(error) => {
+      match (error) {
+        case Failed(message) => { println("bool-failure") }
+        case Cancelled => { println("bool-cancelled") }
+      }
+    }
+  }
+}
+"#;
+        let file = aura_parser::parse_file(source).expect("parse general CFG Bool fixture");
+        let generated = emit_c_from_ast(&file).expect("emit general CFG Bool fixture");
+        assert!(generated.contains("aura async general CFG Bool lowering"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-async-general-bool-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile general CFG Bool fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run general CFG Bool fixture");
+        assert!(
+            output.status.success(),
+            "general CFG Bool fixture failed: {output:?}"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "bool-ok\nbool-repeat-ok\nbool-cancelled\n"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_spawn_join_cancel() {
         let span = Span::new(0, 1);
         let ident = |name: &str| Ident {

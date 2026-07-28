@@ -145,6 +145,10 @@ When you resolve debt, update or remove the matching entry.
   primitive `String` locals and return values, including owned suspension
   cloning, failure propagation, repeated joins, forced GC, and queued
   cancellation in a native regression.
+- The same general CFG lowering now accepts `Bool` return values and
+  `Task<Bool>` operands. A native branch/loop fixture exercises both selected
+  paths, multiple resume states, forced GC between iterations, repeated joins,
+  and queued cancellation.
 - A range `for (i in start..end)` body with one awaited `Task<Int>` now persists
   the cursor, endpoint, accumulator, and temporary child across suspension;
   forced GC, repeated typed joins, and queued cancellation are covered by a
