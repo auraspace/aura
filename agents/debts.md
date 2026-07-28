@@ -920,6 +920,11 @@ When you resolve debt, update or remove the matching entry.
 - `std.io.writeFd(fd, content)` now copies its String input into the task frame,
   waits for `POLLOUT`, resumes after short writes, and returns an owned byte
   count. The generated fixture covers forced GC and cancellation cleanup.
+- `std.io.readFile(file: ForeignHandle<Int>, capacity)` now has a compiler
+  intrinsic that pins the borrowed opaque handle in the task frame, reads from
+  its `AuraFile` resource, owns the result buffer, and unpins on terminal frame
+  cleanup. Current coverage proves generated C compilation and ABI wiring; a
+  native Aura-level handle constructor and runtime execution fixture remain open.
 - The slice intentionally does not claim portable regular-file async I/O,
   compiler lowering for `AuraFile`/`AuraTcpStream` operation handles, or a
   general reactor policy. Keep IO-002 partial until those boundaries have typed

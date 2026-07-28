@@ -605,6 +605,36 @@ fun main() {
     }
 
     #[test]
+    fn compiles_compiler_generated_async_read_file_foreign_handle() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+async fun readFile(file: ForeignHandle<Int>, capacity: Int): String { return "" }
+fun main() {}
+"#,
+        )
+        .expect("parse generated async readFile fixture");
+        let generated = emit_c_from_ast(&file).expect("emit generated async readFile fixture");
+        assert!(generated.contains("compiler-generated std.io.readFile"));
+        assert!(generated.contains("aura_ffi_handle_pin_for_boundary"));
+        assert!(generated.contains("aura_file_read"));
+        assert!(generated.contains("aura_task_frame_wait_file"));
+        assert!(generated.contains("aura_ffi_handle_unpin(&data->pin)"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-async-read-file-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile generated async readFile fixture");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_compiler_generated_async_write_fd() {
         let file = aura_parser::parse_file(
             r#"package std.io

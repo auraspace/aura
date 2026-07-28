@@ -615,6 +615,7 @@ pub(crate) fn c_type_ref_subst(
             "String" => "const char *".into(),
             "Unit" => "void".into(),
             "Task" | "TaskHandle" => "AuraTaskFrame *".into(),
+            "ForeignHandle" => "AuraFfiOpaqueHandle *".into(),
             "Channel" => "AuraTaskChannel *".into(),
             name if checked.ast.interfaces.iter().any(|i| i.name.name == name) => {
                 let imono = iface_mono_from_key(name, checked);
@@ -635,6 +636,9 @@ pub(crate) fn c_type_ref_subst(
         // C22 async types are runtime handles, not user classes.
         if matches!(ty.name.name.as_str(), "Task" | "TaskHandle") {
             return "AuraTaskFrame *".into();
+        }
+        if ty.name.name == "ForeignHandle" {
+            return "AuraFfiOpaqueHandle *".into();
         }
         if ty.name.name == "Channel" {
             return "AuraTaskChannel *".into();

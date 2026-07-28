@@ -118,6 +118,8 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("typedef struct AuraTaskExecutor AuraTaskExecutor;\n");
     out.push_str("typedef struct AuraTaskChannel AuraTaskChannel;\n");
     out.push_str("typedef struct AuraFile AuraFile;\n");
+    out.push_str("typedef enum { AURA_FILE_OK = 0, AURA_FILE_PENDING = 1, AURA_FILE_EOF = 2, AURA_FILE_ERROR = -1, AURA_FILE_CLOSED = -2, AURA_FILE_UNSUPPORTED = -3, AURA_FILE_PERMISSION = -4 } AuraFileStatus;\n");
+    out.push_str("AuraFileStatus aura_file_read(AuraFile *, void *, uint64_t, uint64_t *);\n");
     out.push_str("typedef struct AuraTcpListener AuraTcpListener;\n");
     out.push_str("typedef struct AuraTcpStream AuraTcpStream;\n");
     out.push_str("typedef struct AuraRaceTracker AuraRaceTracker;\n");
@@ -5242,12 +5244,88 @@ fn emit_async_fun_std_io_fd(
     {
         return emit_async_fun_std_io_read_fd(out, f, checked, _detector);
     }
+    if f.name.name == "readFile"
+        && f.return_type.as_ref().map(|t| t.name.name.as_str()) == Some("String")
+        && type_ref_local_key_expand(&f.params[0].ty, &[], &[], checked)
+            .starts_with("ForeignHandle_")
+    {
+        return emit_async_fun_std_io_read_file(out, f, checked);
+    }
     if f.name.name != "writeFd"
         || f.return_type.as_ref().map(|t| t.name.name.as_str()) != Some("Int")
     {
         return false;
     }
     emit_async_fun_std_io_write_fd(out, f, checked, _detector)
+}
+
+fn emit_async_fun_std_io_read_file(
+    out: &mut String,
+    f: &AsyncFunDecl,
+    checked: &CheckedFile,
+) -> bool {
+    if type_ref_local_key_expand(&f.params[1].ty, &[], &[], checked) != "Int" {
+        return false;
+    }
+    let base = c_fun_name("std.io", "readFile", &[]);
+    let data_ty = format!("aura_async_data_{base}");
+    let poll_fn = format!("aura_async_poll_{base}");
+    let destroy_data = format!("aura_async_destroy_{base}");
+    let destroy_result = format!("aura_async_result_destroy_{base}");
+    let destroy_error = format!("aura_async_error_destroy_{base}");
+    out.push_str("/* compiler-generated std.io.readFile: pinned AuraFile + owned task buffer */\n");
+    let _ = writeln!(
+        out,
+        "typedef struct {data_ty} {{ AuraFfiOpaqueHandle *handle; AuraFfiHandlePin pin; bool pinned; uint64_t capacity; char *buffer; }} {data_ty};"
+    );
+    let _ = writeln!(
+        out,
+        "static void {destroy_data}(AuraTaskFrame *frame) {{ {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame); if (data != NULL) {{ if (data->buffer != NULL) free(data->buffer); if (data->pinned) (void)aura_ffi_handle_unpin(&data->pin); }} }}"
+    );
+    let _ = writeln!(
+        out,
+        "static void {destroy_result}(void *data, size_t size) {{ (void)size; if (data != NULL) {{ char **value = (char **)data; free(*value); free(value); }} }}"
+    );
+    let _ = writeln!(
+        out,
+        "static void {destroy_error}(void *data, size_t size) {{ (void)size; free(data); }}"
+    );
+    let _ = writeln!(
+        out,
+        "static AuraTaskPollState {poll_fn}(AuraTaskFrame *frame) {{"
+    );
+    let _ = writeln!(
+        out,
+        "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame);"
+    );
+    out.push_str("  if (aura_task_frame_cancel_requested(frame)) return AURA_TASK_CANCELLED;\n");
+    out.push_str("  switch (aura_task_frame_resume_state(frame)) {\n    case 0:\n");
+    out.push_str("      if (data == NULL || data->handle == NULL || data->capacity > SIZE_MAX - 1) return AURA_TASK_FAILED;\n");
+    out.push_str("      if (aura_ffi_handle_pin_for_boundary(data->handle, AURA_FFI_BOUNDARY_TASK, &data->pin) != AURA_FFI_OK) return AURA_TASK_FAILED;\n      data->pinned = true;\n");
+    out.push_str("      data->buffer = (char *)malloc((size_t)data->capacity + 1); if (data->buffer == NULL) return AURA_TASK_FAILED;\n");
+    out.push_str("      aura_task_frame_set_resume_state(frame, 1);\n      /* regular files are normally ready; descriptor-backed adapters may pend */\n    case 1: {\n");
+    out.push_str("      uint64_t count = 0; AuraFileStatus status = aura_file_read((AuraFile *)data->pin.resource, data->buffer, data->capacity, &count);\n");
+    out.push_str("      if (status == AURA_FILE_PENDING) { if (!aura_task_frame_wait_file(frame, (const AuraFile *)data->pin.resource, 1)) return AURA_TASK_FAILED; return AURA_TASK_PENDING; }\n");
+    out.push_str("      if (status != AURA_FILE_OK && status != AURA_FILE_EOF) { const char *message = \"readFile failed\"; size_t length = strlen(message) + 1; char *error = (char *)malloc(length); if (error == NULL) return AURA_TASK_FAILED; memcpy(error, message, length); aura_task_frame_set_error_at(frame, error, length, ");
+    out.push_str(&destroy_error);
+    out.push_str(", UINT32_C(0)); return AURA_TASK_FAILED; }\n");
+    out.push_str("      data->buffer[count] = '\\0'; char **result = (char **)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; *result = data->buffer; data->buffer = NULL; aura_task_frame_set_result(frame, result, sizeof(*result), ");
+    out.push_str(&destroy_result);
+    out.push_str(
+        "); return AURA_TASK_COMPLETE;\n    }\n    default: return AURA_TASK_FAILED;\n  }\n}\n",
+    );
+    let _ = writeln!(out, "{} {{", c_async_fun_signature(f, checked));
+    let _ = writeln!(out, "  AuraTaskFrame *frame = aura_task_frame_new(sizeof({data_ty}), {poll_fn}, {destroy_data});");
+    out.push_str("  if (frame == NULL) return NULL;\n");
+    let _ = writeln!(
+        out,
+        "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame);"
+    );
+    let handle = mangle_ident(&f.params[0].name.name);
+    let capacity = mangle_ident(&f.params[1].name.name);
+    let _ = writeln!(out, "  data->handle = {handle}; data->capacity = (uint64_t){capacity}; data->pinned = false; data->buffer = NULL;");
+    out.push_str("  if (__aura_task_executor != NULL && !aura_task_executor_submit(__aura_task_executor, frame)) { aura_task_frame_destroy(frame); return NULL; }\n  return frame;\n}\n");
+    true
 }
 
 fn emit_async_fun_std_io_read_fd(

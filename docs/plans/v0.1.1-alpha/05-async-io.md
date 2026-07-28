@@ -80,7 +80,10 @@ lowers `std.io.writeFd(fd, content)` into an owned-input frame that waits for
 `POLLOUT`, resumes after short writes, returns the byte count, and releases its
 buffer on completion, failure, cancellation, or executor shutdown. The
 executor join path drives registered fd readiness so these generated operations
-do not stop at `PENDING`. Generic `AuraFile`/`AuraTcpStream` operation lowering,
+do not stop at `PENDING`. The compiler now also emits a bounded
+`std.io.readFile(ForeignHandle<Int>, capacity)` frame that pins the opaque
+handle, reads its `AuraFile` resource, owns the String buffer, and unpins during
+frame teardown. Generic `AuraTcpStream` operation lowering,
 portable regular-file async I/O, and a general reactor abstraction remain open.
 
 ## IO3. TCP listener and stream integration
