@@ -952,10 +952,12 @@ TaskError>` locals release their payload at scope exit. Nested
   forced GC, repeated owning joins, and lexical result cleanup. The raw class
   object remains internal to the frame ABI; exposing it publicly still needs a
   deliberate typed object/FFI contract rather than a borrowed pointer.
-- The explicit scalar CFG path now accepts caller-owned `Task<Int>` parameters
-  and records `await_task_owned = false`, so nested awaits do not release the
-  caller's child frame. A compile-and-link fixture covers this distinction;
-  caller-owned aggregate/task-handle transfer and public raw payloads remain open.
+- The general CFG path now accepts caller-owned `Task<Int>` and `Task<String>`
+  parameters, records `await_task_owned = false`, clones the String success
+  payload across a branch/loop suspension, and preserves child failure and
+  cancellation while repeated joins observe the parent. Caller-owned aggregate
+  payloads beyond the covered primitive/String cases, task-handle transfer, and
+  public raw payloads remain open.
 
 ### ASYNC-003 general CFG lowering remains bounded (updated 2026-07-28)
 
@@ -967,6 +969,10 @@ TaskError>` locals release their payload at scope exit. Nested
 - The same graph accepts `Int`, `Bool`, `String`, heap-class, and supported array
   values. String/array values are cloned at suspension and return boundaries;
   class results use the frame GC scan plus explicit terminal roots.
+- Caller-owned `Task<String>` parameters now use the same graph and remain
+  borrowed across nested awaits; native coverage proves success, failure,
+  cancellation, forced GC, and repeated owning joins without static child
+  release.
 - Richer aggregate locals, `match`/`try`, arbitrary CFG joins, unbounded
   conditional-await counts, and full public typed outcome payloads still need
   dedicated ownership and cleanup rules before this can replace all bounded
