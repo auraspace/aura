@@ -415,6 +415,10 @@ When you resolve debt, update or remove the matching entry.
   releases the pin only after terminal response/cancellation cleanup. The HTTP
   async fixture covers dropping the lexical handle owner while the task is
   pending; the connection remains live through the pin.
+- Progress: runtime typed borrowed accessors now expose request method, target,
+  version, bounded headers/body, and response status/headers/body/keep-alive.
+  Strict parser/response fixtures verify bounds, binary body bytes, and that
+  accessors do not create a second owner.
 - Next step: add Aura-level typed request/response values and
   compiler-generated suspending handler evidence; keep HTTP-001 partial until
   then.

@@ -30,6 +30,14 @@ static void test_deterministic_binary_keep_alive_response(void)
          AURA_HTTP_RESPONSE_OK);
   assert(aura_http_response_set_body(&response, body, sizeof(body)) ==
          AURA_HTTP_RESPONSE_OK);
+  assert(aura_http_response_status(&response) == 200);
+  assert(aura_http_response_header_count(&response) == 1);
+  assert(strcmp(aura_http_response_header_name(&response, 0), "X-Trace") == 0);
+  assert(strcmp(aura_http_response_header_value(&response, 0), "stable") == 0);
+  assert(aura_http_response_body_length(&response) == sizeof(body));
+  assert(memcmp(aura_http_response_body(&response), body, sizeof(body)) == 0);
+  assert(aura_http_response_keep_alive(&response) == 1);
+  assert(aura_http_response_header_name(&response, 99) == NULL);
   assert(aura_http_response_serialize(&response, first, sizeof(first),
                                       &first_length) == AURA_HTTP_RESPONSE_OK);
   assert(aura_http_response_serialize(&response, second, sizeof(second),

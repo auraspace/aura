@@ -224,6 +224,29 @@ typedef void (*AuraIoOperationCleanupFn)(void *resource);
 typedef struct AuraHttpConnection AuraHttpConnection;
 typedef struct AuraHttpRequest AuraHttpRequest;
 typedef struct AuraHttpResponse AuraHttpResponse;
+
+/* Borrowed typed HTTP views. Returned strings/bytes remain owned by the
+ * request or response and are valid only while that object is alive. */
+const char *aura_http_request_method(const AuraHttpRequest *request);
+const char *aura_http_request_target(const AuraHttpRequest *request);
+const char *aura_http_request_version(const AuraHttpRequest *request);
+size_t aura_http_request_header_count(const AuraHttpRequest *request);
+const char *aura_http_request_header_name(const AuraHttpRequest *request,
+                                          size_t index);
+const char *aura_http_request_header_value(const AuraHttpRequest *request,
+                                           size_t index);
+const unsigned char *aura_http_request_body(const AuraHttpRequest *request);
+size_t aura_http_request_body_length(const AuraHttpRequest *request);
+int aura_http_response_status(const AuraHttpResponse *response);
+size_t aura_http_response_header_count(const AuraHttpResponse *response);
+const char *aura_http_response_header_name(const AuraHttpResponse *response,
+                                           size_t index);
+const char *aura_http_response_header_value(const AuraHttpResponse *response,
+                                            size_t index);
+const unsigned char *aura_http_response_body(const AuraHttpResponse *response);
+size_t aura_http_response_body_length(const AuraHttpResponse *response);
+int aura_http_response_keep_alive(const AuraHttpResponse *response);
+
 typedef AuraTaskPollState (*AuraHttpTaskHandler)(AuraTaskFrame *frame,
                                                   const AuraHttpRequest *request,
                                                   AuraHttpResponse *response,

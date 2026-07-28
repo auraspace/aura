@@ -1146,6 +1146,56 @@ const AuraHttpHeader *aura_http_request_find_header(const AuraHttpRequest *reque
   return NULL;
 }
 
+const char *aura_http_request_method(const AuraHttpRequest *request)
+{
+  return request == NULL ? NULL : request->method;
+}
+
+const char *aura_http_request_target(const AuraHttpRequest *request)
+{
+  return request == NULL ? NULL : request->target;
+}
+
+const char *aura_http_request_version(const AuraHttpRequest *request)
+{
+  return request == NULL ? NULL : request->version;
+}
+
+size_t aura_http_request_header_count(const AuraHttpRequest *request)
+{
+  return request == NULL ? 0 : request->header_count;
+}
+
+const char *aura_http_request_header_name(const AuraHttpRequest *request,
+                                          size_t index)
+{
+  if (request == NULL || index >= request->header_count)
+  {
+    return NULL;
+  }
+  return request->headers[index].name;
+}
+
+const char *aura_http_request_header_value(const AuraHttpRequest *request,
+                                           size_t index)
+{
+  if (request == NULL || index >= request->header_count)
+  {
+    return NULL;
+  }
+  return request->headers[index].value;
+}
+
+const unsigned char *aura_http_request_body(const AuraHttpRequest *request)
+{
+  return request == NULL ? NULL : request->body;
+}
+
+size_t aura_http_request_body_length(const AuraHttpRequest *request)
+{
+  return request == NULL ? 0 : request->body_length;
+}
+
 typedef enum
 {
   AURA_HTTP_LINE_FOUND,
@@ -1738,6 +1788,51 @@ void aura_http_response_destroy(AuraHttpResponse *response)
   free(response->headers);
   free(response->body);
   memset(response, 0, sizeof(*response));
+}
+
+int aura_http_response_status(const AuraHttpResponse *response)
+{
+  return response == NULL ? 0 : response->status_code;
+}
+
+size_t aura_http_response_header_count(const AuraHttpResponse *response)
+{
+  return response == NULL ? 0 : response->header_count;
+}
+
+const char *aura_http_response_header_name(const AuraHttpResponse *response,
+                                           size_t index)
+{
+  if (response == NULL || index >= response->header_count)
+  {
+    return NULL;
+  }
+  return response->headers[index].name;
+}
+
+const char *aura_http_response_header_value(const AuraHttpResponse *response,
+                                            size_t index)
+{
+  if (response == NULL || index >= response->header_count)
+  {
+    return NULL;
+  }
+  return response->headers[index].value;
+}
+
+const unsigned char *aura_http_response_body(const AuraHttpResponse *response)
+{
+  return response == NULL ? NULL : response->body;
+}
+
+size_t aura_http_response_body_length(const AuraHttpResponse *response)
+{
+  return response == NULL ? 0 : response->body_length;
+}
+
+int aura_http_response_keep_alive(const AuraHttpResponse *response)
+{
+  return response != NULL && response->connection == AURA_HTTP_RESPONSE_KEEP_ALIVE;
 }
 
 AuraHttpResponseStatus aura_http_response_set_status(AuraHttpResponse *response,

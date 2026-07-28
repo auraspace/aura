@@ -39,6 +39,15 @@ static void test_valid_get_and_case_insensitive_headers(void)
   assert(strcmp(parsed.target, "/health?ready=1") == 0);
   assert(strcmp(parsed.version, "HTTP/1.1") == 0);
   assert(parsed.header_count == 2);
+  assert(strcmp(aura_http_request_method(&parsed), "GET") == 0);
+  assert(strcmp(aura_http_request_target(&parsed), "/health?ready=1") == 0);
+  assert(strcmp(aura_http_request_version(&parsed), "HTTP/1.1") == 0);
+  assert(aura_http_request_header_count(&parsed) == 2);
+  assert(strcmp(aura_http_request_header_name(&parsed, 0), "hOsT") == 0);
+  assert(strcmp(aura_http_request_header_value(&parsed, 0), "example.test") == 0);
+  assert(aura_http_request_header_name(&parsed, 99) == NULL);
+  assert(aura_http_request_body(&parsed) == NULL);
+  assert(aura_http_request_body_length(&parsed) == 0);
   assert(parsed.body == NULL);
   assert(parsed.body_length == 0);
   host = aura_http_request_find_header(&parsed, "HOST");
@@ -67,6 +76,8 @@ static void test_valid_post_duplicate_equal_content_length(void)
   assert(consumed == sizeof(request) - 1 - 4);
   assert(parsed.header_count == 2);
   assert(parsed.body_length == 5);
+  assert(aura_http_request_body_length(&parsed) == 5);
+  assert(memcmp(aura_http_request_body(&parsed), "hello", 5) == 0);
   assert(memcmp(parsed.body, "hello", 5) == 0);
   length = aura_http_request_find_header(&parsed, "content-length");
   assert(length != NULL && strcmp(length->value, "5") == 0);
