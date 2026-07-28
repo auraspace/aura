@@ -433,6 +433,10 @@ When you resolve debt, update or remove the matching entry.
   version, bounded headers/body, and response status/headers/body/keep-alive.
   Strict parser/response fixtures verify bounds, binary body bytes, and that
   accessors do not create a second owner.
+- Progress: compiler-generated `std.http` accessors now pin borrowed
+  `ForeignHandle<Int>` resources at the sync boundary, copy request text/body
+  values into owned strings, and expose bounded response read/mutation calls;
+  a compiler ABI/link fixture covers the ownership boundary.
 - Next step: add Aura-level typed request/response values and
   compiler-generated suspending handler evidence; keep HTTP-001 partial until
   then.

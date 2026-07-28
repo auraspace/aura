@@ -130,6 +130,13 @@ releasing it after terminal response or cancellation cleanup. Runtime typed
 borrowed accessors now expose request method/target/version, bounded
 headers/body, and response status/headers/body/keep-alive without transferring
 ownership; Aura-level values and compiler-generated handlers remain open.
+The compiler now exposes a bounded `std.http` accessor subset over borrowed
+`ForeignHandle<Int>` request/response resources: request method/target/version/
+body are copied into owned Aura strings, response status/keep-alive can be read,
+and status/keep-alive/body/header mutations return bounded success booleans.
+Each call pins the handle at the synchronous boundary and unpins before
+returning; compiler ABI/link fixtures cover the lowering. Full Aura request /
+response value types and compiler-generated suspending handlers remain open.
 **Checklist:**
 
 - [x] Suspend on partial reads and writes without blocking other tasks; retain

@@ -141,6 +141,25 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     );
     out.push_str("AuraTcpStatus aura_tcp_stream_write(AuraTcpStream *, const void *, size_t, size_t *, int);\n");
     out.push_str("static void aura_destroy_tcp_stream_resource(void *resource) { if (resource != NULL) aura_tcp_stream_destroy((AuraTcpStream *)resource); }\n");
+    out.push_str("typedef struct AuraHttpRequest AuraHttpRequest;\n");
+    out.push_str("typedef struct AuraHttpResponse AuraHttpResponse;\n");
+    out.push_str("const char *aura_http_request_method(const AuraHttpRequest *);\n");
+    out.push_str("const char *aura_http_request_target(const AuraHttpRequest *);\n");
+    out.push_str("const char *aura_http_request_version(const AuraHttpRequest *);\n");
+    out.push_str("const unsigned char *aura_http_request_body(const AuraHttpRequest *);\n");
+    out.push_str("size_t aura_http_request_body_length(const AuraHttpRequest *);\n");
+    out.push_str("int aura_http_response_status(const AuraHttpResponse *);\n");
+    out.push_str("int aura_http_response_keep_alive(const AuraHttpResponse *);\n");
+    out.push_str("typedef enum { AURA_HTTP_RESPONSE_OK = 0, AURA_HTTP_RESPONSE_INVALID = -1, AURA_HTTP_RESPONSE_TOO_LARGE = -2, AURA_HTTP_RESPONSE_BUFFER_TOO_SMALL = -3, AURA_HTTP_RESPONSE_ALLOCATION = -4 } AuraHttpResponseStatus;\n");
+    out.push_str("typedef enum { AURA_HTTP_RESPONSE_CLOSE = 0, AURA_HTTP_RESPONSE_KEEP_ALIVE = 1 } AuraHttpResponseConnection;\n");
+    out.push_str(
+        "AuraHttpResponseStatus aura_http_response_set_status(AuraHttpResponse *, int);\n",
+    );
+    out.push_str("AuraHttpResponseStatus aura_http_response_set_connection(AuraHttpResponse *, AuraHttpResponseConnection);\n");
+    out.push_str("AuraHttpResponseStatus aura_http_response_set_body(AuraHttpResponse *, const void *, size_t);\n");
+    out.push_str("AuraHttpResponseStatus aura_http_response_add_header(AuraHttpResponse *, const char *, const char *);\n");
+    out.push_str("static char *aura_http_copy_bytes(const void *data, size_t length) { char *copy = (char *)malloc(length + 1); if (copy == NULL) return NULL; if (length != 0 && data != NULL) memcpy(copy, data, length); copy[length] = '\\0'; return copy; }\n");
+    out.push_str("static int aura_http_pin_resource(AuraFfiOpaqueHandle *handle, AuraFfiHandlePin *pin) { return handle != NULL && aura_ffi_handle_pin_for_boundary(handle, AURA_FFI_BOUNDARY_SYNC, pin) == AURA_FFI_OK; }\n");
     out.push_str("typedef struct AuraRaceTracker AuraRaceTracker;\n");
     out.push_str("typedef enum { AURA_RACE_READ = 0, AURA_RACE_WRITE = 1, AURA_RACE_TASK_SPAWN = 2, AURA_RACE_TASK_JOIN = 3, AURA_RACE_SYNC_ACQUIRE = 4, AURA_RACE_SYNC_RELEASE = 5, AURA_RACE_TASK_COMPLETE = 6, AURA_RACE_TASK_FAILED = 7, AURA_RACE_TASK_CANCELLED = 8, AURA_RACE_CHANNEL_SEND = 9, AURA_RACE_CHANNEL_RECEIVE = 10, AURA_RACE_CHANNEL_CLOSE = 11 } AuraRaceEventKind;\n");
     out.push_str("AuraRaceTracker *aura_race_tracker_new(void);\n");
@@ -9942,6 +9961,89 @@ pub(crate) fn emit_fun(
             out.push_str("  if (aura_ffi_handle_new((void *)__stream, aura_destroy_tcp_stream_resource, &__handle) != AURA_FFI_OK) { aura_tcp_stream_destroy(__stream); aura_throw_string(\"std.net.connect failed\"); return NULL; }\n");
             out.push_str("  return __handle;\n}\n");
             return;
+        }
+    }
+    if pkg == "std.http" && !f.params.is_empty() {
+        let handle = mangle_ident(&f.params[0].name.name);
+        match (f.name.name.as_str(), f.params.len()) {
+            ("requestMethod", 1) => {
+                out.push_str("  AuraFfiHandlePin __pin = {0}; if (!aura_http_pin_resource(");
+                out.push_str(&handle);
+                out.push_str(", &__pin)) { aura_throw_string(\"http request handle is invalid\"); return NULL; } const char *__value = aura_http_request_method((const AuraHttpRequest *)__pin.resource); size_t __length = __value == NULL ? 0 : strlen(__value); char *__copy = aura_http_copy_bytes(__value, __length); (void)aura_ffi_handle_unpin(&__pin); if (__copy == NULL) { aura_throw_string(\"http request method allocation failed\"); return NULL; } return __copy;\n}");
+                return;
+            }
+            ("requestTarget", 1) => {
+                out.push_str("  AuraFfiHandlePin __pin = {0}; if (!aura_http_pin_resource(");
+                out.push_str(&handle);
+                out.push_str(", &__pin)) { aura_throw_string(\"http request handle is invalid\"); return NULL; } const char *__value = aura_http_request_target((const AuraHttpRequest *)__pin.resource); size_t __length = __value == NULL ? 0 : strlen(__value); char *__copy = aura_http_copy_bytes(__value, __length); (void)aura_ffi_handle_unpin(&__pin); if (__copy == NULL) { aura_throw_string(\"http request target allocation failed\"); return NULL; } return __copy;\n}");
+                return;
+            }
+            ("requestVersion", 1) => {
+                out.push_str("  AuraFfiHandlePin __pin = {0}; if (!aura_http_pin_resource(");
+                out.push_str(&handle);
+                out.push_str(", &__pin)) { aura_throw_string(\"http request handle is invalid\"); return NULL; } const char *__value = aura_http_request_version((const AuraHttpRequest *)__pin.resource); size_t __length = __value == NULL ? 0 : strlen(__value); char *__copy = aura_http_copy_bytes(__value, __length); (void)aura_ffi_handle_unpin(&__pin); if (__copy == NULL) { aura_throw_string(\"http request version allocation failed\"); return NULL; } return __copy;\n}");
+                return;
+            }
+            ("requestBody", 1) => {
+                out.push_str("  AuraFfiHandlePin __pin = {0}; if (!aura_http_pin_resource(");
+                out.push_str(&handle);
+                out.push_str(", &__pin)) { aura_throw_string(\"http request handle is invalid\"); return NULL; } const unsigned char *__value = aura_http_request_body((const AuraHttpRequest *)__pin.resource); size_t __length = aura_http_request_body_length((const AuraHttpRequest *)__pin.resource); char *__copy = aura_http_copy_bytes(__value, __length); (void)aura_ffi_handle_unpin(&__pin); if (__copy == NULL) { aura_throw_string(\"http request body allocation failed\"); return NULL; } return __copy;\n}");
+                return;
+            }
+            ("responseStatus", 1) => {
+                out.push_str("  AuraFfiHandlePin __pin = {0}; if (!aura_http_pin_resource(");
+                out.push_str(&handle);
+                out.push_str(", &__pin)) { aura_throw_string(\"http response handle is invalid\"); return 0; } int64_t __status = (int64_t)aura_http_response_status((const AuraHttpResponse *)__pin.resource); (void)aura_ffi_handle_unpin(&__pin); return __status;\n}");
+                return;
+            }
+            ("responseKeepAlive", 1) => {
+                out.push_str("  AuraFfiHandlePin __pin = {0}; if (!aura_http_pin_resource(");
+                out.push_str(&handle);
+                out.push_str(", &__pin)) { aura_throw_string(\"http response handle is invalid\"); return false; } _Bool __keep_alive = aura_http_response_keep_alive((const AuraHttpResponse *)__pin.resource) != 0; (void)aura_ffi_handle_unpin(&__pin); return __keep_alive;\n}");
+                return;
+            }
+            ("responseSetStatus", 2) => {
+                let status = mangle_ident(&f.params[1].name.name);
+                out.push_str("  AuraFfiHandlePin __pin = {0}; if (!aura_http_pin_resource(");
+                out.push_str(&handle);
+                out.push_str(", &__pin)) { aura_throw_string(\"http response handle is invalid\"); return false; } _Bool __ok = aura_http_response_set_status((AuraHttpResponse *)__pin.resource, (int)");
+                out.push_str(&status);
+                out.push_str(") == AURA_HTTP_RESPONSE_OK; (void)aura_ffi_handle_unpin(&__pin); return __ok;\n}");
+                return;
+            }
+            ("responseSetKeepAlive", 2) => {
+                let keep_alive = mangle_ident(&f.params[1].name.name);
+                out.push_str("  AuraFfiHandlePin __pin = {0}; if (!aura_http_pin_resource(");
+                out.push_str(&handle);
+                out.push_str(", &__pin)) { aura_throw_string(\"http response handle is invalid\"); return false; } _Bool __ok = aura_http_response_set_connection((AuraHttpResponse *)__pin.resource, ");
+                out.push_str(&keep_alive);
+                out.push_str(" ? AURA_HTTP_RESPONSE_KEEP_ALIVE : AURA_HTTP_RESPONSE_CLOSE) == AURA_HTTP_RESPONSE_OK; (void)aura_ffi_handle_unpin(&__pin); return __ok;\n}");
+                return;
+            }
+            ("responseSetBody", 2) => {
+                let body = mangle_ident(&f.params[1].name.name);
+                out.push_str("  AuraFfiHandlePin __pin = {0}; if (!aura_http_pin_resource(");
+                out.push_str(&handle);
+                out.push_str(", &__pin)) { aura_throw_string(\"http response handle is invalid\"); return false; } const char *__body = ");
+                out.push_str(&body);
+                out.push_str(" == NULL ? \"\" : ");
+                out.push_str(&body);
+                out.push_str("; _Bool __ok = aura_http_response_set_body((AuraHttpResponse *)__pin.resource, __body, strlen(__body)) == AURA_HTTP_RESPONSE_OK; (void)aura_ffi_handle_unpin(&__pin); return __ok;\n}");
+                return;
+            }
+            ("responseAddHeader", 3) => {
+                let name = mangle_ident(&f.params[1].name.name);
+                let value = mangle_ident(&f.params[2].name.name);
+                out.push_str("  AuraFfiHandlePin __pin = {0}; if (!aura_http_pin_resource(");
+                out.push_str(&handle);
+                out.push_str(", &__pin)) { aura_throw_string(\"http response handle is invalid\"); return false; } _Bool __ok = aura_http_response_add_header((AuraHttpResponse *)__pin.resource, ");
+                out.push_str(&name);
+                out.push_str(", ");
+                out.push_str(&value);
+                out.push_str(") == AURA_HTTP_RESPONSE_OK; (void)aura_ffi_handle_unpin(&__pin); return __ok;\n}");
+                return;
+            }
+            _ => {}
         }
     }
     // C4h: std.assert.assert → aura_assert.

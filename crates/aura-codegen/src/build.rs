@@ -1002,6 +1002,46 @@ fun main() {}
     }
 
     #[test]
+    fn compiles_std_http_typed_borrowed_request_response_accessors() {
+        let file = aura_parser::parse_file(
+            r#"package std.http
+fun requestMethod(request: ForeignHandle<Int>): String { throw "intrinsic" }
+fun requestTarget(request: ForeignHandle<Int>): String { throw "intrinsic" }
+fun requestVersion(request: ForeignHandle<Int>): String { throw "intrinsic" }
+fun requestBody(request: ForeignHandle<Int>): String { throw "intrinsic" }
+fun responseStatus(response: ForeignHandle<Int>): Int { throw "intrinsic" }
+fun responseKeepAlive(response: ForeignHandle<Int>): Bool { throw "intrinsic" }
+fun responseSetStatus(response: ForeignHandle<Int>, status: Int): Bool { throw "intrinsic" }
+fun responseSetKeepAlive(response: ForeignHandle<Int>, keepAlive: Bool): Bool { throw "intrinsic" }
+fun responseSetBody(response: ForeignHandle<Int>, body: String): Bool { throw "intrinsic" }
+fun responseAddHeader(response: ForeignHandle<Int>, name: String, value: String): Bool { throw "intrinsic" }
+fun main() {}
+"#,
+        )
+        .expect("parse std.http accessor fixture");
+        let generated = emit_c_from_ast(&file).expect("emit std.http accessor fixture");
+        assert!(generated.contains("aura_http_request_method"));
+        assert!(generated.contains("aura_http_request_body_length"));
+        assert!(generated.contains("aura_http_response_set_status"));
+        assert!(generated.contains("aura_http_response_add_header"));
+        assert!(generated.contains("aura_ffi_handle_pin_for_boundary"));
+        assert!(generated.contains("aura_ffi_handle_unpin(&__pin)"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-std-http-accessors-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile std.http accessor fixture");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_compiler_generated_async_write_fd() {
         let file = aura_parser::parse_file(
             r#"package std.io
