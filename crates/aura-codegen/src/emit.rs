@@ -998,6 +998,7 @@ struct AsyncCfgBuilder<'a> {
     nodes: Vec<Option<AsyncCfgNode>>,
     ctx: EmitCtx<'a>,
     locals: HashMap<String, String>,
+    cfg_locals: Vec<(String, String)>,
     match_bindings: Vec<(String, String)>,
     return_key: String,
     supported: bool,
@@ -1009,6 +1010,7 @@ impl<'a> AsyncCfgBuilder<'a> {
             nodes: Vec::new(),
             ctx,
             locals,
+            cfg_locals: Vec::new(),
             match_bindings: Vec::new(),
             return_key,
             supported: true,
@@ -1141,6 +1143,72 @@ impl<'a> AsyncCfgBuilder<'a> {
                     },
                 );
                 condition_state
+            }
+            Stmt::ForRange(range) => {
+                if expr_contains_async(&range.start)
+                    || expr_contains_async(&range.end)
+                    || self.locals.contains_key(&range.name.name)
+                {
+                    self.supported = false;
+                    return next;
+                }
+                let iterator = range.name.name.clone();
+                let bound = format!("__aura_range_end_{}", self.cfg_locals.len());
+                self.locals.insert(iterator.clone(), "Int".into());
+                self.locals.insert(bound.clone(), "Int".into());
+                self.cfg_locals.push((iterator.clone(), "Int".into()));
+                self.cfg_locals.push((bound.clone(), "Int".into()));
+                self.ctx.define_local(&iterator, "Int".into());
+                self.ctx.define_local(&bound, "Int".into());
+
+                let condition_state = self.alloc();
+                let increment_state = self.alloc();
+                let body_state = self.emit_block(
+                    &range.body.stmts,
+                    increment_state,
+                    break_state.or(Some(next)),
+                    Some(increment_state),
+                );
+                let comparison = if range.inclusive {
+                    format!("({iterator} <= {bound})")
+                } else {
+                    format!("({iterator} < {bound})")
+                };
+                self.finish(
+                    condition_state,
+                    AsyncCfgNode::Branch {
+                        condition: comparison,
+                        then_state: body_state,
+                        else_state: next,
+                    },
+                );
+                self.finish(
+                    increment_state,
+                    AsyncCfgNode::Action {
+                        code: format!("{iterator} = {iterator} + INT64_C(1);"),
+                        next: condition_state,
+                    },
+                );
+
+                let end = coerce_expr(&range.end, "Int", &mut self.ctx);
+                let end_state = self.alloc();
+                self.finish(
+                    end_state,
+                    AsyncCfgNode::Action {
+                        code: format!("{bound} = {end};"),
+                        next: condition_state,
+                    },
+                );
+                let start = coerce_expr(&range.start, "Int", &mut self.ctx);
+                let start_state = self.alloc();
+                self.finish(
+                    start_state,
+                    AsyncCfgNode::Action {
+                        code: format!("{iterator} = {start};"),
+                        next: end_state,
+                    },
+                );
+                start_state
             }
             Stmt::Match(m) => {
                 if expr_contains_async(&m.scrutinee) || m.arms.is_empty() {
@@ -1473,6 +1541,14 @@ fn stmt_contains_async(stmt: &Stmt) -> bool {
             expr_contains_async(&loop_stmt.cond)
                 || loop_stmt.body.stmts.iter().any(stmt_contains_async)
         }
+        Stmt::ForRange(range) => {
+            expr_contains_async(&range.start)
+                || expr_contains_async(&range.end)
+                || range.body.stmts.iter().any(stmt_contains_async)
+        }
+        Stmt::ForIn(range) => {
+            expr_contains_async(&range.iterable) || range.body.stmts.iter().any(stmt_contains_async)
+        }
         Stmt::Match(m) => {
             expr_contains_async(&m.scrutinee)
                 || m.arms
@@ -1498,6 +1574,10 @@ fn contains_async_cfg_control_flow(stmts: &[Stmt]) -> bool {
         Stmt::While(loop_stmt) => {
             stmt_contains_async(&Stmt::While(loop_stmt.clone()))
                 || contains_async_cfg_control_flow(&loop_stmt.body.stmts)
+        }
+        Stmt::ForRange(range) => {
+            stmt_contains_async(&Stmt::ForRange(range.clone()))
+                || contains_async_cfg_control_flow(&range.body.stmts)
         }
         Stmt::Match(m) => {
             stmt_contains_async(&Stmt::Match(m.clone()))
@@ -1542,6 +1622,11 @@ fn collect_async_cfg_vars<'a>(
             }
             Stmt::While(loop_stmt) => {
                 if !collect_async_cfg_vars(&loop_stmt.body.stmts, checked, vars) {
+                    return false;
+                }
+            }
+            Stmt::ForRange(range) => {
+                if !collect_async_cfg_vars(&range.body.stmts, checked, vars) {
                     return false;
                 }
             }
@@ -1635,6 +1720,7 @@ fn emit_async_fun_cfg_int(
     if !builder.supported || builder.nodes.iter().any(Option::is_none) {
         return false;
     }
+    let cfg_locals = builder.cfg_locals.clone();
     let match_bindings = builder.match_bindings.clone();
     let pkg = async_fun_decl_package(f, checked);
     let base = format!("{}_{}", mangle_package(&pkg), mangle_ident(&f.name.name));
@@ -1675,6 +1761,14 @@ fn emit_async_fun_cfg_int(
         if key == "String" {
             let _ = writeln!(out, "  bool {}__owned;", mangle_ident(&var.name.name));
         }
+    }
+    for (name, key) in &cfg_locals {
+        let _ = writeln!(
+            out,
+            "  {} {};",
+            crate::stmt::local_key_to_c(key, checked),
+            mangle_ident(name)
+        );
     }
     for (name, key) in &match_bindings {
         let _ = writeln!(
@@ -1793,6 +1887,14 @@ fn emit_async_fun_cfg_int(
             let _ = writeln!(out, "  bool {name}__owned = data->{name}__owned;");
         }
     }
+    for (name, key) in &cfg_locals {
+        let name = mangle_ident(name);
+        let _ = writeln!(
+            out,
+            "  {} {name} = data->{name};",
+            crate::stmt::local_key_to_c(key, checked)
+        );
+    }
     for (name, key) in &match_bindings {
         let name = mangle_ident(name);
         let _ = writeln!(
@@ -1819,6 +1921,10 @@ fn emit_async_fun_cfg_int(
             }
         })
         .collect::<Vec<_>>();
+    sync_parts.extend(cfg_locals.iter().map(|(name, _)| {
+        let name = mangle_ident(name);
+        format!("data->{name} = {name};")
+    }));
     sync_parts.extend(match_bindings.iter().map(|(name, key)| {
         let name = mangle_ident(name);
         if key == "String" {

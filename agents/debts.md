@@ -991,7 +991,10 @@ TaskError>` locals release their payload at scope exit. Nested
 - Enum `match` statements with binding-free arms now lower to explicit tag
   branches in the same graph; native coverage proves branch selection,
   repeated joins, typed failure/cancellation, and forced GC. Pattern bindings,
-  `try`, richer aggregate locals, arbitrary CFG joins, unbounded
+  General CFG range loops now persist their iterator and bound across each
+  await, including loop comparisons, loop back-edges, GC, and
+  cancellation; a native fixture proves repeated owning joins. Pattern
+  bindings, `for-in`, `try`, richer aggregate locals, arbitrary CFG joins, unbounded
   conditional-await counts, and full public typed outcome payloads still need
   dedicated ownership and cleanup rules before this can replace all bounded
   lowering families.
