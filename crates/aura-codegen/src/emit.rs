@@ -122,6 +122,7 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("typedef enum { AURA_FILE_OK = 0, AURA_FILE_PENDING = 1, AURA_FILE_EOF = 2, AURA_FILE_ERROR = -1, AURA_FILE_CLOSED = -2, AURA_FILE_UNSUPPORTED = -3, AURA_FILE_PERMISSION = -4 } AuraFileStatus;\n");
     out.push_str("typedef enum { AURA_FILE_READ = 0, AURA_FILE_WRITE = 1, AURA_FILE_READ_WRITE = 2, AURA_FILE_APPEND = 3 } AuraFileMode;\n");
     out.push_str("AuraFileStatus aura_file_open(const char *, AuraFileMode, AuraFile **);\n");
+    out.push_str("const char *aura_file_last_error(void);\n");
     out.push_str("AuraFileStatus aura_file_destroy(AuraFile **);\n");
     out.push_str("AuraFileStatus aura_file_read(AuraFile *, void *, uint64_t, uint64_t *);\n");
     out.push_str(
@@ -10253,9 +10254,9 @@ pub(crate) fn emit_fun(
                 out.push_str("  AuraFile *__file = NULL; AuraFfiOpaqueHandle *__handle = NULL;\n");
                 let _ = writeln!(
                     out,
-                    "  if (aura_file_open({path}, (AuraFileMode){mode}, &__file) != AURA_FILE_OK || __file == NULL) {{ aura_throw_string(\"openFile failed\"); return NULL; }}"
+                    "  AuraFileStatus __open_status = aura_file_open({path}, (AuraFileMode){mode}, &__file); if (__open_status != AURA_FILE_OK || __file == NULL) {{ char __message[320]; snprintf(__message, sizeof(__message), \"openFile failed: %s\", aura_file_last_error()); aura_throw_string(__message); return NULL; }}"
                 );
-                out.push_str("  if (aura_ffi_handle_new((void *)__file, aura_destroy_file_resource, &__handle) != AURA_FFI_OK) { (void)aura_file_destroy(&__file); aura_throw_string(\"openFile failed\"); return NULL; }\n");
+                out.push_str("  AuraFfiStatus __handle_status = aura_ffi_handle_new((void *)__file, aura_destroy_file_resource, &__handle); if (__handle_status != AURA_FFI_OK || __handle == NULL) { (void)aura_file_destroy(&__file); aura_throw_string(\"openFile failed: handle allocation\"); return NULL; }\n");
                 out.push_str("  return __handle;\n}\n");
                 return;
             }

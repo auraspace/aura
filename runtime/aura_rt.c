@@ -319,7 +319,11 @@ AuraFileStatus aura_file_open(const char *path, AuraFileMode mode, AuraFile **ou
     case AURA_FILE_APPEND: flags = O_WRONLY | O_CREAT | O_APPEND; break;
     default: return aura_file_error("open", EINVAL);
   }
-  int fd = open(path, flags, 0666);
+  int fd;
+  do
+  {
+    fd = open(path, flags, 0666);
+  } while (fd < 0 && errno == EINTR);
   if (fd < 0)
   {
     return aura_file_error("open", errno);
