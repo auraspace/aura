@@ -995,6 +995,7 @@ struct AsyncCfgBuilder<'a> {
     nodes: Vec<Option<AsyncCfgNode>>,
     ctx: EmitCtx<'a>,
     locals: HashMap<String, String>,
+    match_bindings: Vec<(String, String)>,
     return_key: String,
     supported: bool,
 }
@@ -1005,6 +1006,7 @@ impl<'a> AsyncCfgBuilder<'a> {
             nodes: Vec::new(),
             ctx,
             locals,
+            match_bindings: Vec::new(),
             return_key,
             supported: true,
         }
@@ -1138,15 +1140,7 @@ impl<'a> AsyncCfgBuilder<'a> {
                 condition_state
             }
             Stmt::Match(m) => {
-                if expr_contains_async(&m.scrutinee)
-                    || m.arms.is_empty()
-                    || m.arms.iter().any(|arm| {
-                        matches!(
-                            &arm.pattern,
-                            Pattern::Variant { bindings, .. } if !bindings.is_empty()
-                        )
-                    })
-                {
+                if expr_contains_async(&m.scrutinee) || m.arms.is_empty() {
                     self.supported = false;
                     return next;
                 }
@@ -1181,13 +1175,14 @@ impl<'a> AsyncCfgBuilder<'a> {
                     .enums
                     .iter()
                     .find(|decl| decl.name.name == enum_name)
+                    .cloned()
                 else {
                     self.supported = false;
                     return next;
                 };
                 let mut arm_state = next;
                 for arm in m.arms.iter().rev() {
-                    let Pattern::Variant { name, .. } = &arm.pattern;
+                    let Pattern::Variant { name, bindings, .. } = &arm.pattern;
                     let Some(tag) = enum_decl
                         .variants
                         .iter()
@@ -1196,14 +1191,64 @@ impl<'a> AsyncCfgBuilder<'a> {
                         self.supported = false;
                         return next;
                     };
+                    let Some(variant) = enum_decl
+                        .variants
+                        .iter()
+                        .find(|variant| variant.name.name == name.name)
+                    else {
+                        self.supported = false;
+                        return next;
+                    };
+                    if bindings.len() != variant.fields.len() {
+                        self.supported = false;
+                        return next;
+                    }
+                    let mut bind_code = Vec::new();
+                    for (binding, field) in bindings.iter().zip(&variant.fields) {
+                        let key = type_ref_local_key(&field.ty, &[], &[]);
+                        if !matches!(key.as_str(), "Int" | "Bool") {
+                            self.supported = false;
+                            return next;
+                        }
+                        if let Some(existing) = self.locals.get(&binding.name) {
+                            if existing != &key {
+                                self.supported = false;
+                                return next;
+                            }
+                        } else {
+                            self.locals.insert(binding.name.clone(), key.clone());
+                            self.ctx.define_local(&binding.name, key.clone());
+                            self.match_bindings.push((binding.name.clone(), key));
+                        }
+                        bind_code.push(format!(
+                            "{} = {}.data.{}.{};",
+                            mangle_ident(&binding.name),
+                            scrutinee,
+                            mangle_ident(&variant.name.name),
+                            mangle_ident(&field.name.name)
+                        ));
+                    }
                     let body_state =
                         self.emit_block(&arm.body.stmts, next, break_state, continue_state);
+                    let then_state = if bind_code.is_empty() {
+                        body_state
+                    } else {
+                        let state = self.alloc();
+                        self.finish(
+                            state,
+                            AsyncCfgNode::Action {
+                                code: bind_code.join(" "),
+                                next: body_state,
+                            },
+                        );
+                        state
+                    };
                     let branch_state = self.alloc();
                     self.finish(
                         branch_state,
                         AsyncCfgNode::Branch {
                             condition: format!("({scrutinee}).tag == {tag}"),
-                            then_state: body_state,
+                            then_state,
                             else_state: arm_state,
                         },
                     );
@@ -1564,6 +1609,7 @@ fn emit_async_fun_cfg_int(
     if !builder.supported || builder.nodes.iter().any(Option::is_none) {
         return false;
     }
+    let match_bindings = builder.match_bindings.clone();
     let pkg = async_fun_decl_package(f, checked);
     let base = format!("{}_{}", mangle_package(&pkg), mangle_ident(&f.name.name));
     let data_ty = format!("aura_async_data_{base}");
@@ -1603,6 +1649,14 @@ fn emit_async_fun_cfg_int(
         if key == "String" {
             let _ = writeln!(out, "  bool {}__owned;", mangle_ident(&var.name.name));
         }
+    }
+    for (name, key) in &match_bindings {
+        let _ = writeln!(
+            out,
+            "  {} {};",
+            crate::stmt::local_key_to_c(key, checked),
+            mangle_ident(name)
+        );
     }
     out.push_str("  AuraTaskFrame *await_task; bool await_task_owned;\n");
     let _ = writeln!(out, "}} {data_ty};\n");
@@ -1694,8 +1748,16 @@ fn emit_async_fun_cfg_int(
             let _ = writeln!(out, "  bool {name}__owned = data->{name}__owned;");
         }
     }
+    for (name, key) in &match_bindings {
+        let name = mangle_ident(name);
+        let _ = writeln!(
+            out,
+            "  {} {name} = data->{name};",
+            crate::stmt::local_key_to_c(key, checked)
+        );
+    }
     out.push_str("  for (;;) {\n    switch (aura_task_frame_resume_state(frame)) {\n");
-    let sync = vars
+    let mut sync_parts = vars
         .iter()
         .map(|(var, _)| {
             let name = mangle_ident(&var.name.name);
@@ -1708,8 +1770,12 @@ fn emit_async_fun_cfg_int(
                 format!("data->{name} = {name};")
             }
         })
-        .collect::<Vec<_>>()
-        .join(" ");
+        .collect::<Vec<_>>();
+    sync_parts.extend(match_bindings.iter().map(|(name, _)| {
+        let name = mangle_ident(name);
+        format!("data->{name} = {name};")
+    }));
+    let sync = sync_parts.join(" ");
     for (state, node) in builder.nodes.into_iter().enumerate() {
         let node = node.expect("validated CFG node");
         let _ = writeln!(out, "      case {state}: {{");

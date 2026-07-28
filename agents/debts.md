@@ -1049,6 +1049,11 @@ TaskError>` locals release their payload at scope exit. Nested
   Keep IO-002 partial until those boundaries have typed Aura-facing contracts
   and native sanitizer coverage.
 
+### ASYNC-004 primitive enum bindings in general CFG (bounded, updated 2026-07-28)
+
+- `Int`/`Bool` enum pattern bindings now persist in the async CFG frame, restore as poll locals, and synchronize across suspension/resume; a native match-await fixture covers repeated owning joins.
+- Aggregate bindings, binding ownership beyond primitives, and `try`/richer pattern control flow remain unsupported; extend frame scan, clone/drop rules, and corpus before widening the contract.
+
 ### REG-002 production trust remains open (updated 2026-07-23)
 
 - Offline registry acceptance now verifies the versioned `aura-sig-v1` envelope
