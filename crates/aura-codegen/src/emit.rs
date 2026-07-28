@@ -1310,37 +1310,20 @@ fn stmt_contains_async(stmt: &Stmt) -> bool {
     }
 }
 
-fn contains_stmt_kind(stmts: &[Stmt], predicate: fn(&Stmt) -> bool) -> bool {
-    stmts.iter().any(|stmt| {
-        predicate(stmt)
-            || match stmt {
-                Stmt::If(branch) => {
-                    contains_stmt_kind(&branch.then_block.stmts, predicate)
-                        || branch
-                            .else_block
-                            .as_ref()
-                            .is_some_and(|block| contains_stmt_kind(&block.stmts, predicate))
-                }
-                Stmt::While(loop_stmt) => contains_stmt_kind(&loop_stmt.body.stmts, predicate),
-                _ => false,
-            }
-    })
-}
-
-fn contains_if_with_while(stmts: &[Stmt]) -> bool {
+fn contains_async_cfg_control_flow(stmts: &[Stmt]) -> bool {
     stmts.iter().any(|stmt| match stmt {
         Stmt::If(branch) => {
-            contains_stmt_kind(&branch.then_block.stmts, |nested| {
-                matches!(nested, Stmt::While(_))
-            }) || branch.else_block.as_ref().is_some_and(|block| {
-                contains_stmt_kind(&block.stmts, |nested| matches!(nested, Stmt::While(_)))
-            }) || contains_if_with_while(&branch.then_block.stmts)
+            stmt_contains_async(&Stmt::If(branch.clone()))
+                || contains_async_cfg_control_flow(&branch.then_block.stmts)
                 || branch
                     .else_block
                     .as_ref()
-                    .is_some_and(|block| contains_if_with_while(&block.stmts))
+                    .is_some_and(|block| contains_async_cfg_control_flow(&block.stmts))
         }
-        Stmt::While(loop_stmt) => contains_if_with_while(&loop_stmt.body.stmts),
+        Stmt::While(loop_stmt) => {
+            stmt_contains_async(&Stmt::While(loop_stmt.clone()))
+                || contains_async_cfg_control_flow(&loop_stmt.body.stmts)
+        }
         _ => false,
     })
 }
@@ -1399,7 +1382,9 @@ fn emit_async_fun_cfg_int(
         return false;
     };
     let return_key = type_ref_local_key_expand(ret, &[], &[], checked);
-    if !async_cfg_value_supported(&return_key, checked) || !contains_if_with_while(&f.body.stmts) {
+    if !async_cfg_value_supported(&return_key, checked)
+        || !contains_async_cfg_control_flow(&f.body.stmts)
+    {
         return false;
     }
     let mut vars = Vec::new();
@@ -5515,6 +5500,36 @@ fun main() {}
         assert!(generated.contains("aura_gc_add_root((void **)result)"));
         assert!(generated.contains("aura_gc_remove_root((void **)data)"));
         assert!(generated.contains("aura_task_frame_propagate_error(frame, data->await_task)"));
+    }
+
+    #[test]
+    fn lowers_general_cfg_loop_then_branch_awaits() {
+        let file = parse_file(
+            r#"package demo
+async fun choose(flag: Bool, first: Task<Bool>, second: Task<Bool>): Bool {
+  var index: Int = 0
+  var value: Bool = false
+  while (index < 2) {
+    if (flag) {
+      val next: Bool = await first
+      value = next
+    } else {
+      val alternate: Bool = await second
+      value = alternate
+    }
+    index = index + 1
+  }
+  return value
+}
+fun main() {}
+"#,
+        )
+        .expect("parse loop-then-branch CFG fixture");
+        let checked = aura_sema::check_file(&file).expect("loop-then-branch CFG checks");
+        let generated = emit_c_with(&checked, EmitOptions::default());
+        assert!(generated.contains("aura async general CFG Bool lowering"));
+        assert!(generated.contains("aura_task_frame_set_resume_state(frame"));
+        assert!(generated.contains("aura_task_frame_wait_on(frame, data->await_task)"));
     }
 }
 

@@ -153,6 +153,9 @@ When you resolve debt, update or remove the matching entry.
   native fixture proves class pointers survive branch/loop suspension, frame
   GC scanning, repeated owning joins, and queued cancellation; terminal class
   results use explicit GC root/remove-root cleanup.
+- CFG dispatch now recognizes both `if -> while` and `while -> if` await
+  nesting; unsupported statements still fail back to the existing specialized
+  lowerings instead of being emitted through an unsafe partial path.
 - A range `for (i in start..end)` body with one awaited `Task<Int>` now persists
   the cursor, endpoint, accumulator, and temporary child across suspension;
   forced GC, repeated typed joins, and queued cancellation are covered by a
