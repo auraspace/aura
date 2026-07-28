@@ -184,16 +184,18 @@ pub(crate) fn emit_enum_defs(out: &mut String, checked: &CheckedFile, e: &EnumDe
         let ctor = c_variant_ctor_name(&mono, "FailedOwned");
         let _ = writeln!(
             out,
-            "{} {{ {} self; self.tag = 0; self.data.Failed.error = error; self.data.Failed.owned = true; return self; }}",
-            format!("{} {}(const char *error)", c_enum_type(&mono), ctor),
+            "{} {}(const char *error) {{ {} self; self.tag = 0; self.data.Failed.error = error; self.data.Failed.owned = true; return self; }}",
+            c_enum_type(&mono),
+            ctor,
             c_enum_type(&mono)
         );
         if let Some(typed_tag) = e.variants.iter().position(|v| v.name.name == "FailedTyped") {
             let ctor = c_variant_ctor_name(&mono, "FailedTypedOwned");
             let _ = writeln!(
                 out,
-                "{} {{ {} self; self.tag = {typed_tag}; self.data.FailedTyped.error = error; self.data.FailedTyped.typeName = typeName; self.data.FailedTyped.owned = true; return self; }}",
-                format!("{} {}(const char *error, const char *typeName)", c_enum_type(&mono), ctor),
+                "{} {}(const char *error, const char *typeName) {{ {} self; self.tag = {typed_tag}; self.data.FailedTyped.error = error; self.data.FailedTyped.typeName = typeName; self.data.FailedTyped.owned = true; return self; }}",
+                c_enum_type(&mono),
+                ctor,
                 c_enum_type(&mono)
             );
         }
@@ -202,8 +204,9 @@ pub(crate) fn emit_enum_defs(out: &mut String, checked: &CheckedFile, e: &EnumDe
         let ctor = c_variant_ctor_name(&mono, "OkOwned");
         let _ = writeln!(
             out,
-            "{} {{ {} self; self.tag = 0; self.data.Ok.value = value; self.data.Ok.owned = true; return self; }}",
-            format!("{} {}(const char *value)", c_enum_type(&mono), ctor),
+            "{} {}(const char *value) {{ {} self; self.tag = 0; self.data.Ok.value = value; self.data.Ok.owned = true; return self; }}",
+            c_enum_type(&mono),
+            ctor,
             c_enum_type(&mono)
         );
     }
@@ -211,12 +214,9 @@ pub(crate) fn emit_enum_defs(out: &mut String, checked: &CheckedFile, e: &EnumDe
         let ctor = c_variant_ctor_name(&mono, "OkOwned");
         let _ = writeln!(
             out,
-            "{} {{ {} self; self.tag = 0; self.data.Ok.value = value; self.data.Ok.owned = true; return self; }}",
-            format!(
-                "{} {}(AuraFfiOpaqueHandle *value)",
-                c_enum_type(&mono),
-                ctor
-            ),
+            "{} {}(AuraFfiOpaqueHandle *value) {{ {} self; self.tag = 0; self.data.Ok.value = value; self.data.Ok.owned = true; return self; }}",
+            c_enum_type(&mono),
+            ctor,
             c_enum_type(&mono)
         );
     }

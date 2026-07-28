@@ -1888,9 +1888,7 @@ fn has_typed_task_error(ctx: &EmitCtx<'_>) -> bool {
         .enums
         .iter()
         .find(|e| e.name.name == "TaskError" && enum_decl_package(e, ctx.checked) == "std.io")
-        .map_or(false, |e| {
-            e.variants.iter().any(|v| v.name.name == "FailedTyped")
-        })
+        .is_some_and(|e| e.variants.iter().any(|v| v.name.name == "FailedTyped"))
 }
 
 fn emit_join(j: &JoinExpr, ctx: &mut EmitCtx<'_>, owned_error: bool) -> String {

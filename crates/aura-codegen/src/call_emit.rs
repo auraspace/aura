@@ -933,6 +933,27 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                 let call = format!("{}({args})", c_fun_name(&fpkg, &id.name, &targs));
                 return wrap_owner_arg_moves(call, &c.args, &param_keys, &ret_c, ctx);
             }
+            if let Some(f) = ctx.checked.ast.async_functions.iter().find(|f| {
+                f.name.name == id.name
+                    && (pkg.is_empty() || async_fun_decl_package(f, ctx.checked) == pkg)
+            }) {
+                let params: Vec<String> =
+                    f.type_params.iter().map(|p| p.name.name.clone()).collect();
+                let param_keys: Vec<String> = c
+                    .args
+                    .iter()
+                    .zip(f.params.iter())
+                    .map(|(a, p)| {
+                        let expected = type_ref_local_key(&p.ty, &params, &targs);
+                        coerce_owner_arg_expr(a, &expected, ctx)
+                    })
+                    .collect();
+                return format!(
+                    "{}({})",
+                    c_fun_name(&async_fun_decl_package(f, ctx.checked), &id.name, &targs),
+                    param_keys.join(", ")
+                );
+            }
             let args = c
                 .args
                 .iter()

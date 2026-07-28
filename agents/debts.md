@@ -88,6 +88,8 @@ When you resolve debt, update or remove the matching entry.
   supported `Array<T>` payload, including deep cloning and destruction of owned
   `Array<String>` elements across success, failure, forced-GC, cancellation,
   and repeated owning joins.
+- Progress: general CFG `for-in` awaits now iterate UTF-8 bytes from a `String`
+  across suspension, with native repeated-join and queued-cancellation coverage.
 - Progress: general CFG assignments now transfer `String` and array ownership
   when moving from one local to another and synchronize moved frame slots after
   each action. Native coverage exercises repeated awaits of caller-owned
@@ -177,10 +179,10 @@ When you resolve debt, update or remove the matching entry.
 - A general CFG `for (item in Array<Int>)` body with an awaited `Task<Int>` now
   persists the moved iterator, index, binding, and temporary child across
   suspension; forced GC, repeated typed joins, and queued cancellation are
-  covered by a native codegen fixture. String, interface, and non-`Int` element
-  iterators remain deliberately outside this slice.
+  covered by native codegen fixtures. Aggregate and non-`Int` element iterators
+  remain deliberately outside this slice.
 - Why still deferred: arbitrary nested loops beyond the supported two-level
-  Int shape, String/interface/aggregate `for-in`, unbounded conditional-await
+  Int shape, richer aggregate `for-in`, unbounded conditional-await
   counts beyond the current bounded
   fixture shape,
   nested branch-local values, and richer payload types still fall back to the
@@ -1006,7 +1008,7 @@ TaskError>` locals release their payload at scope exit. Nested
   General CFG range loops now persist their iterator and bound across each
   await, including loop comparisons, loop back-edges, GC, and
   cancellation; a native fixture proves repeated owning joins. Pattern
-  bindings, `for-in`, `try`, richer aggregate locals, arbitrary CFG joins, unbounded
+  bindings, richer aggregate `for-in`, `try`, richer aggregate locals, arbitrary CFG joins, unbounded
   conditional-await counts, and full public typed outcome payloads still need
   dedicated ownership and cleanup rules before this can replace all bounded
   lowering families.

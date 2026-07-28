@@ -1243,9 +1243,9 @@ impl<'a> AsyncCfgBuilder<'a> {
                 } else {
                     full_type_mono(&iterable_key, self.ctx.checked)
                 };
-                if !is_array_type_key(&iterable_key)
-                    || iterable_key.strip_prefix("Array_") != Some("Int")
-                {
+                let string_iterable = iterable_key == "String";
+                let interface_iterable = is_iface_type_key(&iterable_key, self.ctx.checked);
+                if !is_array_type_key(&iterable_key) && !string_iterable && !interface_iterable {
                     self.supported = false;
                     return next;
                 }
@@ -1253,7 +1253,43 @@ impl<'a> AsyncCfgBuilder<'a> {
                 let iterator = format!("__aura_for_iter_{slot}");
                 let index = format!("__aura_for_index_{slot}");
                 let binding = for_in.name.name.clone();
-                let Some(elem_key) = iterable_key.strip_prefix("Array_") else {
+                let (interface_mono, interface_elem_key) = if interface_iterable {
+                    let interface_mono = resolve_iface_mono_key(&iterable_key, self.ctx.checked);
+                    let (iface, args) =
+                        resolve_iface_decl_and_args(&iterable_key, self.ctx.checked);
+                    let (iface, args) = if iface.is_some() {
+                        (iface, args)
+                    } else {
+                        resolve_iface_decl_and_args(&interface_mono, self.ctx.checked)
+                    };
+                    let tparams = iface
+                        .map(|i| {
+                            i.type_params
+                                .iter()
+                                .map(|p| p.name.name.clone())
+                                .collect::<Vec<String>>()
+                        })
+                        .unwrap_or_default();
+                    let elem_key = iface
+                        .and_then(|i| {
+                            i.methods
+                                .iter()
+                                .find(|m| m.name.name == "get")
+                                .and_then(|m| m.return_type.as_ref())
+                                .map(|rt| type_ref_local_key(rt, &tparams, &args))
+                        })
+                        .unwrap_or_else(|| "Int".into());
+                    (Some(interface_mono), elem_key)
+                } else {
+                    (None, String::new())
+                };
+                let elem_key = if string_iterable {
+                    "Int"
+                } else if interface_iterable {
+                    interface_elem_key.as_str()
+                } else if let Some(elem_key) = iterable_key.strip_prefix("Array_") {
+                    elem_key
+                } else {
                     self.supported = false;
                     return next;
                 };
@@ -1269,7 +1305,7 @@ impl<'a> AsyncCfgBuilder<'a> {
                 self.ctx
                     .define_local(&iterator, full_type_mono(&iterable_key, self.ctx.checked));
                 self.ctx.define_local(&index, "Int".into());
-                self.ctx.define_local(&binding, "Int".into());
+                self.ctx.define_local(&binding, elem_key.into());
 
                 let condition_state = self.alloc();
                 let increment_state = self.alloc();
@@ -1281,17 +1317,40 @@ impl<'a> AsyncCfgBuilder<'a> {
                 );
                 let bind_state = self.alloc();
                 let get_fn = crate::names::c_method_name(&iterable_key, "get");
+                let (condition, bind_code) = if string_iterable {
+                    (
+                        format!("({index} < strlen({iterator}))"),
+                        format!("{binding} = (unsigned char){iterator}[{index}];"),
+                    )
+                } else if interface_iterable {
+                    let interface_mono = interface_mono.as_deref().expect("interface mono");
+                    (
+                        format!(
+                            "({index} < {}(&{iterator}))",
+                            c_iface_method_name(interface_mono, "len")
+                        ),
+                        format!(
+                            "{binding} = {}(&{iterator}, {index});",
+                            c_iface_method_name(interface_mono, "get")
+                        ),
+                    )
+                } else {
+                    (
+                        format!("({index} < {iterator}.len)"),
+                        format!("{binding} = {get_fn}(&{iterator}, {index});"),
+                    )
+                };
                 self.finish(
                     bind_state,
                     AsyncCfgNode::Action {
-                        code: format!("{binding} = {get_fn}(&{iterator}, {index});"),
+                        code: bind_code,
                         next: body_state,
                     },
                 );
                 self.finish(
                     condition_state,
                     AsyncCfgNode::Branch {
-                        condition: format!("({index} < {iterator}.len)"),
+                        condition,
                         then_state: bind_state,
                         else_state: next,
                     },
@@ -1304,6 +1363,24 @@ impl<'a> AsyncCfgBuilder<'a> {
                     },
                 );
                 let init = coerce_expr(&for_in.iterable, &iterable_key, &mut self.ctx);
+                let init_code = if is_array_type_key(&iterable_key)
+                    && async_cfg_move_source(&for_in.iterable).is_some()
+                {
+                    // Keep the source array alive across the async call; the
+                    // frame owns and destroys this independent iterator copy.
+                    let clone = crate::names::c_method_name(&iterable_key, "clone");
+                    format!("{iterator} = {clone}(&({init}));")
+                } else if string_iterable {
+                    format!("{iterator} = {init};")
+                } else {
+                    async_cfg_assignment_code(
+                        &iterator,
+                        &iterable_key,
+                        &for_in.iterable,
+                        &init,
+                        self.ctx.checked,
+                    )
+                };
                 let index_init_state = self.alloc();
                 self.finish(
                     index_init_state,
@@ -1316,13 +1393,7 @@ impl<'a> AsyncCfgBuilder<'a> {
                 self.finish(
                     init_state,
                     AsyncCfgNode::Action {
-                        code: async_cfg_assignment_code(
-                            &iterator,
-                            &iterable_key,
-                            &for_in.iterable,
-                            &init,
-                            self.ctx.checked,
-                        ),
+                        code: init_code,
                         next: index_init_state,
                     },
                 );
@@ -1548,6 +1619,7 @@ fn async_cfg_value_supported(key: &str, checked: &CheckedFile) -> bool {
     matches!(key, "Int" | "Bool" | "String" | "ForeignHandle")
         || key.starts_with("ForeignHandle_")
         || is_array_type_key(key)
+        || is_iface_type_key(key, checked)
         || is_heap_class_mono(key, checked)
         || mono_base_name(key, checked).is_some_and(|base| is_enum_name(checked, base))
 }
@@ -1828,9 +1900,10 @@ fn emit_async_fun_cfg_int(
         )
     } else if return_key == "Bool" {
         "false".into()
-    } else if is_heap_class_mono(&return_key, checked) {
-        "NULL".into()
-    } else if return_key == "ForeignHandle" || return_key.starts_with("ForeignHandle_") {
+    } else if is_heap_class_mono(&return_key, checked)
+        || return_key == "ForeignHandle"
+        || return_key.starts_with("ForeignHandle_")
+    {
         "NULL".into()
     } else {
         "INT64_C(0)".into()
@@ -8583,6 +8656,7 @@ fn bounded_spawn_class_return_key(body: &Block, checked: &CheckedFile) -> Option
     Some(type_mono(&inst.package, &inst.name, &inst.type_args))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn emit_bounded_spawn_array_return_poller(
     out: &mut String,
     body: &Block,
@@ -8687,6 +8761,7 @@ fn emit_bounded_spawn_array_return_poller(
     out.push_str("  return AURA_TASK_COMPLETE;\n}\n\n");
 }
 
+#[allow(clippy::too_many_arguments)]
 fn emit_bounded_spawn_class_return_poller(
     out: &mut String,
     body: &Block,
@@ -8828,6 +8903,7 @@ fn bounded_spawn_foreign_handle_return_key(body: &Block, checked: &CheckedFile) 
     key.starts_with("ForeignHandle_").then_some(key)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn emit_bounded_spawn_foreign_handle_return_poller(
     out: &mut String,
     body: &Block,
@@ -9021,6 +9097,7 @@ fn emit_bounded_spawn_string_return_poller(
     );
 }
 
+#[allow(clippy::too_many_arguments)]
 fn emit_bounded_spawn_await_poller(
     out: &mut String,
     body: &Block,

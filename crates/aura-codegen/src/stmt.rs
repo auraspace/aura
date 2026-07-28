@@ -244,11 +244,11 @@ pub(crate) fn emit_free_task_result_owners(
         }
         let p = pad(indent);
         let n = mangle_ident(name);
-        let ok_cleanup = if is_task_result_string_owner_key(&key) {
+        let ok_cleanup = if is_task_result_string_owner_key(key) {
             format!(
                 "if ({n}.tag == 0 && {n}.data.Ok.owned) {{ free((void *){n}.data.Ok.value); {n}.data.Ok.value = NULL; {n}.data.Ok.owned = false; }} "
             )
-        } else if let Some(array_key) = task_result_array_owner_key(&key) {
+        } else if let Some(array_key) = task_result_array_owner_key(key) {
             let mut cleanup = String::new();
             crate::array_emit::emit_array_contents_free(
                 &mut cleanup,
@@ -257,11 +257,11 @@ pub(crate) fn emit_free_task_result_owners(
                 array_key,
             );
             format!("if ({n}.tag == 0) {{ {cleanup} }} ")
-        } else if task_result_foreign_handle_owner_key(&key).is_some() {
+        } else if task_result_foreign_handle_owner_key(key).is_some() {
             format!(
                 "if ({n}.tag == 0 && {n}.data.Ok.owned && {n}.data.Ok.value != NULL) {{ (void)aura_ffi_handle_drop(&{n}.data.Ok.value); {n}.data.Ok.owned = false; }}"
             )
-        } else if task_result_class_owner_key(&key, ctx).is_some() {
+        } else if task_result_class_owner_key(key, ctx).is_some() {
             format!(
                 "if ({n}.tag == 0 && {n}.data.Ok.value != NULL) {{ aura_gc_remove_root((void **)&{n}.data.Ok.value); {n}.data.Ok.value = NULL; }} "
             )
