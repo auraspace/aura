@@ -108,14 +108,19 @@ or one with pins is rejected. Direct owned `ForeignHandle<T>` foreign returns
 and bounded async task results now have an explicit drop/retain contract:
 task-result destruction drops exactly once, repeated owning joins retain an
 independent alias, and owned `Result<ForeignHandle<T>, TaskError>` locals
-release their success payload lexically. Nested runtime handles,
-CHANNEL/CALLBACK crossings, and general arbitrary-CFG handle result lowering
-remain outside this slice.
+release their success payload lexically. Nested `ForeignHandle` values use the
+same outer opaque-pointer retain/drop contract; strict compiler and runtime
+fixtures cover foreign parameters, direct returns, async task results, and
+repeated owning joins. CHANNEL/CALLBACK crossings and general arbitrary-CFG
+handle result lowering remain outside this slice.
 
 **Verification:** `runtime/tests/ffi_handles.c` is compiled with strict C11
 warnings and exercises nullable construction, null and boundary behavior,
 double release, stale use after release, early destruction, pinning, deferred
-cleanup, and invalidated-handle cleanup. Callback implementation remains F5.
+cleanup, invalidated-handle cleanup, and nested-handle destruction through the
+outer handle. Sema/codegen fixtures prove nested foreign parameters, direct
+returns, async task results, and repeated owning joins. Callback implementation
+remains F5.
 
 ## F5. Callbacks and errors
 

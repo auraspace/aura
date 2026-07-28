@@ -5266,6 +5266,32 @@ extern \"C\" fun native_open(): ForeignHandle<Int>\n",
     }
 
     #[test]
+    fn nested_foreign_handle_return_keeps_opaque_pointer_and_task_drop_contract() {
+        let file = parse_file(
+            "package demo\n\
+@foreign(library = \"m\", target = \"native\", link = \"dynamic\", abi = 1, abi_id = \"c\")\n\
+extern \"C\" fun native_open(): ForeignHandle<ForeignHandle<Int>>\n\
+async fun produce(): ForeignHandle<ForeignHandle<Int>> { return native_open() }\n\
+fun main() {\n\
+  val task = spawn { return native_open() }\n\
+  val first = join(task)\n\
+  val second = join(task)\n\
+  gc_collect()\n\
+}\n",
+        )
+        .expect("parse nested foreign handle result fixture");
+        let checked = aura_sema::check_file(&file).expect("nested handle fixture checks");
+        let generated = emit_c_with(&checked, EmitOptions::default());
+        assert!(generated.contains("native_open"));
+        assert!(generated.contains("AuraFfiOpaqueHandle *"));
+        assert!(generated.contains("aura_async_result_destroy_demo_produce"));
+        assert!(generated.contains("aura_ffi_handle_drop(result)"));
+        assert!(generated.contains("aura_ffi_handle_retain(__join_handle"));
+        assert!(generated.contains("aura_ffi_handle_drop(&first"));
+        assert!(generated.contains("aura_ffi_handle_drop(&second"));
+    }
+
+    #[test]
     fn async_foreign_handle_result_retains_each_owned_join() {
         let file = parse_file(
             "package demo\n\

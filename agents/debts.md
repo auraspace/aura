@@ -791,7 +791,7 @@ When you resolve debt, update or remove the matching entry.
   intentionally deferred to F4/F5; extend the declaration model only after
   those lifetimes have a complete contract.
 
-### F4 opaque foreign handles (updated 2026-07-24)
+### F4 opaque foreign handles (updated 2026-07-28)
 
 - F4 provides a tombstoned opaque-handle ABI with deferred destruction while
   pinned. `aura_ffi_handle_pin_for_boundary` now validates and retains a live
@@ -804,9 +804,13 @@ When you resolve debt, update or remove the matching entry.
   `ForeignHandle<T>` returns are now supported for foreign calls and bounded
   async task results: task-result destruction drops exactly once, owning joins
   retain one alias per observation, and owned `Result<ForeignHandle<T>,
-TaskError>` locals release their payload at scope exit. Nested runtime handles,
-  CHANNEL/CALLBACK crossings, and broader arbitrary CFG handle results remain
-  deferred. Callbacks and foreign error mapping belong to F5.
+TaskError>` locals release their payload at scope exit. Nested
+  `ForeignHandle<ForeignHandle<T>>` values now reuse the outer opaque-pointer
+  retain/drop contract; sema, emitted-C, and strict native fixtures cover
+  parameters, direct returns, async task results, repeated owning joins, and
+  nested destruction. CHANNEL/CALLBACK crossings and broader arbitrary CFG
+  handle results remain deferred. Callbacks and foreign error mapping belong to
+  F5.
 
 ### F5 callback portability (2026-07-22)
 

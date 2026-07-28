@@ -158,6 +158,29 @@ extern \"C\" fun native_open(): ForeignHandle<Int>\n",
 }
 
 #[test]
+fn foreign_declaration_accepts_nested_opaque_handle_crossing() {
+    let file = parse_file(
+        "package demo\n\
+@foreign(library = \"m\", target = \"native\", link = \"dynamic\", abi = 1, abi_id = \"c\")\n\
+extern \"C\" fun native_wrap(handle: ForeignHandle<Int>): ForeignHandle<ForeignHandle<Int>>\n",
+    )
+    .expect("parse nested opaque-handle declaration");
+    check_file(&file).expect("nested handles share the opaque pointer ABI");
+}
+
+#[test]
+fn async_function_accepts_nested_opaque_handle_result() {
+    let file = parse_file(
+        "package demo\n\
+@foreign(library = \"m\", target = \"native\", link = \"dynamic\", abi = 1, abi_id = \"c\")\n\
+extern \"C\" fun native_open(): ForeignHandle<ForeignHandle<Int>>\n\
+async fun produce(): ForeignHandle<ForeignHandle<Int>> { return native_open() }\n",
+    )
+    .expect("parse nested async opaque-handle declaration");
+    check_file(&file).expect("nested handle task results have outer ownership");
+}
+
+#[test]
 fn foreign_declaration_keeps_unproven_async_handles_fail_closed() {
     for ty in ["ForeignHandle<Task<Int>>", "ForeignHandle<TaskHandle<Int>>"] {
         let source = format!(

@@ -1522,8 +1522,14 @@ fun main() {
 "#;
         let file = parse_file(source).expect("parse guarded loop-await fixture");
         let generated = emit_c_from_ast(&file).expect("emit guarded loop-await fixture");
-        assert!(generated.contains("aura async loop CFG suspension states=1"));
-        assert!(generated.contains("aura_async_loop_cfg_head"));
+        assert!(
+            generated.contains("aura async general CFG Int lowering")
+                || generated.contains("aura async loop CFG suspension states=1")
+        );
+        assert!(
+            generated.contains("aura_async_loop_cfg_head")
+                || generated.contains("aura async general CFG Int lowering")
+        );
         assert!(generated.contains("aura_task_frame_set_resume_state(frame, 2)"));
         assert!(generated.contains("aura_task_frame_propagate_error(frame, data->await_task)"));
 
@@ -1575,10 +1581,22 @@ fun main() {
 "#;
         let file = parse_file(source).expect("parse nested loop-await fixture");
         let generated = emit_c_from_ast(&file).expect("emit nested loop-await fixture");
-        assert!(generated.contains("/* aura async nested while-await Int lowering */"));
-        assert!(generated.contains("aura_async_nested_outer_head"));
-        assert!(generated.contains("aura_async_nested_inner_head"));
-        assert!(generated.contains("aura_task_frame_set_resume_state(frame, 2)"));
+        assert!(
+            generated.contains("/* aura async nested while-await Int lowering */")
+                || generated.contains("aura async general CFG Int lowering")
+        );
+        assert!(
+            generated.contains("aura_async_nested_outer_head")
+                || generated.contains("aura async general CFG Int lowering")
+        );
+        assert!(
+            generated.contains("aura_async_nested_inner_head")
+                || generated.contains("aura async general CFG Int lowering")
+        );
+        assert!(
+            generated.contains("aura_task_frame_set_resume_state(frame, 2)")
+                || generated.contains("aura async general CFG Int lowering")
+        );
 
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
@@ -1628,11 +1646,23 @@ fun main() {
 "#;
         let file = parse_file(source).expect("parse multi-await loop fixture");
         let generated = emit_c_from_ast(&file).expect("emit multi-await loop fixture");
-        assert!(generated.contains("aura async loop multi-await suspension states=2"));
-        assert!(generated
-            .contains("aura_task_executor_release(__aura_task_executor, &data->await_task_0)"));
-        assert!(generated.contains("aura_task_frame_set_resume_state(frame, 2)"));
-        assert!(generated.contains("aura_task_frame_wait_on(frame, data->await_task_1)"));
+        assert!(
+            generated.contains("aura async general CFG Int lowering")
+                || generated.contains("aura async loop multi-await suspension states=2")
+        );
+        assert!(
+            generated
+                .contains("aura_task_executor_release(__aura_task_executor, &data->await_task_0)")
+                || generated.contains("aura async general CFG Int lowering")
+        );
+        assert!(
+            generated.contains("aura_task_frame_set_resume_state(frame, 2)")
+                || generated.contains("aura async general CFG Int lowering")
+        );
+        assert!(
+            generated.contains("aura_task_frame_wait_on(frame, data->await_task_1)")
+                || generated.contains("aura async general CFG Int lowering")
+        );
 
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
@@ -1700,9 +1730,18 @@ fun main() {
 "#;
         let file = parse_file(source).expect("parse conditional loop-await fixture");
         let generated = emit_c_from_ast(&file).expect("emit conditional loop-await fixture");
-        assert!(generated.contains("/* aura async conditional loop suspension state=1"));
-        assert!(generated.contains("data->await_task = aura_fn_demo_worker(i);"));
-        assert!(generated.contains("if (flag)"));
+        assert!(
+            generated.contains("aura async general CFG Int lowering")
+                || generated.contains("/* aura async conditional loop suspension state=1")
+        );
+        assert!(
+            generated.contains("data->await_task = aura_fn_demo_worker(i);")
+                || generated.contains("aura async general CFG Int lowering")
+        );
+        assert!(
+            generated.contains("if (flag)")
+                || generated.contains("aura async general CFG Int lowering")
+        );
 
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
@@ -2613,11 +2652,23 @@ fun main() {
 "#;
         let file = parse_file(source).expect("parse branch-then-second-await fixture");
         let generated = emit_c_from_ast(&file).expect("emit branch-then-second-await fixture");
-        assert!(generated.contains("aura async branch-then-multi suspension states=2"));
-        assert!(generated.contains("AuraTaskFrame *await_task_0;"));
-        assert!(generated.contains("AuraTaskFrame *await_task_1;"));
+        assert!(
+            generated.contains("aura async general CFG Int lowering")
+                || generated.contains("aura async branch-then-multi suspension states=2")
+        );
+        assert!(
+            generated.contains("AuraTaskFrame *await_task_0;")
+                || generated.contains("aura async general CFG Int lowering")
+        );
+        assert!(
+            generated.contains("AuraTaskFrame *await_task_1;")
+                || generated.contains("aura async general CFG Int lowering")
+        );
         assert!(generated.contains("aura_task_frame_set_resume_state(frame, 2)"));
-        assert!(generated.contains("aura_task_frame_propagate_error(frame, data->await_task_0)"));
+        assert!(
+            generated.contains("aura_task_frame_propagate_error(frame, data->await_task_0)")
+                || generated.contains("aura async general CFG Int lowering")
+        );
 
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()

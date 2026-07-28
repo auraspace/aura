@@ -24,6 +24,18 @@ fn contains_foreign_handle(ty: &Ty) -> bool {
     }
 }
 
+fn is_valid_foreign_handle_tree(ty: &Ty) -> bool {
+    match ty {
+        Ty::ForeignHandle(inner) => match inner.as_ref() {
+            Ty::Int | Ty::Bool | Ty::String | Ty::Unit => true,
+            Ty::ForeignHandle(_) => is_valid_foreign_handle_tree(inner),
+            _ => false,
+        },
+        Ty::Nullable(inner) => is_valid_foreign_handle_tree(inner),
+        _ => false,
+    }
+}
+
 impl Checker {
     fn validate_foreign_decl(&mut self, foreign: &ForeignDecl) {
         if !matches!(foreign.convention, ForeignCallingConvention::C) {
@@ -132,15 +144,6 @@ impl Checker {
                 _ => None,
             }
         }
-        fn valid_foreign_handle_tag(ty: &Ty) -> bool {
-            match ty {
-                Ty::ForeignHandle(inner) => {
-                    matches!(inner.as_ref(), Ty::Int | Ty::Bool | Ty::String | Ty::Unit)
-                }
-                Ty::Nullable(inner) => valid_foreign_handle_tag(inner),
-                _ => false,
-            }
-        }
         if let Ok(params) = params {
             if let Some(kind) = params.iter().find_map(foreign_handle_kind) {
                 self.errors.push(SemaError {
@@ -151,7 +154,7 @@ impl Checker {
                 });
             } else if params
                 .iter()
-                .any(|ty| !supported_ty(ty) && !valid_foreign_handle_tag(ty))
+                .any(|ty| !supported_ty(ty) && !is_valid_foreign_handle_tree(ty))
             {
                 self.errors.push(SemaError { message: "[AURA-F1-TYPE] only Int, Bool, String, and Unit are supported at the FFI boundary".into(), span: foreign.span });
             }
@@ -169,7 +172,7 @@ impl Checker {
                     ),
                     span: foreign.span,
                 });
-            } else if !supported_ty(ret) && !valid_foreign_handle_tag(ret) {
+            } else if !supported_ty(ret) && !is_valid_foreign_handle_tree(ret) {
                 self.errors.push(SemaError {
                     message: "[AURA-F1-TYPE] foreign return type must be Int, Bool, String, Unit, or a tagged ForeignHandle<T>".into(),
                     span: foreign.span,
@@ -658,10 +661,11 @@ impl Checker {
                 },
                 None => Ty::Unit,
             };
-            // Direct ForeignHandle results have an explicit task-result
-            // destructor/retain contract. Nested runtime handles remain
-            // rejected because their crossing rules are still undefined.
-            if contains_foreign_handle(&result_ty) && !matches!(result_ty, Ty::ForeignHandle(_)) {
+            // A nested ForeignHandle is still one opaque pointer at the C
+            // boundary; retain/drop applies to the outer handle exactly once.
+            // Other containers remain rejected until their transfer contract
+            // is defined.
+            if contains_foreign_handle(&result_ty) && !is_valid_foreign_handle_tree(&result_ty) {
                 self.errors.push(SemaError {
                     message: "[AURA-F4-BOUNDARY] ForeignHandle values cannot be nested in Task<T> until compiler-generated TASK/AWAIT transfer lifetime is implemented".into(),
                     span: f.span,

@@ -23,6 +23,14 @@ static void destroy_resource(void *resource)
   free(resource);
 }
 
+static void destroy_nested_handle(void *resource)
+{
+  AuraFfiOpaqueHandle *inner = (AuraFfiOpaqueHandle *)resource;
+  assert(inner != NULL);
+  assert(aura_ffi_handle_drop(&inner) == AURA_FFI_OK);
+  assert(inner == NULL);
+}
+
 static void test_nullable_and_boundaries(void)
 {
   AuraFfiOpaqueHandle *empty = NULL;
@@ -267,6 +275,29 @@ static void test_retained_owner_survives_lexical_drop(void)
   assert(released_resources == before + 1);
 }
 
+static void test_nested_handle_uses_outer_ownership_contract(void)
+{
+  int *value = (int *)malloc(sizeof(*value));
+  AuraFfiOpaqueHandle *inner = NULL;
+  AuraFfiOpaqueHandle *outer = NULL;
+  AuraFfiHandlePin pin = {0};
+  void *resource = NULL;
+  unsigned before = released_resources;
+  assert(value != NULL);
+  *value = 99;
+  assert(aura_ffi_handle_new(value, destroy_resource, &inner) == AURA_FFI_OK);
+  assert(aura_ffi_handle_new(inner, destroy_nested_handle, &outer) == AURA_FFI_OK);
+
+  assert(aura_ffi_handle_pin_for_boundary(
+             outer, AURA_FFI_BOUNDARY_TASK, &pin) == AURA_FFI_OK);
+  assert(aura_ffi_handle_pin_resource(&pin, &resource) == AURA_FFI_OK);
+  assert(resource == inner);
+  assert(aura_ffi_handle_unpin(&pin) == AURA_FFI_OK);
+  assert(aura_ffi_handle_drop(&outer) == AURA_FFI_OK);
+  assert(outer == NULL);
+  assert(released_resources == before + 1);
+}
+
 int main(void)
 {
   test_nullable_and_boundaries();
@@ -277,6 +308,7 @@ int main(void)
   test_task_frame_pin_owns_foreign_resource();
   test_frame_owned_pin_survives_owner_release();
   test_retained_owner_survives_lexical_drop();
-  assert(released_resources == 9);
+  test_nested_handle_uses_outer_ownership_contract();
+  assert(released_resources == 10);
   return 0;
 }
