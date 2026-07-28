@@ -2260,6 +2260,7 @@ struct AuraHttpConnection
   int async_handler_started;
   AuraFfiHandlePin async_handle_pin;
   int async_handle_pin_active;
+  AuraTaskFrame *async_handle_frame;
 };
 
 struct AuraHttpServer
@@ -6124,8 +6125,14 @@ static void aura_http_connection_async_release_handle_pin(
 {
   if (connection != NULL && connection->async_handle_pin_active)
   {
-    (void)aura_ffi_handle_unpin(&connection->async_handle_pin);
+    AuraFfiHandlePin pin = connection->async_handle_pin;
+    /* Unpin may destroy the connection after the lexical owner was dropped;
+     * clear connection state before invoking that destructor. */
+    memset(&connection->async_handle_pin, 0,
+           sizeof(connection->async_handle_pin));
     connection->async_handle_pin_active = 0;
+    connection->async_handle_frame = NULL;
+    (void)aura_ffi_handle_unpin(&pin);
   }
 }
 
@@ -6570,6 +6577,20 @@ AuraTaskPollState aura_http_connection_poll_async_task_handle(
   {
     return AURA_TASK_FAILED;
   }
+  if (handle->resource != NULL && handle->pins != 0 &&
+      !handle->destroyed)
+  {
+    connection = (AuraHttpConnection *)handle->resource;
+    if (connection->async_handle_pin_active)
+    {
+      if (connection->async_handle_frame != frame)
+      {
+        return AURA_TASK_FAILED;
+      }
+      return aura_http_connection_poll_async_task(frame, connection, handler,
+                                                   user_data);
+    }
+  }
   memset(&pin, 0, sizeof(pin));
   if (aura_ffi_handle_pin_for_boundary(handle, AURA_FFI_BOUNDARY_TASK, &pin) !=
       AURA_FFI_OK)
@@ -6585,6 +6606,7 @@ AuraTaskPollState aura_http_connection_poll_async_task_handle(
   }
   connection->async_handle_pin = pin;
   connection->async_handle_pin_active = 1;
+  connection->async_handle_frame = frame;
   return aura_http_connection_poll_async_task(frame, connection, handler,
                                                user_data);
 }
