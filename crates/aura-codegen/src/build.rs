@@ -4107,6 +4107,73 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_match_await_state_machine_with_string_array_bindings() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+enum Choice { case First(value: Array<String>) case Second(value: Array<String>) }
+fun words(value: String): Array<String> {
+  val result: Array<String> = Array<String>(0)
+  result.push(value)
+  return result
+}
+async fun leaf(value: Array<String>): Array<String> { return value }
+async fun choose(choice: Choice, task: Task<Array<String>>): Array<String> {
+  match (choice) {
+    case First(seed) => { val first_value: Array<String> = await task gc_collect() return seed }
+    case Second(seed) => { val second_value: Array<String> = await task gc_collect() return seed }
+  }
+  return Array<String>(0)
+}
+fun main() {
+  val task = spawn { val value: Array<String> = await choose(First(words("seed")), leaf(words("value"))) return value }
+  val first: Result<Array<String>, TaskError> = join(task)
+  match (first) {
+    case Ok(value) => { println(value.get(0)) }
+    case Err(error) => { println("failed") }
+  }
+  val second: Result<Array<String>, TaskError> = join(task)
+  match (second) {
+    case Ok(value) => { println(value.get(0)) }
+    case Err(error) => { println("failed-repeat") }
+  }
+}
+"#,
+        )
+        .expect("parse string array match-await binding fixture");
+        let generated =
+            emit_c_from_ast(&file).expect("emit string array match-await binding fixture");
+        assert!(generated.contains("aura async general CFG Array lowering"));
+        assert!(generated.contains("__match_value = choice.data.First.value"));
+        assert!(generated.contains("data->seed.data"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!(
+            "aura-match-await-string-array-bindings-{}",
+            std::process::id()
+        );
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile string array match-await binding fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run string array match-await binding fixture");
+        assert!(
+            output.status.success(),
+            "string array match-await binding fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "seed\nseed\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_nested_branch_await_state_machine() {
         let file = aura_parser::parse_file(
             r#"package demo
