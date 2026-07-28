@@ -1343,7 +1343,7 @@ fn emit_async_fun_cfg_int(
     let mut ctx = async_ctx(checked, detector, &params, &f.params, &f.return_type);
     for param in &f.params {
         let key = type_ref_local_key_expand(&param.ty, &params, &[], checked);
-        if !matches!(key.as_str(), "Int" | "Bool") {
+        if !matches!(key.as_str(), "Int" | "Bool" | "Task_Int") {
             return false;
         }
         ctx.define_local(&param.name.name, full_type_mono(&key, checked));

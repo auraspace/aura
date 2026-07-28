@@ -895,6 +895,10 @@ When you resolve debt, update or remove the matching entry.
   forced GC, repeated owning joins, and lexical result cleanup. The raw class
   object remains internal to the frame ABI; exposing it publicly still needs a
   deliberate typed object/FFI contract rather than a borrowed pointer.
+- The explicit scalar CFG path now accepts caller-owned `Task<Int>` parameters
+  and records `await_task_owned = false`, so nested awaits do not release the
+  caller's child frame. A compile-and-link fixture covers this distinction;
+  caller-owned aggregate/task-handle transfer and public raw payloads remain open.
 
 ### ASYNC-003 general CFG lowering remains scalar-first (updated 2026-07-27)
 

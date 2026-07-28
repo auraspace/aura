@@ -1506,6 +1506,42 @@ fun main() {
     }
 
     #[test]
+    fn lowers_general_cfg_caller_owned_task_parameter_without_static_release() {
+        let source = r#"package demo
+async fun nested(flag: Bool, task: Task<Int>): Int {
+  var total: Int = 0
+  if (flag) {
+    var i: Int = 0
+    while (i < 1) {
+      val value: Int = await task
+      total = total + value
+      i = i + 1
+    }
+  }
+  return total
+}
+fun main() {}
+"#;
+        let file = parse_file(source).expect("parse caller-owned CFG fixture");
+        let generated = emit_c_from_ast(&file).expect("emit caller-owned CFG fixture");
+        assert!(generated.contains("/* aura async general CFG Int lowering"));
+        assert!(generated.contains("data->await_task_owned = false"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-general-cfg-owned-task-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile caller-owned CFG fixture");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_for_range_await_with_gc_repeated_join_and_cancel() {
         let source = r#"package std.io
 enum TaskError { case Failed(error: String) case Cancelled }
