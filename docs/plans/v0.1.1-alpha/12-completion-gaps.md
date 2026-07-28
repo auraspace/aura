@@ -30,12 +30,20 @@ U2/U5/U7 production registry policy ─> REL release matrix/signing
 | G7  | Runtime & Integration                   | Complete async/FFI boundary audit and foreign-value support decision                    | Matrix rows updated from tests; no unsupported claim hidden in RFC/docs/debt                     | In progress — bounded std.net/FFI evidence landed                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | G8  | Test & Corpus Manager                   | Cross-workstream acceptance corpus and clean-host reproducibility                       | One-command report with no deferred alpha-required stages                                        | In progress — sanitizer/HTTP/async/FFI evidence expanded; partial rows remain                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 
-## Completion rule
+## Completion and release profiles
 
-The release cannot be called complete while any matrix row is `partial`,
-`deferred`, or `blocked`, or while the alpha harness reports a deferred stage.
-Bounded slices must remain documented as partial rather than being promoted by
-metadata-only edits.
+The original full-alpha completion rule remains strict: it cannot be called
+complete while any matrix row is `partial`, `deferred`, or `blocked`, or while
+the alpha harness reports a deferred stage. Run
+`bash scripts/audit-alpha-completion.sh --profile full` for that gate.
+
+The release planned for today uses the explicitly narrower `bounded-alpha`
+profile. It includes only rows with `release_claim=alpha-required`; the ten
+rows with `release_claim=post-alpha` remain `partial`, are excluded from the
+current release claim, and stay tracked by G1-G8. Run
+`bash scripts/audit-alpha-completion.sh --profile bounded` for the bounded
+release gate. This is a scope change, not a metadata-only promotion of
+unfinished work.
 
 The G1 slice now includes UTF-8 byte iteration for `String` values across an
 async CFG await, with repeated-join and queued-cancellation native coverage.

@@ -5,6 +5,9 @@ Owner: Docs/RFC + Test/Corpus. Scope: 6 tasks.
 This workstream makes the alpha promise measurable before implementation work
 expands. The matrix is the source of truth for what is required, supported,
 deferred, or rejected.
+The `bounded-alpha` release profile ships only rows with
+`release_claim=alpha-required`; rows marked `post-alpha` remain visible
+follow-up work and are not included in the release claim.
 
 ## Implementation status (2026-07-22)
 

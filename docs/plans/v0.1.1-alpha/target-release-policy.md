@@ -1,7 +1,8 @@
 # C2: Target and Release Policy
 
-This policy defines the v0.1.1-alpha release targets and the claims made by
-the CI and release workflows.
+This policy defines the v0.1.1-alpha bounded release targets and the claims
+made by the CI and release workflows. It does not claim completion of the
+post-alpha async, I/O, HTTP, FFI, registry, or cross-host follow-up rows.
 
 ## Supported targets
 

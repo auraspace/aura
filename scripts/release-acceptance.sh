@@ -108,6 +108,7 @@ fi
 run_stage "native host scope" report_native_scope
 
 run_stage "alpha contract matrix" bash scripts/validate-alpha-contract.sh
+run_stage "bounded alpha release scope" bash scripts/audit-alpha-completion.sh --profile bounded
 run_stage "release target and signing policy" bash scripts/tests/release-policy.sh
 run_stage "registry and cross-host acceptance fixture" bash scripts/registry-release-acceptance.sh
 run_stage "workspace tests" cargo test --workspace
