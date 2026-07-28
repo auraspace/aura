@@ -16,7 +16,7 @@ expected_header=$'id\tdomain\trfc\towner\tfixture\texecution_mode\tstatus\trelea
 header="$(sed -n '1p' "$matrix")"
 [[ "$header" == "$expected_header" ]] || die 'invalid TSV header'
 
-declare -A seen_ids=()
+seen_ids=()
 valid_statuses=' implemented partial blocked deferred out_of_scope '
 row=1
 rows=0
@@ -33,8 +33,12 @@ while IFS=$'\t' read -r id domain rfc owner fixture execution_mode status releas
   [[ -n "$status" ]] || die "line $row ($id): missing status"
   [[ -n "$release_claim" ]] || die "line $row ($id): missing release_claim"
   [[ -n "$reason" ]] || die "line $row ($id): missing reason"
-  [[ -z "${seen_ids[$id]:-}" ]] || die "line $row: duplicate id: $id"
-  seen_ids["$id"]="$row"
+  if ((${#seen_ids[@]})); then
+    for seen_id in "${seen_ids[@]}"; do
+      [[ "$seen_id" != "$id" ]] || die "line $row: duplicate id: $id"
+    done
+  fi
+  seen_ids+=("$id")
   [[ "$valid_statuses" == *" $status "* ]] || die "line $row ($id): invalid status: $status"
   [[ "$fixture" != /* && "$fixture" != *'..'* ]] \
     || die "line $row ($id): fixture must be repository-relative: $fixture"
