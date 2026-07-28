@@ -1028,13 +1028,20 @@ TaskError>` locals release their payload at scope exit. Nested
   frame across multiple branch/loop awaits and drops that retain during frame
   teardown; native coverage forces GC and repeats owning joins while passing
   through a multi-await `writeTwice(file)` caller.
+- The runtime now has a regular-file async operation fixture: a real temporary
+  file is opened, scheduled through the file readiness handle, resumed by the
+  executor, read, and closed exactly once. This proves the POSIX regular-file
+  path separately from pipe/TCP readiness; the existing combined I/O fixture
+  remains outside the sanitizer seed list because its TCP leg is host-sensitive.
 - `std.net.readStream` and `std.net.writeStream` now lower typed
   `ForeignHandle<Int>` values to task-pinned `AuraTcpStream` operations with
   readiness waits, EOF/error handling, short-write continuation, and terminal
   unpin cleanup. The fixture proves generated C compilation and ABI wiring;
   native Aura-level TCP handle construction and transfer remain open.
-- The slice intentionally does not claim portable regular-file async I/O,
-  arbitrary aggregate caller capture, or a general reactor policy.
+- The slice intentionally does not claim arbitrary aggregate caller capture or
+  a general reactor policy. Portable regular-file behavior is covered for the
+  currently supported POSIX hosts; cross-platform reactor semantics remain
+  open.
   Keep IO-002 partial until those boundaries have typed Aura-facing contracts
   and native sanitizer coverage.
 

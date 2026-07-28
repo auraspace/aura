@@ -24,6 +24,14 @@ typedef struct
   int polls;
 } TcpOperationTask;
 
+typedef struct
+{
+  AuraIoOperationHandle *operation;
+  AuraFile *file;
+  char value;
+  int polls;
+} RegularFileOperationTask;
+
 static void close_file_resource(void *resource)
 {
   AuraFile *file = (AuraFile *)resource;
@@ -97,6 +105,30 @@ static AuraTaskPollState poll_tcp_operation(AuraTaskFrame *frame)
   return AURA_TASK_CANCELLED;
 }
 
+static AuraTaskPollState poll_regular_file_operation(AuraTaskFrame *frame)
+{
+  RegularFileOperationTask *task =
+      (RegularFileOperationTask *)aura_task_frame_data(frame);
+  if (task->polls++ == 0)
+  {
+    task->operation = aura_file_async_read_handle_new(task->file, NULL);
+    assert(task->operation != NULL);
+    assert(aura_io_operation_handle_start(task->operation,
+                                          frame->executor, frame) == 1);
+    return AURA_TASK_PENDING;
+  }
+
+  assert(aura_io_operation_handle_state(task->operation) ==
+         AURA_IO_OPERATION_COMPLETE);
+  uint64_t count = 0;
+  assert(aura_file_read(task->file, &task->value, 1, &count) == AURA_FILE_OK);
+  assert(count == 1 && task->value == 'R');
+  assert(aura_file_close(task->file) == AURA_FILE_OK);
+  free(task->file);
+  task->file = NULL;
+  return AURA_TASK_COMPLETE;
+}
+
 static void test_file_handle_completion_wakes_task(void)
 {
   int pipe_fds[2];
@@ -162,9 +194,47 @@ static void test_tcp_handle_cancellation_cleans_once(void)
   aura_tcp_listener_destroy(listener);
 }
 
+static void test_regular_file_handle_completion_wakes_task(void)
+{
+  char path[] = "/tmp/aura-task-io-regular-XXXXXX";
+  int fd = mkstemp(path);
+  assert(fd >= 0);
+  assert(write(fd, "R", 1) == 1);
+  assert(close(fd) == 0);
+
+  AuraFile *file = NULL;
+  assert(aura_file_open(path, AURA_FILE_READ, &file) == AURA_FILE_OK);
+  assert(file != NULL);
+  AuraTaskExecutor *executor = aura_task_executor_new();
+  assert(executor != NULL);
+  AuraTaskFrame *frame = aura_task_frame_new(sizeof(RegularFileOperationTask),
+                                             poll_regular_file_operation, NULL);
+  assert(frame != NULL);
+  RegularFileOperationTask *task =
+      (RegularFileOperationTask *)aura_task_frame_data(frame);
+  task->file = file;
+  assert(aura_task_executor_submit(executor, frame) == 1);
+  assert(aura_task_executor_run_one(executor) == 1);
+  assert(aura_task_frame_state(frame) == AURA_TASK_PENDING);
+  assert(aura_task_executor_poll_waiting(executor, 1000) == 1);
+  assert(aura_task_executor_run_one(executor) == 1);
+  assert(aura_task_frame_state(frame) == AURA_TASK_COMPLETE);
+  assert(aura_io_operation_handle_release(&task->operation) == 1);
+  assert(aura_task_executor_release(executor, &frame) == 1);
+  aura_task_executor_shutdown(executor);
+  assert(unlink(path) == 0);
+}
+
 int main(void)
 {
   test_file_handle_completion_wakes_task();
+  test_regular_file_handle_completion_wakes_task();
+  if (getenv("AURA_TASK_IO_REGULAR_ONLY") != NULL)
+  {
+    aura_gc_shutdown();
+    puts("regular-file task I/O: passed");
+    return 0;
+  }
   test_tcp_handle_cancellation_cleans_once();
   aura_gc_shutdown();
   puts("task I/O operation handles: passed");
