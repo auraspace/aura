@@ -214,6 +214,9 @@ link_current() {
   rm -f "$current_tmp" "$aura_tmp"
   ln -s "versions/${version}" "$current_tmp"
   ln -s "../current/bin/aura" "$aura_tmp"
+  # macOS mv follows a symlink to a directory unless the link is removed first.
+  [[ -L "${AURA_HOME}/current" ]] && rm -f "${AURA_HOME}/current"
+  [[ -L "${AURA_HOME}/bin/aura" ]] && rm -f "${AURA_HOME}/bin/aura"
   mv -f "$current_tmp" "${AURA_HOME}/current"
   mv -f "$aura_tmp" "${AURA_HOME}/bin/aura"
   write_avm

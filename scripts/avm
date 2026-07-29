@@ -49,6 +49,13 @@ show_current() {
   fi
 }
 
+replace_link() {
+  local source="$1" target="$2"
+  # macOS mv follows a symlink to a directory unless the link is removed first.
+  [[ -L "$target" ]] && rm -f "$target"
+  mv -f "$source" "$target"
+}
+
 usage() {
   printf '%s\n' \
     'avm — Aura Version Manager' \
@@ -125,8 +132,8 @@ aura_tmp="${AURA_HOME}/bin/.aura.tmp.$$"
 rm -f "$current_tmp" "$aura_tmp"
 ln -s "versions/${ver}" "$current_tmp"
 ln -s "../current/bin/aura" "$aura_tmp"
-mv -f "$current_tmp" "${AURA_HOME}/current"
-mv -f "$aura_tmp" "${AURA_HOME}/bin/aura"
+replace_link "$current_tmp" "${AURA_HOME}/current"
+replace_link "$aura_tmp" "${AURA_HOME}/bin/aura"
 printf 'active: %s\n' "$ver"
 if [[ -x "${AURA_HOME}/bin/aura" ]]; then
   "${AURA_HOME}/bin/aura" version || true
