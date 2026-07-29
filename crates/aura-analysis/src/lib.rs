@@ -209,14 +209,20 @@ impl AnalysisSnapshot {
         {
             return result.clone().map_err(QueryError::Analysis);
         }
-        let result = parse_file(&document.source)
-            .map_err(AnalysisError::Parse)
-            .and_then(|ast| {
-                check_file(&ast)
-                    .map(|checked| Analysis { ast, checked })
-                    .map_err(AnalysisError::Sema)
-            })
-            .map(Arc::new);
+        let result = match self.parse(id) {
+            Ok(ast) => check_file(&ast)
+                .map(|checked| Analysis {
+                    ast: (*ast).clone(),
+                    checked,
+                })
+                .map_err(AnalysisError::Sema)
+                .map(Arc::new),
+            Err(QueryError::DocumentNotFound(id)) => {
+                return Err(QueryError::DocumentNotFound(id));
+            }
+            Err(QueryError::Parse(error)) => Err(AnalysisError::Parse(error)),
+            Err(QueryError::Analysis(error)) => Err(error),
+        };
         self.cache
             .lock()
             .expect("analysis cache lock poisoned")
