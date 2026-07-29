@@ -1,0 +1,11 @@
+[package]
+name = "aura-analysis"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Shared compiler analysis facade for the Aura CLI and language server"
+
+[dependencies]
+aura-ast.workspace = true
+aura-parser.workspace = true
+aura-sema.workspace = true

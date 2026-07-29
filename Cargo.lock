@@ -9,6 +9,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
+name = "aura-analysis"
+version = "0.1.1-alpha"
+dependencies = [
+ "aura-ast",
+ "aura-parser",
+ "aura-sema",
+]
+
+[[package]]
 name = "aura-ast"
 version = "0.1.1-alpha"
 
@@ -16,11 +25,10 @@ version = "0.1.1-alpha"
 name = "aura-cli"
 version = "0.1.1-alpha"
 dependencies = [
+ "aura-analysis",
  "aura-ast",
  "aura-codegen",
  "aura-diagnostics",
- "aura-parser",
- "aura-sema",
  "flate2",
  "sha2",
  "tar",

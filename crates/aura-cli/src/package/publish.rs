@@ -8,7 +8,7 @@ use super::lock::read_lock;
 use super::registry::{publish_upload, PublishError, PublishReceipt};
 use super::semver::{parse_req, parse_version};
 use super::toml::{parse_aura_toml, AuraToml, DepSpec};
-use aura_parser::parse_file;
+use aura_analysis::parse_file;
 use std::fs;
 use std::path::{Path, PathBuf};
 

@@ -1,7 +1,7 @@
 //! Package loading from files, directories, and manifests (C3e/C3f/C13l).
 
+use aura_analysis::parse_file;
 use aura_ast::{shift_file_spans, File, ImportDecl, Path as AstPath, Span};
-use aura_parser::parse_file;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};

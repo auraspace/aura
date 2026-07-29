@@ -1625,8 +1625,8 @@ mod unit {
     use crate::package::archive::{archive_sha256, build_source_archive};
     use crate::package::fetch::{install_from_bytes, read_crate_bytes, sha256_hex};
     use crate::package::publish::PublishPreview;
+    use aura_analysis::parse_file;
     use aura_codegen::build_from_file;
-    use aura_parser::parse_file;
     use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::process::Command;

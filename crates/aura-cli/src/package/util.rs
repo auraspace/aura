@@ -1,7 +1,7 @@
 //! Path and file-collection helpers.
 
+use aura_analysis::ParseError;
 use aura_ast::{Ident, Path as AstPath, Span};
-use aura_parser::ParseError;
 use std::fs;
 use std::path::{Path, PathBuf};
 

@@ -3,7 +3,7 @@
 //! The parser is used as the syntax gate.  The small trivia-preserving scanner
 //! below is intentional: Aura's AST does not retain comments yet.
 
-use aura_parser::parse_file;
+use aura_analysis::parse_file;
 use std::fs;
 use std::path::{Path, PathBuf};
 

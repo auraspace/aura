@@ -11,8 +11,7 @@ name = "aura"
 path = "src/main.rs"
 
 [dependencies]
-aura-parser.workspace = true
-aura-sema.workspace = true
+aura-analysis.workspace = true
 aura-codegen.workspace = true
 aura-diagnostics.workspace = true
 aura-ast.workspace = true
