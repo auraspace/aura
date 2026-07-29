@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.1.1-alpha.1 (2026-07-29)
+
+First alpha release
+
+Full notes: [`docs/releases/0.1.1-alpha.1.md`](docs/releases/0.1.1-alpha.1.md).
+
+### Changes
+
+- refactor(server): improve string handling and simplify logic in completion and documentation functions
+- fix(emit): replace aura_gc_alloc_full with malloc for async function memory allocation
+- fix(emit): update memory allocation to use aura_gc_alloc_full for async function
+- docs: enhance language tour with recommended learning path and topic guide updates
+- refactor(docs): update syntax and examples for enums, results, and testing commands
+- fix(sema): preserve package-qualified class lookup
+- feat(collections): add live collection iterators
+- feat: refactor collections to support key-based mutation handles and invalidation-checked live entry views
+- feat: add tests and implementation for class String ownership in constructors
+- feat: implement class inheritance, visibility, and constructor argument checks
+- feat: complete Aura language server MVP
+- feat(docs): add Async HTTP Handler Completion Plan
+- feat(cli): complete aura formatter
+- feat(fmt): add --check option for formatting verification
+- perf: reuse parsed analysis query results
+- feat: complete analysis snapshots and queries
+- feat: add shared aura analysis facade
+- feat(formatter): enhance formatting capabilities for `.aura` files and directories
+- feat(avm, install): improve symlink handling for macOS in version management
+- docs: sync release docs and clean alpha gates
+
 ## 0.1.1-alpha (2026-07-28)
 
 Production-facing alpha release
