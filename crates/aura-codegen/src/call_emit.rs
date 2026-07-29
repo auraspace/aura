@@ -859,6 +859,7 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                     .collect();
                 // C6i: Array primary-ctor fields own the buffer — move from owner idents.
                 let mut field_keys = Vec::new();
+                let mut owned_string_temps = Vec::new();
                 let args = c
                     .args
                     .iter()
@@ -866,6 +867,11 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                     .map(|(a, f)| {
                         let expected = type_ref_local_key(&f.ty, &params, &targs);
                         field_keys.push(expected.clone());
+                        if expected == "String" && string_expr_is_owned_temp(a, ctx) {
+                            let temp = format!("__aura_ctor_string_{}", a.span().start);
+                            owned_string_temps.push((temp.clone(), emit_expr(a, ctx)));
+                            return temp;
+                        }
                         coerce_owner_arg_expr(a, &expected, ctx)
                     })
                     .collect::<Vec<_>>()
@@ -877,6 +883,17 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                     c_class_type(&mono)
                 };
                 let call = format!("{}({args})", c_ctor_name(&mono));
+                if !owned_string_temps.is_empty() {
+                    let prefix = owned_string_temps
+                        .iter()
+                        .map(|(name, value)| format!("const char *{name} = ({value}); "))
+                        .collect::<String>();
+                    let suffix = owned_string_temps
+                        .iter()
+                        .map(|(name, _)| format!("free((void *){name}); "))
+                        .collect::<String>();
+                    return format!("({{ {prefix}{ret_c} __ctor = ({call}); {suffix} __ctor; }})");
+                }
                 return wrap_array_arg_moves(call, &move_srcs, &ret_c, ctx);
             }
             // Enum variant constructor: Ok(...), Err(...), Red()

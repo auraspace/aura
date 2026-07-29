@@ -8188,10 +8188,7 @@ fn emit_async_fun_no_await(
         let _ = writeln!(out, "  const {cty} *source = (const {cty} *)src;");
         let _ = writeln!(out, "  {cty} *copy;");
         out.push_str("  if (source == NULL || out_size == NULL) return NULL;\n");
-        let _ = writeln!(
-            out,
-            "  copy = ({cty} *)aura_gc_alloc_full(sizeof(*copy), aura_dtor_{mono}, NULL);"
-        );
+        let _ = writeln!(out, "  copy = ({cty} *)malloc(sizeof(*copy));");
         out.push_str("  if (copy == NULL) return NULL;\n  *copy = *source;\n");
         for field in &class.fields {
             if type_ref_local_key(&field.ty, &[], &[]) != "String" {
@@ -8206,7 +8203,7 @@ fn emit_async_fun_no_await(
         out.push_str("  *out_size = sizeof(*copy);\n  return copy;\n}\n\n");
         let _ = writeln!(
             out,
-            "static void {destroy}(void *data, size_t size) {{ (void)data; (void)size; }}\n"
+            "static void {destroy}(void *data, size_t size) {{ (void)size; aura_ex_dtor_{mono}(data); }}\n"
         );
         let message_field = class
             .fields
