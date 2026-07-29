@@ -207,6 +207,33 @@ fn simple_ctor_expr(expr: &Expr) -> Option<String> {
     }
 }
 
+/// Class fields own independent String buffers. Constructors clone every
+/// non-null source so literals and caller-owned strings are both safe to drop.
+fn emit_string_copy_assignment(out: &mut String, target: &str, source: &str) {
+    let _ = writeln!(out, "  {{");
+    let _ = writeln!(out, "    const char *__aura_string_src = {source};");
+    let _ = writeln!(
+        out,
+        "    if (__aura_string_src == NULL) {{ {target} = NULL; }} else {{"
+    );
+    let _ = writeln!(
+        out,
+        "      size_t __aura_string_len = strlen(__aura_string_src);"
+    );
+    let _ = writeln!(
+        out,
+        "      {target} = (char *)malloc(__aura_string_len + 1);"
+    );
+    out.push_str("      if (");
+    out.push_str(target);
+    out.push_str(" == NULL) { aura_throw_string(\"class String field allocation failed\"); }\n");
+    let _ = writeln!(
+        out,
+        "      memcpy((char *){target}, __aura_string_src, __aura_string_len + 1);"
+    );
+    out.push_str("    }\n  }\n");
+}
+
 pub(crate) fn emit_class_typedef(
     out: &mut String,
     checked: &CheckedFile,
@@ -294,12 +321,18 @@ fn ownership_fields<'a>(
     args: &[Ty],
 ) -> Vec<(String, String)> {
     let mut out = Vec::new();
-    if let Some(parent) = direct_superclass(checked, c) {
-        // Generic parent layout/substitution remains deferred.  Non-generic
-        // parents can safely contribute their concrete ownership fields.
-        if parent.type_params.is_empty() {
-            out.extend(ownership_fields(parent, checked, &[], &[]));
-        }
+    if let Some((parent, parent_args)) = direct_superclass_with_args(checked, c, args) {
+        let parent_params = parent
+            .type_params
+            .iter()
+            .map(|param| param.name.name.clone())
+            .collect::<Vec<_>>();
+        out.extend(ownership_fields(
+            parent,
+            checked,
+            &parent_params,
+            &parent_args,
+        ));
     }
     out.extend(c.fields.iter().map(|field| {
         (
@@ -650,13 +683,26 @@ pub(crate) fn emit_ctor_mono(
         );
         for f in &c.fields {
             let n = mangle_ident(&f.name.name);
-            let _ = writeln!(out, "  self->{n} = {n};");
+            if type_ref_local_key(&f.ty, params, args) == "String" {
+                emit_string_copy_assignment(out, &format!("self->{n}"), &n);
+            } else {
+                let _ = writeln!(out, "  self->{n} = {n};");
+            }
         }
-        if let Some(parent) = direct_superclass(checked, c) {
+        if let Some((parent, parent_args)) = direct_superclass_with_args(checked, c, args) {
+            let parent_params = parent
+                .type_params
+                .iter()
+                .map(|param| param.name.name.clone())
+                .collect::<Vec<_>>();
             for (field, arg) in parent.fields.iter().zip(c.superclass_args.iter()) {
                 if let Some(value) = simple_ctor_expr(arg) {
                     let name = mangle_ident(&field.name.name);
-                    let _ = writeln!(out, "  self->{name} = {value};");
+                    if type_ref_local_key(&field.ty, &parent_params, &parent_args) == "String" {
+                        emit_string_copy_assignment(out, &format!("self->{name}"), &value);
+                    } else {
+                        let _ = writeln!(out, "  self->{name} = {value};");
+                    }
                 }
             }
         }

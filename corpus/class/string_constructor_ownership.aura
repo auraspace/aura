@@ -1,0 +1,25 @@
+package main
+
+class Note(val text: String) {}
+
+open class Parent(val label: String) {}
+class Child() : Parent("inherited literal") {}
+
+fun main() {
+  if (true) {
+    val literal = Note("literal")
+  }
+  gc_collect()
+
+  if (true) {
+    val source = "heap" + ""
+    val owned = Note(source)
+  }
+  gc_collect()
+
+  if (true) {
+    val child = Child()
+  }
+  gc_collect()
+  println("string constructor ownership ok")
+}

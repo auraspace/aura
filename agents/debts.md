@@ -34,17 +34,6 @@ When you resolve debt, update or remove the matching entry.
 - Next step: add bounded LRU/size-based eviction and expose cache hit/eviction
   metrics before enabling long-lived workspace sessions by default.
 
-### CLASS-001 constructor String ownership for literals remains ambiguous (2026-07-27)
-
-- Area: generated class constructors with owned `String` fields
-- Symptom: a class destructor frees a constructor argument, so passing a
-  literal directly can attempt to free static storage; heap-owned expressions
-  remain safe.
-- Why deferred: constructor argument ownership needs one consistent move/clone
-  rule across ordinary calls, exceptions, and GC-managed class fields.
-- Next step: clone non-owned String arguments at constructor boundaries or make
-  ownership explicit in the type checker before broadening class payload tests.
-
 ### ASYNC-002 generated payload clone integration remains partial (updated 2026-07-28)
 
 - Area: compiler-generated async child-to-parent failure propagation

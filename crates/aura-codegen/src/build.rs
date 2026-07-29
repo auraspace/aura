@@ -6036,6 +6036,36 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_class_string_constructor_ownership() {
+        let file = parse_file(
+            "package demo\nclass Note(val text: String) {}\nopen class Parent(val label: String) {}\nclass Child() : Parent(\"inherited literal\") {}\nfun main() { if (true) { val literal = Note(\"literal\") } gc_collect() if (true) { val source = \"heap\" + \"\" val owned = Note(source) } gc_collect() if (true) { val child = Child() } gc_collect() println(\"string constructor ownership ok\") }\n",
+        )
+        .expect("parse class String ownership");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-class-string-ownership-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile class String ownership");
+        let generated = fs::read_to_string(&generated_c).expect("read generated class String C");
+        assert!(generated.contains("class String field allocation failed"));
+        let output = Command::new(&bin)
+            .output()
+            .expect("run class String ownership");
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "string constructor ownership ok\n"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_bounded_class_local_capture() {
         let file = aura_parser::parse_file(
             "package demo\nclass Box(val value: Int) {}\nfun report(box: Box) { if (box.value == 73) { println(\"local class\") } }\nfun main() { val captured: Box = Box(73)\nval task = spawn { report(captured) } join(task) }\n",
