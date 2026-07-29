@@ -90,7 +90,10 @@ The CLI can auto-prelude `std.io` for package builds and resolve `std.*` path de
 
 **Registry schema v0** may appear as structured entries (`version` / `source` / `checksum` form). Locked registry consumption now supports HTTPS metadata/archive fetch, semver pinning, SHA-256 verification, cache extraction, and offline locked inputs. Live credentialed publication, `git=`/`github=` sources, and workspaces remain deferred.
 
-When registry lands, the **default backend is GitHub** (index repo + Release `.crate` assets, plus direct `github = "owner/repo"` deps). Design: [RFC-005](../rfc/RFC-005-package-manager.md) §6.5–6.6.
+The current registry backend uses HTTPS metadata and archive downloads with
+semver pinning, checksum verification, and cache extraction. The planned GitHub
+index/Release `.crate` backend and direct `github = "owner/repo"` dependencies
+remain design context in [RFC-005](../rfc/RFC-005-package-manager.md) §6.5–6.6.
 
 ## Alpha limits
 

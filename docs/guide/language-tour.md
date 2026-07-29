@@ -51,7 +51,7 @@ These topics match **in-tree** behavior (corpus + CLI), not only Accepted RFCs:
 - Multi-file packages, imports, path deps; `aura new` / `init` / `version`
 - `aura run` / `test` pass-through after `--`; `aura test` + `@test`
 - `std.io` console + file + **argv** / **stdin** / **exit** / `tryReadFile`; `std.assert`
-- `std.collections` Map/Set/HashMap/HashMapStr/Iterable + Int·String HOF + `join`
+- `std.collections` Map/Set/HashMap/HashSet/Iterable + Int·String HOF + `join`
 - Dogfood CLI: `examples/wc` (args + String tools)
 
 ## Still design-first (limited or deferred in code)
@@ -61,7 +61,9 @@ These topics match **in-tree** behavior (corpus + CLI), not only Accepted RFCs:
 - Macros / plugins ([RFC-010](/rfc/010))
 - Reflection ([RFC-009](/rfc/009))
 - LLVM backend as default ([RFC-004](/rfc/004) — C backend is what runs now)
-- Registry fetch / semver ([RFC-005](/rfc/005) — path deps + lock schema only)
+- Verified locked registry consumption: HTTPS metadata/archive fetch, semver pinning,
+  SHA-256 verification, cache extraction, and offline warm-cache builds; live
+  credentialed publication, `git=`/`github=` sources, and workspaces remain deferred
 - Live collection iterators are invalidation-checked by collection epoch;
   snapshot iterators remain available when mutation-safe copies are preferred
 

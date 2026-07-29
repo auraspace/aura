@@ -49,14 +49,17 @@ printf 'line\n' | cargo run -p aura-cli -- run corpus/std_io/stdin
 
 ### Files (C11a / C12p)
 
-| API                          | Role                                       |
-| ---------------------------- | ------------------------------------------ |
-| `readFile(path): String`     | read entire regular file (throws on error) |
-| `tryReadFile(path): String?` | soft read; `null` on missing/error (C12p)  |
-| `writeFile(path, content)`   | create/truncate and write                  |
-| `appendFile(path, content)`  | append (create if needed)                  |
-| `fileExists(path): Bool`     | regular file present                       |
-| `fileSize(path): Int`        | byte size (throws if missing)              |
+| API                                                    | Role                                       |
+| ------------------------------------------------------ | ------------------------------------------ |
+| `readFile(path): String`                               | read entire regular file (throws on error) |
+| `tryReadFile(path): String?`                           | soft read; `null` on missing/error (C12p)  |
+| `writeFile(path, content)`                             | create/truncate and write                  |
+| `tryWriteFile(path, content): Bool`                    | soft write; `false` on failure             |
+| `readFileResult(path): Result<String, String>`         | non-throwing read with error payload       |
+| `writeFileResult(path, content): Result<Bool, String>` | non-throwing write with error payload      |
+| `appendFile(path, content)`                            | append (create if needed)                  |
+| `fileExists(path): Bool`                               | regular file present                       |
+| `fileSize(path): Int`                                  | byte size (throws if missing)              |
 
 Typical use (explicit import or auto-prelude on package builds):
 

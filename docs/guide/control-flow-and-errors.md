@@ -69,16 +69,16 @@ while (true) {
 
 ```aura
 enum Color {
-  Red,
-  Green,
-  Blue
+  case Red
+  case Green
+  case Blue
 }
 
 fun label(c: Color): String {
   match (c) {
-    Color.Red => { return "red" }
-    Color.Green => { return "green" }
-    Color.Blue => { return "blue" }
+    case Red => { return "red" }
+    case Green => { return "green" }
+    case Blue => { return "blue" }
   }
 }
 ```
@@ -92,12 +92,12 @@ Use `Result` for **expected** failures (parse errors, not-found, validation):
 ```aura
 fun parseFlag(s: String): Result<Bool, String> {
   if (s == "true") {
-    return Result.Ok(true)
+    return Ok(true)
   }
   if (s == "false") {
-    return Result.Ok(false)
+    return Ok(false)
   }
-  return Result.Err("bad flag")
+  return Err("bad flag")
 }
 ```
 

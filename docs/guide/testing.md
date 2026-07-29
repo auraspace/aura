@@ -43,8 +43,8 @@ See `corpus/test/` and package-level tests under `corpus/` / `examples/notes` fo
 Select tests by substring with `--test-name` (or its alias `--filter`):
 
 ```bash
-aura test corpus/test --test-name add
-aura test corpus/test --filter add --format json
+aura test corpus/test/filter.aura --test-name alpha
+aura test corpus/test/filter.aura --filter alpha --format json
 ```
 
 The JSON report contains package timing, pass/fail/skipped counts, per-test
@@ -58,7 +58,7 @@ enabled. It accepts the same package, filter, JSON, and `--` process-argument
 options:
 
 ```bash
-aura race corpus/test --format json
+aura race corpus/test/filter.aura --format json
 ```
 
 ## Design intent

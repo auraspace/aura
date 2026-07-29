@@ -30,7 +30,7 @@ fun main() {
 | Struct          | `struct S(var x: Int) {}`                       |
 | Interface       | `interface I { fun f(): Int }`                  |
 | Implements      | `class C() : I { ... }` / `class Box<T> : I<T>` |
-| Enum            | `enum E { A, B }`                               |
+| Enum            | `enum E { case A, case B }`                     |
 | Generic class   | `class Box<T>(var v: T) {}`                     |
 | Generic fun     | `fun id<T>(x: T): T { return x }`               |
 | Type alias      | `type Id = Int`                                 |
@@ -85,18 +85,18 @@ Class `==` is **identity**. String content equality uses content compare in the 
 
 ## String helpers (MVP)
 
-| Form                                     | Notes                                                                                     |
-| ---------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `s + t` / `"hi ${name}"`                 | Concat; interp desugars to `+` (idents in `${…}`)                                         |
-| `s.len` / `s.isEmpty()`                  | UTF-8 **byte** length                                                                     |
-| `s.charAt(i)`                            | Byte as `Int`; OOB throws                                                                 |
-| `s.startsWith` / `contains` / `endsWith` | Substring search                                                                          |
-| `s.indexOf(sub)`                         | Byte index of first match; −1 if missing; empty sub → 0 (C12f)                            |
-| `s.split(sep)`                           | `Array<String>`; empty sep throws; consecutive/trailing seps → empty segments (C12g)      |
-| `s.trim()` / `trimStart` / `trimEnd`     | ASCII whitespace MVP (`' '`, `\t`, `\n`, `\r`); owned copy (C12h)                         |
-| `s.toInt()`                              | `Int?`; full-string decimal; no auto-trim; optional `+/-`; invalid/overflow → null (C12i) |
-| `join(parts, sep)`                       | `std.collections`: `Array<String>` + sep → `String`; empty → `""` (C12j)                  |
-| `s.substring(start, end)`                | Exclusive end; UTF-8 **byte** indices (C11d)                                              |
+| Form                                                  | Notes                                                                                     |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `s + t` / `"hi ${name}"`                              | Concat; interp desugars to `+` (idents in `${…}`)                                         |
+| `s.len` / `s.isEmpty()`                               | UTF-8 **byte** length                                                                     |
+| `s.charAt(i)`                                         | Byte as `Int`; OOB throws                                                                 |
+| `s.startsWith(x)` / `s.contains(x)` / `s.endsWith(x)` | Substring search                                                                          |
+| `s.indexOf(sub)`                                      | Byte index of first match; −1 if missing; empty sub → 0 (C12f)                            |
+| `s.split(sep)`                                        | `Array<String>`; empty sep throws; consecutive/trailing seps → empty segments (C12g)      |
+| `s.trim()` / `trimStart` / `trimEnd`                  | ASCII whitespace MVP (`' '`, `\t`, `\n`, `\r`); owned copy (C12h)                         |
+| `s.toInt()`                                           | `Int?`; full-string decimal; no auto-trim; optional `+/-`; invalid/overflow → null (C12i) |
+| `join(parts, sep)`                                    | `std.collections`: `Array<String>` + sep → `String`; empty → `""` (C12j)                  |
+| `s.substring(start, end)`                             | Exclusive end; UTF-8 **byte** indices (C11d)                                              |
 
 No embedded NUL in strings. Indices are bytes, not Unicode scalar values.
 
@@ -129,7 +129,7 @@ for (i in 0..=n) { }
 for (x in xs) { }
 
 match (e) {
-  Pattern => { }
+  case Pattern => { }
 }
 
 try { } catch (e: String) { } finally { }
