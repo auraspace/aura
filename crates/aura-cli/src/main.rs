@@ -73,7 +73,7 @@ fn eprint_usage() {
            aura publish --dry-run [path]    Validate and preview without upload\n  \
            aura publish --registry <url> [path]  Validate and upload package\n  \
            aura update ... --activate           Verify and atomically activate update\n  \
-           aura fmt <path>                   Format an Aura source file\n  \
+           aura fmt <path>                   Format a `.aura` file, project, or folder\n  \
            aura emit-c [path]                Print generated C (debug)\n  \
            aura version                      Print CLI version\n  \
            aura help\n\n\
@@ -293,23 +293,10 @@ fn cmd_fmt(args: &[String]) -> ExitCode {
         return ExitCode::from(2);
     }
     let path = Path::new(&args[0]);
-    let source = match std::fs::read_to_string(path) {
-        Ok(source) => source,
+    match formatter::format_path(path) {
+        Ok(_) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("error: cannot read {}: {error}", path.display());
-            return ExitCode::from(1);
-        }
-    };
-    match formatter::format_source(&source) {
-        Ok(formatted) => match std::fs::write(path, formatted) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(error) => {
-                eprintln!("error: cannot write {}: {error}", path.display());
-                ExitCode::from(1)
-            }
-        },
-        Err(error) => {
-            eprintln!("error: cannot format {}: {error}", path.display());
+            eprintln!("{error}");
             ExitCode::from(1)
         }
     }
