@@ -12,6 +12,7 @@ enum Kind {
     Word,
     String,
     Comment,
+    LineBreak,
     BlankLine,
     Punct,
 }
@@ -28,7 +29,7 @@ pub fn format_source(source: &str) -> Result<String, String> {
 }
 
 /// Format one source file, a project manifest, or every source below a directory.
-pub fn format_path(path: &Path) -> Result<Vec<PathBuf>, String> {
+pub fn format_path(path: &Path, check: bool) -> Result<Vec<PathBuf>, String> {
     let root =
         if path.is_file() && path.file_name().and_then(|name| name.to_str()) == Some("aura.toml") {
             path.parent().unwrap_or_else(|| Path::new("."))
@@ -45,12 +46,29 @@ pub fn format_path(path: &Path) -> Result<Vec<PathBuf>, String> {
 
     // Format everything before writing so one invalid file cannot leave a partial result.
     let mut formatted = Vec::with_capacity(files.len());
+    let mut changed = Vec::new();
     for file in &files {
         let source = fs::read_to_string(file)
             .map_err(|error| format!("error: cannot read {}: {error}", file.display()))?;
         let output = format_source(&source)
             .map_err(|error| format!("error: cannot format {}: {error}", file.display()))?;
+        if output != source {
+            changed.push(file.display().to_string());
+        }
         formatted.push((file, output));
+    }
+    if check {
+        if changed.is_empty() {
+            return Ok(files);
+        }
+        return Err(format!(
+            "error: files are not formatted:\n{}",
+            changed
+                .iter()
+                .map(|file| format!("  {file}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        ));
     }
     for (file, output) in formatted {
         fs::write(file, output)
@@ -126,6 +144,11 @@ fn scan(source: &str) -> Result<Vec<Token>, String> {
                     out.push(Token {
                         text: String::new(),
                         kind: Kind::BlankLine,
+                    });
+                } else if newlines == 1 {
+                    out.push(Token {
+                        text: String::new(),
+                        kind: Kind::LineBreak,
                     });
                 }
             }
@@ -228,8 +251,49 @@ fn render(tokens: &[Token]) -> String {
     let mut indent = 0usize;
     let mut line_start = true;
     let mut previous: Option<&str> = None;
-    for token in tokens {
+    let mut generic_depth = 0usize;
+    let mut class_header = false;
+    let mut previous_was_unary_minus = false;
+    let mut previous_was_generic_open = false;
+    let mut inline_blocks = Vec::new();
+    for (index, token) in tokens.iter().enumerate() {
         let t = token.text.as_str();
+        let after_unary_minus = previous_was_unary_minus;
+        previous_was_unary_minus = false;
+        let after_generic_open = previous_was_generic_open;
+        previous_was_generic_open = false;
+        if token.kind == Kind::LineBreak {
+            if !line_start {
+                newline(&mut out);
+            }
+            line_start = true;
+            if !matches!(
+                previous,
+                Some(
+                    "=" | ":"
+                        | ","
+                        | "+"
+                        | "-"
+                        | "*"
+                        | "/"
+                        | "%"
+                        | "=="
+                        | "!="
+                        | "<"
+                        | "<="
+                        | ">"
+                        | ">="
+                        | "&&"
+                        | "||"
+                        | "=>"
+                        | "->"
+                        | "?:"
+                )
+            ) {
+                previous = None;
+            }
+            continue;
+        }
         if token.kind == Kind::BlankLine {
             if !out.is_empty() && !out.ends_with("\n") {
                 newline(&mut out);
@@ -242,8 +306,13 @@ fn render(tokens: &[Token]) -> String {
             continue;
         }
         if token.kind == Kind::Comment {
-            if !line_start {
+            if !line_start && t.starts_with("//") {
+                out.push(' ');
+            } else if !line_start {
                 newline(&mut out);
+                write_indent(&mut out, indent);
+            } else {
+                write_indent(&mut out, indent);
             }
             out.push_str(t);
             newline(&mut out);
@@ -251,18 +320,39 @@ fn render(tokens: &[Token]) -> String {
             previous = None;
             continue;
         }
-        if should_start_line(indent, line_start, previous, t, token.kind) {
+        let inside_inline_block = inline_blocks.last().copied().unwrap_or(false);
+        if !inside_inline_block && should_start_line(indent, line_start, previous, t, token.kind) {
             newline(&mut out);
             line_start = true;
             previous = None;
         }
         if t == "}" {
+            let inline = inline_blocks.pop().unwrap_or(false);
+            if inline {
+                trim_space(&mut out);
+                if previous != Some("{") {
+                    out.push(' ');
+                }
+                out.push('}');
+                line_start = false;
+                previous = Some("}");
+                continue;
+            }
             if !line_start {
                 newline(&mut out);
             }
             indent = indent.saturating_sub(1);
             write_indent(&mut out, indent);
             out.push('}');
+            let joins_clause = tokens.get(index + 1).is_some_and(|next| {
+                next.kind == Kind::Word
+                    && matches!(next.text.as_str(), "else" | "catch" | "finally")
+            });
+            if joins_clause {
+                line_start = false;
+                previous = Some("}");
+                continue;
+            }
             newline(&mut out);
             line_start = true;
             previous = None;
@@ -272,23 +362,69 @@ fn render(tokens: &[Token]) -> String {
             write_indent(&mut out, indent);
             line_start = false;
         }
+        if t == "class" {
+            class_header = true;
+        }
         if t == "{" {
+            let inline = is_inline_block(tokens, index);
+            inline_blocks.push(inline);
             trim_space(&mut out);
             out.push_str(" {");
-            newline(&mut out);
-            indent += 1;
-            line_start = true;
+            if inline {
+                if tokens.get(index + 1).is_some_and(|next| next.text != "}") {
+                    out.push(' ');
+                }
+                line_start = false;
+            } else {
+                newline(&mut out);
+                indent += 1;
+                line_start = true;
+            }
+            class_header = false;
         } else if t == "," {
             trim_space(&mut out);
             out.push_str(", ");
         } else if t == ":" {
-            trim_space(&mut out);
-            out.push_str(": ");
+            if class_header && previous == Some(")") {
+                trim_space(&mut out);
+                out.push_str(" : ");
+            } else {
+                trim_space(&mut out);
+                out.push_str(": ");
+            }
         } else if t == "." || t == "?." || t == "!!" || t == ")" || t == "]" {
             trim_space(&mut out);
             out.push_str(t);
         } else if t == "(" || t == "[" {
-            trim_space(&mut out);
+            let keep_space = matches!(
+                previous,
+                Some(
+                    "=" | ":"
+                        | ","
+                        | "+"
+                        | "-"
+                        | "*"
+                        | "/"
+                        | "%"
+                        | "=="
+                        | "!="
+                        | "<"
+                        | "<="
+                        | ">"
+                        | ">="
+                        | "&&"
+                        | "||"
+                        | "=>"
+                        | "->"
+                        | "?:"
+                        | "return"
+                )
+            );
+            if !keep_space {
+                trim_space(&mut out);
+            } else if previous == Some("return") {
+                out.push(' ');
+            }
             if t == "("
                 && matches!(
                     previous,
@@ -298,6 +434,28 @@ fn render(tokens: &[Token]) -> String {
                 out.push(' ');
             }
             out.push_str(t);
+        } else if t == "-" && is_unary_minus(previous) {
+            trim_space(&mut out);
+            if previous.is_some_and(|p| !matches!(p, "(" | "[")) {
+                out.push(' ');
+            }
+            out.push('-');
+            previous_was_unary_minus = true;
+        } else if t == "!" {
+            trim_space(&mut out);
+            if previous.is_some_and(|p| !matches!(p, "(" | "[")) {
+                out.push(' ');
+            }
+            out.push('!');
+        } else if t == "<" && angle_is_generic(tokens, index) {
+            trim_space(&mut out);
+            out.push('<');
+            generic_depth += 1;
+            previous_was_generic_open = true;
+        } else if t == ">" && generic_depth > 0 {
+            trim_space(&mut out);
+            out.push('>');
+            generic_depth -= 1;
         } else if t == "="
             || matches!(
                 t,
@@ -322,7 +480,12 @@ fn render(tokens: &[Token]) -> String {
             out.push(' ');
             out.push_str(t);
             out.push(' ');
-        } else if needs_space(previous, token.kind) {
+        } else if t == ";" {
+            newline(&mut out);
+            line_start = true;
+            previous = None;
+            continue;
+        } else if !after_generic_open && !after_unary_minus && needs_space(previous, token.kind) {
             trim_space(&mut out);
             out.push(' ');
             out.push_str(t);
@@ -340,7 +503,39 @@ fn render(tokens: &[Token]) -> String {
 
 fn needs_space(previous: Option<&str>, kind: Kind) -> bool {
     matches!(kind, Kind::Word | Kind::String)
-        && previous.is_some_and(|p| !matches!(p, "@" | "." | "{" | "(" | "["))
+        && previous
+            .is_some_and(|p| !matches!(p, "@" | "." | "?." | "!" | ".." | "..=" | "{" | "(" | "["))
+}
+
+fn is_unary_minus(previous: Option<&str>) -> bool {
+    previous.is_none()
+        || previous.is_some_and(|p| {
+            matches!(
+                p,
+                "=" | ":"
+                    | ","
+                    | "("
+                    | "["
+                    | "+"
+                    | "-"
+                    | "*"
+                    | "/"
+                    | "%"
+                    | "=="
+                    | "!="
+                    | "<"
+                    | "<="
+                    | ">"
+                    | ">="
+                    | "&&"
+                    | "||"
+                    | "=>"
+                    | "->"
+                    | "?:"
+                    | "return"
+                    | "throw"
+            )
+        })
 }
 
 fn should_start_line(
@@ -357,6 +552,7 @@ fn should_start_line(
     if indent == 0
         && (matches!(text, "package" | "import" | "extern")
             || (is_decl_start(text)
+                && !matches!(previous, Some("pub" | "async" | "test"))
                 && !(text == "fun" && previous.is_some_and(|p| p.starts_with('"')))))
     {
         return true;
@@ -364,7 +560,46 @@ fn should_start_line(
 
     indent > 0
         && matches!(text, "val" | "var" | "if" | "return" | "throw")
-        && previous != Some("else")
+        && !matches!(previous, Some("else" | "=" | ":" | "," | "=>" | "->"))
+}
+
+fn angle_is_generic(tokens: &[Token], index: usize) -> bool {
+    if index == 0 || !matches!(tokens[index - 1].kind, Kind::Word | Kind::Punct) {
+        return false;
+    }
+    let mut depth = 0usize;
+    for token in &tokens[index + 1..] {
+        match token.text.as_str() {
+            "<" => depth += 1,
+            ">" if depth == 0 => return true,
+            ">" => depth -= 1,
+            "=" | "==" | "!=" | "<=" | ">=" | "&&" | "||" | "+" | "-" | "*" | "/" | "?:" => {
+                return false
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
+fn is_inline_block(tokens: &[Token], index: usize) -> bool {
+    let mut depth = 0usize;
+    for token in &tokens[index..] {
+        if token.kind == Kind::LineBreak || token.kind == Kind::BlankLine {
+            return false;
+        }
+        match token.text.as_str() {
+            "{" => depth += 1,
+            "}" => {
+                depth -= 1;
+                if depth == 0 {
+                    return true;
+                }
+            }
+            _ => {}
+        }
+    }
+    false
 }
 
 fn is_decl_start(text: &str) -> bool {
@@ -433,6 +668,121 @@ fun main() {
     }
 
     #[test]
+    fn preserves_modifiers_statement_lines_comments_and_generic_spacing() {
+        let source = r#"package demo
+
+pub fun identity<T>(value: T): T {
+  // Keep this comment indented.
+  return value
+}
+
+fun mapped(value: Int): Int {
+  return map<Int, Int>(value, (x: Int) => x)
+}
+
+async fun run() {
+  first()
+  second()
+}
+"#;
+        let formatted = format_source(source).unwrap();
+        let expected = r#"package demo
+
+pub fun identity<T>(value: T): T {
+    // Keep this comment indented.
+    return value
+}
+
+fun mapped(value: Int): Int {
+    return map<Int, Int>(value, (x: Int) => x)
+}
+
+async fun run() {
+    first()
+    second()
+}
+"#;
+        assert_eq!(formatted, expected);
+        assert_eq!(formatted, format_source(&formatted).unwrap());
+    }
+
+    #[test]
+    fn formats_safe_calls_unary_ops_if_expressions_and_inline_comments() {
+        let source = r#"package demo
+
+class Range3(val n: Int) : Iterable {
+  fun len(): Int { return n }
+}
+
+fun sample(x: Int, g: Greeter, flag: Bool, b: Box): String {
+  val a: String? = g?.greet()
+  val negative: Int = -1
+  val difference: Int = x - 1
+  val grouped: Bool = flag || (x == 1)
+  val s: String = if (x == 2) {
+    "two"
+  } else {
+    "other"
+  }
+  val r1 = twice(3) // 5
+  return !flag
+  return () => b.get()
+  return a + s
+}
+
+fun borrowed(task: Task<ref String>) {}
+"#;
+        let formatted = format_source(source).unwrap();
+        let expected = r#"package demo
+
+class Range3(val n: Int) : Iterable {
+    fun len(): Int { return n }
+}
+
+fun sample(x: Int, g: Greeter, flag: Bool, b: Box): String {
+    val a: String? = g?.greet()
+    val negative: Int = -1
+    val difference: Int = x - 1
+    val grouped: Bool = flag || (x == 1)
+    val s: String = if (x == 2) {
+        "two"
+    } else {
+        "other"
+    }
+    val r1 = twice(3) // 5
+    return !flag
+    return () => b.get()
+    return a + s
+}
+
+fun borrowed(task: Task<ref String>) {}
+"#;
+        assert_eq!(formatted, expected);
+        assert_eq!(formatted, format_source(&formatted).unwrap());
+    }
+
+    #[test]
+    fn formats_unary_not_ranges_and_else_clauses() {
+        let source = r#"package demo
+fun main() {
+  assert(!nb.contains("buy milk"))
+  for (i in 0..again.len()) {
+    if (i == 0) {
+      return
+    } else if (start == n) {
+      return
+    }
+  }
+}
+"#;
+        let formatted = format_source(source).unwrap();
+        assert!(formatted.contains("assert(!nb.contains(\"buy milk\"))\n"));
+        assert!(formatted.contains("for (i in 0..again.len()) {\n"));
+        assert!(formatted.contains("    } else if (start == n) {\n"));
+        assert_eq!(formatted, format_source(&formatted).unwrap());
+    }
+
+    #[test]
     fn formats_project_manifest_and_nested_aura_files() {
         let root =
             std::env::temp_dir().join(format!("aura-formatter-project-{}", std::process::id()));
@@ -446,15 +796,19 @@ fun main() {
         .unwrap();
         fs::write(src.join("util.aura"), "package demo\nfun util(){return}\n").unwrap();
 
-        let files = format_path(&root.join("aura.toml")).unwrap();
+        let files = format_path(&root.join("aura.toml"), false).unwrap();
 
         assert_eq!(files.len(), 2);
         assert!(fs::read_to_string(src.join("main.aura"))
             .unwrap()
-            .contains("fun main() {\n"));
+            .contains("fun main() { println(\"ok\") }\n"));
         assert!(fs::read_to_string(src.join("util.aura"))
             .unwrap()
-            .contains("fun util() {\n"));
+            .contains("fun util() { return }\n"));
+        assert!(format_path(&root.join("aura.toml"), true).is_ok());
+        fs::write(src.join("util.aura"), "package demo\nfun util(){return}\n").unwrap();
+        let error = format_path(&root.join("aura.toml"), true).unwrap_err();
+        assert!(error.contains("util.aura"));
         fs::remove_dir_all(root).unwrap();
     }
 }

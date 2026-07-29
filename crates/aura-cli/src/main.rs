@@ -73,7 +73,7 @@ fn eprint_usage() {
            aura publish --dry-run [path]    Validate and preview without upload\n  \
            aura publish --registry <url> [path]  Validate and upload package\n  \
            aura update ... --activate           Verify and atomically activate update\n  \
-           aura fmt <path>                   Format a `.aura` file, project, or folder\n  \
+           aura fmt [--check] <path>          Format/check `.aura` files, project, or folder\n  \
            aura emit-c [path]                Print generated C (debug)\n  \
            aura version                      Print CLI version\n  \
            aura help\n\n\
@@ -288,12 +288,15 @@ fn cmd_publish(args: &[String]) -> ExitCode {
 }
 
 fn cmd_fmt(args: &[String]) -> ExitCode {
-    if args.len() != 1 {
-        eprintln!("error: usage: aura fmt <path>");
-        return ExitCode::from(2);
-    }
-    let path = Path::new(&args[0]);
-    match formatter::format_path(path) {
+    let (check, path) = match args {
+        [path] => (false, path.as_str()),
+        [flag, path] if flag == "--check" => (true, path.as_str()),
+        _ => {
+            eprintln!("error: usage: aura fmt [--check] <path>");
+            return ExitCode::from(2);
+        }
+    };
+    match formatter::format_path(Path::new(path), check) {
         Ok(_) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("{error}");
@@ -884,8 +887,9 @@ fn build_test_package(pkg: &LoadedPackage, out: &Path) -> Result<PathBuf, String
 
 #[cfg(test)]
 mod tests {
-    use super::{build_package, split_pass_through, TestOptions};
+    use super::{build_package, cmd_fmt, split_pass_through, TestOptions};
     use crate::package::load_package;
+    use std::fs;
     use std::path::PathBuf;
     use std::process::Command;
 
@@ -911,6 +915,36 @@ mod tests {
             super::parse_check_options(&s(&["--format", "json", "x"])).unwrap(),
             (true, s(&["x"]))
         );
+    }
+
+    #[test]
+    fn fmt_check_reports_changes_without_writing() {
+        let path = std::env::temp_dir().join(format!(
+            "aura-fmt-cli-{}-{}.aura",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock")
+                .as_nanos()
+        ));
+        let source = "package demo\nfun main(){return}\n";
+        fs::write(&path, source).unwrap();
+
+        assert_eq!(
+            cmd_fmt(&s(&["--check", path.to_str().unwrap()])),
+            std::process::ExitCode::from(1)
+        );
+        assert_eq!(fs::read_to_string(&path).unwrap(), source);
+        assert_eq!(
+            cmd_fmt(&s(&[path.to_str().unwrap()])),
+            std::process::ExitCode::SUCCESS
+        );
+        assert_eq!(
+            cmd_fmt(&s(&["--check", path.to_str().unwrap()])),
+            std::process::ExitCode::SUCCESS
+        );
+
+        fs::remove_file(path).unwrap();
     }
 
     #[test]
