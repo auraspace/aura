@@ -1,0 +1,96 @@
+{
+  "name": "aura-language-support",
+  "displayName": "Aura Language Support",
+  "description": "Language support for the Aura programming language.",
+  "version": "0.1.1-alpha.1",
+  "publisher": "auraspace",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/auraspace/aura"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "keywords": [
+    "aura",
+    "language server",
+    "lsp"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onLanguage:aura"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "aura",
+        "aliases": [
+          "Aura",
+          "aura"
+        ],
+        "extensions": [
+          ".aura"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "aura",
+        "scopeName": "source.aura",
+        "path": "./syntaxes/aura.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "title": "Aura",
+      "properties": {
+        "aura.serverPath": {
+          "type": "string",
+          "default": "aura",
+          "description": "Path to the Aura CLI executable. The CLI must provide the `language-server` command."
+        },
+        "aura.serverArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "language-server"
+          ],
+          "description": "Arguments passed to the Aura language server executable."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "aura.restartLanguageServer",
+        "title": "Aura: Restart Language Server"
+      },
+      {
+        "command": "aura.selectToolchain",
+        "title": "Aura: Select Toolchain"
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "tsc -p ./tsconfig.json",
+    "watch": "tsc -p ./tsconfig.json --watch",
+    "check": "tsc -p ./tsconfig.json --noEmit",
+    "test": "npm run compile && node test/manifest.test.mjs",
+    "stage-server": "node scripts/stage-server.mjs",
+    "package": "npm run stage-server && npm run compile && vsce package --no-dependencies"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "^20.0.0",
+    "@vscode/vsce": "^3.0.0",
+    "typescript": "^5.4.0"
+  }
+}

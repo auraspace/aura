@@ -1,0 +1,39 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Aura Extension: Watch",
+      "type": "npm",
+      "script": "watch",
+      "path": "tools/extensions/vscode",
+      "isBackground": true,
+      "problemMatcher": "$tsc-watch"
+    },
+    {
+      "label": "Aura Extension: Test",
+      "type": "npm",
+      "script": "test",
+      "path": "tools/extensions/vscode",
+      "problemMatcher": []
+    },
+    {
+      "label": "Aura LSP: Test",
+      "type": "shell",
+      "command": "cargo test -p aura-lsp",
+      "problemMatcher": "$rustc"
+    },
+    {
+      "label": "Aura LSP: Build",
+      "type": "shell",
+      "command": "cargo build -p aura-lsp",
+      "problemMatcher": "$rustc"
+    },
+    {
+      "label": "Aura Extension: Package",
+      "type": "npm",
+      "script": "package",
+      "path": "tools/extensions/vscode",
+      "problemMatcher": []
+    }
+  ]
+}

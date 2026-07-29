@@ -1673,6 +1673,26 @@ mod tests {
             response["result"]["capabilities"]["positionEncoding"],
             "utf-16"
         );
+        let capabilities = &response["result"]["capabilities"];
+        assert_eq!(capabilities["documentFormattingProvider"], true);
+        assert_eq!(capabilities["documentSymbolProvider"], true);
+        assert_eq!(
+            capabilities["completionProvider"]["triggerCharacters"],
+            json!(["."])
+        );
+        assert_eq!(capabilities["hoverProvider"], true);
+        assert_eq!(capabilities["definitionProvider"], true);
+        assert_eq!(capabilities["referencesProvider"], true);
+        assert_eq!(capabilities["renameProvider"], true);
+        assert_eq!(capabilities["workspaceSymbolProvider"], true);
+        assert_eq!(
+            capabilities["codeActionProvider"]["codeActionKinds"],
+            json!(["quickfix", "source.format"])
+        );
+        assert_eq!(
+            capabilities["diagnosticProvider"]["workspaceDiagnostics"],
+            false
+        );
         let notification = server.handle(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"file:///main.aura","version":1,"text":"package\n"}}})).unwrap();
         assert_eq!(notification["method"], "textDocument/publishDiagnostics");
         assert_eq!(

@@ -30,6 +30,8 @@ $RECYCLE.BIN/
 .idea/
 .vscode/*
 !.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/tasks.json
 !.vscode/settings.json.example
 *.swp
 *.swo

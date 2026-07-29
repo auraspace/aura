@@ -1,0 +1,178 @@
+import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const repositoryRoot = path.resolve(root, '../../..')
+const manifest = JSON.parse(
+  fs.readFileSync(path.join(root, 'package.json'), 'utf8'),
+)
+
+assert.equal(manifest.main, './out/extension.js')
+assert.deepEqual(manifest.activationEvents, ['onLanguage:aura'])
+assert.equal(manifest.contributes.languages[0].id, 'aura')
+assert.deepEqual(manifest.contributes.languages[0].extensions, ['.aura'])
+assert.equal(
+  manifest.contributes.configuration.properties['aura.serverPath'].default,
+  'aura',
+)
+assert.deepEqual(
+  manifest.contributes.configuration.properties['aura.serverArgs'].default,
+  ['language-server'],
+)
+assert.ok(
+  manifest.contributes.commands.some(
+    ({ command }) => command === 'aura.restartLanguageServer',
+  ),
+)
+assert.ok(
+  manifest.contributes.commands.some(
+    ({ command }) => command === 'aura.selectToolchain',
+  ),
+)
+assert.ok(fs.existsSync(path.join(root, 'language-configuration.json')))
+assert.equal(manifest.contributes.grammars[0].language, 'aura')
+assert.equal(manifest.contributes.grammars[0].scopeName, 'source.aura')
+const grammarPath = path.join(root, manifest.contributes.grammars[0].path)
+const grammar = JSON.parse(fs.readFileSync(grammarPath, 'utf8'))
+assert.equal(grammar.scopeName, 'source.aura')
+assert.match(grammar.repository.keywords.match, /async/)
+assert.match(grammar.repository.keywords.match, /extern/)
+assert.match(grammar.repository.keywords.match, /interface/)
+assert.ok(grammar.repository.operators.match.includes('\\?\\.'))
+for (const keyword of [
+  'abstract',
+  'as',
+  'async',
+  'await',
+  'break',
+  'cancel',
+  'case',
+  'catch',
+  'class',
+  'const',
+  'continue',
+  'else',
+  'enum',
+  'extern',
+  'false',
+  'final',
+  'finally',
+  'for',
+  'fun',
+  'if',
+  'import',
+  'in',
+  'interface',
+  'is',
+  'join',
+  'match',
+  'null',
+  'open',
+  'override',
+  'package',
+  'private',
+  'protected',
+  'pub',
+  'return',
+  'spawn',
+  'struct',
+  'this',
+  'throw',
+  'true',
+  'try',
+  'type',
+  'val',
+  'var',
+  'where',
+  'while',
+]) {
+  assert.match(keyword, new RegExp(grammar.repository.keywords.match))
+}
+const extensionSource = fs.readFileSync(
+  path.join(root, 'src', 'extension.ts'),
+  'utf8',
+)
+assert.match(extensionSource, /documentSelector: \[\{ language: 'aura' \}\]/)
+assert.equal(manifest.scripts['stage-server'], 'node scripts/stage-server.mjs')
+
+const tasks = JSON.parse(
+  fs.readFileSync(path.join(repositoryRoot, '.vscode', 'tasks.json'), 'utf8'),
+)
+assert.equal(tasks.version, '2.0.0')
+assert.ok(tasks.tasks.some(({ label }) => label === 'Aura Extension: Watch'))
+assert.ok(tasks.tasks.some(({ label }) => label === 'Aura Extension: Test'))
+assert.ok(tasks.tasks.some(({ label }) => label === 'Aura LSP: Test'))
+const launch = JSON.parse(
+  fs.readFileSync(path.join(repositoryRoot, '.vscode', 'launch.json'), 'utf8'),
+)
+assert.equal(launch.configurations[0].type, 'extensionHost')
+assert.equal(launch.configurations[0].preLaunchTask, 'Aura Extension: Watch')
+
+const server = await import('../out/server.js')
+const oldAura = path.join(
+  fs.mkdtempSync(path.join(os.tmpdir(), 'aura-old-')),
+  'aura',
+)
+fs.writeFileSync(oldAura, '#!/bin/sh\nprintf "Aura toolchain\\n"\n')
+fs.chmodSync(oldAura, 0o755)
+assert.equal(server.supportsLanguageServer(oldAura), false)
+const lspCapableAura = path.join(
+  fs.mkdtempSync(path.join(os.tmpdir(), 'aura-lsp-capable-')),
+  'aura',
+)
+fs.writeFileSync(
+  lspCapableAura,
+  '#!/bin/sh\nprintf "aura language-server\\n"\n',
+)
+fs.chmodSync(lspCapableAura, 0o755)
+assert.equal(server.supportsLanguageServer(lspCapableAura), true)
+const toolchain = await import('../out/toolchain.js')
+const avmHome = fs.mkdtempSync(path.join(os.tmpdir(), 'aura-avm-'))
+const avmAura = path.join(avmHome, 'versions', '0.1.1-alpha.1', 'bin', 'aura')
+fs.mkdirSync(path.dirname(avmAura), { recursive: true })
+fs.writeFileSync(avmAura, 'test binary')
+fs.chmodSync(avmAura, 0o755)
+const bundledRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aura-bundled-'))
+const bundledLsp = path.join(bundledRoot, 'bin', 'darwin-arm64', 'auralsp')
+fs.mkdirSync(path.dirname(bundledLsp), { recursive: true })
+fs.writeFileSync(bundledLsp, 'test binary')
+fs.chmodSync(bundledLsp, 0o755)
+const choices = toolchain.buildToolchainChoices({
+  auraPath: '/usr/local/bin/aura',
+  lspPath: '/usr/local/bin/auralsp',
+  avmVersions: ['0.1.1-alpha.1'],
+  auraHome: avmHome,
+  extensionPath: bundledRoot,
+  platform: 'darwin',
+  arch: 'arm64',
+})
+assert.deepEqual(
+  choices.map(({ label, args }) => ({ label, args })),
+  [
+    { label: 'Current Aura (PATH)', args: ['language-server'] },
+    { label: 'Aura LSP (PATH)', args: [] },
+    { label: 'Bundled Aura LSP', args: [] },
+    { label: 'AVM: Aura 0.1.1-alpha.1', args: ['language-server'] },
+  ],
+)
+assert.equal(toolchain.isLanguageServerPath('/opt/aura/auralsp'), true)
+assert.equal(toolchain.isLanguageServerPath('/opt/aura/aura'), false)
+const fakeExtension = fs.mkdtempSync(path.join(os.tmpdir(), 'aura-vscode-'))
+const embedded = path.join(fakeExtension, 'bin', 'win32-x64', 'auralsp.exe')
+fs.mkdirSync(path.dirname(embedded), { recursive: true })
+fs.writeFileSync(embedded, 'test binary')
+const selected = server.selectServer({
+  configuredPath: 'aura',
+  configuredArgs: ['language-server'],
+  extensionPath: fakeExtension,
+  platform: 'win32',
+  arch: 'x64',
+})
+assert.equal(selected.source, 'embedded')
+assert.equal(selected.command, embedded)
+assert.deepEqual(selected.args, [])
+
+console.log('VS Code extension manifest is valid')

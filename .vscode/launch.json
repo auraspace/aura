@@ -1,0 +1,15 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run Aura VS Code Extension",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}/tools/extensions/vscode"
+      ],
+      "outFiles": ["${workspaceFolder}/tools/extensions/vscode/out/**/*.js"],
+      "preLaunchTask": "Aura Extension: Watch"
+    }
+  ]
+}

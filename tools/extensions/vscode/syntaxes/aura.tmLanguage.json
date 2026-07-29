@@ -1,0 +1,78 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Aura",
+  "scopeName": "source.aura",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#attributes" },
+    { "include": "#declarations" },
+    { "include": "#constants" },
+    { "include": "#types" },
+    { "include": "#numbers" },
+    { "include": "#operators" },
+    { "include": "#keywords" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        { "name": "comment.line.double-slash.aura", "match": "//.*$" },
+        {
+          "name": "comment.block.aura",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "strings": {
+      "name": "string.quoted.double.aura",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        { "name": "constant.character.escape.aura", "match": "\\\\[ntr\\\"]" }
+      ]
+    },
+    "attributes": {
+      "name": "entity.other.attribute-name.aura",
+      "match": "@[A-Za-z_][A-Za-z0-9_]*"
+    },
+    "keywords": {
+      "name": "keyword.control.aura",
+      "match": "\\b(?:abstract|as|async|await|break|cancel|case|catch|class|const|continue|else|enum|extern|false|final|finally|for|fun|if|import|in|interface|is|join|match|null|open|override|package|private|protected|pub|return|spawn|struct|this|throw|true|try|type|val|var|where|while)\\b"
+    },
+    "constants": {
+      "name": "constant.language.aura",
+      "match": "\\b(?:true|false|null|this)\\b"
+    },
+    "types": {
+      "name": "support.type.aura",
+      "match": "\\b(?:Any|Array|Bool|Byte|Char|Float|HashMap|HashSet|Int|Long|Never|Option|Result|String|Task|UInt|ULong|Unit)\\b"
+    },
+    "numbers": {
+      "name": "constant.numeric.integer.decimal.aura",
+      "match": "\\b[0-9]+\\b"
+    },
+    "operators": {
+      "name": "keyword.operator.aura",
+      "match": "\\?\\.|\\?:|\\.\\.=|\\.\\.|!!|=>|->|==|!=|<=|>=|&&|\\|\\||[+*/%!=<>?:.-]"
+    },
+    "declarations": {
+      "patterns": [
+        {
+          "match": "\\b(class|enum|fun|interface|struct|type)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.declaration.aura" },
+            "2": { "name": "entity.name.type.aura" }
+          }
+        },
+        {
+          "match": "\\b(const|val|var)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.declaration.aura" },
+            "2": { "name": "variable.other.definition.aura" }
+          }
+        }
+      ]
+    }
+  }
+}
