@@ -13,6 +13,7 @@ name = "aura-analysis"
 version = "0.1.1-alpha"
 dependencies = [
  "aura-ast",
+ "aura-diagnostics",
  "aura-parser",
  "aura-sema",
 ]

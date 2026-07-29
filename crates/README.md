@@ -6,7 +6,7 @@ Implementation of the Aura compiler and CLI. User programs are written in **Aura
 | ------------------ | ---------------------------------------------------------------------------------------------------------- |
 | `aura-ast`         | AST types                                                                                                  |
 | `aura-diagnostics` | line:col + pretty error snippets                                                                           |
-| `aura-analysis`    | Shared parse/typecheck facade for the CLI and future language server                                       |
+| `aura-analysis`    | Shared parse/typecheck facade, snapshots, diagnostics, and query cache for CLI/LSP                         |
 | `aura-lexer`       | Tokenizer                                                                                                  |
 | `aura-parser`      | Recursive-descent + Pratt parser                                                                           |
 | `aura-sema`        | Name resolution + typecheck (classes, interfaces, generics+bounds, null flow, fun types/lambdas)           |

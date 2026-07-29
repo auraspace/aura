@@ -7,6 +7,16 @@ When you resolve debt, update or remove the matching entry.
 
 ## Open
 
+### ANALYSIS-001 analysis cache eviction is not implemented (2026-07-29)
+
+- Area: `aura-analysis` snapshot query cache
+- Symptom: parse and semantic results remain cached for every distinct document
+  content seen by a host.
+- Why deferred: the MVP needs the immutable snapshot/query contract first; LSP
+  memory budgets and cache metrics need to be designed together.
+- Next step: add bounded LRU/size-based eviction and expose cache hit/eviction
+  metrics before enabling long-lived workspace sessions by default.
+
 ### CLASS-001 constructor String ownership for literals remains ambiguous (2026-07-27)
 
 - Area: generated class constructors with owned `String` fields
