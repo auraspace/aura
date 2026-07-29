@@ -132,7 +132,7 @@ pub class HashMapEntryHandle<K : Hashable, V>(val map: HashMap<K, V>, val key: K
 /// It retains the map but no bucket pointer. Structural map changes advance the
 /// map epoch, invalidating this view before a later get() or set() can observe
 /// a rehashed or removed slot.
-pub class HashMapLiveEntry<K : Hashable, V>(val map: HashMap<K, V>, val key: K, val epoch: Int) {
+pub class HashMapLiveEntry<K : Hashable, V>(val map: HashMap<K, V>, pub val key: K, val epoch: Int) {
   pub fun isValid(): Bool {
     return this.map.epoch == this.epoch && this.map.contains(this.key)
   }
@@ -166,6 +166,80 @@ pub class HashSetIterator<T>(val items: Array<T>) {
   pub fun get(i: Int): T { return this.items.get(i) }
 }
 
+/// Invalidation-checked live iterator over HashMap keys.
+pub class HashMapLiveKeyIterator<K : Hashable, V>(val map: HashMap<K, V>, var slot: Int, val epoch: Int) {
+  pub fun isValid(): Bool { return this.map.epoch == this.epoch }
+
+  pub fun hasNext(): Bool {
+    if (!this.isValid()) { return false }
+    for (i in this.slot..this.map.state.len) {
+      if (this.map.state.get(i) == 1) { return true }
+    }
+    return false
+  }
+
+  pub fun next(): K? {
+    if (!this.isValid()) { return null }
+    for (i in this.slot..this.map.state.len) {
+      if (this.map.state.get(i) == 1) {
+        slot = i + 1
+        return this.map.keys.get(i)
+      }
+    }
+    return null
+  }
+}
+
+/// Invalidation-checked live iterator over HashMap entries.
+/// Structural map mutation invalidates the cursor; value replacement does not.
+pub class HashMapLiveIterator<K : Hashable, V>(val map: HashMap<K, V>, var slot: Int, val epoch: Int) {
+  pub fun isValid(): Bool { return this.map.epoch == this.epoch }
+
+  pub fun hasNext(): Bool {
+    if (!this.isValid()) { return false }
+    for (i in this.slot..this.map.state.len) {
+      if (this.map.state.get(i) == 1) { return true }
+    }
+    return false
+  }
+
+  pub fun next(): HashMapLiveEntry<K, V>? {
+    if (!this.isValid()) { return null }
+    for (i in this.slot..this.map.state.len) {
+      if (this.map.state.get(i) == 1) {
+        slot = i + 1
+        return HashMapLiveEntry<K, V>(this.map, this.map.keys.get(i), this.epoch)
+      }
+    }
+    return null
+  }
+}
+
+/// Invalidation-checked live iterator over HashSet keys.
+/// Structural table mutation invalidates the cursor.
+pub class HashSetLiveIterator<T : Hashable>(val table: HashMap<T, Bool>, var slot: Int, val epoch: Int) {
+  pub fun isValid(): Bool { return this.table.epoch == this.epoch }
+
+  pub fun hasNext(): Bool {
+    if (!this.isValid()) { return false }
+    for (i in this.slot..this.table.state.len) {
+      if (this.table.state.get(i) == 1) { return true }
+    }
+    return false
+  }
+
+  pub fun next(): T? {
+    if (!this.isValid()) { return null }
+    for (i in this.slot..this.table.state.len) {
+      if (this.table.state.get(i) == 1) {
+        slot = i + 1
+        return this.table.keys.get(i)
+      }
+    }
+    return null
+  }
+}
+
 /// Open-addressing map. state: 0 empty, 1 full, 2 tombstone.
 /// The key bound supplies both the hash operation and the equality contract.
 pub class HashMap<K : Hashable, V>(var keys: Array<K>, var vals: Array<V>, var state: Array<Int>, var epoch: Int) {
@@ -179,6 +253,16 @@ pub class HashMap<K : Hashable, V>(var keys: Array<K>, var vals: Array<V>, var s
   /// Snapshot iterator. Later map mutation does not affect this iterator.
   pub fun entryIterator(): HashMapEntryIterator<K, V> {
     return HashMapEntryIterator<K, V>(this.entries())
+  }
+
+  /// Live iterator. Structural mutation invalidates the cursor.
+  pub fun liveKeyIterator(): HashMapLiveKeyIterator<K, V> {
+    return HashMapLiveKeyIterator<K, V>(this, 0, this.epoch)
+  }
+
+  /// Live iterator yielding invalidation-checked entry views.
+  pub fun liveEntryIterator(): HashMapLiveIterator<K, V> {
+    return HashMapLiveIterator<K, V>(this, 0, this.epoch)
   }
 
   /// Return live keys in logical table order, excluding empty/tombstone slots.
@@ -450,6 +534,11 @@ pub class HashSet<T : Hashable>(var table: HashMap<T, Bool>) {
   /// Snapshot iterator. Later set mutation does not affect this iterator.
   pub fun iterator(): HashSetIterator<T> {
     return HashSetIterator<T>(this.toArray())
+  }
+
+  /// Live iterator. Structural mutation invalidates the cursor.
+  pub fun liveIterator(): HashSetLiveIterator<T> {
+    return HashSetLiveIterator<T>(this.table, 0, this.table.epoch)
   }
 
   /// Return live keys in logical table order.

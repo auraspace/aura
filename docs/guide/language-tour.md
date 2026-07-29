@@ -62,7 +62,8 @@ These topics match **in-tree** behavior (corpus + CLI), not only Accepted RFCs:
 - Reflection ([RFC-009](/rfc/009))
 - LLVM backend as default ([RFC-004](/rfc/004) — C backend is what runs now)
 - Registry fetch / semver ([RFC-005](/rfc/005) — path deps + lock schema only)
-- Live collection iterators; current iterators are deterministic read-only snapshots, while `HashMap.entry(key)` provides key-based handles and `HashMap.liveEntry(key)` provides invalidation-checked live entry views
+- Live collection iterators are invalidation-checked by collection epoch;
+  snapshot iterators remain available when mutation-safe copies are preferred
 
 See the [roadmap map](./roadmap.md#rfc-accepted-vs-implemented) for a per-RFC table.
 

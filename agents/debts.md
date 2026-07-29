@@ -574,27 +574,27 @@ When you resolve debt, update or remove the matching entry.
 - Next step: add a signing primitive/key policy and U5 upload orchestration,
   then extend the preview to verify the exact publish metadata end to end.
 
-### Array of interface elements
-
-- Area: builtin Array
-- Symptom: interface elements rejected (C4x/C7h message); enum/class/struct/prim/Array OK
-- Decision (C7h): **reject for MVP** — no `Array<I>` until a stable elem layout exists
-- Why: interface values are closed-world fat/tag unions; Array mono needs fixed elem size today
-- Next step (post-MVP): erase to fat pointer `(tag, data*)` or box each element as a class
-- Introduced: narrowed after C6g; decision locked C7h
-
-### Stdlib live collection iterators
-
-- Area: stdlib / RFC-007
-- Symptom: no live iterator; `Map`/`Set` remain linear alternatives.
-- Why deferred: C20 defines deterministic read-only snapshots; live iteration needs cursor/lifetime and mutation-visibility rules.
-- Progress: C9b auto-resize; C12n String→String; C12o String HOF; **C14** generic `HashMap<K,V>`; **C15** generic `HashSet<T>`; **C16** generic `map`/`filter`/`fold`; **C17** user-defined class HOF coverage; **C18** hash snapshots/HOFs; **C19a–d** accessors/entry snapshots/entry `for-in`; **C20f–g** snapshot contract and read-only iterator snapshots; **C20i** key-based handles and invalidation-checked live entries. Compiler prerequisites **C19x** generic constructor substitution and **C19y** nested generic return/local substitution are resolved.
-- Limitation: `entries()` is a fresh shallow structural snapshot in logical table order. `liveEntry(key)` retains the map and invalidates after structural mutation through its epoch, avoiding a stale bucket alias.
-- Next step: define cursor lifetime, ordering, and mutation visibility before adding live iterators.
-- Note: C14/C15 resolved the generic hash-collection residual; C19 resolved the nested generic codegen blockers exposed by entry snapshots.
-- Introduced: narrowed after C8i; resize C9b; String→String C12n; String HOF C12o
-
 ## Resolved
+
+### Stdlib live collection iterators (C20j, 2026-07-29)
+
+- Resolved: `HashMap.liveKeyIterator()` and `liveEntryIterator()` plus
+  `HashSet.liveIterator()` retain their source, traverse logical table order,
+  and invalidate on structural epoch changes. Invalid cursors are terminal;
+  value replacement remains visible. `HashMapLiveEntry` results are checked
+  views rather than raw bucket aliases.
+- Evidence: `corpus/std_collections/live_iterator` covers value replacement,
+  map insertion invalidation, set removal invalidation, and terminal `next()`.
+
+### Array of interface elements (C20h, 2026-07-29)
+
+- Resolved: `Array<I>` uses the runtime tagged-interface representation with
+  element copy/drop helpers, interface dispatch, and GC marking. The native
+  corpus fixture `corpus/iface/array_interface.aura` covers storage, dispatch,
+  and collection after GC.
+- Historical design alternatives remain documented in
+  `docs/plans/2026-07-22-c20h-array-interface-spike.md`; they are not the
+  shipped ABI.
 
 ### Generic class construction inside generic bodies (C19x, 2026-07-22)
 

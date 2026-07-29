@@ -44,19 +44,19 @@ Aura is **spec-first**: RFCs lock design; the compiler and runtime land vertical
 
 Public README and repo `docs/roadmap.md` track **C0 → C22** with C22's implementation explicitly partial (bounded async/task slices and residual ownership debt).
 
-| Band   | User-visible outcome                                                                                                                                            |
-| ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| C0–C1  | Parse, typecheck, native hello via C backend                                                                                                                    |
-| C1b–C2 | Classes, interfaces, generics, null flow                                                                                                                        |
-| C3     | Structs, enums, tests, packages, arrays, imports, GC MVP                                                                                                        |
-| C4–C5  | GC refinements, std.io/assert, more Array/String APIs, diagnostics polish                                                                                       |
-| C6–C7  | Deep GC mark/sweep, Iterable, Map/Set, `Int?`/`Bool?`, Array field ownership                                                                                    |
-| C8–C9  | Generic iface/class mono, nested Array, HashMap(+resize), String+/interp, `is`                                                                                  |
-| C10    | First-class funs/lambdas (expr/block), fun types, val captures MVP, Int HOF                                                                                     |
-| C11a–e | file I/O, Fun env free, `aura new`, substring, notes dogfood, **install/embed runtime**, 0.1 freeze                                                             |
-| C12a–t | **Done:** argv/stdin/exit, String tools, class·Array·var captures, HashMapStr, HOF str, tryReadFile, `examples/wc`, guide, install DX                           |
-| C13a–t | **Done:** method-on-temp, `Int.toString`, String array free, Fun/`var` String capture, registry K1 offline, eprint/tryWrite, signing note                       |
-| C20c–i | **Done:** mutable class/Array/Fun captures, snapshot iterator contract, `Array<Interface>`, and key-based plus invalidation-checked live HashMap entry mutation |
+| Band   | User-visible outcome                                                                                                                         |
+| ------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| C0–C1  | Parse, typecheck, native hello via C backend                                                                                                 |
+| C1b–C2 | Classes, interfaces, generics, null flow                                                                                                     |
+| C3     | Structs, enums, tests, packages, arrays, imports, GC MVP                                                                                     |
+| C4–C5  | GC refinements, std.io/assert, more Array/String APIs, diagnostics polish                                                                    |
+| C6–C7  | Deep GC mark/sweep, Iterable, Map/Set, `Int?`/`Bool?`, Array field ownership                                                                 |
+| C8–C9  | Generic iface/class mono, nested Array, HashMap(+resize), String+/interp, `is`                                                               |
+| C10    | First-class funs/lambdas (expr/block), fun types, val captures MVP, Int HOF                                                                  |
+| C11a–e | file I/O, Fun env free, `aura new`, substring, notes dogfood, **install/embed runtime**, 0.1 freeze                                          |
+| C12a–t | **Done:** argv/stdin/exit, String tools, class·Array·var captures, HashMapStr, HOF str, tryReadFile, `examples/wc`, guide, install DX        |
+| C13a–t | **Done:** method-on-temp, `Int.toString`, String array free, Fun/`var` String capture, registry K1 offline, eprint/tryWrite, signing note    |
+| C20c–j | **Done:** mutable class/Array/Fun captures, snapshot and invalidation-checked live iterators, `Array<Interface>`, and HashMap entry mutation |
 
 **Shipped:** tags `v0.1.0-alpha` and `v0.1.1-alpha` + multi-OS tarballs; C12,
 **C13**, S2, and the bounded v0.1.1-alpha release scope are closed.

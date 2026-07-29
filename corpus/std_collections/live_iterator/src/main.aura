@@ -1,0 +1,55 @@
+// C20j — invalidation-checked live HashMap/HashSet iterators.
+package demo.std_live_iterator
+
+import std.collections
+
+fun main() {
+    val h: HashMap<Int, String> = HashMap<Int, String>(Array(4), Array(4), Array(4), 0)
+    h.put(1, "one")
+    h.put(2, "two")
+
+    val entries = h.liveEntryIterator()
+    val first = entries.next()
+    if (first != null) {
+        if (first.isValid() && first.get() != null) {
+            val key = first.key
+            if (first.set("updated") && h.getOr(key, "?") == "updated") {
+                println("map-live-value")
+            }
+        }
+    }
+    val second = entries.next()
+    if (second != null && !entries.hasNext()) {
+        println("map-live-complete")
+    }
+
+    h.put(3, "three")
+    if (!entries.isValid() && !entries.hasNext() && entries.next() == null) {
+        println("map-live-invalidated")
+    }
+
+    val keyCursor = h.liveKeyIterator()
+    val key = keyCursor.next()
+    if (key != null && keyCursor.isValid()) {
+        println("map-live-key")
+    }
+    h.clear()
+    if (!keyCursor.isValid() && keyCursor.next() == null) {
+        println("map-live-key-invalidated")
+    }
+
+    val s: HashSet<Int> = HashSet<Int>(HashMap<Int, Bool>(Array(4), Array(4), Array(4), 0))
+    s.add(7)
+    s.add(8)
+    val items = s.liveIterator()
+    val item = items.next()
+    if (item != null) {
+        if (items.isValid()) {
+            println("set-live-value")
+        }
+    }
+    s.remove(7)
+    if (!items.isValid() && items.next() == null) {
+        println("set-live-invalidated")
+    }
+}

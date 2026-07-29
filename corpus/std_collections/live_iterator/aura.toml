@@ -1,0 +1,6 @@
+[package]
+name = "demo.std_live_iterator"
+
+[[bin]]
+name = "app"
+path = "src"

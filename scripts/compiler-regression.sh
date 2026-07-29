@@ -132,7 +132,7 @@ printf '%s\n' '== Expected diagnostics =='
 expect_diagnostic 'undefined name' 'undefined name `missing`' check corpus/diag/undefined.aura
 expect_diagnostic 'undefined name suggestion' 'did you mean `count`' check corpus/diag/undefined_typo.aura
 expect_diagnostic 'assignment mismatch' 'expected Int, found String' check corpus/diag/assign_mismatch.aura
-expect_diagnostic 'unsupported array interface' 'Array` of interface `Named` is not supported yet' check corpus/diag/array_interface.aura
+expect_success 'array interface' check corpus/diag/array_interface.aura
 expect_diagnostic 'generic interface arity' 'interface `Iterable` expects 1 type argument(s)' check corpus/diag/generic_iface.aura
 expect_diagnostic 'multiple declaration errors' 'duplicate field `a`' check corpus/diag/multi_decl.aura
 expect_diagnostic 'multiple body errors' 'undefined name `missing_one`' check corpus/diag/multi_error.aura

@@ -68,7 +68,7 @@ Wave-1 foundation: every later RFC quotes keywords, declaration forms, and modul
 
 This subsection freezes the **subset** that the first compiler milestones must implement. Full v1 surface remains in later subsections; anything not listed here was **out of scope for C0/C1** unless an RFC amend expands this table.
 
-**Toolchain progress (2026-07-29):** the Rust compiler has shipped through **C22** plus **S2** production-toolchain work (see [roadmap](../roadmap.md)): classes with inheritance/virtual dispatch, interfaces and `Array<Interface>`, generics+bounds, `struct`/`enum`/`match`, exceptions, packages/`import`/`aura.lock`, `Array`/`for`/`?.`/`?:`, scoped nonowning `ref T` with lexical escape checks, borrow-safe Array field returns, GC mark/sweep, `std.io` (console/file/argv/stdin/exit and Result wrappers), `assert`, generic collections, deterministic read-only collection snapshots/iterators, first-class funs/lambdas with value captures and mutable `var` class/Array/Fun capture MVPs, String tools, registry dependency consumption, formatter/diagnostic/test-report tooling, and the bounded async/task surface with task frames, deterministic execution, channels, and covered await/control-flow lowering. `HashMap.entry(key)` supplies key-based handles, while `liveEntry(key)` supplies invalidation-checked live entry views. General async lowering, richer captures/outcomes, macros, mutable/nullable/nested borrows, and live collection iterators remain deferred. §6.0 remains the historical C0/C1 freeze; later milestones are tracked in the roadmap, not by rewriting this freeze.
+**Toolchain progress (2026-07-29):** the Rust compiler has shipped through **C22** plus **S2** production-toolchain work (see [roadmap](../roadmap.md)): classes with inheritance/virtual dispatch, interfaces and `Array<Interface>`, generics+bounds, `struct`/`enum`/`match`, exceptions, packages/`import`/`aura.lock`, `Array`/`for`/`?.`/`?:`, scoped nonowning `ref T` with lexical escape checks, borrow-safe Array field returns, GC mark/sweep, `std.io` (console/file/argv/stdin/exit and Result wrappers), `assert`, generic collections, deterministic snapshot and epoch-invalidated live collection iterators, first-class funs/lambdas with value captures and mutable `var` class/Array/Fun capture MVPs, String tools, registry dependency consumption, formatter/diagnostic/test-report tooling, and the bounded async/task surface with task frames, deterministic execution, channels, and covered await/control-flow lowering. `HashMap.entry(key)` supplies key-based handles, while `liveEntry(key)` supplies invalidation-checked live entry views. General async lowering, richer captures/outcomes, macros, mutable/nullable/nested borrows remain deferred. §6.0 remains the historical C0/C1 freeze; later milestones are tracked in the roadmap, not by rewriting this freeze.
 
 **Milestones** (aligned with RFC-004 §11 and this RFC §11):
 
@@ -363,11 +363,13 @@ interface Drawable {
 }
 ```
 
-#### Arrays of interfaces (C20h spike)
+#### Arrays of interfaces (C20h)
 
-`Array<I>` is a valid future surface type, but remains deferred for the C20
-MVP. The C backend needs every Array element to have one stable size and one
-well-defined ownership action. Two layouts were considered:
+`Array<I>` is supported using Aura's tagged-interface representation. Every
+element has a stable runtime representation and carries the ownership and GC
+metadata needed for copying, dropping, dispatch, and marking. The following
+historical alternatives were considered before the tagged representation was
+implemented:
 
 - A **fat element** stores an interface data pointer plus a method-table (or
   type) pointer inline. This gives direct dispatch and avoids one allocation
@@ -380,11 +382,9 @@ well-defined ownership action. Two layouts were considered:
   iteration adds indirection, and drop/GC must coordinate box finalization
   without double-releasing a payload.
 
-The spike recommendation is to **defer both layouts** until borrow/lifetime
-rules and a precise erased-value drop contract exist. If implementation is
-reopened, boxed elements are the safer first C backend target because their
-uniform pointer representation fits the current GC model; a fat layout should
-only be reconsidered when allocation overhead is demonstrated to matter.
+The shipped implementation uses neither alternative; see the
+`corpus/iface/array_interface.aura` dispatch and GC fixture. The spike remains
+useful as historical rationale for the ABI decision.
 See the [C20h layout spike](../plans/2026-07-22-c20h-array-interface-spike.md)
 for the comparison and follow-up conditions.
 

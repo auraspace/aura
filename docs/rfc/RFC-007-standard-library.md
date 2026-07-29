@@ -21,7 +21,7 @@ This RFC outlines the **Aura standard library** for servers and CLIs: prelude, c
 
 Implementation is primarily **Aura**, with thin runtime/FFI bridges where required.
 
-**Toolchain today (2026-07-28, C22t + alpha follow-up):** repo packages `std/io` (console, file, process, stdin, exit, and non-throwing `readFileResult`/`writeFileResult`), `std/assert`, and `std/collections` (Map/Set, generic `HashMap<K,V>`/`HashSet<T>`, Iterable, generic map/filter/fold, join, hash-collection snapshots/HOFs, read-only snapshot iterators, `HashMapEntry` snapshots with direct `for-in`, key-based `HashMap.entry(key)` mutation handles, and invalidation-checked `HashMap.liveEntry(key)` views). C22 and the alpha follow-up add deterministic task frames, bounded await/control-flow lowering, bounded channels, typed payload cleanup, typed exception causes, and bounded FFI pin retention; there is not yet a complete `std/task` or typed async networking package. Strict file I/O still throws `String`; Result wrappers provide structured failures. Live iterators, JSON, logging, crypto, synchronization, and full async I/O remain deferred.
+**Toolchain today (2026-07-29, C22t + alpha follow-up):** repo packages `std/io` (console, file, process, stdin, exit, and non-throwing `readFileResult`/`writeFileResult`), `std/assert`, and `std/collections` (Map/Set, generic `HashMap<K,V>`/`HashSet<T>`, Iterable, generic map/filter/fold, join, hash-collection snapshots/HOFs, read-only snapshot iterators, epoch-invalidated live HashMap/HashSet iterators, `HashMapEntry` snapshots with direct `for-in`, key-based `HashMap.entry(key)` mutation handles, and invalidation-checked `HashMap.liveEntry(key)` views). C22 and the alpha follow-up add deterministic task frames, bounded await/control-flow lowering, bounded channels, typed payload cleanup, typed exception causes, and bounded FFI pin retention; there is not yet a complete `std/task` or typed async networking package. Strict file I/O still throws `String`; Result wrappers provide structured failures. JSON, logging, crypto, synchronization, and full async I/O remain deferred.
 
 ## 2. Motivation
 
@@ -119,11 +119,11 @@ mutation or lifetime behavior from a generic `Iterable<T>` alone.
   clear, and hash-table rehash. Snapshot order is the source's documented
   logical order at creation time; it is not a promise about future source
   order.
-- Live iterators/views are opt-in and remain attached to the source. They
-  observe only mutations made after their documented position; an API must
-  specify whether an insertion before, at, or after that position is visible.
-  Until such rules are implemented and tested, traversal APIs must expose
-  snapshots only.
+- Live iterators/views are opt-in and remain attached to the source. The C20j
+  cursors traverse the current logical table order from their cursor position;
+  structural mutation invalidates the entire cursor rather than exposing
+  insertion-position ambiguity. Value replacement remains visible through a
+  valid cursor.
 - A mutation that invalidates a live cursor must be detected. The permitted
   outcomes are a typed invalidation error or a terminal iterator state;
   silently dereferencing a stale bucket, array slot, or entry is forbidden.
@@ -255,10 +255,9 @@ Go-like pragmatic breadth without framework lock-in. Async-first net matches run
 - Full API reference site
 - Capability-based FS/net permissions (sandbox)
 - SIMD / performance utilities
-- Live collection iterators remain deferred: C20 ships deterministic read-only
-  snapshots, key-based mutation handles, and invalidation-checked live entry
-  views. Cursor lifetime and mutation-visibility rules for live traversal are
-  not yet available.
+- Live collection iterators retain their source and use collection epochs:
+  structural mutation invalidates the cursor, while value replacement remains
+  visible. Snapshot iterators remain the mutation-independent alternative.
 
 ## 10. Security & safety considerations
 

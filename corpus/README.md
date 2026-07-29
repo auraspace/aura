@@ -138,6 +138,7 @@ Run the green async fixtures with bash scripts/check-corpus.sh (or cargo run -p 
 | `std_collections/hashmap_int`             | Generic `HashMap<Int,String>` accessors, snapshots, snapshot iterators, `HashMapEntry` `for-in`, and HOF (C18–C20) |
 | `std_collections/hashmap_str`             | Generic `HashMap<String,String>` accessors, paired snapshots/iterators, direct entry `for-in`, and HOF (C18–C20)   |
 | `std_collections/hashset_int`             | Generic `HashSet<Int>` snapshots/iterators, `containsAll`, and filter/map HOFs (C18–C20)                           |
+| `std_collections/live_iterator`           | Invalidation-checked live HashMap/HashSet cursors and entry views (C20j)                                           |
 | `std_collections/snapshot_iterator`       | Deterministic read-only collection snapshots across mutation/rehash/clear (C20g)                                   |
 | `std_collections/scoped_borrow_iteration` | Scoped `ref` use during snapshot iteration; return/closure escapes rejected (C21e)                                 |
 | `std_io/try_read_file`                    | `tryReadFile(path): String?` null on missing/error; keep throwing `readFile` (C12p)                                |

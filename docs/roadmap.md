@@ -237,16 +237,16 @@ Rust workspace (toolchain only; user language remains Aura):
 | **C20c**   | Mutable `var` class capture (shared box + GC root)                 | **Done** — MVP; ownership caveats remain                                                                                                            |
 | **C20d**   | Mutable `var` Array capture (shared box + captured Array payload)  | **Done** — MVP; live view/borrow safety deferred                                                                                                    |
 | **C20e**   | Mutable `var` Fun capture (shared box + nested env retention)      | **Done** — MVP; full ownership contract deferred                                                                                                    |
-| **C20f**   | Collection iterator and entry-view contract                        | **Done** — snapshots default; invalidation-checked live entries ship, live iterators deferred                                                       |
+| **C20f**   | Collection iterator and entry-view contract                        | **Done** — snapshots and invalidation-checked live cursor rules are documented                                                                      |
 | **C20g**   | Read-only collection iterator snapshots                            | **Done** — deterministic snapshot fixtures                                                                                                          |
 | **C20h**   | `Array<Interface>` layout and runtime support                      | **Done** — tagged-interface elements, upcasts, dispatch, and GC marking are native-tested                                                           |
 | **C20i**   | Collection mutation-through-entry                                  | **Done** — key-based handles plus invalidation-checked `HashMap.liveEntry(key)` views                                                               |
-| **C20j**   | Close C20 documentation/status                                     | **Done** — C21a selects borrow/ref; async/tasks and release remain deferred                                                                         |
+| **C20j**   | Live HashMap/HashSet iterators and close C20 documentation/status  | **Done** — epoch-invalidated cursors ship with corpus coverage; C21a selects borrow/ref                                                             |
 | **C21a**   | Select post-C20 direction: scoped borrow/ref MVP                   | **Done** — syntax/runtime boundary frozen; async/tasks deferred                                                                                     |
 | **C21b**   | Add borrow/ref type representation                                 | **Done** — scoped `ref T` parser/sema model                                                                                                         |
 | **C21c**   | Check local borrow lifetimes and escapes                           | **Done** — return, closure, and longer-lived assignment escapes rejected                                                                            |
 | **C21d**   | Make Array field returns borrow-safe                               | **Done** — borrow-source tracking and non-owning lowering                                                                                           |
-| **C21e**   | Integrate borrow rules with collection iteration                   | **Done** — deterministic snapshot iteration remains the stable API                                                                                  |
+| **C21e**   | Integrate borrow rules with collection iteration                   | **Done** — scoped snapshot refs are checked; live cursors remain explicit opt-in APIs                                                               |
 | **C21f**   | Add `aura fmt` MVP                                                 | **Done** — deterministic check/write formatter                                                                                                      |
 | **C21g**   | Add machine-readable diagnostics                                   | **Done** — opt-in structured JSON diagnostics                                                                                                       |
 | **C21h**   | Add test filtering and structured reports                          | **Done** — filter plus JSON report output                                                                                                           |
@@ -284,10 +284,10 @@ Plans:
 
 ### P3 — Expand (after hello)
 
-1. ~~Language surface through C21~~ (funs/lambdas, mutable captures, scoped `ref T`, borrow-safe field returns) → C22 surface/borrow rules and bounded await lowering landed; general lowering, richer captures, and Array-of-interface remain later work
+1. ~~Language surface through C21~~ (funs/lambdas, mutable captures, scoped `ref T`, borrow-safe field returns, Array-of-interface support) → C22 surface/borrow rules and bounded await lowering landed; general lowering and richer captures remain later work
 2. Runtime: ~~GC + process I/O + String Array free + Fun env RC~~ → C22 deterministic executor/channels, task storage scans, typed causes, and bounded FFI pin retention landed; OS-thread scheduling, full async I/O, concurrent GC, and richer frame ownership remain later work
 3. Toolchain: ~~path deps + registry K1 offline~~ → ~~**S2:** verified HTTPS + nested locked registry deps and published `0.1.1-alpha`~~ → live publish/update and tier-2/native evidence remain open
-4. Stdlib: ~~io + collections + C13 toString/case/eprint/tryWrite + C14 generic HashMap + C15 generic HashSet + C18 hash-collection HOFs + C19 accessors/entry snapshots/entry for-in + C20 snapshot iterators/live entry mutation + C21i Result I/O~~ → live iterator APIs remain deferred
+4. Stdlib: ~~io + collections + C13 toString/case/eprint/tryWrite + C14 generic HashMap + C15 generic HashSet + C18 hash-collection HOFs + C19 accessors/entry snapshots/entry for-in + C20 snapshot/live iterators and entry mutation + C21i Result I/O~~
 5. Cross targets + signed releases — ~~**S2 contract:** Linux amd64, macOS arm64/amd64~~; minisign-signed release manifests are shipped; Windows amd64 and OS notarization remain deferred
 
 S2 production toolchain implementation: [`docs/plans/2026-07-21-s2-production-toolchain.md`](plans/2026-07-21-s2-production-toolchain.md). The v0.1.1-alpha workstreams and completion backlog track the remaining release claims.

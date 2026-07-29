@@ -7,13 +7,14 @@ summary: Array<T> construction, len/get/set, push/pop, and for-in iteration.
 
 # Arrays
 
-Builtin `Array<T>` is the primary growable sequence type in the MVP ([RFC-001](/rfc/001)). Element types include `Int`, `Bool`, `String`, class references, structs, enums (by value), and nested `Array<Array<T>>`.
+Builtin `Array<T>` is the primary growable sequence type in the MVP ([RFC-001](/rfc/001)). Element types include `Int`, `Bool`, `String`, class references, interfaces, structs, enums (by value), and nested `Array<Array<T>>`.
 
-### Interface elements (C7h)
+### Interface elements (C20h)
 
-**MVP decision: reject `Array<I>` for interface `I`.** The monomorphized C layout needs a fixed element size; interface values are a closed-world tagged/fat layout that does not fit that model yet. The compiler emits a clear diagnostic (see `corpus/diag/array_interface.aura`).
-
-Post-MVP options (not implemented): erase each element to a fat pointer `(dispatch tag, data*)`, or box every interface value as a heap object.
+`Array<I>` is supported for interface `I`. Interface elements use the runtime's
+tagged representation, so `get`, `set`, copying, method dispatch, and GC
+marking preserve the concrete object behind each element. See
+`corpus/iface/array_interface.aura` for a dispatch and GC smoke test.
 
 ## Create and index
 
