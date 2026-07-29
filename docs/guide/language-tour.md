@@ -21,15 +21,33 @@ fun main() {
 
 Every file lives in a **package**. Programs enter at `fun main()`.
 
+## Recommended learning path
+
+Read the language guides in this order:
+
+1. [Types & nullability](./types-and-nullability.md) — values, null safety,
+   inference, and generics basics.
+2. [Classes, structs & interfaces](./classes-and-structs.md) — the object
+   model, inheritance, overriding, visibility, and value types.
+3. [Control flow & errors](./control-flow-and-errors.md) — branches, loops,
+   enums, `match`, `Result`, and exceptions.
+4. [Arrays](./arrays.md) — collections, ownership, iteration, and higher-order
+   functions.
+5. [Syntax cheatsheet](./syntax-cheatsheet.md) — compact reference while
+   writing programs.
+
+After the language core, continue with [Standard library](./standard-library.md),
+[Packages](./packages.md), and [Testing](./testing.md).
+
 ## Topic guides
 
 | Guide                                                     | What you learn                                     |
 | --------------------------------------------------------- | -------------------------------------------------- |
-| [Types & nullability](./types-and-nullability.md)         | Scalars, `T` vs `T?`, flow narrowing               |
-| [Classes, structs & interfaces](./classes-and-structs.md) | Reference vs value types, generics                 |
+| [Types & nullability](./types-and-nullability.md)         | Scalars, `T` vs `T?`, narrowing, generics basics   |
+| [Classes, structs & interfaces](./classes-and-structs.md) | Classes, inheritance, override, visibility, OOP    |
 | [Control flow & errors](./control-flow-and-errors.md)     | `if`/`for`/`match`, `Result`, throw/catch          |
-| [Arrays](./arrays.md)                                     | `Array<T>`, push/pop, iteration, Int·String HOF    |
-| [Syntax cheatsheet](./syntax-cheatsheet.md)               | Compact lookup (lambdas, String, process I/O)      |
+| [Arrays](./arrays.md)                                     | `Array<T>`, ownership, iteration, and HOFs         |
+| [Syntax cheatsheet](./syntax-cheatsheet.md)               | Compact lookup for syntax and common APIs          |
 | [Standard library](./standard-library.md)                 | `std.io`, `std.assert`, `std.collections`, prelude |
 
 ## What works in the compiler today
@@ -38,7 +56,9 @@ These topics match **in-tree** behavior (corpus + CLI), not only Accepted RFCs:
 
 - Packages, functions, locals, expressions
 - Nullability flow, force-unwrap `!!`, coalesce `?:`, safe call `?.`
-- Classes (GC), structs (value), interfaces (`class C : I`), monomorphized generics (incl. generic iface/class implements)
+- Classes (GC), single inheritance, `open`/`final`/`abstract`, `override`,
+  visibility, structs (value), interfaces (`class C : I`), and monomorphized
+  generics (including generic interface/class implements)
 - Enums + `match`, `Result`
 - `throw` / `try` / `catch` / `finally`; `if` as expression
 - `Array<T>` (+ `clone`, nested free), ranges, `for-in` (array / string bytes / Iterable)
@@ -71,6 +91,7 @@ See the [roadmap map](./roadmap.md#rfc-accepted-vs-implemented) for a per-RFC ta
 
 ## Next
 
-1. [Getting started](./getting-started.md) if you have not run hello yet
-2. [Types & nullability](./types-and-nullability.md)
-3. [Syntax cheatsheet](./syntax-cheatsheet.md) when you need a quick lookup
+- [Getting started](./getting-started.md) if you have not run hello yet
+- [Types & nullability](./types-and-nullability.md)
+- [Classes, structs & interfaces](./classes-and-structs.md) for the OOP model
+- [Syntax cheatsheet](./syntax-cheatsheet.md) when you need a quick lookup
