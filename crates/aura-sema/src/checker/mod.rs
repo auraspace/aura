@@ -13,11 +13,222 @@ use crate::error::SemaError;
 use crate::sigs::*;
 use crate::ty::Ty;
 use crate::util::{subst_ty, type_subst_map};
-use aura_ast::{ClassDecl, FunDecl, MemberVisibility, Span};
+use aura_ast::{Block, ClassDecl, Expr, FunDecl, MemberVisibility, Span, Stmt};
 
 /// Builtin `Array<T>` primitives (C3j). Heap class elements allowed in C4c via Checker.
 pub(crate) fn is_array_primitive_elem(ty: &Ty) -> bool {
     matches!(ty, Ty::Int | Ty::Bool | Ty::String)
+}
+
+/// The exits reachable from a statement or block. This is a compact CFG
+/// transfer analysis: each flag represents one outgoing control-flow edge.
+#[derive(Clone, Copy, Default)]
+struct ControlFlow {
+    falls_through: bool,
+    returns: bool,
+    throws: bool,
+    breaks: bool,
+    continues: bool,
+}
+
+impl ControlFlow {
+    const fn fall_through() -> Self {
+        Self {
+            falls_through: true,
+            returns: false,
+            throws: false,
+            breaks: false,
+            continues: false,
+        }
+    }
+
+    const fn returning() -> Self {
+        Self {
+            falls_through: false,
+            returns: true,
+            throws: false,
+            breaks: false,
+            continues: false,
+        }
+    }
+
+    const fn throwing() -> Self {
+        Self {
+            falls_through: false,
+            returns: false,
+            throws: true,
+            breaks: false,
+            continues: false,
+        }
+    }
+
+    const fn breaking() -> Self {
+        Self {
+            falls_through: false,
+            returns: false,
+            throws: false,
+            breaks: true,
+            continues: false,
+        }
+    }
+
+    const fn continuing() -> Self {
+        Self {
+            falls_through: false,
+            returns: false,
+            throws: false,
+            breaks: false,
+            continues: true,
+        }
+    }
+
+    fn union(self, other: Self) -> Self {
+        Self {
+            falls_through: self.falls_through || other.falls_through,
+            returns: self.returns || other.returns,
+            throws: self.throws || other.throws,
+            breaks: self.breaks || other.breaks,
+            continues: self.continues || other.continues,
+        }
+    }
+
+    /// A `finally` block replaces every incoming exit when it does not fall
+    /// through; otherwise the exit that entered `finally` is preserved.
+    fn through_finally(self, finally: Self) -> Self {
+        let preserved = if finally.falls_through {
+            self
+        } else {
+            Self::default()
+        };
+        preserved.union(Self {
+            falls_through: finally.falls_through && self.falls_through,
+            returns: finally.returns,
+            throws: finally.throws,
+            breaks: finally.breaks,
+            continues: finally.continues,
+        })
+    }
+}
+
+fn const_bool(expr: &Expr) -> Option<bool> {
+    match expr {
+        Expr::Bool(value) => Some(value.value),
+        Expr::Group(expr, _) => const_bool(expr),
+        _ => None,
+    }
+}
+
+fn block_control_flow(block: &Block) -> ControlFlow {
+    let mut exits = ControlFlow::fall_through();
+    for stmt in &block.stmts {
+        if !exits.falls_through {
+            break;
+        }
+        let next = stmt_control_flow(stmt);
+        exits = ControlFlow {
+            falls_through: next.falls_through,
+            returns: exits.returns || next.returns,
+            throws: exits.throws || next.throws,
+            breaks: exits.breaks || next.breaks,
+            continues: exits.continues || next.continues,
+        };
+    }
+    exits
+}
+
+fn stmt_control_flow(stmt: &Stmt) -> ControlFlow {
+    match stmt {
+        Stmt::Return(_) => ControlFlow::returning(),
+        Stmt::Throw(_) => ControlFlow::throwing(),
+        Stmt::Break(_) => ControlFlow::breaking(),
+        Stmt::Continue(_) => ControlFlow::continuing(),
+        Stmt::If(if_stmt) => match const_bool(&if_stmt.cond) {
+            Some(true) => block_control_flow(&if_stmt.then_block),
+            Some(false) => if_stmt
+                .else_block
+                .as_ref()
+                .map(block_control_flow)
+                .unwrap_or_else(ControlFlow::fall_through),
+            None => block_control_flow(&if_stmt.then_block).union(
+                if_stmt
+                    .else_block
+                    .as_ref()
+                    .map(block_control_flow)
+                    .unwrap_or_else(ControlFlow::fall_through),
+            ),
+        },
+        Stmt::Match(match_stmt) => match_stmt
+            .arms
+            .iter()
+            .map(|arm| block_control_flow(&arm.body))
+            .reduce(ControlFlow::union)
+            .unwrap_or_else(ControlFlow::fall_through),
+        Stmt::Try(try_stmt) => {
+            let try_flow = block_control_flow(&try_stmt.try_block);
+            let protected = if let Some(catch) = &try_stmt.catch {
+                ControlFlow {
+                    falls_through: try_flow.falls_through,
+                    returns: try_flow.returns,
+                    throws: false,
+                    breaks: try_flow.breaks,
+                    continues: try_flow.continues,
+                }
+                .union(block_control_flow(&catch.body))
+            } else {
+                try_flow
+            };
+            try_stmt
+                .finally
+                .as_ref()
+                .map(|finally| protected.through_finally(block_control_flow(finally)))
+                .unwrap_or(protected)
+        }
+        Stmt::While(while_stmt) => {
+            let body = block_control_flow(&while_stmt.body);
+            match const_bool(&while_stmt.cond) {
+                Some(false) => ControlFlow::fall_through(),
+                Some(true) => ControlFlow {
+                    // A reachable break is the only edge that exits an always-true loop.
+                    falls_through: body.breaks,
+                    returns: body.returns,
+                    throws: body.throws,
+                    breaks: false,
+                    continues: false,
+                },
+                None => ControlFlow {
+                    // The condition may be false before the first iteration.
+                    falls_through: true,
+                    returns: body.returns,
+                    throws: body.throws,
+                    breaks: false,
+                    continues: false,
+                },
+            }
+        }
+        // Range and iterable loops can execute zero times, so neither can make
+        // a following statement unreachable even when their body is terminal.
+        Stmt::ForRange(for_stmt) => {
+            let body = block_control_flow(&for_stmt.body);
+            ControlFlow {
+                falls_through: true,
+                returns: body.returns,
+                throws: body.throws,
+                breaks: false,
+                continues: false,
+            }
+        }
+        Stmt::ForIn(for_stmt) => {
+            let body = block_control_flow(&for_stmt.body);
+            ControlFlow {
+                falls_through: true,
+                returns: body.returns,
+                throws: body.throws,
+                breaks: false,
+                continues: false,
+            }
+        }
+        Stmt::Var(_) | Stmt::Expr(_) => ControlFlow::fall_through(),
+    }
 }
 
 pub(crate) struct Local {
@@ -747,6 +958,12 @@ impl Checker {
         }
         self.check_block(&m.body, expected_ret)?;
         self.locals.pop();
+        if *expected_ret != Ty::Unit && block_control_flow(&m.body).falls_through {
+            return Err(SemaError {
+                message: format!("missing return: expected {}", expected_ret.display()),
+                span: m.body.span,
+            });
+        }
         Ok(())
     }
 
@@ -778,6 +995,12 @@ impl Checker {
         self.note_mono_ty(expected_ret);
         self.check_block(&f.body, expected_ret)?;
         self.locals.pop();
+        if *expected_ret != Ty::Unit && block_control_flow(&f.body).falls_through {
+            return Err(SemaError {
+                message: format!("missing return: expected {}", expected_ret.display()),
+                span: f.body.span,
+            });
+        }
         Ok(())
     }
 
@@ -813,7 +1036,14 @@ impl Checker {
                 );
             }
             self.note_mono_ty(expected_ret);
-            self.check_block(&f.body, expected_ret)
+            self.check_block(&f.body, expected_ret)?;
+            if *expected_ret != Ty::Unit && block_control_flow(&f.body).falls_through {
+                return Err(SemaError {
+                    message: format!("missing return: expected {}", expected_ret.display()),
+                    span: f.body.span,
+                });
+            }
+            Ok(())
         })();
         self.async_depth -= 1;
         self.locals.pop();

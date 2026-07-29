@@ -1192,6 +1192,102 @@ fun main() {}
 }
 
 #[test]
+fn non_unit_function_requires_return_on_every_path() {
+    let src = r#"
+package t
+class Notebook(val items: Array<String>) {}
+pub fun notebook(): Notebook {
+  var a = Notebook(Array(0))
+}
+"#;
+    let file = parse_file(src).expect("parse");
+    let err = check_file(&file).expect_err("missing return");
+    assert!(
+        err.primary().message.contains("missing return")
+            && err.primary().message.contains("Notebook"),
+        "{}",
+        err.primary().message
+    );
+}
+
+#[test]
+fn return_path_analysis_accepts_terminating_loops_without_reachable_breaks() {
+    let src = r#"
+package t
+fun continues_forever(): Int {
+  while (true) {
+    continue
+  }
+}
+fun nested_loop_never_exits(): Int {
+  while (true) {
+    while (true) {
+      break
+    }
+  }
+}
+fun unreachable_break(): Int {
+  while (true) {
+    return 1
+    break
+  }
+}
+fun exits_then_returns(): Int {
+  while (true) {
+    break
+  }
+  return 1
+}
+class Worker() {
+  fun spin(): Int {
+    while (true) {
+      continue
+    }
+  }
+}
+async fun async_spin(): Int {
+  while (true) {
+    continue
+  }
+}
+"#;
+    let file = parse_file(src).expect("parse");
+    check_file(&file).expect("provably terminating loop paths are valid");
+}
+
+#[test]
+fn return_path_analysis_rejects_reachable_loop_exits() {
+    let src = r#"
+package t
+fun can_exit(stop: Bool): Int {
+  while (true) {
+    if (stop) {
+      break
+    }
+  }
+}
+fun finally_can_exit(): Int {
+  while (true) {
+    try {
+      return 1
+    } finally {
+      break
+    }
+  }
+}
+"#;
+    let file = parse_file(src).expect("parse");
+    let err = check_file(&file).expect_err("reachable loop exit permits function fall-through");
+    assert!(
+        err.errors
+            .iter()
+            .filter(|error| error.message.contains("missing return"))
+            .count()
+            == 2
+    );
+}
+
+#[test]
 fn infers_box_and_id_type_args() {
     let src = r#"
 package t

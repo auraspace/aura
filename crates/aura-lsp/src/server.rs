@@ -1797,6 +1797,23 @@ mod tests {
     }
 
     #[test]
+    fn publishes_missing_return_diagnostic() {
+        let mut server = Server::new();
+        let source = "package demo\nclass Notebook(val items: Array<String>) {}\npub fun notebook(): Notebook {\n  var a = Notebook(Array(0))\n}\n";
+        let notification = server
+            .handle(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"file:///main.aura","version":1,"text":source}}}))
+            .expect("diagnostic notification");
+        let diagnostics = notification["params"]["diagnostics"]
+            .as_array()
+            .expect("diagnostics array");
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic["message"].as_str().is_some_and(|message| {
+                message.contains("missing return") && message.contains("Notebook")
+            })
+        }));
+    }
+
+    #[test]
     fn stale_change_does_not_replace_document() {
         let mut server = Server::new();
         server.handle(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"main.aura","version":2,"text":"package demo\n"}}}));
