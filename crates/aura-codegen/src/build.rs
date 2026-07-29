@@ -6066,6 +6066,36 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_this_as_heap_class_constructor_argument() {
+        let file = parse_file(
+            "package demo\nclass Handle(val owner: Node) {}\nclass Node(val id: Int) { fun handle(): Handle { return Handle(this) } }\nfun main() { val node = Node(42) val handle = node.handle() if (handle.owner.id == 42) { println(\"heap this constructor ok\") } }\n",
+        )
+        .expect("parse heap this constructor argument");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-heap-this-constructor-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile heap this constructor argument");
+        let generated = fs::read_to_string(&generated_c).expect("read generated heap this C");
+        assert!(generated.contains("aura_new_demo_Handle(this)"));
+        let output = Command::new(&bin)
+            .output()
+            .expect("run heap this constructor argument");
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "heap this constructor ok\n"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_bounded_class_local_capture() {
         let file = aura_parser::parse_file(
             "package demo\nclass Box(val value: Int) {}\nfun report(box: Box) { if (box.value == 73) { println(\"local class\") } }\nfun main() { val captured: Box = Box(73)\nval task = spawn { report(captured) } join(task) }\n",

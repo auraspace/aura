@@ -21,7 +21,7 @@ This RFC outlines the **Aura standard library** for servers and CLIs: prelude, c
 
 Implementation is primarily **Aura**, with thin runtime/FFI bridges where required.
 
-**Toolchain today (2026-07-28, C22t + alpha follow-up):** repo packages `std/io` (console, file, process, stdin, exit, and non-throwing `readFileResult`/`writeFileResult`), `std/assert`, and `std/collections` (Map/Set, generic `HashMap<K,V>`/`HashSet<T>`, Iterable, generic map/filter/fold, join, hash-collection snapshots/HOFs, read-only snapshot iterators, and `HashMapEntry` snapshots with direct `for-in`). C22 and the alpha follow-up add deterministic task frames, bounded await/control-flow lowering, bounded channels, typed payload cleanup, typed exception causes, and bounded FFI pin retention; there is not yet a complete `std/task` or typed async networking package. Strict file I/O still throws `String`; Result wrappers provide structured failures. Live iterators/views, mutation-through-entry, JSON, logging, crypto, synchronization, and full async I/O remain deferred.
+**Toolchain today (2026-07-28, C22t + alpha follow-up):** repo packages `std/io` (console, file, process, stdin, exit, and non-throwing `readFileResult`/`writeFileResult`), `std/assert`, and `std/collections` (Map/Set, generic `HashMap<K,V>`/`HashSet<T>`, Iterable, generic map/filter/fold, join, hash-collection snapshots/HOFs, read-only snapshot iterators, `HashMapEntry` snapshots with direct `for-in`, key-based `HashMap.entry(key)` mutation handles, and invalidation-checked `HashMap.liveEntry(key)` views). C22 and the alpha follow-up add deterministic task frames, bounded await/control-flow lowering, bounded channels, typed payload cleanup, typed exception causes, and bounded FFI pin retention; there is not yet a complete `std/task` or typed async networking package. Strict file I/O still throws `String`; Result wrappers provide structured failures. Live iterators, JSON, logging, crypto, synchronization, and full async I/O remain deferred.
 
 ## 2. Motivation
 
@@ -122,18 +122,21 @@ mutation or lifetime behavior from a generic `Iterable<T>` alone.
 - Live iterators/views are opt-in and remain attached to the source. They
   observe only mutations made after their documented position; an API must
   specify whether an insertion before, at, or after that position is visible.
-  Until such rules are implemented and tested, collection APIs must expose
+  Until such rules are implemented and tested, traversal APIs must expose
   snapshots only.
 - A mutation that invalidates a live cursor must be detected. The permitted
   outcomes are a typed invalidation error or a terminal iterator state;
   silently dereferencing a stale bucket, array slot, or entry is forbidden.
   Rehash, remove, clear, and capacity-changing insertion are invalidating
   mutations by default.
-- An entry view is a handle to one map entry, not an owned key/value pair.
-  Its lifetime is bounded by the iterator/view borrow and it must not outlive
-  the source collection or the validity epoch of the cursor. `key` is
-  read-only. `value` may be read or assigned only through an explicitly
-  mutable entry API, and removal invalidates that entry.
+- `HashMap.entry(key)` returns a key-based handle for an existing entry. It
+  retains the source map but no bucket or backing-array pointer; `set(value)`
+  resolves the key at call time, returns `false` after removal, and is safe
+  across rehash and GC. `key` is read-only and the handle cannot structurally
+  mutate the map. `HashMap.liveEntry(key)` returns an invalidation-checked
+  live entry view for an existing key. Value updates preserve validity;
+  insert, remove, clear, and grow/rehash advance the map epoch so `isValid()`
+  becomes false and `get()`/`set(value)` fail safely.
 - Entry handles and live iterators must not permit aliases that can make the
   collection representation inconsistent. Structural mutation through a live
   entry is disallowed while that entry is borrowed; mutation APIs must either
@@ -252,9 +255,10 @@ Go-like pragmatic breadth without framework lock-in. Async-first net matches run
 - Full API reference site
 - Capability-based FS/net permissions (sandbox)
 - SIMD / performance utilities
-- Live collection iterators and mutable entry views remain deferred: C20 ships
-  deterministic read-only snapshots, while borrow/lifetime rules and
-  compiler/runtime support for live aliases are not yet available.
+- Live collection iterators remain deferred: C20 ships deterministic read-only
+  snapshots, key-based mutation handles, and invalidation-checked live entry
+  views. Cursor lifetime and mutation-visibility rules for live traversal are
+  not yet available.
 
 ## 10. Security & safety considerations
 

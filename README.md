@@ -231,7 +231,7 @@ when their Rust and C toolchains are available.
 - **Stdlib C12j** `join(parts, sep)` for `Array<String>`
 - **Compiler C12k–m** Lambda capture class / Array view / `var` Int·Bool by ref
 - **Compiler C20c–e** Mutable `var` class/Array/Fun captures via shared pointer boxes; Array live-view ownership remains deferred
-- **Collections C20f–i** Snapshot iterator contract and fixtures are shipped; `Array<Interface>` and mutation-through-entry remain explicitly deferred
+- **Collections C20f–i** Snapshot iterator contract, `Array<Interface>`, key-based `HashMap.entry(key)` handles, and invalidation-checked `HashMap.liveEntry(key)` views are shipped; live iterators remain deferred
 - **Compiler C21b–e** Scoped non-owning `ref T`, borrow escape checks, borrow-safe Array field returns, and collection iteration checks
 - **DX C21f–h** `aura fmt`, structured diagnostics, test filtering, and JSON reports
 - **Stdlib C21i** Non-throwing `readFileResult` / `writeFileResult` wrappers

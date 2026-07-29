@@ -1,7 +1,8 @@
 # C20h: `Array<Interface>` Layout Spike
 
 **Date:** 2026-07-22  
-**Status:** Deferred after bounded design spike  
+**Status:** Historical spike; production support shipped subsequently with
+tagged-interface elements, coercions, dispatch, and GC marking.
 **Scope:** Representation and ABI feasibility only; no compiler, runtime,
 stdlib, corpus, CLI, roadmap, or debt changes.
 
@@ -94,7 +95,7 @@ Costs and risks:
 | Value implementations | Need explicit boxing escape hatch | Natural fit                               |
 | MVP risk              | High ABI and aliasing complexity  | Lower, but ownership still underspecified |
 
-## Recommendation
+## Historical Recommendation
 
 **Defer implementation.** Neither candidate is ready for production because
 Aura does not yet have borrow/lifetime rules for non-owning interface views or
@@ -113,4 +114,7 @@ implementation, require all of the following:
 4. A decision on whether `Array<I>` owns boxes, borrows them, or supports both
    through distinct types.
 
-This is a design result, not an implementation claim.
+This was a design result, not an implementation claim. The shipped
+implementation uses the repository's tagged-interface representation rather
+than either proposed erased-value ABI; live views and borrowed live-entry
+aliases remain separate collection work.

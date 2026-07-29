@@ -2404,6 +2404,11 @@ fn expected_iface_mono(expected_ty: &str, checked: &CheckedFile) -> Option<Strin
 /// If `expr` has class type `from` and expected is interface, emit upcast.
 pub(crate) fn coerce_expr(expr: &Expr, expected_ty: &str, ctx: &mut EmitCtx<'_>) -> String {
     let actual = resolve_type_name(expr, ctx).unwrap_or_else(|| infer_type_name(expr, ctx));
+    // `this` is a heap-class pointer in method bodies, while emit_expr(This)
+    // dereferences it for ordinary field-style value access.
+    if matches!(expr, Expr::This(_)) && is_heap_class_mono(expected_ty, ctx.checked) {
+        return "this".into();
+    }
     let code = emit_expr(expr, ctx);
 
     // C7a: null → empty optional primitive; Int/Bool → wrap into Opt_*.

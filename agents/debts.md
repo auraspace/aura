@@ -583,14 +583,14 @@ When you resolve debt, update or remove the matching entry.
 - Next step (post-MVP): erase to fat pointer `(tag, data*)` or box each element as a class
 - Introduced: narrowed after C6g; decision locked C7h
 
-### Stdlib collections polish
+### Stdlib live collection iterators
 
 - Area: stdlib / RFC-007
-- Symptom: no live iterator/entry view or mutation-through-entry API; `Map`/`Set` remain linear alternatives.
-- Why deferred: C20 defines and ships deterministic read-only snapshots; borrowed/live aliases need lifetime checking and mutation invalidation rules.
-- Progress: C9b auto-resize; C12n String→String; C12o String HOF; **C14** generic `HashMap<K,V>`; **C15** generic `HashSet<T>`; **C16** generic `map`/`filter`/`fold`; **C17** user-defined class HOF coverage; **C18** hash snapshots/HOFs; **C19a–d** accessors/entry snapshots/entry `for-in`; **C20f–g** snapshot contract and read-only iterator snapshots; **C20i** explicitly defers mutation-through-entry. Compiler prerequisites **C19x** generic constructor substitution and **C19y** nested generic return/local substitution are resolved.
-- Limitation: `entries()` is a fresh shallow structural snapshot in logical table order. It preserves key/value pairing and never mutates the source map, but it is not live and entries cannot mutate the map.
-- Next step: borrow/lifetime design before any live iterator, entry view, or mutation API.
+- Symptom: no live iterator; `Map`/`Set` remain linear alternatives.
+- Why deferred: C20 defines deterministic read-only snapshots; live iteration needs cursor/lifetime and mutation-visibility rules.
+- Progress: C9b auto-resize; C12n String→String; C12o String HOF; **C14** generic `HashMap<K,V>`; **C15** generic `HashSet<T>`; **C16** generic `map`/`filter`/`fold`; **C17** user-defined class HOF coverage; **C18** hash snapshots/HOFs; **C19a–d** accessors/entry snapshots/entry `for-in`; **C20f–g** snapshot contract and read-only iterator snapshots; **C20i** key-based handles and invalidation-checked live entries. Compiler prerequisites **C19x** generic constructor substitution and **C19y** nested generic return/local substitution are resolved.
+- Limitation: `entries()` is a fresh shallow structural snapshot in logical table order. `liveEntry(key)` retains the map and invalidates after structural mutation through its epoch, avoiding a stale bucket alias.
+- Next step: define cursor lifetime, ordering, and mutation visibility before adding live iterators.
 - Note: C14/C15 resolved the generic hash-collection residual; C19 resolved the nested generic codegen blockers exposed by entry snapshots.
 - Introduced: narrowed after C8i; resize C9b; String→String C12n; String HOF C12o
 

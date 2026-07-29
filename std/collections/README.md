@@ -39,7 +39,7 @@ Collections package (RFC-007).
 
 Generic `HashMap<K,V>` and `HashSet<T>` are monomorphized. Keys must satisfy `Hashable` and support `==`; the concrete factories remain compatibility sugar. Resize doubles capacity when load ≥ 1/2. Hash collection HOFs use free functions because Aura methods cannot declare their own type parameters yet; results are arrays in logical table order, excluding tombstones.
 
-Iterator methods copy the logical sequence at creation and expose only `len()`/`get(i)`. Insert, update, remove, clear, and rehash of the source collection do not invalidate or alter an existing iterator; no live iterator or mutation-through-iterator API is provided.
+Iterator methods copy the logical sequence at creation and expose only `len()`/`get(i)`. Insert, update, remove, clear, and rehash of the source collection do not invalidate or alter an existing iterator. `HashMap.entry(key)` returns a key-based handle for an existing key; `set(value)` re-resolves that key at call time and returns `false` if it has been removed. `HashMap.liveEntry(key)` returns an invalidation-checked live view: `get()` and `set(value)` succeed only while no structural mutation has occurred; insert, remove, clear, and grow/rehash invalidate it. No live iterator API is provided.
 
 **Also available language-wide:**
 

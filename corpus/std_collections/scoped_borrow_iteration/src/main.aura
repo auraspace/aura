@@ -4,7 +4,7 @@ package demo.stdscopedborrowiteration
 import std.collections
 
 fun main() {
-    val h: HashMap<Int, String> = HashMap<Int, String>(Array(4), Array(4), Array(4))
+    val h: HashMap<Int, String> = HashMap<Int, String>(Array(4), Array(4), Array(4), 0)
     h.put(1, "one")
     h.put(2, "two")
 

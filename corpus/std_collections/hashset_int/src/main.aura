@@ -4,7 +4,7 @@ package demo.stdhashsetint
 import std.collections
 
 fun main() {
-    val s: HashSet<Int> = HashSet<Int>(HashMap<Int, Bool>(Array(4), Array(4), Array(4)))
+    val s: HashSet<Int> = HashSet<Int>(HashMap<Int, Bool>(Array(4), Array(4), Array(4), 0))
     val first = s.add(1)
     val duplicate = s.add(1)
     s.add(2)

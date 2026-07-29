@@ -115,7 +115,37 @@ pub class Set<T>(val keys: Array<T>) {
 pub fun set(): Set<String> { return Set<String>(Array(0)) }
 
 /// One key/value pair captured by HashMap.entries().
-pub class HashMapEntry<K, V>(val key: K, val value: V) {
+pub class HashMapEntry<K, V>(pub val key: K, pub val value: V) {
+}
+
+/// A key-based mutation handle returned by HashMap.entry().
+///
+/// The handle retains its map but never a table slot. set() therefore resolves
+/// the key at call time and stays valid across rehashing and GC.
+pub class HashMapEntryHandle<K : Hashable, V>(val map: HashMap<K, V>, val key: K) {
+  /// Replace the value only when this key is still present.
+  pub fun set(value: V): Bool { return this.map.replace(this.key, value) }
+}
+
+/// An invalidation-checked live view of one HashMap entry.
+///
+/// It retains the map but no bucket pointer. Structural map changes advance the
+/// map epoch, invalidating this view before a later get() or set() can observe
+/// a rehashed or removed slot.
+pub class HashMapLiveEntry<K : Hashable, V>(val map: HashMap<K, V>, val key: K, val epoch: Int) {
+  pub fun isValid(): Bool {
+    return this.map.epoch == this.epoch && this.map.contains(this.key)
+  }
+
+  pub fun get(): V? {
+    if (!this.isValid()) { return null }
+    return this.map.get(this.key)
+  }
+
+  pub fun set(value: V): Bool {
+    if (!this.isValid()) { return false }
+    return this.map.replace(this.key, value)
+  }
 }
 
 /// Read-only snapshot iterator over HashMap keys.
@@ -138,7 +168,7 @@ pub class HashSetIterator<T>(val items: Array<T>) {
 
 /// Open-addressing map. state: 0 empty, 1 full, 2 tombstone.
 /// The key bound supplies both the hash operation and the equality contract.
-pub class HashMap<K : Hashable, V>(var keys: Array<K>, var vals: Array<V>, var state: Array<Int>) {
+pub class HashMap<K : Hashable, V>(var keys: Array<K>, var vals: Array<V>, var state: Array<Int>, var epoch: Int) {
   pub fun capacity(): Int { return this.keys.len }
 
   /// Snapshot iterator. Later map mutation does not affect this iterator.
@@ -178,6 +208,20 @@ pub class HashMap<K : Hashable, V>(var keys: Array<K>, var vals: Array<V>, var s
       }
     }
     return out
+  }
+
+  /// Return a mutation handle for an existing key, or null when it is absent.
+  /// The handle is key-based rather than a borrowed bucket reference.
+  pub fun entry(k: K): HashMapEntryHandle<K, V>? {
+    if (!this.contains(k)) { return null }
+    return HashMapEntryHandle<K, V>(this, k)
+  }
+
+  /// Return a live entry view for an existing key, or null when it is absent.
+  /// Any structural map mutation invalidates the returned view.
+  pub fun liveEntry(k: K): HashMapLiveEntry<K, V>? {
+    if (!this.contains(k)) { return null }
+    return HashMapLiveEntry<K, V>(this, k, this.epoch)
   }
 
   pub fun len(): Int {
@@ -221,6 +265,7 @@ pub class HashMap<K : Hashable, V>(var keys: Array<K>, var vals: Array<V>, var s
     keys = nk
     vals = nv
     state = ns
+    epoch = epoch + 1
   }
 
   pub fun put(k: K, v: V): Bool {
@@ -284,6 +329,7 @@ pub class HashMap<K : Hashable, V>(var keys: Array<K>, var vals: Array<V>, var s
         this.keys.set(slot, k)
         this.vals.set(slot, v)
         this.state.set(slot, 1)
+        epoch = epoch + 1
         return true
       }
       if (st == 2) {
@@ -298,6 +344,7 @@ pub class HashMap<K : Hashable, V>(var keys: Array<K>, var vals: Array<V>, var s
       this.keys.set(first_tomb, k)
       this.vals.set(first_tomb, v)
       this.state.set(first_tomb, 1)
+      epoch = epoch + 1
       return true
     }
     return false
@@ -342,6 +389,23 @@ pub class HashMap<K : Hashable, V>(var keys: Array<K>, var vals: Array<V>, var s
     return false
   }
 
+  /// Replace an existing value without inserting a missing key.
+  pub fun replace(k: K, v: V): Bool {
+    val n = this.keys.len
+    if (n == 0) { return false }
+    var i: Int = k.hash() % n
+    for (step in 0..n) {
+      val st = this.state.get(i)
+      if (st == 0) { return false }
+      if (st == 1 && this.keys.get(i) == k) {
+        this.vals.set(i, v)
+        return true
+      }
+      i = (i + 1) % n
+    }
+    return false
+  }
+
   pub fun remove(k: K): Bool {
     val n = this.keys.len
     if (n == 0) { return false }
@@ -351,6 +415,7 @@ pub class HashMap<K : Hashable, V>(var keys: Array<K>, var vals: Array<V>, var s
       if (st == 0) { return false }
       if (st == 1 && this.keys.get(i) == k) {
         this.state.set(i, 2)
+        epoch = epoch + 1
         return true
       }
       i = (i + 1) % n
@@ -359,16 +424,21 @@ pub class HashMap<K : Hashable, V>(var keys: Array<K>, var vals: Array<V>, var s
   }
 
   pub fun clear() {
-    for (i in 0..this.state.len) { this.state.set(i, 0) }
+    var changed = false
+    for (i in 0..this.state.len) {
+      if (this.state.get(i) != 0) { changed = true }
+      this.state.set(i, 0)
+    }
+    if (changed) { epoch = epoch + 1 }
   }
 }
 
 pub fun hash_map(): HashMap<String, Int> {
-  return HashMap<String, Int>(Array(16), Array(16), Array(16))
+  return HashMap<String, Int>(Array(16), Array(16), Array(16), 0)
 }
 
 pub fun hash_map_str(): HashMap<String, String> {
-  return HashMap<String, String>(Array(16), Array(16), Array(16))
+  return HashMap<String, String>(Array(16), Array(16), Array(16), 0)
 }
 
 /// Open-addressing set backed by the generic HashMap.
@@ -413,7 +483,7 @@ pub class HashSet<T : Hashable>(var table: HashMap<T, Bool>) {
 }
 
 pub fun hash_set(): HashSet<String> {
-  return HashSet<String>(HashMap<String, Bool>(Array(16), Array(16), Array(16)))
+  return HashSet<String>(HashMap<String, Bool>(Array(16), Array(16), Array(16), 0))
 }
 
 /// Transform each live map entry in logical table order.

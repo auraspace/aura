@@ -4,7 +4,7 @@ package demo.stdsnapshotiterator
 import std.collections
 
 fun main() {
-    val h: HashMap<Int, String> = HashMap<Int, String>(Array(4), Array(4), Array(4))
+    val h: HashMap<Int, String> = HashMap<Int, String>(Array(4), Array(4), Array(4), 0)
     h.put(1, "one")
     h.put(2, "two")
     val keys = h.keyIterator()
@@ -26,7 +26,7 @@ fun main() {
     }
     if (keyCount == 2 && entryCount == 2) { println("map-iterated") }
 
-    val s: HashSet<Int> = HashSet<Int>(HashMap<Int, Bool>(Array(4), Array(4), Array(4)))
+    val s: HashSet<Int> = HashSet<Int>(HashMap<Int, Bool>(Array(4), Array(4), Array(4), 0))
     s.add(7)
     s.add(8)
     val items = s.iterator()

@@ -1,0 +1,80 @@
+// C20i — key-based mutation handles remain valid across a hash-map rehash.
+package demo.stdentrymutation
+
+import std.collections
+
+fun main() {
+    val h: HashMap<Int, String> = HashMap<Int, String>(Array(4), Array(4), Array(4), 0)
+    h.put(1, "one")
+    h.put(2, "two")
+
+    if (h.entry(99) == null) {
+        println("entry-mutation-missing")
+    }
+
+    val live = h.liveEntry(1)
+    if (live != null) {
+        if (live.isValid() && live.get() == "one" && live.set("uno") && h.getOr(1, "?") == "uno") {
+            println("live-entry-update")
+        }
+    }
+
+    val rehashed = h.liveEntry(1)
+    val first = h.entry(1)
+    h.put(3, "three")
+    h.put(4, "four")
+    h.put(5, "five")
+
+    if (rehashed != null) {
+        if (!rehashed.isValid() && rehashed.get() == null && !rehashed.set("stale")) {
+            println("live-entry-rehashed")
+        }
+    }
+
+    // The handle resolves key 1 after put() has rehashed the map.
+    if (first != null) {
+        if (first.set("updated") && h.getOr(1, "?") == "updated") {
+            println("entry-mutation-rehashed")
+        }
+    }
+
+    val second = h.liveEntry(2)
+    h.remove(2)
+    if (second != null) {
+        if (!second.isValid() && second.get() == null && !second.set("stale") && h.get(2) == null) {
+            println("live-entry-removed")
+        }
+    }
+
+    val third = h.liveEntry(3)
+    h.clear()
+    if (third != null) {
+        if (!third.isValid() && third.get() == null && !third.set("cleared") && h.isEmpty()) {
+            println("live-entry-cleared")
+        }
+    }
+
+    val grownMap: HashMap<Int, String> = HashMap<Int, String>(Array(4), Array(4), Array(4), 0)
+    grownMap.put(7, "seven")
+    val grown = grownMap.liveEntry(7)
+    grownMap.grow()
+    if (grown != null) {
+        if (!grown.isValid() && grown.get() == null && !grown.set("after-grow")) {
+            println("live-entry-grown")
+        }
+    }
+
+    // Exercise collection and handle teardown after owned String values.
+    if (true) {
+        val transient: HashMap<Int, String> = HashMap<Int, String>(Array(4), Array(4), Array(4), 0)
+        transient.put(9, "owned" + "")
+        val handle = transient.entry(9)
+        transient.clear()
+        if (handle != null) {
+            if (!handle.set("after-clear")) {
+                println("entry-mutation-gc-ready")
+            }
+        }
+    }
+    gc_collect()
+}

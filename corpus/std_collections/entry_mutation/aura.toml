@@ -1,5 +1,5 @@
 [package]
-name = "demo.stdentrymutationdeferred"
+name = "demo.stdentrymutation"
 
 [[bin]]
 name = "app"

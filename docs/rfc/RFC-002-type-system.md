@@ -21,7 +21,7 @@ This RFC specifies Aura’s **static type system**: nominal class/interface type
 
 It assumes the surface from **RFC-001** and leaves runtime representation details to **RFC-004** / **RFC-006**.
 
-**Toolchain today (2026-07-28, C22t + alpha follow-up):** nominal classes/interfaces/`struct`/`enum`, monomorphized generics + bounds, local null flow + `!!` / `?:` / `?.`, type-argument inference, fun types/`Ty::Fun`, lambdas with value and reference captures, scoped non-owning `ref T` with lexical escape checks, borrow-safe Array field returns, generic HOFs, nested generic substitution in codegen, MVP shared mutable `var` captures for class/Array/Fun, read-only collection snapshots/iterators, async/task types with borrow barriers, formatter/structured diagnostics/test reports, and Result-based std.io wrappers. Not yet: inheritance hierarchy, full overloading, structural typing, mutable/nullable/nested refs, `Array<Interface>`, live collection views, mutation-through-entry, general async ownership, or a complete ownership contract for escaping captured Array views.
+**Toolchain today (2026-07-29, C22t + alpha follow-up):** nominal classes/interfaces/`struct`/`enum`, inheritance with virtual dispatch, monomorphized generics + bounds, local null flow + `!!` / `?:` / `?.`, type-argument inference, fun types/`Ty::Fun`, lambdas with value and reference captures, scoped nonowning `ref T` with lexical escape checks, borrow-safe Array field returns, generic HOFs, nested generic substitution in codegen, `Array<Interface>`, MVP shared mutable `var` captures for class/Array/Fun, read-only collection snapshots/iterators, key-based and invalidation-checked live HashMap entry mutation, async/task types with borrow barriers, formatter/structured diagnostics/test reports, and Result-based std.io wrappers. Not yet: full overloading, structural typing, mutable/nullable/nested refs, live collection iterators, general async ownership, or a complete ownership contract for escaping captured Array views.
 
 ## 2. Motivation
 
@@ -174,9 +174,9 @@ remains responsible for owning objects; the MVP adds no reference counting,
 pinning, scheduler, or collector changes.
 
 MVP non-goals are mutable borrows, borrow storage in heap objects, nullable or
-nested references, references escaping through returns/closures/tasks, and
-mutation-through-entry. These are separate design decisions, not implicit
-permissions granted by `ref`.
+nested references, and references escaping through returns/closures/tasks.
+`HashMap.entry(key)` is a separate key-based owning handle, not a permission
+granted by `ref` to mutate through a borrowed collection entry.
 
 #### 6.5.2 C22 suspension and task borrow barriers
 

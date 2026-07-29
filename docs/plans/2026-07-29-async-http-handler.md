@@ -585,7 +585,6 @@ arm64, with sanitizer coverage where applicable:
 ## Non-goals for this milestone
 
 - Arbitrary live request/response views that outlive their handler task.
-- Mutation-through-entry collection views or `Array<Interface>`.
 - Stable public language/runtime ABI.
 - Windows release support until a separate target and backend acceptance gate
   exists.

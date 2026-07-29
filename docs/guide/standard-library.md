@@ -11,10 +11,10 @@ Aura’s **core** stdlib is intentionally small ([RFC-007](/rfc/007), [RFC-000](
 
 ## Packages today (post-alpha C12)
 
-| Package           | Path              | Role                                                                      |
-| ----------------- | ----------------- | ------------------------------------------------------------------------- |
-| `std.io`          | `std/io`          | Console, file I/O, argv, stdin, exit                                      |
-| `std.assert`      | `std/assert`      | Assert helpers for tests                                                  |
+| Package           | Path              | Role                                                                                          |
+| ----------------- | ----------------- | --------------------------------------------------------------------------------------------- |
+| `std.io`          | `std/io`          | Console, file I/O, argv, stdin, exit                                                          |
+| `std.assert`      | `std/assert`      | Assert helpers for tests                                                                      |
 | `std.collections` | `std/collections` | Map/Set, generic hash collections and snapshots, snapshot iterators, `Iterable`, HOFs, `join` |
 
 Builtins such as `Array<T>` and core scalars are part of the **language**, not a separate import. String methods (`indexOf`, `split`, `trim`, `toInt`, …) are language surface — see [Types](./types-and-nullability.md) and the [cheatsheet](./syntax-cheatsheet.md).
@@ -106,24 +106,24 @@ Prefer package tests that exercise `assert` / `assert_eq` for `Int` / `String` /
 
 ## `std.collections`
 
-| Type / helper                                     | Notes                                                                                |
-| ------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `Map<K, V>`                                       | Linear map; `get` → `V?`; `put` / `remove` / `clear`                                 |
-| `Set<T>`                                          | Generic set (linear)                                                                 |
-| `HashMap<K,V>`                                    | Generic open addressing with `K: Hashable`; `containsValue` (C19a)                   |
-| `HashSet<T>`                                      | Generic open addressing backed by `HashMap<T,Bool>`; `containsAll(Array<T>)` (C19a)  |
-| `Hashable`                                        | `hash(): Int`; built-in for `Int` and `String` (C14)                                 |
-| `keyArray()` / `valueArray()`                     | `HashMap` snapshots in logical table order (C18)                                    |
-| `HashMapEntry<K,V>` / `entries()`                 | Key/value snapshot pairs in logical table order (C19b)                               |
-| `toArray()`                                       | `HashSet` snapshots in logical table order (C18)                                     |
-| `map_hash_map_values`                             | Generic `(K,V) -> R` map-entry HOF (C18)                                             |
-| `filter_hash_set` / `map_hash_set`                | Generic set HOFs returning arrays (C18)                                              |
-| `Iterable<E>`                                     | `len` + `get` protocol for `for-in`, including entry snapshots (C19c)                 |
-| `keyIterator()` / `entryIterator()` / `iterator()` | Read-only deterministic snapshots for HashMap/HashSet (C20g)                         |
-| `map<T,R>` / `filter<T>` / `fold<T,A>`            | Generic array HOFs; verified for `Int` and `String` (C16)                            |
-| `map_ints` / `filter_ints` / `fold_ints`          | Int compatibility wrappers                                                           |
-| `map_strings` / `filter_strings` / `fold_strings` | String compatibility wrappers (C12o)                                                 |
-| `join(parts, sep)`                                | `Array<String>` → `String` with separator (C12j)                                     |
+| Type / helper                                      | Notes                                                                               |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `Map<K, V>`                                        | Linear map; `get` → `V?`; `put` / `remove` / `clear`                                |
+| `Set<T>`                                           | Generic set (linear)                                                                |
+| `HashMap<K,V>`                                     | Generic open addressing with `K: Hashable`; `containsValue` (C19a)                  |
+| `HashSet<T>`                                       | Generic open addressing backed by `HashMap<T,Bool>`; `containsAll(Array<T>)` (C19a) |
+| `Hashable`                                         | `hash(): Int`; built-in for `Int` and `String` (C14)                                |
+| `keyArray()` / `valueArray()`                      | `HashMap` snapshots in logical table order (C18)                                    |
+| `HashMapEntry<K,V>` / `entries()`                  | Key/value snapshot pairs in logical table order (C19b)                              |
+| `toArray()`                                        | `HashSet` snapshots in logical table order (C18)                                    |
+| `map_hash_map_values`                              | Generic `(K,V) -> R` map-entry HOF (C18)                                            |
+| `filter_hash_set` / `map_hash_set`                 | Generic set HOFs returning arrays (C18)                                             |
+| `Iterable<E>`                                      | `len` + `get` protocol for `for-in`, including entry snapshots (C19c)               |
+| `keyIterator()` / `entryIterator()` / `iterator()` | Read-only deterministic snapshots for HashMap/HashSet (C20g)                        |
+| `map<T,R>` / `filter<T>` / `fold<T,A>`             | Generic array HOFs; verified for `Int` and `String` (C16)                           |
+| `map_ints` / `filter_ints` / `fold_ints`           | Int compatibility wrappers                                                          |
+| `map_strings` / `filter_strings` / `fold_strings`  | String compatibility wrappers (C12o)                                                |
+| `join(parts, sep)`                                 | `Array<String>` → `String` with separator (C12j)                                    |
 
 See [Arrays](./arrays.md) for HOF usage and capture limits.
 
@@ -147,9 +147,19 @@ empty/tombstone slots; they do not mutate the source collection.
 directly with `for-in`, but it is not a live iterator or entry view: changing an
 entry cannot mutate the source map.
 
-The C20 iterator APIs are also read-only snapshots. They are safe across source
-mutation, rehash, and clear; live iterators and mutation-through-entry remain
-deferred until borrow/lifetime rules exist.
+`HashMap.entry(key)` returns a key-based mutation handle when the key exists.
+Calling `handle.set(value)` replaces only that existing value and returns
+`false` if it was removed. The handle retains the map and re-resolves its key
+on every update, so rehash and GC cannot make it stale.
+
+`HashMap.liveEntry(key)` returns an invalidation-checked live view when the
+key exists. Its `get()` and `set(value)` operate only while `isValid()` is
+true; inserting, removing, clearing, or growing/rehashing the map invalidates
+the view. Updating its own value preserves validity.
+
+The C20 iterator APIs remain read-only snapshots. They are safe across source
+mutation, rehash, and clear; live iterators remain deferred until cursor
+lifetime and mutation-visibility rules exist.
 
 ## How the CLI finds `std.*`
 
