@@ -15,14 +15,17 @@ When you resolve debt, update or remove the matching entry.
   edits, save/watch-folder refresh, workspace-folder changes, workspace-bounded
   navigation/refactoring, local and semantic member completion, source-comment
   hover documentation, versioned diagnostics, formatting, and compiler-suggestion
-  code actions; overload-aware binding IDs, package-graph analysis, and fully
-  preemptive cancellation are not implemented.
+  code actions; overload-aware binding IDs and fully preemptive cancellation
+  are not implemented. Diagnostics now resolve the complete package graph
+  through the shared read-only loader, including standard, path, registry, and
+  transitive dependencies, and rebuild it with open-document overlays.
 - Why deferred: the existing analysis API does not yet expose stable binding IDs
-  or a structured suggestion model; lexical fallbacks remain conservative around
+  or a structured suggestion model; package diagnostics currently rebuild the
+  resolved graph for each update, lexical fallbacks remain conservative around
   unresolved local scope and overloads, and the stdio loop is serial.
-- Next step: add precise binding IDs and structured diagnostic suggestions before
-  broadening rename/reference results; move long queries behind a cancellable
-  scheduler when workspace analysis becomes expensive.
+- Next step: cache package snapshots by manifest and overlay revision, add
+  precise binding IDs and structured diagnostic suggestions before broadening
+  rename/reference results, and move long queries behind a cancellable scheduler.
 
 ### ANALYSIS-001 analysis cache eviction is not implemented (2026-07-29)
 

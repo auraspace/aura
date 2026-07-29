@@ -21,12 +21,24 @@ use super::util::{
 
 /// Resolve a CLI path: `.aura` file, directory, or `aura.toml`.
 pub fn load_package(path: &Path) -> Result<LoadedPackage, String> {
+    load_package_with_lock(path, true)
+}
+
+/// Load and resolve a package without updating its lockfile.
+///
+/// Language-server requests must not mutate a workspace merely to compute
+/// diagnostics, but they need the same resolved dependency graph as the CLI.
+pub fn load_package_read_only(path: &Path) -> Result<LoadedPackage, String> {
+    load_package_with_lock(path, false)
+}
+
+fn load_package_with_lock(path: &Path, write_lock: bool) -> Result<LoadedPackage, String> {
     if path.is_file() {
         if path.file_name().and_then(|n| n.to_str()) == Some("aura.toml") {
-            return load_from_manifest(path);
+            return load_from_manifest(path, write_lock);
         }
         if path.extension().and_then(|e| e.to_str()) == Some("aura") {
-            return load_single_file_entry(path);
+            return load_single_file_entry(path, write_lock);
         }
         return Err(format!(
             "error: {}: expected `.aura` file, directory, or `aura.toml`",
@@ -36,7 +48,7 @@ pub fn load_package(path: &Path) -> Result<LoadedPackage, String> {
     if path.is_dir() {
         let manifest = path.join("aura.toml");
         if manifest.is_file() {
-            return load_from_manifest(&manifest);
+            return load_from_manifest(&manifest, write_lock);
         }
         let pkg = load_directory(path, None, None)?;
         if !pkg.ast.imports.is_empty() {
@@ -54,7 +66,7 @@ pub fn load_package(path: &Path) -> Result<LoadedPackage, String> {
 pub fn load_package_default() -> Result<LoadedPackage, String> {
     let manifest = PathBuf::from("aura.toml");
     if manifest.is_file() {
-        return load_from_manifest(&manifest);
+        return load_from_manifest(&manifest, true);
     }
     Err(
         "error: no path given and no `aura.toml` in the current directory\n  \
@@ -64,7 +76,7 @@ pub fn load_package_default() -> Result<LoadedPackage, String> {
 }
 
 /// CLI entry for a lone `.aura` file: if it has `import`s, prefer nearby `aura.toml`.
-fn load_single_file_entry(path: &Path) -> Result<LoadedPackage, String> {
+fn load_single_file_entry(path: &Path, write_lock: bool) -> Result<LoadedPackage, String> {
     let src =
         fs::read_to_string(path).map_err(|e| format!("error: read {}: {e}", path.display()))?;
     let ast = parse_file(&src).map_err(|e| format_parse(path, &src, e))?;
@@ -72,12 +84,12 @@ fn load_single_file_entry(path: &Path) -> Result<LoadedPackage, String> {
         if let Some(parent) = path.parent() {
             let manifest = parent.join("aura.toml");
             if manifest.is_file() {
-                return load_from_manifest(&manifest);
+                return load_from_manifest(&manifest, write_lock);
             }
             if let Some(grand) = parent.parent() {
                 let m2 = grand.join("aura.toml");
                 if m2.is_file() {
-                    return load_from_manifest(&m2);
+                    return load_from_manifest(&m2, write_lock);
                 }
             }
         }
@@ -119,7 +131,10 @@ pub(crate) fn load_single_file(path: &Path) -> Result<LoadedPackage, String> {
     })
 }
 
-pub(crate) fn load_from_manifest(manifest: &Path) -> Result<LoadedPackage, String> {
+pub(crate) fn load_from_manifest(
+    manifest: &Path,
+    write_lock: bool,
+) -> Result<LoadedPackage, String> {
     let text = fs::read_to_string(manifest)
         .map_err(|e| format!("error: read {}: {e}", manifest.display()))?;
     let toml = parse_aura_toml(&text).map_err(|e| format!("error: {}: {e}", manifest.display()))?;
@@ -219,7 +234,9 @@ pub(crate) fn load_from_manifest(manifest: &Path) -> Result<LoadedPackage, Strin
             );
         }
     }
-    write_lock_entries(&root, &lock_entries)?;
+    if write_lock {
+        write_lock_entries(&root, &lock_entries)?;
+    }
     Ok(pkg)
 }
 

@@ -442,8 +442,12 @@ fun main() { square(2) }
 
 // --- C13i registry index client ---
 
+fn fixture_registry_root() -> std::path::PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../aura-cli/testdata/registry")
+}
+
 fn fixture_registry_index() -> crate::package::RegistryIndex {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/registry");
+    let root = fixture_registry_root();
     crate::package::RegistryIndex::open(&root).expect("open fixture registry")
 }
 
@@ -620,7 +624,7 @@ fn semver_resolve_lock_pin_pure() {
 #[test]
 fn semver_resolve_via_fixture_index_path() {
     // Uses the same fixture root that AURA_REGISTRY_INDEX would point at in CI.
-    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/registry");
+    let fixture = fixture_registry_root();
     let idx = super::RegistryIndex::open(&fixture).expect("open via fixture path");
     assert!(
         idx.root().ends_with("testdata/registry") || idx.root().ends_with("testdata\\registry")
@@ -655,7 +659,7 @@ fn semver_public_reexports() {
 // --- C13k registry tarball fetch + sha256 ---
 
 fn fixture_tiny_crate_path() -> std::path::PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/registry/crates/tiny-0.1.0.crate")
+    fixture_registry_root().join("crates/tiny-0.1.0.crate")
 }
 
 fn fixture_tiny_meta() -> crate::package::VersionMeta {
@@ -731,7 +735,7 @@ fn write_local_registry_index(root: &Path) {
         r#"{"dl":"https://example.invalid/{name}-{version}.crate"}"#,
     )
     .unwrap();
-    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/registry");
+    let fixture = fixture_registry_root();
     fs::create_dir_all(root.join("crates")).unwrap();
     fs::create_dir_all(root.join("packages/tiny")).unwrap();
     fs::copy(
@@ -867,7 +871,7 @@ fn c13l_load_registry_dep_resolve_fetch_lock() {
     use super::{cache_root_from_env, package_src_dir, ENV_REGISTRY_CACHE, ENV_REGISTRY_INDEX};
 
     let _guard = registry_env_lock();
-    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/registry");
+    let fixture = fixture_registry_root();
     let cache = unique_cache_root("c13l-load");
     let app = std::env::temp_dir().join(format!(
         "aura-c13l-app-{}-{}",
@@ -967,7 +971,7 @@ fn c13l_warm_cache_offline_without_crate_tarball() {
     use super::{ensure_installed, is_package_installed, ENV_REGISTRY_CACHE, ENV_REGISTRY_INDEX};
 
     let _guard = registry_env_lock();
-    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/registry");
+    let fixture = fixture_registry_root();
     let cache = unique_cache_root("c13l-warm");
     let meta = fixture_tiny_meta();
     let crate_path = fixture_tiny_crate_path();
@@ -1032,7 +1036,7 @@ fun main() {}
 
 #[test]
 fn c13l_local_crate_path_helper() {
-    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/registry");
+    let fixture = fixture_registry_root();
     let p = super::local_crate_path(&fixture, "tiny", "0.1.0").expect("fixture crate");
     assert!(p.ends_with("tiny-0.1.0.crate"));
     let meta = fixture_tiny_meta();

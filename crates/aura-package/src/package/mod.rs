@@ -24,7 +24,7 @@ pub use fetch::{
     local_crate_path, normalize_cksum, package_src_dir, read_crate_bytes, sha256_hex,
     verify_sha256, ENV_REGISTRY_CACHE,
 };
-pub use load::{load_package, load_package_default};
+pub use load::{load_package, load_package_default, load_package_read_only};
 pub use publish::{publish_dry_run, publish_package};
 pub use registry::PublishErrorKind;
 pub use registry::{activate_update, current_target, RegistryIndex, UpdateDecision};

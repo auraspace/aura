@@ -3,8 +3,10 @@ use aura_analysis::{
 };
 use aura_ast::{File, FunDecl, Span};
 use aura_lexer::{lex, TokenKind};
+use aura_package::load_package_read_only;
+use aura_sema::check_file;
 use serde_json::{json, Map, Value};
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
@@ -425,17 +427,7 @@ impl Server {
     fn publish_diagnostics(&mut self, uri: &str, text: &str) {
         let id = DocumentId::from(uri);
         self.host.set_document(id.clone(), text.to_owned());
-        let diagnostics = self
-            .host
-            .snapshot()
-            .diagnostics(&id)
-            .map(|items| {
-                items
-                    .into_iter()
-                    .map(|item| diagnostic_json(text, &item))
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
+        let diagnostics = self.diagnostics_for_document(uri, text, &id);
         let version = self
             .documents
             .get(uri)
@@ -461,17 +453,7 @@ impl Server {
         };
         let text = document.get("text").and_then(Value::as_str).unwrap_or("");
         let id = DocumentId::from(uri);
-        let diagnostics = self
-            .host
-            .snapshot()
-            .diagnostics(&id)
-            .map(|items| {
-                items
-                    .into_iter()
-                    .map(|item| diagnostic_json(text, &item))
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
+        let diagnostics = self.diagnostics_for_document(uri, text, &id);
         let version = document.get("version").and_then(Value::as_i64).unwrap_or(0);
         let result_id = format!("{uri}@{version}");
         if params
@@ -482,6 +464,66 @@ impl Server {
             return json!({"kind":"unchanged","resultId":result_id});
         }
         json!({"kind":"full","resultId":result_id,"items":diagnostics})
+    }
+
+    fn diagnostics_for_document(&self, uri: &str, text: &str, id: &DocumentId) -> Vec<Value> {
+        self.package_diagnostics(uri, text).unwrap_or_else(|| {
+            self.host
+                .snapshot()
+                .diagnostics(id)
+                .map(|items| {
+                    items
+                        .into_iter()
+                        .map(|item| diagnostic_json(text, &item))
+                        .collect()
+                })
+                .unwrap_or_default()
+        })
+    }
+
+    // Semantic checking needs the package unit, not an individual source file.
+    fn package_diagnostics(&self, uri: &str, text: &str) -> Option<Vec<Value>> {
+        let target_path = uri_to_path(uri)?;
+        let manifest = manifest_for(&target_path)?;
+        let overlays = self
+            .documents
+            .iter()
+            .filter_map(|(document_uri, document)| {
+                let path = uri_to_path(document_uri)?;
+                let text = document.get("text")?.as_str()?.to_owned();
+                Some((path, text))
+            })
+            .collect::<HashMap<_, _>>();
+        let mut overlays = overlays;
+        overlays.insert(target_path.clone(), text.to_owned());
+        let package = load_package_read_only(&manifest)
+            .ok()?
+            .with_overlays(&overlays)
+            .ok()?;
+        let target = package
+            .sources
+            .iter()
+            .find(|source| source.path == target_path)?;
+
+        let errors = match check_file(&package.ast) {
+            Ok(_) => return Some(Vec::new()),
+            Err(errors) => errors.errors,
+        };
+        Some(
+            errors
+                .into_iter()
+                .filter(|error| error.span.start >= target.base && error.span.start < target.end)
+                .map(|error| Diagnostic {
+                    severity: Severity::Error,
+                    message: error.message,
+                    span: Span::new(
+                        error.span.start - target.base,
+                        error.span.end.saturating_sub(target.base),
+                    ),
+                })
+                .map(|diagnostic| diagnostic_json(text, &diagnostic))
+                .collect(),
+        )
     }
 
     fn format_document(&self, params: Option<&Value>) -> Result<Value, (i32, String)> {
@@ -1384,6 +1426,12 @@ fn checked_position_to_offset(source: &str, position: &Value) -> Option<usize> {
     Some(position_to_offset(source, position))
 }
 
+fn manifest_for(path: &Path) -> Option<PathBuf> {
+    path.ancestors()
+        .map(|directory| directory.join("aura.toml"))
+        .find(|manifest| manifest.is_file())
+}
+
 fn workspace_roots(params: Option<&Value>) -> Vec<PathBuf> {
     let mut roots = Vec::new();
     if let Some(uri) = params
@@ -1657,7 +1705,51 @@ fn full_document_range(source: &str) -> Value {
 mod tests {
     use super::{diagnostic_code, path_to_uri, position_to_offset, Server};
     use serde_json::json;
-    use std::path::Path;
+    use std::fs;
+    use std::path::{Path, PathBuf};
+
+    fn workspace_path(relative: &str) -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join(relative)
+    }
+
+    fn open_workspace_document(
+        root: &Path,
+        relative: &str,
+        overlay: Option<String>,
+    ) -> serde_json::Value {
+        let path = root.join(relative);
+        let text = overlay.unwrap_or_else(|| fs::read_to_string(&path).expect("workspace source"));
+        let mut server = Server::new();
+        server.handle(json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"rootUri":path_to_uri(root),"capabilities":{}}}));
+        server
+            .handle(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":path_to_uri(&path),"version":1,"text":text}}}))
+            .expect("diagnostic notification")
+    }
+
+    #[test]
+    fn package_diagnostics_resolve_std_io() {
+        let root = workspace_path("corpus/std_io/exit");
+        let notification = open_workspace_document(&root, "src/main.aura", None);
+        assert!(notification["params"]["diagnostics"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn package_diagnostics_resolve_transitive_path_dependencies() {
+        let root = workspace_path("corpus/import/nested_app");
+        let overlay = fs::read_to_string(root.join("src/main.aura"))
+            .expect("workspace source")
+            .replace("println(wrap())", "println(wrap() + \"!\")");
+        let notification = open_workspace_document(&root, "src/main.aura", Some(overlay));
+        assert!(notification["params"]["diagnostics"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+    }
 
     #[test]
     fn publishes_diagnostics_for_open_document() {

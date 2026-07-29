@@ -1,10 +1,8 @@
 //! Aura CLI — check / build / run / test / new / emit-c with pretty diagnostics.
 
 mod formatter;
-mod package;
 mod runtime_path;
 mod scaffold;
-mod std_path;
 mod test_report;
 
 use aura_analysis::{check_file, SemaError, SemaErrors};
@@ -13,6 +11,7 @@ use aura_diagnostics::{
     classify_async, format_async_error, format_error_with, FormatOptions, JsonDiagnostic, Severity,
 };
 use aura_lsp::run_stdio;
+use aura_package as package;
 use package::{
     activate_update, current_target, load_package, load_package_default, publish_dry_run,
     publish_package, LoadedPackage, RegistryIndex, UpdateDecision, ENV_REGISTRY_TOKEN,

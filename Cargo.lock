@@ -31,6 +31,7 @@ dependencies = [
  "aura-codegen",
  "aura-diagnostics",
  "aura-lsp",
+ "aura-package",
  "flate2",
  "sha2",
  "tar",
@@ -68,8 +69,23 @@ dependencies = [
  "aura-analysis",
  "aura-ast",
  "aura-lexer",
+ "aura-package",
  "aura-sema",
  "serde_json",
+]
+
+[[package]]
+name = "aura-package"
+version = "0.1.1-alpha.1"
+dependencies = [
+ "aura-analysis",
+ "aura-ast",
+ "aura-codegen",
+ "aura-diagnostics",
+ "flate2",
+ "sha2",
+ "tar",
+ "ureq",
 ]
 
 [[package]]
