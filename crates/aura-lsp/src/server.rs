@@ -531,7 +531,7 @@ impl Server {
             .unwrap_or(source.len());
         let start = word_start(source, offset);
         let prefix = &source[start..offset.min(source.len())];
-        let member_completion = start > 0 && source[..start].chars().next_back() == Some('.');
+        let member_completion = start > 0 && source[..start].ends_with('.');
         let mut items = Vec::new();
         if let Some((import_start, import_prefix)) = import_completion_context(source, offset) {
             for package in self.workspace_packages() {
@@ -1299,9 +1299,9 @@ fn source_span(source: &str, span: Span) -> String {
 
 fn documentation_before(source: &str, declaration_start: usize) -> String {
     let prefix = &source[..declaration_start.min(source.len())];
-    let mut lines = prefix.lines().rev();
+    let lines = prefix.lines().rev();
     let mut comments = Vec::new();
-    while let Some(line) = lines.next() {
+    for line in lines {
         let trimmed = line.trim_start();
         if !trimmed.starts_with("//") {
             break;
@@ -1345,15 +1345,13 @@ fn position_to_offset(source: &str, position: &Value) -> usize {
         .get("character")
         .and_then(Value::as_u64)
         .unwrap_or(0) as usize;
-    let mut line = 0;
     let mut offset = 0;
-    for line_text in source.split_inclusive('\n') {
+    for (line, line_text) in source.split_inclusive('\n').enumerate() {
         if line == target_line {
             return offset
                 + utf16_column_to_byte(line_text.trim_end_matches(['\r', '\n']), target_character);
         }
         offset += line_text.len();
-        line += 1;
     }
     source.len()
 }
@@ -1595,7 +1593,7 @@ fn valid_identifier(name: &str) -> bool {
         && chars.all(|character| character.is_ascii_alphanumeric() || character == '_')
 }
 
-fn flatten_symbols<'a>(symbols: &'a [Symbol]) -> Vec<&'a Symbol> {
+fn flatten_symbols(symbols: &[Symbol]) -> Vec<&Symbol> {
     let mut flattened = Vec::new();
     for symbol in symbols {
         flattened.push(symbol);
