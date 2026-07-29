@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use aura_ast::{File, Span};
+use aura_ast::{File, MemberVisibility, Span};
 
 use crate::ty::Ty;
 
@@ -27,6 +27,10 @@ pub struct ClassMethodSig {
     pub name: String,
     pub params: Vec<Ty>,
     pub ret: Ty,
+    pub is_open: bool,
+    pub is_abstract: bool,
+    pub is_override: bool,
+    pub visibility: MemberVisibility,
     pub span: Span,
 }
 
@@ -43,6 +47,7 @@ pub struct FieldSig {
     pub name: String,
     pub ty: Ty,
     pub mutable: bool,
+    pub visibility: MemberVisibility,
 }
 
 #[derive(Debug, Clone)]
@@ -52,9 +57,13 @@ pub struct ClassSig {
     pub package: String,
     /// `false` = class, `true` = struct (value type; no implements).
     pub is_struct: bool,
+    pub is_open: bool,
+    pub is_abstract: bool,
     pub type_params: Vec<String>,
     /// Bounds per type param name (interface names in C2e).
     pub bounds: HashMap<String, Vec<String>>,
+    /// Direct superclass, when this class participates in inheritance.
+    pub superclass: Option<Ty>,
     /// Implemented interfaces as `Ty::Interface` or `Ty::InterfaceApp` (C8c).
     pub implements: Vec<Ty>,
     pub fields: Vec<FieldSig>,
@@ -69,6 +78,7 @@ pub struct InterfaceSig {
     pub package: String,
     /// C7i/C8c: declared type params; implements may monomorphize.
     pub type_params: Vec<String>,
+    pub parents: Vec<Ty>,
     pub methods: HashMap<String, IfaceMethodSig>,
     pub span: Span,
 }

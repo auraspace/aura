@@ -145,6 +145,18 @@ impl Parser {
         let name = self.expect_ident()?;
         // C7i/C8c: `interface Iterable<E> { … }` — mono implements supported.
         let type_params = self.parse_type_params_opt()?;
+        let mut parents = Vec::new();
+        if matches!(self.peek().kind, TokenKind::Colon) {
+            self.bump();
+            loop {
+                parents.push(self.parse_type()?);
+                if matches!(self.peek().kind, TokenKind::Comma) {
+                    self.bump();
+                    continue;
+                }
+                break;
+            }
+        }
         self.expect(TokenKind::LBrace, "`{`")?;
         let mut methods = Vec::new();
         while !matches!(self.peek().kind, TokenKind::RBrace | TokenKind::Eof) {
@@ -163,6 +175,7 @@ impl Parser {
             attributes: Vec::new(),
             name,
             type_params,
+            parents,
             methods,
             span: Span::new(start, end),
         })
@@ -220,7 +233,11 @@ impl Parser {
         })
     }
 
-    pub(crate) fn parse_nominal(&mut self, kind: NominalKind) -> Result<ClassDecl, ParseError> {
+    pub(crate) fn parse_nominal(
+        &mut self,
+        kind: NominalKind,
+        modifiers: Vec<Modifier>,
+    ) -> Result<ClassDecl, ParseError> {
         let start = self.peek().span.start;
         match kind {
             NominalKind::Class => {
@@ -237,7 +254,8 @@ impl Parser {
         if !matches!(self.peek().kind, TokenKind::RParen) {
             loop {
                 let attributes = self.parse_attributes()?;
-                let mut field = self.parse_field()?;
+                let visibility = self.parse_member_visibility();
+                let mut field = self.parse_field(visibility)?;
                 field.attributes = attributes;
                 fields.push(field);
                 if matches!(self.peek().kind, TokenKind::Comma) {
@@ -249,6 +267,8 @@ impl Parser {
         }
         self.expect(TokenKind::RParen, "`)`")?;
         // Optional `: Iface, Iface2` — classes only
+        let mut superclass = None;
+        let mut superclass_args = Vec::new();
         let mut implements = Vec::new();
         if matches!(self.peek().kind, TokenKind::Colon) {
             if kind == NominalKind::Struct {
@@ -258,14 +278,27 @@ impl Parser {
                 });
             }
             self.bump();
-            loop {
-                // C8c: `Iface` or `Iface<T, …>` (TypeRef, not bare Ident).
-                implements.push(self.parse_type()?);
-                if matches!(self.peek().kind, TokenKind::Comma) {
-                    self.bump();
-                    continue;
+            let first = self.parse_type()?;
+            if matches!(self.peek().kind, TokenKind::LParen) {
+                self.bump();
+                if !matches!(self.peek().kind, TokenKind::RParen) {
+                    loop {
+                        superclass_args.push(self.parse_expr(0)?);
+                        if matches!(self.peek().kind, TokenKind::Comma) {
+                            self.bump();
+                            continue;
+                        }
+                        break;
+                    }
                 }
-                break;
+                self.expect(TokenKind::RParen, "`)` after superclass constructor")?;
+                superclass = Some(first);
+            } else {
+                implements.push(first);
+            }
+            while matches!(self.peek().kind, TokenKind::Comma) {
+                self.bump();
+                implements.push(self.parse_type()?);
             }
         }
         self.apply_where_clause(&mut type_params)?;
@@ -273,10 +306,11 @@ impl Parser {
         let mut methods = Vec::new();
         while !matches!(self.peek().kind, TokenKind::RBrace | TokenKind::Eof) {
             let attributes = self.parse_attributes()?;
-            if matches!(self.peek().kind, TokenKind::Pub) {
-                self.bump();
-            }
+            let modifiers = self.parse_modifiers()?;
+            let visibility = self.parse_member_visibility();
             let mut method = self.parse_fun()?;
+            method.modifiers = modifiers;
+            method.visibility = visibility;
             method.attributes = attributes;
             methods.push(method);
         }
@@ -285,9 +319,12 @@ impl Parser {
             is_pub: false,
             origin_package: String::new(),
             attributes: Vec::new(),
+            modifiers,
             kind,
             name,
             type_params,
+            superclass,
+            superclass_args,
             implements,
             fields,
             methods,
@@ -364,7 +401,10 @@ impl Parser {
         Ok(())
     }
 
-    pub(crate) fn parse_field(&mut self) -> Result<FieldDecl, ParseError> {
+    pub(crate) fn parse_field(
+        &mut self,
+        visibility: MemberVisibility,
+    ) -> Result<FieldDecl, ParseError> {
         let start = self.peek().span.start;
         let mutable = match self.peek().kind {
             TokenKind::Val => {
@@ -388,6 +428,7 @@ impl Parser {
         let end = ty.span.end;
         Ok(FieldDecl {
             attributes: Vec::new(),
+            visibility,
             mutable,
             name,
             ty,
@@ -480,6 +521,8 @@ impl Parser {
             is_pub: false,
             origin_package: String::new(),
             attributes: Vec::new(),
+            modifiers: Vec::new(),
+            visibility: MemberVisibility::Package,
             is_test: false,
             name,
             type_params,

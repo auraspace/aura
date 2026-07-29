@@ -224,6 +224,12 @@ fn shift_class(c: &mut ClassDecl, delta: BytePos) {
     for tp in &mut c.type_params {
         shift_type_param(tp, delta);
     }
+    if let Some(parent) = &mut c.superclass {
+        shift_type_ref(parent, delta);
+    }
+    for arg in &mut c.superclass_args {
+        shift_expr(arg, delta);
+    }
     for i in &mut c.implements {
         shift_type_ref(i, delta);
     }

@@ -299,23 +299,37 @@ impl Checker {
                         Ty::Class(k) | Ty::ClassApp { name: k, .. } => k.as_str(),
                         _ => cname,
                     };
-                    let class =
-                        self.class_by_nominal_key(key)
-                            .cloned()
-                            .ok_or_else(|| SemaError {
-                                message: format!("unknown class `{cname}`"),
-                                span: f.span,
-                            })?;
-                    let subst = type_subst_map(&class.type_params, obj_ty.class_args());
-                    if let Some(field) = class.fields.iter().find(|x| x.name == f.field.name) {
-                        let t = subst_ty(&field.ty, &subst);
+                    if self.class_by_nominal_key(key).is_none() {
+                        return Err(SemaError {
+                            message: format!("unknown class `{cname}`"),
+                            span: f.span,
+                        });
+                    }
+                    if let Some((field, owner)) =
+                        self.class_field_with_owner_in_hierarchy(&obj_ty, &f.field.name)
+                    {
+                        self.check_member_visible(
+                            &owner,
+                            field.visibility,
+                            &field.name,
+                            f.field.span,
+                        )?;
+                        let t = field.ty;
                         return Ok(if safe_wrap {
                             Ty::Nullable(Box::new(t))
                         } else {
                             t
                         });
                     }
-                    if class.methods.contains_key(&f.field.name) {
+                    if let Some((method, owner)) =
+                        self.class_method_with_owner_in_hierarchy(&obj_ty, &f.field.name)
+                    {
+                        self.check_member_visible(
+                            &owner,
+                            method.visibility,
+                            &method.name,
+                            f.field.span,
+                        )?;
                         return Err(SemaError {
                             message: format!(
                                 "method `{}` must be called (use `.{}()`)",

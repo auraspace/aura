@@ -46,6 +46,12 @@ pub enum TokenKind {
     False,
     Null,
     Pub,
+    Protected,
+    Private,
+    Abstract,
+    Override,
+    Open,
+    Final,
     This,
     /// Generic constraint clause: `where T : Named`.
     Where,
@@ -146,6 +152,12 @@ impl TokenKind {
                 | TokenKind::False
                 | TokenKind::Null
                 | TokenKind::Pub
+                | TokenKind::Protected
+                | TokenKind::Private
+                | TokenKind::Abstract
+                | TokenKind::Override
+                | TokenKind::Open
+                | TokenKind::Final
                 | TokenKind::This
                 | TokenKind::Where
                 | TokenKind::Is
@@ -475,6 +487,12 @@ impl<'a> Lexer<'a> {
             "false" => TokenKind::False,
             "null" => TokenKind::Null,
             "pub" => TokenKind::Pub,
+            "protected" => TokenKind::Protected,
+            "private" => TokenKind::Private,
+            "abstract" => TokenKind::Abstract,
+            "override" => TokenKind::Override,
+            "open" => TokenKind::Open,
+            "final" => TokenKind::Final,
             "this" => TokenKind::This,
             "where" => TokenKind::Where,
             "is" => TokenKind::Is,

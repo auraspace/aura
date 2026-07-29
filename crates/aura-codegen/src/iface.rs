@@ -74,6 +74,7 @@ fn type_ref_to_ty_open(t: &TypeRef, checked: &CheckedFile, class_tparams: &[Stri
 }
 
 fn implements_matches_after_subst(
+    checked: &CheckedFile,
     cs: &aura_sema::ClassSig,
     class_args: &[Ty],
     iface_key: &str,
@@ -101,7 +102,250 @@ fn implements_matches_after_subst(
             }
             _ => false,
         }
+    }) || cs.implements.iter().any(|imp| {
+        let concrete = if let Some(ref m) = map {
+            aura_sema::subst_ty(imp, m)
+        } else {
+            imp.clone()
+        };
+        iface_extends(
+            checked,
+            &concrete,
+            iface_key,
+            iface_simple,
+            target_args,
+            &mut Vec::new(),
+        )
     })
+}
+
+/// Match a transitive parent interface after applying each interface's type args.
+fn iface_extends(
+    checked: &CheckedFile,
+    from: &Ty,
+    target_key: &str,
+    target_simple: &str,
+    target_args: &[Ty],
+    seen: &mut Vec<Ty>,
+) -> bool {
+    if seen.contains(from) {
+        return false;
+    }
+    seen.push(from.clone());
+    let Some(key) = from.iface_key() else {
+        return false;
+    };
+    let Some(iface) = checked
+        .interfaces
+        .iter()
+        .find(|iface| aura_sema::nominal_key(&iface.package, &iface.name) == key)
+    else {
+        return false;
+    };
+    let subst = aura_sema::type_subst_map(&iface.type_params, from.iface_args());
+    iface.parents.iter().any(|parent| {
+        let parent = aura_sema::subst_ty(parent, &subst);
+        (match &parent {
+            Ty::Interface(key) if target_args.is_empty() => {
+                key == target_key
+                    || key == target_simple
+                    || aura_sema::split_nominal(key).0 == target_simple
+            }
+            Ty::InterfaceApp { name, args } if !target_args.is_empty() => {
+                (name == target_key
+                    || name == target_simple
+                    || aura_sema::split_nominal(name).0 == target_simple)
+                    && args == target_args
+            }
+            _ => false,
+        }) || iface_extends(
+            checked,
+            &parent,
+            target_key,
+            target_simple,
+            target_args,
+            seen,
+        )
+    })
+}
+
+/// Direct interface plus every transitive parent it can be upcast to.
+pub(crate) fn interface_and_parents<'a>(
+    checked: &'a CheckedFile,
+    iface: &'a InterfaceDecl,
+    args: &[Ty],
+) -> Vec<(&'a InterfaceDecl, Vec<Ty>)> {
+    let mut out = Vec::new();
+    let mut seen = Vec::new();
+    collect_interface_and_parents(checked, iface, args, &mut out, &mut seen);
+    out
+}
+
+/// Methods available through a non-generic interface, with child declarations
+/// taking precedence over identically named parent methods.
+pub(crate) fn interface_methods_with_parents<'a>(
+    checked: &'a CheckedFile,
+    iface: &'a InterfaceDecl,
+) -> Vec<&'a MethodSig> {
+    interface_method_decls_with_parents(checked, iface, &[])
+        .into_iter()
+        .map(|(method, _, _)| method)
+        .collect()
+}
+
+/// Each inherited method paired with the interface that owns its type params.
+pub(crate) fn interface_method_decls_with_parents<'a>(
+    checked: &'a CheckedFile,
+    iface: &'a InterfaceDecl,
+    args: &[Ty],
+) -> Vec<(&'a MethodSig, &'a InterfaceDecl, Vec<Ty>)> {
+    let mut methods = Vec::new();
+    for (current, current_args) in interface_and_parents(checked, iface, args)
+        .into_iter()
+        .rev()
+    {
+        for method in &current.methods {
+            methods.retain(|(existing, _, _): &(&MethodSig, &InterfaceDecl, Vec<Ty>)| {
+                existing.name.name != method.name.name
+            });
+            methods.push((method, current, current_args.clone()));
+        }
+    }
+    methods
+}
+
+/// Whether a class declaration implements an interface directly or through a child interface.
+pub(crate) fn class_decl_implements_iface(
+    checked: &CheckedFile,
+    class: &ClassDecl,
+    iface_simple: &str,
+) -> bool {
+    let package = class_decl_package(class, checked);
+    let target = checked.ast.interfaces.iter().find(|iface| {
+        iface.name.name == iface_simple && iface_decl_package(iface, checked) == package
+    });
+    let Some(target) = target.or_else(|| {
+        checked
+            .ast
+            .interfaces
+            .iter()
+            .find(|iface| iface.name.name == iface_simple)
+    }) else {
+        return false;
+    };
+    let target_key = aura_sema::nominal_key(&iface_decl_package(target, checked), iface_simple);
+    checked
+        .classes
+        .iter()
+        .find(|sig| sig.name == class.name.name && sig.package == package)
+        .map(|sig| {
+            sig.implements.iter().any(|implemented| {
+                (implemented.iface_name() == Some(iface_simple)
+                    && implemented.iface_args().is_empty())
+                    || iface_extends(
+                        checked,
+                        implemented,
+                        &target_key,
+                        iface_simple,
+                        &[],
+                        &mut Vec::new(),
+                    )
+            })
+        })
+        .unwrap_or(false)
+}
+
+/// Check an instantiated class against an instantiated interface, including
+/// parent interfaces reached after substituting the class type arguments.
+pub(crate) fn class_mono_implements_iface(
+    checked: &CheckedFile,
+    class: &ClassDecl,
+    class_mono: &str,
+    iface_mono: &str,
+) -> bool {
+    let package = class_decl_package(class, checked);
+    let Some(sig) = checked
+        .classes
+        .iter()
+        .find(|sig| sig.name == class.name.name && sig.package == package)
+    else {
+        return false;
+    };
+    let class_args = if sig.type_params.is_empty() {
+        Vec::new()
+    } else if let Some((_, args)) = checked
+        .mono_classes
+        .iter()
+        .find(|(name, args)| name == &sig.name && type_mono(&package, name, args) == class_mono)
+    {
+        args.clone()
+    } else {
+        return false;
+    };
+    let subst = aura_sema::type_subst_map(&sig.type_params, &class_args);
+    sig.implements.iter().any(|implemented| {
+        let implemented = aura_sema::subst_ty(implemented, &subst);
+        let Some(key) = implemented.iface_key() else {
+            return false;
+        };
+        let Some(iface) = checked.ast.interfaces.iter().find(|candidate| {
+            aura_sema::nominal_key(
+                &iface_decl_package(candidate, checked),
+                &candidate.name.name,
+            ) == key
+        }) else {
+            return false;
+        };
+        interface_and_parents(checked, iface, implemented.iface_args())
+            .into_iter()
+            .any(|(candidate, args)| iface_mono_args(candidate, checked, &args) == iface_mono)
+    })
+}
+
+fn collect_interface_and_parents<'a>(
+    checked: &'a CheckedFile,
+    iface: &'a InterfaceDecl,
+    args: &[Ty],
+    out: &mut Vec<(&'a InterfaceDecl, Vec<Ty>)>,
+    seen: &mut Vec<Ty>,
+) {
+    let key = aura_sema::nominal_key(&iface_decl_package(iface, checked), &iface.name.name);
+    let current = if args.is_empty() {
+        Ty::Interface(key.clone())
+    } else {
+        Ty::InterfaceApp {
+            name: key.clone(),
+            args: args.to_vec(),
+        }
+    };
+    if seen.contains(&current) {
+        return;
+    }
+    seen.push(current);
+    out.push((iface, args.to_vec()));
+    let Some(sig) = checked
+        .interfaces
+        .iter()
+        .find(|sig| aura_sema::nominal_key(&sig.package, &sig.name) == key)
+    else {
+        return;
+    };
+    let subst = aura_sema::type_subst_map(&sig.type_params, args);
+    for parent in &sig.parents {
+        let parent = aura_sema::subst_ty(parent, &subst);
+        let Some(parent_key) = parent.iface_key() else {
+            continue;
+        };
+        let Some(parent_decl) = checked.ast.interfaces.iter().find(|candidate| {
+            aura_sema::nominal_key(
+                &iface_decl_package(candidate, checked),
+                &candidate.name.name,
+            ) == parent_key
+        }) else {
+            continue;
+        };
+        collect_interface_and_parents(checked, parent_decl, parent.iface_args(), out, seen);
+    }
 }
 
 /// Concrete monomorphs that implement `iface` with the given type args (C8c/C9a).
@@ -120,7 +364,7 @@ pub(crate) fn mono_implementors_for_iface<'a>(
             continue;
         }
         if cs.type_params.is_empty() {
-            if implements_matches_after_subst(cs, &[], &key, simple, args) {
+            if implements_matches_after_subst(checked, cs, &[], &key, simple, args) {
                 if let Some(c) = checked.ast.classes.iter().find(|c| {
                     c.name.name == cs.name
                         && class_decl_package(c, checked) == cs.package
@@ -141,7 +385,7 @@ pub(crate) fn mono_implementors_for_iface<'a>(
                 if cargs.len() != cs.type_params.len() {
                     continue;
                 }
-                if implements_matches_after_subst(cs, cargs, &key, simple, args) {
+                if implements_matches_after_subst(checked, cs, cargs, &key, simple, args) {
                     if let Some(c) = checked.ast.classes.iter().find(|c| {
                         c.name.name == cs.name
                             && c.kind == NominalKind::Class
@@ -254,20 +498,32 @@ pub(crate) fn emit_iface_dispatch(
     m: &MethodSig,
     args: &[Ty],
 ) {
-    let imono = iface_mono_args(iface, checked, args);
     let tparams: Vec<String> = iface
         .type_params
         .iter()
         .map(|p| p.name.name.clone())
         .collect();
+    emit_iface_dispatch_with_method_args(out, checked, iface, m, args, &tparams, args);
+}
+
+pub(crate) fn emit_iface_dispatch_with_method_args(
+    out: &mut String,
+    checked: &CheckedFile,
+    iface: &InterfaceDecl,
+    m: &MethodSig,
+    iface_args: &[Ty],
+    method_tparams: &[String],
+    method_args: &[Ty],
+) {
+    let imono = iface_mono_args(iface, checked, iface_args);
     let _ = writeln!(
         out,
         "{} {{",
-        c_iface_method_signature_args(&imono, m, checked, &tparams, args)
+        c_iface_method_signature_args(&imono, m, checked, method_tparams, method_args)
     );
-    let ret = c_type_from_opt_subst(&m.return_type, checked, &tparams, args);
+    let ret = c_type_from_opt_subst(&m.return_type, checked, method_tparams, method_args);
     out.push_str("  switch (self->tag) {\n");
-    for imp in mono_implementors_for_iface(checked, iface, args) {
+    for imp in mono_implementors_for_iface(checked, iface, iface_args) {
         let pkg = class_decl_package(imp.class, checked);
         let mono = type_mono(&pkg, &imp.class.name.name, &imp.class_args);
         let margs = m

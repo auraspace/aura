@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use aura_ast::TypeRef;
 
 use super::Checker;
@@ -334,8 +336,84 @@ impl Checker {
             } else {
                 imp.clone()
             };
-            Self::iface_ty_matches(&concrete, target)
+            Self::iface_ty_matches(&concrete, target) || self.interface_extends(&concrete, target)
         })
+    }
+
+    /// Whether an interface value can be viewed as one of its parent interfaces.
+    pub(crate) fn interface_extends(&self, from: &Ty, target: &Ty) -> bool {
+        let mut seen = std::collections::HashSet::new();
+        self.interface_extends_inner(from, target, &mut seen)
+    }
+
+    fn interface_extends_inner(
+        &self,
+        from: &Ty,
+        target: &Ty,
+        seen: &mut std::collections::HashSet<Ty>,
+    ) -> bool {
+        if !seen.insert(from.clone()) {
+            return false;
+        }
+        let Some(key) = from.iface_key() else {
+            return false;
+        };
+        let Some(iface) = self.iface_by_nominal_key(key) else {
+            return false;
+        };
+        let subst = crate::util::type_subst_map(&iface.type_params, from.iface_args());
+        iface.parents.iter().any(|parent| {
+            let parent = crate::util::subst_ty(parent, &subst);
+            Self::iface_ty_matches(&parent, target)
+                || self.interface_extends_inner(&parent, target, seen)
+        })
+    }
+
+    /// All methods available on an interface, including inherited parents.
+    pub(crate) fn interface_methods(
+        &self,
+        iface_ty: &Ty,
+    ) -> HashMap<String, crate::sigs::IfaceMethodSig> {
+        let mut methods = HashMap::new();
+        let mut seen = std::collections::HashSet::new();
+        self.collect_interface_methods(iface_ty, &mut methods, &mut seen);
+        methods
+    }
+
+    fn collect_interface_methods(
+        &self,
+        iface_ty: &Ty,
+        methods: &mut HashMap<String, crate::sigs::IfaceMethodSig>,
+        seen: &mut std::collections::HashSet<Ty>,
+    ) {
+        if !seen.insert(iface_ty.clone()) {
+            return;
+        }
+        let Some(key) = iface_ty.iface_key() else {
+            return;
+        };
+        let Some(iface) = self.iface_by_nominal_key(key) else {
+            return;
+        };
+        let subst = crate::util::type_subst_map(&iface.type_params, iface_ty.iface_args());
+        for parent in &iface.parents {
+            self.collect_interface_methods(&crate::util::subst_ty(parent, &subst), methods, seen);
+        }
+        for (name, method) in &iface.methods {
+            methods.insert(
+                name.clone(),
+                crate::sigs::IfaceMethodSig {
+                    name: method.name.clone(),
+                    params: method
+                        .params
+                        .iter()
+                        .map(|p| crate::util::subst_ty(p, &subst))
+                        .collect(),
+                    ret: crate::util::subst_ty(&method.ret, &subst),
+                    span: method.span,
+                },
+            );
+        }
     }
 
     /// Match implemented iface vs expected: non-generic by key; generic exact args.
@@ -367,6 +445,17 @@ impl Checker {
             (Ty::ClassApp { name: c, args }, Ty::Interface(_) | Ty::InterfaceApp { .. }) => {
                 self.class_implements_with_args(c, args, to)
             }
+            (
+                Ty::Interface(_) | Ty::InterfaceApp { .. },
+                Ty::Interface(_) | Ty::InterfaceApp { .. },
+            ) => self.interface_extends(from, to),
+            (Ty::Class(child), Ty::Class(parent)) => self.class_extends(child, parent, &[]),
+            (Ty::ClassApp { name: child, args }, Ty::Class(parent)) => {
+                self.class_extends(child, parent, args)
+            }
+            (Ty::ClassApp { name: child, args }, target @ Ty::ClassApp { .. }) => {
+                self.class_extends_to(child, args, target)
+            }
             // Bounded type param is assignable to its interface bounds (non-generic)
             (Ty::TypeParam(p), Ty::Interface(i)) => self
                 .type_params
@@ -393,6 +482,53 @@ impl Checker {
             // Type params only match themselves (handled by ==)
             _ => false,
         }
+    }
+
+    /// Check the direct-superclass chain for class assignability.
+    pub(crate) fn class_extends(
+        &self,
+        child_key: &str,
+        parent_key: &str,
+        child_args: &[Ty],
+    ) -> bool {
+        self.class_extends_to(child_key, child_args, &Ty::Class(parent_key.to_string()))
+    }
+
+    /// Check the superclass chain against an exact (possibly generic) parent type.
+    fn class_extends_to(&self, child_key: &str, child_args: &[Ty], target: &Ty) -> bool {
+        let mut current = Some((child_key.to_string(), child_args.to_vec()));
+        let mut seen = std::collections::HashSet::new();
+        while let Some((key, args)) = current {
+            if !seen.insert(key.clone()) {
+                return false;
+            }
+            let Some(class) = self.class_by_nominal_key(&key) else {
+                return false;
+            };
+            let Some(superclass) = &class.superclass else {
+                return false;
+            };
+            let subst = if !args.is_empty() && class.type_params.len() == args.len() {
+                Some(crate::util::type_subst_map(&class.type_params, &args))
+            } else {
+                None
+            };
+            let parent = subst
+                .as_ref()
+                .map(|map| crate::util::subst_ty(superclass, map))
+                .unwrap_or_else(|| superclass.clone());
+            if &parent == target {
+                return true;
+            }
+            match parent {
+                Ty::Class(parent) => current = Some((parent, Vec::new())),
+                Ty::ClassApp { name, args } => {
+                    current = Some((name, args));
+                }
+                _ => return false,
+            }
+        }
+        false
     }
 }
 

@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use aura_ast::{decl_package, File, ForeignCallingConvention, ForeignDecl, NominalKind};
 
-use super::Checker;
+use super::{Checker, Local};
 use crate::error::SemaError;
 use crate::sigs::*;
 use crate::ty::Ty;
@@ -364,9 +364,51 @@ impl Checker {
                     is_pub: i.is_pub,
                     package: pkg,
                     type_params: i.type_params.iter().map(|p| p.name.name.clone()).collect(),
+                    parents: Vec::new(),
                     methods,
                     span: i.span,
                 });
+        }
+
+        // Resolve parents only after every interface header is registered, so forward
+        // declarations participate in the same visibility and generic checks.
+        let mut resolved_interface_parents = Vec::new();
+        for i in &file.interfaces {
+            let pkg = decl_package(&i.origin_package, &file_pkg).to_string();
+            self.current_package = pkg.clone();
+            if let Err(err) = self.bind_type_params(&i.type_params) {
+                self.errors.push(err);
+                self.type_params.clear();
+                continue;
+            }
+            let mut parents = Vec::new();
+            for parent_ref in &i.parents {
+                match self.type_from_ref(parent_ref) {
+                    Ok(parent @ (Ty::Interface(_) | Ty::InterfaceApp { .. })) => {
+                        parents.push(parent);
+                    }
+                    Ok(other) => self.errors.push(SemaError {
+                        message: format!(
+                            "interface `{}` can only extend interfaces, got `{}`",
+                            i.name.name,
+                            other.display()
+                        ),
+                        span: parent_ref.span,
+                    }),
+                    Err(err) => self.errors.push(err),
+                }
+            }
+            self.type_params.clear();
+            resolved_interface_parents.push((i.name.name.clone(), pkg, parents));
+        }
+        for (name, pkg, parents) in resolved_interface_parents {
+            if let Some(iface) = self
+                .interfaces
+                .get_mut(&name)
+                .and_then(|items| items.iter_mut().find(|iface| iface.package == pkg))
+            {
+                iface.parents = parents;
+            }
         }
 
         // First pass: register enum names (fields resolved in second pass with type params).
@@ -593,6 +635,21 @@ impl Checker {
                 });
                 continue;
             }
+            let has_open = c.modifiers.contains(&aura_ast::Modifier::Open);
+            let has_final = c.modifiers.contains(&aura_ast::Modifier::Final);
+            let has_abstract = c.modifiers.contains(&aura_ast::Modifier::Abstract);
+            if has_open && has_final {
+                self.errors.push(SemaError {
+                    message: "class cannot be both `open` and `final`".into(),
+                    span: c.name.span,
+                });
+            }
+            if has_abstract && has_final {
+                self.errors.push(SemaError {
+                    message: "abstract class cannot be `final`".into(),
+                    span: c.name.span,
+                });
+            }
             self.classes
                 .entry(c.name.name.clone())
                 .or_default()
@@ -601,8 +658,12 @@ impl Checker {
                     is_pub: c.is_pub,
                     package: pkg,
                     is_struct: c.kind == NominalKind::Struct,
+                    is_open: c.modifiers.contains(&aura_ast::Modifier::Open)
+                        || c.modifiers.contains(&aura_ast::Modifier::Abstract),
+                    is_abstract: c.modifiers.contains(&aura_ast::Modifier::Abstract),
                     type_params: c.type_params.iter().map(|p| p.name.name.clone()).collect(),
                     bounds: Self::bounds_map_from_params(&c.type_params),
+                    superclass: None,
                     implements: Vec::new(),
                     fields: Vec::new(),
                     methods: HashMap::new(),
@@ -705,7 +766,66 @@ impl Checker {
                 continue;
             }
 
+            let mut superclass: Option<Ty> = None;
             let mut implements: Vec<Ty> = Vec::new();
+            if let Some(parent_ref) = &c.superclass {
+                match self.type_from_ref(parent_ref) {
+                    Ok(parent_ty @ (Ty::Class(_) | Ty::ClassApp { .. })) => {
+                        let class_key = parent_ty.class_name().unwrap_or_default();
+                        if let Some(parent) = self.class_by_nominal_key(class_key) {
+                            if parent.is_struct {
+                                self.errors.push(SemaError {
+                                    message: "structs cannot be used as superclasses".into(),
+                                    span: parent_ref.span,
+                                });
+                            } else if parent.name == c.name.name && parent.package == pkg {
+                                self.errors.push(SemaError {
+                                    message: format!(
+                                        "class `{}` cannot extend itself",
+                                        c.name.name
+                                    ),
+                                    span: parent_ref.span,
+                                });
+                            } else if !parent.is_open {
+                                self.errors.push(SemaError {
+                                    message: format!(
+                                        "class `{}` is final and cannot be extended",
+                                        parent.name
+                                    ),
+                                    span: parent_ref.span,
+                                });
+                            } else if let Some(parent_decl) =
+                                file.classes.iter().find(|candidate| {
+                                    candidate.name.name == parent.name
+                                        && decl_package(&candidate.origin_package, &file_pkg)
+                                            == parent.package
+                                })
+                            {
+                                if c.superclass_args.len() != parent_decl.fields.len() {
+                                    self.errors.push(SemaError {
+                                        message: format!(
+                                            "superclass `{}` expects {} constructor argument(s), got {}",
+                                            parent.name,
+                                            parent_decl.fields.len(),
+                                            c.superclass_args.len()
+                                        ),
+                                        span: parent_ref.span,
+                                    });
+                                } else {
+                                    superclass = Some(parent_ty);
+                                }
+                            } else {
+                                superclass = Some(parent_ty);
+                            }
+                        }
+                    }
+                    Ok(_) => self.errors.push(SemaError {
+                        message: "superclass must name a class".into(),
+                        span: parent_ref.span,
+                    }),
+                    Err(err) => self.errors.push(err),
+                }
+            }
             for iface_ref in &c.implements {
                 if iface_ref.nullable {
                     self.errors.push(SemaError {
@@ -714,8 +834,75 @@ impl Checker {
                     });
                     continue;
                 }
-                if iface_ref.qualifier.is_some() {
-                    // package-qualified implements still resolve via type_from_ref path below
+                // A class in the colon list is the direct superclass; interfaces
+                // remain in `implements`.
+                let resolved = match self.type_from_ref(iface_ref) {
+                    Ok(ty) => ty,
+                    Err(err) => {
+                        self.errors.push(err);
+                        continue;
+                    }
+                };
+                if matches!(resolved, Ty::Class(_) | Ty::ClassApp { .. }) {
+                    let class_key = resolved.class_name().unwrap_or_default();
+                    let Some(parent) = self.class_by_nominal_key(class_key).cloned() else {
+                        self.errors.push(SemaError {
+                            message: format!("unknown superclass `{}`", iface_ref.name.name),
+                            span: iface_ref.span,
+                        });
+                        continue;
+                    };
+                    if parent.is_struct {
+                        self.errors.push(SemaError {
+                            message: "structs cannot be used as superclasses".into(),
+                            span: iface_ref.span,
+                        });
+                        continue;
+                    }
+                    if parent.name == c.name.name && parent.package == pkg {
+                        self.errors.push(SemaError {
+                            message: format!("class `{}` cannot extend itself", c.name.name),
+                            span: iface_ref.span,
+                        });
+                        continue;
+                    }
+                    if !parent.is_open {
+                        self.errors.push(SemaError {
+                            message: format!(
+                                "class `{}` is final and cannot be extended",
+                                parent.name
+                            ),
+                            span: iface_ref.span,
+                        });
+                        continue;
+                    }
+                    if superclass.is_some() {
+                        self.errors.push(SemaError {
+                            message: format!(
+                                "class `{}` has more than one superclass",
+                                c.name.name
+                            ),
+                            span: iface_ref.span,
+                        });
+                        continue;
+                    }
+                    let parent_decl = file.classes.iter().find(|candidate| {
+                        candidate.name.name == parent.name
+                            && decl_package(&candidate.origin_package, &file_pkg) == parent.package
+                    });
+                    let expected_args = parent_decl.map(|decl| decl.fields.len()).unwrap_or(0);
+                    if expected_args != 0 {
+                        self.errors.push(SemaError {
+                            message: format!(
+                                "superclass `{}` expects {} constructor argument(s), got 0",
+                                parent.name, expected_args
+                            ),
+                            span: iface_ref.span,
+                        });
+                    } else {
+                        superclass = Some(resolved);
+                    }
+                    continue;
                 }
                 let isig = match self.resolve_interface(&iface_ref.name.name, iface_ref.span) {
                     Ok(i) => i,
@@ -807,7 +994,46 @@ impl Checker {
                     name: f.name.name.clone(),
                     ty,
                     mutable: f.mutable,
+                    visibility: f.visibility,
                 });
+            }
+
+            // Superclass constructor arguments are evaluated in the child
+            // constructor scope, where declared fields are available by name.
+            if let Some(parent_ty) = &superclass {
+                if let Some(parent_key) = parent_ty.class_name() {
+                    if let Some(parent) = self.class_by_nominal_key(parent_key).cloned() {
+                        let subst = type_subst_map(&parent.type_params, parent_ty.class_args());
+                        self.locals.push(HashMap::new());
+                        for field in &fields {
+                            self.current_locals_mut().insert(
+                                field.name.clone(),
+                                Local {
+                                    ty: field.ty.clone(),
+                                    mutable: field.mutable,
+                                    borrow_source: None,
+                                },
+                            );
+                        }
+                        for (arg, field) in c.superclass_args.iter().zip(parent.fields.iter()) {
+                            let expected = subst_ty(&field.ty, &subst);
+                            match self.check_expr_expected(arg, Some(&expected)) {
+                                Ok(got) if self.is_assignable(&got, &expected) => {}
+                                Ok(got) => self.errors.push(SemaError {
+                                    message: format!(
+                                        "superclass constructor argument for `{}`: expected {}, got {}",
+                                        field.name,
+                                        expected.display(),
+                                        got.display()
+                                    ),
+                                    span: arg.span(),
+                                }),
+                                Err(err) => self.errors.push(err),
+                            }
+                        }
+                        self.locals.pop();
+                    }
+                }
             }
 
             let mut methods = HashMap::new();
@@ -862,20 +1088,19 @@ impl Checker {
                         name: m.name.name.clone(),
                         params,
                         ret,
+                        is_open: m.modifiers.contains(&aura_ast::Modifier::Open),
+                        is_abstract: m.modifiers.contains(&aura_ast::Modifier::Abstract),
+                        is_override: m.modifiers.contains(&aura_ast::Modifier::Override),
+                        visibility: m.visibility,
                         span: m.span,
                     },
                 );
             }
 
             for imp in &implements {
-                let iface_key = imp.iface_key().expect("implements is Interface/App");
-                let iface = self
-                    .iface_by_nominal_key(iface_key)
-                    .cloned()
-                    .expect("implements key must resolve");
-                let subst = type_subst_map(&iface.type_params, imp.iface_args());
-                for (mname, im) in &iface.methods {
-                    let Some(cm) = methods.get(mname) else {
+                // Parent interface methods are part of this implementation contract.
+                for (mname, im) in self.interface_methods(imp) {
+                    let Some(cm) = methods.get(&mname) else {
                         self.errors.push(SemaError {
                             message: format!(
                                 "class `{}` does not implement method `{}` required by `{}`",
@@ -887,10 +1112,7 @@ impl Checker {
                         });
                         continue;
                     };
-                    let exp_params: Vec<Ty> =
-                        im.params.iter().map(|p| subst_ty(p, &subst)).collect();
-                    let exp_ret = subst_ty(&im.ret, &subst);
-                    if cm.params != exp_params || cm.ret != exp_ret {
+                    if cm.params != im.params || cm.ret != im.ret {
                         self.errors.push(SemaError {
                             message: format!(
                                 "method `{}` on `{}` does not match interface `{}`",
@@ -907,6 +1129,7 @@ impl Checker {
             if let Some(list) = self.classes.get_mut(&c.name.name) {
                 if let Some(entry) = list.iter_mut().find(|s| s.package == pkg) {
                     entry.implements = implements;
+                    entry.superclass = superclass;
                     entry.fields = fields;
                     entry.methods = methods;
                 }
@@ -1119,6 +1342,66 @@ impl Checker {
                 self.current_class = None;
                 self.type_params.clear();
                 continue;
+            }
+            if let Some(parent_ty) = &csig.superclass {
+                for m in &c.methods {
+                    let Some(parent_method) =
+                        self.class_method_in_hierarchy(parent_ty, &m.name.name)
+                    else {
+                        if m.modifiers.contains(&aura_ast::Modifier::Override) {
+                            self.errors.push(SemaError {
+                                message: format!(
+                                    "method `{}` does not override a superclass method",
+                                    m.name.name
+                                ),
+                                span: m.name.span,
+                            });
+                        }
+                        continue;
+                    };
+                    let Some(method_sig) = csig.methods.get(&m.name.name) else {
+                        continue;
+                    };
+                    if !m.modifiers.contains(&aura_ast::Modifier::Override) {
+                        self.errors.push(SemaError {
+                            message: format!(
+                                "method `{}` shadows a superclass method; use `override`",
+                                m.name.name
+                            ),
+                            span: m.name.span,
+                        });
+                    } else if !parent_method.is_open && !parent_method.is_abstract {
+                        self.errors.push(SemaError {
+                            message: format!(
+                                "method `{}` is not open in the superclass",
+                                m.name.name
+                            ),
+                            span: m.name.span,
+                        });
+                    } else if method_sig.params != parent_method.params
+                        || method_sig.ret != parent_method.ret
+                    {
+                        self.errors.push(SemaError {
+                            message: format!(
+                                "method `{}` override signature does not match superclass",
+                                m.name.name
+                            ),
+                            span: m.name.span,
+                        });
+                    }
+                }
+            } else {
+                for m in &c.methods {
+                    if m.modifiers.contains(&aura_ast::Modifier::Override) {
+                        self.errors.push(SemaError {
+                            message: format!(
+                                "method `{}` does not override a superclass method",
+                                m.name.name
+                            ),
+                            span: m.name.span,
+                        });
+                    }
+                }
             }
             for m in &c.methods {
                 let Some(msig) = csig.methods.get(&m.name.name) else {

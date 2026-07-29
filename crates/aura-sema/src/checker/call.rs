@@ -68,28 +68,15 @@ impl Checker {
             };
 
             if let Some(cname) = obj_ty.class_name() {
-                let class = self
-                    .class_by_nominal_key(match &obj_ty {
-                        Ty::Class(k) | Ty::ClassApp { name: k, .. } => k.as_str(),
-                        _ => cname,
-                    })
-                    .cloned()
+                let (method, owner) = self
+                    .class_method_with_owner_in_hierarchy(&obj_ty, &fe.field.name)
                     .ok_or_else(|| SemaError {
-                        message: format!("unknown class `{cname}`"),
-                        span: c.span,
+                        message: format!("unknown method `{}` on `{cname}`", fe.field.name),
+                        span: fe.field.span,
                     })?;
-                let method =
-                    class
-                        .methods
-                        .get(&fe.field.name)
-                        .cloned()
-                        .ok_or_else(|| SemaError {
-                            message: format!("unknown method `{}` on `{cname}`", fe.field.name),
-                            span: fe.field.span,
-                        })?;
-                let subst = type_subst_map(&class.type_params, obj_ty.class_args());
-                let params: Vec<Ty> = method.params.iter().map(|p| subst_ty(p, &subst)).collect();
-                let ret = subst_ty(&method.ret, &subst);
+                self.check_member_visible(&owner, method.visibility, &method.name, fe.field.span)?;
+                let params = method.params;
+                let ret = method.ret;
                 self.check_args(
                     &params,
                     &c.args,
@@ -109,8 +96,10 @@ impl Checker {
                 name: iface_name, ..
             } = &obj_ty
             {
-                let iface = self
-                    .iface_by_nominal_key(iface_name)
+                let method = self
+                    .interface_methods(&obj_ty)
+                    .get(&fe.field.name)
+                    .cloned()
                     .ok_or_else(|| SemaError {
                         message: format!(
                             "unknown method `{}` on interface `{iface_name}`",
@@ -118,28 +107,13 @@ impl Checker {
                         ),
                         span: fe.field.span,
                     })?;
-                let method =
-                    iface
-                        .methods
-                        .get(&fe.field.name)
-                        .cloned()
-                        .ok_or_else(|| SemaError {
-                            message: format!(
-                                "unknown method `{}` on interface `{iface_name}`",
-                                fe.field.name
-                            ),
-                            span: fe.field.span,
-                        })?;
-                let subst = type_subst_map(&iface.type_params, obj_ty.iface_args());
-                let params: Vec<Ty> = method.params.iter().map(|p| subst_ty(p, &subst)).collect();
-                let ret = subst_ty(&method.ret, &subst);
                 self.check_args(
-                    &params,
+                    &method.params,
                     &c.args,
                     &format!("{}.{}", iface_name, method.name),
                     c.span,
                 )?;
-                return Ok(ret);
+                return Ok(method.ret);
             }
 
             // Type param with interface bounds: call methods from any bound.
@@ -548,6 +522,12 @@ impl Checker {
     ) -> Result<Ty, SemaError> {
         let name = class.name.clone();
         self.check_visible(&name, class.is_pub, &class.package, c.callee.span())?;
+        if class.is_abstract {
+            return Err(SemaError {
+                message: format!("abstract class `{name}` cannot be instantiated"),
+                span: c.span,
+            });
+        }
         if c.args.len() != class.fields.len() {
             return Err(SemaError {
                 message: format!(
@@ -805,20 +785,10 @@ impl Checker {
             });
         }
         if !self.is_array_element_ty(&type_args[0]) {
-            // C4x: dedicated message for interface (no layout in Array yet).
-            // C6g: enum elements are allowed; keep interface reject clear.
-            let detail = match &type_args[0] {
-                Ty::Interface(n) | Ty::InterfaceApp { name: n, .. } => {
-                    let (simple, _) = crate::ty::split_nominal(n);
-                    format!(
-                        "`Array` of interface `{simple}` is not supported yet (elements must be Int, Bool, String, class, struct, enum, or Array)"
-                    )
-                }
-                other => format!(
-                    "`Array` element type must be Int, Bool, String, class, struct, enum, or Array (got {})",
-                    other.display()
-                ),
-            };
+            let detail = format!(
+                "`Array` element type must be Int, Bool, String, class, struct, enum, interface, or Array (got {})",
+                type_args[0].display()
+            );
             return Err(SemaError {
                 message: detail,
                 span,
@@ -827,7 +797,7 @@ impl Checker {
         Ok(())
     }
 
-    /// C4c/C4q/C6g/C8e: primitives + heap classes + structs + enums + nested Array (not interface).
+    /// C4c/C4q/C6g/C8e: primitives + heap classes + structs + enums + interfaces + nested Array.
     /// C8a: type params allowed in generic class/fun fields (mono becomes concrete).
     pub(crate) fn is_array_element_ty(&self, ty: &Ty) -> bool {
         if is_array_primitive_elem(ty) {
@@ -860,6 +830,16 @@ impl Checker {
                 };
                 list.iter().any(|e| {
                     pkg.is_empty() || e.package == pkg || (e.package.is_empty() && pkg.is_empty())
+                })
+            }
+            Ty::Interface(n) | Ty::InterfaceApp { name: n, .. } => {
+                let (simple, pkg) = crate::ty::split_nominal(n);
+                let list = match self.interfaces.get(simple) {
+                    Some(l) => l,
+                    None => return false,
+                };
+                list.iter().any(|i| {
+                    pkg.is_empty() || i.package == pkg || (i.package.is_empty() && pkg.is_empty())
                 })
             }
             _ => false,

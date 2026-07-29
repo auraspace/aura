@@ -1,6 +1,6 @@
 //! Class/struct typedefs, constructors, and methods.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 
 use aura_ast::*;
@@ -10,6 +10,202 @@ use crate::ctx::EmitCtx;
 use crate::iface::emit_upcast;
 use crate::names::*;
 use crate::stmt::{emit_block, emit_return_fallback};
+
+pub(crate) fn direct_superclass<'a>(
+    checked: &'a CheckedFile,
+    c: &ClassDecl,
+) -> Option<&'a ClassDecl> {
+    let parent_name = c
+        .superclass
+        .as_ref()
+        .map(|parent| parent.name.name.clone())
+        .or_else(|| {
+            checked
+                .classes
+                .iter()
+                .find(|sig| {
+                    sig.name == c.name.name && sig.package == class_decl_package(c, checked)
+                })
+                .and_then(|sig| sig.superclass.as_ref())
+                .and_then(Ty::class_name)
+                .map(str::to_string)
+        })?;
+    checked.ast.classes.iter().find(|candidate| {
+        candidate.name.name == parent_name
+            && candidate.kind == NominalKind::Class
+            && class_decl_package(candidate, checked) == class_decl_package(c, checked)
+    })
+}
+
+/// Resolve a superclass together with its concrete type arguments for a class
+/// monomorph. This keeps flattened C layouts consistent with sema's nominal
+/// inheritance substitution.
+pub(crate) fn direct_superclass_with_args<'a>(
+    checked: &'a CheckedFile,
+    c: &'a ClassDecl,
+    args: &[Ty],
+) -> Option<(&'a ClassDecl, Vec<Ty>)> {
+    let package = class_decl_package(c, checked);
+    let sig = checked
+        .classes
+        .iter()
+        .find(|sig| sig.name == c.name.name && sig.package == package)?;
+    let superclass = sig.superclass.as_ref()?;
+    let subst = aura_sema::type_subst_map(&sig.type_params, args);
+    let superclass = aura_sema::subst_ty(superclass, &subst);
+    let (name, parent_args) = match superclass {
+        Ty::Class(name) => (name, Vec::new()),
+        Ty::ClassApp { name, args } => (name, args),
+        _ => return None,
+    };
+    checked.ast.classes.iter().find_map(|candidate| {
+        (candidate.kind == NominalKind::Class
+            && aura_sema::nominal_key(
+                &class_decl_package(candidate, checked),
+                &candidate.name.name,
+            ) == name)
+            .then_some((candidate, parent_args.clone()))
+    })
+}
+
+/// Whether a concrete class monomorph has a concrete superclass monomorph.
+pub(crate) fn class_mono_extends(
+    checked: &CheckedFile,
+    child_mono: &str,
+    parent_mono: &str,
+) -> bool {
+    for class in &checked.ast.classes {
+        let package = class_decl_package(class, checked);
+        let args = if class.type_params.is_empty() {
+            Vec::new()
+        } else if let Some((_, args)) = checked.mono_classes.iter().find(|(name, args)| {
+            name == &class.name.name && type_mono(&package, name, args) == child_mono
+        }) {
+            args.clone()
+        } else {
+            continue;
+        };
+        if type_mono(&package, &class.name.name, &args) != child_mono {
+            continue;
+        }
+        let mut current = direct_superclass_with_args(checked, class, &args);
+        while let Some((parent, parent_args)) = current {
+            if type_mono(
+                &class_decl_package(parent, checked),
+                &parent.name.name,
+                &parent_args,
+            ) == parent_mono
+            {
+                return true;
+            }
+            current = direct_superclass_with_args(checked, parent, &parent_args);
+        }
+    }
+    false
+}
+
+pub(crate) fn method_owner<'a>(
+    checked: &'a CheckedFile,
+    c: &'a ClassDecl,
+    method: &str,
+) -> Option<&'a ClassDecl> {
+    if c.methods.iter().any(|m| m.name.name == method) {
+        return Some(c);
+    }
+    direct_superclass(checked, c).and_then(|parent| method_owner(checked, parent, method))
+}
+
+pub(crate) fn class_tag(checked: &CheckedFile, c: &ClassDecl) -> u32 {
+    checked
+        .ast
+        .classes
+        .iter()
+        .position(|candidate| {
+            candidate.name.name == c.name.name
+                && class_decl_package(candidate, checked) == class_decl_package(c, checked)
+        })
+        .map(|index| index as u32 + 1)
+        .unwrap_or(0)
+}
+
+pub(crate) fn virtual_overrides<'a>(
+    checked: &'a CheckedFile,
+    base: &'a ClassDecl,
+    method: &str,
+) -> Vec<&'a ClassDecl> {
+    fn is_descendant(checked: &CheckedFile, candidate: &ClassDecl, base: &ClassDecl) -> bool {
+        let mut current = direct_superclass(checked, candidate);
+        while let Some(parent) = current {
+            if parent.name.name == base.name.name {
+                return true;
+            }
+            current = direct_superclass(checked, parent);
+        }
+        false
+    }
+
+    checked
+        .ast
+        .classes
+        .iter()
+        .filter(|candidate| {
+            candidate.kind == NominalKind::Class
+                && candidate.name.name != base.name.name
+                && class_decl_package(candidate, checked) == class_decl_package(base, checked)
+                && is_descendant(checked, candidate, base)
+                && candidate.methods.iter().any(|m| {
+                    m.name.name == method && m.modifiers.contains(&aura_ast::Modifier::Override)
+                })
+        })
+        .collect()
+}
+
+pub(crate) fn has_field_in_hierarchy(checked: &CheckedFile, c: &ClassDecl, field: &str) -> bool {
+    c.fields
+        .iter()
+        .any(|candidate| candidate.name.name == field)
+        || direct_superclass(checked, c)
+            .is_some_and(|parent| has_field_in_hierarchy(checked, parent, field))
+}
+
+fn emit_layout_fields(
+    out: &mut String,
+    checked: &CheckedFile,
+    c: &ClassDecl,
+    params: &[String],
+    args: &[Ty],
+) {
+    if let Some((parent, parent_args)) = direct_superclass_with_args(checked, c, args) {
+        let parent_params = parent
+            .type_params
+            .iter()
+            .map(|param| param.name.name.clone())
+            .collect::<Vec<_>>();
+        emit_layout_fields(out, checked, parent, &parent_params, &parent_args);
+    }
+    for f in &c.fields {
+        let _ = writeln!(
+            out,
+            "  {} {};",
+            c_type_ref_subst(&f.ty, checked, params, args),
+            mangle_ident(&f.name.name)
+        );
+    }
+}
+
+fn simple_ctor_expr(expr: &Expr) -> Option<String> {
+    match expr {
+        Expr::Ident(id) => Some(mangle_ident(&id.name)),
+        Expr::Int(value) => Some(format!("INT64_C({})", value.value)),
+        Expr::Bool(value) => Some(if value.value { "true" } else { "false" }.into()),
+        Expr::String(value) => Some(format!(
+            "\"{}\"",
+            value.value.replace('\\', "\\\\").replace('"', "\\\"")
+        )),
+        Expr::Group(inner, _) => simple_ctor_expr(inner),
+        _ => None,
+    }
+}
 
 pub(crate) fn emit_class_typedef(
     out: &mut String,
@@ -22,15 +218,11 @@ pub(crate) fn emit_class_typedef(
     let mono = type_mono(&pkg, &c.name.name, args);
     // Body only — incomplete `typedef struct X X` may already exist (C4u forwards).
     let _ = writeln!(out, "struct {} {{", c_class_type(&mono));
-    for f in &c.fields {
-        let _ = writeln!(
-            out,
-            "  {} {};",
-            c_type_ref_subst(&f.ty, checked, &params, args),
-            mangle_ident(&f.name.name)
-        );
+    if is_heap_class_decl(c) {
+        out.push_str("  uint32_t __aura_class_tag;\n");
     }
-    if c.fields.is_empty() {
+    emit_layout_fields(out, checked, c, &params, args);
+    if c.fields.is_empty() && direct_superclass(checked, c).is_none() {
         out.push_str("  char _pad;\n");
     }
     out.push_str("};\n\n");
@@ -58,6 +250,7 @@ pub(crate) fn emit_class_forwards(
         );
     }
     // C9a: upcast forwards for non-generic and mono generic class implements.
+    let mut emitted_upcasts = HashSet::new();
     for iface_ref in &c.implements {
         if let Some(iface) = checked
             .ast
@@ -72,31 +265,62 @@ pub(crate) fn emit_class_forwards(
             if iargs.iter().any(|a| a.is_open()) {
                 continue;
             }
-            let imono = iface_mono_args(iface, checked, &iargs);
-            let param_ty = if is_heap_class_decl(c) {
-                format!("{} *", c_class_type(&mono))
-            } else {
-                c_class_type(&mono)
-            };
-            let _ = writeln!(
-                out,
-                "{} {}({param_ty} v);",
-                c_iface_type(&imono),
-                c_upcast_name(&mono, &imono),
-            );
+            for (target, target_args) in crate::iface::interface_and_parents(checked, iface, &iargs)
+            {
+                let imono = iface_mono_args(target, checked, &target_args);
+                if !emitted_upcasts.insert(imono.clone()) {
+                    continue;
+                }
+                let param_ty = if is_heap_class_decl(c) {
+                    format!("{} *", c_class_type(&mono))
+                } else {
+                    c_class_type(&mono)
+                };
+                let _ = writeln!(
+                    out,
+                    "{} {}({param_ty} v);",
+                    c_iface_type(&imono),
+                    c_upcast_name(&mono, &imono),
+                );
+            }
         }
     }
 }
 
+fn ownership_fields<'a>(
+    c: &'a ClassDecl,
+    checked: &'a CheckedFile,
+    params: &[String],
+    args: &[Ty],
+) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    if let Some(parent) = direct_superclass(checked, c) {
+        // Generic parent layout/substitution remains deferred.  Non-generic
+        // parents can safely contribute their concrete ownership fields.
+        if parent.type_params.is_empty() {
+            out.extend(ownership_fields(parent, checked, &[], &[]));
+        }
+    }
+    out.extend(c.fields.iter().map(|field| {
+        (
+            field.name.name.clone(),
+            type_ref_local_key(&field.ty, params, args),
+        )
+    }));
+    out
+}
+
 /// C7b: field names that are builtin `Array` (any element type).
-fn array_field_names(c: &ClassDecl, params: &[String], args: &[Ty]) -> Vec<String> {
-    c.fields
-        .iter()
-        .filter(|f| {
-            let key = type_ref_local_key(&f.ty, params, args);
-            crate::array_emit::is_array_type_key(&key)
-        })
-        .map(|f| f.name.name.clone())
+fn array_field_names(
+    c: &ClassDecl,
+    checked: &CheckedFile,
+    params: &[String],
+    args: &[Ty],
+) -> Vec<String> {
+    ownership_fields(c, checked, params, args)
+        .into_iter()
+        .filter(|(_, key)| crate::array_emit::is_array_type_key(key))
+        .map(|(name, _)| name)
         .collect()
 }
 
@@ -107,22 +331,41 @@ fn array_of_class_field_names(
     params: &[String],
     args: &[Ty],
 ) -> Vec<String> {
-    c.fields
-        .iter()
-        .filter(|f| {
-            let key = type_ref_local_key(&f.ty, params, args);
-            let mono = crate::expr::full_type_mono(&key, checked);
+    ownership_fields(c, checked, params, args)
+        .into_iter()
+        .filter(|(_, key)| {
+            let mono = crate::expr::full_type_mono(key, checked);
             crate::array_emit::is_array_of_heap_class(&mono, checked)
         })
-        .map(|f| f.name.name.clone())
+        .map(|(name, _)| name)
         .collect()
 }
 
-fn string_field_names(c: &ClassDecl, params: &[String], args: &[Ty]) -> Vec<String> {
-    c.fields
-        .iter()
-        .filter(|f| type_ref_local_key(&f.ty, params, args) == "String")
-        .map(|f| f.name.name.clone())
+fn array_of_interface_field_specs(
+    c: &ClassDecl,
+    checked: &CheckedFile,
+    params: &[String],
+    args: &[Ty],
+) -> Vec<(String, String)> {
+    ownership_fields(c, checked, params, args)
+        .into_iter()
+        .filter_map(|(name, key)| {
+            let elem = crate::array_emit::array_elem_key(&key)?;
+            crate::names::is_iface_type_key(elem, checked).then(|| (name, elem.to_string()))
+        })
+        .collect()
+}
+
+fn string_field_names(
+    c: &ClassDecl,
+    checked: &CheckedFile,
+    params: &[String],
+    args: &[Ty],
+) -> Vec<String> {
+    ownership_fields(c, checked, params, args)
+        .into_iter()
+        .filter(|(_, key)| key == "String")
+        .map(|(name, _)| name)
         .collect()
 }
 
@@ -153,9 +396,10 @@ fn emit_class_gc_hooks(
         return;
     }
     let cty = c_class_type(mono);
-    let arr_fields = array_field_names(c, params, args);
-    let string_fields = string_field_names(c, params, args);
+    let arr_fields = array_field_names(c, checked, params, args);
+    let string_fields = string_field_names(c, checked, params, args);
     let arr_cls_fields = array_of_class_field_names(c, checked, params, args);
+    let arr_iface_fields = array_of_interface_field_specs(c, checked, params, args);
     {
         let _ = writeln!(out, "static void {}(void *p) {{", c_dtor_name(mono));
         let _ = writeln!(out, "  {cty} *self = ({cty} *)p;");
@@ -182,7 +426,7 @@ fn emit_class_gc_hooks(
             c_dtor_name(mono)
         );
     }
-    if !arr_cls_fields.is_empty() {
+    if !arr_cls_fields.is_empty() || !arr_iface_fields.is_empty() {
         let _ = writeln!(out, "static void {}(void *p) {{", c_markex_name(mono));
         let _ = writeln!(out, "  {cty} *self = ({cty} *)p;");
         out.push_str("  if (self == NULL) { return; }\n");
@@ -194,6 +438,42 @@ fn emit_class_gc_hooks(
             out.push_str("    if (__data != NULL && __len > 0) {\n");
             out.push_str("      for (int64_t __i = 0; __i < __len; __i++) {\n");
             out.push_str("        aura_gc_mark_ptr(__data[__i]);\n");
+            out.push_str("      }\n");
+            out.push_str("    }\n");
+            out.push_str("  }\n");
+        }
+        for (name, iface_key) in &arr_iface_fields {
+            let f = mangle_ident(name);
+            let (iface, iface_args) = crate::names::resolve_iface_decl_and_args(iface_key, checked);
+            let Some(iface) = iface else {
+                continue;
+            };
+            let imono = crate::names::iface_mono_args(iface, checked, &iface_args);
+            let _ = writeln!(out, "  {{");
+            let _ = writeln!(
+                out,
+                "    {} *__data = ({0} *)self->{f}.data;",
+                crate::names::c_iface_type(&imono),
+            );
+            out.push_str("    int64_t __len = self->");
+            out.push_str(&f);
+            out.push_str(".len;\n");
+            out.push_str("    if (__data != NULL && __len > 0) {\n");
+            out.push_str("      for (int64_t __i = 0; __i < __len; __i++) {\n");
+            out.push_str("        switch (__data[__i].tag) {\n");
+            for imp in crate::iface::mono_implementors_for_iface(checked, iface, &iface_args) {
+                let mono = type_mono(
+                    &class_decl_package(imp.class, checked),
+                    &imp.class.name.name,
+                    &imp.class_args,
+                );
+                let _ = writeln!(
+                    out,
+                    "          case AURA_TAG_{mono}: aura_gc_mark_ptr(__data[__i].data.as_{mono}); break;"
+                );
+            }
+            out.push_str("          default: break;\n");
+            out.push_str("        }\n");
             out.push_str("      }\n");
             out.push_str("    }\n");
             out.push_str("  }\n");
@@ -220,6 +500,7 @@ pub(crate) fn emit_class_defs(
         out.push('\n');
     }
     // C9a: emit upcasts for this class monomorph's implements.
+    let mut emitted_upcasts = HashSet::new();
     for iface_ref in &c.implements {
         if let Some(iface) = checked
             .ast
@@ -234,8 +515,15 @@ pub(crate) fn emit_class_defs(
             if iargs.iter().any(|a| a.is_open()) {
                 continue;
             }
-            emit_upcast(out, checked, c, iface, &iargs, args);
-            out.push('\n');
+            for (target, target_args) in crate::iface::interface_and_parents(checked, iface, &iargs)
+            {
+                let imono = iface_mono_args(target, checked, &target_args);
+                if !emitted_upcasts.insert(imono) {
+                    continue;
+                }
+                emit_upcast(out, checked, c, target, &target_args, args);
+                out.push('\n');
+            }
         }
     }
 }
@@ -336,7 +624,9 @@ pub(crate) fn emit_ctor_mono(
         // C7b: pass dtor / mark_extras when the class owns Array fields.
         let arr_cls = array_of_class_field_names(c, checked, params, args);
         let dtor = c_dtor_name(mono);
-        let markex = if arr_cls.is_empty() {
+        let markex = if arr_cls.is_empty()
+            && array_of_interface_field_specs(c, checked, params, args).is_empty()
+        {
             "NULL".to_string()
         } else {
             c_markex_name(mono)
@@ -352,9 +642,23 @@ pub(crate) fn emit_ctor_mono(
                 "  {cty} *self = ({cty} *)aura_gc_alloc_full(sizeof({cty}), {dtor}, {markex});"
             );
         }
+        out.push_str("  memset(self, 0, sizeof(*self));\n");
+        let _ = writeln!(
+            out,
+            "  self->__aura_class_tag = UINT32_C({});",
+            class_tag(checked, c)
+        );
         for f in &c.fields {
             let n = mangle_ident(&f.name.name);
             let _ = writeln!(out, "  self->{n} = {n};");
+        }
+        if let Some(parent) = direct_superclass(checked, c) {
+            for (field, arg) in parent.fields.iter().zip(c.superclass_args.iter()) {
+                if let Some(value) = simple_ctor_expr(arg) {
+                    let name = mangle_ident(&field.name.name);
+                    let _ = writeln!(out, "  self->{name} = {value};");
+                }
+            }
         }
         out.push_str("  return self;\n}\n");
     } else {

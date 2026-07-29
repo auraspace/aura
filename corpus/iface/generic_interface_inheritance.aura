@@ -1,0 +1,21 @@
+package main
+
+interface Parent<T> {
+  fun value(): T
+}
+
+interface Child<T> : Parent<T> {
+  fun id(): Int
+}
+
+class User<T>(val n: T) : Child<T> {
+  fun value(): T { return this.n }
+  fun id(): Int { return 1 }
+}
+
+fun main() {
+  val child: Child<Int> = User(42)
+  val parent: Parent<Int> = User(42)
+  println(child.value().toString())
+  println(parent.value().toString())
+}

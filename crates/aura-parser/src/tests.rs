@@ -163,6 +163,74 @@ fun show(x: Named) {
 }
 
 #[test]
+fn parses_interface_parents() {
+    let src = r#"
+package main
+interface Parent { fun value(): Int }
+interface Child : Parent { fun child(): Int }
+"#;
+    let file = parse_file(src).expect("parse");
+    assert_eq!(file.interfaces[1].parents.len(), 1);
+    assert_eq!(file.interfaces[1].parents[0].name.name, "Parent");
+}
+
+#[test]
+fn parses_superclass_constructor_and_interfaces() {
+    let src = r#"
+package main
+interface Named { fun name(): String }
+open class Animal(val name: String) {}
+class Dog(val breed: String) : Animal("base"), Named {
+  fun name(): String { return this.breed }
+}
+"#;
+    let file = parse_file(src).expect("parse");
+    let dog = &file.classes[1];
+    assert_eq!(dog.superclass.as_ref().unwrap().name.name, "Animal");
+    assert_eq!(dog.superclass_args.len(), 1);
+    assert_eq!(dog.implements.len(), 1);
+    assert_eq!(dog.implements[0].name.name, "Named");
+}
+
+#[test]
+fn parses_class_and_method_modifiers() {
+    let src = r#"
+package main
+open class Animal(val age: Int) {
+  open fun years(): Int { return this.age }
+}
+class Dog(val breed: Int) : Animal(7) {
+  override fun years(): Int { return this.breed }
+}
+"#;
+    let file = parse_file(src).expect("parse");
+    assert!(file.classes[0]
+        .modifiers
+        .contains(&aura_ast::Modifier::Open));
+    assert!(file.classes[0].methods[0]
+        .modifiers
+        .contains(&aura_ast::Modifier::Open));
+    assert!(file.classes[1].methods[0]
+        .modifiers
+        .contains(&aura_ast::Modifier::Override));
+}
+
+#[test]
+fn parses_member_visibility() {
+    let src = r#"
+package main
+class Vault(private val code: Int, pub val label: String) {
+  protected fun hint(): Int { return this.code }
+}
+"#;
+    let file = parse_file(src).expect("parse");
+    let vault = &file.classes[0];
+    assert_eq!(vault.fields[0].visibility, MemberVisibility::Private);
+    assert_eq!(vault.fields[1].visibility, MemberVisibility::Public);
+    assert_eq!(vault.methods[0].visibility, MemberVisibility::Protected);
+}
+
+#[test]
 fn parses_force_unwrap() {
     let src = r#"
 package t

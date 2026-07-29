@@ -4,6 +4,7 @@ use aura_ast::*;
 use aura_sema::Ty;
 
 use crate::array_emit::is_array_type_key;
+use crate::class_emit::{class_tag, method_owner, virtual_overrides};
 use crate::ctx::EmitCtx;
 use crate::expr::{
     coerce_expr, emit_expr, infer_type_name, mono_base_name, mono_split, resolve_class_of_expr,
@@ -214,7 +215,7 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
             .filter(|t| is_iface_type_key(t, ctx.checked))
         {
             let imono = resolve_iface_mono_key(iface_key, ctx.checked);
-            let mut args = vec![format!("&({obj})")];
+            let mut args = Vec::new();
             let (iface_decl, iargs) = resolve_iface_decl_and_args(iface_key, ctx.checked);
             if let Some(i) = iface_decl {
                 let tparams: Vec<String> =
@@ -234,10 +235,16 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                     args.push(emit_expr(a, ctx));
                 }
             }
+            let receiver = format!("__aura_iface_recv_{}", fe.object.span().start);
+            let cty = c_iface_type(&imono);
+            let call_args = if args.is_empty() {
+                format!("&{receiver}")
+            } else {
+                format!("&{receiver}, {}", args.join(", "))
+            };
             return format!(
-                "{}({})",
+                "({{ {cty} {receiver} = ({obj}); {}({call_args}); }})",
                 c_iface_method_name(&imono, &fe.field.name),
-                args.join(", ")
             );
         }
 
@@ -575,6 +582,11 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                         args.push(emit_expr(a, ctx));
                         continue;
                     }
+                    if !elem_key.is_empty() {
+                        param_keys.push(elem_key.to_string());
+                        args.push(coerce_owner_arg_expr(a, elem_key, ctx));
+                        continue;
+                    }
                 }
                 args.push(emit_expr(a, ctx));
                 param_keys.push(String::new());
@@ -606,9 +618,35 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
             return call;
         }
 
+        let current_class = ctx.checked.ast.classes.iter().find(|c| {
+            c.kind == NominalKind::Class
+                && (c.name.name == base
+                    || type_mono(&class_decl_package(c, ctx.checked), &c.name.name, &[]) == mono)
+        });
+        let owner =
+            current_class.and_then(|class| method_owner(ctx.checked, class, &fe.field.name));
+        let owner_mono = owner
+            .map(|class| {
+                let owner_args = if class.type_params.is_empty() {
+                    Vec::new()
+                } else {
+                    mono_split(mono_raw, ctx.checked)
+                        .map(|(_, args)| args.to_vec())
+                        .unwrap_or_default()
+                };
+                type_mono(
+                    &class_decl_package(class, ctx.checked),
+                    &class.name.name,
+                    &owner_args,
+                )
+            })
+            .unwrap_or_else(|| mono.clone());
+
         // C3y: heap classes are already pointers; structs/Array need &.
-        // `this` emits as `(*this)` for field `.` access — method recv must stay the pointer.
-        let this_arg = if is_heap_class_mono(&mono, ctx.checked) {
+        // Inherited methods receive a pointer to the child prefix layout.
+        let this_arg = if owner.is_some_and(|class| class.name.name != base) {
+            format!("(({} *)({obj}))", c_class_type(&owner_mono))
+        } else if is_heap_class_mono(&mono, ctx.checked) {
             if matches!(fe.object.as_ref(), Expr::This(_)) {
                 "this".into()
             } else {
@@ -618,7 +656,7 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
             format!("&({obj})")
         };
         let mut args = vec![this_arg];
-        if let Some(class) = ctx.checked.ast.classes.iter().find(|c| c.name.name == base) {
+        if let Some(class) = owner {
             if let Some(m) = class.methods.iter().find(|m| m.name.name == fe.field.name) {
                 // C4u: substitute class type params for method parameter expected types.
                 let params: Vec<String> = class
@@ -626,9 +664,13 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                     .iter()
                     .map(|p| p.name.name.clone())
                     .collect();
-                let targs: Vec<Ty> = mono_split(mono_raw, ctx.checked)
-                    .map(|(_, a)| a.to_vec())
-                    .unwrap_or_default();
+                let targs: Vec<Ty> = if class.type_params.is_empty() {
+                    Vec::new()
+                } else {
+                    mono_split(mono_raw, ctx.checked)
+                        .map(|(_, a)| a.to_vec())
+                        .unwrap_or_default()
+                };
                 let mut param_keys = Vec::new();
                 for (a, p) in c.args.iter().zip(m.params.iter()) {
                     let expected = type_ref_local_key(&p.ty, &params, &targs);
@@ -638,9 +680,70 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                 let ret_c = c_type_from_opt(&m.return_type, ctx.checked, &params, &targs);
                 let call = format!(
                     "{}({})",
-                    c_method_name(&mono, &fe.field.name),
+                    c_method_name(&owner_mono, &fe.field.name),
                     args.join(", ")
                 );
+                let call = if let Some(static_class) = current_class {
+                    let is_virtual = m.modifiers.contains(&aura_ast::Modifier::Open)
+                        && is_heap_class_decl(static_class);
+                    let children = if is_virtual {
+                        virtual_overrides(ctx.checked, static_class, &fe.field.name)
+                    } else {
+                        Vec::new()
+                    };
+                    if children.is_empty() {
+                        call
+                    } else {
+                        let tail = args[1..].join(", ");
+                        let mut dispatch = call;
+                        for child in children.into_iter().rev() {
+                            let child_mono = if child.type_params.is_empty() {
+                                type_mono(
+                                    &class_decl_package(child, ctx.checked),
+                                    &child.name.name,
+                                    &[],
+                                )
+                            } else if let Some((_, args)) =
+                                ctx.checked.mono_classes.iter().find(|(name, args)| {
+                                    name == &child.name.name
+                                        && crate::class_emit::class_mono_extends(
+                                            ctx.checked,
+                                            &type_mono(
+                                                &class_decl_package(child, ctx.checked),
+                                                name,
+                                                args,
+                                            ),
+                                            &owner_mono,
+                                        )
+                                })
+                            {
+                                type_mono(
+                                    &class_decl_package(child, ctx.checked),
+                                    &child.name.name,
+                                    args,
+                                )
+                            } else {
+                                continue;
+                            };
+                            let child_call = format!(
+                                "{}(({} *)({obj}){}{})",
+                                c_method_name(&child_mono, &fe.field.name),
+                                c_class_type(&child_mono),
+                                if tail.is_empty() { "" } else { ", " },
+                                tail
+                            );
+                            dispatch = format!(
+                                "((({obj})->__aura_class_tag == UINT32_C({})) ? {} : {})",
+                                class_tag(ctx.checked, child),
+                                child_call,
+                                dispatch
+                            );
+                        }
+                        dispatch
+                    }
+                } else {
+                    call
+                };
                 let call = wrap_owner_arg_moves(call, &c.args, &param_keys, &ret_c, ctx);
                 // C4s: `?.` short-circuit to NULL when receiver is null (pointer-like results).
                 if fe.safe {

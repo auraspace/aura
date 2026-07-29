@@ -409,47 +409,6 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
         }
     }
 
-    // C6f/C8e: Array monomorphs before heap class bodies so classes may embed Array by value.
-    // Nesting order: emit leaf Array_Int before Array_Array_Int (by mono_suffix depth).
-    let mut array_monos: Vec<&[Ty]> = checked
-        .mono_classes
-        .iter()
-        .filter(|(name, _)| is_array_mono(name))
-        .map(|(_, args)| args.as_slice())
-        .collect();
-    array_monos.sort_by_key(|args| {
-        // Fewer nested Array_ prefixes first (rough: shorter mono key first among Array_*).
-        args.first()
-            .map(|e| e.mono_suffix().matches("Array_").count())
-            .unwrap_or(0)
-    });
-    for args in array_monos {
-        if let Some(elem) = args.first() {
-            if matches!(elem, Ty::Int | Ty::Bool | Ty::String | Ty::Unit) {
-                continue;
-            }
-            emit_array_mono(&mut out, elem, checked);
-        }
-    }
-    for c in &checked.ast.classes {
-        if c.type_params.is_empty() && c.kind == NominalKind::Class {
-            emit_class_typedef(&mut out, checked, c, &[]);
-        }
-    }
-    for (name, args) in &checked.mono_classes {
-        if is_array_mono(name) {
-            continue;
-        }
-        if let Some(c) = checked
-            .ast
-            .classes
-            .iter()
-            .find(|c| c.name.name == *name && c.kind == NominalKind::Class)
-        {
-            emit_class_typedef(&mut out, checked, c, args);
-        }
-    }
-
     // Interface tagged unions (C4d/C8c/C9a: mono class implementors)
     let mut emit_iface_union = |iface: &InterfaceDecl, args: &[Ty]| {
         let imono = iface_mono_args(iface, checked, args);
@@ -483,6 +442,47 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
         }
     }
 
+    // Interface elements need their tagged-union definition before Array emits
+    // the element pointer type. Leaf arrays still precede nested arrays.
+    let mut array_monos: Vec<&[Ty]> = checked
+        .mono_classes
+        .iter()
+        .filter(|(name, _)| is_array_mono(name))
+        .map(|(_, args)| args.as_slice())
+        .collect();
+    array_monos.sort_by_key(|args| {
+        args.first()
+            .map(|e| e.mono_suffix().matches("Array_").count())
+            .unwrap_or(0)
+    });
+    for args in array_monos {
+        if let Some(elem) = args.first() {
+            if matches!(elem, Ty::Int | Ty::Bool | Ty::String | Ty::Unit) {
+                continue;
+            }
+            emit_array_mono(&mut out, elem, checked);
+        }
+    }
+
+    for c in &checked.ast.classes {
+        if c.type_params.is_empty() && c.kind == NominalKind::Class {
+            emit_class_typedef(&mut out, checked, c, &[]);
+        }
+    }
+    for (name, args) in &checked.mono_classes {
+        if is_array_mono(name) {
+            continue;
+        }
+        if let Some(c) = checked
+            .ast
+            .classes
+            .iter()
+            .find(|c| c.name.name == *name && c.kind == NominalKind::Class)
+        {
+            emit_class_typedef(&mut out, checked, c, args);
+        }
+    }
+
     // Forward decls
     for c in &checked.ast.classes {
         if c.type_params.is_empty() {
@@ -510,7 +510,7 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     for iface in &checked.ast.interfaces {
         if iface.type_params.is_empty() {
             let imono = iface_mono(iface, checked);
-            for m in &iface.methods {
+            for m in crate::iface::interface_methods_with_parents(checked, iface) {
                 let _ = writeln!(out, "{};", c_iface_method_signature(&imono, m, checked));
             }
         }
@@ -518,16 +518,18 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     for (name, args) in &checked.mono_interfaces {
         if let Some(iface) = checked.ast.interfaces.iter().find(|i| i.name.name == *name) {
             let imono = iface_mono_args(iface, checked, args);
-            let tparams: Vec<String> = iface
-                .type_params
-                .iter()
-                .map(|p| p.name.name.clone())
-                .collect();
-            for m in &iface.methods {
+            for (m, owner, owner_args) in
+                crate::iface::interface_method_decls_with_parents(checked, iface, args)
+            {
+                let owner_tparams = owner
+                    .type_params
+                    .iter()
+                    .map(|p| p.name.name.clone())
+                    .collect::<Vec<_>>();
                 let _ = writeln!(
                     out,
                     "{};",
-                    c_iface_method_signature_args(&imono, m, checked, &tparams, args)
+                    c_iface_method_signature_args(&imono, m, checked, &owner_tparams, &owner_args)
                 );
             }
         }
@@ -590,7 +592,7 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
 
     for iface in &checked.ast.interfaces {
         if iface.type_params.is_empty() {
-            for m in &iface.methods {
+            for m in crate::iface::interface_methods_with_parents(checked, iface) {
                 emit_iface_dispatch(&mut out, checked, iface, m, &[]);
                 out.push('\n');
             }
@@ -598,8 +600,23 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     }
     for (name, args) in &checked.mono_interfaces {
         if let Some(iface) = checked.ast.interfaces.iter().find(|i| i.name.name == *name) {
-            for m in &iface.methods {
-                emit_iface_dispatch(&mut out, checked, iface, m, args);
+            for (m, owner, owner_args) in
+                crate::iface::interface_method_decls_with_parents(checked, iface, args)
+            {
+                let owner_tparams = owner
+                    .type_params
+                    .iter()
+                    .map(|p| p.name.name.clone())
+                    .collect::<Vec<_>>();
+                crate::iface::emit_iface_dispatch_with_method_args(
+                    &mut out,
+                    checked,
+                    iface,
+                    m,
+                    args,
+                    &owner_tparams,
+                    &owner_args,
+                );
                 out.push('\n');
             }
         }
@@ -6048,6 +6065,8 @@ async fun run(handle: ForeignHandle<Int>): Unit { native_use(handle) }\n",
                     })],
                     span,
                 }],
+                modifiers: vec![],
+                visibility: aura_ast::MemberVisibility::Package,
                 is_test: false,
                 name: ident("main"),
                 type_params: vec![],

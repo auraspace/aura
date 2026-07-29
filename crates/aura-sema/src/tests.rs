@@ -834,6 +834,220 @@ fun main() {}
 }
 
 #[test]
+fn class_inheritance_is_recorded_and_assignable() {
+    let src = r#"
+package t
+open class Animal(val age: Int) {
+  fun years(): Int { return this.age }
+}
+interface Named { fun name(): String }
+class Dog(val breed: String) : Animal(7), Named {
+  fun name(): String { return this.breed }
+}
+fun accept(a: Animal): Int { return a.years() + a.age }
+fun main() {
+  val d: Dog = Dog("dog")
+  val n: Int = accept(d)
+}
+"#;
+    let file = parse_file(src).expect("parse");
+    let checked = check_file(&file).expect("check");
+    let dog = checked
+        .classes
+        .iter()
+        .find(|c| c.name == "Dog")
+        .expect("Dog");
+    assert_eq!(
+        dog.superclass.as_ref().map(Ty::class_name),
+        Some(Some("Animal"))
+    );
+    assert_eq!(dog.implements.len(), 1);
+}
+
+#[test]
+fn class_cannot_extend_struct_or_itself() {
+    let src = r#"
+package t
+struct Point(val x: Int) {}
+class Bad(val x: Int) : Point {}
+class Loop(val x: Int) : Loop {}
+fun main() {}
+"#;
+    let file = parse_file(src).expect("parse");
+    let err = check_file(&file).expect_err("invalid superclass");
+    let messages = err
+        .errors
+        .iter()
+        .map(|e| e.message.as_str())
+        .collect::<Vec<_>>();
+    assert!(messages
+        .iter()
+        .any(|m| m.contains("structs cannot be used as superclasses")));
+    assert!(messages.iter().any(|m| m.contains("cannot extend itself")));
+}
+
+#[test]
+fn class_requires_superclass_constructor_arguments() {
+    let src = r#"
+package t
+open class Base(val id: Int) {}
+class Child(val value: Int) : Base {}
+fun main() {}
+"#;
+    let file = parse_file(src).expect("parse");
+    let err = check_file(&file).expect_err("missing superclass arguments");
+    assert!(err
+        .primary()
+        .message
+        .contains("superclass `Base` expects 1 constructor argument(s), got 0"));
+}
+
+#[test]
+fn superclass_constructor_arguments_are_type_checked() {
+    let src = r#"
+package t
+open class Base(val id: Int) {}
+class Child(val value: String) : Base(value) {}
+fun main() {}
+"#;
+    let file = parse_file(src).expect("parse");
+    let err = check_file(&file).expect_err("superclass argument type mismatch");
+    assert!(err
+        .primary()
+        .message
+        .contains("superclass constructor argument for `id`: expected Int, got String"));
+}
+
+#[test]
+fn superclass_constructor_arguments_can_use_child_fields() {
+    let src = r#"
+package t
+open class Base(val id: Int) {}
+class Child(val value: Int) : Base(value) {}
+fun main() {}
+"#;
+    let file = parse_file(src).expect("parse");
+    check_file(&file).expect("child field is available to superclass constructor");
+}
+
+#[test]
+fn classes_are_final_by_default() {
+    let src = r#"
+package t
+class Base(val id: Int) {}
+class Child(val value: Int) : Base(value) {}
+fun main() {}
+"#;
+    let file = parse_file(src).expect("parse");
+    let err = check_file(&file).expect_err("final class extension");
+    assert!(err
+        .primary()
+        .message
+        .contains("class `Base` is final and cannot be extended"));
+}
+
+#[test]
+fn open_override_requires_matching_open_parent_method() {
+    let src = r#"
+package t
+open class Base(val id: Int) {
+  open fun value(): Int { return this.id }
+}
+class Child(val id2: Int) : Base(1) {
+  override fun value(): Int { return this.id2 }
+}
+fun main() {}
+"#;
+    let file = parse_file(src).expect("parse");
+    check_file(&file).expect("valid override");
+}
+
+#[test]
+fn override_without_parent_method_is_rejected() {
+    let src = r#"
+package t
+open class Base(val id: Int) {}
+class Child(val value: Int) : Base(1) {
+  override fun missing(): Int { return this.value }
+}
+fun main() {}
+"#;
+    let file = parse_file(src).expect("parse");
+    let err = check_file(&file).expect_err("invalid override");
+    assert!(err
+        .primary()
+        .message
+        .contains("does not override a superclass method"));
+}
+
+#[test]
+fn abstract_class_cannot_be_instantiated() {
+    let src = r#"
+package t
+abstract class Base(val id: Int) {}
+fun main() { Base(1) }
+"#;
+    let file = parse_file(src).expect("parse");
+    let err = check_file(&file).expect_err("abstract constructor");
+    assert!(err
+        .primary()
+        .message
+        .contains("abstract class `Base` cannot be instantiated"));
+}
+
+#[test]
+fn private_members_are_only_visible_inside_the_declaring_class() {
+    let src = r#"
+package t
+class Vault(private val code: Int) {
+  private fun secret(): Int { return this.code }
+  fun reveal(): Int { return this.secret() }
+}
+fun main(): Int {
+  val vault = Vault(7)
+  return vault.code
+}
+"#;
+    let file = parse_file(src).expect("parse");
+    let err = check_file(&file).expect_err("private field access");
+    assert!(err.primary().message.contains("private member `code`"));
+}
+
+#[test]
+fn protected_fields_are_visible_to_subclasses_only() {
+    let src = r#"
+package t
+open class Base(protected val id: Int) {}
+class Child(val value: Int) : Base(value) {
+  fun inherited(): Int { return id }
+}
+fun main(): Int {
+  val base: Base = Child(7)
+  return base.id
+}
+"#;
+    let file = parse_file(src).expect("parse");
+    let err = check_file(&file).expect_err("protected field access");
+    assert!(err.primary().message.contains("protected member `id`"));
+}
+
+#[test]
+fn public_members_are_visible_outside_the_class() {
+    let src = r#"
+package t
+class Record(pub val id: Int) {
+  pub fun value(): Int { return this.id }
+}
+fun main(): Int {
+  val record = Record(7)
+  return record.value() + record.id
+}
+"#;
+    let file = parse_file(src).expect("parse");
+    check_file(&file).expect("public members are accessible");
+}
+
+#[test]
 fn bounds_allow_method_on_type_param() {
     let src = r#"
 package t
@@ -1395,24 +1609,23 @@ fun main() {
 }
 
 #[test]
-fn array_rejects_interface_elem_clearly() {
-    // C4x: dedicated diagnostic for Array of interface.
+fn array_accepts_interface_elem() {
     let src = r#"
 package t
 interface Named {
   fun name(): String
 }
+class User(val value: String) : Named {
+  fun name(): String { return this.value }
+}
 fun main() {
   val a: Array<Named> = Array(1)
+  a.set(0, User("a"))
+  println(a.get(0).name())
 }
 "#;
     let file = parse_file(src).expect("parse");
-    let err = check_file(&file).expect_err("array of interface");
-    assert!(
-        err.primary().message.contains("interface") && err.primary().message.contains("Named"),
-        "{}",
-        err.primary().message
-    );
+    check_file(&file).expect("array of interface");
 }
 
 #[test]
@@ -1928,6 +2141,7 @@ fun main() {
   var f: (Int) -> Int = (x: Int) => x
   val g = () => f(1)
 }
+
 "#;
     let file = parse_file(src).expect("parse");
     let checked = check_file(&file).expect("var Fun capture should be allowed");
@@ -1935,4 +2149,36 @@ fun main() {
         caps.iter()
             .any(|c| c.name == "f" && c.by_ref && matches!(c.ty, Ty::Fun { .. }))
     }));
+}
+
+#[test]
+fn interface_parent_is_assignable_and_requires_inherited_methods() {
+    let src = r#"
+package t
+interface Parent { fun value(): Int }
+interface Child : Parent { fun id(): Int }
+class User(val n: Int) : Child {
+  fun value(): Int { return this.n }
+  fun id(): Int { return this.n + 1 }
+}
+fun main() {
+  val parent: Parent = User(42)
+  val value: Int = parent.value()
+}
+"#;
+    let file = parse_file(src).expect("parse");
+    check_file(&file).expect("child interface should upcast to parent");
+
+    let missing_parent_method = r#"
+package t
+interface Parent { fun value(): Int }
+interface Child : Parent { fun id(): Int }
+class User(val n: Int) : Child { fun id(): Int { return this.n } }
+"#;
+    let file = parse_file(missing_parent_method).expect("parse");
+    let errors = check_file(&file).expect_err("inherited method must be implemented");
+    assert!(errors
+        .errors
+        .iter()
+        .any(|error| error.message.contains("value")));
 }

@@ -1,0 +1,18 @@
+package main
+
+open class Animal(val age: Int) {
+    open fun years(): Int {
+        return this.age
+    }
+}
+
+class Dog(val breed: Int) : Animal(7) {
+    override fun years(): Int {
+        return this.breed
+    }
+}
+
+fun main() {
+    val animal: Animal = Dog(42)
+    println(animal.years().toString())
+}

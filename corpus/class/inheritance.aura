@@ -1,0 +1,15 @@
+// OOP inheritance slice: inherited method with static parent dispatch.
+package demo.inheritance
+
+open class Animal(val age: Int) {
+    fun years(): Int {
+        return this.age
+    }
+}
+
+class Dog(val breed: Int) : Animal(7) {}
+
+fun main() {
+    val dog: Dog = Dog(1)
+    println(dog.years().toString())
+}

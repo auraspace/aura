@@ -1,0 +1,21 @@
+package main
+
+interface Named {
+  fun value(): Int
+}
+
+interface Identified : Named {
+  fun id(): Int
+}
+
+class User(val n: Int) : Identified {
+  fun value(): Int { return this.n }
+  fun id(): Int { return this.n + 1 }
+}
+
+fun main() {
+  val named: Named = User(42)
+  val identified: Identified = User(42)
+  println(named.value().toString())
+  println(identified.value().toString())
+}

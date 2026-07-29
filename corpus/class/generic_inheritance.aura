@@ -1,0 +1,14 @@
+package main
+
+open class Parent<T>(val value: T) {
+  open fun get(): T { return this.value }
+}
+
+class Child<T>(val childValue: T) : Parent<T>(childValue) {
+  override fun get(): T { return this.childValue }
+}
+
+fun main() {
+  val parent: Parent<Int> = Child(42)
+  println(parent.get().toString())
+}

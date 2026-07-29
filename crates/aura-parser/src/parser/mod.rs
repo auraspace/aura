@@ -85,6 +85,7 @@ impl Parser {
         let mut consts = Vec::new();
         while !matches!(self.peek().kind, TokenKind::Eof) {
             let attributes = self.parse_attributes()?;
+            let modifiers = self.parse_modifiers()?;
             let is_test = attributes
                 .iter()
                 .any(|attribute| attribute.name.name == "test");
@@ -150,7 +151,7 @@ impl Parser {
                             span: self.peek().span,
                         });
                     }
-                    let mut c = self.parse_nominal(NominalKind::Class)?;
+                    let mut c = self.parse_nominal(NominalKind::Class, modifiers.clone())?;
                     c.is_pub = is_pub;
                     c.attributes = attributes;
                     classes.push(c);
@@ -162,13 +163,19 @@ impl Parser {
                             span: self.peek().span,
                         });
                     }
-                    let mut c = self.parse_nominal(NominalKind::Struct)?;
+                    let mut c = self.parse_nominal(NominalKind::Struct, modifiers.clone())?;
                     c.is_pub = is_pub;
                     c.attributes = attributes;
                     classes.push(c);
                 }
                 TokenKind::Fun => {
                     let mut f = self.parse_fun()?;
+                    f.modifiers = modifiers;
+                    f.visibility = if is_pub {
+                        MemberVisibility::Public
+                    } else {
+                        MemberVisibility::Package
+                    };
                     f.is_pub = is_pub;
                     f.attributes = attributes;
                     f.is_test = is_test;
@@ -266,6 +273,46 @@ impl Parser {
             attributes.push(self.parse_attribute()?);
         }
         Ok(attributes)
+    }
+
+    fn parse_modifiers(&mut self) -> Result<Vec<Modifier>, ParseError> {
+        let mut modifiers = Vec::new();
+        loop {
+            let modifier = match self.peek().kind {
+                TokenKind::Open => Modifier::Open,
+                TokenKind::Final => Modifier::Final,
+                TokenKind::Abstract => Modifier::Abstract,
+                TokenKind::Override => Modifier::Override,
+                _ => break,
+            };
+            self.bump();
+            if modifiers.contains(&modifier) {
+                return Err(ParseError {
+                    message: "duplicate declaration modifier".into(),
+                    span: self.peek().span,
+                });
+            }
+            modifiers.push(modifier);
+        }
+        Ok(modifiers)
+    }
+
+    pub(crate) fn parse_member_visibility(&mut self) -> MemberVisibility {
+        match self.peek().kind {
+            TokenKind::Pub => {
+                self.bump();
+                MemberVisibility::Public
+            }
+            TokenKind::Protected => {
+                self.bump();
+                MemberVisibility::Protected
+            }
+            TokenKind::Private => {
+                self.bump();
+                MemberVisibility::Private
+            }
+            _ => MemberVisibility::Package,
+        }
     }
 
     fn parse_attribute(&mut self) -> Result<Attribute, ParseError> {

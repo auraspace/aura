@@ -347,6 +347,8 @@ pub(crate) fn expand_debug(file: &mut aura_ast::File) -> Vec<SemaError> {
             is_pub: true,
             origin_package: class.origin_package.clone(),
             attributes: Vec::new(),
+            modifiers: Vec::new(),
+            visibility: aura_ast::MemberVisibility::Public,
             is_test: false,
             name: Ident {
                 name: method_name.into(),
@@ -417,6 +419,8 @@ pub(crate) fn expand_equals(file: &mut aura_ast::File) -> Vec<SemaError> {
             is_pub: true,
             origin_package: class.origin_package.clone(),
             attributes: Vec::new(),
+            modifiers: Vec::new(),
+            visibility: aura_ast::MemberVisibility::Public,
             is_test: false,
             name: Ident {
                 name: EQUALS.into(),
@@ -494,6 +498,8 @@ pub(crate) fn expand_hash(file: &mut aura_ast::File) -> Vec<SemaError> {
             is_pub: true,
             origin_package: class.origin_package.clone(),
             attributes: Vec::new(),
+            modifiers: Vec::new(),
+            visibility: aura_ast::MemberVisibility::Public,
             is_test: false,
             name: Ident {
                 name: HASH_CODE.into(),

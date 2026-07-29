@@ -34,6 +34,23 @@ pub struct Attribute {
     pub span: Span,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Modifier {
+    Open,
+    Final,
+    Abstract,
+    Override,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MemberVisibility {
+    Public,
+    Protected,
+    Private,
+    #[default]
+    Package,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum AttributeArg {
     Positional(AttributeValue),
@@ -160,6 +177,8 @@ pub struct InterfaceDecl {
     pub attributes: Vec<Attribute>,
     pub name: Ident,
     pub type_params: Vec<TypeParam>,
+    /// Parent interfaces after `:`. An interface is assignable to each parent.
+    pub parents: Vec<TypeRef>,
     pub methods: Vec<MethodSig>,
     pub span: Span,
 }
@@ -227,9 +246,13 @@ pub struct ClassDecl {
     /// Declaring package; empty means use `File.package`.
     pub origin_package: String,
     pub attributes: Vec<Attribute>,
+    pub modifiers: Vec<Modifier>,
     pub kind: NominalKind,
     pub name: Ident,
     pub type_params: Vec<TypeParam>,
+    /// Optional direct superclass; constructor arguments live beside it.
+    pub superclass: Option<TypeRef>,
+    pub superclass_args: Vec<Expr>,
     /// Interfaces listed after `:` (classes only; structs reject implements).
     /// C8c: may include type args (`: Iterable<Int>`).
     pub implements: Vec<TypeRef>,
@@ -241,6 +264,7 @@ pub struct ClassDecl {
 #[derive(Debug, Clone, PartialEq)]
 pub struct FieldDecl {
     pub attributes: Vec<Attribute>,
+    pub visibility: MemberVisibility,
     pub mutable: bool,
     pub name: Ident,
     pub ty: TypeRef,
@@ -254,6 +278,8 @@ pub struct FunDecl {
     /// Declaring package; empty means use `File.package`.
     pub origin_package: String,
     pub attributes: Vec<Attribute>,
+    pub modifiers: Vec<Modifier>,
+    pub visibility: MemberVisibility,
     /// Discovered by `aura test` (RFC-011 MVP: only `@test`).
     pub is_test: bool,
     pub name: Ident,

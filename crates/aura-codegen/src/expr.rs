@@ -8,6 +8,7 @@ use aura_sema::{nominal_key, CheckedFile, Ty};
 
 use crate::array_emit::is_array_type_key;
 use crate::call_emit::emit_call;
+use crate::class_emit::{direct_superclass, has_field_in_hierarchy, method_owner};
 use crate::ctx::EmitCtx;
 use crate::names::*;
 
@@ -1136,7 +1137,7 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
             if let Some(class) = ctx.method_class {
                 let base = mono_base_name(class, ctx.checked).unwrap_or(class);
                 if let Some(cl) = ctx.checked.ast.classes.iter().find(|c| c.name.name == base) {
-                    if cl.fields.iter().any(|f| f.name.name == i.name) {
+                    if has_field_in_hierarchy(ctx.checked, cl, &i.name) {
                         let field = format!("this->{}", mangle_ident(&i.name));
                         return race_read(field.clone(), field, i.span, ctx);
                     }
@@ -1407,7 +1408,7 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
                     .classes
                     .iter()
                     .find(|c| c.name.name == base)
-                    .is_some_and(|cl| cl.fields.iter().any(|f| f.name.name == a.name.name))
+                    .is_some_and(|cl| has_field_in_hierarchy(ctx.checked, cl, &a.name.name))
             });
             let lhs = if dst_is_field {
                 format!("this->{}", mangle_ident(&a.name.name))
@@ -2428,6 +2429,11 @@ pub(crate) fn coerce_expr(expr: &Expr, expected_ty: &str, ctx: &mut EmitCtx<'_>)
         return format!("({code}).value");
     }
 
+    let actual_mono = full_type_mono(&actual, ctx.checked);
+    if crate::class_emit::class_mono_extends(ctx.checked, &actual_mono, expected_ty) {
+        return format!("({} *)({code})", c_class_type(expected_ty));
+    }
+
     let Some(imono) = expected_iface_mono(expected_ty, ctx.checked) else {
         return code;
     };
@@ -2466,7 +2472,13 @@ pub(crate) fn coerce_expr(expr: &Expr, expected_ty: &str, ctx: &mut EmitCtx<'_>)
         let base = mono_base_name(&class_mono, ctx.checked).unwrap_or(from.as_str());
         if class_mono != imono
             && ctx.checked.ast.classes.iter().any(|c| {
-                c.name.name == base && c.implements.iter().any(|i| i.name.name == iface_simple)
+                c.name.name == base
+                    && crate::iface::class_mono_implements_iface(
+                        ctx.checked,
+                        c,
+                        &class_mono,
+                        &imono,
+                    )
             })
         {
             return format!("{}({code})", c_upcast_name(&class_mono, &imono));
@@ -2477,13 +2489,14 @@ pub(crate) fn coerce_expr(expr: &Expr, expected_ty: &str, ctx: &mut EmitCtx<'_>)
                 let pkg = &cs.package;
                 type_mono(pkg, &cs.name, &[]) == class_mono || cs.name == base
             }) {
-                if cs.implements.iter().any(|imp| {
-                    let m = imp.mono_suffix();
-                    m == imono
-                        || format!("{}_{}", iface_simple, /* fallthrough */ "") == imono
-                        || m.ends_with(&imono)
-                        || imono.ends_with(&m)
-                        || imp.iface_name() == Some(iface_simple)
+                if ctx.checked.ast.classes.iter().any(|class| {
+                    class.name.name == cs.name
+                        && crate::iface::class_mono_implements_iface(
+                            ctx.checked,
+                            class,
+                            &class_mono,
+                            &imono,
+                        )
                 }) {
                     // Prefer exact mono match for upcast name
                     return format!("{}({code})", c_upcast_name(&class_mono, &imono));
@@ -2495,7 +2508,8 @@ pub(crate) fn coerce_expr(expr: &Expr, expected_ty: &str, ctx: &mut EmitCtx<'_>)
     if let Expr::Call(c) = expr {
         if let Expr::Ident(id) = c.callee.as_ref() {
             if let Some(cl) = ctx.checked.ast.classes.iter().find(|cl| {
-                cl.name.name == id.name && cl.implements.iter().any(|i| i.name.name == iface_simple)
+                cl.name.name == id.name
+                    && crate::iface::class_decl_implements_iface(ctx.checked, cl, iface_simple)
             }) {
                 let pkg = class_decl_package(cl, ctx.checked);
                 let cmono = type_mono(&pkg, &id.name, &[]);
@@ -2642,25 +2656,28 @@ pub(crate) fn resolve_type_name(expr: &Expr, ctx: &EmitCtx<'_>) -> Option<String
                     if let Some(class) =
                         ctx.checked.ast.classes.iter().find(|c| c.name.name == base)
                     {
-                        if let Some(m) = class.methods.iter().find(|m| m.name.name == fe.field.name)
-                        {
-                            if let Some(rt) = &m.return_type {
-                                let (ps, as_) =
-                                    if let Some((_, args)) = mono_split(&recv, ctx.checked) {
-                                        let params: Vec<String> = class
-                                            .type_params
-                                            .iter()
-                                            .map(|p| p.name.name.clone())
-                                            .collect();
-                                        (params, args.to_vec())
-                                    } else if !ctx.type_args.is_empty()
-                                        && class.name.name == ctx.method_class.unwrap_or("")
-                                    {
-                                        (ctx.type_params.clone(), ctx.type_args.clone())
-                                    } else {
-                                        (Vec::new(), Vec::new())
-                                    };
-                                return Some(type_ref_local_key(rt, &ps, &as_));
+                        if let Some(owner) = method_owner(ctx.checked, class, &fe.field.name) {
+                            if let Some(m) =
+                                owner.methods.iter().find(|m| m.name.name == fe.field.name)
+                            {
+                                if let Some(rt) = &m.return_type {
+                                    let (ps, as_) =
+                                        if let Some((_, args)) = mono_split(&recv, ctx.checked) {
+                                            let params: Vec<String> = owner
+                                                .type_params
+                                                .iter()
+                                                .map(|p| p.name.name.clone())
+                                                .collect();
+                                            (params, args.to_vec())
+                                        } else if !ctx.type_args.is_empty()
+                                            && owner.name.name == ctx.method_class.unwrap_or("")
+                                        {
+                                            (ctx.type_params.clone(), ctx.type_args.clone())
+                                        } else {
+                                            (Vec::new(), Vec::new())
+                                        };
+                                    return Some(type_ref_local_key(rt, &ps, &as_));
+                                }
                             }
                         }
                     }
@@ -2700,7 +2717,24 @@ pub(crate) fn resolve_type_name(expr: &Expr, ctx: &EmitCtx<'_>) -> Option<String
                 .classes
                 .iter()
                 .find(|c| c.name.name == base)?;
-            let field = class.fields.iter().find(|x| x.name.name == f.field.name)?;
+            let field_owner = if class.fields.iter().any(|x| x.name.name == f.field.name) {
+                class
+            } else {
+                let mut current = direct_superclass(ctx.checked, class);
+                let mut found = None;
+                while let Some(candidate) = current {
+                    if candidate.fields.iter().any(|x| x.name.name == f.field.name) {
+                        found = Some(candidate);
+                        break;
+                    }
+                    current = direct_superclass(ctx.checked, candidate);
+                }
+                found?
+            };
+            let field = field_owner
+                .fields
+                .iter()
+                .find(|x| x.name.name == f.field.name)?;
             let params: Vec<String> = class
                 .type_params
                 .iter()

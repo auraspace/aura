@@ -1,0 +1,25 @@
+package main
+
+interface Named {
+    fun value(): Int
+}
+
+class User(val id: Int) : Named {
+    fun value(): Int {
+        return this.id
+    }
+}
+
+class Registry(val values: Array<Named>) {
+    fun first(): Named {
+        return this.values.get(0)
+    }
+}
+
+fun main() {
+    val values: Array<Named> = Array(1)
+    values.set(0, User(42))
+    val registry = Registry(values)
+    gc_collect()
+    println(registry.first().value().toString())
+}

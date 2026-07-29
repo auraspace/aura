@@ -13,7 +13,7 @@ use crate::error::SemaError;
 use crate::sigs::*;
 use crate::ty::Ty;
 use crate::util::{subst_ty, type_subst_map};
-use aura_ast::{ClassDecl, FunDecl, Span};
+use aura_ast::{ClassDecl, FunDecl, MemberVisibility, Span};
 
 /// Builtin `Array<T>` primitives (C3j). Heap class elements allowed in C4c via Checker.
 pub(crate) fn is_array_primitive_elem(ty: &Ty) -> bool {
@@ -167,6 +167,10 @@ impl Checker {
                 name: "get".into(),
                 params: vec![Ty::Int],
                 ret: Ty::TypeParam("T".into()),
+                is_open: false,
+                is_abstract: false,
+                is_override: false,
+                visibility: aura_ast::MemberVisibility::Public,
                 span: Span::new(0, 0),
             },
         );
@@ -177,6 +181,10 @@ impl Checker {
                 name: "set".into(),
                 params: vec![Ty::Int, Ty::TypeParam("T".into())],
                 ret: Ty::Unit,
+                is_open: false,
+                is_abstract: false,
+                is_override: false,
+                visibility: aura_ast::MemberVisibility::Public,
                 span: Span::new(0, 0),
             },
         );
@@ -187,6 +195,10 @@ impl Checker {
                 name: "push".into(),
                 params: vec![Ty::TypeParam("T".into())],
                 ret: Ty::Unit,
+                is_open: false,
+                is_abstract: false,
+                is_override: false,
+                visibility: aura_ast::MemberVisibility::Public,
                 span: Span::new(0, 0),
             },
         );
@@ -198,6 +210,10 @@ impl Checker {
                 name: "pop".into(),
                 params: vec![],
                 ret: Ty::TypeParam("T".into()),
+                is_open: false,
+                is_abstract: false,
+                is_override: false,
+                visibility: aura_ast::MemberVisibility::Public,
                 span: Span::new(0, 0),
             },
         );
@@ -209,6 +225,10 @@ impl Checker {
                 name: "clear".into(),
                 params: vec![],
                 ret: Ty::Unit,
+                is_open: false,
+                is_abstract: false,
+                is_override: false,
+                visibility: aura_ast::MemberVisibility::Public,
                 span: Span::new(0, 0),
             },
         );
@@ -220,6 +240,10 @@ impl Checker {
                 name: "isEmpty".into(),
                 params: vec![],
                 ret: Ty::Bool,
+                is_open: false,
+                is_abstract: false,
+                is_override: false,
+                visibility: aura_ast::MemberVisibility::Public,
                 span: Span::new(0, 0),
             },
         );
@@ -231,6 +255,10 @@ impl Checker {
                 name: "reserve".into(),
                 params: vec![Ty::Int],
                 ret: Ty::Unit,
+                is_open: false,
+                is_abstract: false,
+                is_override: false,
+                visibility: aura_ast::MemberVisibility::Public,
                 span: Span::new(0, 0),
             },
         );
@@ -245,6 +273,10 @@ impl Checker {
                     name: "Array".into(),
                     args: vec![Ty::TypeParam("T".into())],
                 },
+                is_open: false,
+                is_abstract: false,
+                is_override: false,
+                visibility: aura_ast::MemberVisibility::Public,
                 span: Span::new(0, 0),
             },
         );
@@ -256,13 +288,17 @@ impl Checker {
                 is_pub: true,
                 package: String::new(),
                 is_struct: true,
+                is_open: false,
+                is_abstract: false,
                 type_params: vec!["T".into()],
                 bounds: HashMap::new(),
+                superclass: None,
                 implements: Vec::new(),
                 fields: vec![FieldSig {
                     name: "len".into(),
                     ty: Ty::Int,
                     mutable: false,
+                    visibility: aura_ast::MemberVisibility::Public,
                 }],
                 methods: array_methods,
                 span: Span::new(0, 0),
@@ -663,17 +699,23 @@ impl Checker {
         let field_locals: Vec<(String, Local)> = self
             .class_in_package(&class.name.name, pkg)
             .map(|sig| {
-                sig.fields
-                    .iter()
-                    .map(|f| {
-                        (
-                            f.name.clone(),
+                self.class_fields_in_hierarchy(&Ty::Class(crate::ty::nominal_key(pkg, &sig.name)))
+                    .into_iter()
+                    .filter_map(|(name, ty, mutable)| {
+                        let (field, owner) = self.class_field_with_owner_in_hierarchy(
+                            &Ty::Class(crate::ty::nominal_key(pkg, &sig.name)),
+                            &name,
+                        )?;
+                        self.check_member_visible(&owner, field.visibility, &name, class.name.span)
+                            .ok()?;
+                        Some((
+                            name,
                             Local {
-                                ty: f.ty.clone(),
-                                mutable: f.mutable,
+                                ty,
+                                mutable,
                                 borrow_source: None,
                             },
-                        )
+                        ))
                     })
                     .collect()
             })
@@ -980,14 +1022,173 @@ impl Checker {
 
     fn field_type(&self, field: &aura_ast::FieldExpr) -> Option<Ty> {
         let receiver_ty = self.receiver_type(field.object.as_ref())?;
-        let class_name = receiver_ty.class_name()?;
-        let class = self.class_by_nominal_key(class_name)?;
-        let subst = type_subst_map(&class.type_params, receiver_ty.class_args());
-        class
-            .fields
-            .iter()
-            .find(|candidate| candidate.name == field.field.name)
-            .map(|candidate| subst_ty(&candidate.ty, &subst))
+        self.class_field_type_in_hierarchy(&receiver_ty, &field.field.name)
+    }
+
+    pub(crate) fn class_fields_in_hierarchy(&self, ty: &Ty) -> Vec<(String, Ty, bool)> {
+        let mut out = Vec::new();
+        let mut current = Some(ty.clone());
+        let mut seen = HashSet::new();
+        while let Some(current_ty) = current {
+            let Some(key) = current_ty.class_name() else {
+                break;
+            };
+            if !seen.insert(key.to_string()) {
+                break;
+            }
+            let Some(class) = self.class_by_nominal_key(key) else {
+                break;
+            };
+            let subst = type_subst_map(&class.type_params, current_ty.class_args());
+            for field in &class.fields {
+                if !out.iter().any(|(name, _, _)| name == &field.name) {
+                    out.push((
+                        field.name.clone(),
+                        subst_ty(&field.ty, &subst),
+                        field.mutable,
+                    ));
+                }
+            }
+            current = class
+                .superclass
+                .as_ref()
+                .map(|parent| subst_ty(parent, &subst));
+        }
+        out
+    }
+
+    pub(crate) fn class_field_type_in_hierarchy(&self, ty: &Ty, name: &str) -> Option<Ty> {
+        self.class_fields_in_hierarchy(ty)
+            .into_iter()
+            .find(|(field, _, _)| field == name)
+            .map(|(_, ty, _)| ty)
+    }
+
+    pub(crate) fn class_field_with_owner_in_hierarchy(
+        &self,
+        ty: &Ty,
+        name: &str,
+    ) -> Option<(FieldSig, ClassSig)> {
+        let mut current = Some(ty.clone());
+        let mut seen = HashSet::new();
+        while let Some(current_ty) = current {
+            let key = current_ty.class_name()?.to_string();
+            if !seen.insert(key.clone()) {
+                return None;
+            }
+            let class = self.class_by_nominal_key(&key)?.clone();
+            let subst = type_subst_map(&class.type_params, current_ty.class_args());
+            if let Some(field) = class.fields.iter().find(|field| field.name == name) {
+                let mut resolved = field.clone();
+                resolved.ty = subst_ty(&resolved.ty, &subst);
+                return Some((resolved, class.clone()));
+            }
+            current = class
+                .superclass
+                .as_ref()
+                .map(|parent| subst_ty(parent, &subst));
+        }
+        None
+    }
+
+    pub(crate) fn class_method_in_hierarchy(&self, ty: &Ty, name: &str) -> Option<ClassMethodSig> {
+        self.class_method_with_owner_in_hierarchy(ty, name)
+            .map(|(method, _)| method)
+    }
+
+    pub(crate) fn class_method_with_owner_in_hierarchy(
+        &self,
+        ty: &Ty,
+        name: &str,
+    ) -> Option<(ClassMethodSig, ClassSig)> {
+        let mut current = Some(ty.clone());
+        let mut seen = HashSet::new();
+        while let Some(current_ty) = current {
+            let key = current_ty.class_name()?.to_string();
+            if !seen.insert(key.clone()) {
+                return None;
+            }
+            let class = self.class_by_nominal_key(&key)?;
+            let subst = type_subst_map(&class.type_params, current_ty.class_args());
+            if let Some(method) = class.methods.get(name) {
+                let mut resolved = method.clone();
+                resolved.params = resolved
+                    .params
+                    .iter()
+                    .map(|param| subst_ty(param, &subst))
+                    .collect();
+                resolved.ret = subst_ty(&resolved.ret, &subst);
+                return Some((resolved, class.clone()));
+            }
+            current = class
+                .superclass
+                .as_ref()
+                .map(|parent| subst_ty(parent, &subst));
+        }
+        None
+    }
+
+    pub(crate) fn check_member_visible(
+        &self,
+        owner: &ClassSig,
+        visibility: MemberVisibility,
+        member: &str,
+        span: Span,
+    ) -> Result<(), SemaError> {
+        let allowed = match visibility {
+            MemberVisibility::Public => true,
+            MemberVisibility::Package => owner.package == self.current_package,
+            MemberVisibility::Private => self.current_class.as_deref() == Some(&owner.name),
+            MemberVisibility::Protected => {
+                self.current_class.as_deref() == Some(&owner.name)
+                    || self.current_class.as_ref().is_some_and(|class| {
+                        let ty = Ty::Class(crate::ty::nominal_key(&self.current_package, class));
+                        self.class_is_subtype_of(&ty, &owner.name, &owner.package)
+                    })
+            }
+        };
+        if allowed {
+            Ok(())
+        } else {
+            Err(SemaError {
+                message: format!(
+                    "{} member `{member}` of `{}` is not accessible here",
+                    match visibility {
+                        MemberVisibility::Public => "public",
+                        MemberVisibility::Package => "package-private",
+                        MemberVisibility::Protected => "protected",
+                        MemberVisibility::Private => "private",
+                    },
+                    owner.name
+                ),
+                span,
+            })
+        }
+    }
+
+    fn class_is_subtype_of(&self, ty: &Ty, target_name: &str, target_package: &str) -> bool {
+        let mut current = Some(ty.clone());
+        let mut seen = HashSet::new();
+        while let Some(current_ty) = current {
+            let Some(key) = current_ty.class_name() else {
+                return false;
+            };
+            if !seen.insert(key.to_string()) {
+                return false;
+            }
+            let Some(class) = self.class_by_nominal_key(key) else {
+                return false;
+            };
+            if class.name == target_name && class.package == target_package {
+                return true;
+            }
+            let subst = type_subst_map(&class.type_params, current_ty.class_args());
+            current = class
+                .superclass
+                .as_ref()
+                .map(|parent| subst_ty(parent, &subst));
+        }
+        false
     }
 
     fn lookup_local_frame_for_owner(&self, expr: &aura_ast::Expr) -> Option<usize> {
