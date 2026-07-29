@@ -1386,6 +1386,53 @@ fun main() {
 }
 
 #[test]
+fn same_class_name_two_packages_resolves_methods_by_nominal_key() {
+    let mut a = parse_file(
+        r#"
+package demo.a
+pub class Token(val n: Int) { pub fun kind(): Int { return this.n } }
+"#,
+    )
+    .expect("parse a");
+    for c in &mut a.classes {
+        c.origin_package = "demo.a".into();
+    }
+    let mut b = parse_file(
+        r#"
+package demo.b
+pub class Token(val n: Int) { pub fun kind(): Int { return this.n * 10 } }
+"#,
+    )
+    .expect("parse b");
+    for c in &mut b.classes {
+        c.origin_package = "demo.b".into();
+    }
+    let mut app = parse_file(
+        r#"
+package demo.app
+import demo.a as A
+import demo.b as B
+fun main() {
+  val a: A.Token = A.Token(3)
+  val b: B.Token = B.Token(3)
+  a.kind()
+  b.kind()
+}
+"#,
+    )
+    .expect("parse app");
+    for f in &mut app.functions {
+        f.origin_package = "demo.app".into();
+    }
+    for i in &mut app.imports {
+        i.origin_package = "demo.app".into();
+    }
+    app.classes.extend(a.classes);
+    app.classes.extend(b.classes);
+    check_file(&app).expect("same class name methods resolve by package");
+}
+
+#[test]
 fn import_alias_qualified_call() {
     let mut lib = parse_file(
         r#"

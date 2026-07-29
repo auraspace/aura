@@ -12,7 +12,7 @@ fun mul(a: Int, b: Int): Int {
 
 // C3u — type qualify via `import … as Alias` → `Alias.Point`
 pub class Point(val x: Int, val y: Int) {
-    fun sum(): Int {
+    pub fun sum(): Int {
         return this.x + this.y
     }
 }

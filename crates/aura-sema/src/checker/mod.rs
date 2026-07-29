@@ -1072,7 +1072,10 @@ impl Checker {
         let mut current = Some(ty.clone());
         let mut seen = HashSet::new();
         while let Some(current_ty) = current {
-            let key = current_ty.class_name()?.to_string();
+            let key = match &current_ty {
+                Ty::Class(key) | Ty::ClassApp { name: key, .. } => key.clone(),
+                _ => current_ty.class_name()?.to_string(),
+            };
             if !seen.insert(key.clone()) {
                 return None;
             }
@@ -1104,7 +1107,10 @@ impl Checker {
         let mut current = Some(ty.clone());
         let mut seen = HashSet::new();
         while let Some(current_ty) = current {
-            let key = current_ty.class_name()?.to_string();
+            let key = match &current_ty {
+                Ty::Class(key) | Ty::ClassApp { name: key, .. } => key.clone(),
+                _ => current_ty.class_name()?.to_string(),
+            };
             if !seen.insert(key.clone()) {
                 return None;
             }
