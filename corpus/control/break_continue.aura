@@ -2,33 +2,33 @@
 package demo.loopctl
 
 fun main() {
-  // continue: skip printing 2
-  for (i in 1..5) {
-    if (i == 2) {
-      continue
+    // continue: skip printing 2
+    for (i in 1..5) {
+        if (i == 2) {
+            continue
+        }
+        if (i == 4) {
+            break
+        }
+        // prints 1 then 3
+        if (i == 1) {
+            println("one")
+        }
+        if (i == 3) {
+            println("three")
+        }
     }
-    if (i == 4) {
-      break
-    }
-    // prints 1 then 3
-    if (i == 1) {
-      println("one")
-    }
-    if (i == 3) {
-      println("three")
-    }
-  }
 
-  var n: Int = 0
-  while (n < 10) {
-    n = n + 1
-    if (n < 3) {
-      continue
+    var n: Int = 0
+    while (n < 10) {
+        n = n + 1
+        if (n < 3) {
+            continue
+        }
+        if (n == 4) {
+            break
+        }
+        println("while-hit")
     }
-    if (n == 4) {
-      break
-    }
-    println("while-hit")
-  }
-  println("done")
+    println("done")
 }

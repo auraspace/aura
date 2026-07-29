@@ -2,14 +2,14 @@
 package demo.generic
 
 fun id<T>(x: T): T {
-  return x
+    return x
 }
 
 fun main() {
-  val s: String = id<String>("Hello, Aura")
-  println(s)
-  val n: Int = id<Int>(42)
-  // no int println yet — just exercise mono
-  val again: String = id<String>("ok")
-  println(again)
+    val s: String = id<String>("Hello, Aura")
+    println(s)
+    val n: Int = id<Int>(42)
+    // no int println yet — just exercise mono
+    val again: String = id<String>("ok")
+    println(again)
 }

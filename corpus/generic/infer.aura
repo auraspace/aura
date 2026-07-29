@@ -2,27 +2,27 @@
 package demo.generic
 
 class Box<T>(val value: T) {
-  fun get(): T {
-    return this.value
-  }
+    fun get(): T {
+        return this.value
+    }
 }
 
 fun id<T>(x: T): T {
-  return x
+    return x
 }
 
 fun main() {
-  // Infer T from constructor argument
-  val a = Box("Hello, Aura")
-  println(a.get())
+    // Infer T from constructor argument
+    val a = Box("Hello, Aura")
+    println(a.get())
 
-  // Infer from expected annotation
-  val b: Box<String> = Box("from expected")
-  println(b.get())
+    // Infer from expected annotation
+    val b: Box<String> = Box("from expected")
+    println(b.get())
 
-  // Infer free function type args from argument
-  println(id("inferred id"))
+    // Infer free function type args from argument
+    println(id("inferred id"))
 
-  // Explicit still works
-  println(id<String>("explicit"))
+    // Explicit still works
+    println(id<String>("explicit"))
 }

@@ -2,9 +2,9 @@
 package demo.expr
 
 fun flip(flag: Bool): Bool {
-  return !flag
+    return !flag
 }
 
 fun neg(n: Int): Int {
-  return 0 - n
+    return 0 - n
 }

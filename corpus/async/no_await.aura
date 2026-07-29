@@ -2,15 +2,15 @@
 package demo.tasks.noawait
 
 async fun answer(): Int {
-  return 42
+    return 42
 }
 
 fun main() {
-  // The no-await task is executed through a frame and observed after await.
-  val task = spawn {
-    val result: Int = await answer()
-    println("async")
-    return
-  }
-  join(task)
+    // The no-await task is executed through a frame and observed after await.
+    val task = spawn {
+        val result: Int = await answer()
+        println("async")
+        return
+    }
+    join(task)
 }

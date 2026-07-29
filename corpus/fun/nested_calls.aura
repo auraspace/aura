@@ -2,9 +2,9 @@
 package demo.fns
 
 fun id(x: Int): Int {
-  return x
+    return x
 }
 
 fun main() {
-  id(id(1))
+    id(id(1))
 }

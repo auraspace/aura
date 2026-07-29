@@ -8,9 +8,9 @@ import std.io as Io
 extern "C" fun aura_http_health_smoke(): Int
 
 fun main() {
-  val status: Int = aura_http_health_smoke()
-  if (status != 0) {
-    Io.exit(status)
-  }
-  println("http-health-cli: passed")
+    val status: Int = aura_http_health_smoke()
+    if (status != 0) {
+        Io.exit(status)
+    }
+    println("http-health-cli: passed")
 }

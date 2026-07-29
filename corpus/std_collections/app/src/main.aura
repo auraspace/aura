@@ -9,104 +9,104 @@ package demo.stdcollections
 import std.collections
 
 fun main() {
-  val m = map_string_int()
-  if (m.isEmpty()) {
-    println("empty")
-  }
-  val ins = m.put("a", 1)
-  if (ins) {
-    println("ins")
-  }
-  m.put("b", 2)
-  m.put("a", 10)
-  if (m.len() == 2) {
-    println("len")
-  }
-  if (m.getOr("a", -1) == 10) {
-    println("geta")
-  }
-  if (m.contains("b")) {
-    println("hasb")
-  }
-  if (m.getOr("z", -1) == -1) {
-    println("miss")
-  }
-  val ga = m.get("a")
-  if (ga != null) {
-    if (ga == 10) {
-      println("get")
+    val m = map_string_int()
+    if (m.isEmpty()) {
+        println("empty")
     }
-  }
-  val gz = m.get("z")
-  if (gz == null) {
-    println("getmiss")
-  }
-  if (m.remove("b")) {
-    println("rmb")
-  }
-  if (!m.contains("b")) {
-    println("nob")
-  }
-  if (m.len() == 1) {
-    println("m1")
-  }
-  m.put("c", 3)
-  m.clear()
-  if (m.isEmpty()) {
-    println("mclr")
-  }
+    val ins = m.put("a", 1)
+    if (ins) {
+        println("ins")
+    }
+    m.put("b", 2)
+    m.put("a", 10)
+    if (m.len() == 2) {
+        println("len")
+    }
+    if (m.getOr("a", -1) == 10) {
+        println("geta")
+    }
+    if (m.contains("b")) {
+        println("hasb")
+    }
+    if (m.getOr("z", -1) == -1) {
+        println("miss")
+    }
+    val ga = m.get("a")
+    if (ga != null) {
+        if (ga == 10) {
+            println("get")
+        }
+    }
+    val gz = m.get("z")
+    if (gz == null) {
+        println("getmiss")
+    }
+    if (m.remove("b")) {
+        println("rmb")
+    }
+    if (!m.contains("b")) {
+        println("nob")
+    }
+    if (m.len() == 1) {
+        println("m1")
+    }
+    m.put("c", 3)
+    m.clear()
+    if (m.isEmpty()) {
+        println("mclr")
+    }
 
-  // C8a: other mono of Map
-  val mi = Map<Int, String>(Array(0), Array(0))
-  mi.put(1, "one")
-  if (mi.getOr(1, "?") == "one") {
-    println("i2s")
-  }
-  val g1 = mi.get(1)
-  if (g1 != null) {
-    println("g1")
-  }
+    // C8a: other mono of Map
+    val mi = Map<Int, String>(Array(0), Array(0))
+    mi.put(1, "one")
+    if (mi.getOr(1, "?") == "one") {
+        println("i2s")
+    }
+    val g1 = mi.get(1)
+    if (g1 != null) {
+        println("g1")
+    }
 
-  val s = set()
-  if (s.isEmpty()) {
-    println("s0")
-  }
-  if (s.add("x")) {
-    println("addx")
-  }
-  if (!s.add("x")) {
-    println("dup")
-  }
-  s.add("y")
-  if (s.len() == 2) {
-    println("slen")
-  }
-  if (s.contains("y")) {
-    println("hasy")
-  }
-  if (s.remove("x")) {
-    println("rmx")
-  }
-  if (!s.contains("x")) {
-    println("nox")
-  }
-  if (s.len() == 1) {
-    println("s1")
-  }
+    val s = set()
+    if (s.isEmpty()) {
+        println("s0")
+    }
+    if (s.add("x")) {
+        println("addx")
+    }
+    if (!s.add("x")) {
+        println("dup")
+    }
+    s.add("y")
+    if (s.len() == 2) {
+        println("slen")
+    }
+    if (s.contains("y")) {
+        println("hasy")
+    }
+    if (s.remove("x")) {
+        println("rmx")
+    }
+    if (!s.contains("x")) {
+        println("nox")
+    }
+    if (s.len() == 1) {
+        println("s1")
+    }
 
-  // C8g: Set<Int>
-  val si = Set<Int>(Array(0))
-  si.add(1)
-  si.add(2)
-  si.add(1)
-  if (si.len() == 2) {
-    println("si2")
-  }
-  if (si.contains(2)) {
-    println("sihas")
-  }
-  si.clear()
-  if (si.isEmpty()) {
-    println("siclr")
-  }
+    // C8g: Set<Int>
+    val si = Set<Int>(Array(0))
+    si.add(1)
+    si.add(2)
+    si.add(1)
+    if (si.len() == 2) {
+        println("si2")
+    }
+    if (si.contains(2)) {
+        println("sihas")
+    }
+    si.clear()
+    if (si.isEmpty()) {
+        println("siclr")
+    }
 }

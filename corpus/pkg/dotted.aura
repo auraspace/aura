@@ -2,5 +2,5 @@
 package org.aura.samples
 
 fun main() {
-  println("dotted package")
+    println("dotted package")
 }

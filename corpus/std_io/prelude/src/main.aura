@@ -2,5 +2,5 @@
 package demo.prelude
 
 fun main() {
-  println("prelude ok")
+    println("prelude ok")
 }

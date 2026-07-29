@@ -4,17 +4,17 @@
 package demo.stdio.args
 
 fun main() {
-  val a = args()
-  // At least argv[0] (program path) is present when linked via runtime main.
-  assert(a.len >= 1)
-  val name = a.get(0)
-  assert(!name.isEmpty())
-  // C12c: args after `aura run … --` appear from index 1 (optional for smoke).
-  if (a.len >= 2) {
-    val first = a.get(1)
-    assert(!first.isEmpty())
-    assert_eq(first, "hello")
-  }
-  // Count is available as len; printing keeps smoke visible under aura run.
-  println("args ok")
+    val a = args()
+    // At least argv[0] (program path) is present when linked via runtime main.
+    assert(a.len >= 1)
+    val name = a.get(0)
+    assert(!name.isEmpty())
+    // C12c: args after `aura run … --` appear from index 1 (optional for smoke).
+    if (a.len >= 2) {
+        val first = a.get(1)
+        assert(!first.isEmpty())
+        assert_eq(first, "hello")
+    }
+    // Count is available as len; printing keeps smoke visible under aura run.
+    println("args ok")
 }

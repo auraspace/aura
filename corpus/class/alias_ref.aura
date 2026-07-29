@@ -2,22 +2,22 @@
 package demo.aliasref
 
 class Cell(val n: Int) {
-  fun get(): Int {
-    return this.n
-  }
+    fun get(): Int {
+        return this.n
+    }
 }
 
 fun main() {
-  val a: Cell = Cell(7)
-  val b: Cell = a
-  // Same heap object: both see 7
-  if (a.get() == 7) {
-    if (b.get() == 7) {
-      println("alias ref ok")
+    val a: Cell = Cell(7)
+    val b: Cell = a
+    // Same heap object: both see 7
+    if (a.get() == 7) {
+        if (b.get() == 7) {
+            println("alias ref ok")
+        } else {
+            println("alias ref bad b")
+        }
     } else {
-      println("alias ref bad b")
+        println("alias ref bad a")
     }
-  } else {
-    println("alias ref bad a")
-  }
 }

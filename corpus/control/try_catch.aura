@@ -2,24 +2,24 @@
 package demo.ex
 
 fun boom() {
-  throw "boom"
+    throw "boom"
 }
 
 fun main() {
-  try {
-    boom()
-    println("unreachable")
-  } catch (e: String) {
-    println(e)
-  } finally {
-    println("finally")
-  }
-
-  try {
-    throw 42
-  } catch (n: Int) {
-    if (n == 42) {
-      println("caught-int")
+    try {
+        boom()
+        println("unreachable")
+    } catch (e: String) {
+        println(e)
+    } finally {
+        println("finally")
     }
-  }
+
+    try {
+        throw 42
+    } catch (n: Int) {
+        if (n == 42) {
+            println("caught-int")
+        }
+    }
 }

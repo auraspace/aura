@@ -2,15 +2,15 @@
 package demo.expr
 
 fun main() {
-  val empty: String = ""
-  val hi: String = "hi"
-  if (empty.isEmpty()) {
-    println("empty")
-  }
-  if (!hi.isEmpty()) {
-    println("hi")
-  }
-  if ("".isEmpty()) {
-    println("lit")
-  }
+    val empty: String = ""
+    val hi: String = "hi"
+    if (empty.isEmpty()) {
+        println("empty")
+    }
+    if (!hi.isEmpty()) {
+        println("hi")
+    }
+    if ("".isEmpty()) {
+        println("lit")
+    }
 }

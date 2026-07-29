@@ -2,9 +2,9 @@
 package demo.diag
 
 interface Named {
-  fun name(): String
+    fun name(): String
 }
 
 fun main() {
-  val a: Array<Named> = Array(1)
+    val a: Array<Named> = Array(1)
 }

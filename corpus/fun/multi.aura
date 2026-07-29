@@ -2,9 +2,9 @@
 package demo.fns
 
 fun square(x: Int): Int {
-  return x * x
+    return x * x
 }
 
 fun main() {
-  square(4)
+    square(4)
 }

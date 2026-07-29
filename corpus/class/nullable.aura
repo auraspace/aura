@@ -2,25 +2,25 @@
 package demo.cls
 
 class Box(val x: Int) {
-  fun label(): String {
-    return "box"
-  }
+    fun label(): String {
+        return "box"
+    }
 }
 
 fun describe(b: Box?): String {
-  if (b != null) {
-    return b.label()
-  } else {
-    return "none"
-  }
+    if (b != null) {
+        return b.label()
+    } else {
+        return "none"
+    }
 }
 
 fun main() {
-  var a: Box? = null
-  println(describe(a))
-  a = Box(1)
-  println(describe(a))
-  if (a != null) {
-    println(a.label())
-  }
+    var a: Box? = null
+    println(describe(a))
+    a = Box(1)
+    println(describe(a))
+    if (a != null) {
+        println(a.label())
+    }
 }

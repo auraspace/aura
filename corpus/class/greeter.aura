@@ -2,12 +2,12 @@
 package demo.cls
 
 class Greeter(val name: String) {
-  fun greet(): String {
-    return this.name
-  }
+    fun greet(): String {
+        return this.name
+    }
 }
 
 fun main() {
-  val g: Greeter = Greeter("Hello, Aura")
-  println(g.greet())
+    val g: Greeter = Greeter("Hello, Aura")
+    println(g.greet())
 }

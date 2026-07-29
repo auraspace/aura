@@ -3,5 +3,5 @@ package demo.nested_mid
 import demo.nested_leaf
 
 pub fun wrap(): String {
-  return tag()
+    return tag()
 }

@@ -5,25 +5,25 @@ package demo.stdcollections.hof
 import std.collections
 
 fun main() {
-  val xs: Array<Int> = Array(0)
-  xs.push(1)
-  xs.push(2)
-  xs.push(3)
-  xs.push(4)
+    val xs: Array<Int> = Array(0)
+    xs.push(1)
+    xs.push(2)
+    xs.push(3)
+    xs.push(4)
 
-  val squared = map<Int, Int>(xs, (x: Int) => x * x)
-  // 1+4+9+16 = 30
-  val sum = fold<Int, Int>(squared.clone(), 0, (a: Int, b: Int) => a + b)
-  if (sum == 30) {
-    println("fold")
-  }
+    val squared = map<Int, Int>(xs, (x: Int) => x * x)
+    // 1+4+9+16 = 30
+    val sum = fold<Int, Int>(squared.clone(), 0, (a: Int, b: Int) => a + b)
+    if (sum == 30) {
+        println("fold")
+    }
 
-  val thr = 5
-  val big = filter<Int>(squared, (n: Int) => n > thr)
-  if (big.len == 2) {
-    println("filter")
-  }
-  if (big.get(0) == 9) {
-    println("nine")
-  }
+    val thr = 5
+    val big = filter<Int>(squared, (n: Int) => n > thr)
+    if (big.len == 2) {
+        println("filter")
+    }
+    if (big.get(0) == 9) {
+        println("nine")
+    }
 }

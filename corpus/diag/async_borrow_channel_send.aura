@@ -2,5 +2,5 @@
 package demo.tasks.diag
 
 fun bad(channel: Channel<String>, value: ref String) {
-  channel.send(value)
+    channel.send(value)
 }

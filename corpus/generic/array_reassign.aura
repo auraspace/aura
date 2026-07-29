@@ -2,11 +2,11 @@
 package demo.gen
 
 fun main() {
-  var a: Array<Int> = Array(0)
-  a.push(1)
-  a = Array(0)
-  a.push(9)
-  if (a.get(0) == 9) {
-    println("reassign")
-  }
+    var a: Array<Int> = Array(0)
+    a.push(1)
+    a = Array(0)
+    a.push(9)
+    if (a.get(0) == 9) {
+        println("reassign")
+    }
 }

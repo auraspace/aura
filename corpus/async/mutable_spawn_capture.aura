@@ -4,18 +4,18 @@ package demo.mutable_spawn_capture
 class Box(var value: Int) {}
 
 fun report(number: Int, box: Box) {
-  println(number.toString())
-  println(box.value.toString())
+    println(number.toString())
+    println(box.value.toString())
 }
 
 fun main() {
-  var number: Int = 1
-  var box: Box = Box(1)
-  val task = spawn {
-    report(number, box)
-    return
-  }
-  number = 2
-  box = Box(2)
-  join(task)
+    var number: Int = 1
+    var box: Box = Box(1)
+    val task = spawn {
+        report(number, box)
+        return
+    }
+    number = 2
+    box = Box(2)
+    join(task)
 }

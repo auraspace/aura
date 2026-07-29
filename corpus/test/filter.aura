@@ -3,14 +3,14 @@ package demo.test_filter
 
 @test
 fun alpha_filter() {
-  assert_eq(1, 1)
+    assert_eq(1, 1)
 }
 
 @test
 fun beta_filter() {
-  assert_eq(2, 2)
+    assert_eq(2, 2)
 }
 
 fun main() {
-  println("not run under aura test")
+    println("not run under aura test")
 }

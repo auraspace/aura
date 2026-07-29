@@ -2,6 +2,6 @@
 package demo.diag
 
 fun main() {
-  println(missing_one)
-  println(missing_two)
+    println(missing_one)
+    println(missing_two)
 }

@@ -2,24 +2,24 @@
 package demo.generic
 
 class Holder(val items: Array<Int>) {
-  fun len(): Int {
-    return this.items.len
-  }
+    fun len(): Int {
+        return this.items.len
+    }
 }
 
 fun main() {
-  val a: Array<Int> = Array(2)
-  a.set(0, 10)
-  a.set(1, 20)
-  val h = Holder(a)
-  // explicit lexical borrow from field: non-owning view
-  val v: ref Array<Int> = h.items
-  if (h.len() == 2) {
-    println("kept")
-  }
-  if (v.get(0) == 10) {
-    println("view")
-  }
-  // return still moves (C7c) — covered in array_field_return
-  println("ok")
+    val a: Array<Int> = Array(2)
+    a.set(0, 10)
+    a.set(1, 20)
+    val h = Holder(a)
+    // explicit lexical borrow from field: non-owning view
+    val v: ref Array<Int> = h.items
+    if (h.len() == 2) {
+        println("kept")
+    }
+    if (v.get(0) == 10) {
+        println("view")
+    }
+    // return still moves (C7c) — covered in array_field_return
+    println("ok")
 }

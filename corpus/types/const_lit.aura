@@ -6,16 +6,16 @@ const GREET: String = "hello"
 const FLAG: Bool = true
 
 fun main() {
-  if (MAX == 100) {
-    println("max")
-  }
-  if (GREET == "hello") {
-    println("greet")
-  }
-  if (FLAG) {
-    println("flag")
-  }
-  if (MAX + 1 == 101) {
-    println("arith")
-  }
+    if (MAX == 100) {
+        println("max")
+    }
+    if (GREET == "hello") {
+        println("greet")
+    }
+    if (FLAG) {
+        println("flag")
+    }
+    if (MAX + 1 == 101) {
+        println("arith")
+    }
 }

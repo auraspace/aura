@@ -4,39 +4,39 @@ package demo.stdhashmapint
 import std.collections
 
 fun main() {
-  val h: HashMap<Int, String> = HashMap<Int, String>(Array(4), Array(4), Array(4))
-  h.put(1, "one")
-  h.put(2, "two")
-  h.put(1, "uno")
-  if (h.len() == 2 && h.getOr(1, "?") == "uno" && h.getOr(2, "?") == "two") {
-    println("generic-int-ok")
-  }
-  if (h.remove(2) && !h.contains(2)) {
-    println("generic-int-remove-ok")
-  }
-  if (h.get(9) == null && !h.contains(9) && h.containsValue("uno") && !h.containsValue("nine")) {
-    println("generic-int-accessors-ok")
-  }
-  val keys = h.keyArray()
-  val values = h.valueArray()
-  if (keys.len == 1 && keys.get(0) == 1 && values.get(0) == "uno") {
-    println("generic-int-snapshot-ok")
-  }
-  val entries = h.entries()
-  if (entries.len == 1 && entries.get(0).key == keys.get(0) && entries.get(0).value == values.get(0) && h.len() == 1 && h.getOr(1, "?") == "uno") {
-    println("generic-int-entry-snapshot-ok")
-  }
-  var entryCount: Int = 0
-  var renderedEntries: String = ""
-  for (entry in h.entries()) {
-    entryCount = entryCount + 1
-    renderedEntries = entry.key.toString() + ":" + entry.value
-  }
-  if (entryCount == 1 && renderedEntries == "1:uno") {
-    println("generic-int-entry-iteration-ok")
-  }
-  val rendered = map_hash_map_values<Int, String, String>(h, (k: Int, v: String) => k.toString() + ":" + v)
-  if (rendered.len == 1 && rendered.get(0) == "1:uno") {
-    println("generic-int-map-values-ok")
-  }
+    val h: HashMap<Int, String> = HashMap<Int, String>(Array(4), Array(4), Array(4))
+    h.put(1, "one")
+    h.put(2, "two")
+    h.put(1, "uno")
+    if (h.len() == 2 && h.getOr(1, "?") == "uno" && h.getOr(2, "?") == "two") {
+        println("generic-int-ok")
+    }
+    if (h.remove(2) && !h.contains(2)) {
+        println("generic-int-remove-ok")
+    }
+    if (h.get(9) == null && !h.contains(9) && h.containsValue("uno") && !h.containsValue("nine")) {
+        println("generic-int-accessors-ok")
+    }
+    val keys = h.keyArray()
+    val values = h.valueArray()
+    if (keys.len == 1 && keys.get(0) == 1 && values.get(0) == "uno") {
+        println("generic-int-snapshot-ok")
+    }
+    val entries = h.entries()
+    if (entries.len == 1 && entries.get(0).key == keys.get(0) && entries.get(0).value == values.get(0) && h.len() == 1 && h.getOr(1, "?") == "uno") {
+        println("generic-int-entry-snapshot-ok")
+    }
+    var entryCount: Int = 0
+    var renderedEntries: String = ""
+    for (entry in h.entries()) {
+        entryCount = entryCount + 1
+        renderedEntries = entry.key.toString() + ":" + entry.value
+    }
+    if (entryCount == 1 && renderedEntries == "1:uno") {
+        println("generic-int-entry-iteration-ok")
+    }
+    val rendered = map_hash_map_values<Int, String, String>(h, (k: Int, v: String) => k.toString() + ":" + v)
+    if (rendered.len == 1 && rendered.get(0) == "1:uno") {
+        println("generic-int-map-values-ok")
+    }
 }

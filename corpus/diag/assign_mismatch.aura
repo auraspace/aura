@@ -2,6 +2,6 @@
 package demo.diag
 
 fun main() {
-  var x: Int = 1
-  x = "no"
+    var x: Int = 1
+    x = "no"
 }

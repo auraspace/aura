@@ -2,12 +2,12 @@
 package demo.generic
 
 class Box<T>(val value: T) {
-  fun get(): T {
-    return this.value
-  }
+    fun get(): T {
+        return this.value
+    }
 }
 
 fun main() {
-  val s: Box<String> = Box<String>("Hello, Aura")
-  println(s.get())
+    val s: Box<String> = Box<String>("Hello, Aura")
+    println(s.get())
 }

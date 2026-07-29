@@ -4,6 +4,6 @@ package async_io_ffi_aura
 extern "C" fun aura_async_io_ffi_status(): Int
 
 fun main() {
-  if (aura_async_io_ffi_status() != 0) { exit(1) }
-  println("async-io-ffi-aura: passed")
+    if (aura_async_io_ffi_status() != 0) { exit(1) }
+    println("async-io-ffi-aura: passed")
 }

@@ -2,18 +2,18 @@
 package demo.exception_cause_api
 
 fun main() {
-  try {
     try {
-      throw "nested"
-    } catch (e: Int) {
+        try {
+            throw "nested"
+        } catch (e: Int) {
+        }
+    } catch (e: String) {
+        println(exception_cause_count().toString())
+        println(exception_cause_type(0))
+        println(exception_cause_span_start(0).toString())
+        exception_add_cause("manual", 7, 9)
+        println(exception_cause_count().toString())
+        println(exception_cause_type(1))
+        println(exception_cause_span_end(1).toString())
     }
-  } catch (e: String) {
-    println(exception_cause_count().toString())
-    println(exception_cause_type(0))
-    println(exception_cause_span_start(0).toString())
-    exception_add_cause("manual", 7, 9)
-    println(exception_cause_count().toString())
-    println(exception_cause_type(1))
-    println(exception_cause_span_end(1).toString())
-  }
 }

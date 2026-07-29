@@ -2,6 +2,6 @@
 package demo.lambda
 
 fun main(): Int {
-  val f: (Int) -> Int = (x: Int) => x * 2
-  return f(21)
+    val f: (Int) -> Int = (x: Int) => x * 2
+    return f(21)
 }

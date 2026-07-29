@@ -2,6 +2,6 @@
 package demo.lambda
 
 fun main(): Int {
-  val f = () => 7
-  return f()
+    val f = () => 7
+    return f()
 }

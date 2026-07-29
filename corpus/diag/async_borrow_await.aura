@@ -2,5 +2,5 @@
 package demo.tasks.diag
 
 async fun bad(value: ref String): String {
-  return await value
+    return await value
 }

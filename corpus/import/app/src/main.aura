@@ -5,35 +5,35 @@ import demo.math
 import demo.math as Math
 
 fun main() {
-  val n: Int = square(7)
-  val m: Int = Math.square(7)
-  if (n != 49) {
-    println("import failed")
-  } else {
-    if (m != 49) {
-      println("import alias failed")
+    val n: Int = square(7)
+    val m: Int = Math.square(7)
+    if (n != 49) {
+        println("import failed")
     } else {
-      println("import ok")
+        if (m != 49) {
+            println("import alias failed")
+        } else {
+            println("import ok")
+        }
     }
-  }
 
-  // C3u: Alias.Type in type position + constructor
-  val p: Math.Point = Math.Point(3, 4)
-  if (p.sum() == 7) {
-    println("import type ok")
-  } else {
-    println("import type failed")
-  }
+    // C3u: Alias.Type in type position + constructor
+    val p: Math.Point = Math.Point(3, 4)
+    if (p.sum() == 7) {
+        println("import type ok")
+    } else {
+        println("import type failed")
+    }
 }
 
 @test
 fun test_imported_square() {
-  assert_eq(square(4), 16)
-  assert_eq(Math.square(5), 25)
+    assert_eq(square(4), 16)
+    assert_eq(Math.square(5), 25)
 }
 
 @test
 fun test_imported_point() {
-  val p: Math.Point = Math.Point(1, 2)
-  assert_eq(p.sum(), 3)
+    val p: Math.Point = Math.Point(1, 2)
+    assert_eq(p.sum(), 3)
 }

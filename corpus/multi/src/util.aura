@@ -2,9 +2,9 @@
 package demo.multi
 
 fun square(x: Int): Int {
-  return x * x
+    return x * x
 }
 
 fun double(x: Int): Int {
-  return x + x
+    return x + x
 }

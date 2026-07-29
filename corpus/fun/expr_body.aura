@@ -6,10 +6,10 @@ fun double(x: Int): Int = x * 2
 fun greet(name: String): String = "hi " + name
 
 fun main() {
-  if (double(21) == 42) {
-    println("dbl")
-  }
-  if (greet("Aura") == "hi Aura") {
-    println("greet")
-  }
+    if (double(21) == 42) {
+        println("dbl")
+    }
+    if (greet("Aura") == "hi Aura") {
+        println("greet")
+    }
 }

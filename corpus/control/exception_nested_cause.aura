@@ -2,13 +2,13 @@
 package demo.exception_nested_cause
 
 fun main() {
-  try {
     try {
-      throw "nested"
-    } catch (e: Int) {
-      println("unreachable")
+        try {
+            throw "nested"
+        } catch (e: Int) {
+            println("unreachable")
+        }
+    } catch (e: Bool) {
+        println("unreachable")
     }
-  } catch (e: Bool) {
-    println("unreachable")
-  }
 }

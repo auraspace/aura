@@ -4,15 +4,15 @@ package demo.tasks.channels
 class Marker(val value: Int) {}
 
 fun main() {
-  val ints: Channel<Int> = Channel<Int>(2)
-  ints.send(7)
-  ints.close()
+    val ints: Channel<Int> = Channel<Int>(2)
+    ints.send(7)
+    ints.close()
 
-  val strings: Channel<String> = Channel<String>(2)
-  strings.send("aura")
-  strings.close()
+    val strings: Channel<String> = Channel<String>(2)
+    strings.send("aura")
+    strings.close()
 
-  val markers: Channel<Marker> = Channel<Marker>(1)
-  markers.send(Marker(22))
-  markers.close()
+    val markers: Channel<Marker> = Channel<Marker>(1)
+    markers.send(Marker(22))
+    markers.close()
 }

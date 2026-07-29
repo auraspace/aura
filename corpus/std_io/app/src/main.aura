@@ -4,5 +4,5 @@ package demo.stdio
 import std.io as Io
 
 fun main() {
-  Io.println("hello from std.io")
+    Io.println("hello from std.io")
 }

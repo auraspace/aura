@@ -2,40 +2,40 @@
 package demo.forin
 
 fun main() {
-  val a: Array<Int> = Array(3)
-  a.set(0, 10)
-  a.set(1, 20)
-  a.set(2, 30)
+    val a: Array<Int> = Array(3)
+    a.set(0, 10)
+    a.set(1, 20)
+    a.set(2, 30)
 
-  var sum: Int = 0
-  for (x in a) {
-    sum = sum + x
-  }
-  if (sum == 60) {
-    println("for-in ok")
-  } else {
-    println("for-in bad")
-  }
-
-  val words: Array<String> = Array(2)
-  words.set(0, "hi")
-  words.set(1, "aura")
-  for (w in words) {
-    println(w)
-  }
-
-  // break/continue still work inside for-in
-  var n: Int = 0
-  for (x in a) {
-    if (x == 10) {
-      continue
+    var sum: Int = 0
+    for (x in a) {
+        sum = sum + x
     }
-    if (x == 30) {
-      break
+    if (sum == 60) {
+        println("for-in ok")
+    } else {
+        println("for-in bad")
     }
-    n = n + x
-  }
-  if (n == 20) {
-    println("for-in break ok")
-  }
+
+    val words: Array<String> = Array(2)
+    words.set(0, "hi")
+    words.set(1, "aura")
+    for (w in words) {
+        println(w)
+    }
+
+    // break/continue still work inside for-in
+    var n: Int = 0
+    for (x in a) {
+        if (x == 10) {
+            continue
+        }
+        if (x == 30) {
+            break
+        }
+        n = n + x
+    }
+    if (n == 20) {
+        println("for-in break ok")
+    }
 }

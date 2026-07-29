@@ -2,28 +2,28 @@
 package demo.types
 
 fun label(name: String?): String {
-  if (name != null) {
-    return name
-  } else {
-    return "anonymous"
-  }
+    if (name != null) {
+        return name
+    } else {
+        return "anonymous"
+    }
 }
 
 fun label_eq(name: String?): String {
-  if (name == null) {
-    return "anonymous"
-  } else {
-    return name
-  }
+    if (name == null) {
+        return "anonymous"
+    } else {
+        return name
+    }
 }
 
 fun force(name: String?): String {
-  return name!!
+    return name!!
 }
 
 fun main() {
-  println(label("Hello, Aura"))
-  println(label(null))
-  println(label_eq("ok"))
-  println(force("force"))
+    println(label("Hello, Aura"))
+    println(label(null))
+    println(label_eq("ok"))
+    println(force("force"))
 }

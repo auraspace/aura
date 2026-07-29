@@ -2,17 +2,17 @@
 package demo.tasks.lifecycle
 
 async fun answer(): Int {
-  return 7
+    return 7
 }
 
 fun main() {
-  val resumed = spawn {
-    val value: Int = await answer()
-    println("resumed")
-    return
-  }
-  join(resumed)
+    val resumed = spawn {
+        val value: Int = await answer()
+        println("resumed")
+        return
+    }
+    join(resumed)
 
-  val cancelled = spawn {}
-  cancel(cancelled)
+    val cancelled = spawn {}
+    cancel(cancelled)
 }

@@ -2,14 +2,14 @@
 package demo.expr
 
 fun main() {
-  val s: String = "ab"
-  if (s.charAt(0) == 97) {
-    println("a")
-  }
-  if (s.charAt(1) == 98) {
-    println("b")
-  }
-  if ("z".charAt(0) == 122) {
-    println("z")
-  }
+    val s: String = "ab"
+    if (s.charAt(0) == 97) {
+        println("a")
+    }
+    if (s.charAt(1) == 98) {
+        println("b")
+    }
+    if ("z".charAt(0) == 122) {
+        println("z")
+    }
 }

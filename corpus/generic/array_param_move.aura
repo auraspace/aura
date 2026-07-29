@@ -2,23 +2,23 @@
 package demo.generic
 
 fun sum(a: Array<Int>): Int {
-  var s: Int = 0
-  for (i in 0..a.len) {
-    s = s + a.get(i)
-  }
-  return s
+    var s: Int = 0
+    for (i in 0..a.len) {
+        s = s + a.get(i)
+    }
+    return s
 }
 
 fun main() {
-  val a: Array<Int> = Array(2)
-  a.set(0, 10)
-  a.set(1, 20)
-  val total = sum(a)
-  // a moved into sum; buffer freed in sum — a is empty
-  if (total == 30) {
-    println("sum")
-  }
-  if (a.len == 0) {
-    println("moved")
-  }
+    val a: Array<Int> = Array(2)
+    a.set(0, 10)
+    a.set(1, 20)
+    val total = sum(a)
+    // a moved into sum; buffer freed in sum — a is empty
+    if (total == 30) {
+        println("sum")
+    }
+    if (a.len == 0) {
+        println("moved")
+    }
 }

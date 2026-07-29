@@ -4,20 +4,20 @@ package demo.task_outcome
 import std.io as Io
 
 async fun answer(): Int {
-  throw 7
+    throw 7
 }
 
 fun main() {
-  val task = spawn { val value: Int = await answer() return }
-  val outcome: Io.Result<Unit, Io.TaskError> = join(task)
-  match (outcome) {
-    case Ok(value) => { Io.println("unexpected success") }
-    case Err(error) => {
-      match (error) {
-        case Failed(message) => { Io.println(message) }
-        case FailedTyped(message, typeName) => { Io.println(message) }
-        case Cancelled => { Io.println("joined task cancelled") }
-      }
+    val task = spawn { val value: Int = await answer() return }
+    val outcome: Io.Result<Unit, Io.TaskError> = join(task)
+    match (outcome) {
+        case Ok(value) => { Io.println("unexpected success") }
+        case Err(error) => {
+            match (error) {
+                case Failed(message) => { Io.println(message) }
+                case FailedTyped(message, typeName) => { Io.println(message) }
+                case Cancelled => { Io.println("joined task cancelled") }
+            }
+        }
     }
-  }
 }
