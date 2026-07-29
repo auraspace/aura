@@ -102,6 +102,19 @@ impl Checker {
         expr: &Expr,
         expected: Option<&Ty>,
     ) -> Result<Ty, SemaError> {
+        let result = self.check_expr_expected_inner(expr, expected);
+        if let Ok(ty) = &result {
+            let span = expr.span();
+            self.expr_tys.insert((span.start, span.end), ty.clone());
+        }
+        result
+    }
+
+    fn check_expr_expected_inner(
+        &mut self,
+        expr: &Expr,
+        expected: Option<&Ty>,
+    ) -> Result<Ty, SemaError> {
         match expr {
             Expr::Ident(id) => {
                 if let Some((frame, local)) = self.lookup_local_frame(&id.name) {

@@ -12,6 +12,7 @@ use aura_codegen::{build_from_file, build_tests_from_file, emit_c_from_ast};
 use aura_diagnostics::{
     classify_async, format_async_error, format_error_with, FormatOptions, JsonDiagnostic, Severity,
 };
+use aura_lsp::run_stdio;
 use package::{
     activate_update, current_target, load_package, load_package_default, publish_dry_run,
     publish_package, LoadedPackage, RegistryIndex, UpdateDecision, ENV_REGISTRY_TOKEN,
@@ -41,6 +42,7 @@ fn main() -> ExitCode {
         "update" => cmd_update(&args),
         "fmt" => cmd_fmt(&args),
         "emit-c" => cmd_emit_c(&args),
+        "language-server" | "lsp" => cmd_language_server(&args),
         "new" => cmd_new(&args),
         "init" => cmd_init(&args),
         "version" | "--version" | "-V" => {
@@ -75,12 +77,27 @@ fn eprint_usage() {
            aura update ... --activate           Verify and atomically activate update\n  \
            aura fmt [--check] <path>          Format/check `.aura` files, project, or folder\n  \
            aura emit-c [path]                Print generated C (debug)\n  \
+           aura language-server              Run the stdio LSP server (alias: lsp)\n  \
            aura version                      Print CLI version\n  \
            aura help\n\n\
          Path may be a `.aura` file, a package directory, or `aura.toml`.\n\
          With no path, commands look for `./aura.toml`.\n\n\
          See docs/roadmap.md and RFC-001 §6.0 / RFC-005 / RFC-008 / RFC-012."
     );
+}
+
+fn cmd_language_server(args: &[String]) -> ExitCode {
+    if !args.is_empty() {
+        eprintln!("error: language-server does not accept arguments");
+        return ExitCode::from(2);
+    }
+    match run_stdio() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("language-server: {error}");
+            ExitCode::from(1)
+        }
+    }
 }
 
 fn cmd_update(args: &[String]) -> ExitCode {

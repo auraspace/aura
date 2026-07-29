@@ -61,6 +61,8 @@ pub(crate) struct Checker {
     call_instantiations: HashMap<u32, CallInstantiation>,
     /// C10d: LambdaExpr.span.start → Fun type.
     lambda_tys: HashMap<u32, Ty>,
+    /// Resolved expression types retained for analysis/LSP consumers.
+    expr_tys: HashMap<(u32, u32), Ty>,
     /// C10h/C12m: LambdaExpr.span.start → captured outer locals.
     lambda_captures: HashMap<u32, Vec<crate::sigs::LambdaCapture>>,
     /// C10h: while checking a lambda body — index of the lambda params frame.
@@ -288,6 +290,7 @@ impl Checker {
             mono_interfaces: HashSet::new(),
             call_instantiations: HashMap::new(),
             lambda_tys: HashMap::new(),
+            expr_tys: HashMap::new(),
             lambda_captures: HashMap::new(),
             lambda_capture_base: None,
             lambda_captures_acc: None,

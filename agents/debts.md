@@ -7,6 +7,23 @@ When you resolve debt, update or remove the matching entry.
 
 ## Open
 
+### LSP-001 language-server MVP is intentionally phase-limited (2026-07-29)
+
+- Area: `crates/aura-lsp`, `auralsp` stdio server
+- Symptom: the server currently supports lifecycle, full document sync,
+  push/pull diagnostics, formatting, AST-backed symbols/completion, incremental
+  edits, save/watch-folder refresh, workspace-folder changes, workspace-bounded
+  navigation/refactoring, local and semantic member completion, source-comment
+  hover documentation, versioned diagnostics, formatting, and compiler-suggestion
+  code actions; overload-aware binding IDs, package-graph analysis, and fully
+  preemptive cancellation are not implemented.
+- Why deferred: the existing analysis API does not yet expose stable binding IDs
+  or a structured suggestion model; lexical fallbacks remain conservative around
+  unresolved local scope and overloads, and the stdio loop is serial.
+- Next step: add precise binding IDs and structured diagnostic suggestions before
+  broadening rename/reference results; move long queries behind a cancellable
+  scheduler when workspace analysis becomes expensive.
+
 ### ANALYSIS-001 analysis cache eviction is not implemented (2026-07-29)
 
 - Area: `aura-analysis` snapshot query cache

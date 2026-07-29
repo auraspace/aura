@@ -1,0 +1,17 @@
+[package]
+name = "aura-lsp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Aura Language Server Protocol implementation"
+
+[[bin]]
+name = "auralsp"
+path = "src/main.rs"
+
+[dependencies]
+aura-analysis.workspace = true
+aura-ast.workspace = true
+aura-lexer.workspace = true
+aura-sema.workspace = true
+serde_json = "1"

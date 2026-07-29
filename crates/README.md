@@ -12,6 +12,7 @@ Implementation of the Aura compiler and CLI. User programs are written in **Aura
 | `aura-sema`        | Name resolution + typecheck (classes, interfaces, generics+bounds, null flow, fun types/lambdas)           |
 | `aura-codegen`     | C backend (mono generics, GC class refs, Array, exceptions, fat-pointer Fun)                               |
 | `aura-cli`         | `aura` binary (`check` / `build` / `run` / `test` / `emit-c`; multi-file + `aura.toml` + path deps / lock) |
+| `aura-lsp`         | Shared `auralsp` binary and stdio LSP integration (`aura lsp`)                                             |
 
 Runtime: [`runtime/aura_rt.c`](../runtime/aura_rt.c) (println, exceptions, Array helpers, GC mark/sweep).
 

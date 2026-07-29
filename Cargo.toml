@@ -9,6 +9,7 @@ members = [
     "crates/aura-sema",
     "crates/aura-codegen",
     "crates/aura-cli",
+    "crates/aura-lsp",
 ]
 default-members = ["crates/aura-cli"]
 

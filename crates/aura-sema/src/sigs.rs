@@ -123,6 +123,8 @@ pub struct CheckedFile {
     pub call_instantiations: HashMap<u32, CallInstantiation>,
     /// C10d/e: LambdaExpr.span.start → function type (for codegen).
     pub lambda_tys: HashMap<u32, Ty>,
+    /// Expression span start -> resolved expression type for editor queries.
+    pub expr_tys: HashMap<(u32, u32), Ty>,
     /// C10h/C12m: LambdaExpr.span.start → outer captures in stable name order.
     pub lambda_captures: HashMap<u32, Vec<LambdaCapture>>,
     pub ast: File,

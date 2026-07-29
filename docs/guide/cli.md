@@ -23,18 +23,19 @@ cargo run -p aura-cli -- <command> [args]
 
 ## Commands (0.1.1-alpha)
 
-| Command                | Purpose                                        |
-| ---------------------- | ---------------------------------------------- |
-| `new <path>`           | Scaffold a package directory                   |
-| `init [name]`          | Scaffold in the current directory              |
-| `check <file\|dir>`    | Parse + typecheck                              |
-| `build <file\|dir>`    | Emit native binary (`-o` for output path)      |
-| `run <file\|dir>`      | Build and execute                              |
-| `test <file\|dir>`     | Run `@test` functions                          |
-| `race <file\|dir>`     | Run tests with the runtime race detector       |
-| `fmt [--check] <path>` | Format/check a source file, package, or folder |
-| `emit-c <file\|dir>`   | Emit C (advanced / debugging)                  |
-| `version`              | Print CLI version (`aura 0.1.1-alpha`)         |
+| Command                   | Purpose                                        |
+| ------------------------- | ---------------------------------------------- |
+| `new <path>`              | Scaffold a package directory                   |
+| `init [name]`             | Scaffold in the current directory              |
+| `check <file\|dir>`       | Parse + typecheck                              |
+| `build <file\|dir>`       | Emit native binary (`-o` for output path)      |
+| `run <file\|dir>`         | Build and execute                              |
+| `test <file\|dir>`        | Run `@test` functions                          |
+| `race <file\|dir>`        | Run tests with the runtime race detector       |
+| `fmt [--check] <path>`    | Format/check a source file, package, or folder |
+| `lsp` / `language-server` | Run the stdio Aura language server (`auralsp`) |
+| `emit-c <file\|dir>`      | Emit C (advanced / debugging)                  |
+| `version`                 | Print CLI version (`aura 0.1.1-alpha`)         |
 
 Examples:
 
@@ -47,6 +48,8 @@ aura test path
 aura test path --test-name filter --format json
 aura race path --format json
 aura fmt path/src/main.aura
+auralsp
+# or: aura lsp
 aura version
 ```
 
