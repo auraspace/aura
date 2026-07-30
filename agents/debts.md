@@ -18,14 +18,18 @@ When you resolve debt, update or remove the matching entry.
   code actions; overload-aware binding IDs and fully preemptive cancellation
   are not implemented. Diagnostics now resolve the complete package graph
   through the shared read-only loader, including standard, path, registry, and
-  transitive dependencies, and rebuild it with open-document overlays.
+  transitive dependencies, and rebuild it with open-document overlays. Hover
+  type inference now reuses a diagnostics-warmed package cache keyed by
+  manifest and analysis revision, while semantic member completion still
+  relies on document-only analysis.
 - Why deferred: the existing analysis API does not yet expose stable binding IDs
-  or a structured suggestion model; package diagnostics currently rebuild the
-  resolved graph for each update, lexical fallbacks remain conservative around
-  unresolved local scope and overloads, and the stdio loop is serial.
-- Next step: cache package snapshots by manifest and overlay revision, add
-  precise binding IDs and structured diagnostic suggestions before broadening
-  rename/reference results, and move long queries behind a cancellable scheduler.
+  or a structured suggestion model; package diagnostics still rebuild the
+  resolved graph after document updates, lexical fallbacks remain conservative
+  around unresolved local scope and overloads, and the stdio loop is serial.
+- Next step: share the package cache with diagnostics, add package-aware member
+  completion, precise binding IDs, and structured diagnostic suggestions before
+  broadening rename/reference results, and move long queries behind a
+  cancellable scheduler.
 
 ### ANALYSIS-001 analysis cache eviction is not implemented (2026-07-29)
 

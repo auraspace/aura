@@ -10,7 +10,13 @@ const manifest = JSON.parse(
   fs.readFileSync(path.join(root, 'package.json'), 'utf8'),
 )
 
-assert.equal(manifest.main, './out/extension.js')
+assert.equal(manifest.main, './dist/extension.js')
+const bundledExtension = fs.readFileSync(path.join(root, manifest.main), 'utf8')
+assert.doesNotMatch(
+  bundledExtension,
+  /require\(["']vscode-languageclient(?:\/node)?["']\)/,
+)
+assert.match(bundledExtension, /Aura Language Server/)
 assert.ok(manifest.activationEvents.includes('onLanguage:aura'))
 for (const command of [
   'aura.restartLanguageServer',
@@ -64,7 +70,12 @@ assert.ok(
     ({ command }) => command === 'aura.selectToolchain',
   ),
 )
-assert.ok(fs.existsSync(path.join(root, 'language-configuration.json')))
+const languageConfiguration = JSON.parse(
+  fs.readFileSync(path.join(root, 'language-configuration.json'), 'utf8'),
+)
+const auraWordPattern = new RegExp(languageConfiguration.wordPattern, 'g')
+assert.deepEqual('    await funcA()'.match(auraWordPattern), ['await', 'funcA'])
+assert.deepEqual('box.value'.match(auraWordPattern), ['box', 'value'])
 assert.equal(manifest.contributes.grammars[0].language, 'aura')
 assert.equal(manifest.contributes.grammars[0].scopeName, 'source.aura')
 const grammarPath = path.join(root, manifest.contributes.grammars[0].path)
@@ -76,6 +87,8 @@ assert.match(grammar.repository.keywords.match, /interface/)
 assert.ok(grammar.repository.operators.match.includes('\\?\\.'))
 assert.match(grammar.repository.types.match, /TaskHandle/)
 assert.match(grammar.repository.types.match, /ForeignHandle/)
+assert.equal(grammar.repository['custom-types'].name, 'entity.name.type.aura')
+assert.match('Notebook', new RegExp(grammar.repository['custom-types'].match))
 assert.equal(
   grammar.repository.functions.patterns[0].captures['2'].name,
   'entity.name.function.aura',
@@ -134,8 +147,16 @@ const extensionSource = fs.readFileSync(
   path.join(root, 'src', 'extension.ts'),
   'utf8',
 )
-assert.match(extensionSource, /documentSelector: \[\{ language: 'aura' \}\]/)
+assert.match(extensionSource, /\{ language: 'aura', scheme: 'file' \}/)
+assert.match(extensionSource, /\{ language: 'aura', scheme: 'untitled' \}/)
 assert.equal(manifest.scripts['stage-server'], 'node scripts/stage-server.mjs')
+assert.equal(manifest.scripts.bundle, 'node scripts/build-extension.mjs')
+const buildScript = fs.readFileSync(
+  path.join(root, 'scripts', 'build-extension.mjs'),
+  'utf8',
+)
+assert.match(buildScript, /bundle: true/)
+assert.match(buildScript, /external: \['vscode'\]/)
 
 const tasks = JSON.parse(
   fs.readFileSync(path.join(repositoryRoot, '.vscode', 'tasks.json'), 'utf8'),
@@ -164,7 +185,7 @@ const lspCapableAura = path.join(
 )
 fs.writeFileSync(
   lspCapableAura,
-  '#!/bin/sh\nprintf "aura language-server\\n"\n',
+  '#!/bin/sh\nprintf "aura language-server\\n" >&2\n',
 )
 fs.chmodSync(lspCapableAura, 0o755)
 assert.equal(server.supportsLanguageServer(lspCapableAura), true)

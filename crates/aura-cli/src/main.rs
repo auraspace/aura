@@ -10,7 +10,7 @@ use aura_codegen::{build_from_file, build_tests_from_file, emit_c_from_ast};
 use aura_diagnostics::{
     classify_async, format_async_error, format_error_with, FormatOptions, JsonDiagnostic, Severity,
 };
-use aura_lsp::run_stdio;
+use aura_lsp::run_stdio_with_std_root;
 use aura_package as package;
 use package::{
     activate_update, current_target, load_package, load_package_default, publish_dry_run,
@@ -90,7 +90,8 @@ fn cmd_language_server(args: &[String]) -> ExitCode {
         eprintln!("error: language-server does not accept arguments");
         return ExitCode::from(2);
     }
-    match run_stdio() {
+    let std_root = package::std_path::active_toolchain_std_root();
+    match run_stdio_with_std_root(std_root) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("language-server: {error}");

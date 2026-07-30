@@ -676,6 +676,7 @@ impl Parser {
         } else {
             (None, first)
         };
+        let has_type_args = matches!(self.peek().kind, TokenKind::Lt);
         let type_args = self.parse_type_args_opt()?;
         let nullable = if matches!(self.peek().kind, TokenKind::Question) {
             self.bump();
@@ -685,8 +686,8 @@ impl Parser {
         };
         let end = if nullable {
             self.tokens[self.idx.saturating_sub(1)].span.end
-        } else if let Some(last) = type_args.last() {
-            last.span.end
+        } else if has_type_args {
+            self.tokens[self.idx.saturating_sub(1)].span.end
         } else {
             name.span.end
         };

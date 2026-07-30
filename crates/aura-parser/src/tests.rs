@@ -299,6 +299,24 @@ fun main() {
 }
 
 #[test]
+fn generic_type_spans_include_the_closing_bracket() {
+    let src = "package main\nclass Notebook(val items: Array<String>) {}\n";
+    let file = parse_file(src).expect("parse");
+    let field = &file.classes[0].fields[0];
+    let type_span = field.ty.span;
+    let field_span = field.span;
+
+    assert_eq!(
+        &src[type_span.start as usize..type_span.end as usize],
+        "Array<String>"
+    );
+    assert_eq!(
+        &src[field_span.start as usize..field_span.end as usize],
+        "val items: Array<String>"
+    );
+}
+
+#[test]
 fn parses_test_attr() {
     let src = r#"
 package main

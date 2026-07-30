@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { chmodSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -33,15 +33,13 @@ function hostAuraPath(platform: NodeJS.Platform): string | undefined {
 }
 
 export function supportsLanguageServer(command: string): boolean {
-  try {
-    const help = execFileSync(command, ['help'], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    })
-    return /\b(?:language-server|lsp)\b/.test(help)
-  } catch {
+  const result = spawnSync(command, ['help'], { encoding: 'utf8' })
+  if (result.error) {
     return false
   }
+  return /\b(?:language-server|lsp)\b/.test(
+    `${result.stdout ?? ''}\n${result.stderr ?? ''}`,
+  )
 }
 
 function embeddedServerPath(

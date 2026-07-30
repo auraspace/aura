@@ -6,6 +6,8 @@ capability currently advertised by `auralsp`: diagnostics, completion, hover,
 go to definition, references, rename, document and workspace symbols,
 formatting, and quick-fix/source-format code actions. These features work for
 saved `.aura` files and unsaved buffers whose language mode is Aura.
+Documentation comments immediately above declarations are shown in hover and
+completion details, including `//` and `///` comments.
 
 The Command Palette also provides `Aura: Check Project`, `Aura: Build
 Project`, `Aura: Test Project`, `Aura: Race Tests`, and `Aura: Format Project`.

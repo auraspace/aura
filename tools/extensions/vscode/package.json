@@ -20,7 +20,7 @@
     "language server",
     "lsp"
   ],
-  "main": "./out/extension.js",
+  "main": "./dist/extension.js",
   "activationEvents": [
     "onLanguage:aura",
     "onCommand:aura.restartLanguageServer",
@@ -133,8 +133,9 @@
     ]
   },
   "scripts": {
-    "compile": "tsc -p ./tsconfig.json",
-    "watch": "tsc -p ./tsconfig.json --watch",
+    "bundle": "node scripts/build-extension.mjs",
+    "compile": "tsc -p ./tsconfig.json && npm run bundle",
+    "watch": "node scripts/build-extension.mjs --watch",
     "check": "tsc -p ./tsconfig.json --noEmit",
     "test": "npm run compile && node test/manifest.test.mjs",
     "stage-server": "node scripts/stage-server.mjs",
@@ -148,6 +149,7 @@
     "@types/vscode": "^1.85.0",
     "@types/node": "^20.0.0",
     "@vscode/vsce": "^3.0.0",
+    "esbuild": "^0.28.1",
     "typescript": "^5.4.0"
   },
   "icon": "icon.png"

@@ -3,22 +3,35 @@ use aura_analysis::{
 };
 use aura_ast::{File, FunDecl, Span};
 use aura_lexer::{lex, TokenKind};
-use aura_package::load_package_read_only;
+use aura_package::{load_package_read_only, load_package_read_only_with_std};
 use aura_sema::check_file;
 use serde_json::{json, Map, Value};
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 const SERVER_NAME: &str = "auralsp";
 
+struct PackageExpressionCache {
+    revision: u64,
+    expression_types: Option<Arc<HashMap<(u32, u32), aura_sema::Ty>>>,
+    source_bases: HashMap<PathBuf, u32>,
+}
+
 pub fn run_stdio() -> io::Result<()> {
+    run_stdio_with_std_root(None)
+}
+
+/// Run the LSP with sources and diagnostics pinned to one toolchain std root.
+pub fn run_stdio_with_std_root(std_root: Option<PathBuf>) -> io::Result<()> {
     let stdin = io::stdin();
     let mut input = stdin.lock();
     let stdout = io::stdout();
     let mut output = stdout.lock();
-    let mut server = Server::new();
+    let mut server = Server::with_std_root(std_root);
 
     while let Some(message) = read_message(&mut input)? {
         let response = server.handle(message);
@@ -85,11 +98,19 @@ struct Server {
     exited: bool,
     pending_notifications: VecDeque<Value>,
     workspace_roots: Vec<PathBuf>,
+    std_root: Option<PathBuf>,
     cancelled_requests: HashSet<String>,
+    reported_analysis_failures: RefCell<HashSet<String>>,
+    package_expression_cache: RefCell<HashMap<PathBuf, PackageExpressionCache>>,
 }
 
 impl Server {
+    #[cfg(test)]
     fn new() -> Self {
+        Self::with_std_root(None)
+    }
+
+    fn with_std_root(std_root: Option<PathBuf>) -> Self {
         Self {
             host: AnalysisHost::new(),
             documents: Map::new(),
@@ -98,7 +119,10 @@ impl Server {
             exited: false,
             pending_notifications: VecDeque::new(),
             workspace_roots: Vec::new(),
+            std_root,
             cancelled_requests: HashSet::new(),
+            reported_analysis_failures: RefCell::new(HashSet::new()),
+            package_expression_cache: RefCell::new(HashMap::new()),
         }
     }
 
@@ -128,6 +152,7 @@ impl Server {
             "textDocument/completion" => Ok(self.completion(message.get("params"))),
             "textDocument/hover" => Ok(self.hover(message.get("params"))),
             "textDocument/definition" => Ok(self.definition(message.get("params"))),
+            "textDocument/documentHighlight" => Ok(self.document_highlight(message.get("params"))),
             "textDocument/references" => Ok(self.references(message.get("params"))),
             "textDocument/rename" => self.rename(message.get("params")),
             "workspace/symbol" => Ok(self.workspace_symbols(message.get("params"))),
@@ -157,6 +182,7 @@ impl Server {
                 "completionProvider": {"triggerCharacters": ["."]},
                 "hoverProvider": true,
                 "definitionProvider": true,
+                "documentHighlightProvider": true,
                 "referencesProvider": true,
                 "renameProvider": true,
                 "workspaceSymbolProvider": true,
@@ -168,19 +194,27 @@ impl Server {
     }
 
     fn index_workspace(&mut self) {
-        for root in &self.workspace_roots {
-            let mut files = Vec::new();
-            collect_aura_files(root, &mut files);
-            for path in files {
-                let Ok(text) = fs::read_to_string(&path) else {
-                    continue;
-                };
-                let uri = path_to_uri(&path);
-                self.documents.entry(uri.clone()).or_insert_with(
-                    || json!({"version":0,"text":text,"diskText":text,"open":false}),
-                );
-                self.host.set_document(DocumentId::from(uri), text);
-            }
+        let mut roots = self.workspace_roots.clone();
+        if let Some(std_root) = &self.std_root {
+            roots.push(std_root.clone());
+        }
+        for root in roots {
+            self.index_root(&root);
+        }
+    }
+
+    fn index_root(&mut self, root: &Path) {
+        let mut files = Vec::new();
+        collect_aura_files(root, &mut files);
+        for path in files {
+            let Ok(text) = fs::read_to_string(&path) else {
+                continue;
+            };
+            let uri = path_to_uri(&path);
+            self.documents
+                .entry(uri.clone())
+                .or_insert_with(|| json!({"version":0,"text":text,"diskText":text,"open":false}));
+            self.host.set_document(DocumentId::from(uri), text);
         }
     }
 
@@ -496,7 +530,13 @@ impl Server {
             .collect::<HashMap<_, _>>();
         let mut overlays = overlays;
         overlays.insert(target_path.clone(), text.to_owned());
-        let package = load_package_read_only(&manifest)
+        let package = self
+            .std_root
+            .as_deref()
+            .map_or_else(
+                || load_package_read_only(&manifest),
+                |std_root| load_package_read_only_with_std(&manifest, std_root),
+            )
             .ok()?
             .with_overlays(&overlays)
             .ok()?;
@@ -504,21 +544,39 @@ impl Server {
             .sources
             .iter()
             .find(|source| source.path == target_path)?;
+        let target_base = target.base;
+        let target_end = target.end;
+        let source_bases = package
+            .sources
+            .iter()
+            .map(|source| (source.path.clone(), source.base))
+            .collect::<HashMap<_, _>>();
+        let revision = self.host.snapshot().id().get();
 
         let errors = match check_file(&package.ast) {
-            Ok(_) => return Some(Vec::new()),
-            Err(errors) => errors.errors,
+            Ok(checked) => {
+                self.store_package_expression_cache(
+                    manifest,
+                    revision,
+                    Some((Arc::new(checked.expr_tys), source_bases)),
+                );
+                return Some(Vec::new());
+            }
+            Err(errors) => {
+                self.store_package_expression_cache(manifest, revision, None);
+                errors.errors
+            }
         };
         Some(
             errors
                 .into_iter()
-                .filter(|error| error.span.start >= target.base && error.span.start < target.end)
+                .filter(|error| error.span.start >= target_base && error.span.start < target_end)
                 .map(|error| Diagnostic {
                     severity: Severity::Error,
                     message: error.message,
                     span: Span::new(
-                        error.span.start - target.base,
-                        error.span.end.saturating_sub(target.base),
+                        error.span.start - target_base,
+                        error.span.end.saturating_sub(target_base),
                     ),
                 })
                 .map(|diagnostic| diagnostic_json(text, &diagnostic))
@@ -611,26 +669,36 @@ impl Server {
                 if !symbol.name.starts_with(prefix) {
                     continue;
                 }
-                items.push(json!({
+                let documentation = documentation_before(text, symbol.range.start as usize);
+                let mut item = json!({
                     "label": symbol.name,
                     "kind": symbol.kind,
                     "detail": symbol.detail,
                     "textEdit": {"range": span_range(source, Span::new(start as u32, offset as u32)), "newText": symbol.name},
                     "data": {"uri": document_uri}
-                }));
+                });
+                if !documentation.is_empty() {
+                    item["documentation"] = json!({"kind":"markdown","value":documentation});
+                }
+                items.push(item);
             }
             if document_uri == uri {
-                for symbol in local_symbols(text, &file) {
+                for symbol in self.local_symbols_for_document(document_uri, text, &file) {
                     if !symbol.name.starts_with(prefix) {
                         continue;
                     }
-                    items.push(json!({
+                    let documentation = documentation_before(text, symbol.range.start as usize);
+                    let mut item = json!({
                         "label": symbol.name,
                         "kind": symbol.kind,
                         "detail": symbol.detail,
                         "textEdit": {"range": span_range(source, Span::new(start as u32, offset as u32)), "newText": symbol.name},
                         "data": {"uri": document_uri}
-                    }));
+                    });
+                    if !documentation.is_empty() {
+                        item["documentation"] = json!({"kind":"markdown","value":documentation});
+                    }
+                    items.push(item);
                 }
             }
         }
@@ -718,28 +786,71 @@ impl Server {
             return Value::Null;
         };
         let name = source[word_span.start as usize..word_span.end as usize].to_owned();
-        let Some((definition_uri, symbol)) = self.find_symbol(&name) else {
+        let Some((definition_uri, symbol)) = self.find_symbol_at(uri, &name, word_span) else {
             return Value::Null;
         };
-        let signature = self.semantic_detail(&name).unwrap_or_else(|| {
-            if symbol.detail.is_empty() {
+        let expression_type = self
+            .expression_type(uri, word_span, symbol.range)
+            .filter(|_| symbol.kind == 13);
+        let local_type_name = expression_type
+            .as_ref()
+            .and_then(nominal_type_name)
+            .map(str::to_owned)
+            .or_else(|| self.local_initializer_type_name(uri, symbol.range));
+        let local_type_declaration = local_type_name
+            .as_deref()
+            .and_then(|type_name| self.find_declaration_symbol(type_name));
+        let semantic_detail = self.semantic_detail(&definition_uri, &name);
+        let primary_signature = semantic_detail.clone().unwrap_or_else(|| {
+            if let Some(ty) = expression_type.as_ref() {
+                format!("{}: {}", name, ty.display())
+            } else if let Some(type_name) = local_type_name.as_deref() {
+                format!("{}: {}", name, type_name)
+            } else if symbol.detail.is_empty() {
                 symbol.name.clone()
             } else {
-                symbol.detail.clone()
+                compact_symbol_detail(&symbol.detail)
             }
         });
+        let type_signature = if symbol.kind == 13 {
+            local_type_declaration
+                .as_ref()
+                .map(|(_, type_symbol)| compact_symbol_detail(&type_symbol.detail))
+                .filter(|type_signature| type_signature != &primary_signature)
+        } else {
+            None
+        };
         let documentation = self
             .document_text(&definition_uri)
             .map(|text| documentation_before(text, symbol.range.start as usize))
             .unwrap_or_default();
-        let contents = if documentation.is_empty() {
-            format!("```aura\n{signature}\n```\n\nDefined in `{definition_uri}`.")
+        let documentation = if documentation.is_empty() {
+            local_type_declaration
+                .as_ref()
+                .and_then(|(type_uri, type_symbol)| {
+                    self.document_text(&type_uri)
+                        .map(|text| documentation_before(text, type_symbol.range.start as usize))
+                })
+                .unwrap_or_default()
         } else {
-            format!(
-                "```aura\n{signature}\n```\n\n{documentation}\n\nDefined in `{definition_uri}`."
-            )
+            documentation
         };
-        json!({"contents":{"kind":"markdown","value":contents},"range":span_range(source, word_span)})
+        let mut contents = vec![json!({
+            "language": "aura",
+            "value": primary_signature
+        })];
+        if let Some(type_signature) = type_signature {
+            contents.push(Value::String("---".to_owned()));
+            contents.push(json!({
+                "language": "aura",
+                "value": type_signature
+            }));
+        }
+        if !documentation.is_empty() {
+            contents.push(Value::String("---".to_owned()));
+            contents.push(Value::String(documentation));
+        }
+        json!({"contents":contents,"range":span_range(source, word_span)})
     }
 
     fn definition(&self, params: Option<&Value>) -> Value {
@@ -756,10 +867,44 @@ impl Server {
         let Some(name) = word_at(source, offset) else {
             return json!([]);
         };
-        let Some((definition_uri, symbol)) = self.find_symbol(&name) else {
+        let Some(origin_span) = word_span_at(source, offset) else {
             return json!([]);
         };
-        json!([{"uri":definition_uri,"range":span_range(self.document_text(&definition_uri).unwrap_or(""), symbol.range)}])
+        let Some((definition_uri, symbol)) = self.definition_symbol_at(uri, &name, origin_span)
+        else {
+            return json!([]);
+        };
+        let definition_source = self.document_text(&definition_uri).unwrap_or("");
+        let result = json!([{
+            "originSelectionRange": span_range(source, origin_span),
+            "targetUri": definition_uri,
+            "targetRange": span_range(definition_source, symbol.range),
+            "targetSelectionRange": span_range(definition_source, symbol.span)
+        }]);
+        result
+    }
+
+    fn document_highlight(&self, params: Option<&Value>) -> Value {
+        let Some(uri) = uri_param(params) else {
+            return json!([]);
+        };
+        let Some(source) = self.document_text(uri) else {
+            return json!([]);
+        };
+        let offset = params
+            .and_then(|p| p.get("position"))
+            .map(|p| position_to_offset(source, p))
+            .unwrap_or(0);
+        let Some(name) = word_at(source, offset) else {
+            return json!([]);
+        };
+        if self.find_symbol(&name).is_none() {
+            return json!([]);
+        }
+        json!(word_occurrences(source, &name)
+            .into_iter()
+            .map(|span| json!({"range":span_range(source, span),"kind":1}))
+            .collect::<Vec<_>>())
     }
 
     fn references(&self, params: Option<&Value>) -> Value {
@@ -949,62 +1094,258 @@ impl Server {
         self.find_symbols(name).into_iter().next()
     }
 
-    fn semantic_detail(&self, name: &str) -> Option<String> {
+    fn find_declaration_symbol(&self, name: &str) -> Option<(String, Symbol)> {
         for (uri, document) in &self.documents {
-            let Some(_source) = document.get("text").and_then(Value::as_str) else {
+            let Some(source) = document.get("text").and_then(Value::as_str) else {
                 continue;
             };
-            let id = DocumentId::from(uri.as_str());
-            let Ok(analysis) = self.host.snapshot().analyze(&id) else {
+            let Ok(file) = parse_file(source) else {
                 continue;
             };
-            if let Some(function) = analysis
-                .checked
+            if let Some(symbol) = flatten_symbols(&declaration_symbols(source, &file))
+                .into_iter()
+                .find(|symbol| symbol.name == name)
+            {
+                return Some((uri.clone(), symbol.clone()));
+            }
+        }
+        None
+    }
+
+    fn find_declaration_in_package(&self, package: &str, name: &str) -> Option<(String, Symbol)> {
+        for (uri, document) in &self.documents {
+            let Some(source) = document.get("text").and_then(Value::as_str) else {
+                continue;
+            };
+            let Ok(file) = parse_file(source) else {
+                continue;
+            };
+            if file.package.display() != package {
+                continue;
+            }
+            if let Some(symbol) = flatten_symbols(&declaration_symbols(source, &file))
+                .into_iter()
+                .find(|symbol| symbol.name == name)
+            {
+                return Some((uri.clone(), symbol.clone()));
+            }
+        }
+        None
+    }
+
+    fn import_alias_symbol(&self, package: &str, alias: &str) -> Option<(String, Symbol)> {
+        for (uri, document) in &self.documents {
+            let Some(source) = document.get("text").and_then(Value::as_str) else {
+                continue;
+            };
+            let Ok(file) = parse_file(source) else {
+                continue;
+            };
+            if file.package.display() != package {
+                continue;
+            }
+            return Some((
+                uri.clone(),
+                Symbol {
+                    name: alias.to_owned(),
+                    kind: 9,
+                    detail: format!("import {package} as {alias}"),
+                    span: file.package.span,
+                    range: file.package.span,
+                    children: Vec::new(),
+                },
+            ));
+        }
+        None
+    }
+
+    fn find_function_return_type_name(&self, name: &str) -> Option<String> {
+        for document in self.documents.values() {
+            let Some(source) = document.get("text").and_then(Value::as_str) else {
+                continue;
+            };
+            let Ok(file) = parse_file(source) else {
+                continue;
+            };
+            let return_type = file
                 .functions
                 .iter()
-                .find(|function| function.name == name)
+                .find(|function| function.name.name == name)
+                .and_then(|function| function.return_type.as_ref())
+                .or_else(|| {
+                    file.async_functions
+                        .iter()
+                        .find(|function| function.name.name == name)
+                        .and_then(|function| function.return_type.as_ref())
+                })
+                .or_else(|| {
+                    file.foreign_functions
+                        .iter()
+                        .find(|function| function.name.name == name)
+                        .and_then(|function| function.return_type.as_ref())
+                });
+            if let Some(return_type) = return_type {
+                return Some(source_span(source, return_type.span));
+            }
+        }
+        None
+    }
+
+    fn find_symbol_at(&self, uri: &str, name: &str, word_span: Span) -> Option<(String, Symbol)> {
+        let source = self.document_text(uri)?;
+        let file = parse_file(source).ok()?;
+        let locals = local_symbols(source, &file);
+
+        if let Some(symbol) = locals
+            .iter()
+            .find(|symbol| symbol.name == name && symbol.span == word_span)
+        {
+            return Some((uri.to_owned(), symbol.clone()));
+        }
+
+        if let Some(scope) = enclosing_callable_span(&file, word_span.start) {
+            if let Some(symbol) = locals
+                .iter()
+                .filter(|symbol| {
+                    symbol.name == name
+                        && symbol.span.start <= word_span.start
+                        && symbol.range.start >= scope.start
+                        && symbol.range.end <= scope.end
+                })
+                .max_by_key(|symbol| symbol.span.start)
             {
-                return Some(format_function_signature(
-                    &function.name,
-                    &function.params,
-                    &function.ret,
+                return Some((uri.to_owned(), symbol.clone()));
+            }
+        }
+
+        if let Some(package) = imported_package_for_alias(&file, name) {
+            return self.import_alias_symbol(&package, name);
+        }
+
+        if let Some(qualifier) = qualifier_before(source, word_span) {
+            if let Some(package) = imported_package_for_alias(&file, qualifier) {
+                if let Some(symbol) = self.find_declaration_in_package(&package, name) {
+                    return Some(symbol);
+                }
+            }
+        }
+
+        flatten_symbols(&declaration_symbols(source, &file))
+            .into_iter()
+            .find(|symbol| symbol.name == name)
+            .cloned()
+            .map(|symbol| (uri.to_owned(), symbol))
+            .or_else(|| self.find_symbol(name))
+    }
+
+    fn definition_symbol_at(
+        &self,
+        uri: &str,
+        name: &str,
+        word_span: Span,
+    ) -> Option<(String, Symbol)> {
+        let source = self.document_text(uri)?;
+        let file = parse_file(source).ok()?;
+        if let Some(qualifier) = qualifier_before(source, word_span) {
+            if imported_package_for_alias(&file, qualifier).is_none() {
+                let receiver_span = receiver_span(source, word_span.start as usize)?;
+                let receiver_ty = self.expression_type_at(uri, receiver_span)?;
+                let receiver_name = nominal_type_name(&receiver_ty)?;
+                return self.find_member_declaration(receiver_name, name);
+            }
+        }
+        self.find_symbol_at(uri, name, word_span)
+    }
+
+    fn expression_type_at(&self, uri: &str, span: Span) -> Option<aura_sema::Ty> {
+        let (expression_types, base) = self.expression_types_for_document(uri)?;
+        let span = span.shift(base);
+        expression_types
+            .get(&(span.start, span.end))
+            .cloned()
+            .or_else(|| {
+                expression_types
+                    .iter()
+                    .filter(|((start, end), _)| *start >= span.start && *end <= span.end)
+                    .max_by_key(|((start, end), _)| end - start)
+                    .map(|(_, ty)| ty.clone())
+            })
+    }
+
+    fn find_member_declaration(&self, receiver_name: &str, name: &str) -> Option<(String, Symbol)> {
+        let receiver_name = nominal_short_name(receiver_name);
+        for (uri, document) in &self.documents {
+            let Some(source) = document.get("text").and_then(Value::as_str) else {
+                continue;
+            };
+            let Ok(file) = parse_file(source) else {
+                continue;
+            };
+            let Some(symbol) = declaration_symbols(source, &file)
+                .into_iter()
+                .find(|symbol| nominal_short_name(&symbol.name) == receiver_name)
+            else {
+                continue;
+            };
+            if let Some(member) = symbol
+                .children
+                .into_iter()
+                .find(|member| member.name == name)
+            {
+                return Some((uri.clone(), member));
+            }
+        }
+        None
+    }
+
+    fn semantic_detail(&self, uri: &str, name: &str) -> Option<String> {
+        let analysis = self.host.snapshot().analyze(&DocumentId::from(uri)).ok()?;
+        if let Some(function) = analysis
+            .checked
+            .functions
+            .iter()
+            .find(|function| function.name == name)
+        {
+            return Some(format_function_signature(
+                &function.name,
+                &function.params,
+                &function.ret,
+            ));
+        }
+        for class in &analysis.checked.classes {
+            if class.name == name {
+                return Some(format!(
+                    "{} {}",
+                    if class.is_struct { "struct" } else { "class" },
+                    class.name
                 ));
             }
-            for class in &analysis.checked.classes {
-                if class.name == name {
-                    return Some(format!(
-                        "{} {}",
-                        if class.is_struct { "struct" } else { "class" },
-                        class.name
-                    ));
-                }
-                if let Some(field) = class.fields.iter().find(|field| field.name == name) {
-                    return Some(format!("{}: {}", field.name, field.ty.display()));
-                }
-                if let Some(method) = class.methods.get(name) {
-                    return Some(format_function_signature(
-                        &method.name,
-                        &method.params,
-                        &method.ret,
-                    ));
-                }
+            if let Some(field) = class.fields.iter().find(|field| field.name == name) {
+                return Some(format!("{}: {}", field.name, field.ty.display()));
             }
-            if let Some(interface) = analysis
-                .checked
-                .interfaces
-                .iter()
-                .find(|interface| interface.name == name)
-            {
-                return Some(format!("interface {}", interface.name));
+            if let Some(method) = class.methods.get(name) {
+                return Some(format_function_signature(
+                    &method.name,
+                    &method.params,
+                    &method.ret,
+                ));
             }
-            if let Some(enumeration) = analysis
-                .checked
-                .enums
-                .iter()
-                .find(|enumeration| enumeration.name == name)
-            {
-                return Some(format!("enum {}", enumeration.name));
-            }
+        }
+        if let Some(interface) = analysis
+            .checked
+            .interfaces
+            .iter()
+            .find(|interface| interface.name == name)
+        {
+            return Some(format!("interface {}", interface.name));
+        }
+        if let Some(enumeration) = analysis
+            .checked
+            .enums
+            .iter()
+            .find(|enumeration| enumeration.name == name)
+        {
+            return Some(format!("enum {}", enumeration.name));
         }
         None
     }
@@ -1023,7 +1364,7 @@ impl Server {
                     matches.push((uri.clone(), symbol.clone()));
                 }
             }
-            for symbol in local_symbols(source, &file) {
+            for symbol in self.local_symbols_for_document(uri, source, &file) {
                 if symbol.name == name {
                     matches.push((uri.clone(), symbol));
                 }
@@ -1035,6 +1376,245 @@ impl Server {
     fn document_text(&self, uri: &str) -> Option<&str> {
         self.documents.get(uri)?.get("text")?.as_str()
     }
+
+    fn local_symbols_for_document(&self, uri: &str, source: &str, file: &File) -> Vec<Symbol> {
+        let mut symbols = local_symbols(source, file);
+        for symbol in &mut symbols {
+            if symbol.detail != symbol.name {
+                continue;
+            }
+            symbol.detail = self
+                .expression_type(uri, symbol.span, symbol.range)
+                .map(|ty| format!("{}: {}", symbol.name, ty.display()))
+                .unwrap_or_else(|| symbol.name.clone());
+        }
+        symbols
+    }
+
+    fn expression_type(
+        &self,
+        uri: &str,
+        span: Span,
+        declaration_span: Span,
+    ) -> Option<aura_sema::Ty> {
+        let (expression_types, base) = self.expression_types_for_document(uri)?;
+        let package_span = span.shift(base);
+        let package_declaration_span = declaration_span.shift(base);
+        let direct = expression_types
+            .get(&(package_span.start, package_span.end))
+            .cloned();
+        let declaration_type = direct.is_none().then(|| {
+            expression_types
+                .iter()
+                .filter(|((start, end), _)| {
+                    *start >= package_declaration_span.start && *end <= package_declaration_span.end
+                })
+                .max_by_key(|((start, end), _)| end - start)
+                .map(|(_, ty)| ty.clone())
+        });
+        let declaration_type = declaration_type.flatten();
+        let initializer_type = if direct.is_none() && declaration_type.is_none() {
+            self.initializer_type(uri, declaration_span, &expression_types, base)
+        } else {
+            None
+        };
+        direct.or(declaration_type).or(initializer_type)
+    }
+
+    fn expression_types_for_document(
+        &self,
+        uri: &str,
+    ) -> Option<(Arc<HashMap<(u32, u32), aura_sema::Ty>>, u32)> {
+        if let Some(target_path) = uri_to_path(uri) {
+            if let Some(manifest) = manifest_for(&target_path) {
+                let revision = self.host.snapshot().id().get();
+                if let Some(cached) = self.package_expression_cache.borrow().get(&manifest) {
+                    if cached.revision == revision {
+                        let expression_types = cached.expression_types.as_ref()?.clone();
+                        let base = *cached.source_bases.get(&target_path)?;
+                        return Some((expression_types, base));
+                    }
+                }
+                let overlays = self
+                    .documents
+                    .iter()
+                    .filter_map(|(document_uri, document)| {
+                        let path = uri_to_path(document_uri)?;
+                        let text = document.get("text")?.as_str()?.to_owned();
+                        Some((path, text))
+                    })
+                    .collect::<HashMap<_, _>>();
+                let package = match self.std_root.as_deref().map_or_else(
+                    || load_package_read_only(&manifest),
+                    |std_root| load_package_read_only_with_std(&manifest, std_root),
+                ) {
+                    Ok(package) => package,
+                    Err(error) => {
+                        self.log_analysis_failure(uri, "package-load", error);
+                        self.store_package_expression_cache(manifest, revision, None);
+                        return None;
+                    }
+                };
+                let package = match package.with_overlays(&overlays) {
+                    Ok(package) => package,
+                    Err(error) => {
+                        self.log_analysis_failure(uri, "package-overlay", error);
+                        self.store_package_expression_cache(manifest, revision, None);
+                        return None;
+                    }
+                };
+                let source_bases = package
+                    .sources
+                    .iter()
+                    .map(|source| (source.path.clone(), source.base))
+                    .collect::<HashMap<_, _>>();
+                let Some(base) = package
+                    .sources
+                    .iter()
+                    .find(|source| source.path == target_path)
+                    .map(|source| source.base)
+                else {
+                    self.log_analysis_failure(
+                        uri,
+                        "source-map",
+                        "target document is missing from the loaded package",
+                    );
+                    self.store_package_expression_cache(manifest, revision, None);
+                    return None;
+                };
+                let checked = match check_file(&package.ast) {
+                    Ok(checked) => checked,
+                    Err(error) => {
+                        self.log_analysis_failure(uri, "package-check", error);
+                        self.store_package_expression_cache(manifest, revision, None);
+                        return None;
+                    }
+                };
+                let expression_types = Arc::new(checked.expr_tys);
+                self.store_package_expression_cache(
+                    manifest,
+                    revision,
+                    Some((expression_types.clone(), source_bases)),
+                );
+                return Some((expression_types, base));
+            }
+        }
+
+        let analysis = match self.host.snapshot().analyze(&DocumentId::from(uri)) {
+            Ok(analysis) => analysis,
+            Err(error) => {
+                self.log_analysis_failure(uri, "document-check", error);
+                return None;
+            }
+        };
+        Some((Arc::new(analysis.checked.expr_tys.clone()), 0))
+    }
+
+    fn store_package_expression_cache(
+        &self,
+        manifest: PathBuf,
+        revision: u64,
+        result: Option<(
+            Arc<HashMap<(u32, u32), aura_sema::Ty>>,
+            HashMap<PathBuf, u32>,
+        )>,
+    ) {
+        let (expression_types, source_bases) = result
+            .map(|(expression_types, source_bases)| (Some(expression_types), source_bases))
+            .unwrap_or_else(|| (None, HashMap::new()));
+        let mut cache = self.package_expression_cache.borrow_mut();
+        if cache.len() >= 32 && !cache.contains_key(&manifest) {
+            cache.clear();
+        }
+        cache.insert(
+            manifest,
+            PackageExpressionCache {
+                revision,
+                expression_types,
+                source_bases,
+            },
+        );
+    }
+
+    fn log_analysis_failure(&self, uri: &str, stage: &str, error: impl std::fmt::Display) {
+        let version = self
+            .documents
+            .get(uri)
+            .and_then(|document| document.get("version"))
+            .and_then(Value::as_i64)
+            .unwrap_or(0);
+        let key = format!("{uri}@{version}:{stage}");
+        let mut reported = self.reported_analysis_failures.borrow_mut();
+        if reported.len() >= 512 {
+            reported.clear();
+        }
+        if !reported.insert(key) {
+            return;
+        }
+        drop(reported);
+
+        let rendered = error.to_string();
+        let (error_count, first_error) = analysis_error_summary(&rendered);
+        eprintln!(
+            "[auralsp:analysis] failed uri={uri} version={version} stage={stage} error_count={error_count} first={first_error:?}"
+        );
+    }
+
+    fn initializer_type(
+        &self,
+        uri: &str,
+        declaration_span: Span,
+        expression_types: &std::collections::HashMap<(u32, u32), aura_sema::Ty>,
+        base: u32,
+    ) -> Option<aura_sema::Ty> {
+        let source = self.document_text(uri)?;
+        let start = declaration_span.end as usize;
+        // Package analysis may contain virtual-buffer spans; never slice the
+        // current document with an offset from that larger buffer.
+        if start > source.len() || !source.is_char_boundary(start) {
+            return None;
+        }
+        let line_end = source[start..]
+            .find('\n')
+            .map(|offset| start + offset)
+            .unwrap_or(source.len());
+        let equals = source[start..line_end].find('=')? + start + 1;
+        let package_equals = equals as u32 + base;
+        let package_line_end = line_end as u32 + base;
+        expression_types
+            .iter()
+            .filter(|((expr_start, expr_end), _)| {
+                *expr_start >= package_equals && *expr_end <= package_line_end
+            })
+            .max_by_key(|((expr_start, expr_end), _)| expr_end - expr_start)
+            .map(|(_, ty)| ty.clone())
+    }
+
+    fn local_initializer_type_name(&self, uri: &str, declaration_span: Span) -> Option<String> {
+        let source = self.document_text(uri)?;
+        let declaration =
+            source.get(declaration_span.start as usize..declaration_span.end as usize)?;
+        let initializer = declaration.split_once('=')?.1.trim_start();
+        let end = initializer
+            .find(|character: char| !(character.is_ascii_alphanumeric() || character == '_'))
+            .unwrap_or(initializer.len());
+        let name = &initializer[..end];
+        let (_, symbol) = self.find_declaration_symbol(name)?;
+        match symbol.kind {
+            5 => Some(symbol.name),
+            12 => self.find_function_return_type_name(name),
+            _ => None,
+        }
+    }
+}
+
+fn analysis_error_summary(error: &str) -> (usize, String) {
+    let mut errors = error.lines().map(str::trim).filter(|line| !line.is_empty());
+    let first = errors
+        .next()
+        .unwrap_or("unknown analysis failure")
+        .to_owned();
+    (1 + errors.count(), first)
 }
 
 const KEYWORDS: &[&str] = &[
@@ -1216,6 +1796,20 @@ fn local_symbols(source: &str, file: &File) -> Vec<Symbol> {
     symbols
 }
 
+fn enclosing_callable_span(file: &File, offset: u32) -> Option<Span> {
+    file.functions
+        .iter()
+        .map(|function| function.span)
+        .chain(file.async_functions.iter().map(|function| function.span))
+        .chain(
+            file.classes
+                .iter()
+                .flat_map(|class| class.methods.iter().map(|method| method.span)),
+        )
+        .filter(|span| span.start <= offset && offset <= span.end)
+        .min_by_key(|span| span.end.saturating_sub(span.start))
+}
+
 fn collect_function_locals(
     source: &str,
     params: &[aura_ast::Param],
@@ -1252,7 +1846,7 @@ fn collect_block_locals(source: &str, block: &aura_ast::Block, symbols: &mut Vec
                         .map(|ty| {
                             format!("{}: {}", variable.name.name, source_span(source, ty.span))
                         })
-                        .unwrap_or_else(|| format!("{} (inferred)", variable.name.name)),
+                        .unwrap_or_else(|| variable.name.name.clone()),
                     span: variable.name.span,
                     range: variable.span,
                     children: Vec::new(),
@@ -1339,16 +1933,33 @@ fn source_span(source: &str, span: Span) -> String {
     source.get(start..end).unwrap_or("").trim().to_owned()
 }
 
+fn compact_symbol_detail(detail: &str) -> String {
+    let detail = detail.trim();
+    let end = detail
+        .find('{')
+        .or_else(|| detail.find(" = "))
+        .unwrap_or(detail.len());
+    detail[..end].trim().to_owned()
+}
+
 fn documentation_before(source: &str, declaration_start: usize) -> String {
-    let prefix = &source[..declaration_start.min(source.len())];
+    let declaration_start = declaration_start.min(source.len());
+    let line_start = source[..declaration_start]
+        .rfind('\n')
+        .map(|index| index + 1)
+        .unwrap_or(0);
+    let prefix = &source[..line_start];
     let lines = prefix.lines().rev();
     let mut comments = Vec::new();
     for line in lines {
         let trimmed = line.trim_start();
-        if !trimmed.starts_with("//") {
+        let Some(comment) = trimmed
+            .strip_prefix("///")
+            .or_else(|| trimmed.strip_prefix("//"))
+        else {
             break;
-        }
-        comments.push(trimmed[2..].trim().to_owned());
+        };
+        comments.push(comment.trim().to_owned());
     }
     comments.reverse();
     comments.join("\n")
@@ -1579,7 +2190,15 @@ fn receiver_span(source: &str, member_start: usize) -> Option<Span> {
         return None;
     }
     let receiver_end = dot;
-    let receiver_start = word_start(source, receiver_end);
+    let mut receiver_start = word_start(source, receiver_end);
+    while receiver_start > 0 && source.as_bytes().get(receiver_start - 1) == Some(&b'.') {
+        let previous_end = receiver_start - 1;
+        let previous_start = word_start(source, previous_end);
+        if previous_start == previous_end {
+            break;
+        }
+        receiver_start = previous_start;
+    }
     (receiver_start < receiver_end).then_some(Span::new(receiver_start as u32, receiver_end as u32))
 }
 
@@ -1588,6 +2207,15 @@ fn nominal_type_name(ty: &aura_sema::Ty) -> Option<&str> {
         aura_sema::Ty::Nullable(inner) => nominal_type_name(inner),
         _ => ty.class_name().or_else(|| ty.iface_name()),
     }
+}
+
+fn nominal_short_name(name: &str) -> &str {
+    name.split('@')
+        .next()
+        .unwrap_or(name)
+        .rsplit('.')
+        .next()
+        .unwrap_or(name)
 }
 
 fn word_at(source: &str, offset: usize) -> Option<String> {
@@ -1607,6 +2235,18 @@ fn word_span_at(source: &str, offset: usize) -> Option<Span> {
         end += character.len_utf8();
     }
     (start < end).then_some(Span::new(start as u32, end as u32))
+}
+
+fn qualifier_before(source: &str, word_span: Span) -> Option<&str> {
+    let before = source.get(..word_span.start as usize)?.strip_suffix('.')?;
+    let span = word_span_at(before, before.len())?;
+    before.get(span.start as usize..span.end as usize)
+}
+
+fn imported_package_for_alias(file: &File, alias: &str) -> Option<String> {
+    file.imports
+        .iter()
+        .find_map(|import| (import.alias.as_ref()?.name == alias).then(|| import.path.display()))
 }
 
 fn word_occurrences(source: &str, name: &str) -> Vec<Span> {
@@ -1703,10 +2343,36 @@ fn full_document_range(source: &str) -> Value {
 
 #[cfg(test)]
 mod tests {
-    use super::{diagnostic_code, path_to_uri, position_to_offset, Server};
+    use super::{analysis_error_summary, diagnostic_code, path_to_uri, position_to_offset, Server};
     use serde_json::json;
     use std::fs;
     use std::path::{Path, PathBuf};
+
+    fn hover_contents_text(response: &serde_json::Value) -> String {
+        response["result"]["contents"]
+            .as_array()
+            .expect("hover contents array")
+            .iter()
+            .filter_map(|content| {
+                content
+                    .as_str()
+                    .or_else(|| content.get("value").and_then(serde_json::Value::as_str))
+            })
+            .collect::<Vec<_>>()
+            .join("\n\n")
+    }
+
+    #[test]
+    fn analysis_error_summary_counts_errors_without_repeating_the_log() {
+        assert_eq!(
+            analysis_error_summary("undefined `a`\nundefined `b`\nundefined `c`"),
+            (3, "undefined `a`".to_owned())
+        );
+        assert_eq!(
+            analysis_error_summary(""),
+            (1, "unknown analysis failure".to_owned())
+        );
+    }
 
     fn workspace_path(relative: &str) -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -1736,6 +2402,80 @@ mod tests {
             .as_array()
             .unwrap()
             .is_empty());
+    }
+
+    #[test]
+    fn aura_toolchain_std_drives_diagnostics_definition_and_docs() {
+        let root =
+            std::env::temp_dir().join(format!("aura-lsp-toolchain-std-{}", std::process::id()));
+        let workspace = root.join("workspace");
+        let std_root = root.join("toolchain/share/aura/std");
+        let main_path = workspace.join("src/main.aura");
+        let error_path = std_root.join("error/src/lib.aura");
+        fs::create_dir_all(main_path.parent().unwrap()).unwrap();
+        fs::create_dir_all(error_path.parent().unwrap()).unwrap();
+        fs::create_dir_all(std_root.join("io/src")).unwrap();
+        fs::write(
+            workspace.join("aura.toml"),
+            "[package]\nname = \"demo\"\n\n[[bin]]\nname = \"demo\"\npath = \"src\"\n",
+        )
+        .unwrap();
+        fs::write(
+            &main_path,
+            "package demo\nimport std.error as Errors\npub fun main(): Errors.Error { return Errors.protocol(\"test\", 400) }\n",
+        )
+        .unwrap();
+        fs::write(
+            std_root.join("error/aura.toml"),
+            "[package]\nname = \"std.error\"\n\n[[bin]]\nname = \"error\"\npath = \"src\"\n",
+        )
+        .unwrap();
+        fs::write(
+            &error_path,
+            "package std.error\n/// Error payload from this Aura version.\npub class Error(pub val message: String) {}\n/// Available only in this Aura version.\npub fun protocol(message: String, code: Int): Error { return Error(message) }\n",
+        )
+        .unwrap();
+        fs::write(
+            std_root.join("io/aura.toml"),
+            "[package]\nname = \"std.io\"\n\n[[bin]]\nname = \"io\"\npath = \"src\"\n",
+        )
+        .unwrap();
+        fs::write(std_root.join("io/src/lib.aura"), "package std.io\n").unwrap();
+
+        let source = fs::read_to_string(&main_path).unwrap();
+        let uri = path_to_uri(&main_path);
+        let mut server = Server::with_std_root(Some(std_root));
+        server.handle(json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"rootUri":path_to_uri(&workspace),"capabilities":{}}}));
+        let diagnostics = server.handle(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":uri,"version":1,"text":source}}})).unwrap();
+        assert!(diagnostics["params"]["diagnostics"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+
+        let type_line = source.lines().nth(2).unwrap();
+        let alias_character = type_line.find("Errors").unwrap();
+        let type_character = type_line.find("Error {").unwrap();
+        let protocol_character = type_line.find("protocol").unwrap();
+
+        let alias_hover = server.handle(json!({"jsonrpc":"2.0","id":2,"method":"textDocument/hover","params":{"textDocument":{"uri":uri},"position":{"line":2,"character":alias_character}}})).unwrap();
+        assert!(hover_contents_text(&alias_hover).contains("import std.error as Errors"));
+        let type_hover = server.handle(json!({"jsonrpc":"2.0","id":3,"method":"textDocument/hover","params":{"textDocument":{"uri":uri},"position":{"line":2,"character":type_character}}})).unwrap();
+        assert!(hover_contents_text(&type_hover).contains("Error payload from this Aura version."));
+        let type_definition = server.handle(json!({"jsonrpc":"2.0","id":4,"method":"textDocument/definition","params":{"textDocument":{"uri":uri},"position":{"line":2,"character":type_character}}})).unwrap();
+        assert_eq!(
+            type_definition["result"][0]["targetUri"],
+            path_to_uri(&error_path)
+        );
+
+        let definition = server.handle(json!({"jsonrpc":"2.0","id":5,"method":"textDocument/definition","params":{"textDocument":{"uri":uri},"position":{"line":2,"character":protocol_character}}})).unwrap();
+        assert_eq!(
+            definition["result"][0]["targetUri"],
+            path_to_uri(&error_path)
+        );
+        let hover = server.handle(json!({"jsonrpc":"2.0","id":6,"method":"textDocument/hover","params":{"textDocument":{"uri":uri},"position":{"line":2,"character":protocol_character}}})).unwrap();
+        assert!(hover_contents_text(&hover).contains("Available only in this Aura version."));
+
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -1774,6 +2514,7 @@ mod tests {
         );
         assert_eq!(capabilities["hoverProvider"], true);
         assert_eq!(capabilities["definitionProvider"], true);
+        assert_eq!(capabilities["documentHighlightProvider"], true);
         assert_eq!(capabilities["referencesProvider"], true);
         assert_eq!(capabilities["renameProvider"], true);
         assert_eq!(capabilities["workspaceSymbolProvider"], true);
@@ -1908,12 +2649,19 @@ mod tests {
         let source = "package demo\nfun helper() {}\nfun main() { helper() }\n";
         server.handle(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"main.aura","version":7,"text":source}}}));
         let definition = server.handle(json!({"jsonrpc":"2.0","id":5,"method":"textDocument/definition","params":{"textDocument":{"uri":"main.aura"},"position":{"line":2,"character":14}}})).unwrap();
-        assert_eq!(definition["result"][0]["range"]["start"]["line"], 1);
+        assert_eq!(definition["result"][0]["targetRange"]["start"]["line"], 1);
+        assert_eq!(
+            definition["result"][0]["originSelectionRange"],
+            json!({
+                "start": {"line": 2, "character": 13},
+                "end": {"line": 2, "character": 19}
+            })
+        );
+        let highlights = server.handle(json!({"jsonrpc":"2.0","id":19,"method":"textDocument/documentHighlight","params":{"textDocument":{"uri":"main.aura"},"position":{"line":2,"character":14}}})).unwrap();
+        assert_eq!(highlights["result"].as_array().unwrap().len(), 2);
+        assert_eq!(highlights["result"][0]["kind"], 1);
         let hover = server.handle(json!({"jsonrpc":"2.0","id":10,"method":"textDocument/hover","params":{"textDocument":{"uri":"main.aura"},"position":{"line":2,"character":14}}})).unwrap();
-        assert!(hover["result"]["contents"]["value"]
-            .as_str()
-            .unwrap()
-            .contains("fun helper()"));
+        assert!(hover_contents_text(&hover).contains("fun helper()"));
         let references = server.handle(json!({"jsonrpc":"2.0","id":6,"method":"textDocument/references","params":{"textDocument":{"uri":"main.aura"},"position":{"line":2,"character":14},"context":{"includeDeclaration":true}}})).unwrap();
         assert_eq!(references["result"].as_array().unwrap().len(), 2);
         let rename = server.handle(json!({"jsonrpc":"2.0","id":7,"method":"textDocument/rename","params":{"textDocument":{"uri":"main.aura"},"position":{"line":2,"character":14},"newName":"assist"}})).unwrap();
@@ -1927,6 +2675,70 @@ mod tests {
                 .unwrap()
                 .len(),
             2
+        );
+    }
+
+    #[test]
+    fn definition_resolves_awaited_async_function() {
+        let mut server = Server::new();
+        let source = r#"package http_health_aura
+
+async fun funcA() {
+}
+
+async fun main() {
+    await funcA()
+}
+"#;
+        server.handle(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"main.aura","version":1,"text":source}}}));
+
+        let definition = server.handle(json!({"jsonrpc":"2.0","id":20,"method":"textDocument/definition","params":{"textDocument":{"uri":"main.aura"},"position":{"line":6,"character":12}}})).unwrap();
+
+        assert_eq!(definition["result"][0]["targetUri"], "main.aura");
+        assert_eq!(
+            definition["result"][0]["targetRange"]["start"],
+            json!({"line":2,"character":0})
+        );
+    }
+
+    #[test]
+    fn definition_does_not_resolve_builtin_member_to_same_named_user_method() {
+        let root = workspace_path("examples/notes");
+        let path = root.join("src/notebook.aura");
+        let source = fs::read_to_string(&path).unwrap();
+        let uri = path_to_uri(&path);
+        let mut server = Server::new();
+        server.handle(json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"rootUri":path_to_uri(&root)}}));
+        server.handle(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":uri,"version":1,"text":source}}}));
+        let line = source
+            .lines()
+            .position(|line| line.contains("return this.items.isEmpty()"))
+            .unwrap();
+        let character = source.lines().nth(line).unwrap().find("isEmpty").unwrap();
+
+        let definition = server.handle(json!({"jsonrpc":"2.0","id":20,"method":"textDocument/definition","params":{"textDocument":{"uri":uri},"position":{"line":line,"character":character}}})).unwrap();
+
+        assert_eq!(definition["result"], json!([]));
+    }
+
+    #[test]
+    fn definition_resolves_member_on_the_receiver_type() {
+        let source = "package demo\n\
+class Notebook(val empty: Bool) {\n\
+    pub fun isEmpty(): Bool { return this.empty }\n\
+}\n\
+fun main() {\n\
+    val nb = Notebook(false)\n\
+    nb.isEmpty()\n\
+}\n";
+        let mut server = Server::new();
+        server.handle(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"main.aura","version":1,"text":source}}}));
+
+        let definition = server.handle(json!({"jsonrpc":"2.0","id":21,"method":"textDocument/definition","params":{"textDocument":{"uri":"main.aura"},"position":{"line":6,"character":7}}})).unwrap();
+
+        assert_eq!(
+            definition["result"][0]["targetSelectionRange"]["start"],
+            json!({"line":2,"character":8})
         );
     }
 
@@ -2017,16 +2829,17 @@ mod tests {
     #[test]
     fn completion_includes_function_parameters_and_locals() {
         let mut server = Server::new();
-        let source = "package demo\nfun main(value: Int) {\n  val answer: Int = value\n  ans\n}\n";
+        let source = "package demo\nfun main(): Int {\n  val answer = 1\n  return answer\n}\n";
         server.handle(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"main.aura","version":1,"text":source}}}));
-        let response = server.handle(json!({"jsonrpc":"2.0","id":13,"method":"textDocument/completion","params":{"textDocument":{"uri":"main.aura"},"position":{"line":3,"character":5}}})).unwrap();
-        let labels = response["result"]["items"]
+        let response = server.handle(json!({"jsonrpc":"2.0","id":13,"method":"textDocument/completion","params":{"textDocument":{"uri":"main.aura"},"position":{"line":1,"character":0}}})).unwrap();
+        let answer = response["result"]["items"]
             .as_array()
             .unwrap()
             .iter()
-            .filter_map(|item| item["label"].as_str())
-            .collect::<Vec<_>>();
-        assert!(labels.contains(&"answer"));
+            .find(|item| item["label"] == "answer")
+            .unwrap();
+        assert_eq!(answer["detail"], "answer: Int");
+        assert!(!answer["detail"].as_str().unwrap().contains("inferred"));
     }
 
     #[test]
@@ -2068,12 +2881,242 @@ mod tests {
     fn hover_includes_adjacent_source_documentation() {
         let mut server = Server::new();
         let source =
-            "package demo\n// Adds two values.\nfun add(a: Int, b: Int): Int { return a + b }\n";
+            "package demo\n/// Adds two values.\n/// The result is their sum.\npub fun add(a: Int, b: Int): Int { return a + b }\n";
         server.handle(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"main.aura","version":1,"text":source}}}));
-        let response = server.handle(json!({"jsonrpc":"2.0","id":14,"method":"textDocument/hover","params":{"textDocument":{"uri":"main.aura"},"position":{"line":2,"character":5}}})).unwrap();
-        assert!(response["result"]["contents"]["value"]
-            .as_str()
+        let response = server.handle(json!({"jsonrpc":"2.0","id":14,"method":"textDocument/hover","params":{"textDocument":{"uri":"main.aura"},"position":{"line":3,"character":9}}})).unwrap();
+        let contents = hover_contents_text(&response);
+        assert!(contents.contains("Adds two values.\nThe result is their sum."));
+        assert!(!contents.contains("/ Adds two values."));
+        assert!(!contents.contains("Defined in"));
+        assert!(!contents.contains("{ return"));
+        assert!(!contents.contains("Go to definition"));
+    }
+
+    #[test]
+    fn completion_includes_adjacent_source_documentation() {
+        let mut server = Server::new();
+        let source =
+            "package demo\n/// Adds two values.\nfun add(a: Int, b: Int): Int { return a + b }\nfun main() { ad }\n";
+        server.handle(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"main.aura","version":1,"text":source}}}));
+        let response = server.handle(json!({"jsonrpc":"2.0","id":15,"method":"textDocument/completion","params":{"textDocument":{"uri":"main.aura"},"position":{"line":3,"character":18}}})).unwrap();
+        let item = response["result"]["items"]
+            .as_array()
             .unwrap()
-            .contains("Adds two values."));
+            .iter()
+            .find(|item| item["label"] == "add")
+            .unwrap();
+        assert_eq!(item["documentation"]["kind"], "markdown");
+        assert_eq!(item["documentation"]["value"], "Adds two values.");
+    }
+
+    #[test]
+    fn hover_includes_class_and_member_documentation() {
+        let mut server = Server::new();
+        let source = "package demo\n\
+/// Represents a notebook.\n\
+pub class Notebook(val count: Int) {\n\
+    /// Creates an empty notebook.\n\
+    pub fun empty(): Notebook { return Notebook(0) }\n\
+}\n\
+pub fun notebook(): Notebook { return Notebook(0) }\n\
+pub fun main() {\n\
+    val nb = notebook()\n\
+    nb.empty()\n\
+}\n";
+        server.handle(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"main.aura","version":1,"text":source}}}));
+
+        let declaration_hover = server.handle(json!({"jsonrpc":"2.0","id":16,"method":"textDocument/hover","params":{"textDocument":{"uri":"main.aura"},"position":{"line":8,"character":4}}})).unwrap();
+        let declaration_contents = hover_contents_text(&declaration_hover);
+        assert!(declaration_contents.contains("nb: demo.Notebook"));
+        assert!(declaration_contents.contains("Represents a notebook."));
+
+        let member_hover = server.handle(json!({"jsonrpc":"2.0","id":17,"method":"textDocument/hover","params":{"textDocument":{"uri":"main.aura"},"position":{"line":9,"character":4}}})).unwrap();
+        assert!(hover_contents_text(&member_hover).contains("Creates an empty notebook."));
+
+        let local_hover = server.handle(json!({"jsonrpc":"2.0","id":18,"method":"textDocument/hover","params":{"textDocument":{"uri":"main.aura"},"position":{"line":9,"character":1}}})).unwrap();
+        let local_contents = hover_contents_text(&local_hover);
+        assert!(local_contents.contains("nb: demo.Notebook"));
+        assert!(local_contents.contains("Represents a notebook."));
+        assert!(!local_contents.contains("Defined in"));
+    }
+
+    #[test]
+    fn hover_infers_local_type_from_class_constructor_initializer() {
+        let mut server = Server::new();
+        let source = "package examples.notes\n\
+import std.io as Io\n\
+/// In-memory notebook with load/save support.\n\
+class Notebook(val items: Array<String>) {\n\
+    pub fun len(): Int { return this.items.len }\n\
+    pub fun clear() { this.items.clear() }\n\
+}\n\
+pub fun notebook(): Notebook {\n\
+    val nb = Notebook(Array(0))\n\
+    return nb\n\
+}\n";
+        server.handle(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"main.aura","version":1,"text":source}}}));
+        let response = server.handle(json!({"jsonrpc":"2.0","id":20,"method":"textDocument/hover","params":{"textDocument":{"uri":"main.aura"},"position":{"line":8,"character":4}}})).unwrap();
+        let contents = hover_contents_text(&response);
+        assert!(contents.contains("nb: examples.notes.Notebook"));
+        assert!(contents.contains("In-memory notebook with load/save support."));
+    }
+
+    #[test]
+    fn hover_infers_local_type_in_notes_example() {
+        let mut server = Server::new();
+        let source = "package examples.notes\n\
+/// In-memory notebook.\n\
+class Notebook(val items: Array<String>) {}\n\
+pub fun notebook(): Notebook {\n\
+    val nb = Notebook(Array(0))\n\
+    return nb\n\
+}\n";
+        let line = source
+            .lines()
+            .position(|line| line.contains("val nb = Notebook(Array(0))"))
+            .unwrap();
+        let character = source.lines().nth(line).unwrap().find("nb").unwrap();
+        server.handle(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"notes.aura","version":1,"text":source}}}));
+        let response = server.handle(json!({"jsonrpc":"2.0","id":21,"method":"textDocument/hover","params":{"textDocument":{"uri":"notes.aura"},"position":{"line":line,"character":character}}})).unwrap();
+        let contents = hover_contents_text(&response);
+        assert!(
+            contents.contains("nb: examples.notes.Notebook"),
+            "{contents}"
+        );
+        assert!(contents.contains("In-memory notebook."), "{contents}");
+    }
+
+    #[test]
+    fn hover_uses_package_analysis_for_notes_example() {
+        let root = workspace_path("examples/notes");
+        let manifest = root.join("aura.toml");
+        let main_path = root.join("src/main.aura");
+        let source = fs::read_to_string(&main_path).unwrap();
+        let uri = path_to_uri(&main_path);
+        let mut server = Server::new();
+        server.handle(json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"rootUri":path_to_uri(&root)}}));
+        server.handle(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":uri,"version":1,"text":source}}}));
+        let warmed_revision = server
+            .package_expression_cache
+            .borrow()
+            .get(&manifest)
+            .expect("diagnostics should warm the package cache")
+            .revision;
+
+        let line = source
+            .lines()
+            .position(|line| line.contains("val path ="))
+            .unwrap();
+        let character = source.lines().nth(line).unwrap().find("path").unwrap();
+        let response = server.handle(json!({"jsonrpc":"2.0","id":22,"method":"textDocument/hover","params":{"textDocument":{"uri":uri},"position":{"line":line,"character":character}}})).unwrap();
+        let contents = hover_contents_text(&response);
+
+        assert!(contents.contains("path: String"), "{contents}");
+        assert_eq!(
+            server.package_expression_cache.borrow()[&manifest].revision,
+            warmed_revision,
+            "hover should reuse the diagnostics analysis"
+        );
+
+        server.handle(json!({"jsonrpc":"2.0","method":"textDocument/didChange","params":{"textDocument":{"uri":uri,"version":2},"contentChanges":[{"text":source}]}}));
+        assert!(
+            server.package_expression_cache.borrow()[&manifest].revision > warmed_revision,
+            "document changes must invalidate the cached package revision"
+        );
+    }
+
+    #[test]
+    fn hover_prefers_local_symbol_in_the_requested_document() {
+        let mut server = Server::new();
+        let main_source = "package examples.notes\n\
+pub fun main() {\n\
+    val nb = 1\n\
+}\n";
+        let notebook_source = "package examples.notes\n\
+class Notebook(val items: Array<String>) {}\n\
+pub fun notebook(): Notebook {\n\
+    val nb = Notebook(Array(0))\n\
+    missing()\n\
+    return nb\n\
+}\n";
+        server.handle(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"main.aura","version":1,"text":main_source}}}));
+        server.handle(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"notebook.aura","version":1,"text":notebook_source}}}));
+
+        let line = notebook_source
+            .lines()
+            .position(|line| line.contains("val nb ="))
+            .unwrap();
+        let character = notebook_source
+            .lines()
+            .nth(line)
+            .unwrap()
+            .find("nb")
+            .unwrap();
+        let response = server.handle(json!({"jsonrpc":"2.0","id":22,"method":"textDocument/hover","params":{"textDocument":{"uri":"notebook.aura"},"position":{"line":line,"character":character}}})).unwrap();
+        let contents = hover_contents_text(&response);
+
+        assert!(contents.contains("nb: Notebook"), "{contents}");
+        let definition = server.handle(json!({"jsonrpc":"2.0","id":25,"method":"textDocument/definition","params":{"textDocument":{"uri":"notebook.aura"},"position":{"line":line,"character":character}}})).unwrap();
+        assert_eq!(definition["result"][0]["targetUri"], "notebook.aura");
+    }
+
+    #[test]
+    fn hover_infers_local_type_from_function_return_type_when_analysis_fails() {
+        let mut server = Server::new();
+        let source = "package examples.notes\n\
+class Notebook(val items: Array<String>) {}\n\
+pub fun notebook(): Notebook {\n\
+    return Notebook(Array(0))\n\
+}\n\
+pub fun notebookFromText(text: String): Notebook {\n\
+    val nb = notebook()\n\
+    missing()\n\
+    return nb\n\
+}\n";
+        let line = source
+            .lines()
+            .position(|line| line.contains("val nb = notebook()"))
+            .unwrap();
+        let character = source.lines().nth(line).unwrap().find("nb").unwrap();
+        server.handle(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"notebook.aura","version":1,"text":source}}}));
+
+        let response = server.handle(json!({"jsonrpc":"2.0","id":23,"method":"textDocument/hover","params":{"textDocument":{"uri":"notebook.aura"},"position":{"line":line,"character":character}}})).unwrap();
+        let contents = hover_contents_text(&response);
+
+        assert!(contents.contains("nb: Notebook"), "{contents}");
+        assert!(
+            contents.contains("class Notebook(val items: Array<String>)"),
+            "{contents}"
+        );
+        let hover_items = response["result"]["contents"].as_array().unwrap();
+        assert_eq!(hover_items[0]["language"], "aura");
+        assert_eq!(hover_items[0]["value"], "nb: Notebook");
+        assert_eq!(hover_items[1], "---");
+        assert_eq!(hover_items[2]["language"], "aura");
+        assert_eq!(
+            hover_items[2]["value"],
+            "class Notebook(val items: Array<String>)"
+        );
+        assert_eq!(hover_items.len(), 3);
+    }
+
+    #[test]
+    fn hover_preserves_closing_generic_bracket_for_constructor_field() {
+        let mut server = Server::new();
+        let source = "package examples.notes\n\
+class Notebook(val items: Array<String>) {\n\
+    pub fun broken() { missing() }\n\
+}\n";
+        let line = source
+            .lines()
+            .position(|line| line.contains("class Notebook"))
+            .unwrap();
+        let character = source.lines().nth(line).unwrap().find("items").unwrap();
+        server.handle(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"notebook.aura","version":1,"text":source}}}));
+
+        let response = server.handle(json!({"jsonrpc":"2.0","id":24,"method":"textDocument/hover","params":{"textDocument":{"uri":"notebook.aura"},"position":{"line":line,"character":character}}})).unwrap();
+        let contents = hover_contents_text(&response);
+
+        assert!(contents.contains("val items: Array<String>"), "{contents}");
     }
 }

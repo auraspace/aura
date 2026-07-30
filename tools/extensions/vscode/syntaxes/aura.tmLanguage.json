@@ -10,6 +10,7 @@
     { "include": "#functions" },
     { "include": "#constants" },
     { "include": "#types" },
+    { "include": "#custom-types" },
     { "include": "#numbers" },
     { "include": "#operators" },
     { "include": "#keywords" }
@@ -61,6 +62,10 @@
     "types": {
       "name": "support.type.aura",
       "match": "\\b(?:Any|Array|Bool|Byte|Channel|Char|Error|ErrorKind|Float|ForeignHandle|HashMap|HashMapEntry|HashSet|Int|Long|Never|Option|Outcome|Result|String|Task|TaskHandle|UInt|ULong|Unit)\\b"
+    },
+    "custom-types": {
+      "name": "entity.name.type.aura",
+      "match": "\\b[A-Z][A-Za-z0-9_]*\\b"
     },
     "numbers": {
       "name": "constant.numeric.integer.decimal.aura",

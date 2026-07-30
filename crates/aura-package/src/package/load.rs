@@ -21,7 +21,7 @@ use super::util::{
 
 /// Resolve a CLI path: `.aura` file, directory, or `aura.toml`.
 pub fn load_package(path: &Path) -> Result<LoadedPackage, String> {
-    load_package_with_lock(path, true)
+    load_package_with_lock(path, true, None)
 }
 
 /// Load and resolve a package without updating its lockfile.
@@ -29,16 +29,31 @@ pub fn load_package(path: &Path) -> Result<LoadedPackage, String> {
 /// Language-server requests must not mutate a workspace merely to compute
 /// diagnostics, but they need the same resolved dependency graph as the CLI.
 pub fn load_package_read_only(path: &Path) -> Result<LoadedPackage, String> {
-    load_package_with_lock(path, false)
+    load_package_with_lock(path, false, None)
 }
 
-fn load_package_with_lock(path: &Path, write_lock: bool) -> Result<LoadedPackage, String> {
+/// Load and resolve a package against one specific standard-library root.
+///
+/// The language server uses this when launched through an Aura toolchain so
+/// diagnostics match the std sources shipped with that exact toolchain.
+pub fn load_package_read_only_with_std(
+    path: &Path,
+    std_root: &Path,
+) -> Result<LoadedPackage, String> {
+    load_package_with_lock(path, false, Some(std_root))
+}
+
+fn load_package_with_lock(
+    path: &Path,
+    write_lock: bool,
+    std_root: Option<&Path>,
+) -> Result<LoadedPackage, String> {
     if path.is_file() {
         if path.file_name().and_then(|n| n.to_str()) == Some("aura.toml") {
-            return load_from_manifest(path, write_lock);
+            return load_from_manifest(path, write_lock, std_root);
         }
         if path.extension().and_then(|e| e.to_str()) == Some("aura") {
-            return load_single_file_entry(path, write_lock);
+            return load_single_file_entry(path, write_lock, std_root);
         }
         return Err(format!(
             "error: {}: expected `.aura` file, directory, or `aura.toml`",
@@ -48,7 +63,7 @@ fn load_package_with_lock(path: &Path, write_lock: bool) -> Result<LoadedPackage
     if path.is_dir() {
         let manifest = path.join("aura.toml");
         if manifest.is_file() {
-            return load_from_manifest(&manifest, write_lock);
+            return load_from_manifest(&manifest, write_lock, std_root);
         }
         let pkg = load_directory(path, None, None)?;
         if !pkg.ast.imports.is_empty() {
@@ -66,7 +81,7 @@ fn load_package_with_lock(path: &Path, write_lock: bool) -> Result<LoadedPackage
 pub fn load_package_default() -> Result<LoadedPackage, String> {
     let manifest = PathBuf::from("aura.toml");
     if manifest.is_file() {
-        return load_from_manifest(&manifest, true);
+        return load_from_manifest(&manifest, true, None);
     }
     Err(
         "error: no path given and no `aura.toml` in the current directory\n  \
@@ -76,7 +91,11 @@ pub fn load_package_default() -> Result<LoadedPackage, String> {
 }
 
 /// CLI entry for a lone `.aura` file: if it has `import`s, prefer nearby `aura.toml`.
-fn load_single_file_entry(path: &Path, write_lock: bool) -> Result<LoadedPackage, String> {
+fn load_single_file_entry(
+    path: &Path,
+    write_lock: bool,
+    std_root: Option<&Path>,
+) -> Result<LoadedPackage, String> {
     let src =
         fs::read_to_string(path).map_err(|e| format!("error: read {}: {e}", path.display()))?;
     let ast = parse_file(&src).map_err(|e| format_parse(path, &src, e))?;
@@ -84,12 +103,12 @@ fn load_single_file_entry(path: &Path, write_lock: bool) -> Result<LoadedPackage
         if let Some(parent) = path.parent() {
             let manifest = parent.join("aura.toml");
             if manifest.is_file() {
-                return load_from_manifest(&manifest, write_lock);
+                return load_from_manifest(&manifest, write_lock, std_root);
             }
             if let Some(grand) = parent.parent() {
                 let m2 = grand.join("aura.toml");
                 if m2.is_file() {
-                    return load_from_manifest(&m2, write_lock);
+                    return load_from_manifest(&m2, write_lock, std_root);
                 }
             }
         }
@@ -134,6 +153,7 @@ pub(crate) fn load_single_file(path: &Path) -> Result<LoadedPackage, String> {
 pub(crate) fn load_from_manifest(
     manifest: &Path,
     write_lock: bool,
+    std_root: Option<&Path>,
 ) -> Result<LoadedPackage, String> {
     let text = fs::read_to_string(manifest)
         .map_err(|e| format!("error: read {}: {e}", manifest.display()))?;
@@ -191,7 +211,7 @@ pub(crate) fn load_from_manifest(
 
     // C4g: auto-prelude — make std.io available and import it for app packages.
     let mut effective = toml.clone();
-    apply_std_io_prelude(&mut pkg, &mut effective, &root)?;
+    apply_std_io_prelude(&mut pkg, &mut effective, &root, std_root)?;
 
     // C13l: resolve registry version deps → cache src paths (offline warm cache OK).
     let mut registry = RegistryResolver::new(&root)?;
@@ -199,7 +219,7 @@ pub(crate) fn load_from_manifest(
 
     // Merge path deps from this manifest and from each loaded dep's own aura.toml.
     // C4j: also collect the full resolved path map for aura.lock.
-    let resolved = resolve_imports(&mut pkg, &effective, &root, &mut registry)?;
+    let resolved = resolve_imports(&mut pkg, &effective, &root, std_root, &mut registry)?;
 
     // Refresh lockfile: path deps + registry pins (C4j/C13l).
     // Exclude auto-prelude-only entries not declared in the user's aura.toml.
@@ -468,12 +488,13 @@ fn apply_std_io_prelude(
     pkg: &mut LoadedPackage,
     toml: &mut AuraToml,
     root: &Path,
+    std_root: Option<&Path>,
 ) -> Result<(), String> {
     // Never prelude the std packages themselves.
     if pkg.package == "std.io" || pkg.package.starts_with("std.") {
         return Ok(());
     }
-    let std_io = match find_std_io_dir(root) {
+    let std_io = match find_std_package_dir(root, "io", std_root) {
         Some(p) => p,
         None => return Ok(()), // silent skip if std not discoverable
     };
@@ -507,12 +528,15 @@ fn apply_std_io_prelude(
     Ok(())
 }
 
-fn find_std_package_dir(from: &Path, leaf: &str) -> Option<PathBuf> {
+fn find_std_package_dir(from: &Path, leaf: &str, std_root: Option<&Path>) -> Option<PathBuf> {
+    if let Some(std_root) = std_root {
+        let package = std_root.join(leaf);
+        return package
+            .join("aura.toml")
+            .is_file()
+            .then(|| fs::canonicalize(&package).unwrap_or(package));
+    }
     crate::std_path::find_std_package_dir(from, leaf)
-}
-
-fn find_std_io_dir(from: &Path) -> Option<PathBuf> {
-    find_std_package_dir(from, "io")
 }
 
 /// Load path dependencies for `import` and merge their ASTs into the unit.
@@ -521,6 +545,7 @@ fn resolve_imports(
     pkg: &mut LoadedPackage,
     toml: &AuraToml,
     root: &Path,
+    std_root: Option<&Path>,
     registry: &mut RegistryResolver,
 ) -> Result<HashMap<String, PathBuf>, String> {
     let mut loaded = HashSet::new();
@@ -538,6 +563,7 @@ fn resolve_imports(
         &mut deps,
         &mut loaded,
         &mut vec![root_package],
+        std_root,
         registry,
     )?;
     Ok(deps)
@@ -549,6 +575,7 @@ fn visit_imports(
     deps: &mut HashMap<String, PathBuf>,
     loaded: &mut HashSet<String>,
     active: &mut Vec<String>,
+    std_root: Option<&Path>,
     registry: &mut RegistryResolver,
 ) -> Result<(), String> {
     let mut imports: Vec<String> = pkg.ast.imports.iter().map(|i| i.path.display()).collect();
@@ -567,7 +594,7 @@ fn visit_imports(
         }
         if !deps.contains_key(&imp) {
             if let Some(leaf) = imp.strip_prefix("std.") {
-                if let Some(path) = find_std_package_dir(root, leaf) {
+                if let Some(path) = find_std_package_dir(root, leaf, std_root) {
                     deps.insert(imp.clone(), path);
                 }
             }
@@ -620,6 +647,7 @@ fn visit_imports(
             &mut nested_deps,
             loaded,
             active,
+            std_root,
             registry,
         )?;
         active.pop();

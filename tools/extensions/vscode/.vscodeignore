@@ -1,5 +1,6 @@
 .vscode/**
 src/**
+out/**
 tsconfig.json
 package-lock.json
 pnpm-lock.yaml

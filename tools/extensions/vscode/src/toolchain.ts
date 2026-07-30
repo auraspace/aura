@@ -56,8 +56,8 @@ export async function supportsLanguageServer(
   command: string,
 ): Promise<boolean> {
   try {
-    const { stdout } = await execFileAsync(command, ['help'])
-    return /\b(?:language-server|lsp)\b/.test(stdout)
+    const { stdout, stderr } = await execFileAsync(command, ['help'])
+    return /\b(?:language-server|lsp)\b/.test(`${stdout}\n${stderr}`)
   } catch {
     return false
   }

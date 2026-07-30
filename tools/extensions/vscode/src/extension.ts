@@ -67,7 +67,10 @@ function createClient(
   }
   const clientOptions: LanguageClientOptions = {
     // Include untitled Aura buffers so language features work before first save.
-    documentSelector: [{ language: 'aura' }],
+    documentSelector: [
+      { language: 'aura', scheme: 'file' },
+      { language: 'aura', scheme: 'untitled' },
+    ],
     synchronize: {
       fileEvents: vscode.workspace.createFileSystemWatcher('**/*.aura'),
     },

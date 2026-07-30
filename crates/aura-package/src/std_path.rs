@@ -14,6 +14,48 @@ use std::path::{Path, PathBuf};
 
 const AURA_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// Locate the std root shipped with the currently running Aura toolchain.
+///
+/// Unlike package-relative discovery, this deliberately avoids walking the
+/// user's workspace so an AVM-selected Aura version cannot pick up another
+/// checkout's `std/` directory.
+pub fn active_toolchain_std_root() -> Option<PathBuf> {
+    if let Ok(root) = env::var("AURA_STD") {
+        if let Some(root) = canonical_std_root(PathBuf::from(root)) {
+            return Some(root);
+        }
+    }
+
+    if let Ok(executable) = env::current_exe() {
+        if let Some(root) = std_root_for_executable(&executable) {
+            return Some(root);
+        }
+    }
+
+    let monorepo = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../std");
+    canonical_std_root(monorepo).or_else(|| materialize_embedded_std().ok())
+}
+
+fn std_root_for_executable(executable: &Path) -> Option<PathBuf> {
+    let executable = fs::canonicalize(executable).unwrap_or_else(|_| executable.to_path_buf());
+    let bin = executable.parent()?;
+    [
+        bin.join("../share/aura/std"),
+        bin.join("share/aura/std"),
+        bin.join("../std"),
+        bin.join("std"),
+    ]
+    .into_iter()
+    .find_map(canonical_std_root)
+}
+
+fn canonical_std_root(root: PathBuf) -> Option<PathBuf> {
+    root.join("io")
+        .join("aura.toml")
+        .is_file()
+        .then(|| fs::canonicalize(&root).unwrap_or(root))
+}
+
 /// Resolve `std/<leaf>` (e.g. leaf `"io"` → package `std.io`).
 pub fn find_std_package_dir(from: &Path, leaf: &str) -> Option<PathBuf> {
     for c in disk_candidates(from, leaf) {
@@ -650,5 +692,28 @@ mod tests {
             .expect("monorepo io");
             assert!(found.ends_with("std/io") || found.join("aura.toml").is_file());
         }
+    }
+
+    #[test]
+    fn finds_std_next_to_selected_toolchain_executable() {
+        let root =
+            env::temp_dir().join(format!("aura-active-toolchain-std-{}", std::process::id()));
+        let executable = root.join("versions/9.8.7/bin/aura");
+        let std_root = root.join("versions/9.8.7/share/aura/std");
+        fs::create_dir_all(executable.parent().unwrap()).unwrap();
+        fs::create_dir_all(std_root.join("io")).unwrap();
+        fs::write(&executable, "test binary").unwrap();
+        fs::write(
+            std_root.join("io/aura.toml"),
+            "[package]\nname = \"std.io\"\n",
+        )
+        .unwrap();
+
+        assert_eq!(
+            std_root_for_executable(&executable),
+            fs::canonicalize(&std_root).ok()
+        );
+
+        fs::remove_dir_all(root).unwrap();
     }
 }
