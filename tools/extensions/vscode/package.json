@@ -22,7 +22,15 @@
   ],
   "main": "./out/extension.js",
   "activationEvents": [
-    "onLanguage:aura"
+    "onLanguage:aura",
+    "onCommand:aura.restartLanguageServer",
+    "onCommand:aura.selectToolchain",
+    "onCommand:aura.checkProject",
+    "onCommand:aura.buildProject",
+    "onCommand:aura.testProject",
+    "onCommand:aura.raceProject",
+    "onCommand:aura.formatProject",
+    "onCommand:aura.showOutput"
   ],
   "contributes": {
     "languages": [
@@ -35,7 +43,11 @@
         "extensions": [
           ".aura"
         ],
-        "configuration": "./language-configuration.json"
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./assets/aura-language-light.svg",
+          "dark": "./assets/aura-language-dark.svg"
+        }
       }
     ],
     "grammars": [
@@ -62,6 +74,26 @@
             "language-server"
           ],
           "description": "Arguments passed to the Aura language server executable."
+        },
+        "aura.cliPath": {
+          "type": "string",
+          "default": "aura",
+          "description": "Path to the Aura CLI used by project commands such as Check, Build, Test, Race, and Format."
+        },
+        "aura.trace.server": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "enumDescriptions": [
+            "Disable LSP protocol tracing.",
+            "Trace LSP messages without payload details.",
+            "Trace full LSP messages for diagnostics."
+          ],
+          "default": "off",
+          "description": "Protocol tracing level for the Aura language server."
         }
       }
     },
@@ -73,6 +105,30 @@
       {
         "command": "aura.selectToolchain",
         "title": "Aura: Select Toolchain"
+      },
+      {
+        "command": "aura.checkProject",
+        "title": "Aura: Check Project"
+      },
+      {
+        "command": "aura.buildProject",
+        "title": "Aura: Build Project"
+      },
+      {
+        "command": "aura.testProject",
+        "title": "Aura: Test Project"
+      },
+      {
+        "command": "aura.raceProject",
+        "title": "Aura: Race Tests"
+      },
+      {
+        "command": "aura.formatProject",
+        "title": "Aura: Format Project"
+      },
+      {
+        "command": "aura.showOutput",
+        "title": "Aura: Show Language Server Output"
       }
     ]
   },
@@ -85,6 +141,7 @@
     "package": "npm run stage-server && npm run compile && vsce package --no-dependencies"
   },
   "dependencies": {
+    "vscode-jsonrpc": "^8.2.0",
     "vscode-languageclient": "^9.0.1"
   },
   "devDependencies": {
@@ -92,5 +149,6 @@
     "@types/node": "^20.0.0",
     "@vscode/vsce": "^3.0.0",
     "typescript": "^5.4.0"
-  }
+  },
+  "icon": "icon.png"
 }

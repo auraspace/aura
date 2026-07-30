@@ -11,9 +11,33 @@ const manifest = JSON.parse(
 )
 
 assert.equal(manifest.main, './out/extension.js')
-assert.deepEqual(manifest.activationEvents, ['onLanguage:aura'])
+assert.ok(manifest.activationEvents.includes('onLanguage:aura'))
+for (const command of [
+  'aura.restartLanguageServer',
+  'aura.selectToolchain',
+  'aura.checkProject',
+  'aura.buildProject',
+  'aura.testProject',
+  'aura.raceProject',
+  'aura.formatProject',
+  'aura.showOutput',
+]) {
+  assert.ok(manifest.activationEvents.includes(`onCommand:${command}`))
+  assert.ok(
+    manifest.contributes.commands.some(({ command: id }) => id === command),
+  )
+}
 assert.equal(manifest.contributes.languages[0].id, 'aura')
 assert.deepEqual(manifest.contributes.languages[0].extensions, ['.aura'])
+assert.deepEqual(manifest.contributes.languages[0].icon, {
+  light: './assets/aura-language-light.svg',
+  dark: './assets/aura-language-dark.svg',
+})
+assert.equal(manifest.icon, 'icon.png')
+assert.ok(fs.existsSync(path.join(root, manifest.icon)))
+for (const icon of Object.values(manifest.contributes.languages[0].icon)) {
+  assert.ok(fs.existsSync(path.join(root, icon)))
+}
 assert.equal(
   manifest.contributes.configuration.properties['aura.serverPath'].default,
   'aura',
@@ -21,6 +45,14 @@ assert.equal(
 assert.deepEqual(
   manifest.contributes.configuration.properties['aura.serverArgs'].default,
   ['language-server'],
+)
+assert.equal(
+  manifest.contributes.configuration.properties['aura.cliPath'].default,
+  'aura',
+)
+assert.deepEqual(
+  manifest.contributes.configuration.properties['aura.trace.server'].enum,
+  ['off', 'messages', 'verbose'],
 )
 assert.ok(
   manifest.contributes.commands.some(
@@ -42,6 +74,13 @@ assert.match(grammar.repository.keywords.match, /async/)
 assert.match(grammar.repository.keywords.match, /extern/)
 assert.match(grammar.repository.keywords.match, /interface/)
 assert.ok(grammar.repository.operators.match.includes('\\?\\.'))
+assert.match(grammar.repository.types.match, /TaskHandle/)
+assert.match(grammar.repository.types.match, /ForeignHandle/)
+assert.equal(
+  grammar.repository.functions.patterns[0].captures['2'].name,
+  'entity.name.function.aura',
+)
+assert.match(grammar.repository['comment-tasks'].patterns[0].match, /TODO/)
 for (const keyword of [
   'abstract',
   'as',
@@ -160,6 +199,8 @@ assert.deepEqual(
 )
 assert.equal(toolchain.isLanguageServerPath('/opt/aura/auralsp'), true)
 assert.equal(toolchain.isLanguageServerPath('/opt/aura/aura'), false)
+assert.equal(await toolchain.supportsLanguageServer(lspCapableAura), true)
+assert.equal(await toolchain.supportsLanguageServer(oldAura), false)
 const fakeExtension = fs.mkdtempSync(path.join(os.tmpdir(), 'aura-vscode-'))
 const embedded = path.join(fakeExtension, 'bin', 'win32-x64', 'auralsp.exe')
 fs.mkdirSync(path.dirname(embedded), { recursive: true })

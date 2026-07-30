@@ -7,6 +7,7 @@
     { "include": "#strings" },
     { "include": "#attributes" },
     { "include": "#declarations" },
+    { "include": "#functions" },
     { "include": "#constants" },
     { "include": "#types" },
     { "include": "#numbers" },
@@ -16,11 +17,24 @@
   "repository": {
     "comments": {
       "patterns": [
-        { "name": "comment.line.double-slash.aura", "match": "//.*$" },
+        {
+          "name": "comment.line.double-slash.aura",
+          "begin": "//",
+          "end": "$",
+          "patterns": [{ "include": "#comment-tasks" }]
+        },
         {
           "name": "comment.block.aura",
           "begin": "/\\*",
           "end": "\\*/"
+        }
+      ]
+    },
+    "comment-tasks": {
+      "patterns": [
+        {
+          "name": "keyword.other.todo.aura",
+          "match": "\\b(?:TODO|FIXME|NOTE|HACK)\\b"
         }
       ]
     },
@@ -46,7 +60,7 @@
     },
     "types": {
       "name": "support.type.aura",
-      "match": "\\b(?:Any|Array|Bool|Byte|Char|Float|HashMap|HashSet|Int|Long|Never|Option|Result|String|Task|UInt|ULong|Unit)\\b"
+      "match": "\\b(?:Any|Array|Bool|Byte|Channel|Char|Error|ErrorKind|Float|ForeignHandle|HashMap|HashMapEntry|HashSet|Int|Long|Never|Option|Outcome|Result|String|Task|TaskHandle|UInt|ULong|Unit)\\b"
     },
     "numbers": {
       "name": "constant.numeric.integer.decimal.aura",
@@ -54,12 +68,12 @@
     },
     "operators": {
       "name": "keyword.operator.aura",
-      "match": "\\?\\.|\\?:|\\.\\.=|\\.\\.|!!|=>|->|==|!=|<=|>=|&&|\\|\\||[+*/%!=<>?:.-]"
+      "match": "\\?\\.|\\?:|\\.\\.=|\\.\\.|!!|=>|->|==|!=|<=|>=|&&|\\|\\||[+*/%!=<>?:.&|-]"
     },
     "declarations": {
       "patterns": [
         {
-          "match": "\\b(class|enum|fun|interface|struct|type)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "match": "\\b(class|enum|interface|struct|type)\\s+([A-Za-z_][A-Za-z0-9_]*)",
           "captures": {
             "1": { "name": "keyword.declaration.aura" },
             "2": { "name": "entity.name.type.aura" }
@@ -70,6 +84,23 @@
           "captures": {
             "1": { "name": "keyword.declaration.aura" },
             "2": { "name": "variable.other.definition.aura" }
+          }
+        }
+      ]
+    },
+    "functions": {
+      "patterns": [
+        {
+          "match": "\\b(fun)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.declaration.function.aura" },
+            "2": { "name": "entity.name.function.aura" }
+          }
+        },
+        {
+          "match": "(?<![A-Za-z0-9_])(?!if\\b|while\\b|for\\b|catch\\b|match\\b)([A-Za-z_][A-Za-z0-9_]*)\\s*(?=\\()",
+          "captures": {
+            "1": { "name": "entity.name.function.call.aura" }
           }
         }
       ]

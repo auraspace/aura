@@ -43,13 +43,18 @@ async function findExecutable(name: string): Promise<string | undefined> {
   const command = process.platform === 'win32' ? 'where.exe' : 'which'
   try {
     const { stdout } = await execFileAsync(command, [name])
-    return stdout.split(/\r?\n/).find((line) => line.trim())?.trim()
+    return stdout
+      .split(/\r?\n/)
+      .find((line) => line.trim())
+      ?.trim()
   } catch {
     return undefined
   }
 }
 
-async function supportsLanguageServer(command: string): Promise<boolean> {
+export async function supportsLanguageServer(
+  command: string,
+): Promise<boolean> {
   try {
     const { stdout } = await execFileAsync(command, ['help'])
     return /\b(?:language-server|lsp)\b/.test(stdout)
@@ -156,14 +161,19 @@ export async function discoverToolchains(
   dependencies: Partial<DiscoveryDependencies> = {},
 ): Promise<ToolchainChoice[]> {
   const platform = dependencies.platform ?? process.platform
-  const auraHome = dependencies.auraHome ?? process.env.AURA_HOME ?? join(homedir(), '.aura')
+  const auraHome =
+    dependencies.auraHome ?? process.env.AURA_HOME ?? join(homedir(), '.aura')
   const lookup = dependencies.findExecutable ?? findExecutable
   const versions = dependencies.listAvmVersions ?? listAvmVersions
-  const [auraCandidate, lspPath, avmVersions] = await Promise.all([
+  const [auraCandidate, lspCandidate, avmVersions] = await Promise.all([
     lookup('aura'),
     lookup('auralsp'),
     versions(),
   ])
+  const lspPath =
+    lspCandidate && (await supportsLanguageServer(lspCandidate))
+      ? lspCandidate
+      : undefined
   const auraPath =
     auraCandidate && (await supportsLanguageServer(auraCandidate))
       ? auraCandidate

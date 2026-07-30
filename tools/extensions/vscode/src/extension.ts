@@ -1,10 +1,12 @@
 import * as vscode from 'vscode'
+import { Trace } from 'vscode-jsonrpc'
 import {
   LanguageClient,
   LanguageClientOptions,
   ServerOptions,
 } from 'vscode-languageclient/node'
 
+import { projectArgument, runAuraCommand, workspaceRoot } from './cli'
 import { selectServer } from './server'
 import {
   discoverToolchains,
@@ -14,6 +16,22 @@ import {
 
 let client: LanguageClient | undefined
 let restartTimer: ReturnType<typeof setTimeout> | undefined
+let status: vscode.StatusBarItem | undefined
+
+function traceLevel(): Trace {
+  const value = vscode.workspace
+    .getConfiguration('aura')
+    .get<string>('trace.server', 'off')
+  if (value === 'verbose') return Trace.Verbose
+  if (value === 'messages') return Trace.Messages
+  return Trace.Off
+}
+
+function setStatus(text: string, tooltip?: string): void {
+  if (!status) return
+  status.text = text
+  status.tooltip = tooltip ?? text
+}
 
 function serverConfiguration(): {
   configuredPath: string
@@ -54,14 +72,17 @@ function createClient(
       fileEvents: vscode.workspace.createFileSystemWatcher('**/*.aura'),
     },
     outputChannel: output,
+    traceOutputChannel: output,
   }
 
-  return new LanguageClient(
+  const languageClient = new LanguageClient(
     'auraLanguageServer',
     'Aura Language Server',
     serverOptions,
     clientOptions,
   )
+  void languageClient.setTrace(traceLevel())
+  return languageClient
 }
 
 async function restartClient(
@@ -77,15 +98,54 @@ async function restartClient(
       )
     }
   }
+  setStatus('$(sync~spin) Aura: starting')
   client = createClient(output, extensionPath)
   try {
     await client.start()
+    setStatus('$(check) Aura: ready', 'Aura language server is running')
   } catch (error) {
+    setStatus('$(error) Aura: unavailable', String(error))
     output.appendLine(`Failed to start Aura language server: ${String(error)}`)
     void vscode.window.showErrorMessage(
       'Aura language server did not start. See the Aura Language Server output.',
     )
   }
+}
+
+async function runProjectCommand(
+  output: vscode.OutputChannel,
+  command: string,
+  args: string[] = [],
+): Promise<void> {
+  const root = workspaceRoot()
+  if (!root) {
+    void vscode.window.showWarningMessage('Open an Aura workspace first.')
+    return
+  }
+  const cli =
+    vscode.workspace
+      .getConfiguration('aura')
+      .get<string>('cliPath', 'aura')
+      .trim() || 'aura'
+  const fullArgs = [command, ...args, projectArgument(root)]
+  output.appendLine(`$ ${cli} ${fullArgs.join(' ')}`)
+  setStatus(`$(sync~spin) Aura: ${command}`)
+  const result = await runAuraCommand(cli, fullArgs, root)
+  if (result.stdout) output.append(result.stdout)
+  if (result.stderr) output.append(result.stderr)
+  if (result.code === 0) {
+    setStatus('$(check) Aura: ready', 'Aura command completed successfully')
+    void vscode.window.showInformationMessage(`Aura ${command} completed.`)
+  } else {
+    setStatus(
+      '$(error) Aura: command failed',
+      `Aura ${command} exited with code ${result.code}`,
+    )
+    void vscode.window.showErrorMessage(
+      `Aura ${command} failed. See the Aura Language Server output.`,
+    )
+  }
+  output.show(true)
 }
 
 function scheduleRestart(
@@ -154,6 +214,13 @@ export async function activate(
 ): Promise<void> {
   const output = vscode.window.createOutputChannel('Aura Language Server')
   context.subscriptions.push(output)
+  status = vscode.window.createStatusBarItem(
+    vscode.StatusBarAlignment.Right,
+    100,
+  )
+  status.command = 'aura.selectToolchain'
+  status.show()
+  context.subscriptions.push(status)
 
   const restart = vscode.commands.registerCommand(
     'aura.restartLanguageServer',
@@ -169,11 +236,29 @@ export async function activate(
   )
   context.subscriptions.push(select)
 
+  for (const [command, cliCommand] of [
+    ['aura.checkProject', 'check'],
+    ['aura.buildProject', 'build'],
+    ['aura.testProject', 'test'],
+    ['aura.raceProject', 'race'],
+    ['aura.formatProject', 'fmt'],
+  ] as const) {
+    context.subscriptions.push(
+      vscode.commands.registerCommand(command, () =>
+        runProjectCommand(output, cliCommand),
+      ),
+    )
+  }
+  context.subscriptions.push(
+    vscode.commands.registerCommand('aura.showOutput', () => output.show()),
+  )
+
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration(async (event) => {
       if (
         event.affectsConfiguration('aura.serverPath') ||
-        event.affectsConfiguration('aura.serverArgs')
+        event.affectsConfiguration('aura.serverArgs') ||
+        event.affectsConfiguration('aura.trace.server')
       ) {
         scheduleRestart(output, context.extensionPath)
       }
@@ -190,4 +275,5 @@ export async function deactivate(): Promise<void> {
   }
   await client?.stop()
   client = undefined
+  status = undefined
 }

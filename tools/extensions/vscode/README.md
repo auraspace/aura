@@ -7,6 +7,11 @@ go to definition, references, rename, document and workspace symbols,
 formatting, and quick-fix/source-format code actions. These features work for
 saved `.aura` files and unsaved buffers whose language mode is Aura.
 
+The Command Palette also provides `Aura: Check Project`, `Aura: Build
+Project`, `Aura: Test Project`, `Aura: Race Tests`, and `Aura: Format Project`.
+Their output is collected in the **Aura Language Server** output channel. The
+status bar shows whether the server is starting, ready, or unavailable.
+
 Syntax highlighting follows the compiler lexer and includes declarations,
 attributes, strings and escapes, line/block comments, integer literals,
 operators (including `?.`, `?:`, ranges, and lambda/type arrows), built-in
@@ -23,6 +28,10 @@ aura --version
 The default server command is equivalent to `aura language-server`. For a
 custom build, set `aura.serverPath` to the executable and replace
 `aura.serverArgs` if needed.
+Project commands use `aura.cliPath`, which defaults to `aura` and can be set
+independently when the language server is a standalone `auralsp` binary.
+Set `aura.trace.server` to `messages` or `verbose` when diagnosing an LSP
+integration problem; leave it at `off` during normal use.
 
 If `aura` is not available on `PATH`, the extension starts the embedded
 `auralsp` binary for the current VS Code platform. Windows packages use
