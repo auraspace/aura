@@ -7,48 +7,48 @@ import std.time
 // The handler deliberately waits on the monotonic timer before mutating the
 // response. This proves Request and Response remain valid while suspended.
 async fun pause(): Unit {
-  await sleep(1)
-  await sleep(1)
+    await sleep(1)
+    await sleep(1)
 }
 
 async fun health(request: Request, response: Response): Unit {
-  await pause()
-  if (request.method() == "POST" && request.target() == "/echo") {
-    response.setStatus(200)
-    response.addHeader("Content-Type", "text/plain")
-    response.setBody(request.body())
-  } else if (request.method() == "POST" && request.target() == "/stream") {
-    val body = request.bodyReader()
-    val first: String = await body.readChunk(3)
-    val second: String = await body.readChunk(16384)
-    response.setStatus(200)
-    response.addHeader("Content-Type", "text/plain")
-    response.setBody(first + second)
-  } else if (request.target() == "/stream-response") {
-    response.setStatus(200)
-    response.addHeader("Content-Type", "text/plain")
-    await response.writeChunk("one")
-    await response.writeChunk("two")
-  } else if (request.method() != "GET") {
-    response.setStatus(405)
-    response.setBody("method not allowed\n")
-  } else if (request.target() == "/health") {
-    response.setStatus(200)
-    response.addHeader("Content-Type", "text/plain")
-    response.setBody("ok\n")
-  } else {
-    response.setStatus(404)
-    response.setBody("not found\n")
-  }
+    await pause()
+    if (request.method() == "POST" && request.target() == "/echo") {
+        response.setStatus(200)
+        response.addHeader("Content-Type", "text/plain")
+        response.setBody(request.body())
+    } else if (request.method() == "POST" && request.target() == "/stream") {
+        val body = request.bodyReader()
+        val first: String = await body.readChunk(3)
+        val second: String = await body.readChunk(16384)
+        response.setStatus(200)
+        response.addHeader("Content-Type", "text/plain")
+        response.setBody(first + second)
+    } else if (request.target() == "/stream-response") {
+        response.setStatus(200)
+        response.addHeader("Content-Type", "text/plain")
+        await response.writeChunk("one")
+        await response.writeChunk("two")
+    } else if (request.method() != "GET") {
+        response.setStatus(405)
+        response.setBody("method not allowed\n")
+    } else if (request.target() == "/health") {
+        response.setStatus(200)
+        response.addHeader("Content-Type", "text/plain")
+        response.setBody("ok\n")
+    } else {
+        response.setStatus(404)
+        response.setBody("not found\n")
+    }
 }
 
 fun main() {
-  var port = 8080
-  val values = args()
-  if (values.len > 1 && values.get(1).toInt() != null) {
-    port = values.get(1).toInt()!!
-  }
-  val listener = listen(port)
-  println("listening on http://127.0.0.1:" + port.toString() + "/health")
-  serve(listener, (request: Request, response: Response) => health(request, response))
+    var port = 8080
+    val values = args()
+    if (values.len > 1 && values.get(1).toInt() != null) {
+        port = values.get(1).toInt()!!
+    }
+    val listener = listen(port)
+    println("listening on http://127.0.0.1:" + port.toString() + "/health")
+    serve(listener, (request: Request, response: Response) => health(request, response))
 }
