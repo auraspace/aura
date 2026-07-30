@@ -1,0 +1,10 @@
+[package]
+name = "demo.stdbytes.owned"
+
+[[bin]]
+name = "owned"
+path = "src"
+
+[dependencies]
+std.io = { path = "../../../std/io" }
+std.bytes = { path = "../../../std/bytes" }

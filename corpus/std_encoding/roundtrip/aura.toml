@@ -1,0 +1,10 @@
+[package]
+name = "demo.stdencoding.roundtrip"
+
+[[bin]]
+name = "roundtrip"
+path = "src"
+
+[dependencies]
+std.encoding = { path = "../../../std/encoding" }
+std.io = { path = "../../../std/io" }

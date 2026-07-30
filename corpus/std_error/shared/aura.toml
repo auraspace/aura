@@ -1,0 +1,6 @@
+[package]
+name = "demo.stderror.shared"
+
+[[bin]]
+name = "shared-error"
+path = "src"

@@ -1,0 +1,26 @@
+package demo.stdsync.atomic
+
+import std.io
+import std.sync
+
+fun main() {
+  val count = AtomicInt(1)
+  println(count.fetchAdd(2).toString())
+  count.store(8)
+  if (count.compareExchange(8, 13)) { println(count.load().toString()) }
+  val mutex = Mutex(0)
+  if (mutex.tryLock()) { println("locked") }
+  if (mutex.isLocked()) { println("held") }
+  mutex.unlock()
+  if (!mutex.isLocked()) { println("unlocked") }
+  val rw = RwLock(0)
+  if (rw.tryRead()) { println("read") }
+  println(rw.readerCount().toString())
+  rw.unlockRead()
+  if (rw.tryWrite()) { println("write") }
+  if (rw.isWriteLocked()) { println("write-held") }
+  rw.unlockWrite()
+  val once = Once(0)
+  if (once.tryEnter()) { println("once") }
+  if (!once.tryEnter() && once.isDone()) { println("once-done") }
+}

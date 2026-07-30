@@ -1,0 +1,66 @@
+// std.json -- bounded JSON validation and string escaping.
+
+package std.json
+
+/// Validate one complete JSON value with bounded nesting and UTF-8 input.
+pub fun isValid(value: String): Bool {
+  return false
+}
+
+/// Return the first invalid byte offset, or -1 for a complete JSON value.
+pub fun errorOffset(value: String): Int {
+  return 0
+}
+
+/// Escape a string as a JSON string literal, including surrounding quotes.
+pub fun escapeString(value: String): String? {
+  return null
+}
+
+/// Validated, owned JSON value. The bounded MVP preserves canonical input
+/// text and exposes root-node classification; member/array access remains a
+/// follow-on API.
+pub class Value(private val text: String) {
+  /// Return the owned JSON text exactly as parsed.
+  pub fun raw(): String {
+    return text
+  }
+
+  /// Serialize the value. The MVP serializer returns the validated text.
+  pub fun serialize(): String {
+    return text
+  }
+
+  /// Return the root node kind: object, array, string, number, bool, or null.
+  pub fun kind(): String {
+    var index = 0
+    while (index < text.len) {
+      val byte = text.charAt(index)
+      if (byte != 32 && byte != 9 && byte != 10 && byte != 13) {
+        if (byte == 123) { return "object" }
+        if (byte == 91) { return "array" }
+        if (byte == 34) { return "string" }
+        if (byte == 116 || byte == 102) { return "bool" }
+        if (byte == 110) { return "null" }
+        return "number"
+      }
+      index = index + 1
+    }
+    return "invalid"
+  }
+
+  pub fun isObject(): Bool { return this.kind() == "object" }
+  pub fun isArray(): Bool { return this.kind() == "array" }
+  pub fun isString(): Bool { return this.kind() == "string" }
+  pub fun isNumber(): Bool { return this.kind() == "number" }
+  pub fun isBool(): Bool { return this.kind() == "bool" }
+  pub fun isNull(): Bool { return this.kind() == "null" }
+}
+
+/// Parse and retain one complete JSON value, or return null on invalid input.
+pub fun parse(value: String): Value? {
+  if (!isValid(value)) {
+    return null
+  }
+  return Value(value)
+}

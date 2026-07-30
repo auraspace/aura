@@ -1,0 +1,34 @@
+// std.os -- bounded process and environment helpers.
+
+package std.os
+
+import std.error as OsErrs
+
+pub fun getEnv(name: String): String? { throw "os intrinsic" }
+pub fun setEnv(name: String, value: String): Bool { throw "os intrinsic" }
+pub fun unsetEnv(name: String): Bool { throw "os intrinsic" }
+pub fun cwd(): String { throw "os intrinsic" }
+pub fun pid(): Int { throw "os intrinsic" }
+pub fun platform(): String { throw "os intrinsic" }
+
+pub fun getEnvResult(name: String): OsErrs.Outcome<String, OsErrs.Error> {
+  val value = getEnv(name)
+  if (value == null) {
+    return OsErrs.failure(OsErrs.notFound("environment variable not found", 0))
+  }
+  return OsErrs.success(value!!)
+}
+
+pub fun setEnvResult(name: String, value: String): OsErrs.Outcome<Bool, OsErrs.Error> {
+  if (!setEnv(name, value)) {
+    return OsErrs.failure(OsErrs.invalidInput("environment update failed", 0))
+  }
+  return OsErrs.success(true)
+}
+
+pub fun unsetEnvResult(name: String): OsErrs.Outcome<Bool, OsErrs.Error> {
+  if (!unsetEnv(name)) {
+    return OsErrs.failure(OsErrs.invalidInput("environment removal failed", 0))
+  }
+  return OsErrs.success(true)
+}

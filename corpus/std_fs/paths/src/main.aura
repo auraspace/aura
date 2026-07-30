@@ -1,0 +1,18 @@
+package demo.stdfs.paths
+
+import std.fs
+import std.io
+
+fun main() {
+  println(join("/tmp/", "/a.txt"))
+  println(basename("/tmp/a.txt"))
+  println(dirname("/tmp/a.txt"))
+  println(extension("/tmp/a.txt")!!)
+  if (isAbsolute("/tmp/a.txt")) { println("absolute") }
+  if (isDirectory("/tmp")) { println("directory") }
+  println(fileMode("/tmp").toString())
+  if (permissions("/tmp") > 0) { println("permissions") }
+  if (modifiedMillis("/tmp") > 0) { println("mtime") }
+  if (listNames("/tmp").len > 0) { println("entries") }
+  if (!isSymlink("/definitely/missing/aura-link")) { println("not-link") }
+}

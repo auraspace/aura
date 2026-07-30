@@ -956,7 +956,20 @@ impl Checker {
                 },
             );
         }
-        self.check_block(&m.body, expected_ret)?;
+        // Class methods returning Task<T> use the same await context as
+        // top-level async functions; `expected_ret` is already unwrapped to T.
+        let is_async = m
+            .return_type
+            .as_ref()
+            .is_some_and(|ret| ret.name.name == "Task" && ret.type_args.len() == 1);
+        if is_async {
+            self.async_depth += 1;
+        }
+        let result = self.check_block(&m.body, expected_ret);
+        if is_async {
+            self.async_depth -= 1;
+        }
+        result?;
         self.locals.pop();
         if *expected_ret != Ty::Unit && block_control_flow(&m.body).falls_through {
             return Err(SemaError {

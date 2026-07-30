@@ -1,4 +1,7 @@
 /* Aura runtime — linked into every binary produced by aura build. */
+#if !defined(_POSIX_C_SOURCE)
+#define _POSIX_C_SOURCE 200809L
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -6,10 +9,69 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <errno.h>
+#include <ctype.h>
 #include <inttypes.h>
+#include <time.h>
+#include <signal.h>
 #include <sys/stat.h>
 #if defined(__unix__) || defined(__APPLE__)
+#include <dirent.h>
+#endif
+#if defined(__unix__) || defined(__APPLE__)
+#include <unistd.h>
+#endif
+
+static volatile sig_atomic_t aura_shutdown_signal = 0;
+
+static void aura_signal_handler(int signal_number)
+{
+  (void)signal_number;
+  aura_shutdown_signal = 1;
+}
+
+int aura_signal_install_shutdown(void)
+{
+#if defined(__unix__) || defined(__APPLE__)
+  if (signal(SIGINT, aura_signal_handler) == SIG_ERR ||
+      signal(SIGTERM, aura_signal_handler) == SIG_ERR)
+  {
+    return 0;
+  }
+  return 1;
+#else
+  return 0;
+#endif
+}
+
+_Bool aura_signal_shutdown_requested(void)
+{
+  return aura_shutdown_signal != 0;
+}
+
+void aura_signal_clear_shutdown(void)
+{
+  aura_shutdown_signal = 0;
+}
+
+int64_t aura_error_kind_code(int64_t code)
+{
+  if (code == EINVAL || code == E2BIG || code == ENAMETOOLONG) return 0;
+  if (code == ENOENT || code == ENOTDIR || code == ENODEV) return 1;
+  if (code == EACCES || code == EPERM || code == EROFS) return 2;
+  if (code == EIO || code == ENOMEM || code == EBADF) return 3;
+  if (code == ECONNRESET || code == ECONNREFUSED || code == ENETDOWN ||
+      code == ENETUNREACH || code == EHOSTUNREACH || code == EPIPE) return 4;
+  if (code == ETIMEDOUT || code == EAGAIN || code == EWOULDBLOCK) return 5;
+  if (code == ECANCELED) return 6;
+  if (code == EPROTO || code == EBADMSG) return 7;
+  if (code == EOVERFLOW || code == ENOBUFS || code == EMSGSIZE) return 8;
+  if (code == ENOTCONN) return 9;
+  if (code == ENOSYS || code == ENOTSUP) return 10;
+  return 11;
+}
+#if defined(__unix__) || defined(__APPLE__)
 #include <arpa/inet.h>
+#include <netdb.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #ifndef INADDR_LOOPBACK
@@ -21,6 +83,9 @@
 #include "aura_ffi.h"
 #endif
 #endif
+
+/* Scheduler helpers appear before the timer implementation. */
+int64_t aura_time_monotonic_millis(void);
 
 /* Generated artifacts embed this runtime as one copied C translation unit, so
  * the optional public FFI header is not necessarily beside that copy. Keep a
@@ -242,6 +307,29 @@ void aura_eprintln(const char *s)
     fputs(s, stderr);
     fputc('\n', stderr);
   }
+  fflush(stderr);
+}
+
+static int aura_log_min_level = 0;
+
+int aura_log_set_min_level(int level)
+{
+  if (level < 0 || level > 3) return 0;
+  aura_log_min_level = level;
+  return 1;
+}
+
+int aura_log_get_min_level(void)
+{
+  return aura_log_min_level;
+}
+
+void aura_log(int level, const char *message)
+{
+  static const char *const names[] = {"DEBUG", "INFO", "WARN", "ERROR"};
+  if (level < aura_log_min_level) return;
+  const char *name = (level >= 0 && level < 4) ? names[level] : "INFO";
+  fprintf(stderr, "[%s] %s\n", name, message != NULL ? message : "null");
   fflush(stderr);
 }
 
@@ -1000,6 +1088,8 @@ typedef struct
   char *value;
 } AuraHttpHeader;
 
+typedef struct AuraHttpContentLengthReader AuraHttpContentLengthReader;
+
 typedef struct AuraHttpRequest
 {
   char *method;
@@ -1010,6 +1100,8 @@ typedef struct AuraHttpRequest
   unsigned char *body;
   size_t body_length;
   size_t total_length;
+  /* Borrowed from an active async connection; never owned by the request. */
+  AuraHttpContentLengthReader *body_reader;
 } AuraHttpRequest;
 
 static int aura_http_is_token(unsigned char c)
@@ -1297,6 +1389,150 @@ static int aura_http_parse_content_length(const unsigned char *value, size_t len
   return 1;
 }
 
+/* Decode a bounded chunked body into the request-owned snapshot. Trailers are
+ * intentionally not exposed by the first HTTP/1.1 body API, so only an empty
+ * trailer section is accepted. */
+static AuraHttpParseStatus aura_http_decode_chunked_body(
+    const unsigned char *data, size_t input_length, size_t start,
+    unsigned char **out_body, size_t *out_length, size_t *out_consumed)
+{
+  unsigned char *body = NULL;
+  size_t body_length = 0;
+  size_t capacity = 0;
+  size_t cursor = start;
+
+  for (;;)
+  {
+    AuraHttpLineResult line_result;
+    unsigned char *next_body;
+    size_t line_end = 0;
+    size_t chunk_length = 0;
+    size_t i;
+    int saw_digit = 0;
+
+    if (cursor > AURA_HTTP_MAX_TOTAL_BYTES)
+    {
+      free(body);
+      return AURA_HTTP_PARSE_PAYLOAD_TOO_LARGE;
+    }
+    line_result = aura_http_find_line(data, input_length, cursor,
+                                      AURA_HTTP_MAX_REQUEST_LINE_BYTES, &line_end);
+    if (line_result != AURA_HTTP_LINE_FOUND)
+    {
+      free(body);
+      return aura_http_line_status(line_result);
+    }
+    if (line_end > AURA_HTTP_MAX_TOTAL_BYTES)
+    {
+      free(body);
+      return AURA_HTTP_PARSE_PAYLOAD_TOO_LARGE;
+    }
+    for (i = cursor; i + 2 < line_end; i++)
+    {
+      unsigned char c = data[i];
+      size_t digit;
+      if (c >= (unsigned char)'0' && c <= (unsigned char)'9')
+      {
+        digit = (size_t)(c - (unsigned char)'0');
+      }
+      else if (c >= (unsigned char)'a' && c <= (unsigned char)'f')
+      {
+        digit = (size_t)(c - (unsigned char)'a') + 10;
+      }
+      else if (c >= (unsigned char)'A' && c <= (unsigned char)'F')
+      {
+        digit = (size_t)(c - (unsigned char)'A') + 10;
+      }
+      else
+      {
+        free(body);
+        return AURA_HTTP_PARSE_BAD_REQUEST;
+      }
+      if (chunk_length > (SIZE_MAX - digit) / 16)
+      {
+        free(body);
+        return AURA_HTTP_PARSE_PAYLOAD_TOO_LARGE;
+      }
+      chunk_length = chunk_length * 16 + digit;
+      saw_digit = 1;
+    }
+    if (!saw_digit)
+    {
+      free(body);
+      return AURA_HTTP_PARSE_BAD_REQUEST;
+    }
+    cursor = line_end;
+    if (chunk_length == 0)
+    {
+      size_t trailer_end = 0;
+      line_result = aura_http_find_line(data, input_length, cursor,
+                                        AURA_HTTP_MAX_HEADER_BYTES, &trailer_end);
+      if (line_result != AURA_HTTP_LINE_FOUND)
+      {
+        free(body);
+        return aura_http_line_status(line_result);
+      }
+      if (trailer_end != cursor + 2)
+      {
+        free(body);
+        return AURA_HTTP_PARSE_BAD_REQUEST;
+      }
+      if (trailer_end > AURA_HTTP_MAX_TOTAL_BYTES)
+      {
+        free(body);
+        return AURA_HTTP_PARSE_PAYLOAD_TOO_LARGE;
+      }
+      *out_body = body;
+      *out_length = body_length;
+      *out_consumed = trailer_end;
+      return AURA_HTTP_PARSE_OK;
+    }
+    if (chunk_length > AURA_HTTP_MAX_BODY_BYTES - body_length)
+    {
+      free(body);
+      return AURA_HTTP_PARSE_PAYLOAD_TOO_LARGE;
+    }
+    if (cursor > AURA_HTTP_MAX_TOTAL_BYTES ||
+        chunk_length > AURA_HTTP_MAX_TOTAL_BYTES - cursor ||
+        cursor > input_length || chunk_length > input_length - cursor ||
+        input_length - cursor - chunk_length < 2)
+    {
+      free(body);
+      return AURA_HTTP_PARSE_INCOMPLETE;
+    }
+    if (data[cursor + chunk_length] != (unsigned char)'\r' ||
+        data[cursor + chunk_length + 1] != (unsigned char)'\n')
+    {
+      free(body);
+      return AURA_HTTP_PARSE_BAD_REQUEST;
+    }
+    if (body_length + chunk_length > capacity)
+    {
+      size_t next_capacity = capacity == 0 ? 256 : capacity;
+      while (next_capacity < body_length + chunk_length)
+      {
+        if (next_capacity > AURA_HTTP_MAX_BODY_BYTES / 2)
+        {
+          next_capacity = AURA_HTTP_MAX_BODY_BYTES;
+          break;
+        }
+        next_capacity *= 2;
+      }
+      next_body = (unsigned char *)realloc(body, next_capacity);
+      if (next_body == NULL)
+      {
+        free(body);
+        return AURA_HTTP_PARSE_ERROR;
+      }
+      body = next_body;
+      capacity = next_capacity;
+    }
+    memcpy(body + body_length, data + cursor, chunk_length);
+    body_length += chunk_length;
+    cursor += chunk_length + 2;
+  }
+}
+
 static int aura_http_header_value_valid(const unsigned char *value, size_t length)
 {
   size_t i;
@@ -1312,9 +1548,10 @@ static int aura_http_header_value_valid(const unsigned char *value, size_t lengt
   return 1;
 }
 
-AuraHttpParseStatus aura_http_request_parse(const void *input, size_t input_length,
-                                            AuraHttpRequest *out_request,
-                                            size_t *out_consumed)
+static AuraHttpParseStatus aura_http_request_parse_impl(
+    const void *input, size_t input_length, AuraHttpRequest *out_request,
+    size_t *out_consumed, int headers_only, size_t *out_header_end,
+    size_t *out_content_length, int *out_chunked)
 {
   const unsigned char *data = (const unsigned char *)input;
   AuraHttpRequest parsed;
@@ -1329,6 +1566,7 @@ AuraHttpParseStatus aura_http_request_parse(const void *input, size_t input_leng
   size_t header_end = 0;
   size_t content_length = 0;
   int has_content_length = 0;
+  int chunked = 0;
   int method_allowed = 0;
 
   if (out_request == NULL || (input == NULL && input_length != 0))
@@ -1339,6 +1577,18 @@ AuraHttpParseStatus aura_http_request_parse(const void *input, size_t input_leng
   if (out_consumed != NULL)
   {
     *out_consumed = 0;
+  }
+  if (out_header_end != NULL)
+  {
+    *out_header_end = 0;
+  }
+  if (out_content_length != NULL)
+  {
+    *out_content_length = 0;
+  }
+  if (out_chunked != NULL)
+  {
+    *out_chunked = 0;
   }
   memset(&parsed, 0, sizeof(parsed));
 
@@ -1507,8 +1757,13 @@ AuraHttpParseStatus aura_http_request_parse(const void *input, size_t input_leng
     if (aura_http_header_name_equal(data + cursor, name_length,
                                     "Transfer-Encoding"))
     {
-      aura_http_request_destroy(&parsed);
-      return AURA_HTTP_PARSE_BAD_REQUEST;
+      if (chunked || !aura_http_ascii_equal_ci(data + value_start, value_length,
+                                                "chunked"))
+      {
+        aura_http_request_destroy(&parsed);
+        return AURA_HTTP_PARSE_BAD_REQUEST;
+      }
+      chunked = 1;
     }
     if (aura_http_header_name_equal(data + cursor, name_length, "Content-Length"))
     {
@@ -1542,24 +1797,84 @@ AuraHttpParseStatus aura_http_request_parse(const void *input, size_t input_leng
     cursor = line_end;
   }
 
-  if (content_length > AURA_HTTP_MAX_BODY_BYTES ||
-      header_end > AURA_HTTP_MAX_TOTAL_BYTES - content_length)
+  if (chunked && has_content_length)
+  {
+    aura_http_request_destroy(&parsed);
+    return AURA_HTTP_PARSE_BAD_REQUEST;
+  }
+  if (!chunked && (content_length > AURA_HTTP_MAX_BODY_BYTES ||
+                   header_end > AURA_HTTP_MAX_TOTAL_BYTES - content_length))
   {
     aura_http_request_destroy(&parsed);
     return AURA_HTTP_PARSE_PAYLOAD_TOO_LARGE;
   }
-  parsed.total_length = header_end + content_length;
-  if (input_length < parsed.total_length)
+  if (headers_only)
   {
-    aura_http_request_destroy(&parsed);
-    return AURA_HTTP_PARSE_INCOMPLETE;
+    if (parsed.header_count == 0)
+    {
+      free(parsed.headers);
+      parsed.headers = NULL;
+    }
+    else
+    {
+      AuraHttpHeader *shrunk = (AuraHttpHeader *)realloc(
+          parsed.headers, parsed.header_count * sizeof(*parsed.headers));
+      if (shrunk != NULL)
+      {
+        parsed.headers = shrunk;
+      }
+    }
+    if (!method_allowed)
+    {
+      aura_http_request_destroy(&parsed);
+      return AURA_HTTP_PARSE_METHOD_NOT_ALLOWED;
+    }
+    parsed.total_length = header_end;
+    *out_request = parsed;
+    if (out_consumed != NULL)
+    {
+      *out_consumed = header_end;
+    }
+    if (out_header_end != NULL)
+    {
+      *out_header_end = header_end;
+    }
+    if (out_content_length != NULL)
+    {
+      *out_content_length = content_length;
+    }
+    if (out_chunked != NULL)
+    {
+      *out_chunked = chunked;
+    }
+    return AURA_HTTP_PARSE_OK;
   }
-  parsed.body_length = content_length;
-  parsed.body = aura_http_copy_body(data + header_end, content_length);
-  if (content_length != 0 && parsed.body == NULL)
+  if (chunked)
   {
-    aura_http_request_destroy(&parsed);
-    return AURA_HTTP_PARSE_ERROR;
+    AuraHttpParseStatus chunk_status = aura_http_decode_chunked_body(
+        data, input_length, header_end, &parsed.body, &parsed.body_length,
+        &parsed.total_length);
+    if (chunk_status != AURA_HTTP_PARSE_OK)
+    {
+      aura_http_request_destroy(&parsed);
+      return chunk_status;
+    }
+  }
+  else
+  {
+    parsed.total_length = header_end + content_length;
+    if (input_length < parsed.total_length)
+    {
+      aura_http_request_destroy(&parsed);
+      return AURA_HTTP_PARSE_INCOMPLETE;
+    }
+    parsed.body_length = content_length;
+    parsed.body = aura_http_copy_body(data + header_end, content_length);
+    if (content_length != 0 && parsed.body == NULL)
+    {
+      aura_http_request_destroy(&parsed);
+      return AURA_HTTP_PARSE_ERROR;
+    }
   }
   if (parsed.header_count == 0)
   {
@@ -1586,6 +1901,347 @@ AuraHttpParseStatus aura_http_request_parse(const void *input, size_t input_leng
     *out_consumed = parsed.total_length;
   }
   return AURA_HTTP_PARSE_OK;
+}
+
+AuraHttpParseStatus aura_http_request_parse(const void *input, size_t input_length,
+                                            AuraHttpRequest *out_request,
+                                            size_t *out_consumed)
+{
+  return aura_http_request_parse_impl(input, input_length, out_request,
+                                      out_consumed, 0, NULL, NULL, NULL);
+}
+
+/* Header-first parsing is the foundation for an async request-body reader.
+ * It owns the same request metadata as the full parser but deliberately does
+ * not consume or copy any body bytes. */
+static AuraHttpParseStatus aura_http_request_parse_headers(
+    const void *input, size_t input_length, AuraHttpRequest *out_request,
+    size_t *out_header_end, size_t *out_content_length, int *out_chunked)
+{
+  return aura_http_request_parse_impl(input, input_length, out_request, NULL,
+                                      1, out_header_end, out_content_length,
+                                      out_chunked);
+}
+
+/* One Content-Length-framed body reader borrows the connection's unread
+ * buffer. It never reads more than `remaining`, so bytes for a pipelined next
+ * request remain untouched in the socket/buffer. The caller owns the output
+ * buffer and waits for POLLIN when this returns AURA_TCP_PENDING. */
+struct AuraHttpContentLengthReader
+{
+  AuraTcpStream *stream;
+  unsigned char *buffer;
+  size_t *used;
+  size_t remaining;
+  int timeout_ms;
+  int read_active;
+  int chunked;
+  int chunk_state;
+  unsigned char line[64];
+  size_t line_length;
+};
+
+static int aura_http_content_length_reader_init(
+    AuraHttpContentLengthReader *reader, AuraTcpStream *stream,
+    unsigned char *buffer, size_t *used, size_t content_length, int timeout_ms)
+{
+  if (reader == NULL || stream == NULL || used == NULL ||
+      (*used != 0 && buffer == NULL) || timeout_ms < 0)
+  {
+    return 0;
+  }
+  reader->stream = stream;
+  reader->buffer = buffer;
+  reader->used = used;
+  reader->remaining = content_length;
+  reader->timeout_ms = timeout_ms;
+  reader->chunked = 0;
+  reader->chunk_state = 0;
+  reader->line_length = 0;
+  return 1;
+}
+
+static int aura_http_chunked_reader_init(
+    AuraHttpContentLengthReader *reader, AuraTcpStream *stream,
+    unsigned char *buffer, size_t *used, int timeout_ms)
+{
+  if (reader == NULL || stream == NULL || used == NULL ||
+      (*used != 0 && buffer == NULL) || timeout_ms < 0)
+  {
+    return 0;
+  }
+  memset(reader, 0, sizeof(*reader));
+  reader->stream = stream;
+  reader->buffer = buffer;
+  reader->used = used;
+  reader->timeout_ms = timeout_ms;
+  reader->chunked = 1;
+  return 1;
+}
+
+static AuraTcpStatus aura_http_body_reader_byte(
+    AuraHttpContentLengthReader *reader, unsigned char *out)
+{
+  size_t count = 0;
+  AuraTcpStatus status;
+  if (reader == NULL || out == NULL || reader->stream == NULL ||
+      reader->used == NULL || (*reader->used != 0 && reader->buffer == NULL))
+  {
+    return AURA_TCP_ERROR;
+  }
+  if (*reader->used != 0)
+  {
+    *out = reader->buffer[0];
+    memmove(reader->buffer, reader->buffer + 1, *reader->used - 1);
+    *reader->used -= 1;
+    return AURA_TCP_OK;
+  }
+  status = aura_tcp_stream_read(reader->stream, out, 1, &count, 0);
+  if (status == AURA_TCP_OK && count != 1)
+  {
+    return AURA_TCP_ERROR;
+  }
+  return status;
+}
+
+static int aura_http_hex_value(unsigned char value)
+{
+  if (value >= (unsigned char)'0' && value <= (unsigned char)'9')
+  {
+    return (int)(value - (unsigned char)'0');
+  }
+  if (value >= (unsigned char)'a' && value <= (unsigned char)'f')
+  {
+    return (int)(value - (unsigned char)'a') + 10;
+  }
+  if (value >= (unsigned char)'A' && value <= (unsigned char)'F')
+  {
+    return (int)(value - (unsigned char)'A') + 10;
+  }
+  return -1;
+}
+
+static AuraTcpStatus aura_http_chunked_reader_read(
+    AuraHttpContentLengthReader *reader, unsigned char *out, size_t capacity,
+    size_t *out_bytes)
+{
+  size_t count = 0;
+  if (out_bytes == NULL || out == NULL || capacity == 0 || reader == NULL ||
+      !reader->chunked)
+  {
+    return AURA_TCP_ERROR;
+  }
+  *out_bytes = 0;
+  for (;;)
+  {
+    unsigned char byte = 0;
+    AuraTcpStatus status;
+    if (reader->chunk_state == 4)
+    {
+      return AURA_TCP_EOF;
+    }
+    if (reader->chunk_state == 0)
+    {
+      status = aura_http_body_reader_byte(reader, &byte);
+      if (status != AURA_TCP_OK)
+      {
+        return status;
+      }
+      if (reader->line_length >= sizeof(reader->line))
+      {
+        return AURA_TCP_ERROR;
+      }
+      reader->line[reader->line_length++] = byte;
+      if (reader->line_length >= 2 &&
+          reader->line[reader->line_length - 2] == (unsigned char)'\r' &&
+          reader->line[reader->line_length - 1] == (unsigned char)'\n')
+      {
+        size_t i;
+        size_t digits = reader->line_length - 2;
+        size_t size = 0;
+        if (digits == 0 || digits > 16)
+        {
+          return AURA_TCP_ERROR;
+        }
+        for (i = 0; i < digits; i++)
+        {
+          int value = aura_http_hex_value(reader->line[i]);
+          if (value < 0 || size > (SIZE_MAX - (size_t)value) / 16)
+          {
+            return AURA_TCP_ERROR;
+          }
+          size = size * 16 + (size_t)value;
+        }
+        reader->line_length = 0;
+        reader->remaining = size;
+        reader->chunk_state = size == 0 ? 3 : 1;
+      }
+      continue;
+    }
+    if (reader->chunk_state == 1)
+    {
+      size_t want = reader->remaining < capacity ? reader->remaining : capacity;
+      if (*reader->used != 0)
+      {
+        count = *reader->used < want ? *reader->used : want;
+        memcpy(out, reader->buffer, count);
+        memmove(reader->buffer, reader->buffer + count, *reader->used - count);
+        *reader->used -= count;
+        status = AURA_TCP_OK;
+      }
+      else
+      {
+        status = aura_tcp_stream_read(reader->stream, out, want, &count, 0);
+      }
+      if (status != AURA_TCP_OK)
+      {
+        return status;
+      }
+      if (count == 0 || count > reader->remaining)
+      {
+        return AURA_TCP_ERROR;
+      }
+      reader->remaining -= count;
+      *out_bytes = count;
+      if (reader->remaining == 0)
+      {
+        reader->chunk_state = 2;
+      }
+      return AURA_TCP_OK;
+    }
+    if (reader->chunk_state == 2)
+    {
+      status = aura_http_body_reader_byte(reader, &byte);
+      if (status != AURA_TCP_OK || byte != (unsigned char)'\r')
+      {
+        return AURA_TCP_ERROR;
+      }
+      status = aura_http_body_reader_byte(reader, &byte);
+      if (status != AURA_TCP_OK || byte != (unsigned char)'\n')
+      {
+        return AURA_TCP_ERROR;
+      }
+      reader->chunk_state = 0;
+      continue;
+    }
+    /* The alpha streaming reader consumes only an empty trailer section. */
+    status = aura_http_body_reader_byte(reader, &byte);
+    if (status != AURA_TCP_OK || byte != (unsigned char)'\r')
+    {
+      return AURA_TCP_ERROR;
+    }
+    status = aura_http_body_reader_byte(reader, &byte);
+    if (status != AURA_TCP_OK || byte != (unsigned char)'\n')
+    {
+      return AURA_TCP_ERROR;
+    }
+    reader->chunk_state = 4;
+    return AURA_TCP_EOF;
+  }
+}
+
+static AuraTcpStatus aura_http_content_length_reader_read(
+    AuraHttpContentLengthReader *reader, unsigned char *out, size_t capacity,
+    size_t *out_bytes)
+{
+  size_t available;
+  size_t count;
+  AuraTcpStatus status;
+
+  if (out_bytes == NULL || (out == NULL && capacity != 0) || reader == NULL ||
+      reader->stream == NULL || reader->used == NULL ||
+      (*reader->used != 0 && reader->buffer == NULL) || capacity == 0)
+  {
+    return AURA_TCP_ERROR;
+  }
+  *out_bytes = 0;
+  if (reader->remaining == 0)
+  {
+    return AURA_TCP_EOF;
+  }
+  available = *reader->used;
+  if (available != 0)
+  {
+    count = available;
+    if (count > reader->remaining)
+    {
+      count = reader->remaining;
+    }
+    if (count > capacity)
+    {
+      count = capacity;
+    }
+    memcpy(out, reader->buffer, count);
+    memmove(reader->buffer, reader->buffer + count, available - count);
+    *reader->used = available - count;
+    reader->remaining -= count;
+    *out_bytes = count;
+    return AURA_TCP_OK;
+  }
+  count = capacity < reader->remaining ? capacity : reader->remaining;
+  status = aura_tcp_stream_read(reader->stream, out, count, &count, 0);
+  if (status == AURA_TCP_OK)
+  {
+    if (count == 0 || count > reader->remaining)
+    {
+      return AURA_TCP_ERROR;
+    }
+    reader->remaining -= count;
+    *out_bytes = count;
+  }
+  return status;
+}
+
+/* The reader is connection-owned and exists only while its handler runs. */
+int aura_http_request_read_body(
+    const AuraHttpRequest *request, unsigned char *out, size_t capacity,
+    size_t *out_bytes)
+{
+  if (request == NULL || request->body_reader == NULL)
+  {
+    return AURA_TCP_ERROR;
+  }
+  if (request->body_reader->chunked)
+  {
+    return aura_http_chunked_reader_read(request->body_reader, out, capacity,
+                                         out_bytes);
+  }
+  return aura_http_content_length_reader_read(request->body_reader, out,
+                                              capacity, out_bytes);
+}
+
+int aura_http_request_body_read_begin(const AuraHttpRequest *request)
+{
+  AuraHttpContentLengthReader *reader;
+  if (request == NULL || request->body_reader == NULL)
+  {
+    return 0;
+  }
+  reader = request->body_reader;
+  if (reader->read_active)
+  {
+    return 0;
+  }
+  reader->read_active = 1;
+  return 1;
+}
+
+void aura_http_request_body_read_end(const AuraHttpRequest *request)
+{
+  if (request != NULL && request->body_reader != NULL)
+  {
+    request->body_reader->read_active = 0;
+  }
+}
+
+static int aura_http_body_reader_complete(
+    const AuraHttpContentLengthReader *reader)
+{
+  if (reader == NULL)
+  {
+    return 0;
+  }
+  return reader->chunked ? reader->chunk_state == 4 : reader->remaining == 0;
 }
 
 /* ---- Bounded HTTP/1.1 response builder (transport-independent) ----
@@ -1625,6 +2281,7 @@ typedef struct AuraHttpResponse
   unsigned char *body;
   size_t body_length;
   AuraHttpResponseConnection connection;
+  int streaming_committed;
 } AuraHttpResponse;
 
 static int aura_http_response_status_valid(int status_code)
@@ -1657,6 +2314,7 @@ static const char *aura_http_response_reason(int status_code)
   case 403: return "Forbidden";
   case 404: return "Not Found";
   case 405: return "Method Not Allowed";
+  case 408: return "Request Timeout";
   case 409: return "Conflict";
   case 413: return "Payload Too Large";
   case 415: return "Unsupported Media Type";
@@ -1839,10 +2497,16 @@ int aura_http_response_keep_alive(const AuraHttpResponse *response)
   return response != NULL && response->connection == AURA_HTTP_RESPONSE_KEEP_ALIVE;
 }
 
+int aura_http_response_stream_started(const AuraHttpResponse *response)
+{
+  return response != NULL && response->streaming_committed;
+}
+
 AuraHttpResponseStatus aura_http_response_set_status(AuraHttpResponse *response,
                                                       int status_code)
 {
   if (response == NULL || !aura_http_response_status_valid(status_code) ||
+      response->streaming_committed ||
       (aura_http_response_forbids_body(status_code) && response->body_length != 0))
   {
     return AURA_HTTP_RESPONSE_INVALID;
@@ -1855,6 +2519,7 @@ AuraHttpResponseStatus aura_http_response_set_connection(
     AuraHttpResponse *response, AuraHttpResponseConnection connection)
 {
   if (response == NULL ||
+      response->streaming_committed ||
       (connection != AURA_HTTP_RESPONSE_CLOSE &&
        connection != AURA_HTTP_RESPONSE_KEEP_ALIVE))
   {
@@ -1874,6 +2539,7 @@ AuraHttpResponseStatus aura_http_response_add_header(AuraHttpResponse *response,
   char *name_copy;
   char *value_copy;
   if (response == NULL || name == NULL || value == NULL || name[0] == '\0' ||
+      response->streaming_committed ||
       response->header_count >= AURA_HTTP_MAX_RESPONSE_HEADERS - 2 ||
       !aura_http_is_token((unsigned char)name[0]))
   {
@@ -1940,6 +2606,7 @@ AuraHttpResponseStatus aura_http_response_set_body(AuraHttpResponse *response,
 {
   unsigned char *copy = NULL;
   if (response == NULL || (body == NULL && body_length != 0) ||
+      response->streaming_committed ||
       body_length > AURA_HTTP_MAX_RESPONSE_BODY_BYTES ||
       (aura_http_response_forbids_body(response->status_code) && body_length != 0))
   {
@@ -1970,8 +2637,8 @@ AuraHttpResponseStatus aura_http_response_set_error(AuraHttpResponse *response,
   int needed;
   AuraHttpResponseStatus result;
   if (response == NULL || error_code == NULL || error_code[0] == '\0' ||
-      (status_code != 400 && status_code != 404 && status_code != 405 && status_code != 413 &&
-       status_code != 500))
+      (status_code != 400 && status_code != 404 && status_code != 405 &&
+       status_code != 408 && status_code != 413 && status_code != 500))
   {
     return AURA_HTTP_RESPONSE_INVALID;
   }
@@ -2009,6 +2676,155 @@ AuraHttpResponseStatus aura_http_response_set_error(AuraHttpResponse *response,
                                            "application/json");
   }
   return result;
+}
+
+static int aura_http_response_append(char *output, size_t capacity, size_t *cursor,
+                                     const void *data, size_t length);
+
+/* Streaming responses commit HTTP/1.1 headers before any body bytes. Their
+ * chunk framing is owned by the connection task, never by application code. */
+static int aura_http_response_has_transfer_encoding(const AuraHttpResponse *response)
+{
+  size_t i;
+  for (i = 0; i < response->header_count; i++)
+  {
+    if (aura_http_header_name_equal(
+            (const unsigned char *)response->headers[i].name,
+            strlen(response->headers[i].name), "Transfer-Encoding"))
+    {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+int aura_http_response_stream_begin(
+    AuraHttpResponse *response, void *output, size_t capacity, size_t *out_length)
+{
+  const char *reason;
+  const char *connection;
+  char status_line[64];
+  size_t cursor = 0;
+  size_t i;
+  int status_size;
+
+  if (response == NULL || out_length == NULL ||
+      (output == NULL && capacity != 0) || response->streaming_committed ||
+      response->body_length != 0 || aura_http_response_forbids_body(response->status_code) ||
+      aura_http_response_has_transfer_encoding(response))
+  {
+    if (out_length != NULL)
+    {
+      *out_length = 0;
+    }
+    return AURA_HTTP_RESPONSE_INVALID;
+  }
+  if (aura_http_response_validate(response) != AURA_HTTP_RESPONSE_OK)
+  {
+    *out_length = 0;
+    return AURA_HTTP_RESPONSE_INVALID;
+  }
+  reason = aura_http_response_reason(response->status_code);
+  connection = response->connection == AURA_HTTP_RESPONSE_KEEP_ALIVE
+                   ? "keep-alive" : "close";
+  status_size = snprintf(status_line, sizeof(status_line), "HTTP/1.1 %d %s\r\n",
+                         response->status_code, reason);
+  if (status_size < 0 || (size_t)status_size >= sizeof(status_line) ||
+      !aura_http_response_append((char *)output, capacity, &cursor, status_line,
+                                 (size_t)status_size))
+  {
+    *out_length = cursor;
+    return AURA_HTTP_RESPONSE_BUFFER_TOO_SMALL;
+  }
+  for (i = 0; i < response->header_count; i++)
+  {
+    if (!aura_http_response_append((char *)output, capacity, &cursor,
+                                   response->headers[i].name,
+                                   strlen(response->headers[i].name)) ||
+        !aura_http_response_append((char *)output, capacity, &cursor, ": ", 2) ||
+        !aura_http_response_append((char *)output, capacity, &cursor,
+                                   response->headers[i].value,
+                                   strlen(response->headers[i].value)) ||
+        !aura_http_response_append((char *)output, capacity, &cursor, "\r\n", 2))
+    {
+      *out_length = cursor;
+      return AURA_HTTP_RESPONSE_BUFFER_TOO_SMALL;
+    }
+  }
+  if (!aura_http_response_append((char *)output, capacity, &cursor,
+                                 "Transfer-Encoding: chunked\r\n", 28) ||
+      !aura_http_response_append((char *)output, capacity, &cursor,
+                                 "Connection: ", 12) ||
+      !aura_http_response_append((char *)output, capacity, &cursor, connection,
+                                 strlen(connection)) ||
+      !aura_http_response_append((char *)output, capacity, &cursor, "\r\n\r\n", 4))
+  {
+    *out_length = cursor;
+    return AURA_HTTP_RESPONSE_BUFFER_TOO_SMALL;
+  }
+  *out_length = cursor;
+  if (cursor > AURA_HTTP_MAX_RESPONSE_BYTES || output == NULL || capacity < cursor)
+  {
+    return AURA_HTTP_RESPONSE_BUFFER_TOO_SMALL;
+  }
+  response->streaming_committed = 1;
+  return AURA_HTTP_RESPONSE_OK;
+}
+
+int aura_http_response_stream_chunk(
+    const void *chunk, size_t chunk_length, void *output, size_t capacity,
+    size_t *out_length)
+{
+  char size_line[32];
+  int size_length;
+  size_t cursor = 0;
+  if (out_length == NULL || (chunk == NULL && chunk_length != 0) ||
+      (output == NULL && capacity != 0) || chunk_length == 0 ||
+      chunk_length > AURA_HTTP_MAX_RESPONSE_BODY_BYTES)
+  {
+    if (out_length != NULL)
+    {
+      *out_length = 0;
+    }
+    return AURA_HTTP_RESPONSE_INVALID;
+  }
+  size_length = snprintf(size_line, sizeof(size_line), "%zx\r\n", chunk_length);
+  if (size_length < 0 || (size_t)size_length >= sizeof(size_line) ||
+      !aura_http_response_append((char *)output, capacity, &cursor, size_line,
+                                 (size_t)size_length) ||
+      !aura_http_response_append((char *)output, capacity, &cursor, chunk,
+                                 chunk_length) ||
+      !aura_http_response_append((char *)output, capacity, &cursor, "\r\n", 2))
+  {
+    *out_length = cursor;
+    return AURA_HTTP_RESPONSE_BUFFER_TOO_SMALL;
+  }
+  *out_length = cursor;
+  return output == NULL || capacity < cursor ? AURA_HTTP_RESPONSE_BUFFER_TOO_SMALL
+                                               : AURA_HTTP_RESPONSE_OK;
+}
+
+int aura_http_response_stream_finish(
+    const AuraHttpResponse *response, void *output, size_t capacity,
+    size_t *out_length)
+{
+  static const char terminal[] = "0\r\n\r\n";
+  if (out_length == NULL || response == NULL || !response->streaming_committed ||
+      (output == NULL && capacity != 0))
+  {
+    if (out_length != NULL)
+    {
+      *out_length = 0;
+    }
+    return AURA_HTTP_RESPONSE_INVALID;
+  }
+  *out_length = sizeof(terminal) - 1;
+  if (output == NULL || capacity < sizeof(terminal) - 1)
+  {
+    return AURA_HTTP_RESPONSE_BUFFER_TOO_SMALL;
+  }
+  memcpy(output, terminal, sizeof(terminal) - 1);
+  return AURA_HTTP_RESPONSE_OK;
 }
 
 static int aura_http_response_append(char *output, size_t capacity, size_t *cursor,
@@ -2261,6 +3077,8 @@ struct AuraHttpConnection
   int async_close_after_write;
   AuraHttpRequest async_request;
   int async_request_active;
+  AuraHttpContentLengthReader async_body_reader;
+  int async_body_reader_active;
   int async_handler_started;
   AuraFfiHandlePin async_handle_pin;
   int async_handle_pin_active;
@@ -2275,6 +3093,21 @@ struct AuraHttpServer
   size_t active_connections;
   int stopping;
 };
+
+int aura_http_connection_stream_write(AuraHttpConnection *connection,
+                                      const void *data, size_t length,
+                                      size_t *out_written)
+{
+  if (connection == NULL || connection->closed || connection->stream == NULL)
+  {
+    if (out_written != NULL)
+    {
+      *out_written = 0;
+    }
+    return AURA_TCP_CLOSED;
+  }
+  return aura_tcp_stream_write(connection->stream, data, length, out_written, 0);
+}
 
 static AuraHttpConnectionConfig aura_http_connection_default_config(void)
 {
@@ -2473,6 +3306,11 @@ void aura_http_connection_destroy(AuraHttpConnection *connection)
   (void)aura_http_connection_close(connection);
   aura_tcp_stream_destroy(connection->stream);
   free(connection);
+}
+
+void aura_http_connection_destroy_resource(void *resource)
+{
+  aura_http_connection_destroy((AuraHttpConnection *)resource);
 }
 
 AuraHttpConnectionStatus aura_http_connection_run(AuraHttpConnection *connection,
@@ -2717,6 +3555,38 @@ AuraHttpConnectionStatus aura_http_server_accept(AuraHttpServer *server,
   return AURA_HTTP_CONNECTION_OK;
 }
 
+/* Wrap an accepted stream after its std.net handle transfers ownership. */
+AuraHttpConnectionStatus aura_http_connection_create_from_stream(
+    AuraTcpStream *stream, const AuraHttpConnectionConfig *config,
+    AuraHttpConnection **out_connection)
+{
+  AuraHttpConnection *connection;
+  AuraHttpConnectionConfig defaults;
+  if (out_connection == NULL || stream == NULL)
+  {
+    return AURA_HTTP_CONNECTION_ERROR;
+  }
+  *out_connection = NULL;
+  defaults = aura_http_connection_default_config();
+  if (config == NULL)
+  {
+    config = &defaults;
+  }
+  if (!aura_http_connection_config_valid(config))
+  {
+    return AURA_HTTP_CONNECTION_ERROR;
+  }
+  connection = (AuraHttpConnection *)calloc(1, sizeof(*connection));
+  if (connection == NULL)
+  {
+    return AURA_HTTP_CONNECTION_ERROR;
+  }
+  connection->stream = stream;
+  connection->config = *config;
+  *out_connection = connection;
+  return AURA_HTTP_CONNECTION_OK;
+}
+
 int aura_http_server_shutdown(AuraHttpServer *server)
 {
   if (server == NULL || server->stopping)
@@ -2801,6 +3671,80 @@ bool aura_file_exists(const char *path)
   }
   struct stat st;
   return stat(path, &st) == 0 && S_ISREG(st.st_mode);
+}
+
+_Bool aura_fs_is_directory(const char *path)
+{
+  struct stat info;
+  return path != NULL && stat(path, &info) == 0 && S_ISDIR(info.st_mode);
+}
+
+int64_t aura_fs_file_mode(const char *path)
+{
+  struct stat info;
+  if (path == NULL || stat(path, &info) != 0) return 0;
+  if (S_ISREG(info.st_mode)) return 1;
+  if (S_ISDIR(info.st_mode)) return 2;
+  return 3;
+}
+
+int64_t aura_fs_permissions(const char *path)
+{
+  struct stat info;
+  if (path == NULL || stat(path, &info) != 0) return 0;
+  return (int64_t)(info.st_mode & 0777);
+}
+
+int64_t aura_fs_modified_millis(const char *path)
+{
+  struct stat info;
+  if (path == NULL || stat(path, &info) != 0) return -1;
+  if (info.st_mtime > INT64_MAX / 1000) return -1;
+  return (int64_t)info.st_mtime * 1000;
+}
+
+const char *aura_fs_list_names(const char *path)
+{
+#if defined(__unix__) || defined(__APPLE__)
+  DIR *directory;
+  struct dirent *entry;
+  size_t used = 0;
+  const size_t limit = 65536;
+  char *out;
+  if (path == NULL || (directory = opendir(path)) == NULL) return NULL;
+  out = (char *)malloc(limit + 1);
+  if (out == NULL) { closedir(directory); return NULL; }
+  while ((entry = readdir(directory)) != NULL)
+  {
+    size_t length = strlen(entry->d_name);
+    if (length > limit - used - (used == 0 ? 0 : 1))
+    {
+      free(out);
+      closedir(directory);
+      return NULL;
+    }
+    if (used != 0) out[used++] = '\n';
+    memcpy(out + used, entry->d_name, length);
+    used += length;
+  }
+  closedir(directory);
+  out[used] = '\0';
+  return out;
+#else
+  (void)path;
+  return NULL;
+#endif
+}
+
+_Bool aura_fs_is_symlink(const char *path)
+{
+#if defined(__unix__) || defined(__APPLE__)
+  struct stat info;
+  return path != NULL && lstat(path, &info) == 0 && S_ISLNK(info.st_mode);
+#else
+  (void)path;
+  return false;
+#endif
 }
 
 int64_t aura_file_size(const char *path)
@@ -4441,6 +5385,1117 @@ const char *aura_i64_to_string(int64_t v)
   return (const char *)out;
 }
 
+static int aura_encoding_hex_value(unsigned char c)
+{
+  if (c >= '0' && c <= '9') return (int)(c - '0');
+  if (c >= 'a' && c <= 'f') return (int)(c - 'a') + 10;
+  if (c >= 'A' && c <= 'F') return (int)(c - 'A') + 10;
+  return -1;
+}
+
+const char *aura_encoding_hex_encode(const char *value)
+{
+  static const char digits[] = "0123456789abcdef";
+  size_t length = value == NULL ? 0 : strlen(value);
+  if (length > (SIZE_MAX - 1) / 2) return NULL;
+  char *out = (char *)malloc(length * 2 + 1);
+  if (out == NULL) return NULL;
+  for (size_t i = 0; i < length; i++) {
+    unsigned char byte = (unsigned char)value[i];
+    out[i * 2] = digits[byte >> 4];
+    out[i * 2 + 1] = digits[byte & 0x0f];
+  }
+  out[length * 2] = '\0';
+  return out;
+}
+
+const char *aura_encoding_hex_decode(const char *value)
+{
+  size_t length = value == NULL ? 0 : strlen(value);
+  if ((length & 1u) != 0) return NULL;
+  char *out = (char *)malloc(length / 2 + 1);
+  if (out == NULL) return NULL;
+  for (size_t i = 0; i < length; i += 2) {
+    int hi = aura_encoding_hex_value((unsigned char)value[i]);
+    int lo = aura_encoding_hex_value((unsigned char)value[i + 1]);
+    if (hi < 0 || lo < 0 || (hi == 0 && lo == 0)) { free(out); return NULL; }
+    out[i / 2] = (char)((hi << 4) | lo);
+  }
+  out[length / 2] = '\0';
+  return out;
+}
+
+static int aura_encoding_base64_value(unsigned char c)
+{
+  if (c >= 'A' && c <= 'Z') return (int)(c - 'A');
+  if (c >= 'a' && c <= 'z') return (int)(c - 'a') + 26;
+  if (c >= '0' && c <= '9') return (int)(c - '0') + 52;
+  if (c == '+') return 62;
+  if (c == '/') return 63;
+  return -1;
+}
+
+const char *aura_encoding_base64_encode(const char *value)
+{
+  static const char digits[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  size_t length = value == NULL ? 0 : strlen(value);
+  if (length > (SIZE_MAX - 4) / 4 * 3) return NULL;
+  size_t output_length = ((length + 2) / 3) * 4;
+  char *out = (char *)malloc(output_length + 1);
+  if (out == NULL) return NULL;
+  size_t i = 0, o = 0;
+  while (i < length) {
+    size_t remaining = length - i;
+    unsigned int a = (unsigned char)value[i++];
+    unsigned int b = remaining > 1 ? (unsigned char)value[i++] : 0;
+    unsigned int c = remaining > 2 ? (unsigned char)value[i++] : 0;
+    out[o++] = digits[a >> 2];
+    out[o++] = digits[((a & 3u) << 4) | (b >> 4)];
+    out[o++] = remaining > 1 ? digits[((b & 15u) << 2) | (c >> 6)] : '=';
+    out[o++] = remaining > 2 ? digits[c & 63u] : '=';
+  }
+  out[o] = '\0';
+  return out;
+}
+
+const char *aura_encoding_base64_decode(const char *value)
+{
+  size_t length = value == NULL ? 0 : strlen(value);
+  if (length == 0) {
+    char *empty = (char *)malloc(1);
+    if (empty != NULL) empty[0] = '\0';
+    return empty;
+  }
+  if ((length & 3u) != 0) return NULL;
+  size_t output_length = (length / 4) * 3;
+  if (value[length - 1] == '=') output_length--;
+  if (value[length - 2] == '=') output_length--;
+  char *out = (char *)malloc(output_length + 1);
+  if (out == NULL) return NULL;
+  size_t o = 0;
+  for (size_t i = 0; i < length; i += 4) {
+    int a = aura_encoding_base64_value((unsigned char)value[i]);
+    int b = aura_encoding_base64_value((unsigned char)value[i + 1]);
+    int c = value[i + 2] == '=' ? 0 : aura_encoding_base64_value((unsigned char)value[i + 2]);
+    int d = value[i + 3] == '=' ? 0 : aura_encoding_base64_value((unsigned char)value[i + 3]);
+    int last = i + 4 == length;
+    if (a < 0 || b < 0 || c < 0 || d < 0 ||
+        (!last && (value[i + 2] == '=' || value[i + 3] == '=')) ||
+        (value[i + 2] == '=' && value[i + 3] != '=') ||
+        (value[i + 2] == '=' && (b & 15) != 0) ||
+        (value[i + 3] == '=' && value[i + 2] != '=' && (c & 3) != 0)) {
+      free(out); return NULL;
+    }
+    unsigned int triple = ((unsigned int)a << 18) | ((unsigned int)b << 12) |
+                          ((unsigned int)c << 6) | (unsigned int)d;
+    if (o < output_length) out[o++] = (char)(triple >> 16);
+    if (o < output_length) out[o++] = (char)(triple >> 8);
+    if (o < output_length) out[o++] = (char)triple;
+  }
+  for (size_t i = 0; i < output_length; i++) if (out[i] == '\0') { free(out); return NULL; }
+  out[output_length] = '\0';
+  return out;
+}
+
+static int aura_encoding_percent_unreserved(unsigned char c)
+{
+  return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+         (c >= '0' && c <= '9') || c == '-' || c == '.' || c == '_' || c == '~';
+}
+
+const char *aura_encoding_percent_encode(const char *value)
+{
+  static const char digits[] = "0123456789ABCDEF";
+  size_t length = value == NULL ? 0 : strlen(value);
+  if (length > (SIZE_MAX - 1) / 3) return NULL;
+  char *out = (char *)malloc(length * 3 + 1);
+  if (out == NULL) return NULL;
+  size_t o = 0;
+  for (size_t i = 0; i < length; i++) {
+    unsigned char c = (unsigned char)value[i];
+    if (aura_encoding_percent_unreserved(c)) out[o++] = (char)c;
+    else { out[o++] = '%'; out[o++] = digits[c >> 4]; out[o++] = digits[c & 15]; }
+  }
+  out[o] = '\0';
+  return out;
+}
+
+const char *aura_encoding_percent_decode(const char *value)
+{
+  size_t length = value == NULL ? 0 : strlen(value);
+  char *out = (char *)malloc(length + 1);
+  if (out == NULL) return NULL;
+  size_t o = 0;
+  for (size_t i = 0; i < length; i++) {
+    unsigned char c = (unsigned char)value[i];
+    if (c == '%') {
+      if (i + 2 >= length) { free(out); return NULL; }
+      int hi = aura_encoding_hex_value((unsigned char)value[++i]);
+      int lo = aura_encoding_hex_value((unsigned char)value[++i]);
+      if (hi < 0 || lo < 0 || (hi == 0 && lo == 0)) { free(out); return NULL; }
+      out[o++] = (char)((hi << 4) | lo);
+    } else out[o++] = (char)c;
+  }
+  out[o] = '\0';
+  return out;
+}
+
+_Bool aura_encoding_is_valid_utf8(const char *value)
+{
+  const unsigned char *bytes = (const unsigned char *)(value == NULL ? "" : value);
+  size_t length = strlen((const char *)bytes);
+  size_t i = 0;
+  while (i < length) {
+    unsigned char lead = bytes[i++];
+    uint32_t codepoint;
+    size_t continuation;
+    if (lead <= 0x7f) continue;
+    if (lead >= 0xc2 && lead <= 0xdf) { codepoint = lead & 0x1f; continuation = 1; }
+    else if (lead >= 0xe0 && lead <= 0xef) { codepoint = lead & 0x0f; continuation = 2; }
+    else if (lead >= 0xf0 && lead <= 0xf4) { codepoint = lead & 0x07; continuation = 3; }
+    else return false;
+    if (i + continuation > length) return false;
+    for (size_t j = 0; j < continuation; j++) {
+      unsigned char tail = bytes[i++];
+      if ((tail & 0xc0) != 0x80) return false;
+      codepoint = (codepoint << 6) | (tail & 0x3f);
+    }
+    if ((continuation == 2 && codepoint < 0x800) ||
+        (continuation == 3 && codepoint < 0x10000) ||
+        codepoint > 0x10ffff || (codepoint >= 0xd800 && codepoint <= 0xdfff)) return false;
+  }
+  return true;
+}
+
+typedef struct AuraJsonCursor
+{
+  const unsigned char *data;
+  size_t length;
+  size_t index;
+  unsigned depth;
+} AuraJsonCursor;
+
+static void aura_json_skip_ws(AuraJsonCursor *cursor)
+{
+  while (cursor->index < cursor->length &&
+         (cursor->data[cursor->index] == ' ' || cursor->data[cursor->index] == '\n' ||
+          cursor->data[cursor->index] == '\r' || cursor->data[cursor->index] == '\t'))
+  {
+    cursor->index++;
+  }
+}
+
+static int aura_json_hex(unsigned char c)
+{
+  if (c >= '0' && c <= '9') return c - '0';
+  if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+  if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+  return -1;
+}
+
+static int aura_json_string(AuraJsonCursor *cursor)
+{
+  if (cursor->index >= cursor->length || cursor->data[cursor->index++] != '"') return 0;
+  while (cursor->index < cursor->length)
+  {
+    unsigned char c = cursor->data[cursor->index++];
+    if (c == '"') return 1;
+    if (c < 0x20) return 0;
+    if (c != '\\') continue;
+    if (cursor->index >= cursor->length) return 0;
+    c = cursor->data[cursor->index++];
+    if (strchr("\\\"/bfnrt", (int)c) != NULL) continue;
+    if (c != 'u' || cursor->index + 4 > cursor->length) return 0;
+    for (unsigned i = 0; i < 4; i++)
+    {
+      if (aura_json_hex(cursor->data[cursor->index++]) < 0) return 0;
+    }
+  }
+  return 0;
+}
+
+static int aura_json_value(AuraJsonCursor *cursor);
+
+static int aura_json_array(AuraJsonCursor *cursor)
+{
+  if (cursor->data[cursor->index++] != '[' || ++cursor->depth > 64) return 0;
+  aura_json_skip_ws(cursor);
+  if (cursor->index < cursor->length && cursor->data[cursor->index] == ']')
+  {
+    cursor->index++;
+    cursor->depth--;
+    return 1;
+  }
+  for (;;)
+  {
+    if (!aura_json_value(cursor)) return 0;
+    aura_json_skip_ws(cursor);
+    if (cursor->index >= cursor->length) return 0;
+    if (cursor->data[cursor->index] == ']') { cursor->index++; cursor->depth--; return 1; }
+    if (cursor->data[cursor->index++] != ',') return 0;
+    aura_json_skip_ws(cursor);
+  }
+}
+
+static int aura_json_object(AuraJsonCursor *cursor)
+{
+  if (cursor->data[cursor->index++] != '{' || ++cursor->depth > 64) return 0;
+  aura_json_skip_ws(cursor);
+  if (cursor->index < cursor->length && cursor->data[cursor->index] == '}')
+  {
+    cursor->index++;
+    cursor->depth--;
+    return 1;
+  }
+  for (;;)
+  {
+    if (!aura_json_string(cursor)) return 0;
+    aura_json_skip_ws(cursor);
+    if (cursor->index >= cursor->length || cursor->data[cursor->index++] != ':') return 0;
+    aura_json_skip_ws(cursor);
+    if (!aura_json_value(cursor)) return 0;
+    aura_json_skip_ws(cursor);
+    if (cursor->index >= cursor->length) return 0;
+    if (cursor->data[cursor->index] == '}') { cursor->index++; cursor->depth--; return 1; }
+    if (cursor->data[cursor->index++] != ',') return 0;
+    aura_json_skip_ws(cursor);
+  }
+}
+
+static int aura_json_number(AuraJsonCursor *cursor)
+{
+  size_t start = cursor->index;
+  if (cursor->index < cursor->length && cursor->data[cursor->index] == '-') cursor->index++;
+  if (cursor->index >= cursor->length) return 0;
+  if (cursor->data[cursor->index] == '0') cursor->index++;
+  else
+  {
+    if (cursor->data[cursor->index] < '1' || cursor->data[cursor->index] > '9') return 0;
+    while (cursor->index < cursor->length && isdigit(cursor->data[cursor->index])) cursor->index++;
+  }
+  if (cursor->index < cursor->length && cursor->data[cursor->index] == '.')
+  {
+    cursor->index++;
+    if (cursor->index >= cursor->length || !isdigit(cursor->data[cursor->index])) return 0;
+    while (cursor->index < cursor->length && isdigit(cursor->data[cursor->index])) cursor->index++;
+  }
+  if (cursor->index < cursor->length && (cursor->data[cursor->index] == 'e' || cursor->data[cursor->index] == 'E'))
+  {
+    cursor->index++;
+    if (cursor->index < cursor->length && (cursor->data[cursor->index] == '+' || cursor->data[cursor->index] == '-')) cursor->index++;
+    if (cursor->index >= cursor->length || !isdigit(cursor->data[cursor->index])) return 0;
+    while (cursor->index < cursor->length && isdigit(cursor->data[cursor->index])) cursor->index++;
+  }
+  return cursor->index > start;
+}
+
+static int aura_json_value(AuraJsonCursor *cursor)
+{
+  aura_json_skip_ws(cursor);
+  if (cursor->index >= cursor->length) return 0;
+  switch (cursor->data[cursor->index])
+  {
+    case '"': return aura_json_string(cursor);
+    case '[': return aura_json_array(cursor);
+    case '{': return aura_json_object(cursor);
+    case 't':
+      if (cursor->index + 4 <= cursor->length && memcmp(cursor->data + cursor->index, "true", 4) == 0) { cursor->index += 4; return 1; }
+      return 0;
+    case 'f':
+      if (cursor->index + 5 <= cursor->length && memcmp(cursor->data + cursor->index, "false", 5) == 0) { cursor->index += 5; return 1; }
+      return 0;
+    case 'n':
+      if (cursor->index + 4 <= cursor->length && memcmp(cursor->data + cursor->index, "null", 4) == 0) { cursor->index += 4; return 1; }
+      return 0;
+    default: return aura_json_number(cursor);
+  }
+}
+
+_Bool aura_json_is_valid(const char *value)
+{
+  AuraJsonCursor cursor;
+  if (value == NULL || !aura_encoding_is_valid_utf8(value)) return false;
+  cursor.data = (const unsigned char *)value;
+  cursor.length = strlen(value);
+  cursor.index = 0;
+  cursor.depth = 0;
+  if (!aura_json_value(&cursor)) return false;
+  aura_json_skip_ws(&cursor);
+  return cursor.index == cursor.length;
+}
+
+int64_t aura_json_error_offset(const char *value)
+{
+  AuraJsonCursor cursor;
+  if (value == NULL || !aura_encoding_is_valid_utf8(value)) return 0;
+  cursor.data = (const unsigned char *)value;
+  cursor.length = strlen(value);
+  cursor.index = 0;
+  cursor.depth = 0;
+  if (!aura_json_value(&cursor)) return (int64_t)cursor.index;
+  aura_json_skip_ws(&cursor);
+  return cursor.index == cursor.length ? -1 : (int64_t)cursor.index;
+}
+
+const char *aura_json_escape_string(const char *value)
+{
+  const unsigned char *input = (const unsigned char *)(value == NULL ? "" : value);
+  size_t length = strlen((const char *)input);
+  if (!aura_encoding_is_valid_utf8((const char *)input) || length > (SIZE_MAX - 3) / 2) return NULL;
+  char *out = (char *)malloc(length * 2 + 3);
+  size_t o = 0;
+  if (out == NULL) return NULL;
+  out[o++] = '"';
+  for (size_t i = 0; i < length; i++)
+  {
+    unsigned char c = input[i];
+    switch (c)
+    {
+      case '"': out[o++] = '\\'; out[o++] = '"'; break;
+      case '\\': out[o++] = '\\'; out[o++] = '\\'; break;
+      case '\b': out[o++] = '\\'; out[o++] = 'b'; break;
+      case '\f': out[o++] = '\\'; out[o++] = 'f'; break;
+      case '\n': out[o++] = '\\'; out[o++] = 'n'; break;
+      case '\r': out[o++] = '\\'; out[o++] = 'r'; break;
+      case '\t': out[o++] = '\\'; out[o++] = 't'; break;
+      default: out[o++] = (char)c; break;
+    }
+  }
+  out[o++] = '"';
+  out[o] = '\0';
+  return out;
+}
+
+static int aura_url_target_byte_allowed(unsigned char c)
+{
+  return c >= 0x21 && c != 0x23 && c != 0x7f;
+}
+
+static char *aura_url_copy_range(const char *value, size_t length)
+{
+  char *out = (char *)malloc(length + 1);
+  if (out == NULL) return NULL;
+  if (length != 0) memcpy(out, value, length);
+  out[length] = '\0';
+  return out;
+}
+
+static int aura_url_origin_parts(const char *target, size_t *path_length,
+                                 size_t *query_start)
+{
+  size_t length = target == NULL ? 0 : strlen(target);
+  if (length == 0 || target[0] != '/' || (length > 1 && target[1] == '/')) return 0;
+  size_t question = SIZE_MAX;
+  for (size_t i = 0; i < length; i++) {
+    unsigned char c = (unsigned char)target[i];
+    if (!aura_url_target_byte_allowed(c)) return 0;
+    if (c == '?' && question == SIZE_MAX) question = i;
+  }
+  if (path_length != NULL) *path_length = question == SIZE_MAX ? length : question;
+  if (query_start != NULL) *query_start = question;
+  return 1;
+}
+
+static int aura_url_absolute_parts(const char *target, size_t *authority_start,
+                                   size_t *authority_length)
+{
+  size_t length = target == NULL ? 0 : strlen(target);
+  size_t i = 0;
+  if (length == 0 || !isalpha((unsigned char)target[0])) return 0;
+  i = 1;
+  while (i < length && (isalnum((unsigned char)target[i]) || target[i] == '+' ||
+                        target[i] == '-' || target[i] == '.'))
+    i++;
+  if (i + 3 > length || target[i] != ':' || target[i + 1] != '/' || target[i + 2] != '/') return 0;
+  size_t start = i + 3;
+  size_t end = start;
+  while (end < length && target[end] != '/' && target[end] != '?' && target[end] != '#') {
+    unsigned char c = (unsigned char)target[end];
+    if (c <= 0x20 || c == 0x7f) return 0;
+    end++;
+  }
+  if (end == start) return 0;
+  if (authority_start != NULL) *authority_start = start;
+  if (authority_length != NULL) *authority_length = end - start;
+  return 1;
+}
+
+static char *aura_bytes_copy_n(const char *value, size_t length)
+{
+  char *out = (char *)malloc(length + 1u);
+  if (out == NULL)
+  {
+    return NULL;
+  }
+  if (length != 0 && value != NULL)
+  {
+    memcpy(out, value, length);
+  }
+  out[length] = '\0';
+  return out;
+}
+
+const char *aura_bytes_copy(const char *value)
+{
+  const char *source = value == NULL ? "" : value;
+  return aura_bytes_copy_n(source, strlen(source));
+}
+
+const char *aura_bytes_concat(const char *left, const char *right)
+{
+  const char *a = left == NULL ? "" : left;
+  const char *b = right == NULL ? "" : right;
+  size_t alen = strlen(a);
+  size_t blen = strlen(b);
+  if (alen > SIZE_MAX - blen || alen + blen == SIZE_MAX)
+  {
+    return NULL;
+  }
+  char *out = (char *)malloc(alen + blen + 1u);
+  if (out == NULL)
+  {
+    return NULL;
+  }
+  memcpy(out, a, alen);
+  memcpy(out + alen, b, blen);
+  out[alen + blen] = '\0';
+  return out;
+}
+
+const char *aura_bytes_slice(const char *value, int64_t start, int64_t length)
+{
+  const char *source = value == NULL ? "" : value;
+  size_t total = strlen(source);
+  if (start < 0 || length < 0 || (uint64_t)start > (uint64_t)total ||
+      (uint64_t)length > (uint64_t)total - (uint64_t)start)
+  {
+    return NULL;
+  }
+  return aura_bytes_copy_n(source + (size_t)start, (size_t)length);
+}
+
+_Bool aura_bytes_equals(const char *left, const char *right)
+{
+  const char *a = left == NULL ? "" : left;
+  const char *b = right == NULL ? "" : right;
+  size_t alen = strlen(a);
+  size_t blen = strlen(b);
+  return alen == blen && (alen == 0 || memcmp(a, b, alen) == 0);
+}
+
+static const char *aura_fs_text(const char *path)
+{
+  return path == NULL ? "" : path;
+}
+
+const char *aura_fs_join(const char *base, const char *child)
+{
+  const char *a = aura_fs_text(base);
+  const char *b = aura_fs_text(child);
+  size_t alen = strlen(a);
+  size_t blen = strlen(b);
+  while (alen > 0 && a[alen - 1] == '/')
+  {
+    alen--;
+  }
+  while (blen > 0 && *b == '/')
+  {
+    b++;
+    blen--;
+  }
+  if (alen == 0)
+  {
+    return aura_bytes_copy_n(b, blen);
+  }
+  if (blen == 0)
+  {
+    return aura_bytes_copy_n(a, alen);
+  }
+  if (alen > SIZE_MAX - blen || alen + blen > SIZE_MAX - 2u)
+  {
+    return NULL;
+  }
+  char *out = (char *)malloc(alen + blen + 2u);
+  if (out == NULL)
+  {
+    return NULL;
+  }
+  memcpy(out, a, alen);
+  out[alen] = '/';
+  memcpy(out + alen + 1u, b, blen);
+  out[alen + blen + 1u] = '\0';
+  return out;
+}
+
+const char *aura_fs_basename(const char *path)
+{
+  const char *p = aura_fs_text(path);
+  size_t len = strlen(p);
+  if (len == 1 && p[0] == '/')
+  {
+    return aura_bytes_copy_n("/", 1);
+  }
+  while (len > 0 && p[len - 1] == '/')
+  {
+    len--;
+  }
+  size_t start = len;
+  while (start > 0 && p[start - 1] != '/')
+  {
+    start--;
+  }
+  return aura_bytes_copy_n(p + start, len - start);
+}
+
+const char *aura_fs_dirname(const char *path)
+{
+  const char *p = aura_fs_text(path);
+  size_t len = strlen(p);
+  if (len == 1 && p[0] == '/')
+  {
+    return aura_bytes_copy_n("/", 1);
+  }
+  while (len > 1 && p[len - 1] == '/')
+  {
+    len--;
+  }
+  size_t slash = len;
+  while (slash > 0 && p[slash - 1] != '/')
+  {
+    slash--;
+  }
+  if (slash == 0)
+  {
+    return aura_bytes_copy_n(".", 1);
+  }
+  while (slash > 1 && p[slash - 1] == '/')
+  {
+    slash--;
+  }
+  return aura_bytes_copy_n(p, slash);
+}
+
+const char *aura_fs_extension(const char *path)
+{
+  const char *name = aura_fs_text(path);
+  size_t len = strlen(name);
+  while (len > 0 && name[len - 1] == '/')
+  {
+    len--;
+  }
+  size_t start = len;
+  while (start > 0 && name[start - 1] != '/')
+  {
+    start--;
+  }
+  size_t dot = len;
+  while (dot > start && name[dot - 1] != '.')
+  {
+    dot--;
+  }
+  if (dot == start || dot == len || (dot == start + 1u && len == start + 1u))
+  {
+    return NULL;
+  }
+  return aura_bytes_copy_n(name + dot - 1u, len - dot + 1u);
+}
+
+_Bool aura_fs_is_absolute(const char *path)
+{
+  const char *p = aura_fs_text(path);
+  return p[0] == '/';
+}
+
+const char *aura_os_get_env(const char *name)
+{
+  const char *key = name == NULL ? "" : name;
+  if (*key == '\0' || strchr(key, '=') != NULL)
+  {
+    return NULL;
+  }
+  const char *value = getenv(key);
+  return value == NULL ? NULL : aura_bytes_copy(value);
+}
+
+_Bool aura_os_set_env(const char *name, const char *value)
+{
+  const char *key = name == NULL ? "" : name;
+  const char *text = value == NULL ? "" : value;
+  if (*key == '\0' || strchr(key, '=') != NULL)
+  {
+    return false;
+  }
+#if defined(__unix__) || defined(__APPLE__)
+  return setenv(key, text, 1) == 0;
+#else
+  (void)text;
+  return false;
+#endif
+}
+
+_Bool aura_os_unset_env(const char *name)
+{
+  const char *key = name == NULL ? "" : name;
+  if (*key == '\0' || strchr(key, '=') != NULL)
+  {
+    return false;
+  }
+#if defined(__unix__) || defined(__APPLE__)
+  return unsetenv(key) == 0;
+#else
+  return false;
+#endif
+}
+
+const char *aura_os_cwd(void)
+{
+#if defined(__unix__) || defined(__APPLE__)
+  size_t capacity = 256;
+  for (;;)
+  {
+    char *buffer = (char *)malloc(capacity);
+    if (buffer == NULL)
+    {
+      return NULL;
+    }
+    if (getcwd(buffer, capacity) != NULL)
+    {
+      return buffer;
+    }
+    free(buffer);
+    if (errno != ERANGE || capacity > SIZE_MAX / 2u)
+    {
+      return NULL;
+    }
+    capacity *= 2u;
+  }
+#else
+  return NULL;
+#endif
+}
+
+int64_t aura_os_pid(void)
+{
+#if defined(__unix__) || defined(__APPLE__)
+  return (int64_t)getpid();
+#else
+  return -1;
+#endif
+}
+
+const char *aura_os_platform(void)
+{
+#if defined(__APPLE__)
+  return aura_bytes_copy("macos");
+#elif defined(__linux__)
+  return aura_bytes_copy("linux");
+#elif defined(_WIN32)
+  return aura_bytes_copy("windows");
+#else
+  return aura_bytes_copy("unknown");
+#endif
+}
+
+/* Bounded numeric DNS lookup: return one address in presentation form. The
+ * resolver result is copied into Aura-owned storage and the addrinfo chain is
+ * released before returning. */
+const char *aura_dns_resolve_host(const char *host, int prefer_ipv6)
+{
+#if defined(__unix__) || defined(__APPLE__)
+  struct addrinfo hints;
+  struct addrinfo *results = NULL;
+  struct addrinfo *entry;
+  char address[INET6_ADDRSTRLEN];
+  int families[2];
+  int i;
+
+  if (host == NULL || host[0] == '\0') return NULL;
+  memset(&hints, 0, sizeof(hints));
+  hints.ai_socktype = SOCK_STREAM;
+  hints.ai_flags = AI_ADDRCONFIG;
+  families[0] = prefer_ipv6 ? AF_INET6 : AF_INET;
+  families[1] = prefer_ipv6 ? AF_INET : AF_INET6;
+  for (i = 0; i < 2; i++)
+  {
+    hints.ai_family = families[i];
+    if (getaddrinfo(host, NULL, &hints, &results) != 0) continue;
+    for (entry = results; entry != NULL; entry = entry->ai_next)
+    {
+      const void *source = NULL;
+      if (entry->ai_family == AF_INET)
+      {
+        source = &((const struct sockaddr_in *)entry->ai_addr)->sin_addr;
+      }
+      else if (entry->ai_family == AF_INET6)
+      {
+        source = &((const struct sockaddr_in6 *)entry->ai_addr)->sin6_addr;
+      }
+      if (source != NULL && inet_ntop(entry->ai_family, source, address,
+                                      sizeof(address)) != NULL)
+      {
+        const char *copy = aura_bytes_copy(address);
+        freeaddrinfo(results);
+        return copy;
+      }
+    }
+    freeaddrinfo(results);
+    results = NULL;
+  }
+  return NULL;
+#else
+  (void)host;
+  (void)prefer_ipv6;
+  return NULL;
+#endif
+}
+
+/* Return a bounded, preference-ordered address snapshot. Each line contains
+ * one numeric address; the result is Aura-owned and capped at 64 KiB. */
+const char *aura_dns_resolve_host_list(const char *host, int prefer_ipv6)
+{
+#if defined(__unix__) || defined(__APPLE__)
+  struct addrinfo hints;
+  struct addrinfo *results = NULL;
+  struct addrinfo *entry;
+  char address[INET6_ADDRSTRLEN];
+  int families[2];
+  int i;
+  size_t used = 0;
+  size_t capacity = 64u * 1024u;
+  char *output;
+
+  if (host == NULL || host[0] == '\0') return NULL;
+  output = (char *)malloc(capacity);
+  if (output == NULL) return NULL;
+  output[0] = '\0';
+  memset(&hints, 0, sizeof(hints));
+  hints.ai_socktype = SOCK_STREAM;
+  hints.ai_flags = AI_ADDRCONFIG;
+  families[0] = prefer_ipv6 ? AF_INET6 : AF_INET;
+  families[1] = prefer_ipv6 ? AF_INET : AF_INET6;
+  for (i = 0; i < 2; i++)
+  {
+    hints.ai_family = families[i];
+    if (getaddrinfo(host, NULL, &hints, &results) != 0) continue;
+    for (entry = results; entry != NULL; entry = entry->ai_next)
+    {
+      const void *source = NULL;
+      size_t length;
+      if (entry->ai_family == AF_INET)
+      {
+        source = &((const struct sockaddr_in *)entry->ai_addr)->sin_addr;
+      }
+      else if (entry->ai_family == AF_INET6)
+      {
+        source = &((const struct sockaddr_in6 *)entry->ai_addr)->sin6_addr;
+      }
+      if (source == NULL || inet_ntop(entry->ai_family, source, address,
+                                      sizeof(address)) == NULL)
+        continue;
+      length = strlen(address);
+      if (used + length + (used == 0 ? 0u : 1u) + 1u >= capacity) break;
+      if (used != 0) output[used++] = '\n';
+      memcpy(output + used, address, length);
+      used += length;
+      output[used] = '\0';
+    }
+    freeaddrinfo(results);
+    results = NULL;
+  }
+  if (used == 0)
+  {
+    free(output);
+    return NULL;
+  }
+  return output;
+#else
+  (void)host;
+  (void)prefer_ipv6;
+  return NULL;
+#endif
+}
+
+_Bool aura_url_is_origin_form(const char *target)
+{
+  return aura_url_origin_parts(target, NULL, NULL) != 0;
+}
+
+const char *aura_url_path(const char *target)
+{
+  size_t path_length = 0;
+  if (!aura_url_origin_parts(target, &path_length, NULL)) return NULL;
+  return aura_url_copy_range(target, path_length);
+}
+
+const char *aura_url_normalize_path(const char *path)
+{
+  size_t length = path == NULL ? 0 : strlen(path);
+  if (length == 0 || path[0] != '/') return NULL;
+  for (size_t i = 0; i < length; i++)
+  {
+    unsigned char c = (unsigned char)path[i];
+    if (!aura_url_target_byte_allowed(c) || c == '?' || c == '#') return NULL;
+  }
+  char *out = (char *)malloc(length + 2);
+  if (out == NULL) return NULL;
+  size_t used = 1;
+  out[0] = '/';
+  size_t segment_start = 1;
+  for (size_t i = 1; i <= length; i++)
+  {
+    if (i != length && path[i] != '/') continue;
+    size_t segment_length = i - segment_start;
+    if (segment_length == 0 || (segment_length == 1 && path[segment_start] == '.'))
+    {
+      /* Repeated separators and dot segments do not add output. */
+    }
+    else if (segment_length == 2 && path[segment_start] == '.' && path[segment_start + 1] == '.')
+    {
+      if (used > 1)
+      {
+        used--;
+        while (used > 1 && out[used - 1] != '/') used--;
+      }
+    }
+    else
+    {
+      if (used > 1 && out[used - 1] != '/') out[used++] = '/';
+      memcpy(out + used, path + segment_start, segment_length);
+      used += segment_length;
+    }
+    segment_start = i + 1;
+  }
+  if (length > 1 && path[length - 1] == '/' && used > 1 && out[used - 1] != '/') out[used++] = '/';
+  out[used] = '\0';
+  return out;
+}
+
+const char *aura_url_query(const char *target)
+{
+  size_t query_start = SIZE_MAX;
+  if (!aura_url_origin_parts(target, NULL, &query_start) || query_start == SIZE_MAX) return NULL;
+  return aura_url_copy_range(target + query_start + 1, strlen(target) - query_start - 1);
+}
+
+_Bool aura_url_is_absolute(const char *target)
+{
+  return aura_url_absolute_parts(target, NULL, NULL) != 0;
+}
+
+const char *aura_url_authority(const char *target)
+{
+  size_t start = 0;
+  size_t length = 0;
+  if (!aura_url_absolute_parts(target, &start, &length)) return NULL;
+  return aura_url_copy_range(target + start, length);
+}
+
+static int aura_url_authority_bounds(const char *target, size_t *start,
+                                     size_t *length)
+{
+  size_t authority_start = 0;
+  size_t authority_length = 0;
+  if (!aura_url_absolute_parts(target, &authority_start, &authority_length)) return 0;
+  size_t end = authority_start + authority_length;
+  size_t userinfo = SIZE_MAX;
+  for (size_t i = authority_start; i < end; i++) {
+    if (target[i] == '@') userinfo = i;
+  }
+  if (userinfo != SIZE_MAX) authority_start = userinfo + 1;
+  if (authority_start >= end) return 0;
+  if (start != NULL) *start = authority_start;
+  if (length != NULL) *length = end - authority_start;
+  return 1;
+}
+
+const char *aura_url_authority_host(const char *target)
+{
+  size_t start = 0, length = 0;
+  if (!aura_url_authority_bounds(target, &start, &length)) return NULL;
+  size_t end = start + length;
+  size_t host_end = end;
+  if (target[start] == '[') {
+    size_t close = start + 1;
+    while (close < end && target[close] != ']') close++;
+    if (close >= end || close == start + 1) return NULL;
+    host_end = close;
+    return aura_url_copy_range(target + start + 1, host_end - start - 1);
+  }
+  size_t colon = SIZE_MAX;
+  for (size_t i = start; i < end; i++) {
+    if (target[i] == ':') {
+      if (colon != SIZE_MAX) return NULL;
+      colon = i;
+    }
+  }
+  if (colon != SIZE_MAX) host_end = colon;
+  if (host_end == start) return NULL;
+  return aura_url_copy_range(target + start, host_end - start);
+}
+
+const char *aura_url_authority_port(const char *target)
+{
+  size_t start = 0, length = 0;
+  if (!aura_url_authority_bounds(target, &start, &length)) return NULL;
+  size_t end = start + length;
+  size_t port_start = SIZE_MAX;
+  if (target[start] == '[') {
+    size_t close = start + 1;
+    while (close < end && target[close] != ']') close++;
+    if (close >= end || close + 1 >= end || target[close + 1] != ':') return NULL;
+    port_start = close + 2;
+  } else {
+    for (size_t i = start; i < end; i++) {
+      if (target[i] == ':') {
+        if (port_start != SIZE_MAX) return NULL;
+        port_start = i + 1;
+      }
+    }
+  }
+  if (port_start == SIZE_MAX || port_start >= end) return NULL;
+  for (size_t i = port_start; i < end; i++) {
+    if (!isdigit((unsigned char)target[i])) return NULL;
+  }
+  return aura_url_copy_range(target + port_start, end - port_start);
+}
+
+const char *aura_url_query_value(const char *target, const char *key)
+{
+  if (target == NULL || key == NULL || key[0] == '\0') return NULL;
+  const char *question = strchr(target, '?');
+  if (question == NULL) return NULL;
+  const char *cursor = question + 1;
+  size_t key_length = strlen(key);
+  while (*cursor != '\0' && *cursor != '#') {
+    const char *amp = strchr(cursor, '&');
+    const char *end = amp == NULL ? cursor + strlen(cursor) : amp;
+    const char *equals = memchr(cursor, '=', (size_t)(end - cursor));
+    const char *value = equals == NULL ? end : equals + 1;
+    size_t candidate_length = equals == NULL ? (size_t)(end - cursor) : (size_t)(equals - cursor);
+    if (candidate_length == key_length && memcmp(cursor, key, key_length) == 0)
+      return aura_url_copy_range(value, (size_t)(end - value));
+    if (amp == NULL) break;
+    cursor = amp + 1;
+  }
+  return NULL;
+}
+
+static int aura_mime_token_byte(unsigned char c)
+{
+  return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+         (c >= '0' && c <= '9') || strchr("!#$%&'*+-.^_`|~", (int)c) != NULL;
+}
+
+_Bool aura_mime_is_valid_type(const char *value)
+{
+  size_t length = value == NULL ? 0 : strlen(value);
+  size_t i = 0;
+  if (length == 0) return false;
+  size_t type_start = i;
+  while (i < length && aura_mime_token_byte((unsigned char)value[i])) i++;
+  if (i == type_start || i >= length || value[i++] != '/') return false;
+  size_t subtype_start = i;
+  while (i < length && aura_mime_token_byte((unsigned char)value[i])) i++;
+  if (i == subtype_start) return false;
+  while (i < length) {
+    if (value[i++] != ';') return false;
+    while (i < length && (value[i] == ' ' || value[i] == '\t')) i++;
+    size_t key_start = i;
+    while (i < length && aura_mime_token_byte((unsigned char)value[i])) i++;
+    if (i == key_start || i >= length || value[i++] != '=') return false;
+    if (i >= length) return false;
+    if (value[i] == '"') {
+      i++;
+      while (i < length && value[i] != '"') {
+        if ((unsigned char)value[i] < 0x20 || value[i] == '\\') return false;
+        i++;
+      }
+      if (i >= length || value[i++] != '"') return false;
+    } else {
+      size_t value_start = i;
+      while (i < length && aura_mime_token_byte((unsigned char)value[i])) i++;
+      if (i == value_start) return false;
+    }
+    while (i < length && (value[i] == ' ' || value[i] == '\t')) i++;
+  }
+  return true;
+}
+
+const char *aura_mime_sanitize_filename(const char *value)
+{
+  size_t length = value == NULL ? 0 : strlen(value);
+  if (length == 0 || (length == 1 && value[0] == '.') ||
+      (length == 2 && value[0] == '.' && value[1] == '.')) return NULL;
+  char *out = (char *)malloc(length + 1);
+  if (out == NULL) return NULL;
+  size_t start = 0, out_length = 0;
+  for (size_t i = 0; i <= length; i++) {
+    if (i == length || value[i] == '/' || value[i] == '\\') {
+      if (i > start) {
+        if (out_length != 0) out[out_length++] = '_';
+        for (size_t j = start; j < i; j++) {
+          unsigned char c = (unsigned char)value[j];
+          if (c < 0x20 || c == 0x7f) { free(out); return NULL; }
+          out[out_length++] = (char)c;
+        }
+      }
+      start = i + 1;
+    }
+  }
+  if (out_length == 0) { free(out); return NULL; }
+  out[out_length] = '\0';
+  return out;
+}
+
+const char *aura_mime_disposition_filename(const char *value)
+{
+  if (value == NULL) return NULL;
+  const char *cursor = value;
+  while (*cursor != '\0') {
+    while (*cursor == ';' || isspace((unsigned char)*cursor)) cursor++;
+    const char *name = cursor;
+    while (*cursor != '\0' && *cursor != '=' && *cursor != ';') cursor++;
+    size_t name_length = (size_t)(cursor - name);
+    while (name_length > 0 && isspace((unsigned char)name[name_length - 1])) name_length--;
+    if (*cursor != '=') {
+      while (*cursor != '\0' && *cursor != ';') cursor++;
+      continue;
+    }
+    cursor++;
+    while (isspace((unsigned char)*cursor)) cursor++;
+    const char *raw = cursor;
+    size_t raw_length = 0;
+    if (*cursor == '"') {
+      raw = ++cursor;
+      while (*cursor != '\0' && *cursor != '"') cursor++;
+      raw_length = (size_t)(cursor - raw);
+      if (*cursor == '"') cursor++;
+    } else {
+      while (*cursor != '\0' && *cursor != ';') cursor++;
+      raw_length = (size_t)(cursor - raw);
+      while (raw_length > 0 && isspace((unsigned char)raw[raw_length - 1])) raw_length--;
+    }
+    if (name_length == 8) {
+      static const char filename_name[] = "filename";
+      int matches = 1;
+      for (size_t i = 0; i < 8; i++) {
+        unsigned char c = (unsigned char)name[i];
+        if ((unsigned char)tolower(c) != (unsigned char)filename_name[i]) {
+          matches = 0;
+          break;
+        }
+      }
+      if (matches) {
+        char *raw_copy = aura_url_copy_range(raw, raw_length);
+        const char *safe = aura_mime_sanitize_filename(raw_copy);
+        free(raw_copy);
+        return safe;
+      }
+    }
+  }
+  return NULL;
+}
+
 /* C4z/C5f/C6a/C6e: stop-the-world deep mark + sweep when roots are registered. */
 void aura_gc_collect(void)
 {
@@ -4968,6 +7023,29 @@ AuraFfiStatus aura_ffi_handle_drop(AuraFfiOpaqueHandle **handle)
   }
   *handle = NULL;
   return AURA_FFI_OK;
+}
+
+/* Consume the sole owner of a handle without running its destructor.  This is
+ * used only to move an accepted stream into its owning HTTP connection. */
+AuraFfiStatus aura_ffi_handle_take_owned(AuraFfiOpaqueHandle **handle,
+                                         void **out_resource)
+{
+  AuraFfiOpaqueHandle *value;
+  if (handle == NULL || *handle == NULL || out_resource == NULL)
+  {
+    return AURA_FFI_INVALID;
+  }
+  *out_resource = NULL;
+  value = *handle;
+  if (value->released || value->destroyed || value->resource == NULL ||
+      value->pins != 0 || value->owners != 1)
+  {
+    return AURA_FFI_INVALID;
+  }
+  *out_resource = value->resource;
+  value->resource = NULL;
+  value->destroyed = 1;
+  return aura_ffi_handle_drop(handle);
 }
 
 AuraFfiStatus aura_ffi_handle_check_boundary(const AuraFfiOpaqueHandle *handle,
@@ -5755,6 +7833,7 @@ struct AuraTaskFrame
   uint32_t resume_state;
   AuraTaskPollState state;
   int cancel_requested;
+  int64_t cancel_deadline_ms;
   int join_observed;
   int failure_reported;
   int queued;
@@ -5766,15 +7845,24 @@ struct AuraTaskFrame
   int fd_wait_fd;
   short fd_wait_events;
   int fd_wait_active;
+  int64_t fd_wait_deadline_ms;
+  int fd_wait_timed_out;
   AuraTaskFrame *wait_target;
   AuraTaskFrame *waiters_head;
   AuraTaskFrame *waiter_next;
+  AuraTaskFrame *cancel_parent;
+  AuraTaskFrame *cancel_children_head;
+  AuraTaskFrame *cancel_sibling_next;
   AuraTaskFrameGcMarkFn gc_mark;
   AuraTaskFrame *gc_next;
   AuraTaskFfiPin *ffi_pins;
 };
 
 static AuraTaskFrame *aura_gc_task_frames = NULL;
+
+static void aura_task_frame_unlink_cancel_parent(AuraTaskFrame *frame);
+static void aura_task_frame_detach_cancel_children(AuraTaskFrame *frame);
+static void aura_task_frame_request_cancel_children(AuraTaskFrame *frame);
 
 struct AuraTaskFfiPin
 {
@@ -5986,6 +8074,20 @@ int aura_task_frame_cancel_requested(const AuraTaskFrame *frame)
   return frame != NULL && frame->cancel_requested;
 }
 
+int aura_task_frame_set_cancel_deadline(AuraTaskFrame *frame, int timeout_ms)
+{
+  int64_t now;
+  if (frame == NULL || timeout_ms < 0 ||
+      frame->state == AURA_TASK_COMPLETE || frame->state == AURA_TASK_FAILED ||
+      frame->state == AURA_TASK_CANCELLED) {
+    return 0;
+  }
+  now = aura_time_monotonic_millis();
+  if (now <= 0 || now > INT64_MAX - timeout_ms) return 0;
+  frame->cancel_deadline_ms = now + timeout_ms;
+  return 1;
+}
+
 int aura_task_frame_is_waiting(const AuraTaskFrame *frame)
 {
   return frame != NULL && (frame->waiting_channel != NULL || frame->waiting_node != NULL);
@@ -6017,7 +8119,18 @@ void aura_task_frame_clear_waiting(AuraTaskFrame *frame)
   {
     frame->waiting_node = NULL;
     frame->fd_wait_active = 0;
+    frame->fd_wait_deadline_ms = 0;
   }
+}
+
+int64_t aura_time_monotonic_millis(void)
+{
+  struct timespec now;
+  if (clock_gettime(CLOCK_MONOTONIC, &now) != 0)
+  {
+    return 0;
+  }
+  return (int64_t)now.tv_sec * 1000 + now.tv_nsec / 1000000;
 }
 
 void *aura_task_frame_waiting_token(const AuraTaskFrame *frame)
@@ -6041,7 +8154,64 @@ int aura_task_frame_wait_fd(AuraTaskFrame *frame, int fd, short events)
   frame->fd_wait_fd = fd;
   frame->fd_wait_events = events;
   frame->fd_wait_active = 1;
+  frame->fd_wait_deadline_ms = 0;
+  frame->fd_wait_timed_out = 0;
   frame->waiting_node = &frame->fd_wait_active;
+  frame->state = AURA_TASK_PENDING;
+  return 1;
+}
+
+/* A readiness timeout wakes the frame instead of cancelling it.  The polling
+ * operation consumes the timeout marker and chooses its typed outcome. */
+int aura_task_frame_wait_fd_timeout(AuraTaskFrame *frame, int fd, short events,
+                                    int timeout_ms)
+{
+  int64_t now;
+  if (timeout_ms < 0 || !aura_task_frame_wait_fd(frame, fd, events))
+  {
+    return 0;
+  }
+  now = aura_time_monotonic_millis();
+  if (now <= 0 || now > INT64_MAX - timeout_ms)
+  {
+    aura_task_frame_clear_waiting(frame);
+    return 0;
+  }
+  frame->fd_wait_deadline_ms = now + timeout_ms;
+  return 1;
+}
+
+int aura_task_frame_take_fd_wait_timeout(AuraTaskFrame *frame)
+{
+  int timed_out = frame != NULL && frame->fd_wait_timed_out;
+  if (frame != NULL)
+  {
+    frame->fd_wait_timed_out = 0;
+  }
+  return timed_out;
+}
+
+/* Park a task until its monotonic deadline without occupying a descriptor.
+ * The executor's normal readiness poll also services these timer waits. */
+int aura_task_frame_wait_deadline(AuraTaskFrame *frame, int timeout_ms)
+{
+  int64_t now;
+  if (frame == NULL || timeout_ms < 0 || frame->state == AURA_TASK_COMPLETE ||
+      frame->state == AURA_TASK_FAILED || frame->state == AURA_TASK_CANCELLED ||
+      frame->waiting_node != NULL || frame->waiting_channel != NULL ||
+      frame->wait_target != NULL)
+  {
+    return 0;
+  }
+  now = aura_time_monotonic_millis();
+  if (now <= 0 || now > INT64_MAX - timeout_ms)
+  {
+    return 0;
+  }
+  frame->fd_wait_active = 0;
+  frame->fd_wait_deadline_ms = now + timeout_ms;
+  frame->fd_wait_timed_out = 0;
+  frame->waiting_node = &frame->fd_wait_timed_out;
   frame->state = AURA_TASK_PENDING;
   return 1;
 }
@@ -6080,6 +8250,43 @@ int aura_task_frame_wait_tcp_stream(AuraTaskFrame *frame,
   return aura_task_frame_wait_fd(frame, stream->fd, events);
 }
 
+int aura_task_frame_wait_tcp_stream_timeout(AuraTaskFrame *frame,
+                                            const AuraTcpStream *stream,
+                                            short events, int timeout_ms)
+{
+  if (stream == NULL)
+  {
+    return 0;
+  }
+  return aura_task_frame_wait_fd_timeout(frame, stream->fd, events, timeout_ms);
+}
+
+int aura_http_connection_wait_write(AuraTaskFrame *frame,
+                                    const AuraHttpConnection *connection)
+{
+  if (connection == NULL || connection->stream == NULL)
+  {
+    return 0;
+  }
+  return aura_task_frame_wait_tcp_stream_timeout(
+      frame, connection->stream, POLLOUT, connection->config.write_timeout_ms);
+}
+
+/* The body reader is connection-owned, so only it may choose the stream and
+ * deadline used to resume a generated RequestBody task. */
+int aura_http_request_wait_body(AuraTaskFrame *frame,
+                                const AuraHttpRequest *request)
+{
+  AuraHttpContentLengthReader *reader;
+  if (frame == NULL || request == NULL || request->body_reader == NULL)
+  {
+    return 0;
+  }
+  reader = request->body_reader;
+  return aura_task_frame_wait_tcp_stream_timeout(
+      frame, reader->stream, POLLIN, reader->timeout_ms);
+}
+
 enum
 {
   AURA_HTTP_ASYNC_READ = 1,
@@ -6111,6 +8318,9 @@ static void aura_http_connection_async_reset(AuraHttpConnection *connection)
     aura_http_request_destroy(&connection->async_request);
     connection->async_request_active = 0;
   }
+  memset(&connection->async_body_reader, 0,
+         sizeof(connection->async_body_reader));
+  connection->async_body_reader_active = 0;
   free(connection->async_output);
   connection->async_output = NULL;
   connection->async_output_length = 0;
@@ -6241,6 +8451,57 @@ static int aura_http_connection_async_prepare_response(AuraHttpConnection *conne
   return 1;
 }
 
+/* Application and request failures write one bounded response before closing.
+ * The request stays connection-owned until that response has been drained. */
+static AuraTaskPollState aura_http_connection_async_prepare_error_response(
+    AuraHttpConnection *connection, int status_code, const char *error_code)
+{
+  size_t required = 0;
+
+  if (connection == NULL)
+  {
+    return AURA_TASK_FAILED;
+  }
+  if (connection->async_response_active)
+  {
+    aura_http_response_destroy(&connection->async_response);
+  }
+  aura_http_response_init(&connection->async_response);
+  connection->async_response_active = 1;
+  if (aura_http_response_set_error(&connection->async_response, status_code,
+                                   error_code) != AURA_HTTP_RESPONSE_OK ||
+      aura_http_response_set_connection(&connection->async_response,
+                                        AURA_HTTP_RESPONSE_CLOSE) !=
+          AURA_HTTP_RESPONSE_OK ||
+      aura_http_response_serialize(&connection->async_response, NULL, 0,
+                                   &required) !=
+          AURA_HTTP_RESPONSE_BUFFER_TOO_SMALL ||
+      required == 0)
+  {
+    return AURA_TASK_FAILED;
+  }
+  connection->async_output = (char *)malloc(required);
+  if (connection->async_output == NULL ||
+      aura_http_response_serialize(&connection->async_response,
+                                   connection->async_output, required,
+                                   &connection->async_output_length) !=
+          AURA_HTTP_RESPONSE_OK)
+  {
+    return AURA_TASK_FAILED;
+  }
+  connection->async_output_offset = 0;
+  connection->async_close_after_write = 1;
+  connection->async_phase = AURA_HTTP_ASYNC_WRITE;
+  return AURA_TASK_READY;
+}
+
+static AuraTaskPollState aura_http_connection_async_prepare_handler_failure(
+    AuraHttpConnection *connection)
+{
+  return aura_http_connection_async_prepare_error_response(
+      connection, 500, "handler_failure");
+}
+
 /* Prepare and resume a task-backed handler.  Request/response objects remain
  * connection-owned while this function returns PENDING, so a generated Aura
  * handler can suspend on any runtime readiness source without borrowing a
@@ -6280,12 +8541,39 @@ static AuraTaskPollState aura_http_connection_async_run_task_handler(
   }
   if (state != AURA_TASK_COMPLETE)
   {
-    return AURA_TASK_FAILED;
+    if (connection->async_response.streaming_committed)
+    {
+      return AURA_TASK_FAILED;
+    }
+    return aura_http_connection_async_prepare_handler_failure(connection);
   }
   connection->async_close_after_write =
       aura_http_connection_header_has(&connection->async_request, "close") ||
+      (connection->async_body_reader_active &&
+       !aura_http_body_reader_complete(&connection->async_body_reader)) ||
       connection->async_response.connection == AURA_HTTP_RESPONSE_CLOSE ||
       connection->requests_served + 1 >= connection->config.max_requests;
+  if (connection->async_response.streaming_committed)
+  {
+    if (aura_http_response_stream_finish(&connection->async_response, NULL, 0,
+                                         &required) != AURA_HTTP_RESPONSE_BUFFER_TOO_SMALL ||
+        required == 0)
+    {
+      return AURA_TASK_FAILED;
+    }
+    connection->async_output = (char *)malloc(required);
+    if (connection->async_output == NULL ||
+        aura_http_response_stream_finish(&connection->async_response,
+                                         connection->async_output, required,
+                                         &connection->async_output_length) !=
+            AURA_HTTP_RESPONSE_OK)
+    {
+      return AURA_TASK_FAILED;
+    }
+    connection->async_output_offset = 0;
+    connection->async_phase = AURA_HTTP_ASYNC_WRITE;
+    return AURA_TASK_READY;
+  }
   if (connection->async_close_after_write &&
       aura_http_response_set_connection(&connection->async_response,
                                         AURA_HTTP_RESPONSE_CLOSE) !=
@@ -6350,18 +8638,47 @@ AuraTaskPollState aura_http_connection_poll_async(AuraTaskFrame *frame,
     aura_task_frame_set_cleanup(frame, connection,
                                 aura_http_connection_async_cleanup);
   }
+  if (aura_task_frame_take_fd_wait_timeout(frame))
+  {
+    if (connection->async_phase != AURA_HTTP_ASYNC_READ ||
+        aura_http_connection_async_prepare_error_response(
+            connection, 408, "request_timeout") != AURA_TASK_READY)
+    {
+      return aura_http_connection_async_failure(frame, connection);
+    }
+  }
   for (;;)
   {
     if (connection->async_phase == AURA_HTTP_ASYNC_READ)
     {
       AuraHttpRequest request;
       size_t consumed = 0;
+      size_t header_end = 0;
+      size_t content_length = 0;
+      int chunked = 0;
       AuraHttpParseStatus parse_status;
       for (;;)
       {
-        parse_status = aura_http_request_parse(connection->async_buffer,
-                                               connection->async_used, &request,
-                                               &consumed);
+        if (connection->async_task_handler != NULL)
+        {
+          parse_status = aura_http_request_parse_headers(
+              connection->async_buffer, connection->async_used, &request,
+              &header_end, &content_length, &chunked);
+          if (parse_status == AURA_HTTP_PARSE_OK && content_length == 0 &&
+              !chunked)
+          {
+            aura_http_request_destroy(&request);
+            parse_status = aura_http_request_parse(
+                connection->async_buffer, connection->async_used, &request,
+                &consumed);
+          }
+        }
+        else
+        {
+          parse_status = aura_http_request_parse(connection->async_buffer,
+                                                 connection->async_used, &request,
+                                                 &consumed);
+        }
         if (parse_status != AURA_HTTP_PARSE_INCOMPLETE)
         {
           break;
@@ -6399,7 +8716,10 @@ AuraTaskPollState aura_http_connection_poll_async(AuraTaskFrame *frame,
               connection->async_capacity - connection->async_used, &received, 0);
           if (status == AURA_TCP_PENDING)
           {
-            if (!aura_task_frame_wait_tcp_stream(frame, connection->stream, POLLIN))
+            if (!aura_task_frame_wait_tcp_stream_timeout(
+                    frame, connection->stream, POLLIN,
+                    aura_http_min_timeout(connection->config.read_timeout_ms,
+                                          connection->config.idle_timeout_ms)))
             {
               return aura_http_connection_async_failure(frame, connection);
             }
@@ -6414,6 +8734,11 @@ AuraTaskPollState aura_http_connection_poll_async(AuraTaskFrame *frame,
       }
       if (parse_status == AURA_HTTP_PARSE_OK)
       {
+        if (connection->async_task_handler != NULL &&
+            ((!chunked && content_length != 0) || chunked))
+        {
+          consumed = header_end;
+        }
         if (consumed == 0 || consumed > connection->async_used)
         {
           aura_http_request_destroy(&request);
@@ -6427,6 +8752,30 @@ AuraTaskPollState aura_http_connection_poll_async(AuraTaskFrame *frame,
           connection->async_request = request;
           memset(&request, 0, sizeof(request));
           connection->async_request_active = 1;
+          if (!chunked && content_length != 0)
+          {
+            if (!aura_http_content_length_reader_init(
+                    &connection->async_body_reader, connection->stream,
+                    connection->async_buffer, &connection->async_used,
+                    content_length, connection->config.read_timeout_ms))
+            {
+              return aura_http_connection_async_failure(frame, connection);
+            }
+            connection->async_body_reader_active = 1;
+            connection->async_request.body_reader = &connection->async_body_reader;
+          }
+          else if (chunked)
+          {
+            if (!aura_http_chunked_reader_init(
+                    &connection->async_body_reader, connection->stream,
+                    connection->async_buffer, &connection->async_used,
+                    connection->config.read_timeout_ms))
+            {
+              return aura_http_connection_async_failure(frame, connection);
+            }
+            connection->async_body_reader_active = 1;
+            connection->async_request.body_reader = &connection->async_body_reader;
+          }
           AuraTaskPollState handler_state =
               aura_http_connection_async_run_task_handler(frame, connection);
           if (handler_state == AURA_TASK_PENDING)
@@ -6508,7 +8857,9 @@ AuraTaskPollState aura_http_connection_poll_async(AuraTaskFrame *frame,
             &written, 0);
         if (status == AURA_TCP_PENDING)
         {
-          if (!aura_task_frame_wait_tcp_stream(frame, connection->stream, POLLOUT))
+          if (!aura_task_frame_wait_tcp_stream_timeout(
+                  frame, connection->stream, POLLOUT,
+                  connection->config.write_timeout_ms))
           {
             return aura_http_connection_async_failure(frame, connection);
           }
@@ -6532,9 +8883,13 @@ AuraTaskPollState aura_http_connection_poll_async(AuraTaskFrame *frame,
       }
       if (connection->async_request_active)
       {
+        connection->async_request.body_reader = NULL;
         aura_http_request_destroy(&connection->async_request);
         connection->async_request_active = 0;
       }
+      memset(&connection->async_body_reader, 0,
+             sizeof(connection->async_body_reader));
+      connection->async_body_reader_active = 0;
       connection->async_handler_started = 0;
       if (connection->async_close_after_write)
       {
@@ -7169,6 +9524,8 @@ void aura_task_frame_destroy(AuraTaskFrame *frame)
     return;
   }
   aura_gc_unlink_task_frame(frame);
+  aura_task_frame_unlink_cancel_parent(frame);
+  aura_task_frame_detach_cancel_children(frame);
   aura_task_frame_detach_wait_target(frame);
   aura_task_frame_detach_waiters(frame);
   aura_task_frame_clear_waiting(frame);
@@ -7217,11 +9574,15 @@ struct AuraTaskExecutor
   AuraTaskFrame *owned_head;
   size_t ready_count;
   size_t owned_count;
+  size_t max_live_tasks;
   int shutdown;
   AuraRaceTracker *race_tracker;
   AuraTaskFailureHookFn failure_hook;
   void *failure_hook_context;
 };
+
+#define AURA_TASK_DEFAULT_MAX_LIVE_TASKS ((size_t)4096)
+#define AURA_TASK_MAX_LIVE_TASKS_LIMIT ((size_t)65536)
 
 /* Defined with the typed I/O operation implementation below.  Keeping this
  * small bridge here lets the scheduler publish readiness without exposing the
@@ -7229,10 +9590,12 @@ struct AuraTaskExecutor
 static int aura_io_operation_ready(AuraTaskFrame *frame, short revents);
 
 int aura_task_executor_wake(AuraTaskExecutor *executor, AuraTaskFrame *frame);
+int aura_task_executor_cancel(AuraTaskExecutor *executor, AuraTaskFrame *frame);
 static void aura_task_channel_cancel_wait(AuraTaskFrame *frame);
 
 AuraTaskPollState aura_task_frame_poll_once(AuraTaskFrame *frame)
 {
+  int64_t now;
   if (frame == NULL || frame->poll == NULL)
   {
     return AURA_TASK_FAILED;
@@ -7242,12 +9605,18 @@ AuraTaskPollState aura_task_frame_poll_once(AuraTaskFrame *frame)
   {
     return frame->state;
   }
+  now = aura_time_monotonic_millis();
+  if (frame->cancel_deadline_ms != 0 && now >= frame->cancel_deadline_ms)
+  {
+    frame->cancel_requested = 1;
+  }
   if (frame->cancel_requested)
   {
     /* Cancellation publishes a terminal outcome only after operation and
      * capture ownership has been released.  The frame itself remains
      * executor-owned until join/release, so its terminal metadata is still
      * observable without keeping cancelled work alive. */
+    aura_task_frame_request_cancel_children(frame);
     aura_task_frame_storage_release(&frame->pending);
     aura_task_frame_storage_release(&frame->captures);
     aura_task_frame_cleanup_run(frame);
@@ -7288,7 +9657,26 @@ AuraTaskPollState aura_task_frame_poll_once(AuraTaskFrame *frame)
 
 AuraTaskExecutor *aura_task_executor_new(void)
 {
-  return (AuraTaskExecutor *)calloc(1, sizeof(AuraTaskExecutor));
+  AuraTaskExecutor *executor =
+      (AuraTaskExecutor *)calloc(1, sizeof(AuraTaskExecutor));
+  if (executor != NULL)
+  {
+    executor->max_live_tasks = AURA_TASK_DEFAULT_MAX_LIVE_TASKS;
+  }
+  return executor;
+}
+
+int aura_task_executor_set_max_live_tasks(AuraTaskExecutor *executor,
+                                           size_t max_live_tasks)
+{
+  if (executor == NULL || executor->shutdown || max_live_tasks == 0 ||
+      max_live_tasks > AURA_TASK_MAX_LIVE_TASKS_LIMIT ||
+      executor->owned_count > max_live_tasks)
+  {
+    return 0;
+  }
+  executor->max_live_tasks = max_live_tasks;
+  return 1;
 }
 
 void aura_task_executor_set_race_tracker(AuraTaskExecutor *executor,
@@ -7363,7 +9751,8 @@ static void aura_task_executor_push_owned(AuraTaskExecutor *executor,
 
 int aura_task_executor_submit(AuraTaskExecutor *executor, AuraTaskFrame *frame)
 {
-  if (executor == NULL || frame == NULL || executor->shutdown || frame->executor != NULL)
+  if (executor == NULL || frame == NULL || executor->shutdown || frame->executor != NULL ||
+      executor->owned_count >= executor->max_live_tasks)
   {
     return 0;
   }
@@ -7453,6 +9842,92 @@ static void aura_task_frame_detach_waiters(AuraTaskFrame *frame)
   }
 }
 
+static void aura_task_frame_unlink_cancel_parent(AuraTaskFrame *frame)
+{
+  AuraTaskFrame **link;
+
+  if (frame == NULL || frame->cancel_parent == NULL)
+  {
+    return;
+  }
+  link = &frame->cancel_parent->cancel_children_head;
+  while (*link != NULL && *link != frame)
+  {
+    link = &(*link)->cancel_sibling_next;
+  }
+  if (*link == frame)
+  {
+    *link = frame->cancel_sibling_next;
+  }
+  frame->cancel_parent = NULL;
+  frame->cancel_sibling_next = NULL;
+}
+
+static void aura_task_frame_detach_cancel_children(AuraTaskFrame *frame)
+{
+  AuraTaskFrame *child;
+
+  if (frame == NULL)
+  {
+    return;
+  }
+  child = frame->cancel_children_head;
+  frame->cancel_children_head = NULL;
+  while (child != NULL)
+  {
+    AuraTaskFrame *next = child->cancel_sibling_next;
+    child->cancel_parent = NULL;
+    child->cancel_sibling_next = NULL;
+    child = next;
+  }
+}
+
+int aura_task_frame_link_cancellation(AuraTaskFrame *parent,
+                                      AuraTaskFrame *child)
+{
+  if (parent == NULL || child == NULL || parent == child ||
+      parent->executor == NULL || parent->executor != child->executor ||
+      parent->state == AURA_TASK_COMPLETE || parent->state == AURA_TASK_FAILED ||
+      parent->state == AURA_TASK_CANCELLED || child->state == AURA_TASK_COMPLETE ||
+      child->state == AURA_TASK_FAILED || child->state == AURA_TASK_CANCELLED)
+  {
+    return 0;
+  }
+  aura_task_frame_unlink_cancel_parent(child);
+  child->cancel_parent = parent;
+  child->cancel_sibling_next = parent->cancel_children_head;
+  parent->cancel_children_head = child;
+  return 1;
+}
+
+static void aura_task_frame_request_cancel_children(AuraTaskFrame *parent)
+{
+  AuraTaskFrame *child;
+
+  if (parent == NULL)
+  {
+    return;
+  }
+  child = parent->cancel_children_head;
+  while (child != NULL)
+  {
+    AuraTaskFrame *next = child->cancel_sibling_next;
+    if (child->state != AURA_TASK_COMPLETE && child->state != AURA_TASK_FAILED &&
+        child->state != AURA_TASK_CANCELLED && child->executor != NULL)
+    {
+      child->cancel_requested = 1;
+      aura_task_channel_cancel_wait(child);
+      aura_task_frame_detach_wait_target(child);
+      aura_task_frame_clear_waiting(child);
+      if (!child->queued)
+      {
+        (void)aura_task_executor_wake(child->executor, child);
+      }
+    }
+    child = next;
+  }
+}
+
 static void aura_task_frame_wake_waiters(AuraTaskFrame *frame)
 {
   AuraTaskFrame *waiter;
@@ -7533,6 +10008,9 @@ int aura_task_executor_poll_waiting(AuraTaskExecutor *executor, int timeout_ms)
   size_t index = 0;
   size_t woke = 0;
   int result;
+  int64_t now;
+  int poll_timeout = timeout_ms;
+  int has_deadline = 0;
 
   if (executor == NULL || executor->shutdown || timeout_ms < 0)
   {
@@ -7540,16 +10018,76 @@ int aura_task_executor_poll_waiting(AuraTaskExecutor *executor, int timeout_ms)
   }
   for (frame = executor->owned_head; frame != NULL; frame = frame->owned_next)
   {
-    if (!frame->fd_wait_active || frame->waiting_node == NULL ||
-        frame->state != AURA_TASK_PENDING)
+    if (frame->state != AURA_TASK_PENDING)
     {
       continue;
     }
-    count++;
+    if (frame->cancel_deadline_ms != 0)
+    {
+      int64_t remaining = frame->cancel_deadline_ms - aura_time_monotonic_millis();
+      if (remaining <= 0)
+      {
+        woke += (size_t)aura_task_executor_cancel(executor, frame);
+        continue;
+      }
+      if (remaining < poll_timeout) poll_timeout = (int)remaining;
+      has_deadline = 1;
+    }
+    if (frame->waiting_node == NULL)
+    {
+      continue;
+    }
+    if (frame->fd_wait_deadline_ms != 0)
+    {
+      int64_t remaining;
+      now = aura_time_monotonic_millis();
+      remaining = frame->fd_wait_deadline_ms - now;
+      if (remaining <= 0)
+      {
+        frame->fd_wait_timed_out = 1;
+        woke += (size_t)aura_task_executor_wake_waiting(executor, frame);
+        continue;
+      }
+      if (remaining < poll_timeout)
+      {
+        poll_timeout = (int)remaining;
+      }
+      has_deadline = 1;
+    }
+    if (frame->fd_wait_active)
+    {
+      count++;
+    }
+  }
+  if (woke != 0)
+  {
+    return (int)woke;
+  }
+  if (count == 0 && !has_deadline)
+  {
+    return 0;
   }
   if (count == 0)
   {
-    return 0;
+    (void)poll(NULL, 0, poll_timeout);
+    now = aura_time_monotonic_millis();
+    for (frame = executor->owned_head; frame != NULL; frame = frame->owned_next)
+    {
+      if (frame->state != AURA_TASK_PENDING) continue;
+      if (frame->cancel_deadline_ms != 0 && now >= frame->cancel_deadline_ms)
+      {
+        woke += (size_t)aura_task_executor_cancel(executor, frame);
+        continue;
+      }
+      if (frame->waiting_node == NULL || frame->fd_wait_deadline_ms == 0 ||
+          now < frame->fd_wait_deadline_ms)
+      {
+        continue;
+      }
+      frame->fd_wait_timed_out = 1;
+      woke += (size_t)aura_task_executor_wake_waiting(executor, frame);
+    }
+    return (int)woke;
   }
   descriptors = (struct pollfd *)calloc(count, sizeof(*descriptors));
   frames = (AuraTaskFrame **)calloc(count, sizeof(*frames));
@@ -7574,7 +10112,7 @@ int aura_task_executor_poll_waiting(AuraTaskExecutor *executor, int timeout_ms)
     frames[index] = frame;
     index++;
   }
-  result = poll(descriptors, count, timeout_ms);
+  result = poll(descriptors, count, poll_timeout);
   if (result > 0 || (result < 0 && errno != EINTR))
   {
     for (index = 0; index < count; index++)
@@ -7605,6 +10143,24 @@ int aura_task_executor_poll_waiting(AuraTaskExecutor *executor, int timeout_ms)
         }
       }
     }
+  }
+  now = aura_time_monotonic_millis();
+  for (frame = executor->owned_head; frame != NULL; frame = frame->owned_next)
+  {
+    if (frame->state == AURA_TASK_PENDING && frame->cancel_deadline_ms != 0 &&
+        now >= frame->cancel_deadline_ms)
+    {
+      woke += (size_t)aura_task_executor_cancel(executor, frame);
+      continue;
+    }
+    if (!frame->fd_wait_active || frame->waiting_node == NULL ||
+        frame->state != AURA_TASK_PENDING || frame->fd_wait_deadline_ms == 0 ||
+        now < frame->fd_wait_deadline_ms)
+    {
+      continue;
+    }
+    frame->fd_wait_timed_out = 1;
+    woke += (size_t)aura_task_executor_wake_waiting(executor, frame);
   }
   free(descriptors);
   free(frames);
@@ -7706,6 +10262,24 @@ size_t aura_task_executor_run(AuraTaskExecutor *executor)
     polled++;
   }
   return polled;
+}
+
+int aura_task_executor_has_live_tasks(const AuraTaskExecutor *executor)
+{
+  if (executor == NULL || executor->shutdown)
+  {
+    return 0;
+  }
+  for (const AuraTaskFrame *frame = executor->owned_head; frame != NULL;
+       frame = frame->owned_next)
+  {
+    if (frame->state != AURA_TASK_COMPLETE && frame->state != AURA_TASK_FAILED &&
+        frame->state != AURA_TASK_CANCELLED)
+    {
+      return 1;
+    }
+  }
+  return 0;
 }
 
 /* Observe a frame owned by this executor. Joining an unsubmitted frame
@@ -7955,6 +10529,29 @@ int aura_task_executor_release(AuraTaskExecutor *executor, AuraTaskFrame **handl
   aura_task_executor_report_unjoined_failure(executor, frame);
   aura_task_frame_destroy(frame);
   return 1;
+}
+
+/* Release a frame whose terminal state was observed by a direct parent poll.
+ * Normal task handles keep the stricter queued-frame rule because their result
+ * may still be borrowed by generated outcome code. */
+int aura_task_executor_release_terminal(AuraTaskExecutor *executor,
+                                         AuraTaskFrame **handle)
+{
+  if (handle == NULL || *handle == NULL || executor == NULL || executor->shutdown)
+  {
+    return handle == NULL || *handle == NULL ? 1 : 0;
+  }
+  AuraTaskFrame *frame = *handle;
+  if (frame->state != AURA_TASK_COMPLETE && frame->state != AURA_TASK_FAILED &&
+      frame->state != AURA_TASK_CANCELLED)
+  {
+    return 0;
+  }
+  if (frame->queued && !aura_task_executor_unqueue(executor, frame))
+  {
+    return 0;
+  }
+  return aura_task_executor_release(executor, handle);
 }
 
 void aura_task_executor_shutdown(AuraTaskExecutor *executor)

@@ -817,7 +817,11 @@ fn merge_package(into: &mut LoadedPackage, mut dep: LoadedPackage) -> Result<(),
     into.ast.interfaces.extend(dep.ast.interfaces);
     into.ast.enums.extend(dep.ast.enums);
     into.ast.classes.extend(dep.ast.classes);
+    // Type aliases participate in dependency public APIs just like nominal
+    // types. Keep their source package so sema can resolve imported aliases.
+    into.ast.type_aliases.extend(dep.ast.type_aliases);
     into.ast.functions.extend(dep.ast.functions);
+    into.ast.foreign_functions.extend(dep.ast.foreign_functions);
     into.ast.async_functions.extend(dep.ast.async_functions);
     into.sources.extend(dep.sources);
     Ok(())

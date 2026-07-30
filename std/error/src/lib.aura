@@ -1,0 +1,93 @@
+// std.error -- shared, transport-neutral error and Result values.
+
+package std.error
+
+/// Stable category for errors crossing a standard-library boundary.
+pub enum ErrorKind {
+  case ErrorInvalidInput
+  case ErrorNotFound
+  case ErrorPermission
+  case ErrorIo
+  case ErrorNetwork
+  case ErrorTimeout
+  case ErrorCancelled
+  case ErrorProtocol
+  case ErrorLimit
+  case ErrorClosed
+  case ErrorUnsupported
+  case ErrorUnknown
+}
+
+/// Owned error payload suitable for returning from stdlib APIs.
+pub class Error(pub val kind: ErrorKind, pub val message: String, pub val code: Int) {
+  /// Whether a bounded caller may retry after a transient transport failure.
+  pub fun isRetryable(): Bool {
+    match (kind) {
+      case ErrorIo => { return true }
+      case ErrorNetwork => { return true }
+      case ErrorTimeout => { return true }
+      case ErrorCancelled => { return false }
+      case ErrorInvalidInput => { return false }
+      case ErrorNotFound => { return false }
+      case ErrorPermission => { return false }
+      case ErrorProtocol => { return false }
+      case ErrorLimit => { return false }
+      case ErrorClosed => { return false }
+      case ErrorUnsupported => { return false }
+      case ErrorUnknown => { return false }
+    }
+  }
+}
+
+/// Construct a protocol error without exposing package-qualified constructors
+/// at call sites that use an import alias.
+pub fun protocol(message: String, code: Int): Error {
+  return Error(ErrorProtocol(), message, code)
+}
+
+/// Construct a transport error without exposing enum variant qualification.
+pub fun network(message: String, code: Int): Error {
+  return Error(ErrorNetwork(), message, code)
+}
+
+pub fun invalidInput(message: String, code: Int): Error {
+  return Error(ErrorInvalidInput(), message, code)
+}
+
+pub fun notFound(message: String, code: Int): Error {
+  return Error(ErrorNotFound(), message, code)
+}
+
+/// Map a native errno/status code to the stable ErrorKind category code:
+/// 0 invalid input, 1 not found, 2 permission, 3 I/O, 4 network, 5 timeout,
+/// 6 cancelled, 7 protocol, 8 limit, 9 closed, 10 unsupported, 11 unknown.
+pub fun kindCode(code: Int): Int {
+  return 11
+}
+
+/// Non-throwing outcome shared by stdlib APIs.
+///
+/// The nominal name is intentionally distinct from `std.io.Result` until the
+/// merged-package resolver can disambiguate same-named generic enums.
+pub enum Outcome<T, E> {
+  case OutcomeOk(value: T)
+  case OutcomeErr(error: E)
+}
+
+/// Construct a successful shared result through an import-safe function API.
+pub fun success<T, E>(value: T): Outcome<T, E> {
+  return OutcomeOk(value)
+}
+
+/// Construct a failed shared result through an import-safe function API.
+pub fun failure<T, E>(error: E): Outcome<T, E> {
+  return OutcomeErr(error)
+}
+
+/// Inspect a result without requiring callers to import enum variant names.
+pub fun isSuccess<T, E>(result: Outcome<T, E>): Bool {
+  match (result) {
+    case OutcomeOk(value) => { return true }
+    case OutcomeErr(error) => { return false }
+  }
+}

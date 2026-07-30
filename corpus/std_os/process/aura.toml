@@ -1,0 +1,10 @@
+[package]
+name = "demo.std_os.process"
+
+[[bin]]
+name = "process"
+path = "src"
+
+[dependencies]
+std.io = { path = "../../../std/io" }
+std.os = { path = "../../../std/os" }

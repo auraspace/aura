@@ -1407,7 +1407,14 @@ impl Checker {
                 let Some(msig) = csig.methods.get(&m.name.name) else {
                     continue;
                 };
-                let ret = msig.ret.clone();
+                // Class async methods are represented in the AST as methods
+                // returning `Task<T>`, while their body returns the inner `T`.
+                // Check the body against that inner result just like a
+                // top-level async function.
+                let ret = match msig.ret.clone() {
+                    Ty::Task(inner) => *inner,
+                    other => other,
+                };
                 if let Err(err) = self.check_method(c, m, &ret) {
                     self.errors.push(err);
                 }

@@ -1,0 +1,33 @@
+// std.stream -- bounded async reader/writer adapters over owned TCP streams.
+
+package std.stream
+
+import std.net
+
+/// Handler-scoped reader that keeps the underlying stream owned by the class.
+pub class Reader(private val stream: ForeignHandle<Int>) {
+  /// Read up to `capacity` bytes, suspending on descriptor readiness.
+  pub async fun read(capacity: Int): String {
+    val chunk: String = await readStream(stream, capacity)
+    return chunk
+  }
+
+  /// Close the underlying stream. The operation is idempotent.
+  pub fun close(): Bool {
+    return closeStream(stream)
+  }
+}
+
+/// Handler-scoped writer that keeps the underlying stream owned by the class.
+pub class Writer(private val stream: ForeignHandle<Int>) {
+  /// Write all content, suspending until the stream accepts the bytes.
+  pub async fun write(content: String): Int {
+    val transferred: Int = await writeStream(stream, content)
+    return transferred
+  }
+
+  /// Close the underlying stream. The operation is idempotent.
+  pub fun close(): Bool {
+    return closeStream(stream)
+  }
+}

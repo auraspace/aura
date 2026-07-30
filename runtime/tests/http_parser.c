@@ -2,6 +2,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/socket.h>
+#include <unistd.h>
 
 #define AURA_RUNTIME_NO_MAIN
 #include "../../runtime/aura_rt.c"
@@ -103,6 +105,136 @@ static void test_incomplete_body_and_trailing_request_boundary(void)
   aura_http_request_destroy(&parsed);
 }
 
+static void test_header_first_content_length_request(void)
+{
+  const char partial[] =
+      "POST /stream HTTP/1.1\r\nContent-Length: 5\r\nX-Mode: stream\r\n\r\nhe";
+  AuraHttpRequest parsed = {0};
+  size_t header_end = 0;
+  size_t content_length = 0;
+  int chunked = 1;
+
+  assert(aura_http_request_parse_headers(partial, sizeof(partial) - 1, &parsed,
+                                         &header_end, &content_length,
+                                         &chunked) == AURA_HTTP_PARSE_OK);
+  assert(header_end == strlen("POST /stream HTTP/1.1\r\nContent-Length: 5\r\n"
+                              "X-Mode: stream\r\n\r\n"));
+  assert(content_length == 5);
+  assert(chunked == 0);
+  assert(strcmp(parsed.method, "POST") == 0);
+  assert(parsed.body == NULL);
+  assert(parsed.body_length == 0);
+  assert(parsed.total_length == header_end);
+  aura_http_request_destroy(&parsed);
+}
+
+static void test_header_first_chunked_metadata(void)
+{
+  const char partial[] =
+      "POST /stream HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n4\r\nWi";
+  AuraHttpRequest parsed = {0};
+  size_t header_end = 0;
+  size_t content_length = 99;
+  int chunked = 0;
+
+  assert(aura_http_request_parse_headers(partial, sizeof(partial) - 1, &parsed,
+                                         &header_end, &content_length,
+                                         &chunked) == AURA_HTTP_PARSE_OK);
+  assert(header_end == strlen("POST /stream HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n"));
+  assert(content_length == 0);
+  assert(chunked == 1);
+  assert(parsed.body == NULL);
+  aura_http_request_destroy(&parsed);
+}
+
+static void test_content_length_reader_preserves_buffered_boundary(void)
+{
+  unsigned char buffered[32] = "helloNEXT";
+  size_t used = strlen((const char *)buffered);
+  AuraTcpStream stream = {-1};
+  AuraHttpContentLengthReader reader;
+  unsigned char chunk[8] = {0};
+  size_t read = 0;
+
+  assert(aura_http_content_length_reader_init(&reader, &stream, buffered, &used,
+                                              5, 1000));
+  assert(aura_http_content_length_reader_read(&reader, chunk, 2, &read) == AURA_TCP_OK);
+  assert(read == 2 && memcmp(chunk, "he", 2) == 0);
+  assert(aura_http_content_length_reader_read(&reader, chunk, sizeof(chunk), &read) ==
+         AURA_TCP_OK);
+  assert(read == 3 && memcmp(chunk, "llo", 3) == 0);
+  assert(reader.remaining == 0);
+  assert(used == 4 && memcmp(buffered, "NEXT", 4) == 0);
+  assert(aura_http_content_length_reader_read(&reader, chunk, sizeof(chunk), &read) ==
+         AURA_TCP_EOF);
+}
+
+static void test_content_length_reader_reads_socket_without_overread(void)
+{
+  int fds[2] = {-1, -1};
+  AuraTcpStream stream;
+  AuraHttpContentLengthReader reader;
+  unsigned char chunk[8] = {0};
+  unsigned char next[8] = {0};
+  size_t used = 0;
+  size_t read = 0;
+
+  assert(socketpair(AF_UNIX, SOCK_STREAM, 0, fds) == 0);
+  stream.fd = fds[0];
+  assert(write(fds[1], "bodyNEXT", 8) == 8);
+  assert(aura_http_content_length_reader_init(&reader, &stream, NULL, &used,
+                                              4, 1000));
+  assert(aura_http_content_length_reader_read(&reader, chunk, sizeof(chunk), &read) ==
+         AURA_TCP_OK);
+  assert(read == 4 && memcmp(chunk, "body", 4) == 0);
+  assert(reader.remaining == 0);
+  assert(recv(fds[0], next, sizeof(next), 0) == 4);
+  assert(memcmp(next, "NEXT", 4) == 0);
+  assert(close(fds[0]) == 0);
+  assert(close(fds[1]) == 0);
+}
+
+static void test_content_length_reader_allows_one_active_read_task(void)
+{
+  AuraTcpStream stream = {0};
+  AuraHttpContentLengthReader reader = {0};
+  AuraHttpRequest request = {0};
+  size_t used = 0;
+
+  assert(aura_http_content_length_reader_init(&reader, &stream, NULL, &used,
+                                              1, 1000));
+  request.body_reader = &reader;
+  assert(aura_http_request_body_read_begin(&request));
+  assert(!aura_http_request_body_read_begin(&request));
+  aura_http_request_body_read_end(&request);
+  assert(aura_http_request_body_read_begin(&request));
+  aura_http_request_body_read_end(&request);
+}
+
+static void test_chunked_body_and_keep_alive_boundary(void)
+{
+  const char partial[] =
+      "POST /submit HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n"
+      "4\r\nWiki\r\n5\r\npedia\r\n";
+  const char complete[] =
+      "POST /submit HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n"
+      "4\r\nWiki\r\n5\r\npedia\r\n0\r\n\r\n"
+      "GET /next HTTP/1.1\r\n\r\n";
+  AuraHttpRequest parsed = {0};
+  size_t consumed = 99;
+
+  assert(aura_http_request_parse(partial, sizeof(partial) - 1, &parsed, &consumed) ==
+         AURA_HTTP_PARSE_INCOMPLETE);
+  assert_empty_request(&parsed, consumed);
+  assert(aura_http_request_parse(complete, sizeof(complete) - 1, &parsed, &consumed) ==
+         AURA_HTTP_PARSE_OK);
+  assert(consumed == strlen("POST /submit HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n"
+                            "4\r\nWiki\r\n5\r\npedia\r\n0\r\n\r\n"));
+  assert(parsed.body_length == 9);
+  assert(memcmp(parsed.body, "Wikipedia", 9) == 0);
+  aura_http_request_destroy(&parsed);
+}
+
 static void test_malformed_and_rejected_framing(void)
 {
   const char *bad_requests[] = {
@@ -112,8 +244,9 @@ static void test_malformed_and_rejected_framing(void)
       "GET / HTTP/1.1\r\nMissingColon\r\n\r\n",
       "POST / HTTP/1.1\r\nContent-Length: nope\r\n\r\n",
       "POST / HTTP/1.1\r\nContent-Length: 3\r\nContent-Length: 4\r\n\r\n",
-      "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n",
       "POST / HTTP/1.1\r\nTransfer-Encoding: gzip\r\n\r\n",
+      "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\nContent-Length: 1\r\n\r\n0\r\n\r\n",
+      "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\nX\r\nbad\r\n0\r\n\r\n",
       "GET / HTTP/1.1\r\nX-Bad: good\001\r\n\r\n"};
   size_t i;
   for (i = 0; i < sizeof(bad_requests) / sizeof(bad_requests[0]); i++)
@@ -223,6 +356,12 @@ int main(void)
   test_valid_get_and_case_insensitive_headers();
   test_valid_post_duplicate_equal_content_length();
   test_incomplete_body_and_trailing_request_boundary();
+  test_header_first_content_length_request();
+  test_header_first_chunked_metadata();
+  test_content_length_reader_preserves_buffered_boundary();
+  test_content_length_reader_reads_socket_without_overread();
+  test_content_length_reader_allows_one_active_read_task();
+  test_chunked_body_and_keep_alive_boundary();
   test_malformed_and_rejected_framing();
   test_oversized_request_line_and_headers();
   test_oversized_body_and_ownership();

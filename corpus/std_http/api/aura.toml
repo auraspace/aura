@@ -1,0 +1,9 @@
+[package]
+name = "demo.stdhttp"
+
+[[bin]]
+name = "api"
+path = "src"
+
+[dependencies]
+std.http = { path = "../../../std/http" }

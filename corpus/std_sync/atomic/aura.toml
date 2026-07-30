@@ -1,0 +1,10 @@
+[package]
+name = "demo.stdsync.atomic"
+
+[[bin]]
+name = "atomic"
+path = "src"
+
+[dependencies]
+std.io = { path = "../../../std/io" }
+std.sync = { path = "../../../std/sync" }

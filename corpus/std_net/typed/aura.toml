@@ -1,0 +1,6 @@
+[package]
+name = "demo.stdnet.typed"
+
+[[bin]]
+name = "typed"
+path = "src"

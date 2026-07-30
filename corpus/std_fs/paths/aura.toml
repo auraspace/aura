@@ -1,0 +1,10 @@
+[package]
+name = "demo.stdfs.paths"
+
+[[bin]]
+name = "paths"
+path = "src"
+
+[dependencies]
+std.fs = { path = "../../../std/fs" }
+std.io = { path = "../../../std/io" }

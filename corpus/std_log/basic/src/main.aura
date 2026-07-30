@@ -1,0 +1,17 @@
+package demo.stdlog.basic
+
+import std.log
+
+fun main() {
+  setMinLevel(2)
+  debug("debug")
+  info("info")
+  warn("warn")
+  error("error")
+  val fields = Array<String>(4)
+  fields.set(0, "method")
+  fields.set(1, "GET")
+  fields.set(2, "status")
+  fields.set(3, "200")
+  infoFields("request", fields)
+}

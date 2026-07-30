@@ -1,0 +1,6 @@
+[package]
+name = "std.error"
+
+[[bin]]
+name = "error"
+path = "src"

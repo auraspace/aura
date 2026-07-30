@@ -1,0 +1,6 @@
+[package]
+name = "std.url"
+
+[[bin]]
+name = "url"
+path = "src"

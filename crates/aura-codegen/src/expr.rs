@@ -2242,6 +2242,52 @@ pub(crate) fn full_type_mono(key: &str, checked: &CheckedFile) -> String {
         }
         return mono_key(base, args);
     }
+    // Recover a short generic class key (for example `Box_Node` or
+    // `Box_Array_Node`) when the sema mono table did not retain that nested
+    // aggregate instantiation.
+    if let Some((base, suffix)) = key.split_once('_') {
+        if let Some(class) = checked
+            .ast
+            .classes
+            .iter()
+            .find(|c| c.name.name == base && c.type_params.len() == 1)
+        {
+            fn short_ty(key: &str, checked: &CheckedFile) -> Option<Ty> {
+                match key {
+                    "Int" => Some(Ty::Int),
+                    "Bool" => Some(Ty::Bool),
+                    "String" => Some(Ty::String),
+                    "Unit" => Some(Ty::Unit),
+                    suffix if suffix.starts_with("Array_") => {
+                        let inner = short_ty(suffix.strip_prefix("Array_")?, checked)?;
+                        Some(Ty::ClassApp {
+                            name: "Array".into(),
+                            args: vec![inner],
+                        })
+                    }
+                    name => checked
+                        .ast
+                        .classes
+                        .iter()
+                        .find(|c| c.name.name == name)
+                        .map(|c| Ty::Class(nominal_key(&class_decl_package(c, checked), name)))
+                        .or_else(|| {
+                            checked
+                                .ast
+                                .enums
+                                .iter()
+                                .find(|e| e.name.name == name)
+                                .map(|e| {
+                                    Ty::Enum(nominal_key(&enum_decl_package(e, checked), name))
+                                })
+                        }),
+                }
+            }
+            if let Some(arg) = short_ty(suffix, checked) {
+                return type_mono(&class_decl_package(class, checked), base, &[arg]);
+            }
+        }
+    }
     key.to_string()
 }
 

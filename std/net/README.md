@@ -1,17 +1,21 @@
-# std.net (bounded alpha bridge)
+# std.net (bounded alpha transport)
 
-`std.net` exposes a small primitive-only FFI surface: loopback echo,
-HTTP/1.1 request status parsing, and response serialization. It is deliberately
-limited to `String` and `Int`, so an Aura program can call it under the current
-FFI v1 contract without retaining a foreign pointer or crossing `await`.
+`std.net` provides owned loopback TCP listener and stream handles for the
+supported POSIX targets. `listen`, `connect`, `accept`, `readStream`,
+`readAllStream`, and `writeStream` use the runtime's nonblocking readiness
+scheduler; `closeListener` and `closeStream` are idempotent terminal operations.
 
-The native symbols are supplied by `native/aura_net_ffi.c` in this repository
-for compile/native acceptance tests and by an application-owned library in a
-real deployment. The library is not linked automatically by the Aura CLI.
+`readStream` is the streaming primitive: it returns one readiness-driven chunk
+and uses an empty String only for EOF. `readAllStream` repeatedly calls it until
+EOF, but caps its aggregate allocation at the caller-supplied capacity. It is a
+convenience for bounded protocols, not an unbounded body API.
 
-Known blocker (G5/G7): `AuraTcpListener`, `AuraTcpStream`, and HTTP connection
-handles in `runtime/aura_ffi.h` cannot yet be represented by Aura FFI v1,
-because sema permits only `Int`, `Bool`, `String`, and `Unit` and rejects
-references/out-parameters. Exposing typed async handles needs a sema/codegen
-contract change plus task/await lifetime tests; this package does not hide that
-limitation behind an unsafe integer cast.
+The implementation keeps native descriptors inside `ForeignHandle<Int>`
+resources. Read and write tasks pin the resource across suspension, preserve
+partial I/O offsets, and release the pin on completion, failure, cancellation,
+or executor shutdown. The current surface is intentionally loopback-only and
+does not yet include DNS, TLS, UDP, Unix-domain sockets, or typed `Result`
+errors.
+
+`native/aura_net_ffi.c` remains a focused legacy FFI smoke fixture; it is not
+linked automatically by the Aura CLI or used by the public runtime-backed API.

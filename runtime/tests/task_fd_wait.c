@@ -90,6 +90,94 @@ static AuraTaskFrame *new_fd_task(int fd)
   return frame;
 }
 
+static AuraTaskPollState poll_immediate(AuraTaskFrame *frame)
+{
+  (void)frame;
+  return AURA_TASK_COMPLETE;
+}
+
+static void test_release_directly_polled_queued_frame(void)
+{
+  AuraTaskExecutor *executor = aura_task_executor_new();
+  assert(executor != NULL);
+  AuraTaskFrame *frame = aura_task_frame_new(0, poll_immediate, NULL);
+  assert(frame != NULL);
+  assert(aura_task_executor_submit(executor, frame) == 1);
+  assert(aura_task_frame_poll_once(frame) == AURA_TASK_COMPLETE);
+  assert(aura_task_executor_ready_count(executor) == 1);
+  assert(aura_task_executor_release_terminal(executor, &frame) == 1);
+  assert(frame == NULL);
+  assert(aura_task_executor_ready_count(executor) == 0);
+  assert(aura_task_executor_has_live_tasks(executor) == 0);
+  aura_task_executor_shutdown(executor);
+}
+
+static AuraTaskPollState poll_timed_fd(AuraTaskFrame *frame)
+{
+  FdTask *task = (FdTask *)aura_task_frame_data(frame);
+  if (task->polls++ == 0)
+  {
+    assert(aura_task_frame_wait_fd_timeout(frame, task->fd, POLLIN, 10) == 1);
+    return AURA_TASK_PENDING;
+  }
+  assert(aura_task_frame_take_fd_wait_timeout(frame) == 1);
+  return AURA_TASK_COMPLETE;
+}
+
+static void test_timed_fd_wait_wakes_without_readiness(void)
+{
+  int pipe_fds[2];
+  AuraTaskExecutor *executor;
+  AuraTaskFrame *frame;
+
+  assert(pipe(pipe_fds) == 0);
+  executor = aura_task_executor_new();
+  assert(executor != NULL);
+  frame = aura_task_frame_new(sizeof(FdTask), poll_timed_fd, NULL);
+  assert(frame != NULL);
+  ((FdTask *)aura_task_frame_data(frame))->fd = pipe_fds[0];
+  assert(aura_task_executor_submit(executor, frame) == 1);
+  assert(aura_task_executor_run_one(executor) == 1);
+  assert(aura_task_frame_state(frame) == AURA_TASK_PENDING);
+  assert(aura_task_executor_poll_waiting(executor, 1000) == 1);
+  assert(aura_task_executor_run_one(executor) == 1);
+  assert(aura_task_frame_state(frame) == AURA_TASK_COMPLETE);
+  assert(aura_task_executor_release(executor, &frame) == 1);
+  aura_task_executor_shutdown(executor);
+  close(pipe_fds[0]);
+  close(pipe_fds[1]);
+}
+
+static AuraTaskPollState poll_timer(AuraTaskFrame *frame)
+{
+  FdTask *task = (FdTask *)aura_task_frame_data(frame);
+  if (task->polls++ == 0)
+  {
+    assert(aura_task_frame_wait_deadline(frame, 10) == 1);
+    return AURA_TASK_PENDING;
+  }
+  assert(aura_task_frame_take_fd_wait_timeout(frame) == 1);
+  return AURA_TASK_COMPLETE;
+}
+
+static void test_timer_wait_wakes_without_descriptor(void)
+{
+  AuraTaskExecutor *executor = aura_task_executor_new();
+  AuraTaskFrame *frame;
+
+  assert(executor != NULL);
+  frame = aura_task_frame_new(sizeof(FdTask), poll_timer, NULL);
+  assert(frame != NULL);
+  assert(aura_task_executor_submit(executor, frame) == 1);
+  assert(aura_task_executor_run_one(executor) == 1);
+  assert(aura_task_frame_state(frame) == AURA_TASK_PENDING);
+  assert(aura_task_executor_poll_waiting(executor, 1000) == 1);
+  assert(aura_task_executor_run_one(executor) == 1);
+  assert(aura_task_frame_state(frame) == AURA_TASK_COMPLETE);
+  assert(aura_task_executor_release(executor, &frame) == 1);
+  aura_task_executor_shutdown(executor);
+}
+
 static AuraTaskPollState poll_file(AuraTaskFrame *frame)
 {
   FileTask *task = (FileTask *)aura_task_frame_data(frame);
@@ -316,6 +404,44 @@ static void test_tcp_listener_adapter_wait(void)
   aura_tcp_listener_destroy(listener);
 }
 
+static AuraTaskPollState poll_closed_tcp_listener(AuraTaskFrame *frame)
+{
+  TcpListenerTask *task = (TcpListenerTask *)aura_task_frame_data(frame);
+  if (task->polls++ == 0)
+  {
+    assert(aura_task_frame_wait_tcp_listener(frame, task->listener, POLLIN) == 1);
+    return AURA_TASK_PENDING;
+  }
+  assert(aura_tcp_listener_accept(task->listener, 0, &task->accepted) == AURA_TCP_CLOSED);
+  return AURA_TASK_COMPLETE;
+}
+
+static void test_closed_listener_completes_waiting_task(void)
+{
+  AuraTcpListener *listener = NULL;
+  uint16_t port = 0;
+  assert(aura_tcp_listener_bind(0, &port, &listener) == AURA_TCP_OK);
+  AuraTaskExecutor *executor = aura_task_executor_new();
+  assert(executor != NULL);
+  AuraTaskFrame *frame = aura_task_frame_new(sizeof(TcpListenerTask),
+                                             poll_closed_tcp_listener, NULL);
+  assert(frame != NULL);
+  TcpListenerTask *task = (TcpListenerTask *)aura_task_frame_data(frame);
+  task->listener = listener;
+  task->accepted = NULL;
+  task->polls = 0;
+  assert(aura_task_executor_submit(executor, frame) == 1);
+  assert(aura_task_executor_run_one(executor) == 1);
+  assert(aura_task_frame_state(frame) == AURA_TASK_PENDING);
+  assert(aura_tcp_listener_close(listener) == 1);
+  assert(aura_task_executor_poll_waiting(executor, 1000) == 1);
+  assert(aura_task_executor_run_one(executor) == 1);
+  assert(aura_task_frame_state(frame) == AURA_TASK_COMPLETE);
+  assert(aura_task_executor_release(executor, &frame) == 1);
+  aura_task_executor_shutdown(executor);
+  aura_tcp_listener_destroy(listener);
+}
+
 static void test_ready_fd_wakes_pending_frame(void)
 {
   int pipe_fds[2];
@@ -391,13 +517,17 @@ static void test_multiple_ready_fds_wake_in_one_turn(void)
 
 int main(void)
 {
+  test_release_directly_polled_queued_frame();
   test_ready_fd_wakes_pending_frame();
+  test_timed_fd_wait_wakes_without_readiness();
+  test_timer_wait_wakes_without_descriptor();
   test_file_descriptor_adapter_wait();
   test_file_buffer_and_handle_survive_suspension();
   test_cancellation_clears_fd_registration();
   test_multiple_ready_fds_wake_in_one_turn();
   test_tcp_stream_adapter_wait();
   test_tcp_listener_adapter_wait();
+  test_closed_listener_completes_waiting_task();
   aura_gc_shutdown();
   puts("task fd wait: passed");
   return 0;

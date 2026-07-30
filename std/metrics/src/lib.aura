@@ -1,0 +1,15 @@
+// std.metrics -- bounded sequentially consistent counters.
+
+package std.metrics
+
+pub class Counter(private var value: Int) {
+  pub fun add(amount: Int): Int { return 0 }
+  pub fun increment(): Int { return 0 }
+  pub fun get(): Int { return 0 }
+  pub fun reset(): Unit { }
+
+  /// Render one Prometheus text exposition sample with the current value.
+  pub fun prometheus(name: String): String {
+    return name + " " + this.get().toString() + "\n"
+  }
+}

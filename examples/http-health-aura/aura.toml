@@ -4,3 +4,8 @@ name = "http_health_aura"
 [[bin]]
 name = "http-health-aura"
 path = "main.aura"
+
+[dependencies]
+std.net = { path = "../../std/net" }
+std.http = { path = "../../std/http" }
+std.time = { path = "../../std/time" }

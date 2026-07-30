@@ -1,0 +1,18 @@
+package demo.stdtest.async_fixture
+
+import std.io as Io
+import std.test
+import std.time
+
+async fun timerAssertion(): Unit {
+  await sleep(1)
+  assert(true)
+  assertEqInt(6 * 7, 42)
+  assertEqString("async", "async")
+  assertEqBool(true, !false)
+  Io.println("async-tests-ok")
+}
+
+fun main() {
+  timerAssertion()
+}

@@ -1,0 +1,12 @@
+package demo.stdtest.assertions
+
+import std.io as Io
+import std.test
+
+fun main() {
+  assert(true)
+  assertEqInt(2 + 2, 4)
+  assertEqString("ok", "ok")
+  assertEqBool(true, true)
+  Io.println("tests-ok")
+}

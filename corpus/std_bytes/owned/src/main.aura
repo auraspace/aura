@@ -1,0 +1,12 @@
+package demo.stdbytes.owned
+
+import std.io
+import std.bytes
+
+fun main() {
+  val source = copy("hello")
+  println(concat(source, " world"))
+  println(slice(source, 1, 3)!!)
+  if (equals(source, "hello")) { println("equal") }
+  if (slice(source, 99, 1) == null) { println("bounds") }
+}

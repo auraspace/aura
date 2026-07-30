@@ -1,0 +1,38 @@
+// std.encoding -- bounded byte-oriented text encodings.
+
+package std.encoding
+
+/// Validate that the byte sequence is well-formed UTF-8.
+pub fun isValidUtf8(value: String): Bool {
+  throw "encoding intrinsic"
+}
+
+/// Encode each byte as two lowercase hexadecimal digits.
+pub fun hexEncode(value: String): String {
+  throw "encoding intrinsic"
+}
+
+/// Decode hexadecimal text. Returns null for odd length or invalid digits.
+pub fun hexDecode(value: String): String? {
+  throw "encoding intrinsic"
+}
+
+/// RFC 4648 base64 without line wrapping or padding elision.
+pub fun base64Encode(value: String): String {
+  throw "encoding intrinsic"
+}
+
+/// Decode RFC 4648 base64. Returns null for malformed input.
+pub fun base64Decode(value: String): String? {
+  throw "encoding intrinsic"
+}
+
+/// Percent-encode all bytes except RFC 3986 unreserved characters.
+pub fun percentEncode(value: String): String {
+  throw "encoding intrinsic"
+}
+
+/// Decode percent escapes. Returns null for malformed `%HH` sequences.
+pub fun percentDecode(value: String): String? {
+  throw "encoding intrinsic"
+}

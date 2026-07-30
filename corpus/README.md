@@ -25,6 +25,21 @@ Run the green async fixtures with bash scripts/check-corpus.sh (or cargo run -p 
 
 ## Core fixtures
 
+The standard-library corpus also includes `std_bytes/owned`, covering owned
+byte-string copy, concatenation, slicing, equality, and bounds behavior.
+`std_bytes/buffer` covers an owned `Buffer` class, byte-range checks, nullable
+indexing, and deep cloning.
+`std_json/value` covers the bounded validated `Value` model and raw serializer.
+`std_fs/paths` covers bounded portable path joining/decomposition, metadata,
+directory snapshots, and explicit symlink checks.
+`std_net/typed` checks the non-throwing TCP read wrapper and shared error
+outcome types.
+`std_stream/adapters` checks class-based async reader/writer adapters over
+owned TCP streams.
+`std_os/process` covers environment mutation, typed environment outcomes, cwd,
+pid, and platform helpers.
+`std_test/async` covers assertions after a real timer suspension.
+
 | Path                                           | Intent                                                                 |
 | ---------------------------------------------- | ---------------------------------------------------------------------- |
 | `hello/main.aura`                              | Package + `fun main` + call + string                                   |
@@ -146,6 +161,17 @@ Run the green async fixtures with bash scripts/check-corpus.sh (or cargo run -p 
 | `std_io/stdin`                            | `readLine(): String?` + `readAllStdin()` (C12d); smoke EOF without pipe; `printf … \| aura run …`                  |
 | `std_io/exit`                             | `std.io.exit(code)` (C12e); default exit 0; `aura run … -- 7` for non-zero (CLI unit test too)                     |
 | `std_io/result_wrappers`                  | Non-throwing `readFileResult` / `writeFileResult` APIs (C21i)                                                      |
+| `std_task/lifecycle`                      | Public task lifecycle wrappers and bounded parent-to-child cancellation linking                                    |
+| `std_dns/resolve`                         | Bounded numeric IPv4/IPv6 selection and preference-ordered address lists through `std.dns`                         |
+| `std_log/basic`                           | Bounded debug/info/warn/error logging levels through `std.log`                                                     |
+| `std_metrics/counter`                     | Sequentially consistent bounded counters through `std.metrics.Counter`                                             |
+| `std_test/assertions`                     | Deterministic native assertion helpers through `std.test`                                                          |
+| `std_test/async`                          | Assertions scheduled across a real monotonic timer suspension                                                      |
+| `std_json/basic`                          | Bounded JSON validation and string-literal escaping through `std.json`                                             |
+| `std_signal/shutdown`                     | Bounded SIGINT/SIGTERM shutdown flag installation and clearing                                                     |
+| `std_encoding/roundtrip`                  | UTF-8 validation plus hex, Base64, and percent encoding package smoke                                              |
+| `std_url_mime/sanitize`                   | Origin-form URL extraction and MIME type/filename sanitization smoke                                               |
+| `std_sync/atomic`                         | Sequentially consistent `AtomicInt` load/store/fetch-add/compare-exchange smoke                                    |
 | `fmt/basic` / `fmt/comments`              | Formatter idempotence and comment preservation smoke corpus (C21f)                                                 |
 | `test/filter.aura`                        | Deterministic test-name filtering corpus (C21h)                                                                    |
 | `std_assert/app`                          | `std.assert` package (C4h)                                                                                         |

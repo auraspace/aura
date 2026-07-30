@@ -308,7 +308,49 @@ impl Parser {
             let attributes = self.parse_attributes()?;
             let modifiers = self.parse_modifiers()?;
             let visibility = self.parse_member_visibility();
-            let mut method = self.parse_fun()?;
+            let mut method = if matches!(self.peek().kind, TokenKind::Async) {
+                let async_method = self.parse_async_fun()?;
+                let task_name = Ident {
+                    name: "Task".into(),
+                    span: async_method.name.span,
+                };
+                let result = async_method.return_type.unwrap_or(TypeRef {
+                    qualifier: None,
+                    name: Ident {
+                        name: "Unit".into(),
+                        span: async_method.name.span,
+                    },
+                    type_args: Vec::new(),
+                    nullable: false,
+                    reference: false,
+                    span: async_method.name.span,
+                    fun: None,
+                });
+                FunDecl {
+                    is_pub: async_method.is_pub,
+                    origin_package: async_method.origin_package,
+                    attributes: async_method.attributes,
+                    modifiers: Vec::new(),
+                    visibility: MemberVisibility::Package,
+                    is_test: async_method.is_test,
+                    name: async_method.name,
+                    type_params: async_method.type_params,
+                    params: async_method.params,
+                    return_type: Some(TypeRef {
+                        qualifier: None,
+                        name: task_name,
+                        type_args: vec![result],
+                        nullable: false,
+                        reference: false,
+                        span: async_method.span,
+                        fun: None,
+                    }),
+                    body: async_method.body,
+                    span: async_method.span,
+                }
+            } else {
+                self.parse_fun()?
+            };
             method.modifiers = modifiers;
             method.visibility = visibility;
             method.attributes = attributes;

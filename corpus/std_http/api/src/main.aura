@@ -1,0 +1,31 @@
+// The server lowering supplies Request and Response. This compile fixture
+// verifies application code can use the typed values without raw handles.
+package demo.stdhttp
+
+import std.http
+
+fun describe(request: Request): String {
+  return request.method() + " " + request.target() + " " + request.version() +
+         " headers=" + request.headerCount()
+}
+
+fun firstHeader(request: Request): String {
+  if (request.headerCount() == 0) { return "" }
+  return request.headerName(0) + ": " + request.headerValue(0)
+}
+
+fun configure(response: Response): Bool {
+  if (!response.setStatus(200)) { return false }
+  if (!response.addHeader("Content-Type", "text/plain")) { return false }
+  return response.setBody("ok")
+}
+
+// The public handler contract is a task-returning closure. Server lowering
+// calls it once per request and waits for the returned task without blocking.
+fun start(handler: Handler, request: Request, response: Response): Task<Unit> {
+  return handler(request, response)
+}
+
+fun main() {
+  println("std.http typed API compiles")
+}

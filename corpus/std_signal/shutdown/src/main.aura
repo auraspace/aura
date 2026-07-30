@@ -1,0 +1,10 @@
+package demo.stdsignal.shutdown
+
+import std.io as Io
+import std.signal
+
+fun main() {
+  if (installShutdown() && !shutdownRequested()) { Io.println("installed") }
+  clearShutdown()
+  if (!shutdownRequested()) { Io.println("clear") }
+}

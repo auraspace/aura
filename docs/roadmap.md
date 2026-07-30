@@ -4,21 +4,21 @@ Living plan for docs, language specs, and the Rust toolchain. RFCs remain the de
 
 | Field        | Value                                                                          |
 | ------------ | ------------------------------------------------------------------------------ |
-| **Updated**  | 2026-07-28                                                                     |
+| **Updated**  | 2026-07-29                                                                     |
 | **Strategy** | Dual-track: freeze MVP surface in RFCs while shipping vertical compiler slices |
 | **License**  | MIT (see root `LICENSE`)                                                       |
 
 ## Status snapshot
 
-| Track                       | Status                                                                                                            |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| RFC static site (`site/`)   | Implemented; Cloudflare Pages → **https://aura.fadosoft.com**                                                     |
-| RFC-000 … RFC-013           | **All Accepted** — open questions resolved or Deferred (2026-07-16)                                               |
-| Language MVP                | RFC-001 §6.0 + post-C1; C22 syntax/barriers plus bounded await, spawn, channel, and outcome slices are covered    |
-| Compiler                    | **C0–C21j closed; C22a–s landed**; await state machines and non-empty spawn captures remain deferred              |
-| Runtime / packages / stdlib | GC + deterministic executor/channels; registry consumption, typed I/O/FFI slices, and collection snapshots landed |
-| Distribution contract       | **S2 complete:** Linux amd64, macOS arm64, macOS amd64; Windows amd64 deferred                                    |
-| Release metadata            | **0.1.1-alpha published**; tier-2/native evidence and live registry publication remain follow-up work             |
+| Track                       | Status                                                                                                                         |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| RFC static site (`site/`)   | Implemented; Cloudflare Pages → **https://aura.fadosoft.com**                                                                  |
+| RFC-000 … RFC-013           | **All Accepted** — open questions resolved or Deferred (2026-07-16)                                                            |
+| Language MVP                | RFC-001 §6.0 + post-C1; C22 syntax/barriers plus bounded await, spawn, channel, and outcome slices are covered                 |
+| Compiler                    | **C0–C21j closed; C22a–s landed**; await state machines and non-empty spawn captures remain deferred                           |
+| Runtime / packages / stdlib | GC + deterministic executor/channels; typed I/O/FFI slices and bounded HTTP/1.1 server landed; extended protocols remain gated |
+| Distribution contract       | **S2 complete:** Linux amd64, macOS arm64, macOS amd64; Windows amd64 deferred                                                 |
+| Release metadata            | **0.1.1-alpha published**; tier-2/native evidence and live registry publication remain follow-up work                          |
 
 ## Phases
 
@@ -289,6 +289,13 @@ Plans:
 3. Toolchain: ~~path deps + registry K1 offline~~ → ~~**S2:** verified HTTPS + nested locked registry deps and published `0.1.1-alpha`~~ → live publish/update and tier-2/native evidence remain open
 4. Stdlib: ~~io + collections + C13 toString/case/eprint/tryWrite + C14 generic HashMap + C15 generic HashSet + C18 hash-collection HOFs + C19 accessors/entry snapshots/entry for-in + C20 snapshot/live iterators and entry mutation + C21i Result I/O~~
 5. Cross targets + signed releases — ~~**S2 contract:** Linux amd64, macOS arm64/amd64~~; minisign-signed release manifests are shipped; Windows amd64 and OS notarization remain deferred
+
+The 2026-07-29 async HTTP slice ships a real Aura `std.http` health server,
+bounded connection/backpressure handling, graceful listener shutdown, and the
+first monotonic `std.time.sleep` primitive, plus bounded `std.task` join/cancel
+wrappers. TLS, HTTP/2/3, WebSockets,
+compression, multipart, and HTTP client work remain explicit follow-ons in the
+completion plan.
 
 S2 production toolchain implementation: [`docs/plans/2026-07-21-s2-production-toolchain.md`](plans/2026-07-21-s2-production-toolchain.md). The v0.1.1-alpha workstreams and completion backlog track the remaining release claims.
 

@@ -14,6 +14,7 @@ task_churn	0	runtime/tests/task_churn.c	cc -std=c11 -Wall -Wextra -Werror -fsani
 task_channel	0	runtime/tests/task_channel.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined runtime/tests/task_channel.c
 task_executor	0	runtime/tests/task_executor.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined runtime/tests/task_executor.c
 http_parser_fuzz	0	runtime/tests/http_parser_fuzz.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined runtime/tests/http_parser_fuzz.c
+http_parser	0	runtime/tests/http_parser.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined runtime/tests/http_parser.c
 http_hardening	0	runtime/tests/http_hardening.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined runtime/tests/http_hardening.c
 http_async	0	runtime/tests/http_async.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined runtime/tests/http_async.c
 http_health	0	examples/http-health/http_health.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined examples/http-health/http_health.c
@@ -23,3 +24,5 @@ ffi_owned	0	runtime/tests/ffi_owned.c	cc -std=c11 -Wall -Wextra -Werror -fsaniti
 ffi_handles	0	runtime/tests/ffi_handles.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined runtime/tests/ffi_handles.c
 ffi_callbacks	0	runtime/tests/ffi_callbacks.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined runtime/tests/ffi_callbacks.c
 ffi_net	0	runtime/tests/ffi_net.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined runtime/tests/ffi_net.c
+signal_shutdown	0	runtime/tests/signal_shutdown.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined runtime/tests/signal_shutdown.c
+stdlib_parser_fuzz	0	runtime/tests/stdlib_parser_fuzz.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined runtime/tests/stdlib_parser_fuzz.c

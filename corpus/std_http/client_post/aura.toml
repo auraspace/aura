@@ -1,0 +1,6 @@
+[package]
+name = "demo.stdhttp.clientpost"
+
+[[bin]]
+name = "client-post"
+path = "src"

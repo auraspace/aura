@@ -1,0 +1,64 @@
+// std.url -- bounded origin-form URL helpers for HTTP servers.
+
+package std.url
+
+import std.encoding
+
+/// True only for an origin-form request target (`/path` or `/path?query`).
+pub fun isOriginForm(target: String): Bool {
+  throw "url intrinsic"
+}
+
+/// Return the path component of an origin-form target, or null when invalid.
+pub fun path(target: String): String? {
+  throw "url intrinsic"
+}
+
+/// Normalize an origin-form path by removing dot segments.
+pub fun normalizePath(path: String): String? {
+  throw "url intrinsic"
+}
+
+/// Return the query component, including an empty string for `?`; null means
+/// the target has no query or is invalid.
+pub fun query(target: String): String? {
+  throw "url intrinsic"
+}
+
+/// True for a bounded absolute URI with a non-empty authority component.
+pub fun isAbsolute(target: String): Bool {
+  throw "url intrinsic"
+}
+
+/// Return the authority component of a bounded absolute URI.
+pub fun authority(target: String): String? {
+  throw "url intrinsic"
+}
+
+/// Return the host portion of an absolute URI authority. Bracketed IPv6
+/// literals are returned without the surrounding brackets.
+pub fun authorityHost(target: String): String? {
+  throw "url intrinsic"
+}
+
+/// Return the decimal port text from an absolute URI authority, or null when
+/// no explicit port is present.
+pub fun authorityPort(target: String): String? {
+  throw "url intrinsic"
+}
+
+/// Return one raw query value by exact key match. Percent decoding remains a
+/// separate bounded operation so malformed escapes are not silently accepted.
+pub fun queryValue(target: String, key: String): String? {
+  throw "url intrinsic"
+}
+
+/// Encode one URL component using RFC 3986 percent escaping.
+pub fun encodeComponent(value: String): String {
+  return percentEncode(value)
+}
+
+/// Decode one URL component; malformed escapes and decoded NUL bytes return null.
+pub fun decodeComponent(value: String): String? {
+  return percentDecode(value)
+}

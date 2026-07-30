@@ -1,0 +1,6 @@
+[package]
+name = "demo.stdlog.basic"
+
+[[bin]]
+name = "basic"
+path = "src"

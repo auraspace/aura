@@ -1,0 +1,6 @@
+[package]
+name = "demo.stdmetrics.counter"
+
+[[bin]]
+name = "counter"
+path = "src"

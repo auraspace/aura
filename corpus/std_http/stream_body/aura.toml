@@ -1,0 +1,9 @@
+[package]
+name = "demo.stdhttp.streambody"
+
+[[bin]]
+name = "stream-body"
+path = "src"
+
+[dependencies]
+std.http = { path = "../../../std/http" }

@@ -1,0 +1,16 @@
+package demo.stdhttp.shutdown
+
+import std.net
+import std.http
+
+async fun handler(request: Request, response: Response): Unit {
+  response.setStatus(200)
+  response.setBody("ok")
+}
+
+fun main() {
+  val listener = listen(0)
+  serve(listener, (request: Request, response: Response) => handler(request, response))
+  // Closing the listener is the documented graceful shutdown signal.
+  closeListener(listener)
+}

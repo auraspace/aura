@@ -1,0 +1,6 @@
+[package]
+name = "demo.stdtask.lifecycle"
+
+[[bin]]
+name = "lifecycle"
+path = "src"

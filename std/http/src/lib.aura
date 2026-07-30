@@ -1,0 +1,179 @@
+// std.http -- bounded HTTP/1.1 values backed by the runtime HTTP bridge.
+//
+// Request and Response wrap opaque runtime resources. Their handles are not
+// public fields; server lowering creates the bridge values used by handlers.
+// Each text accessor copies request data before releasing its pin. Chunked
+// bodies remain owned snapshots; Content-Length handlers consume the single
+// streaming reader. Trailers remain snapshot-only and unavailable publicly.
+
+package std.http
+
+import std.net
+import std.error as Errs
+
+/// An HTTP handler starts an Aura task for one request. The server owns the
+/// request/response bridge until that task reaches a terminal outcome.
+pub type Handler = (Request, Response) -> Task<Unit>
+
+/// Serve every bounded HTTP/1.1 request on one accepted TCP stream. Callers
+/// normally `spawn` one invocation per `std.net.accept` result so slow clients
+/// cannot block accepting later connections.
+pub async fun serveConnection(stream: ForeignHandle<Int>,
+                              handler: (Request, Response) -> Task<Unit>): Unit {
+  throw "http intrinsic"
+}
+
+/// Accept and serve connections until the listener is closed or the server
+/// task is cancelled. At most 64 active connections are admitted at once;
+/// excess accepted work remains in the kernel listener queue until a connection
+/// completes. Closing the listener with `std.net.closeListener` wakes this
+/// task and completes it after active connections are cleaned up. Each
+/// connection receives an independently spawned task.
+pub async fun serve(listener: ForeignHandle<Int>,
+                    handler: (Request, Response) -> Task<Unit>): Unit {
+  throw "http intrinsic"
+}
+
+/// Send one bounded HTTP/1.1 GET request to a loopback TCP server and return
+/// the raw response bytes. This initial client closes the connection after one
+/// response; response parsing and pooled/streaming transports remain separate
+/// APIs.
+pub async fun get(port: Int, target: String): String {
+  val stream = connect(port, 1000)
+  val request = "GET " + target + " HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n"
+  await writeStream(stream, request)
+  val response: String = await readAllStream(stream, 65536)
+  closeStream(stream)
+  return response
+}
+
+/// Send one bounded HTTP/1.1 POST request to a loopback TCP server and return
+/// the raw response bytes. `body` is sent with an exact Content-Length; this
+/// helper deliberately does not claim request streaming or custom headers.
+pub async fun post(port: Int, target: String, body: String): String {
+  val stream = connect(port, 1000)
+  val request = "POST " + target + " HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: " +
+                body.len.toString() + "\r\nConnection: close\r\n\r\n" + body
+  await writeStream(stream, request)
+  val response: String = await readAllStream(stream, 65536)
+  closeStream(stream)
+  return response
+}
+
+/// A bounded parsed HTTP/1.1 response. Invalid framing is represented by a
+/// zero status and empty body until typed client errors are available.
+pub class ClientResponse(pub val status: Int, pub val body: String) {}
+
+/// Fetch one loopback HTTP/1.1 response and split its status line and body.
+/// Headers remain in the raw response API while the typed client grows its
+/// error and header model.
+pub async fun getResponse(port: Int, target: String): ClientResponse {
+  val raw: String = await get(port, target)
+  return parseResponse(raw)
+}
+
+/// Send a bounded loopback POST request and split its HTTP/1.1 response.
+pub async fun postResponse(port: Int, target: String, body: String): ClientResponse {
+  val raw: String = await post(port, target, body)
+  return parseResponse(raw)
+}
+
+/// Typed variant that preserves protocol failures instead of returning status 0.
+pub async fun getResponseResult(port: Int, target: String): Errs.Outcome<ClientResponse, Errs.Error> {
+  val raw: String = await get(port, target)
+  return parseResponseResult(raw)
+}
+
+/// Typed variant of `postResponse` with shared std.error payloads.
+pub async fun postResponseResult(port: Int, target: String, body: String): Errs.Outcome<ClientResponse, Errs.Error> {
+  val raw: String = await post(port, target, body)
+  return parseResponseResult(raw)
+}
+
+/// Split the status line and body of one bounded HTTP/1.1 response.
+fun parseResponse(raw: String): ClientResponse {
+  val bodyStart = raw.indexOf("\r\n\r\n")
+  if (!raw.startsWith("HTTP/1.") || raw.len < 12 || bodyStart < 0) {
+    return ClientResponse(0, "")
+  }
+  val parsed = raw.substring(9, 12).toInt()
+  if (parsed == null) {
+    return ClientResponse(0, "")
+  }
+  return ClientResponse(parsed!!, raw.substring(bodyStart + 4, raw.len))
+}
+
+fun parseResponseResult(raw: String): Errs.Outcome<ClientResponse, Errs.Error> {
+  val bodyStart = raw.indexOf("\r\n\r\n")
+  if (!raw.startsWith("HTTP/1.") || raw.len < 12 || bodyStart < 0) {
+    return Errs.failure(Errs.protocol("invalid HTTP response framing", 0))
+  }
+  val parsed = raw.substring(9, 12).toInt()
+  if (parsed == null) {
+    return Errs.failure(Errs.protocol("invalid HTTP status code", 0))
+  }
+  return Errs.success(ClientResponse(parsed!!, raw.substring(bodyStart + 4, raw.len)))
+}
+
+pub class Request(private val handle: ForeignHandle<Int>) {
+  pub fun method(): String { return requestMethod(this.handle) }
+  pub fun target(): String { return requestTarget(this.handle) }
+  pub fun version(): String { return requestVersion(this.handle) }
+  pub fun headerCount(): Int { return requestHeaderCount(this.handle) }
+  pub fun headerName(index: Int): String { return requestHeaderName(this.handle, index) }
+  pub fun headerValue(index: Int): String { return requestHeaderValue(this.handle, index) }
+  /// Returns a bounded decoded snapshot when one was materialized by the
+  /// connection path. Streaming handlers should use `bodyReader` instead.
+  pub fun body(): String { return requestBody(this.handle) }
+  /// Returns the one handler-scoped reader for a Content-Length body.
+  pub fun bodyReader(): RequestBody { return RequestBody(this.handle) }
+}
+
+/// A handler-scoped, single-reader view of a Content-Length or chunked request body.
+/// `readChunk` returns an owned non-empty String, capped at 16 KiB, or an
+/// empty String at EOF. Snapshot-only bodies without streaming framing fail.
+pub class RequestBody(private val handle: ForeignHandle<Int>) {
+  pub async fun readChunk(capacity: Int): String {
+  throw "http intrinsic"
+  }
+}
+
+pub class Response(private val handle: ForeignHandle<Int>,
+                   private val connection: ForeignHandle<Int>) {
+  pub fun status(): Int { return responseStatus(this.handle) }
+  pub fun keepAlive(): Bool { return responseKeepAlive(this.handle) }
+  pub fun setStatus(status: Int): Bool { return responseSetStatus(this.handle, status) }
+  pub fun setKeepAlive(keepAlive: Bool): Bool {
+    return responseSetKeepAlive(this.handle, keepAlive)
+  }
+  pub fun setBody(body: String): Bool { return responseSetBody(this.handle, body) }
+  pub fun addHeader(name: String, value: String): Bool {
+    return responseAddHeader(this.handle, name, value)
+  }
+  /// Commits a chunked response on its first call and writes one owned chunk.
+  /// Headers, status, and the buffered body cannot change after this point.
+  pub async fun writeChunk(body: String): Unit {
+    throw "http intrinsic"
+  }
+}
+
+// These bridge functions are deliberately package-private. Compiler-generated
+// server code supplies the handles; application handlers receive Request and
+// Response instead of raw foreign resources.
+fun requestMethod(request: ForeignHandle<Int>): String { throw "http intrinsic" }
+fun requestTarget(request: ForeignHandle<Int>): String { throw "http intrinsic" }
+fun requestVersion(request: ForeignHandle<Int>): String { throw "http intrinsic" }
+fun requestHeaderCount(request: ForeignHandle<Int>): Int { throw "http intrinsic" }
+fun requestHeaderName(request: ForeignHandle<Int>, index: Int): String { throw "http intrinsic" }
+fun requestHeaderValue(request: ForeignHandle<Int>, index: Int): String { throw "http intrinsic" }
+fun requestBody(request: ForeignHandle<Int>): String { throw "http intrinsic" }
+fun responseStatus(response: ForeignHandle<Int>): Int { throw "http intrinsic" }
+fun responseKeepAlive(response: ForeignHandle<Int>): Bool { throw "http intrinsic" }
+fun responseSetStatus(response: ForeignHandle<Int>, status: Int): Bool { throw "http intrinsic" }
+fun responseSetKeepAlive(response: ForeignHandle<Int>, keepAlive: Bool): Bool {
+  throw "http intrinsic"
+}
+fun responseSetBody(response: ForeignHandle<Int>, body: String): Bool { throw "http intrinsic" }
+fun responseAddHeader(response: ForeignHandle<Int>, name: String, value: String): Bool {
+  throw "http intrinsic"
+}

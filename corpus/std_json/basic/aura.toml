@@ -1,0 +1,6 @@
+[package]
+name = "demo.stdjson.basic"
+
+[[bin]]
+name = "basic"
+path = "src"

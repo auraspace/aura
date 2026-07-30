@@ -1,0 +1,16 @@
+// Compile coverage for the handler-scoped RequestBody API. Runtime coverage
+// lives in the HTTP async fixture because this corpus has no listener owner.
+package demo.stdhttp.streambody
+
+import std.http
+
+async fun readTwoChunks(request: Request, response: Response): Unit {
+  val body = request.bodyReader()
+  val first: String = await body.readChunk(3)
+  val second: String = await body.readChunk(16384)
+  response.setBody(first + second)
+}
+
+fun main() {
+  println("std.http RequestBody compiles")
+}

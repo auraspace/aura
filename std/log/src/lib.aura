@@ -1,0 +1,36 @@
+// std.log -- bounded structured text logging.
+
+package std.log
+
+pub fun debug(message: String) { }
+pub fun info(message: String) { }
+pub fun warn(message: String) { }
+pub fun error(message: String) { }
+
+/// Set the minimum emitted level: 0=debug, 1=info, 2=warn, 3=error.
+pub fun setMinLevel(level: Int): Bool { return false }
+
+pub fun minLevel(): Int { return 0 }
+
+/// Emit an info event with alternating key/value fields. Odd trailing fields
+/// are ignored so malformed diagnostic context cannot crash logging.
+pub fun infoFields(message: String, fields: Array<String>) {
+  var rendered = message
+  var index = 0
+  while (index + 1 < fields.len) {
+    rendered = rendered + " " + fields.get(index) + "=" + fields.get(index + 1)
+    index = index + 2
+  }
+  info(rendered)
+}
+
+/// Emit an error event with alternating key/value fields.
+pub fun errorFields(message: String, fields: Array<String>) {
+  var rendered = message
+  var index = 0
+  while (index + 1 < fields.len) {
+    rendered = rendered + " " + fields.get(index) + "=" + fields.get(index + 1)
+    index = index + 2
+  }
+  error(rendered)
+}

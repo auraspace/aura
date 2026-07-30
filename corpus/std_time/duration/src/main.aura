@@ -1,0 +1,19 @@
+package demo.stdtime.duration
+
+import std.io
+import std.time
+
+async fun waitAndPrint(duration: Duration): Unit {
+  await sleepFor(duration)
+  println("duration-ok")
+}
+
+fun main() {
+  val duration = milliseconds(1)
+  if (duration.isValid()) {
+    val deadline = after(duration)
+    if (deadline.remaining().milliseconds >= 0) {
+      println("duration-ok")
+    }
+  }
+}

@@ -1,0 +1,17 @@
+package demo.stderror.shared
+
+import std.error as Errors
+
+fun load(ok: Bool): Errors.Outcome<String, Errors.Error> {
+  if (ok) {
+    return Errors.success("ready")
+  }
+  return Errors.failure(Errors.protocol("bad input", 400))
+}
+
+fun main() {
+  val result: Errors.Outcome<String, Errors.Error> = load(true)
+  if (Errors.isSuccess(result)) { println("ok") } else { println("error") }
+  println(Errors.kindCode(22).toString())
+  if (Errors.network("retry", 111).isRetryable()) { println("retry") }
+}

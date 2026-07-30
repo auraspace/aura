@@ -1,0 +1,35 @@
+// std.task -- public names for the bounded runtime task lifecycle.
+
+package std.task
+
+import std.io
+
+/// Observe a task terminal state without throwing for task failure or cancellation.
+pub fun joinTask<T>(task: TaskHandle<T>): Result<T, TaskError> {
+  return join(task)
+}
+
+/// Request cooperative cancellation. It is idempotent and takes effect at the
+/// next task scheduling boundary.
+pub fun cancelTask<T>(task: TaskHandle<T>) {
+  cancel(task)
+}
+
+/// Arrange cooperative cancellation after `milliseconds`. Returns false for
+/// an invalid/terminal task or an overflowing duration.
+pub fun cancelAfter<T>(task: TaskHandle<T>, milliseconds: Int): Bool {
+  return false
+}
+
+/// Propagate cooperative cancellation from `parent` to `child`.
+/// Both handles must belong to the same live executor.
+pub fun linkCancellation<P, C>(parent: TaskHandle<P>, child: TaskHandle<C>): Bool {
+  return false
+}
+
+/// Return whether the currently running task has received a cancellation
+/// request. The value is cooperative: cancellation still takes effect at the
+/// next scheduler boundary, and calls outside an async task return `false`.
+pub fun isCancelled(): Bool {
+  return false
+}

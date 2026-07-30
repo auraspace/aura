@@ -1,0 +1,20 @@
+package demo.stddns.resolve
+
+import std.io as Io
+import std.dns
+import std.error as Errs
+
+fun main() {
+  val address = resolveHost("127.0.0.1", false)
+  if (address != null) {
+    Io.println(address)
+  }
+  val addresses = resolveHostList("127.0.0.1", false)
+  if (addresses != null) {
+    Io.println("list")
+  }
+  val result: Errs.Outcome<String, Errs.Error> = resolveHostResult("127.0.0.1", false)
+  if (Errs.isSuccess(result)) {
+    Io.println("resolved")
+  }
+}

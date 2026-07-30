@@ -1,0 +1,6 @@
+[package]
+name = "demo.stdstream.adapters"
+
+[[bin]]
+name = "adapters"
+path = "src"

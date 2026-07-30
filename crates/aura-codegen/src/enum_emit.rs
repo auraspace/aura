@@ -30,6 +30,13 @@ fn task_result_foreign_handle_ok(e: &EnumDecl, pkg: &str, args: &[Ty], variant: 
         && matches!(args, [Ty::ForeignHandle(_), Ty::Enum(name)] if name == "TaskError@std.io")
 }
 
+fn shared_outcome_string_ok(e: &EnumDecl, pkg: &str, args: &[Ty], variant: &str) -> bool {
+    pkg == "std.error"
+        && e.name.name == "Outcome"
+        && variant == "OutcomeOk"
+        && matches!(args.first(), Some(Ty::String))
+}
+
 fn enum_field_c_type(
     field: &Param,
     params: &[String],
@@ -80,6 +87,9 @@ pub(crate) fn emit_enum_typedef(
                 out.push_str("      bool owned;\n");
             }
             if task_result_foreign_handle_ok(e, &pkg, args, &v.name.name) {
+                out.push_str("      bool owned;\n");
+            }
+            if shared_outcome_string_ok(e, &pkg, args, &v.name.name) {
                 out.push_str("      bool owned;\n");
             }
             let _ = writeln!(out, "    }} {};", mangle_ident(&v.name.name));
@@ -177,6 +187,9 @@ pub(crate) fn emit_enum_defs(out: &mut String, checked: &CheckedFile, e: &EnumDe
             if task_result_foreign_handle_ok(e, &pkg, args, &v.name.name) {
                 let _ = writeln!(out, "  self.data.Ok.owned = false;");
             }
+            if shared_outcome_string_ok(e, &pkg, args, &v.name.name) {
+                let _ = writeln!(out, "  self.data.OutcomeOk.owned = false;");
+            }
         }
         out.push_str("  return self;\n}\n");
     }
@@ -215,6 +228,16 @@ pub(crate) fn emit_enum_defs(out: &mut String, checked: &CheckedFile, e: &EnumDe
         let _ = writeln!(
             out,
             "{} {}(AuraFfiOpaqueHandle *value) {{ {} self; self.tag = 0; self.data.Ok.value = value; self.data.Ok.owned = true; return self; }}",
+            c_enum_type(&mono),
+            ctor,
+            c_enum_type(&mono)
+        );
+    }
+    if shared_outcome_string_ok(e, &pkg, args, "OutcomeOk") {
+        let ctor = c_variant_ctor_name(&mono, "OutcomeOkOwned");
+        let _ = writeln!(
+            out,
+            "{} {}(const char *value) {{ {} self; self.tag = 0; size_t __len = value == NULL ? 0 : strlen(value); char *__copy = (char *)malloc(__len + 1); if (__copy == NULL) abort(); if (value != NULL) memcpy(__copy, value, __len + 1); else __copy[0] = '\\0'; self.data.OutcomeOk.value = __copy; self.data.OutcomeOk.owned = true; return self; }}",
             c_enum_type(&mono),
             ctor,
             c_enum_type(&mono)

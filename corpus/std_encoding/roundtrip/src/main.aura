@@ -1,0 +1,10 @@
+package demo.stdencoding.roundtrip
+
+import std.encoding
+import std.io
+
+fun main() {
+  println(hexEncode("Aura"))
+  println(base64Encode("Aura"))
+  println(percentEncode("Aura space"))
+}

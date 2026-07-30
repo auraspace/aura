@@ -1,0 +1,23 @@
+package demo.stdtask.lifecycle
+
+import std.io as Io
+import std.task
+
+async fun answer(): Int {
+  return 42
+}
+
+fun main() {
+  val task: TaskHandle<Int> = spawn { val value: Int = await answer() return value }
+  val parent: TaskHandle<Unit> = spawn { return }
+  val child: TaskHandle<Unit> = spawn { return }
+  if (linkCancellation(parent, child)) {
+    Io.println("linked")
+  }
+  val outcome: Io.Result<Int, Io.TaskError> = joinTask(task)
+  match (outcome) {
+    case Ok(value) => { Io.println(value.toString()) }
+    case Err(error) => { Io.println("task failed") }
+  }
+  cancelTask(task)
+}

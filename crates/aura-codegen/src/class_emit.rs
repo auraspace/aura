@@ -529,7 +529,46 @@ pub(crate) fn emit_class_defs(
     emit_ctor_mono(out, c, checked, &params, args, &mono);
     out.push('\n');
     for m in &c.methods {
-        emit_method_mono(out, c, m, checked, &params, args, &mono, detector);
+        if class_decl_package(c, checked) == "std.http"
+            && c.name.name == "RequestBody"
+            && m.name.name == "readChunk"
+        {
+            emit_http_request_body_read_chunk_method(out, c, m, checked, &params, args, &mono);
+        } else if class_decl_package(c, checked) == "std.http"
+            && c.name.name == "Response"
+            && m.name.name == "writeChunk"
+        {
+            emit_http_response_write_chunk_method(out, c, m, checked, &params, args, &mono);
+        } else if class_decl_package(c, checked) == "std.sync"
+            && c.name.name == "AtomicInt"
+            && emit_atomic_int_method(out, c, m, checked, &params, args, &mono)
+        {
+            // The AtomicInt methods use compiler atomics rather than ordinary
+            // field loads/stores; the fallback body remains only for unknown
+            // methods added to the class.
+        } else if class_decl_package(c, checked) == "std.sync"
+            && c.name.name == "Mutex"
+            && emit_mutex_method(out, c, m, checked, &params, args, &mono)
+        {
+        } else if class_decl_package(c, checked) == "std.sync"
+            && c.name.name == "RwLock"
+            && emit_rwlock_method(out, c, m, checked, &params, args, &mono)
+        {
+        } else if class_decl_package(c, checked) == "std.sync"
+            && c.name.name == "Once"
+            && emit_once_method(out, c, m, checked, &params, args, &mono)
+        {
+        } else if class_decl_package(c, checked) == "std.metrics"
+            && c.name.name == "Counter"
+            && emit_counter_method(out, c, m, checked, &params, args, &mono)
+        {
+        } else if is_async_class_method(m) {
+            if !emit_async_class_method(out, c, m, checked, detector, &mono, &params, args) {
+                emit_method_mono(out, c, m, checked, &params, args, &mono, detector);
+            }
+        } else {
+            emit_method_mono(out, c, m, checked, &params, args, &mono, detector);
+        }
         out.push('\n');
     }
     // C9a: emit upcasts for this class monomorph's implements.
@@ -559,6 +598,413 @@ pub(crate) fn emit_class_defs(
             }
         }
     }
+}
+
+fn emit_atomic_int_method(
+    out: &mut String,
+    c: &ClassDecl,
+    m: &FunDecl,
+    checked: &CheckedFile,
+    params: &[String],
+    args: &[Ty],
+    mono: &str,
+) -> bool {
+    let name = m.name.name.as_str();
+    let signature = c_method_signature_mono(c, m, checked, params, args, mono);
+    match name {
+        "load" if m.params.is_empty() => {
+            let _ = writeln!(out, "{signature} {{ if (this == NULL) return 0; return __atomic_load_n(&this->value, __ATOMIC_SEQ_CST); }}");
+            true
+        }
+        "store" if m.params.len() == 1 => {
+            let value = mangle_ident(&m.params[0].name.name);
+            let _ = writeln!(out, "{signature} {{ if (this != NULL) __atomic_store_n(&this->value, {value}, __ATOMIC_SEQ_CST); }}");
+            true
+        }
+        "fetchAdd" if m.params.len() == 1 => {
+            let delta = mangle_ident(&m.params[0].name.name);
+            let _ = writeln!(out, "{signature} {{ if (this == NULL) return 0; return __atomic_fetch_add(&this->value, {delta}, __ATOMIC_SEQ_CST); }}");
+            true
+        }
+        "compareExchange" if m.params.len() == 2 => {
+            let expected = mangle_ident(&m.params[0].name.name);
+            let desired = mangle_ident(&m.params[1].name.name);
+            let _ = writeln!(out, "{signature} {{ if (this == NULL) return false; int64_t __expected = {expected}; return __atomic_compare_exchange_n(&this->value, &__expected, {desired}, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST); }}");
+            true
+        }
+        _ => false,
+    }
+}
+
+fn emit_mutex_method(
+    out: &mut String,
+    c: &ClassDecl,
+    m: &FunDecl,
+    checked: &CheckedFile,
+    params: &[String],
+    args: &[Ty],
+    mono: &str,
+) -> bool {
+    let signature = c_method_signature_mono(c, m, checked, params, args, mono);
+    match (m.name.name.as_str(), m.params.len()) {
+        ("tryLock", 0) => {
+            let _ = writeln!(out, "{signature} {{ if (this == NULL) return false; int64_t __expected = 0; return __atomic_compare_exchange_n(&this->state, &__expected, 1, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST); }}");
+            true
+        }
+        ("unlock", 0) => {
+            let _ = writeln!(out, "{signature} {{ if (this != NULL) __atomic_store_n(&this->state, 0, __ATOMIC_SEQ_CST); }}");
+            true
+        }
+        ("isLocked", 0) => {
+            let _ = writeln!(out, "{signature} {{ return this != NULL && __atomic_load_n(&this->state, __ATOMIC_SEQ_CST) != 0; }}");
+            true
+        }
+        _ => false,
+    }
+}
+
+fn emit_once_method(
+    out: &mut String,
+    c: &ClassDecl,
+    m: &FunDecl,
+    checked: &CheckedFile,
+    params: &[String],
+    args: &[Ty],
+    mono: &str,
+) -> bool {
+    let signature = c_method_signature_mono(c, m, checked, params, args, mono);
+    match (m.name.name.as_str(), m.params.len()) {
+        ("tryEnter", 0) => {
+            let _ = writeln!(out, "{signature} {{ if (this == NULL) return false; int64_t __expected = 0; return __atomic_compare_exchange_n(&this->state, &__expected, 1, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST); }}");
+            true
+        }
+        ("isDone", 0) => {
+            let _ = writeln!(out, "{signature} {{ return this != NULL && __atomic_load_n(&this->state, __ATOMIC_SEQ_CST) != 0; }}");
+            true
+        }
+        _ => false,
+    }
+}
+
+fn emit_rwlock_method(
+    out: &mut String,
+    c: &ClassDecl,
+    m: &FunDecl,
+    checked: &CheckedFile,
+    params: &[String],
+    args: &[Ty],
+    mono: &str,
+) -> bool {
+    let signature = c_method_signature_mono(c, m, checked, params, args, mono);
+    match (m.name.name.as_str(), m.params.len()) {
+        ("tryRead", 0) => {
+            let _ = writeln!(
+                out,
+                "{signature} {{ if (this == NULL) return false; int64_t __state = __atomic_load_n(&this->state, __ATOMIC_SEQ_CST); while (__state >= 0) {{ if (__state == INT64_MAX) return false; int64_t __next = __state + 1; if (__atomic_compare_exchange_n(&this->state, &__state, __next, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)) return true; }} return false; }}"
+            );
+            true
+        }
+        ("tryWrite", 0) => {
+            let _ = writeln!(out, "{signature} {{ if (this == NULL) return false; int64_t __expected = 0; return __atomic_compare_exchange_n(&this->state, &__expected, -1, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST); }}");
+            true
+        }
+        ("unlockRead", 0) => {
+            let _ = writeln!(out, "{signature} {{ if (this != NULL) {{ int64_t __state = __atomic_load_n(&this->state, __ATOMIC_SEQ_CST); while (__state > 0 && !__atomic_compare_exchange_n(&this->state, &__state, __state - 1, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)) {{ }} }} }}");
+            true
+        }
+        ("unlockWrite", 0) => {
+            let _ = writeln!(out, "{signature} {{ if (this != NULL) {{ int64_t __expected = -1; (void)__atomic_compare_exchange_n(&this->state, &__expected, 0, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST); }} }}");
+            true
+        }
+        ("readerCount", 0) => {
+            let _ = writeln!(out, "{signature} {{ if (this == NULL) return 0; int64_t __state = __atomic_load_n(&this->state, __ATOMIC_SEQ_CST); return __state > 0 ? __state : 0; }}");
+            true
+        }
+        ("isWriteLocked", 0) => {
+            let _ = writeln!(out, "{signature} {{ return this != NULL && __atomic_load_n(&this->state, __ATOMIC_SEQ_CST) == -1; }}");
+            true
+        }
+        _ => false,
+    }
+}
+
+fn emit_counter_method(
+    out: &mut String,
+    c: &ClassDecl,
+    m: &FunDecl,
+    checked: &CheckedFile,
+    params: &[String],
+    args: &[Ty],
+    mono: &str,
+) -> bool {
+    let signature = c_method_signature_mono(c, m, checked, params, args, mono);
+    match (m.name.name.as_str(), m.params.len()) {
+        ("add", 1) => {
+            let amount = mangle_ident(&m.params[0].name.name);
+            let _ = writeln!(out, "{signature} {{ if (this == NULL) return 0; return __atomic_add_fetch(&this->value, {amount}, __ATOMIC_SEQ_CST); }}");
+            true
+        }
+        ("increment", 0) => {
+            let _ = writeln!(out, "{signature} {{ if (this == NULL) return 0; return __atomic_add_fetch(&this->value, 1, __ATOMIC_SEQ_CST); }}");
+            true
+        }
+        ("get", 0) => {
+            let _ = writeln!(out, "{signature} {{ if (this == NULL) return 0; return __atomic_load_n(&this->value, __ATOMIC_SEQ_CST); }}");
+            true
+        }
+        ("reset", 0) => {
+            let _ = writeln!(out, "{signature} {{ if (this != NULL) __atomic_store_n(&this->value, 0, __ATOMIC_SEQ_CST); }}");
+            true
+        }
+        _ => false,
+    }
+}
+
+fn is_async_class_method(m: &FunDecl) -> bool {
+    m.return_type
+        .as_ref()
+        .is_some_and(|ret| ret.name.name == "Task" && ret.type_args.len() == 1)
+}
+
+fn emit_async_class_method(
+    out: &mut String,
+    c: &ClassDecl,
+    m: &FunDecl,
+    checked: &CheckedFile,
+    detector: bool,
+    mono: &str,
+    class_params: &[String],
+    class_args: &[Ty],
+) -> bool {
+    let Some(task_ty) = m.return_type.as_ref() else {
+        return false;
+    };
+    let Some(result_ty) = task_ty.type_args.first() else {
+        return false;
+    };
+    let synthetic_name = if class_args.is_empty() {
+        format!("{}_{}", c.name.name, m.name.name)
+    } else {
+        format!("{}_{}_{}", c.name.name, m.name.name, mono)
+    };
+    let concrete_this = TypeRef {
+        qualifier: None,
+        name: c.name.clone(),
+        type_args: class_args
+            .iter()
+            .map(|ty| type_ref_from_ty(ty, c.span))
+            .collect(),
+        nullable: false,
+        reference: false,
+        span: c.span,
+        fun: None,
+    };
+    let this_param = Param {
+        attributes: Vec::new(),
+        name: Ident {
+            name: "this".into(),
+            span: c.span,
+        },
+        ty: concrete_this,
+        span: c.span,
+    };
+    let mut params = vec![this_param];
+    params.extend(m.params.clone());
+    let synthetic = AsyncFunDecl {
+        is_pub: m.is_pub,
+        origin_package: class_decl_package(c, checked),
+        attributes: m.attributes.clone(),
+        is_test: false,
+        name: Ident {
+            name: synthetic_name.clone(),
+            span: m.name.span,
+        },
+        type_params: Vec::new(),
+        params,
+        return_type: Some(subst_type_ref(result_ty, class_params, class_args, c.span)),
+        body: m.body.clone(),
+        span: m.span,
+    };
+    crate::emit::emit_async_fun_decl(out, &synthetic, checked, detector);
+    let wrapper = c_method_signature_mono(c, m, checked, &[], &[], mono);
+    let call_name = c_fun_name(&class_decl_package(c, checked), &synthetic_name, &[]);
+    let call_args = std::iter::once("this".to_string())
+        .chain(m.params.iter().map(|p| mangle_ident(&p.name.name)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let _ = writeln!(out, "{wrapper} {{ return {call_name}({call_args}); }}");
+    true
+}
+
+fn subst_type_ref(ty: &TypeRef, params: &[String], args: &[Ty], span: Span) -> TypeRef {
+    if let Some(index) = params.iter().position(|param| param == &ty.name.name) {
+        if let Some(arg) = args.get(index) {
+            let mut resolved = type_ref_from_ty(arg, span);
+            resolved.nullable = ty.nullable;
+            resolved.reference = ty.reference;
+            return resolved;
+        }
+    }
+    let mut resolved = ty.clone();
+    resolved.type_args = ty
+        .type_args
+        .iter()
+        .map(|arg| subst_type_ref(arg, params, args, span))
+        .collect();
+    resolved
+}
+
+fn type_ref_from_ty(ty: &Ty, span: Span) -> TypeRef {
+    let (name, type_args) = match ty {
+        Ty::Nullable(inner) => {
+            return {
+                let mut out = type_ref_from_ty(inner, span);
+                out.nullable = true;
+                out
+            }
+        }
+        Ty::ClassApp { name, args }
+        | Ty::EnumApp { name, args }
+        | Ty::InterfaceApp { name, args } => (
+            name.split('@').next().unwrap_or(name).to_string(),
+            args.iter().map(|arg| type_ref_from_ty(arg, span)).collect(),
+        ),
+        Ty::Class(name) | Ty::Enum(name) | Ty::Interface(name) => (
+            name.split('@').next().unwrap_or(name).to_string(),
+            Vec::new(),
+        ),
+        _ => (ty.display(), Vec::new()),
+    };
+    TypeRef {
+        qualifier: None,
+        name: Ident { name, span },
+        type_args,
+        nullable: false,
+        reference: false,
+        span,
+        fun: None,
+    }
+}
+
+fn emit_http_response_write_chunk_method(
+    out: &mut String,
+    c: &ClassDecl,
+    m: &FunDecl,
+    checked: &CheckedFile,
+    params: &[String],
+    args: &[Ty],
+    mono: &str,
+) {
+    let data_ty = format!("aura_async_data_{mono}_writeChunk");
+    let poll = format!("aura_async_poll_{mono}_writeChunk");
+    let destroy = format!("aura_async_destroy_{mono}_writeChunk");
+    let body = mangle_ident(&m.params[0].name.name);
+
+    out.push_str("/* compiler-generated std.http.Response.writeChunk */\n");
+    let _ = writeln!(
+        out,
+        "typedef struct {data_ty} {{ AuraFfiOpaqueHandle *response_handle; AuraFfiOpaqueHandle *connection_handle; AuraFfiHandlePin response_pin; AuraFfiHandlePin connection_pin; AuraHttpResponse *response; AuraHttpConnection *connection; bool response_pinned; bool connection_pinned; char *body; size_t body_length; char *output; size_t output_length; size_t output_offset; }} {data_ty};"
+    );
+    let _ = writeln!(
+        out,
+        "static void {destroy}(AuraTaskFrame *frame) {{ {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame); if (data != NULL) {{ free(data->body); free(data->output); if (data->connection_pinned) (void)aura_ffi_handle_unpin(&data->connection_pin); if (data->response_pinned) (void)aura_ffi_handle_unpin(&data->response_pin); }} }}"
+    );
+    let _ = writeln!(
+        out,
+        "static AuraTaskPollState {poll}(AuraTaskFrame *frame) {{"
+    );
+    let _ = writeln!(
+        out,
+        "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame);"
+    );
+    out.push_str("  if (data == NULL || aura_task_frame_cancel_requested(frame)) return AURA_TASK_CANCELLED;\n  switch (aura_task_frame_resume_state(frame)) {\n    case 0: {\n      size_t headers = 0, chunk = 0, written = 0;\n      if (data->response_handle == NULL || data->connection_handle == NULL || data->body == NULL || data->body_length == 0) return AURA_TASK_FAILED;\n      if (aura_ffi_handle_pin_for_boundary(data->response_handle, AURA_FFI_BOUNDARY_TASK, &data->response_pin) != AURA_FFI_OK) return AURA_TASK_FAILED;\n      data->response_pinned = true; data->response = (AuraHttpResponse *)data->response_pin.resource;\n      if (aura_ffi_handle_pin_for_boundary(data->connection_handle, AURA_FFI_BOUNDARY_TASK, &data->connection_pin) != AURA_FFI_OK) return AURA_TASK_FAILED;\n      data->connection_pinned = true; data->connection = (AuraHttpConnection *)data->connection_pin.resource;\n      if (!aura_http_response_stream_started(data->response) && (aura_http_response_stream_begin(data->response, NULL, 0, &headers) != AURA_HTTP_RESPONSE_BUFFER_TOO_SMALL || headers == 0)) return AURA_TASK_FAILED;\n      if (aura_http_response_stream_chunk(data->body, data->body_length, NULL, 0, &chunk) != AURA_HTTP_RESPONSE_BUFFER_TOO_SMALL || chunk == 0 || headers > SIZE_MAX - chunk) return AURA_TASK_FAILED;\n      data->output_length = headers + chunk; data->output = (char *)malloc(data->output_length);\n      if (data->output == NULL || (headers != 0 && (aura_http_response_stream_begin(data->response, data->output, headers, &written) != AURA_HTTP_RESPONSE_OK || written != headers)) || aura_http_response_stream_chunk(data->body, data->body_length, data->output + headers, chunk, &written) != AURA_HTTP_RESPONSE_OK || written != chunk) return AURA_TASK_FAILED;\n      free(data->body); data->body = NULL; aura_task_frame_set_resume_state(frame, 1);\n    }\n    case 1: {\n      while (data->output_offset < data->output_length) { size_t written = 0; AuraTcpStatus status = aura_http_connection_stream_write(data->connection, data->output + data->output_offset, data->output_length - data->output_offset, &written); if (status == AURA_TCP_PENDING) { if (!aura_http_connection_wait_write(frame, data->connection)) return AURA_TASK_FAILED; return AURA_TASK_PENDING; } if (status != AURA_TCP_OK || written == 0) return AURA_TASK_FAILED; data->output_offset += written; }\n      return AURA_TASK_COMPLETE;\n    }\n    default: return AURA_TASK_FAILED;\n  }\n}\n");
+    let _ = writeln!(
+        out,
+        "{} {{",
+        c_method_signature_mono(c, m, checked, params, args, mono)
+    );
+    let _ = writeln!(
+        out,
+        "  AuraTaskFrame *frame = aura_task_frame_new(sizeof({data_ty}), {poll}, {destroy});"
+    );
+    out.push_str("  if (frame == NULL) return NULL;\n");
+    let _ = writeln!(
+        out,
+        "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame);"
+    );
+    let _ = writeln!(out, "  if (this == NULL || {body} == NULL || {body}[0] == '\\0') {{ aura_task_frame_destroy(frame); return NULL; }} data->response_handle = this->handle; data->connection_handle = this->connection; data->body_length = strlen({body}); data->body = aura_http_copy_bytes({body}, data->body_length); data->output = NULL; data->output_length = 0; data->output_offset = 0; data->response_pinned = false; data->connection_pinned = false; if (data->body == NULL) {{ aura_task_frame_destroy(frame); return NULL; }}");
+    out.push_str("  if (__aura_task_executor != NULL && !aura_task_executor_submit(__aura_task_executor, frame)) { aura_task_frame_destroy(frame); return NULL; }\n  return frame;\n}\n");
+}
+
+fn emit_http_request_body_read_chunk_method(
+    out: &mut String,
+    c: &ClassDecl,
+    m: &FunDecl,
+    checked: &CheckedFile,
+    params: &[String],
+    args: &[Ty],
+    mono: &str,
+) {
+    let data_ty = format!("aura_async_data_{mono}_readChunk");
+    let poll = format!("aura_async_poll_{mono}_readChunk");
+    let destroy = format!("aura_async_destroy_{mono}_readChunk");
+    let destroy_result = format!("aura_async_result_destroy_{mono}_readChunk");
+    let destroy_error = format!("aura_async_error_destroy_{mono}_readChunk");
+    let capacity = mangle_ident(&m.params[0].name.name);
+
+    out.push_str("/* compiler-generated std.http.RequestBody.readChunk */\n");
+    let _ = writeln!(
+        out,
+        "typedef struct {data_ty} {{ AuraFfiOpaqueHandle *handle; AuraFfiHandlePin pin; const AuraHttpRequest *request; bool pinned; bool read_claimed; size_t capacity; char *buffer; }} {data_ty};"
+    );
+    let _ = writeln!(
+        out,
+        "static void {destroy}(AuraTaskFrame *frame) {{ {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame); if (data != NULL) {{ free(data->buffer); if (data->read_claimed) aura_http_request_body_read_end(data->request); if (data->pinned) (void)aura_ffi_handle_unpin(&data->pin); }} }}"
+    );
+    let _ = writeln!(
+        out,
+        "static void {destroy_result}(void *value, size_t size) {{ (void)size; if (value != NULL) {{ char **text = (char **)value; free(*text); free(text); }} }}"
+    );
+    let _ = writeln!(
+        out,
+        "static void {destroy_error}(void *value, size_t size) {{ (void)size; free(value); }}"
+    );
+    let _ = writeln!(
+        out,
+        "static AuraTaskPollState {poll}(AuraTaskFrame *frame) {{"
+    );
+    let _ = writeln!(
+        out,
+        "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame);"
+    );
+    out.push_str("  if (aura_task_frame_cancel_requested(frame)) return AURA_TASK_CANCELLED;\n  if (aura_task_frame_take_fd_wait_timeout(frame)) { const char *message = \"request body timeout\"; size_t length = strlen(message) + 1; char *error = (char *)malloc(length); if (error == NULL) return AURA_TASK_FAILED; memcpy(error, message, length); aura_task_frame_set_error_at(frame, error, length, ");
+    out.push_str(&destroy_error);
+    out.push_str(", UINT32_C(0)); return AURA_TASK_FAILED; }\n  switch (aura_task_frame_resume_state(frame)) {\n    case 0: {\n      if (data == NULL || data->handle == NULL || data->capacity == 0) return AURA_TASK_FAILED;\n      if (aura_ffi_handle_pin_for_boundary(data->handle, AURA_FFI_BOUNDARY_TASK, &data->pin) != AURA_FFI_OK) return AURA_TASK_FAILED;\n      data->pinned = true; data->request = (const AuraHttpRequest *)data->pin.resource; if (!aura_http_request_body_read_begin(data->request)) return AURA_TASK_FAILED; data->read_claimed = true; data->buffer = (char *)malloc(data->capacity + 1); if (data->buffer == NULL) return AURA_TASK_FAILED;\n      aura_task_frame_set_resume_state(frame, 1);\n    }\n    case 1: {\n      size_t count = 0; AuraTcpStatus status = aura_http_request_read_body(data->request, (unsigned char *)data->buffer, data->capacity, &count);\n      if (status == AURA_TCP_PENDING || status == AURA_TCP_TIMEOUT) { if (!aura_http_request_wait_body(frame, data->request)) return AURA_TASK_FAILED; return AURA_TASK_PENDING; }\n      if (status != AURA_TCP_OK && status != AURA_TCP_EOF) { const char *message = \"request body read failed\"; size_t length = strlen(message) + 1; char *error = (char *)malloc(length); if (error == NULL) return AURA_TASK_FAILED; memcpy(error, message, length); aura_task_frame_set_error_at(frame, error, length, ");
+    out.push_str(&destroy_error);
+    out.push_str(", UINT32_C(0)); return AURA_TASK_FAILED; }\n      data->buffer[count] = '\\0'; char **result = (char **)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; *result = data->buffer; data->buffer = NULL; aura_http_request_body_read_end(data->request); data->read_claimed = false; aura_task_frame_set_result(frame, result, sizeof(*result), ");
+    out.push_str(&destroy_result);
+    out.push_str(
+        "); return AURA_TASK_COMPLETE;\n    }\n    default: return AURA_TASK_FAILED;\n  }\n}\n",
+    );
+    let _ = writeln!(
+        out,
+        "{} {{",
+        c_method_signature_mono(c, m, checked, params, args, mono)
+    );
+    let _ = writeln!(
+        out,
+        "  AuraTaskFrame *frame = aura_task_frame_new(sizeof({data_ty}), {poll}, {destroy});"
+    );
+    out.push_str("  if (frame == NULL) return NULL;\n");
+    let _ = writeln!(
+        out,
+        "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame);"
+    );
+    let _ = writeln!(
+        out,
+        "  if (this == NULL || {capacity} <= 0) {{ aura_task_frame_destroy(frame); return NULL; }} data->handle = this->handle; data->request = NULL; data->capacity = (size_t){capacity}; if (data->capacity > 16384) data->capacity = 16384; data->pinned = false; data->read_claimed = false; data->buffer = NULL;"
+    );
+    out.push_str("  if (__aura_task_executor != NULL && !aura_task_executor_submit(__aura_task_executor, frame)) { aura_task_frame_destroy(frame); return NULL; }\n  return frame;\n}\n");
 }
 
 pub(crate) fn c_ctor_signature_mono(

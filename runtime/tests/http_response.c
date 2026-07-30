@@ -123,12 +123,53 @@ static void test_stable_error_response(void)
   aura_http_response_destroy(&response);
 }
 
+static void test_chunked_streaming_response_commits_headers(void)
+{
+  AuraHttpResponse response;
+  char headers[256] = {0};
+  char chunk[64] = {0};
+  char terminal[16] = {0};
+  size_t headers_length = 0;
+  size_t chunk_length = 0;
+  size_t terminal_length = 0;
+
+  aura_http_response_init(&response);
+  assert(aura_http_response_set_connection(&response,
+                                           AURA_HTTP_RESPONSE_KEEP_ALIVE) ==
+         AURA_HTTP_RESPONSE_OK);
+  assert(aura_http_response_add_header(&response, "Content-Type", "text/plain") ==
+         AURA_HTTP_RESPONSE_OK);
+  assert(aura_http_response_stream_begin(&response, NULL, 0, &headers_length) ==
+         AURA_HTTP_RESPONSE_BUFFER_TOO_SMALL);
+  assert(aura_http_response_stream_begin(&response, headers, sizeof(headers),
+                                         &headers_length) == AURA_HTTP_RESPONSE_OK);
+  assert(strstr(headers, "Transfer-Encoding: chunked\r\n") != NULL);
+  assert(strstr(headers, "Content-Length:") == NULL);
+  assert(aura_http_response_set_status(&response, 201) == AURA_HTTP_RESPONSE_INVALID);
+  assert(aura_http_response_add_header(&response, "X-Late", "no") ==
+         AURA_HTTP_RESPONSE_INVALID);
+  assert(aura_http_response_set_body(&response, "no", 2) ==
+         AURA_HTTP_RESPONSE_INVALID);
+  assert(aura_http_response_stream_chunk("hello", 5, NULL, 0, &chunk_length) ==
+         AURA_HTTP_RESPONSE_BUFFER_TOO_SMALL);
+  assert(aura_http_response_stream_chunk("hello", 5, chunk, sizeof(chunk),
+                                         &chunk_length) == AURA_HTTP_RESPONSE_OK);
+  assert(chunk_length == 10);
+  assert(memcmp(chunk, "5\r\nhello\r\n", chunk_length) == 0);
+  assert(aura_http_response_stream_finish(&response, terminal, sizeof(terminal),
+                                          &terminal_length) == AURA_HTTP_RESPONSE_OK);
+  assert(terminal_length == 5);
+  assert(memcmp(terminal, "0\r\n\r\n", terminal_length) == 0);
+  aura_http_response_destroy(&response);
+}
+
 int main(void)
 {
   test_deterministic_binary_keep_alive_response();
   test_header_validation_and_automatic_headers();
   test_status_body_and_size_validation();
   test_stable_error_response();
+  test_chunked_streaming_response_commits_headers();
   puts("http response tests passed");
   return 0;
 }

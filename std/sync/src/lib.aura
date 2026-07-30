@@ -1,0 +1,36 @@
+// std.sync -- bounded scheduler-safe synchronization primitives.
+
+package std.sync
+
+/// Sequentially consistent signed 64-bit atomic value.
+pub class AtomicInt(private var value: Int) {
+  pub fun load(): Int { return this.value }
+  pub fun store(nextValue: Int): Unit { }
+  pub fun fetchAdd(amount: Int): Int { return this.value }
+  pub fun compareExchange(expected: Int, desired: Int): Bool { return false }
+}
+
+/// Cooperative mutex state. `tryLock` never blocks an async worker; callers
+/// should yield/retry or use a higher-level async lock adapter.
+pub class Mutex(private var state: Int) {
+  pub fun tryLock(): Bool { return false }
+  pub fun unlock(): Unit { }
+  pub fun isLocked(): Bool { return false }
+}
+
+/// Non-blocking reader/writer lock. State is zero for unlocked, positive for
+/// active readers, and negative for one active writer.
+pub class RwLock(private var state: Int) {
+  pub fun tryRead(): Bool { return false }
+  pub fun tryWrite(): Bool { return false }
+  pub fun unlockRead(): Unit { }
+  pub fun unlockWrite(): Unit { }
+  pub fun readerCount(): Int { return 0 }
+  pub fun isWriteLocked(): Bool { return false }
+}
+
+/// One-shot initialization gate. `tryEnter` wins exactly once.
+pub class Once(private var state: Int) {
+  pub fun tryEnter(): Bool { return false }
+  pub fun isDone(): Bool { return false }
+}

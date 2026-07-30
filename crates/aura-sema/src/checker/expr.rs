@@ -733,6 +733,7 @@ impl Checker {
                 result.map(|_| Ty::TaskHandle(Box::new(inferred)))
             }
             AsyncExpr::Join(j) => {
+                self.reject_async_borrow("join", j.span, &j.handle)?;
                 let handle = self.check_expr(&j.handle)?;
                 match handle {
                     Ty::TaskHandle(result) => Ok(Ty::EnumApp {
@@ -749,6 +750,7 @@ impl Checker {
                 }
             }
             AsyncExpr::Cancel(c) => {
+                self.reject_async_borrow("cancel", c.span, &c.handle)?;
                 let handle = self.check_expr(&c.handle)?;
                 if !matches!(handle, Ty::TaskHandle(_)) {
                     return Err(SemaError {
@@ -762,6 +764,7 @@ impl Checker {
                 Ok(Ty::Unit)
             }
             AsyncExpr::ChannelCreate(c) => {
+                self.reject_async_borrow("channel create", c.span, &c.capacity)?;
                 let capacity = self.check_expr(&c.capacity)?;
                 if capacity != Ty::Int {
                     return Err(SemaError {

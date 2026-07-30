@@ -1,0 +1,6 @@
+[package]
+name = "demo.stdtest.async_fixture"
+
+[[bin]]
+name = "async"
+path = "src"

@@ -1,0 +1,10 @@
+[package]
+name = "demo.stdtime.duration"
+
+[[bin]]
+name = "duration"
+path = "src"
+
+[dependencies]
+std.io = { path = "../../../std/io" }
+std.time = { path = "../../../std/time" }

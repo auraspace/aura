@@ -1,0 +1,20 @@
+// std.mime -- bounded media-type and upload filename sanitizers.
+
+package std.mime
+
+/// Validate a media type and its optional semicolon-delimited parameters.
+pub fun isValidType(value: String): Bool {
+  throw "mime intrinsic"
+}
+
+/// Strip path separators and reject control/dot-only names. Returns null for
+/// an unsafe or empty filename.
+pub fun sanitizeFilename(value: String): String? {
+  throw "mime intrinsic"
+}
+
+/// Extract and sanitize a `filename` parameter from a Content-Disposition
+/// value. Returns null for malformed or unsafe values.
+pub fun dispositionFilename(value: String): String? {
+  throw "mime intrinsic"
+}

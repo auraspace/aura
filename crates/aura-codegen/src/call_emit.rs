@@ -1,14 +1,15 @@
 //! Call-expression emission.
 
 use aura_ast::*;
-use aura_sema::Ty;
+use aura_sema::{subst_ty, type_subst_map, Ty};
 
 use crate::array_emit::is_array_type_key;
 use crate::class_emit::{class_tag, method_owner, virtual_overrides};
 use crate::ctx::EmitCtx;
 use crate::expr::{
-    coerce_expr, emit_expr, infer_type_name, mono_base_name, mono_split, resolve_class_of_expr,
-    resolve_type_name, string_expr_is_owned_temp, type_ref_to_ty,
+    array_field_move_out_lvalue, coerce_expr, emit_expr, full_type_mono, infer_type_name,
+    mono_base_name, mono_split, resolve_class_of_expr, resolve_type_name,
+    string_expr_is_owned_temp, type_ref_to_ty,
 };
 use crate::names::*;
 
@@ -207,7 +208,11 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                 Some(t)
             }
         });
-        let obj = emit_expr(&fe.object, ctx);
+        // Array fields are mutable receivers; keep the direct lvalue so the
+        // generated `&receiver` is valid instead of taking the address of a
+        // race-instrumented rvalue expression.
+        let obj = array_field_move_out_lvalue(&fe.object, ctx)
+            .unwrap_or_else(|| emit_expr(&fe.object, ctx));
 
         // Interface method (C4d package mono; C8c mono args e.g. Boxable_Int)
         if let Some(iface_key) = obj_ty
@@ -641,6 +646,7 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                 )
             })
             .unwrap_or_else(|| mono.clone());
+        let owner_mono = full_type_mono(&owner_mono, ctx.checked);
 
         // C3y: heap classes are already pointers; structs/Array need &.
         // Inherited methods receive a pointer to the child prefix layout.
@@ -899,7 +905,17 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
             // Enum variant constructor: Ok(...), Err(...), Red()
             if let Some(inst) = inst {
                 if let Some(vname) = &inst.variant {
-                    let mono = type_mono(&inst.package, &inst.name, &inst.type_args);
+                    // Generic enum constructors inside a generic function carry
+                    // open `T`/`E` arguments in the call instance. Resolve them
+                    // against the current function instantiation before naming
+                    // the concrete C constructor.
+                    let subst = type_subst_map(&ctx.type_params, &ctx.type_args);
+                    let resolved_type_args = inst
+                        .type_args
+                        .iter()
+                        .map(|arg| subst_ty(arg, &subst))
+                        .collect::<Vec<_>>();
+                    let mono = type_mono(&inst.package, &inst.name, &resolved_type_args);
                     if let Some(e) = ctx
                         .checked
                         .ast
@@ -916,12 +932,23 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                                 .zip(v.fields.iter())
                                 .map(|(a, f)| {
                                     let expected =
-                                        type_ref_local_key(&f.ty, &params, &inst.type_args);
+                                        type_ref_local_key(&f.ty, &params, &resolved_type_args);
                                     coerce_owner_arg_expr(a, &expected, ctx)
                                 })
                                 .collect::<Vec<_>>()
                                 .join(", ");
-                            return format!("{}({args})", c_variant_ctor_name(&mono, vname));
+                            let ctor_name = if inst.package == "std.error"
+                                && inst.name == "Outcome"
+                                && vname == "OutcomeOk"
+                                && resolved_type_args
+                                    .first()
+                                    .is_some_and(|ty| matches!(ty, Ty::String))
+                            {
+                                c_variant_ctor_name(&mono, "OutcomeOkOwned")
+                            } else {
+                                c_variant_ctor_name(&mono, vname)
+                            };
+                            return format!("{}({args})", ctor_name);
                         }
                     }
                     return format!("{}()", c_variant_ctor_name(&mono, vname));
@@ -1048,6 +1075,13 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                     .collect()
             };
             let pkg = inst.map(|i| i.package.as_str()).unwrap_or("");
+            if pkg == "std.task" && id.name == "isCancelled" && c.args.is_empty() {
+                return ctx
+                    .async_frame
+                    .as_deref()
+                    .map(|frame| format!("aura_task_frame_cancel_requested({frame}) != 0"))
+                    .unwrap_or_else(|| "false".into());
+            }
             if let Some(foreign) = ctx.checked.ast.foreign_functions.iter().find(|f| {
                 f.name.name == id.name
                     && (pkg.is_empty() || foreign_decl_package(f, ctx.checked) == pkg)

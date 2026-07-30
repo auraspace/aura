@@ -27,40 +27,53 @@ static void assert_empty_request(const AuraHttpRequest *request, size_t consumed
 
 int main(void)
 {
-  static const unsigned char seed_request[] =
-      "POST /submit HTTP/1.1\r\n"
-      "Host: example.test\r\n"
-      "Content-Length: 5\r\n"
-      "X-Trace: stable\r\n"
-      "\r\n"
-      "hello";
-  unsigned char mutated[sizeof(seed_request) - 1];
+  static const unsigned char *const seed_requests[] = {
+      (const unsigned char *)"POST /submit HTTP/1.1\r\n"
+                             "Host: example.test\r\n"
+                             "Content-Length: 5\r\n"
+                             "X-Trace: stable\r\n"
+                             "\r\n"
+                             "hello",
+      (const unsigned char *)"POST /stream HTTP/1.1\r\n"
+                             "Host: example.test\r\n"
+                             "Transfer-Encoding: chunked\r\n"
+                             "\r\n"
+                             "4\r\nWiki\r\n5\r\npedia\r\n0\r\n\r\n",
+      (const unsigned char *)"GET /health?ready=1 HTTP/1.1\r\n"
+                             "Host: example.test\r\n"
+                             "Connection: keep-alive\r\n"
+                             "\r\n"};
+  unsigned char mutated[192];
   uint32_t state = UINT32_C(0);
   size_t iteration;
 
   for (iteration = 0; iteration < 4096; iteration++)
   {
+    const unsigned char *seed = seed_requests[next_seed(&state) %
+                                              (sizeof(seed_requests) / sizeof(seed_requests[0]))];
+    size_t seed_length = strlen((const char *)seed);
     AuraHttpRequest parsed = {0};
     size_t consumed = 123;
     size_t mutations = (size_t)(next_seed(&state) % 4U) + 1U;
     size_t mutation;
     AuraHttpParseStatus status;
 
-    memcpy(mutated, seed_request, sizeof(mutated));
+    assert(seed_length < sizeof(mutated));
+    memcpy(mutated, seed, seed_length);
     for (mutation = 0; mutation < mutations; mutation++)
     {
-      size_t index = (size_t)(next_seed(&state) % sizeof(mutated));
+      size_t index = (size_t)(next_seed(&state) % seed_length);
       mutated[index] = (unsigned char)(next_seed(&state) & UINT32_C(0xff));
     }
 
-    status = aura_http_request_parse(mutated, sizeof(mutated), &parsed, &consumed);
+    status = aura_http_request_parse(mutated, seed_length, &parsed, &consumed);
     assert(status == AURA_HTTP_PARSE_OK || status == AURA_HTTP_PARSE_INCOMPLETE ||
            status == AURA_HTTP_PARSE_BAD_REQUEST ||
            status == AURA_HTTP_PARSE_METHOD_NOT_ALLOWED ||
            status == AURA_HTTP_PARSE_PAYLOAD_TOO_LARGE);
     if (status == AURA_HTTP_PARSE_OK)
     {
-      assert(consumed > 0 && consumed <= sizeof(mutated));
+      assert(consumed > 0 && consumed <= seed_length);
       aura_http_request_destroy(&parsed);
     }
     else

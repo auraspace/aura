@@ -1,0 +1,12 @@
+// std.signal -- bounded graceful-shutdown signal state.
+
+package std.signal
+
+/// Install SIGINT/SIGTERM handlers on supported native targets.
+pub fun installShutdown(): Bool { return false }
+
+/// Observe whether SIGINT/SIGTERM has been received.
+pub fun shutdownRequested(): Bool { return false }
+
+/// Clear the in-process shutdown flag after a graceful drain.
+pub fun clearShutdown() { }

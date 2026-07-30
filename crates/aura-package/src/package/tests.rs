@@ -393,6 +393,7 @@ path = "src"
             (
                 "math/src/lib.aura",
                 r#"package demo.math
+pub type Score = Int
 pub fun square(x: Int): Int { return x * x }
 fun mul(a: Int, b: Int): Int { return a * b }
 "#,
@@ -429,6 +430,13 @@ fun main() { square(2) }
     assert!(names.contains(&"main"));
     assert!(names.contains(&"square"));
     assert!(names.contains(&"mul"));
+    let score = pkg
+        .ast
+        .type_aliases
+        .iter()
+        .find(|alias| alias.name.name == "Score")
+        .expect("dependency type aliases are linked");
+    assert_eq!(score.origin_package, "demo.math");
     let square = pkg
         .ast
         .functions

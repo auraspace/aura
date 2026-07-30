@@ -1,0 +1,6 @@
+[package]
+name = "std.task"
+
+[[bin]]
+name = "task"
+path = "src"

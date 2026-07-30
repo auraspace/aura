@@ -535,6 +535,24 @@ fn async_boundaries_reject_borrowed_values() {
     promote_to_async(&mut channel_file, 0);
     let err = check_file(&channel_file).expect_err("borrow sent through channel");
     assert!(err.primary().message.contains("boundary `channel send`"));
+
+    let join_file =
+        parse_file("package t\nfun main(handle: ref TaskHandle<Int>) { join(handle) }\n")
+            .expect("parse borrowed join handle");
+    let err = check_file(&join_file).expect_err("borrowed handle joined");
+    assert!(err.primary().message.contains("boundary `join`"));
+
+    let cancel_file =
+        parse_file("package t\nfun main(handle: ref TaskHandle<Int>) { cancel(handle) }\n")
+            .expect("parse borrowed cancel handle");
+    let err = check_file(&cancel_file).expect_err("borrowed handle cancelled");
+    assert!(err.primary().message.contains("boundary `cancel`"));
+
+    let channel_create_file =
+        parse_file("package t\nfun main(capacity: ref Int) { Channel<String>(capacity) }\n")
+            .expect("parse borrowed channel capacity");
+    let err = check_file(&channel_create_file).expect_err("borrowed channel capacity");
+    assert!(err.primary().message.contains("boundary `channel create`"));
 }
 
 #[test]
@@ -560,6 +578,25 @@ fun main() {
     )
     .expect("parse typed spawn fixture");
     check_file(&file).expect("spawn should infer String payload");
+}
+
+#[test]
+fn generic_task_handle_wrapper_preserves_payload_type() {
+    let file = parse_file(
+        r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+fun observe<T>(handle: TaskHandle<T>): Result<T, TaskError> { return join(handle) }
+fun stop<T>(handle: TaskHandle<T>) { cancel(handle) }
+fun main() {
+  val handle = spawn { return 42 }
+  val outcome: Result<Int, TaskError> = observe(handle)
+  stop(handle)
+}
+"#,
+    )
+    .expect("parse generic task wrapper fixture");
+    check_file(&file).expect("generic task handles should infer their payload through wrappers");
 }
 
 #[test]
@@ -1045,6 +1082,23 @@ fun main(): Int {
 "#;
     let file = parse_file(src).expect("parse");
     check_file(&file).expect("public members are accessible");
+}
+
+#[test]
+fn class_task_method_allows_await_and_checks_inner_result() {
+    let src = r#"
+package t
+class Counter(val value: Int) {
+  async fun current(): Int {
+    val one: Int = await ready()
+    return this.value
+  }
+}
+async fun ready(): Int { return 1 }
+fun main() {}
+"#;
+    let file = parse_file(src).expect("parse async class method");
+    check_file(&file).expect("Task class method should typecheck await against inner result");
 }
 
 #[test]

@@ -1,4 +1,4 @@
-//! Locate the in-tree / installed `std/<leaf>` packages (io, assert, collections, net).
+//! Locate the in-tree / installed `std/<leaf>` packages (io, assert, collections, net, http, time).
 //!
 //! Search order:
 //! 1. `AURA_STD` env (directory that **contains** `io/`, `assert/`, …)
@@ -23,7 +23,30 @@ pub fn find_std_package_dir(from: &Path, leaf: &str) -> Option<PathBuf> {
     }
 
     // Only known alpha packages are embedded; unknown leaves stop at disk search.
-    if !matches!(leaf, "io" | "assert" | "collections" | "net") {
+    if !matches!(
+        leaf,
+        "io" | "assert"
+            | "collections"
+            | "net"
+            | "http"
+            | "time"
+            | "task"
+            | "error"
+            | "encoding"
+            | "url"
+            | "mime"
+            | "bytes"
+            | "fs"
+            | "os"
+            | "sync"
+            | "dns"
+            | "log"
+            | "metrics"
+            | "test"
+            | "json"
+            | "signal"
+            | "stream"
+    ) {
         return None;
     }
 
@@ -126,6 +149,20 @@ pub fn materialize_embedded_std() -> Result<PathBuf, String> {
 /// Embedded alpha std sources (same files as monorepo `std/`).
 const EMBEDDED_STD_FILES: &[(&str, &str)] = &[
     (
+        "error/aura.toml",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../std/error/aura.toml"
+        )),
+    ),
+    (
+        "error/src/lib.aura",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../std/error/src/lib.aura"
+        )),
+    ),
+    (
         "io/aura.toml",
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -181,6 +218,244 @@ const EMBEDDED_STD_FILES: &[(&str, &str)] = &[
             "/../../std/net/src/lib.aura"
         )),
     ),
+    (
+        "stream/aura.toml",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../std/stream/aura.toml"
+        )),
+    ),
+    (
+        "stream/src/lib.aura",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../std/stream/src/lib.aura"
+        )),
+    ),
+    (
+        "http/aura.toml",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../std/http/aura.toml"
+        )),
+    ),
+    (
+        "http/src/lib.aura",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../std/http/src/lib.aura"
+        )),
+    ),
+    (
+        "time/aura.toml",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../std/time/aura.toml"
+        )),
+    ),
+    (
+        "time/src/lib.aura",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../std/time/src/lib.aura"
+        )),
+    ),
+    (
+        "task/aura.toml",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../std/task/aura.toml"
+        )),
+    ),
+    (
+        "task/src/lib.aura",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../std/task/src/lib.aura"
+        )),
+    ),
+    (
+        "encoding/aura.toml",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../std/encoding/aura.toml"
+        )),
+    ),
+    (
+        "encoding/src/lib.aura",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../std/encoding/src/lib.aura"
+        )),
+    ),
+    (
+        "url/aura.toml",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../std/url/aura.toml"
+        )),
+    ),
+    (
+        "url/src/lib.aura",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../std/url/src/lib.aura"
+        )),
+    ),
+    (
+        "mime/aura.toml",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../std/mime/aura.toml"
+        )),
+    ),
+    (
+        "mime/src/lib.aura",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../std/mime/src/lib.aura"
+        )),
+    ),
+    (
+        "sync/aura.toml",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../std/sync/aura.toml"
+        )),
+    ),
+    (
+        "sync/src/lib.aura",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../std/sync/src/lib.aura"
+        )),
+    ),
+    (
+        "bytes/aura.toml",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../std/bytes/aura.toml"
+        )),
+    ),
+    (
+        "bytes/src/lib.aura",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../std/bytes/src/lib.aura"
+        )),
+    ),
+    (
+        "fs/aura.toml",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../std/fs/aura.toml"
+        )),
+    ),
+    (
+        "fs/src/lib.aura",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../std/fs/src/lib.aura"
+        )),
+    ),
+    (
+        "os/aura.toml",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../std/os/aura.toml"
+        )),
+    ),
+    (
+        "os/src/lib.aura",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../std/os/src/lib.aura"
+        )),
+    ),
+    (
+        "dns/aura.toml",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../std/dns/aura.toml"
+        )),
+    ),
+    (
+        "dns/src/lib.aura",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../std/dns/src/lib.aura"
+        )),
+    ),
+    (
+        "log/aura.toml",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../std/log/aura.toml"
+        )),
+    ),
+    (
+        "log/src/lib.aura",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../std/log/src/lib.aura"
+        )),
+    ),
+    (
+        "metrics/aura.toml",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../std/metrics/aura.toml"
+        )),
+    ),
+    (
+        "metrics/src/lib.aura",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../std/metrics/src/lib.aura"
+        )),
+    ),
+    (
+        "test/aura.toml",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../std/test/aura.toml"
+        )),
+    ),
+    (
+        "test/src/lib.aura",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../std/test/src/lib.aura"
+        )),
+    ),
+    (
+        "json/aura.toml",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../std/json/aura.toml"
+        )),
+    ),
+    (
+        "json/src/lib.aura",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../std/json/src/lib.aura"
+        )),
+    ),
+    (
+        "signal/aura.toml",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../std/signal/aura.toml"
+        )),
+    ),
+    (
+        "signal/src/lib.aura",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../std/signal/src/lib.aura"
+        )),
+    ),
 ];
 
 #[cfg(test)]
@@ -195,10 +470,160 @@ mod tests {
     }
 
     #[test]
-    fn embedded_has_net_primitive_bridge() {
+    fn embedded_has_shared_error() {
+        assert!(EMBEDDED_STD_FILES.iter().any(|(p, c)| {
+            *p == "error/src/lib.aura"
+                && c.contains("package std.error")
+                && c.contains("pub enum ErrorKind")
+                && c.contains("pub enum Outcome")
+        }));
+    }
+
+    #[test]
+    fn embedded_has_encoding() {
         assert!(EMBEDDED_STD_FILES
             .iter()
-            .any(|(p, c)| *p == "net/src/lib.aura" && c.contains("package std.net")));
+            .any(|(p, c)| { *p == "encoding/src/lib.aura" && c.contains("package std.encoding") }));
+    }
+
+    #[test]
+    fn embedded_has_url_and_mime() {
+        assert!(EMBEDDED_STD_FILES.iter().any(|(p, c)| {
+            *p == "url/src/lib.aura"
+                && c.contains("package std.url")
+                && c.contains("decodeComponent")
+        }));
+        assert!(EMBEDDED_STD_FILES
+            .iter()
+            .any(|(p, c)| { *p == "mime/src/lib.aura" && c.contains("package std.mime") }));
+    }
+
+    #[test]
+    fn embedded_has_sync() {
+        assert!(EMBEDDED_STD_FILES
+            .iter()
+            .any(|(p, c)| { *p == "sync/src/lib.aura" && c.contains("package std.sync") }));
+        assert!(EMBEDDED_STD_FILES.iter().any(|(p, c)| {
+            *p == "sync/src/lib.aura"
+                && c.contains("pub class Mutex")
+                && c.contains("pub class Once")
+        }));
+    }
+
+    #[test]
+    fn embedded_has_bytes() {
+        assert!(EMBEDDED_STD_FILES
+            .iter()
+            .any(|(p, c)| { *p == "bytes/src/lib.aura" && c.contains("package std.bytes") }));
+    }
+
+    #[test]
+    fn embedded_has_fs() {
+        assert!(EMBEDDED_STD_FILES.iter().any(|(p, c)| {
+            *p == "fs/src/lib.aura" && c.contains("package std.fs") && c.contains("readTextResult")
+        }));
+    }
+
+    #[test]
+    fn embedded_has_os() {
+        assert!(EMBEDDED_STD_FILES.iter().any(|(p, c)| {
+            *p == "os/src/lib.aura" && c.contains("package std.os") && c.contains("getEnvResult")
+        }));
+    }
+
+    #[test]
+    fn embedded_has_dns() {
+        assert!(EMBEDDED_STD_FILES.iter().any(|(p, c)| {
+            *p == "dns/src/lib.aura"
+                && c.contains("package std.dns")
+                && c.contains("resolveHostResult")
+                && c.contains("resolveHostList")
+        }));
+    }
+
+    #[test]
+    fn embedded_has_log() {
+        assert!(EMBEDDED_STD_FILES.iter().any(|(p, c)| {
+            *p == "log/src/lib.aura"
+                && c.contains("package std.log")
+                && c.contains("infoFields")
+                && c.contains("setMinLevel")
+        }));
+    }
+
+    #[test]
+    fn embedded_has_metrics() {
+        assert!(EMBEDDED_STD_FILES.iter().any(|(p, c)| {
+            *p == "metrics/src/lib.aura"
+                && c.contains("package std.metrics")
+                && c.contains("prometheus")
+        }));
+    }
+
+    #[test]
+    fn embedded_has_test_helpers() {
+        assert!(EMBEDDED_STD_FILES
+            .iter()
+            .any(|(p, c)| *p == "test/src/lib.aura" && c.contains("package std.test")));
+    }
+
+    #[test]
+    fn embedded_has_json() {
+        assert!(EMBEDDED_STD_FILES.iter().any(|(p, c)| {
+            *p == "json/src/lib.aura"
+                && c.contains("package std.json")
+                && c.contains("class Value")
+                && c.contains("pub fun kind")
+                && c.contains("pub fun parse")
+        }));
+    }
+
+    #[test]
+    fn embedded_has_signal() {
+        assert!(EMBEDDED_STD_FILES
+            .iter()
+            .any(|(p, c)| *p == "signal/src/lib.aura" && c.contains("package std.signal")));
+    }
+
+    #[test]
+    fn embedded_has_net_primitive_bridge() {
+        assert!(EMBEDDED_STD_FILES.iter().any(|(p, c)| {
+            *p == "net/src/lib.aura"
+                && c.contains("package std.net")
+                && c.contains("readStreamResult")
+                && c.contains("writeStreamResult")
+        }));
+    }
+
+    #[test]
+    fn embedded_has_stream_adapters() {
+        assert!(EMBEDDED_STD_FILES.iter().any(|(p, c)| {
+            *p == "stream/src/lib.aura"
+                && c.contains("package std.stream")
+                && c.contains("class Reader")
+                && c.contains("class Writer")
+        }));
+    }
+
+    #[test]
+    fn embedded_has_http_values() {
+        assert!(EMBEDDED_STD_FILES
+            .iter()
+            .any(|(p, c)| *p == "http/src/lib.aura" && c.contains("package std.http")));
+    }
+
+    #[test]
+    fn embedded_has_time_timer() {
+        assert!(EMBEDDED_STD_FILES
+            .iter()
+            .any(|(p, c)| *p == "time/src/lib.aura" && c.contains("package std.time")));
+    }
+
+    #[test]
+    fn embedded_has_task_lifecycle() {
+        assert!(EMBEDDED_STD_FILES
+            .iter()
+            .any(|(p, c)| *p == "task/src/lib.aura" && c.contains("package std.task")));
     }
 
     #[test]

@@ -1,0 +1,6 @@
+[package]
+name = "demo.stdtest.assertions"
+
+[[bin]]
+name = "assertions"
+path = "src"

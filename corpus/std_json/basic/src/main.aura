@@ -1,0 +1,10 @@
+package demo.stdjson.basic
+
+import std.io as Io
+import std.json
+
+fun main() {
+  if (isValid("{\"ok\": [true, 3.5, null]}")) { Io.println("valid") }
+  if (!isValid("{bad")) { Io.println("invalid") }
+  Io.println(escapeString("a\"b\n")!!)
+}

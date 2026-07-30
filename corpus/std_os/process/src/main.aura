@@ -1,0 +1,19 @@
+package demo.std_os.process
+
+import std.io
+import std.os
+import std.error as Errs
+
+fun main() {
+  if (setEnv("AURA_OS_TEST", "ok")) { println(getEnv("AURA_OS_TEST")!!) }
+  if (unsetEnv("AURA_OS_TEST") && getEnv("AURA_OS_TEST") == null) { println("unset") }
+  val missing: Errs.Outcome<String, Errs.Error> = getEnvResult("AURA_OS_MISSING")
+  if (!Errs.isSuccess(missing)) { println("typed-not-found") }
+  val updated: Errs.Outcome<Bool, Errs.Error> = setEnvResult("AURA_OS_TEST", "typed")
+  if (Errs.isSuccess(updated)) { println("typed-set") }
+  val removed: Errs.Outcome<Bool, Errs.Error> = unsetEnvResult("AURA_OS_TEST")
+  if (Errs.isSuccess(removed)) { println("typed-unset") }
+  if (pid() > 0) { println("pid") }
+  if (cwd().len > 0) { println("cwd") }
+  println(platform())
+}

@@ -1,0 +1,15 @@
+package demo.stdstream.adapters
+
+import std.stream
+
+async fun useReader(reader: Reader): Unit {
+  val chunk: String = await reader.read(32)
+  println(chunk)
+}
+
+async fun useWriter(writer: Writer): Unit {
+  val count: Int = await writer.write("hello")
+  println(count.toString())
+}
+
+fun main() {}

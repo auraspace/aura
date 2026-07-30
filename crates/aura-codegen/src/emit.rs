@@ -1,6 +1,6 @@
 //! Top-level C translation unit emission.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt::Write as _;
 
 use aura_ast::*;
@@ -43,6 +43,9 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("void aura_println(const char *s);\n");
     out.push_str("void aura_eprint(const char *s);\n");
     out.push_str("void aura_eprintln(const char *s);\n");
+    out.push_str("void aura_log(int level, const char *message);\n");
+    out.push_str("int aura_log_set_min_level(int level);\n");
+    out.push_str("int aura_log_get_min_level(void);\n");
     out.push_str("const char *aura_read_file(const char *path);\n");
     out.push_str("const char *aura_try_read_file(const char *path);\n");
     out.push_str("void aura_write_file(const char *path, const char *content);\n");
@@ -57,6 +60,64 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("const char *aura_read_line(void);\n");
     out.push_str("const char *aura_read_all_stdin(void);\n");
     out.push_str("void aura_exit(int64_t code);\n");
+    out.push_str("int64_t aura_time_monotonic_millis(void);\n");
+    out.push_str(
+        "int aura_task_frame_set_cancel_deadline(AuraTaskFrame *frame, int timeout_ms);\n",
+    );
+    out.push_str(
+        "int aura_task_frame_link_cancellation(AuraTaskFrame *parent, AuraTaskFrame *child);\n",
+    );
+    out.push_str("const char *aura_encoding_hex_encode(const char *value);\n");
+    out.push_str("const char *aura_encoding_hex_decode(const char *value);\n");
+    out.push_str("const char *aura_encoding_base64_encode(const char *value);\n");
+    out.push_str("const char *aura_encoding_base64_decode(const char *value);\n");
+    out.push_str("const char *aura_encoding_percent_encode(const char *value);\n");
+    out.push_str("const char *aura_encoding_percent_decode(const char *value);\n");
+    out.push_str("_Bool aura_encoding_is_valid_utf8(const char *value);\n");
+    out.push_str("_Bool aura_url_is_origin_form(const char *target);\n");
+    out.push_str("const char *aura_url_path(const char *target);\n");
+    out.push_str("const char *aura_url_normalize_path(const char *path);\n");
+    out.push_str("const char *aura_url_query(const char *target);\n");
+    out.push_str("_Bool aura_url_is_absolute(const char *target);\n");
+    out.push_str("const char *aura_url_authority(const char *target);\n");
+    out.push_str("const char *aura_url_authority_host(const char *target);\n");
+    out.push_str("const char *aura_url_authority_port(const char *target);\n");
+    out.push_str("const char *aura_url_query_value(const char *target, const char *key);\n");
+    out.push_str("_Bool aura_mime_is_valid_type(const char *value);\n");
+    out.push_str("const char *aura_mime_sanitize_filename(const char *value);\n");
+    out.push_str("const char *aura_mime_disposition_filename(const char *value);\n");
+    out.push_str("const char *aura_dns_resolve_host(const char *host, int prefer_ipv6);\n");
+    out.push_str("const char *aura_dns_resolve_host_list(const char *host, int prefer_ipv6);\n");
+    out.push_str("_Bool aura_json_is_valid(const char *value);\n");
+    out.push_str("int64_t aura_json_error_offset(const char *value);\n");
+    out.push_str("const char *aura_json_escape_string(const char *value);\n");
+    out.push_str("int aura_signal_install_shutdown(void);\n");
+    out.push_str("_Bool aura_signal_shutdown_requested(void);\n");
+    out.push_str("void aura_signal_clear_shutdown(void);\n");
+    out.push_str("int64_t aura_error_kind_code(int64_t code);\n");
+    out.push_str("const char *aura_bytes_copy(const char *value);\n");
+    out.push_str("const char *aura_bytes_concat(const char *left, const char *right);\n");
+    out.push_str(
+        "const char *aura_bytes_slice(const char *value, int64_t start, int64_t length);\n",
+    );
+    out.push_str("_Bool aura_bytes_equals(const char *left, const char *right);\n");
+    out.push_str("const char *aura_fs_join(const char *base, const char *child);\n");
+    out.push_str("const char *aura_fs_basename(const char *path);\n");
+    out.push_str("const char *aura_fs_dirname(const char *path);\n");
+    out.push_str("const char *aura_fs_extension(const char *path);\n");
+    out.push_str("_Bool aura_fs_is_absolute(const char *path);\n");
+    out.push_str("_Bool aura_fs_is_directory(const char *path);\n");
+    out.push_str("int64_t aura_fs_file_mode(const char *path);\n");
+    out.push_str("int64_t aura_fs_permissions(const char *path);\n");
+    out.push_str("int64_t aura_fs_modified_millis(const char *path);\n");
+    out.push_str("const char *aura_fs_list_names(const char *path);\n");
+    out.push_str("_Bool aura_fs_is_symlink(const char *path);\n");
+    out.push_str("const char *aura_os_get_env(const char *name);\n");
+    out.push_str("_Bool aura_os_set_env(const char *name, const char *value);\n");
+    out.push_str("_Bool aura_os_unset_env(const char *name);\n");
+    out.push_str("const char *aura_os_cwd(void);\n");
+    out.push_str("int64_t aura_os_pid(void);\n");
+    out.push_str("const char *aura_os_platform(void);\n");
     out.push_str("void aura_assert(_Bool cond);\n");
     out.push_str("void aura_assert_eq_int(int64_t a, int64_t b);\n");
     out.push_str("void aura_assert_eq_string(const char *a, const char *b);\n");
@@ -135,22 +196,42 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("typedef struct AuraTcpListener AuraTcpListener;\n");
     out.push_str("typedef struct AuraTcpStream AuraTcpStream;\n");
     out.push_str("typedef enum { AURA_TCP_OK = 0, AURA_TCP_PENDING = 1, AURA_TCP_EOF = 2, AURA_TCP_TIMEOUT = 3, AURA_TCP_ERROR = -1, AURA_TCP_CLOSED = -2, AURA_TCP_UNSUPPORTED = -3 } AuraTcpStatus;\n");
+    out.push_str(
+        "AuraTcpStatus aura_tcp_listener_bind(uint16_t, uint16_t *, AuraTcpListener **);\n",
+    );
+    out.push_str(
+        "AuraTcpStatus aura_tcp_listener_accept(AuraTcpListener *, int, AuraTcpStream **);\n",
+    );
     out.push_str("AuraTcpStatus aura_tcp_stream_connect(uint16_t, int, AuraTcpStream **);\n");
+    out.push_str("int aura_tcp_listener_close(AuraTcpListener *);\n");
+    out.push_str("int aura_tcp_stream_close(AuraTcpStream *);\n");
+    out.push_str("void aura_tcp_listener_destroy(AuraTcpListener *);\n");
     out.push_str("void aura_tcp_stream_destroy(AuraTcpStream *);\n");
     out.push_str(
         "AuraTcpStatus aura_tcp_stream_read(AuraTcpStream *, void *, size_t, size_t *, int);\n",
     );
     out.push_str("AuraTcpStatus aura_tcp_stream_write(AuraTcpStream *, const void *, size_t, size_t *, int);\n");
     out.push_str("static void aura_destroy_tcp_stream_resource(void *resource) { if (resource != NULL) aura_tcp_stream_destroy((AuraTcpStream *)resource); }\n");
+    out.push_str("static void aura_destroy_tcp_listener_resource(void *resource) { if (resource != NULL) aura_tcp_listener_destroy((AuraTcpListener *)resource); }\n");
     out.push_str("typedef struct AuraHttpRequest AuraHttpRequest;\n");
     out.push_str("typedef struct AuraHttpResponse AuraHttpResponse;\n");
+    out.push_str("typedef struct AuraHttpConnection AuraHttpConnection;\n");
+    out.push_str("typedef enum { AURA_HTTP_CONNECTION_OK = 0, AURA_HTTP_CONNECTION_CLOSED = 1, AURA_HTTP_CONNECTION_TIMEOUT = 2, AURA_HTTP_CONNECTION_DISCONNECTED = 3, AURA_HTTP_CONNECTION_SHUTDOWN = 4, AURA_HTTP_CONNECTION_LIMIT = 5, AURA_HTTP_CONNECTION_ERROR = -1, AURA_HTTP_CONNECTION_UNSUPPORTED = -2 } AuraHttpConnectionStatus;\n");
     out.push_str("const char *aura_http_request_method(const AuraHttpRequest *);\n");
     out.push_str("const char *aura_http_request_target(const AuraHttpRequest *);\n");
     out.push_str("const char *aura_http_request_version(const AuraHttpRequest *);\n");
+    out.push_str("size_t aura_http_request_header_count(const AuraHttpRequest *);\n");
+    out.push_str("const char *aura_http_request_header_name(const AuraHttpRequest *, size_t);\n");
+    out.push_str("const char *aura_http_request_header_value(const AuraHttpRequest *, size_t);\n");
     out.push_str("const unsigned char *aura_http_request_body(const AuraHttpRequest *);\n");
     out.push_str("size_t aura_http_request_body_length(const AuraHttpRequest *);\n");
+    out.push_str("int aura_http_request_read_body(const AuraHttpRequest *, unsigned char *, size_t, size_t *);\n");
+    out.push_str("int aura_http_request_body_read_begin(const AuraHttpRequest *);\n");
+    out.push_str("void aura_http_request_body_read_end(const AuraHttpRequest *);\n");
+    out.push_str("int aura_http_request_wait_body(AuraTaskFrame *, const AuraHttpRequest *);\n");
     out.push_str("int aura_http_response_status(const AuraHttpResponse *);\n");
     out.push_str("int aura_http_response_keep_alive(const AuraHttpResponse *);\n");
+    out.push_str("int aura_http_response_stream_started(const AuraHttpResponse *);\n");
     out.push_str("typedef enum { AURA_HTTP_RESPONSE_OK = 0, AURA_HTTP_RESPONSE_INVALID = -1, AURA_HTTP_RESPONSE_TOO_LARGE = -2, AURA_HTTP_RESPONSE_BUFFER_TOO_SMALL = -3, AURA_HTTP_RESPONSE_ALLOCATION = -4 } AuraHttpResponseStatus;\n");
     out.push_str("typedef enum { AURA_HTTP_RESPONSE_CLOSE = 0, AURA_HTTP_RESPONSE_KEEP_ALIVE = 1 } AuraHttpResponseConnection;\n");
     out.push_str(
@@ -159,6 +240,20 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("AuraHttpResponseStatus aura_http_response_set_connection(AuraHttpResponse *, AuraHttpResponseConnection);\n");
     out.push_str("AuraHttpResponseStatus aura_http_response_set_body(AuraHttpResponse *, const void *, size_t);\n");
     out.push_str("AuraHttpResponseStatus aura_http_response_add_header(AuraHttpResponse *, const char *, const char *);\n");
+    out.push_str(
+        "int aura_http_response_stream_begin(AuraHttpResponse *, void *, size_t, size_t *);\n",
+    );
+    out.push_str(
+        "int aura_http_response_stream_chunk(const void *, size_t, void *, size_t, size_t *);\n",
+    );
+    out.push_str("int aura_http_response_stream_finish(const AuraHttpResponse *, void *, size_t, size_t *);\n");
+    out.push_str("int aura_http_connection_stream_write(AuraHttpConnection *, const void *, size_t, size_t *);\n");
+    out.push_str(
+        "int aura_http_connection_wait_write(AuraTaskFrame *, const AuraHttpConnection *);\n",
+    );
+    out.push_str("AuraHttpConnectionStatus aura_http_connection_create_from_stream(AuraTcpStream *, const void *, AuraHttpConnection **);\n");
+    out.push_str("void aura_http_connection_destroy_resource(void *);\n");
+    out.push_str("AuraFfiStatus aura_ffi_handle_take_owned(AuraFfiOpaqueHandle **, void **);\n");
     out.push_str("static char *aura_http_copy_bytes(const void *data, size_t length) { char *copy = (char *)malloc(length + 1); if (copy == NULL) return NULL; if (length != 0 && data != NULL) memcpy(copy, data, length); copy[length] = '\\0'; return copy; }\n");
     out.push_str("static int aura_http_pin_resource(AuraFfiOpaqueHandle *handle, AuraFfiHandlePin *pin) { return handle != NULL && aura_ffi_handle_pin_for_boundary(handle, AURA_FFI_BOUNDARY_SYNC, pin) == AURA_FFI_OK; }\n");
     out.push_str("typedef struct AuraRaceTracker AuraRaceTracker;\n");
@@ -172,6 +267,7 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("typedef struct { void *data; size_t size; AuraTaskChannelValueDestroyFn destroy; } AuraTaskChannelValue;\n");
     out.push_str("typedef enum { AURA_CHANNEL_OK = 0, AURA_CHANNEL_PENDING = 1, AURA_CHANNEL_CLOSED = 2, AURA_CHANNEL_ERROR = 3 } AuraTaskChannelStatus;\n");
     out.push_str("typedef enum { AURA_TASK_READY = 0, AURA_TASK_PENDING = 1, AURA_TASK_COMPLETE = 2, AURA_TASK_FAILED = 3, AURA_TASK_CANCELLED = 4 } AuraTaskPollState;\n");
+    out.push_str("AuraTaskPollState aura_http_connection_poll_async_task_handle(AuraTaskFrame *, AuraFfiOpaqueHandle *, AuraTaskPollState (*)(AuraTaskFrame *, const AuraHttpRequest *, AuraHttpResponse *, void *), void *);\n");
     out.push_str("typedef struct { void *data; size_t size; } AuraTaskResult;\n");
     out.push_str("typedef struct { AuraTaskPollState state; AuraTaskResult result; AuraTaskResult error; } AuraTaskOutcome;\n");
     out.push_str("typedef AuraTaskPollState (*AuraTaskPollFn)(AuraTaskFrame *frame);\n");
@@ -193,6 +289,7 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("uint32_t aura_task_frame_error_span_start(const AuraTaskFrame *frame);\n");
     out.push_str("uint32_t aura_task_frame_error_span_end(const AuraTaskFrame *frame);\n");
     out.push_str("const char *aura_task_frame_error_type_name(const AuraTaskFrame *frame);\n");
+    out.push_str("AuraTaskResult aura_task_frame_error(const AuraTaskFrame *frame);\n");
     out.push_str(
         "int aura_task_frame_propagate_error(AuraTaskFrame *frame, const AuraTaskFrame *source);\n",
     );
@@ -215,6 +312,8 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("void aura_task_frame_clear_waiting(AuraTaskFrame *frame);\n");
     out.push_str("void *aura_task_frame_waiting_token(const AuraTaskFrame *frame);\n");
     out.push_str("int aura_task_frame_wait_fd(AuraTaskFrame *frame, int fd, short events);\n");
+    out.push_str("int aura_task_frame_wait_deadline(AuraTaskFrame *frame, int timeout_ms);\n");
+    out.push_str("int aura_task_frame_take_fd_wait_timeout(AuraTaskFrame *frame);\n");
     out.push_str("int aura_task_frame_wait_file(AuraTaskFrame *frame, const AuraFile *file, short events);\n");
     out.push_str("int aura_task_frame_wait_tcp_listener(AuraTaskFrame *frame, const AuraTcpListener *listener, short events);\n");
     out.push_str("int aura_task_frame_wait_tcp_stream(AuraTaskFrame *frame, const AuraTcpStream *stream, short events);\n");
@@ -230,6 +329,7 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("void aura_task_frame_set_result(AuraTaskFrame *frame, void *data, size_t size, AuraTaskResultDestroyFn destroy);\n");
     out.push_str("AuraTaskResult aura_task_frame_result(const AuraTaskFrame *frame);\n");
     out.push_str("AuraTaskExecutor *aura_task_executor_new(void);\n");
+    out.push_str("int aura_task_executor_set_max_live_tasks(AuraTaskExecutor *executor, size_t max_live_tasks);\n");
     out.push_str("void aura_task_executor_set_race_tracker(AuraTaskExecutor *executor, AuraRaceTracker *tracker);\n");
     out.push_str(
         "int aura_task_executor_submit(AuraTaskExecutor *executor, AuraTaskFrame *frame);\n",
@@ -248,6 +348,8 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     );
     out.push_str("int aura_task_executor_run_one(AuraTaskExecutor *executor);\n");
     out.push_str("size_t aura_task_executor_run(AuraTaskExecutor *executor);\n");
+    out.push_str("int aura_task_executor_has_live_tasks(const AuraTaskExecutor *executor);\n");
+    out.push_str("int aura_task_executor_release_terminal(AuraTaskExecutor *executor, AuraTaskFrame **handle);\n");
     out.push_str("void aura_task_executor_shutdown(AuraTaskExecutor *executor);\n");
     out.push_str("static AuraTaskExecutor *__aura_task_executor = NULL;\n");
     out.push_str("static AuraRaceTracker *__aura_race_tracker = NULL;\n");
@@ -640,90 +742,7 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
 
     for f in &checked.ast.async_functions {
         if f.type_params.is_empty() {
-            // Normalize the common `return await task` spelling into the same
-            // frame shape as a local await. The sema pass already proves the
-            // operand is a Task<T>; keeping one lowering path here avoids a
-            // backend-only unsupported hole for an equivalent program shape.
-            let normalized = normalize_async_return_await(f);
-            let lowered = normalized.as_ref().unwrap_or(f);
-            let emitted_std_io =
-                emit_async_fun_std_io_fd(&mut out, lowered, checked, opts.detector);
-            let emitted_std_net = async_fun_decl_package(lowered, checked) == "std.net"
-                && ((lowered.name.name == "readStream"
-                    && emit_async_fun_std_net_stream(&mut out, lowered, checked, true))
-                    || (lowered.name.name == "writeStream"
-                        && emit_async_fun_std_net_stream(&mut out, lowered, checked, false)));
-            if !emitted_std_io
-                && !emitted_std_net
-                && !emit_async_fun_cfg_int(&mut out, lowered, checked, opts.detector)
-                && !emit_async_fun_while_branch_join_await_array(
-                    &mut out,
-                    lowered,
-                    checked,
-                    opts.detector,
-                )
-                && !emit_async_fun_while_branch_join_await_int(
-                    &mut out,
-                    lowered,
-                    checked,
-                    opts.detector,
-                )
-                && !emit_async_fun_nested_while_await_int(&mut out, lowered, checked, opts.detector)
-                && !emit_async_fun_while_guarded_await_int(
-                    &mut out,
-                    lowered,
-                    checked,
-                    opts.detector,
-                )
-                && !emit_async_fun_top_level_while_conditional_await_int(
-                    &mut out,
-                    lowered,
-                    checked,
-                    opts.detector,
-                )
-                && !emit_async_fun_while_multi_conditional_await_int(
-                    &mut out,
-                    lowered,
-                    checked,
-                    opts.detector,
-                )
-                && !emit_async_fun_while_two_conditional_await_int(
-                    &mut out,
-                    lowered,
-                    checked,
-                    opts.detector,
-                )
-                && !emit_async_fun_while_multi_await_int(&mut out, lowered, checked, opts.detector)
-                && !emit_async_fun_for_range_await_int(&mut out, lowered, checked, opts.detector)
-                && !emit_async_fun_top_level_while_await_int(
-                    &mut out,
-                    lowered,
-                    checked,
-                    opts.detector,
-                )
-                && !emit_async_fun_nested_if_branch_awaits(
-                    &mut out,
-                    lowered,
-                    checked,
-                    opts.detector,
-                )
-                && !emit_async_fun_if_then_multi_await(&mut out, lowered, checked, opts.detector)
-                && !emit_async_fun_if_else_assign_await_continue(
-                    &mut out,
-                    lowered,
-                    checked,
-                    opts.detector,
-                )
-                && !emit_async_fun_if_else_single_await(&mut out, lowered, checked, opts.detector)
-                && !emit_async_fun_if_assign_await(&mut out, lowered, checked, opts.detector)
-                && !emit_async_fun_if_await_then_continue(&mut out, lowered, checked, opts.detector)
-                && !emit_async_fun_if_single_await(&mut out, lowered, checked, opts.detector)
-                && !emit_async_fun_general_multi_await(&mut out, lowered, checked, opts.detector)
-                && !emit_async_fun_multi_await(&mut out, lowered, checked, opts.detector)
-                && !emit_async_fun_single_await(&mut out, lowered, checked, opts.detector)
-            {
-                emit_async_fun_no_await(&mut out, lowered, checked, opts.detector);
-            }
+            emit_async_fun_decl(&mut out, f, checked, opts.detector);
             out.push('\n');
         }
     }
@@ -742,6 +761,7 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
         if checked.ast.functions.iter().any(|f| f.name.name == "main") {
             out.push_str("  aura_fn_main();\n");
         }
+        out.push_str("  while (aura_task_executor_has_live_tasks(__aura_task_executor)) { if (aura_task_executor_run(__aura_task_executor) == 0) (void)aura_task_executor_poll_waiting(__aura_task_executor, 1000); }\n");
         out.push_str("  aura_task_executor_shutdown(__aura_task_executor);\n");
         if opts.detector {
             out.push_str("  aura_race_tracker_destroy(__aura_race_tracker);\n");
@@ -749,6 +769,61 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
         out.push_str("  return 0;\n}\n");
     }
     out
+}
+
+pub(crate) fn emit_async_fun_decl(
+    out: &mut String,
+    f: &AsyncFunDecl,
+    checked: &CheckedFile,
+    detector: bool,
+) {
+    let normalized = normalize_async_return_await(f);
+    let lowered = normalized.as_ref().unwrap_or(f);
+    let emitted_std_io = emit_async_fun_std_io_fd(out, lowered, checked, detector);
+    let emitted_std_net = async_fun_decl_package(lowered, checked) == "std.net"
+        && ((lowered.name.name == "accept"
+            && emit_async_fun_std_net_accept(out, lowered, checked))
+            || (lowered.name.name == "readStream"
+                && emit_async_fun_std_net_stream(out, lowered, checked, true))
+            || (lowered.name.name == "writeStream"
+                && emit_async_fun_std_net_stream(out, lowered, checked, false)));
+    let emitted_std_http = async_fun_decl_package(lowered, checked) == "std.http"
+        && ((lowered.name.name == "serveConnection"
+            && emit_async_fun_std_http_serve_connection(out, lowered, checked))
+            || (lowered.name.name == "serve"
+                && emit_async_fun_std_http_serve(out, lowered, checked))
+            || (lowered.name.name == "readChunk"
+                && emit_async_fun_std_http_request_body_chunk(out, lowered, checked)));
+    let emitted_std_time = async_fun_decl_package(lowered, checked) == "std.time"
+        && emit_async_fun_std_time_sleep(out, lowered, checked);
+    if !emitted_std_io
+        && !emitted_std_net
+        && !emitted_std_http
+        && !emitted_std_time
+        && !emit_async_fun_cfg_int(out, lowered, checked, detector)
+        && !emit_async_fun_while_branch_join_await_array(out, lowered, checked, detector)
+        && !emit_async_fun_while_branch_join_await_int(out, lowered, checked, detector)
+        && !emit_async_fun_nested_while_await_int(out, lowered, checked, detector)
+        && !emit_async_fun_while_guarded_await_int(out, lowered, checked, detector)
+        && !emit_async_fun_top_level_while_conditional_await_int(out, lowered, checked, detector)
+        && !emit_async_fun_while_multi_conditional_await_int(out, lowered, checked, detector)
+        && !emit_async_fun_while_two_conditional_await_int(out, lowered, checked, detector)
+        && !emit_async_fun_while_multi_await_int(out, lowered, checked, detector)
+        && !emit_async_fun_for_range_await_int(out, lowered, checked, detector)
+        && !emit_async_fun_top_level_while_await_int(out, lowered, checked, detector)
+        && !emit_async_fun_nested_if_branch_awaits(out, lowered, checked, detector)
+        && !emit_async_fun_if_then_multi_await(out, lowered, checked, detector)
+        && !emit_async_fun_if_else_assign_await_continue(out, lowered, checked, detector)
+        && !emit_async_fun_if_else_single_await(out, lowered, checked, detector)
+        && !emit_async_fun_if_assign_await(out, lowered, checked, detector)
+        && !emit_async_fun_if_await_then_continue(out, lowered, checked, detector)
+        && !emit_async_fun_if_single_await(out, lowered, checked, detector)
+        && !emit_async_fun_general_multi_await(out, lowered, checked, detector)
+        && !emit_async_fun_multi_await(out, lowered, checked, detector)
+        && !emit_async_fun_single_await(out, lowered, checked, detector)
+    {
+        emit_async_fun_no_await(out, lowered, checked, detector);
+    }
 }
 
 /// Direct codegen unit tests intentionally build a file without the CLI's
@@ -1025,11 +1100,53 @@ enum AsyncCfgNode {
         owns_task: bool,
         next: usize,
     },
+    AwaitUnit {
+        operand: String,
+        owns_task: bool,
+        next: usize,
+    },
+    /// Restricted async catch: catches a failed awaited task as an owned
+    /// primitive error and resumes in a catch body without longjmping.
+    AwaitCatch {
+        operand: String,
+        owns_task: bool,
+        catch_name: String,
+        catch_key: String,
+        catch_state: usize,
+        next: usize,
+    },
+    /// Bounded catch around a single awaited value declaration. The value is
+    /// copied before the child frame is released, then control continues.
+    AwaitCatchValue {
+        value: String,
+        value_key: String,
+        operand: String,
+        owns_task: bool,
+        catch_name: String,
+        catch_key: String,
+        catch_state: usize,
+        next: usize,
+    },
+    AwaitFinally {
+        operand: String,
+        owns_task: bool,
+        finally_state: usize,
+        next: usize,
+    },
+    Fail,
     Return {
         value: String,
         value_key: String,
         value_is_ident: bool,
         value_is_owned_temp: bool,
+    },
+    /// A throw after suspension must publish an owned task error instead of
+    /// longjmping through a poller that may already have returned.
+    Throw {
+        value: String,
+        value_key: String,
+        span_start: u32,
+        span_end: u32,
     },
 }
 
@@ -1038,6 +1155,7 @@ struct AsyncCfgBuilder<'a> {
     ctx: EmitCtx<'a>,
     locals: HashMap<String, String>,
     cfg_locals: Vec<(String, String)>,
+    owned_class_catches: Vec<(String, String)>,
     match_bindings: Vec<(String, String)>,
     return_key: String,
     supported: bool,
@@ -1050,6 +1168,7 @@ impl<'a> AsyncCfgBuilder<'a> {
             ctx,
             locals,
             cfg_locals: Vec::new(),
+            owned_class_catches: Vec::new(),
             match_bindings: Vec::new(),
             return_key,
             supported: true,
@@ -1129,8 +1248,16 @@ impl<'a> AsyncCfgBuilder<'a> {
                         return next;
                     }
                     let init = coerce_expr(&var.init, &key, &mut self.ctx);
-                    let code =
-                        async_cfg_assignment_code(&name, &key, &var.init, &init, self.ctx.checked);
+                    let string_is_owned = key == "String"
+                        && crate::expr::string_expr_is_owned_temp(&var.init, &self.ctx);
+                    let code = async_cfg_assignment_code(
+                        &name,
+                        &key,
+                        &var.init,
+                        &init,
+                        string_is_owned,
+                        self.ctx.checked,
+                    );
                     let state = self.alloc();
                     self.finish(state, AsyncCfgNode::Action { code, next });
                     state
@@ -1404,6 +1531,7 @@ impl<'a> AsyncCfgBuilder<'a> {
                         &iterable_key,
                         &for_in.iterable,
                         &init,
+                        false,
                         self.ctx.checked,
                     )
                 };
@@ -1565,6 +1693,180 @@ impl<'a> AsyncCfgBuilder<'a> {
                 }
                 arm_state
             }
+            Stmt::Try(try_stmt) => {
+                // A `setjmp`-based catch cannot survive an async suspension.
+                // Support the bounded task-error shape explicitly: a single
+                // awaited expression with a String catch binding and no
+                // finally block. Other forms remain on the deferred path.
+                let Some(catch) = &try_stmt.catch else {
+                    if try_stmt.finally.is_none() {
+                        self.supported = false;
+                        return next;
+                    }
+                    if try_stmt.try_block.stmts.len() == 1 {
+                        if let Stmt::Expr(Expr::Async(AsyncExpr::Await(await_expr))) =
+                            &try_stmt.try_block.stmts[0]
+                        {
+                            if !expr_contains_async(&await_expr.operand) {
+                                let failure_state = self.alloc();
+                                self.finish(failure_state, AsyncCfgNode::Fail);
+                                let after_finally = self.alloc();
+                                self.finish(
+                                    after_finally,
+                                    AsyncCfgNode::Branch {
+                                        condition: "data->await_failed".into(),
+                                        then_state: failure_state,
+                                        else_state: next,
+                                    },
+                                );
+                                let finally_state = self.emit_block(
+                                    &try_stmt.finally.as_ref().expect("checked above").stmts,
+                                    after_finally,
+                                    break_state,
+                                    continue_state,
+                                );
+                                let operand = emit_expr(&await_expr.operand, &mut self.ctx);
+                                let state = self.alloc();
+                                self.finish(
+                                    state,
+                                    AsyncCfgNode::AwaitFinally {
+                                        operand,
+                                        owns_task: await_operand_is_temporary(
+                                            &await_expr.operand,
+                                            self.ctx.checked,
+                                        ),
+                                        finally_state,
+                                        next,
+                                    },
+                                );
+                                return state;
+                            }
+                        }
+                    }
+                    let finally_state = self.emit_block(
+                        &try_stmt.finally.as_ref().expect("checked above").stmts,
+                        next,
+                        break_state,
+                        continue_state,
+                    );
+                    return self.emit_block(
+                        &try_stmt.try_block.stmts,
+                        finally_state,
+                        break_state,
+                        continue_state,
+                    );
+                };
+                let catch_key = type_ref_local_key(&catch.ty, &[], &[]);
+                if try_stmt.finally.is_some()
+                    || !async_cfg_catch_supported(&catch_key, self.ctx.checked)
+                    || catch.body.stmts.iter().any(stmt_contains_async)
+                {
+                    self.supported = false;
+                    return next;
+                }
+                if try_stmt.try_block.stmts.is_empty() {
+                    self.supported = false;
+                    return next;
+                }
+                let catch_name = catch.name.name.clone();
+                if let Some(existing) = self.locals.get(&catch_name) {
+                    if existing != &catch_key {
+                        self.supported = false;
+                        return next;
+                    }
+                } else {
+                    self.locals.insert(catch_name.clone(), catch_key.clone());
+                    self.ctx.define_local(&catch_name, catch_key.clone());
+                    self.cfg_locals
+                        .push((catch_name.clone(), catch_key.clone()));
+                }
+                let catch_key = self
+                    .locals
+                    .get(&catch_name)
+                    .cloned()
+                    .unwrap_or_else(|| catch_key.clone());
+                if is_heap_class_mono(&catch_key, self.ctx.checked)
+                    && !self
+                        .owned_class_catches
+                        .iter()
+                        .any(|(name, _)| name == &catch_name)
+                {
+                    self.owned_class_catches
+                        .push((catch_name.clone(), catch_key.clone()));
+                }
+                let catch_state =
+                    self.emit_block(&catch.body.stmts, next, break_state, continue_state);
+                // Build the protected body backwards so every awaited child
+                // routes failures to the same catch continuation. Synchronous
+                // statements are delegated to the normal CFG emitter.
+                let mut protected_next = next;
+                for stmt in try_stmt.try_block.stmts.iter().rev() {
+                    let await_value = match stmt {
+                        Stmt::Expr(Expr::Async(AsyncExpr::Await(await_expr))) => {
+                            Some((await_expr, None))
+                        }
+                        Stmt::Var(var) => match &var.init {
+                            Expr::Async(AsyncExpr::Await(await_expr)) => {
+                                let Some(value_key) = self.locals.get(&var.name.name).cloned()
+                                else {
+                                    self.supported = false;
+                                    return next;
+                                };
+                                if !async_cfg_value_supported(&value_key, self.ctx.checked) {
+                                    self.supported = false;
+                                    return next;
+                                }
+                                Some((await_expr, Some((mangle_ident(&var.name.name), value_key))))
+                            }
+                            _ => None,
+                        },
+                        _ => None,
+                    };
+                    if let Some((await_expr, value)) = await_value {
+                        if expr_contains_async(&await_expr.operand) {
+                            self.supported = false;
+                            return next;
+                        }
+                        let operand = emit_expr(&await_expr.operand, &mut self.ctx);
+                        let state = self.alloc();
+                        let owns_task =
+                            await_operand_is_temporary(&await_expr.operand, self.ctx.checked);
+                        let catch_name = mangle_ident(&catch_name);
+                        self.finish(
+                            state,
+                            match value {
+                                Some((value, value_key)) => AsyncCfgNode::AwaitCatchValue {
+                                    value,
+                                    value_key,
+                                    operand,
+                                    owns_task,
+                                    catch_name,
+                                    catch_key: catch_key.clone(),
+                                    catch_state,
+                                    next: protected_next,
+                                },
+                                None => AsyncCfgNode::AwaitCatch {
+                                    operand,
+                                    owns_task,
+                                    catch_name,
+                                    catch_key: catch_key.clone(),
+                                    catch_state,
+                                    next: protected_next,
+                                },
+                            },
+                        );
+                        protected_next = state;
+                    } else {
+                        protected_next = self.emit_block(
+                            std::slice::from_ref(stmt),
+                            protected_next,
+                            break_state,
+                            continue_state,
+                        );
+                    }
+                }
+                protected_next
+            }
             Stmt::Break(_) => break_state.unwrap_or_else(|| {
                 self.supported = false;
                 next
@@ -1573,7 +1875,47 @@ impl<'a> AsyncCfgBuilder<'a> {
                 self.supported = false;
                 next
             }),
+            Stmt::Throw(throw_stmt) => {
+                if expr_contains_async(&throw_stmt.value) {
+                    self.supported = false;
+                    return next;
+                }
+                let value_key = infer_type_name(&throw_stmt.value, &self.ctx);
+                if (!matches!(value_key.as_str(), "Int" | "Bool" | "String")
+                    && !async_cfg_throw_class_supported(&value_key, self.ctx.checked))
+                    || (value_key == "String"
+                        && crate::expr::string_expr_is_owned_temp(&throw_stmt.value, &self.ctx))
+                {
+                    self.supported = false;
+                    return next;
+                }
+                let value = emit_expr(&throw_stmt.value, &mut self.ctx);
+                let state = self.alloc();
+                self.finish(
+                    state,
+                    AsyncCfgNode::Throw {
+                        value,
+                        value_key,
+                        span_start: throw_stmt.span.start,
+                        span_end: throw_stmt.span.end,
+                    },
+                );
+                state
+            }
             Stmt::Return(ret) => {
+                if self.return_key == "Unit" && ret.value.is_none() {
+                    let state = self.alloc();
+                    self.finish(
+                        state,
+                        AsyncCfgNode::Return {
+                            value: "0".into(),
+                            value_key: self.return_key.clone(),
+                            value_is_ident: false,
+                            value_is_owned_temp: false,
+                        },
+                    );
+                    return state;
+                }
                 let Some(value) = &ret.value else {
                     self.supported = false;
                     return next;
@@ -1614,6 +1956,8 @@ impl<'a> AsyncCfgBuilder<'a> {
                     &key,
                     &assign.value,
                     &value,
+                    key == "String"
+                        && crate::expr::string_expr_is_owned_temp(&assign.value, &self.ctx),
                     self.ctx.checked,
                 );
                 let state = self.alloc();
@@ -1632,25 +1976,89 @@ impl<'a> AsyncCfgBuilder<'a> {
                 );
                 state
             }
-            Stmt::Expr(_) => {
-                self.supported = false;
-                next
+            Stmt::Expr(Expr::Async(AsyncExpr::Await(await_expr))) => {
+                if expr_contains_async(&await_expr.operand) {
+                    self.supported = false;
+                    return next;
+                }
+                let operand = emit_expr(&await_expr.operand, &mut self.ctx);
+                let state = self.alloc();
+                self.finish(
+                    state,
+                    AsyncCfgNode::AwaitUnit {
+                        operand,
+                        owns_task: await_operand_is_temporary(
+                            &await_expr.operand,
+                            self.ctx.checked,
+                        ),
+                        next,
+                    },
+                );
+                state
             }
-            _ => {
-                self.supported = false;
-                next
+            Stmt::Expr(expr) => {
+                if expr_contains_async(expr) {
+                    self.supported = false;
+                    return next;
+                }
+                let code = emit_expr(expr, &mut self.ctx);
+                let state = self.alloc();
+                self.finish(
+                    state,
+                    AsyncCfgNode::Action {
+                        code: format!("{code};"),
+                        next,
+                    },
+                );
+                state
             }
         }
     }
 }
 
 fn async_cfg_value_supported(key: &str, checked: &CheckedFile) -> bool {
-    matches!(key, "Int" | "Bool" | "String" | "ForeignHandle")
-        || key.starts_with("ForeignHandle_")
+    matches!(
+        key,
+        "Unit" | "Int" | "Bool" | "String" | "Opt_Int" | "Opt_Bool" | "ForeignHandle"
+    ) || key.starts_with("ForeignHandle_")
         || is_array_type_key(key)
         || is_iface_type_key(key, checked)
         || is_heap_class_mono(key, checked)
         || mono_base_name(key, checked).is_some_and(|base| is_enum_name(checked, base))
+}
+
+fn async_cfg_catch_supported(key: &str, checked: &CheckedFile) -> bool {
+    matches!(key, "String" | "Int" | "Bool") || async_cfg_throw_class_supported(key, checked)
+}
+
+fn async_cfg_class_catch_body(catch_key: &str, catch_name: &str, checked: &CheckedFile) -> String {
+    let mono = full_type_mono(catch_key, checked);
+    let Some(base) = mono_base_name(&mono, checked) else {
+        return String::new();
+    };
+    let Some(class) = checked
+        .ast
+        .classes
+        .iter()
+        .find(|class| class.name.name == base && class.type_params.is_empty())
+    else {
+        return String::new();
+    };
+    let cty = c_class_type(&mono);
+    let dtor = format!("aura_ex_dtor_{mono}");
+    let mut code = format!(
+        "AuraTaskResult __payload = aura_task_frame_error_payload(data->await_task); if (__payload.data == NULL) {{ (void)aura_task_frame_propagate_error(frame, data->await_task); return AURA_TASK_FAILED; }} {cty} *__source = ({cty} *)__payload.data; {cty} *__copy = ({cty} *)malloc(sizeof(*__copy)); if (__copy == NULL) return AURA_TASK_FAILED; *__copy = *__source; if (data->{catch_name} != NULL) {dtor}(data->{catch_name}); data->{catch_name} = __copy; {catch_name} = data->{catch_name};"
+    );
+    for field in &class.fields {
+        if type_ref_local_key(&field.ty, &[], &[]) != "String" {
+            continue;
+        }
+        let name = mangle_ident(&field.name.name);
+        code.push_str(&format!(
+            "if (__source->{name} != NULL) {{ size_t __len_{name} = strlen(__source->{name}); char *__text_{name} = (char *)malloc(__len_{name} + 1); if (__text_{name} == NULL) {{ {dtor}(__copy); return AURA_TASK_FAILED; }} memcpy(__text_{name}, __source->{name}, __len_{name} + 1); __copy->{name} = __text_{name}; }}"
+        ));
+    }
+    code
 }
 
 fn async_cfg_task_supported(key: &str, checked: &CheckedFile) -> bool {
@@ -1658,11 +2066,33 @@ fn async_cfg_task_supported(key: &str, checked: &CheckedFile) -> bool {
         .is_some_and(|value| async_cfg_value_supported(value, checked))
 }
 
+fn async_cfg_throw_class_supported(key: &str, checked: &CheckedFile) -> bool {
+    if !is_heap_class_mono(key, checked) {
+        return false;
+    }
+    let Some(base) = mono_base_name(key, checked) else {
+        return false;
+    };
+    let Some(class) = checked
+        .ast
+        .classes
+        .iter()
+        .find(|class| class.name.name == base && class.type_params.is_empty())
+    else {
+        return false;
+    };
+    class
+        .fields
+        .iter()
+        .all(|field| !is_array_type_key(&type_ref_local_key(&field.ty, &[], &[])))
+}
+
 fn async_cfg_assignment_code(
     name: &str,
     key: &str,
     init: &Expr,
     value: &str,
+    string_is_owned: bool,
     checked: &CheckedFile,
 ) -> String {
     let name = mangle_ident(name);
@@ -1675,7 +2105,10 @@ fn async_cfg_assignment_code(
                 );
             }
         }
-        return format!("{name} = {value}; {name}__owned = false;");
+        return format!(
+            "if ({name}__owned && {name} != NULL) free((void *){name}); {name} = {value}; {name}__owned = {};",
+            if string_is_owned { "true" } else { "false" }
+        );
     }
     if is_array_type_key(key) {
         let cty = crate::stmt::local_key_to_c(key, checked);
@@ -1719,6 +2152,14 @@ fn emit_owned_value_cleanup(
     key: &str,
     checked: &CheckedFile,
 ) {
+    if key.contains("Outcome_String") && key.contains("std_error_Error") {
+        let pad = "  ".repeat(indent);
+        let _ = writeln!(
+            out,
+            "{pad}if ({expr}.tag == 0 && {expr}.data.OutcomeOk.owned && {expr}.data.OutcomeOk.value != NULL) {{ free((void *){expr}.data.OutcomeOk.value); {expr}.data.OutcomeOk.value = NULL; {expr}.data.OutcomeOk.owned = false; }}"
+        );
+        return;
+    }
     if is_array_type_key(key) {
         crate::array_emit::emit_array_contents_free(out, indent, expr, key);
         return;
@@ -1814,47 +2255,27 @@ fn stmt_contains_async(stmt: &Stmt) -> bool {
                     .iter()
                     .any(|arm| arm.body.stmts.iter().any(stmt_contains_async))
         }
+        Stmt::Try(try_stmt) => {
+            try_stmt.try_block.stmts.iter().any(stmt_contains_async)
+                || try_stmt
+                    .finally
+                    .as_ref()
+                    .is_some_and(|block| block.stmts.iter().any(stmt_contains_async))
+                || try_stmt
+                    .catch
+                    .as_ref()
+                    .is_some_and(|catch| catch.body.stmts.iter().any(stmt_contains_async))
+        }
         Stmt::Return(ret) => ret.value.as_ref().is_some_and(expr_contains_async),
         Stmt::Expr(expr) => expr_contains_async(expr),
         _ => false,
     }
 }
 
-fn contains_async_cfg_control_flow(stmts: &[Stmt]) -> bool {
-    stmts.iter().any(|stmt| match stmt {
-        Stmt::If(branch) => {
-            stmt_contains_async(&Stmt::If(branch.clone()))
-                || contains_async_cfg_control_flow(&branch.then_block.stmts)
-                || branch
-                    .else_block
-                    .as_ref()
-                    .is_some_and(|block| contains_async_cfg_control_flow(&block.stmts))
-        }
-        Stmt::While(loop_stmt) => {
-            stmt_contains_async(&Stmt::While(loop_stmt.clone()))
-                || contains_async_cfg_control_flow(&loop_stmt.body.stmts)
-        }
-        Stmt::ForRange(range) => {
-            stmt_contains_async(&Stmt::ForRange(range.clone()))
-                || contains_async_cfg_control_flow(&range.body.stmts)
-        }
-        Stmt::ForIn(for_in) => {
-            stmt_contains_async(&Stmt::ForIn(for_in.clone()))
-                || contains_async_cfg_control_flow(&for_in.body.stmts)
-        }
-        Stmt::Match(m) => {
-            stmt_contains_async(&Stmt::Match(m.clone()))
-                || m.arms
-                    .iter()
-                    .any(|arm| contains_async_cfg_control_flow(&arm.body.stmts))
-        }
-        _ => false,
-    })
-}
-
 fn collect_async_cfg_vars<'a>(
     stmts: &'a [Stmt],
     checked: &CheckedFile,
+    ctx: &mut EmitCtx<'_>,
     vars: &mut Vec<(&'a VarStmt, String)>,
 ) -> bool {
     for stmt in stmts {
@@ -1864,8 +2285,10 @@ fn collect_async_cfg_vars<'a>(
                     .ty
                     .as_ref()
                     .map(|ty| type_ref_local_key_expand(ty, &[], &[], checked))
-                    .unwrap_or_else(|| "Int".into());
+                    .unwrap_or_else(|| infer_type_name(&var.init, ctx));
                 vars.push((var, key));
+                let (_, key) = vars.last().expect("just pushed async CFG local");
+                ctx.define_local(&var.name.name, full_type_mono(key, checked));
                 if let Expr::Async(_) = var.init {
                     continue;
                 }
@@ -1874,33 +2297,62 @@ fn collect_async_cfg_vars<'a>(
                 }
             }
             Stmt::If(branch) => {
-                if !collect_async_cfg_vars(&branch.then_block.stmts, checked, vars) {
+                if !collect_async_cfg_vars(&branch.then_block.stmts, checked, ctx, vars) {
                     return false;
                 }
                 if let Some(block) = &branch.else_block {
-                    if !collect_async_cfg_vars(&block.stmts, checked, vars) {
+                    if !collect_async_cfg_vars(&block.stmts, checked, ctx, vars) {
                         return false;
                     }
                 }
             }
             Stmt::While(loop_stmt) => {
-                if !collect_async_cfg_vars(&loop_stmt.body.stmts, checked, vars) {
+                if !collect_async_cfg_vars(&loop_stmt.body.stmts, checked, ctx, vars) {
                     return false;
                 }
             }
             Stmt::ForRange(range) => {
-                if !collect_async_cfg_vars(&range.body.stmts, checked, vars) {
+                if !collect_async_cfg_vars(&range.body.stmts, checked, ctx, vars) {
                     return false;
                 }
             }
             Stmt::ForIn(for_in) => {
-                if !collect_async_cfg_vars(&for_in.body.stmts, checked, vars) {
+                if !collect_async_cfg_vars(&for_in.body.stmts, checked, ctx, vars) {
                     return false;
                 }
             }
             Stmt::Match(m) => {
                 for arm in &m.arms {
-                    if !collect_async_cfg_vars(&arm.body.stmts, checked, vars) {
+                    if !collect_async_cfg_vars(&arm.body.stmts, checked, ctx, vars) {
+                        return false;
+                    }
+                }
+            }
+            Stmt::Try(try_stmt) => {
+                if let Some(catch) = &try_stmt.catch {
+                    let catch_key = type_ref_local_key(&catch.ty, &[], &[]);
+                    if try_stmt.finally.is_some()
+                        || try_stmt.try_block.stmts.is_empty()
+                        || !async_cfg_catch_supported(&catch_key, checked)
+                        || catch.body.stmts.iter().any(stmt_contains_async)
+                    {
+                        return false;
+                    }
+                    // A single `val x = await ...` in the protected block is
+                    // part of the frame and must be collected before CFG emit.
+                    if !collect_async_cfg_vars(&try_stmt.try_block.stmts, checked, ctx, vars) {
+                        return false;
+                    }
+                    if !collect_async_cfg_vars(&catch.body.stmts, checked, ctx, vars) {
+                        return false;
+                    }
+                } else {
+                    let Some(finally) = &try_stmt.finally else {
+                        return false;
+                    };
+                    if !collect_async_cfg_vars(&try_stmt.try_block.stmts, checked, ctx, vars)
+                        || !collect_async_cfg_vars(&finally.stmts, checked, ctx, vars)
+                    {
                         return false;
                     }
                 }
@@ -1924,18 +2376,21 @@ fn emit_async_fun_cfg_int(
     };
     let return_key = type_ref_local_key_expand(ret, &[], &[], checked);
     if !async_cfg_value_supported(&return_key, checked)
-        || !contains_async_cfg_control_flow(&f.body.stmts)
+        || !f.body.stmts.iter().any(stmt_contains_async)
     {
         return false;
+    }
+    let params: Vec<String> = f.type_params.iter().map(|p| p.name.name.clone()).collect();
+    let mut collect_ctx = async_ctx(checked, detector, &params, &f.params, &f.return_type);
+    for param in &f.params {
+        let key = type_ref_local_key_expand(&param.ty, &params, &[], checked);
+        if !async_cfg_value_supported(&key, checked) && !async_cfg_task_supported(&key, checked) {
+            return false;
+        }
+        collect_ctx.define_local(&param.name.name, full_type_mono(&key, checked));
     }
     let mut vars = Vec::new();
-    if !collect_async_cfg_vars(&f.body.stmts, checked, &mut vars) {
-        return false;
-    }
-    if !vars
-        .iter()
-        .any(|(_, key)| async_cfg_value_supported(key, checked))
-    {
+    if !collect_async_cfg_vars(&f.body.stmts, checked, &mut collect_ctx, &mut vars) {
         return false;
     }
     let mut locals = HashMap::new();
@@ -1946,13 +2401,9 @@ fn emit_async_fun_cfg_int(
             return false;
         }
     }
-    let params: Vec<String> = f.type_params.iter().map(|p| p.name.name.clone()).collect();
     let mut ctx = async_ctx(checked, detector, &params, &f.params, &f.return_type);
     for param in &f.params {
         let key = type_ref_local_key_expand(&param.ty, &params, &[], checked);
-        if !async_cfg_value_supported(&key, checked) && !async_cfg_task_supported(&key, checked) {
-            return false;
-        }
         ctx.define_local(&param.name.name, full_type_mono(&key, checked));
     }
     for (var, key) in &vars {
@@ -1960,7 +2411,9 @@ fn emit_async_fun_cfg_int(
     }
     let mut builder = AsyncCfgBuilder::new(ctx, locals.clone(), return_key.clone());
     let terminal = builder.alloc();
-    let terminal_value = if return_key == "String" {
+    let terminal_value = if return_key == "Unit" {
+        "0".into()
+    } else if return_key == "String" {
         "NULL".into()
     } else if is_array_type_key(&return_key) {
         format!(
@@ -1969,6 +2422,11 @@ fn emit_async_fun_cfg_int(
         )
     } else if return_key == "Bool" {
         "false".into()
+    } else if mono_base_name(&return_key, checked).is_some_and(|base| is_enum_name(checked, base)) {
+        format!(
+            "({}){{0}}",
+            crate::stmt::local_key_to_c(&return_key, checked)
+        )
     } else if is_heap_class_mono(&return_key, checked)
         || return_key == "ForeignHandle"
         || return_key.starts_with("ForeignHandle_")
@@ -1990,7 +2448,20 @@ fn emit_async_fun_cfg_int(
     if !builder.supported || builder.nodes.iter().any(Option::is_none) {
         return false;
     }
+    let thrown_class_keys: BTreeSet<String> = builder
+        .nodes
+        .iter()
+        .filter_map(|node| match node.as_ref() {
+            Some(AsyncCfgNode::Throw { value_key, .. })
+                if async_cfg_throw_class_supported(value_key, checked) =>
+            {
+                Some(full_type_mono(value_key, checked))
+            }
+            _ => None,
+        })
+        .collect();
     let cfg_locals = builder.cfg_locals.clone();
+    let owned_class_catches = builder.owned_class_catches.clone();
     let match_bindings = builder.match_bindings.clone();
     let pkg = async_fun_decl_package(f, checked);
     let base = format!("{}_{}", mangle_package(&pkg), mangle_ident(&f.name.name));
@@ -1999,6 +2470,7 @@ fn emit_async_fun_cfg_int(
     let destroy_data = format!("aura_async_destroy_{base}");
     let destroy_result = format!("aura_async_result_destroy_{base}");
     let lowering_kind = match return_key.as_str() {
+        "Unit" => "Unit",
         "Int" => "Int",
         "Bool" => "Bool",
         "String" => "String",
@@ -2012,6 +2484,20 @@ fn emit_async_fun_cfg_int(
         "/* aura async general CFG {lowering_kind} lowering states={} */",
         builder.nodes.len()
     );
+    // Keep suspension-point markers stable across the CFG and straight-line
+    // lowerers so diagnostics and backend regression fixtures share one ABI.
+    for point in f.suspension_points() {
+        let _ = writeln!(
+            out,
+            "/* aura async general suspension state={} kind=await */",
+            point.state_id
+        );
+        let _ = writeln!(
+            out,
+            "/* aura async suspension state={} kind=await */",
+            point.state_id
+        );
+    }
     let _ = writeln!(out, "typedef struct {data_ty} {{");
     for param in &f.params {
         let _ = writeln!(
@@ -2054,7 +2540,7 @@ fn emit_async_fun_cfg_int(
             let _ = writeln!(out, "  bool {}__owned;", mangle_ident(name));
         }
     }
-    out.push_str("  AuraTaskFrame *await_task; bool await_task_owned;\n");
+    out.push_str("  AuraTaskFrame *await_task; bool await_task_owned; bool await_failed;\n");
     let _ = writeln!(out, "}} {data_ty};\n");
     let _ = writeln!(out, "static void {destroy_data}(AuraTaskFrame *frame) {{");
     let _ = writeln!(
@@ -2098,6 +2584,14 @@ fn emit_async_fun_cfg_int(
                 out,
                 "  if (data->{name} != NULL && data->{name} != __aura_released_handle) {{ __aura_released_handle = data->{name}; (void)aura_ffi_handle_drop(&data->{name}); }}"
             );
+        } else if key.contains("Outcome_String") && key.contains("std_error_Error") {
+            emit_owned_value_cleanup(
+                out,
+                1,
+                &format!("data->{}", mangle_ident(&var.name.name)),
+                key,
+                checked,
+            );
         }
     }
     for (name, key) in &match_bindings {
@@ -2113,6 +2607,14 @@ fn emit_async_fun_cfg_int(
                 2,
                 &format!("data->{}", mangle_ident(name)),
                 key,
+            );
+        } else if key.contains("Outcome_String") && key.contains("std_error_Error") {
+            emit_owned_value_cleanup(
+                out,
+                1,
+                &format!("data->{}", mangle_ident(name)),
+                key,
+                checked,
             );
         }
     }
@@ -2131,7 +2633,24 @@ fn emit_async_fun_cfg_int(
                 &format!("data->{}", mangle_ident(name)),
                 key,
             );
+        } else if key.contains("Outcome_String") && key.contains("std_error_Error") {
+            emit_owned_value_cleanup(
+                out,
+                1,
+                &format!("data->{}", mangle_ident(name)),
+                key,
+                checked,
+            );
         }
+    }
+    for (name, key) in &owned_class_catches {
+        let mono = full_type_mono(key, checked);
+        let dtor = format!("aura_ex_dtor_{mono}");
+        let name = mangle_ident(name);
+        let _ = writeln!(
+            out,
+            "  if (data->{name} != NULL) {{ {dtor}(data->{name}); data->{name} = NULL; }}"
+        );
     }
     out.push_str("}\n\n");
     let _ = writeln!(
@@ -2153,7 +2672,56 @@ fn emit_async_fun_cfg_int(
     } else if return_key == "ForeignHandle" || return_key.starts_with("ForeignHandle_") {
         out.push_str("  (void)size; if (data != NULL) { AuraFfiOpaqueHandle **result = (AuraFfiOpaqueHandle **)data; if (*result != NULL) (void)aura_ffi_handle_drop(result); free(result); }\n}\n\n");
     } else {
-        out.push_str("  (void)size; free(data);\n}\n\n");
+        let result_cty = crate::stmt::local_key_to_c(&return_key, checked);
+        if return_key.contains("Outcome_String") && return_key.contains("std_error_Error") {
+            let _ = writeln!(
+                out,
+                "  (void)size; if (data != NULL) {{ {result_cty} *result = ({result_cty} *)data; if (result->tag == 0 && result->data.OutcomeOk.owned && result->data.OutcomeOk.value != NULL) free((void *)result->data.OutcomeOk.value); free(result); }}\n}}\n\n"
+            );
+        } else {
+            out.push_str("  (void)size; free(data);\n}\n\n");
+        }
+    }
+    let clone_error = format!("aura_async_error_clone_{base}");
+    let destroy_error = format!("aura_async_error_destroy_{base}");
+    let _ = writeln!(
+        out,
+        "static void *{clone_error}(const void *src, size_t size, size_t *out_size) {{ const char *text = (const char *)src; size_t len; char *copy; (void)size; if (text == NULL || out_size == NULL) return NULL; len = strlen(text); copy = (char *)malloc(len + 1); if (copy == NULL) return NULL; memcpy(copy, text, len + 1); *out_size = len + 1; return copy; }}"
+    );
+    let _ = writeln!(
+        out,
+        "static void {destroy_error}(void *data, size_t size) {{ (void)size; free(data); }}\n"
+    );
+    for mono in &thrown_class_keys {
+        let Some(base) = mono_base_name(mono, checked) else {
+            continue;
+        };
+        let Some(class) = checked
+            .ast
+            .classes
+            .iter()
+            .find(|class| class.name.name == base && class.type_params.is_empty())
+        else {
+            continue;
+        };
+        let cty = c_class_type(mono);
+        let suffix = mangle_ident(mono);
+        let clone = format!("aura_async_cfg_class_error_clone_{base}_{suffix}");
+        let destroy = format!("aura_async_cfg_class_error_destroy_{base}_{suffix}");
+        let _ = writeln!(
+            out,
+            "static void *{clone}(const void *src, size_t size, size_t *out_size) {{"
+        );
+        let _ = writeln!(out, "  (void)size; const {cty} *source = (const {cty} *)src; if (source == NULL || out_size == NULL) return NULL; {cty} *copy = ({cty} *)malloc(sizeof(*copy)); if (copy == NULL) return NULL; *copy = *source;");
+        for field in &class.fields {
+            if type_ref_local_key(&field.ty, &[], &[]) != "String" {
+                continue;
+            }
+            let name = mangle_ident(&field.name.name);
+            let _ = writeln!(out, "  if (source->{name} != NULL) {{ size_t len = strlen(source->{name}); char *text = (char *)malloc(len + 1); if (text == NULL) {{ free(copy); return NULL; }} memcpy(text, source->{name}, len + 1); copy->{name} = text; }}");
+        }
+        let _ = writeln!(out, "  *out_size = sizeof(*copy); return copy; }}");
+        let _ = writeln!(out, "static void {destroy}(void *data, size_t size) {{ (void)size; aura_ex_dtor_{mono}(data); }}\n");
     }
     let _ = writeln!(
         out,
@@ -2166,11 +2734,11 @@ fn emit_async_fun_cfg_int(
     out.push_str("  if (aura_task_frame_cancel_requested(frame)) return AURA_TASK_CANCELLED;\n");
     for param in &f.params {
         let name = mangle_ident(&param.name.name);
-        let _ = writeln!(
-            out,
-            "  {} {name} = data->{name};",
-            c_type_ref_subst(&param.ty, checked, &params, &[])
-        );
+        let cty = c_type_ref_subst(&param.ty, checked, &params, &[]);
+        let _ = writeln!(out, "  {cty} {name} = data->{name};");
+        if param.name.name == "this" {
+            let _ = writeln!(out, "  {cty} this = data->{name};");
+        }
     }
     for (var, key) in &vars {
         let name = mangle_ident(&var.name.name);
@@ -2285,7 +2853,8 @@ fn emit_async_fun_cfg_int(
                     );
                 } else if is_array_type_key(&value_key) {
                     let cty = crate::stmt::local_key_to_c(&value_key, checked);
-                    let clone = crate::names::c_method_name(&value_key, "clone");
+                    let clone_key = full_type_mono(&value_key, checked);
+                    let clone = crate::names::c_method_name(&clone_key, "clone");
                     let mut free_code = String::new();
                     crate::array_emit::emit_array_contents_free(
                         &mut free_code,
@@ -2311,6 +2880,178 @@ fn emit_async_fun_cfg_int(
                     );
                 }
             }
+            AsyncCfgNode::AwaitUnit {
+                operand,
+                owns_task,
+                next,
+            } => {
+                let _ = writeln!(out, "        if (data->await_task == NULL) {{ data->await_task = {operand}; data->await_task_owned = {}; }}", if owns_task { "true" } else { "false" });
+                out.push_str("        if (data->await_task == NULL) return AURA_TASK_FAILED;\n");
+                out.push_str("        AuraTaskPollState child_state = aura_task_frame_state(data->await_task); if (child_state == AURA_TASK_READY) child_state = aura_task_frame_poll_once(data->await_task);\n");
+                let _ = writeln!(out, "        if (child_state == AURA_TASK_PENDING) {{ {sync} aura_task_frame_set_resume_state(frame, {state}); if (!aura_task_frame_wait_on(frame, data->await_task)) return AURA_TASK_FAILED; return AURA_TASK_PENDING; }}");
+                out.push_str("        if (child_state == AURA_TASK_CANCELLED) return AURA_TASK_CANCELLED;\n        if (child_state == AURA_TASK_FAILED) { (void)aura_task_frame_propagate_error(frame, data->await_task); return AURA_TASK_FAILED; }\n        if (child_state != AURA_TASK_COMPLETE) return AURA_TASK_FAILED;\n");
+                let _ = writeln!(out, "        if (data->await_task_owned && __aura_task_executor != NULL) (void)aura_task_executor_release(__aura_task_executor, &data->await_task); data->await_task = NULL; data->await_task_owned = false; aura_task_frame_set_resume_state(frame, {next}); continue;");
+            }
+            AsyncCfgNode::AwaitCatch {
+                operand,
+                owns_task,
+                catch_name,
+                catch_key,
+                catch_state,
+                next,
+            } => {
+                let _ = writeln!(out, "        if (data->await_task == NULL) {{ data->await_task = {operand}; data->await_task_owned = {}; }}", if owns_task { "true" } else { "false" });
+                out.push_str("        if (data->await_task == NULL) return AURA_TASK_FAILED;\n");
+                out.push_str("        AuraTaskPollState child_state = aura_task_frame_state(data->await_task); if (child_state == AURA_TASK_READY) child_state = aura_task_frame_poll_once(data->await_task);\n");
+                let _ = writeln!(out, "        if (child_state == AURA_TASK_PENDING) {{ {sync} aura_task_frame_set_resume_state(frame, {state}); if (!aura_task_frame_wait_on(frame, data->await_task)) return AURA_TASK_FAILED; return AURA_TASK_PENDING; }}");
+                out.push_str(
+                    "        if (child_state == AURA_TASK_CANCELLED) return AURA_TASK_CANCELLED;\n",
+                );
+                let catch_body = match catch_key.as_str() {
+                    "String" => format!("const char *__src = (const char *)__error.data; size_t __len = __src == NULL ? 0 : strlen(__src); if (data->{catch_name}__owned && data->{catch_name} != NULL) free((void *)data->{catch_name}); char *__copy = (char *)malloc(__len + 1); if (__copy == NULL) return AURA_TASK_FAILED; if (__src != NULL) memcpy(__copy, __src, __len + 1); else __copy[0] = '\\0'; data->{catch_name} = __copy; data->{catch_name}__owned = true; {catch_name} = data->{catch_name}; {catch_name}__owned = true;"),
+                    "Int" => format!("const char *__src = (const char *)__error.data; char *__end = NULL; long long __parsed = __src == NULL ? 0 : strtoll(__src, &__end, 10); if (__src == NULL || __end == __src || *__end != '\\0') {{ (void)aura_task_frame_propagate_error(frame, data->await_task); if (data->await_task_owned && __aura_task_executor != NULL) (void)aura_task_executor_release(__aura_task_executor, &data->await_task); data->await_task = NULL; data->await_task_owned = false; return AURA_TASK_FAILED; }} {catch_name} = (int64_t)__parsed;"),
+                    "Bool" => format!("const char *__src = (const char *)__error.data; if (__src == NULL || (strcmp(__src, \"true\") != 0 && strcmp(__src, \"false\") != 0)) {{ (void)aura_task_frame_propagate_error(frame, data->await_task); if (data->await_task_owned && __aura_task_executor != NULL) (void)aura_task_executor_release(__aura_task_executor, &data->await_task); data->await_task = NULL; data->await_task_owned = false; return AURA_TASK_FAILED; }} {catch_name} = strcmp(__src, \"true\") == 0;"),
+                    other if async_cfg_throw_class_supported(other, checked) =>
+                        async_cfg_class_catch_body(other, &catch_name, checked),
+                    _ => unreachable!("validated async catch"),
+                };
+                let expected_type = catch_key.as_str();
+                let _ = writeln!(out, "        if (child_state == AURA_TASK_FAILED) {{ AuraTaskResult __error = aura_task_frame_error(data->await_task); const char *__type = aura_task_frame_error_type_name(data->await_task); if (__type == NULL || strcmp(__type, \"{expected_type}\") != 0) {{ (void)aura_task_frame_propagate_error(frame, data->await_task); if (data->await_task_owned && __aura_task_executor != NULL) (void)aura_task_executor_release(__aura_task_executor, &data->await_task); data->await_task = NULL; data->await_task_owned = false; return AURA_TASK_FAILED; }} {catch_body} if (data->await_task_owned && __aura_task_executor != NULL) (void)aura_task_executor_release(__aura_task_executor, &data->await_task); data->await_task = NULL; data->await_task_owned = false; aura_task_frame_set_resume_state(frame, {catch_state}); continue; }}");
+                out.push_str(
+                    "        if (child_state != AURA_TASK_COMPLETE) return AURA_TASK_FAILED;\n",
+                );
+                let _ = writeln!(out, "        if (data->await_task_owned && __aura_task_executor != NULL) (void)aura_task_executor_release(__aura_task_executor, &data->await_task); data->await_task = NULL; data->await_task_owned = false; aura_task_frame_set_resume_state(frame, {next}); continue;");
+            }
+            AsyncCfgNode::AwaitCatchValue {
+                value,
+                value_key,
+                operand,
+                owns_task,
+                catch_name,
+                catch_key,
+                catch_state,
+                next,
+            } => {
+                let _ = writeln!(out, "        if (data->await_task == NULL) {{ data->await_task = {operand}; data->await_task_owned = {}; }}", if owns_task { "true" } else { "false" });
+                out.push_str("        if (data->await_task == NULL) return AURA_TASK_FAILED;\n");
+                out.push_str("        AuraTaskPollState child_state = aura_task_frame_state(data->await_task); if (child_state == AURA_TASK_READY) child_state = aura_task_frame_poll_once(data->await_task);\n");
+                let _ = writeln!(out, "        if (child_state == AURA_TASK_PENDING) {{ {sync} aura_task_frame_set_resume_state(frame, {state}); if (!aura_task_frame_wait_on(frame, data->await_task)) return AURA_TASK_FAILED; return AURA_TASK_PENDING; }}");
+                out.push_str(
+                    "        if (child_state == AURA_TASK_CANCELLED) return AURA_TASK_CANCELLED;\n",
+                );
+                let catch_body = match catch_key.as_str() {
+                    "String" => format!("const char *__src = (const char *)__error.data; size_t __len = __src == NULL ? 0 : strlen(__src); if (data->{catch_name}__owned && data->{catch_name} != NULL) free((void *)data->{catch_name}); char *__copy = (char *)malloc(__len + 1); if (__copy == NULL) return AURA_TASK_FAILED; if (__src != NULL) memcpy(__copy, __src, __len + 1); else __copy[0] = '\\0'; data->{catch_name} = __copy; data->{catch_name}__owned = true; {catch_name} = data->{catch_name}; {catch_name}__owned = true;"),
+                    "Int" => format!("const char *__src = (const char *)__error.data; char *__end = NULL; long long __parsed = __src == NULL ? 0 : strtoll(__src, &__end, 10); if (__src == NULL || __end == __src || *__end != '\\0') {{ (void)aura_task_frame_propagate_error(frame, data->await_task); if (data->await_task_owned && __aura_task_executor != NULL) (void)aura_task_executor_release(__aura_task_executor, &data->await_task); data->await_task = NULL; data->await_task_owned = false; return AURA_TASK_FAILED; }} {catch_name} = (int64_t)__parsed;"),
+                    "Bool" => format!("const char *__src = (const char *)__error.data; if (__src == NULL || (strcmp(__src, \"true\") != 0 && strcmp(__src, \"false\") != 0)) {{ (void)aura_task_frame_propagate_error(frame, data->await_task); if (data->await_task_owned && __aura_task_executor != NULL) (void)aura_task_executor_release(__aura_task_executor, &data->await_task); data->await_task = NULL; data->await_task_owned = false; return AURA_TASK_FAILED; }} {catch_name} = strcmp(__src, \"true\") == 0;"),
+                    other if async_cfg_throw_class_supported(other, checked) =>
+                        async_cfg_class_catch_body(other, &catch_name, checked),
+                    _ => unreachable!("validated async catch"),
+                };
+                let expected_type = catch_key.as_str();
+                let _ = writeln!(out, "        if (child_state == AURA_TASK_FAILED) {{ AuraTaskResult __error = aura_task_frame_error(data->await_task); const char *__type = aura_task_frame_error_type_name(data->await_task); if (__type == NULL || strcmp(__type, \"{expected_type}\") != 0) {{ (void)aura_task_frame_propagate_error(frame, data->await_task); if (data->await_task_owned && __aura_task_executor != NULL) (void)aura_task_executor_release(__aura_task_executor, &data->await_task); data->await_task = NULL; data->await_task_owned = false; return AURA_TASK_FAILED; }} {catch_body} if (data->await_task_owned && __aura_task_executor != NULL) (void)aura_task_executor_release(__aura_task_executor, &data->await_task); data->await_task = NULL; data->await_task_owned = false; aura_task_frame_set_resume_state(frame, {catch_state}); continue; }}");
+                out.push_str(
+                    "        if (child_state != AURA_TASK_COMPLETE) return AURA_TASK_FAILED;\n",
+                );
+                if value_key == "String" {
+                    let _ = writeln!(out, "        if (aura_task_frame_result(data->await_task).data != NULL) {{ const char *__src = *((const char **)aura_task_frame_result(data->await_task).data); if (data->{value}__owned && data->{value} != NULL) free((void *)data->{value}); data->{value} = NULL; data->{value}__owned = false; if (__src != NULL) {{ size_t __len = strlen(__src); data->{value} = (char *)malloc(__len + 1); if (data->{value} == NULL) return AURA_TASK_FAILED; memcpy((void *)data->{value}, __src, __len + 1); data->{value}__owned = true; }} {value} = data->{value}; {value}__owned = data->{value}__owned; }}");
+                } else if is_array_type_key(&value_key) {
+                    let cty = crate::stmt::local_key_to_c(&value_key, checked);
+                    let clone_key = full_type_mono(&value_key, checked);
+                    let clone = crate::names::c_method_name(&clone_key, "clone");
+                    let mut free_code = String::new();
+                    crate::array_emit::emit_array_contents_free(
+                        &mut free_code,
+                        0,
+                        &format!("data->{value}"),
+                        &value_key,
+                    );
+                    let _ = writeln!(out, "        if (aura_task_frame_result(data->await_task).data != NULL) {{ {cty} *__child = ({cty} *)aura_task_frame_result(data->await_task).data; {free_code} data->{value} = {clone}(__child); {value} = data->{value}; }}");
+                } else {
+                    let cty = crate::stmt::local_key_to_c(&value_key, checked);
+                    let _ = writeln!(out, "        if (aura_task_frame_result(data->await_task).data != NULL) {{ data->{value} = *(({cty} *)aura_task_frame_result(data->await_task).data); {value} = data->{value}; }}");
+                }
+                let _ = writeln!(out, "        if (data->await_task_owned && __aura_task_executor != NULL) (void)aura_task_executor_release(__aura_task_executor, &data->await_task); data->await_task = NULL; data->await_task_owned = false; aura_task_frame_set_resume_state(frame, {next}); continue;");
+            }
+            AsyncCfgNode::AwaitFinally {
+                operand,
+                owns_task,
+                finally_state,
+                next,
+            } => {
+                let _ = writeln!(out, "        if (data->await_task == NULL) {{ data->await_task = {operand}; data->await_task_owned = {}; data->await_failed = false; }}", if owns_task { "true" } else { "false" });
+                out.push_str("        if (data->await_task == NULL) return AURA_TASK_FAILED;\n");
+                out.push_str("        AuraTaskPollState child_state = aura_task_frame_state(data->await_task); if (child_state == AURA_TASK_READY) child_state = aura_task_frame_poll_once(data->await_task);\n");
+                let _ = writeln!(out, "        if (child_state == AURA_TASK_PENDING) {{ {sync} aura_task_frame_set_resume_state(frame, {state}); if (!aura_task_frame_wait_on(frame, data->await_task)) return AURA_TASK_FAILED; return AURA_TASK_PENDING; }}");
+                out.push_str(
+                    "        if (child_state == AURA_TASK_CANCELLED) return AURA_TASK_CANCELLED;\n",
+                );
+                let _ = writeln!(out, "        if (child_state == AURA_TASK_FAILED) {{ if (!aura_task_frame_propagate_error(frame, data->await_task)) return AURA_TASK_FAILED; data->await_failed = true; if (data->await_task_owned && __aura_task_executor != NULL) (void)aura_task_executor_release(__aura_task_executor, &data->await_task); data->await_task = NULL; data->await_task_owned = false; aura_task_frame_set_resume_state(frame, {finally_state}); continue; }}");
+                out.push_str(
+                    "        if (child_state != AURA_TASK_COMPLETE) return AURA_TASK_FAILED;\n",
+                );
+                let _ = writeln!(out, "        data->await_failed = false; if (data->await_task_owned && __aura_task_executor != NULL) (void)aura_task_executor_release(__aura_task_executor, &data->await_task); data->await_task = NULL; data->await_task_owned = false; aura_task_frame_set_resume_state(frame, {finally_state}); continue;");
+                let _ = next;
+            }
+            AsyncCfgNode::Fail => {
+                out.push_str("        return AURA_TASK_FAILED;\n");
+            }
+            AsyncCfgNode::Throw {
+                value,
+                value_key,
+                span_start,
+                span_end,
+            } => match value_key.as_str() {
+                "String" => {
+                    let _ = writeln!(
+                        out,
+                        "        const char *__throw_source = {value}; size_t __throw_length = __throw_source == NULL ? 0 : strlen(__throw_source); char *__throw_error = (char *)malloc(__throw_length + 1); if (__throw_error == NULL) return AURA_TASK_FAILED; if (__throw_source != NULL) memcpy(__throw_error, __throw_source, __throw_length + 1); else __throw_error[0] = '\\0'; aura_task_frame_set_error_span_with_clone(frame, __throw_error, __throw_length + 1, {clone_error}, {destroy_error}, UINT32_C(0), UINT32_C({span_start}), UINT32_C({span_end})); aura_task_frame_set_error_type_name(frame, \"String\"); return AURA_TASK_FAILED;"
+                    );
+                }
+                "Int" => {
+                    let _ = writeln!(
+                        out,
+                        "        char *__throw_error = (char *)malloc(32); if (__throw_error == NULL) return AURA_TASK_FAILED; (void)snprintf(__throw_error, 32, \"%lld\", (long long)({value})); aura_task_frame_set_error_span_with_clone(frame, __throw_error, strlen(__throw_error) + 1, {clone_error}, {destroy_error}, UINT32_C(0), UINT32_C({span_start}), UINT32_C({span_end})); aura_task_frame_set_error_type_name(frame, \"Int\"); return AURA_TASK_FAILED;"
+                    );
+                }
+                "Bool" => {
+                    let _ = writeln!(
+                        out,
+                        "        const char *__throw_source = ({value}) ? \"true\" : \"false\"; size_t __throw_length = strlen(__throw_source); char *__throw_error = (char *)malloc(__throw_length + 1); if (__throw_error == NULL) return AURA_TASK_FAILED; memcpy(__throw_error, __throw_source, __throw_length + 1); aura_task_frame_set_error_span_with_clone(frame, __throw_error, __throw_length + 1, {clone_error}, {destroy_error}, UINT32_C(0), UINT32_C({span_start}), UINT32_C({span_end})); aura_task_frame_set_error_type_name(frame, \"Bool\"); return AURA_TASK_FAILED;"
+                    );
+                }
+                other if async_cfg_throw_class_supported(other, checked) => {
+                    let mono = full_type_mono(other, checked);
+                    let Some(base) = mono_base_name(&mono, checked) else {
+                        unreachable!("validated class CFG throw must have a base name")
+                    };
+                    let obj_cty = crate::stmt::local_key_to_c(&mono, checked);
+                    let struct_cty = c_class_type(&mono);
+                    let suffix = mangle_ident(&mono);
+                    let clone = format!("aura_async_cfg_class_error_clone_{base}_{suffix}");
+                    let destroy = format!("aura_async_cfg_class_error_destroy_{base}_{suffix}");
+                    let message_expr = checked
+                        .ast
+                        .classes
+                        .iter()
+                        .find(|class| class.name.name == base && class.type_params.is_empty())
+                        .and_then(|class| {
+                            class.fields.iter().find_map(|field| {
+                                (field.name.name == "message"
+                                    && type_ref_local_key(&field.ty, &[], &[]) == "String")
+                                .then(|| {
+                                    let name = mangle_ident(&field.name.name);
+                                    format!("(__throw_obj != NULL && __throw_obj->{name} != NULL) ? __throw_obj->{name} : \"{base}\"")
+                                })
+                            })
+                        })
+                        .unwrap_or_else(|| format!("\"{base}\""));
+                    let _ = writeln!(
+                        out,
+                        "        {obj_cty} __throw_obj = ({value}); const char *__throw_text = {message_expr}; size_t __throw_length = __throw_text == NULL ? 0 : strlen(__throw_text); char *__throw_error = (char *)malloc(__throw_length + 1); if (__throw_error == NULL) return AURA_TASK_FAILED; if (__throw_text != NULL) memcpy(__throw_error, __throw_text, __throw_length + 1); else __throw_error[0] = '\\0'; size_t __throw_payload_size = 0; void *__throw_payload = {clone}((const void *)__throw_obj, sizeof({struct_cty}), &__throw_payload_size); if (__throw_payload == NULL) {{ free(__throw_error); return AURA_TASK_FAILED; }} aura_task_frame_set_error_span_with_clone(frame, __throw_error, __throw_length + 1, {clone_error}, {destroy_error}, UINT32_C(0), UINT32_C({span_start}), UINT32_C({span_end})); aura_task_frame_set_error_payload_with_clone(frame, __throw_payload, __throw_payload_size, {clone}, {destroy}); aura_task_frame_set_error_type_name(frame, \"{base}\"); return AURA_TASK_FAILED;"
+                    );
+                }
+                _ => unreachable!("validated CFG throw kind"),
+            },
             AsyncCfgNode::Return {
                 value,
                 value_key,
@@ -2318,7 +3059,9 @@ fn emit_async_fun_cfg_int(
                 value_is_owned_temp,
             } => {
                 let result_cty = crate::stmt::local_key_to_c(&value_key, checked);
-                if value_key == "String" {
+                if value_key == "Unit" {
+                    out.push_str("        return AURA_TASK_COMPLETE;\n");
+                } else if value_key == "String" {
                     let _ = writeln!(
                         out,
                         "        const char *__src = {value}; const char *__copy = NULL; if (__src != NULL) {{ size_t __len = strlen(__src); char *__owned = (char *)malloc(__len + 1); if (__owned == NULL) {{ {free_src_on_error} return AURA_TASK_FAILED; }} memcpy(__owned, __src, __len + 1); __copy = __owned; }} {free_src} const char **result = (const char **)malloc(sizeof(*result)); if (result == NULL) {{ free((void *)__copy); return AURA_TASK_FAILED; }} *result = __copy; aura_task_frame_set_result(frame, result, sizeof(*result), {destroy_result}); return AURA_TASK_COMPLETE;",
@@ -2326,7 +3069,8 @@ fn emit_async_fun_cfg_int(
                         free_src = if value_is_owned_temp { "if (__src != NULL) free((void *)__src);" } else { "" },
                     );
                 } else if is_array_type_key(&value_key) {
-                    let clone = crate::names::c_method_name(&value_key, "clone");
+                    let clone_key = full_type_mono(&value_key, checked);
+                    let clone = crate::names::c_method_name(&clone_key, "clone");
                     if value_is_ident {
                         let _ = writeln!(
                             out,
@@ -2334,12 +3078,14 @@ fn emit_async_fun_cfg_int(
                         );
                     } else {
                         let mut free_code = String::new();
-                        crate::array_emit::emit_array_contents_free(
-                            &mut free_code,
-                            0,
-                            "__returned",
-                            &value_key,
-                        );
+                        if value_is_owned_temp {
+                            crate::array_emit::emit_array_contents_free(
+                                &mut free_code,
+                                0,
+                                "__returned",
+                                &value_key,
+                            );
+                        }
                         let _ = writeln!(
                             out,
                             "        {result_cty} *__aura_result = ({result_cty} *)malloc(sizeof(*__aura_result)); if (__aura_result == NULL) return AURA_TASK_FAILED; {result_cty} __returned = {value}; *__aura_result = {clone}(&__returned); {free_code} aura_task_frame_set_result(frame, __aura_result, sizeof(*__aura_result), {destroy_result}); return AURA_TASK_COMPLETE;"
@@ -2770,6 +3516,10 @@ fn emit_async_fun_nested_while_await_int(
             "  {} {n} = data->{n};",
             c_type_ref_subst(&p.ty, checked, &params, &[])
         );
+        if p.name.name == "this" {
+            let cty = c_type_ref_subst(&p.ty, checked, &params, &[]);
+            let _ = writeln!(out, "  {cty} this = a_this;");
+        }
     }
     let _ = writeln!(out, "  int64_t {outer_name} = data->{outer_name}; int64_t {total_name} = data->{total_name}; int64_t {inner_name} = data->{inner_name}; int64_t {await_name} = data->{await_name};");
     out.push_str("  switch (aura_task_frame_resume_state(frame)) {\n    case 0:\n");
@@ -4620,6 +5370,10 @@ fn emit_async_fun_nested_if_branch_awaits(
             "      {} {n} = data->{n};",
             c_type_ref_subst(&p.ty, checked, &params, &[])
         );
+        if p.name.name == "this" {
+            let cty = c_type_ref_subst(&p.ty, checked, &params, &[]);
+            let _ = writeln!(out, "      {cty} this = a_this;");
+        }
     }
     let _ = writeln!(out, "      if ({outer_condition}) {{");
     let _ = writeln!(
@@ -6292,6 +7046,47 @@ fn c_async_fun_signature(f: &AsyncFunDecl, checked: &CheckedFile) -> String {
     )
 }
 
+fn emit_async_fun_std_time_sleep(
+    out: &mut String,
+    f: &AsyncFunDecl,
+    checked: &CheckedFile,
+) -> bool {
+    if f.name.name != "sleep"
+        || f.params.len() != 1
+        || type_ref_local_key_expand(&f.params[0].ty, &[], &[], checked) != "Int"
+        || f.return_type
+            .as_ref()
+            .map(|ty| type_ref_local_key_expand(ty, &[], &[], checked))
+            .as_deref()
+            != Some("Unit")
+    {
+        return false;
+    }
+    let base = c_fun_name("std.time", "sleep", &[]);
+    let data_ty = format!("aura_async_data_{base}");
+    let poll = format!("aura_async_poll_{base}");
+    let destroy = format!("aura_async_destroy_{base}");
+    let milliseconds = mangle_ident(&f.params[0].name.name);
+    let _ = writeln!(
+        out,
+        "typedef struct {data_ty} {{ int64_t milliseconds; }} {data_ty};"
+    );
+    let _ = writeln!(
+        out,
+        "static void {destroy}(AuraTaskFrame *frame) {{ (void)frame; }}"
+    );
+    let _ = writeln!(
+        out,
+        "static AuraTaskPollState {poll}(AuraTaskFrame *frame) {{ {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame); if (data == NULL || aura_task_frame_cancel_requested(frame)) return AURA_TASK_CANCELLED; if (aura_task_frame_resume_state(frame) == 0) {{ if (data->milliseconds < 0 || data->milliseconds > INT32_MAX || !aura_task_frame_wait_deadline(frame, (int)data->milliseconds)) return AURA_TASK_FAILED; aura_task_frame_set_resume_state(frame, 1); return AURA_TASK_PENDING; }} (void)aura_task_frame_take_fd_wait_timeout(frame); return AURA_TASK_COMPLETE; }}"
+    );
+    let _ = writeln!(
+        out,
+        "{} {{ AuraTaskFrame *frame = aura_task_frame_new(sizeof({data_ty}), {poll}, {destroy}); if (frame == NULL) return NULL; {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame); data->milliseconds = {milliseconds}; if (__aura_task_executor != NULL && !aura_task_executor_submit(__aura_task_executor, frame)) {{ aura_task_frame_destroy(frame); return NULL; }} return frame; }}",
+        c_async_fun_signature(f, checked)
+    );
+    true
+}
+
 fn emit_async_fun_std_io_fd(
     out: &mut String,
     f: &AsyncFunDecl,
@@ -6326,6 +7121,130 @@ fn emit_async_fun_std_io_fd(
         return false;
     }
     emit_async_fun_std_io_write_fd(out, f, checked, _detector)
+}
+
+fn emit_async_fun_std_http_serve(
+    out: &mut String,
+    f: &AsyncFunDecl,
+    checked: &CheckedFile,
+) -> bool {
+    if f.params.len() != 2 {
+        return false;
+    }
+    let handler_ty = c_type_ref_subst(&f.params[1].ty, checked, &[], &[]);
+    if !handler_ty.starts_with("aura_fp_Fun_") {
+        return false;
+    }
+    let base = c_fun_name("std.http", "serve", &[]);
+    let data_ty = format!("aura_async_data_{base}");
+    let poll = format!("aura_async_poll_{base}");
+    let destroy = format!("aura_async_destroy_{base}");
+    let reap = format!("aura_async_reap_{base}");
+    let listener = mangle_ident(&f.params[0].name.name);
+    let handler = mangle_ident(&f.params[1].name.name);
+    let _ = writeln!(out, "typedef struct {data_ty} {{ AuraFfiOpaqueHandle *listener; AuraFfiHandlePin pin; bool pinned; bool stopping; {handler_ty} handler; AuraTaskFrame **connections; size_t connection_count; size_t connection_capacity; }} {data_ty};");
+    let _ = writeln!(out, "static void {reap}({data_ty} *data) {{ if (data == NULL || __aura_task_executor == NULL) return; for (size_t i = 0; i < data->connection_count;) {{ AuraTaskPollState state = aura_task_frame_state(data->connections[i]); if (state == AURA_TASK_COMPLETE || state == AURA_TASK_FAILED || state == AURA_TASK_CANCELLED) {{ AuraTaskFrame *connection = data->connections[i]; if (!aura_task_executor_release_terminal(__aura_task_executor, &connection)) {{ i++; continue; }} data->connection_count--; data->connections[i] = data->connections[data->connection_count]; continue; }} i++; }} }}");
+    let _ = writeln!(out, "static void {destroy}(AuraTaskFrame *frame) {{ {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame); if (data != NULL) {{ if (__aura_task_executor != NULL) {{ for (size_t i = 0; i < data->connection_count; i++) (void)aura_task_executor_release(__aura_task_executor, &data->connections[i]); }} free(data->connections); if (data->pinned) (void)aura_ffi_handle_unpin(&data->pin); if (data->handler.env != NULL) aura_fun_env_free(data->handler.env); }} }}");
+    let _ = writeln!(out, "static AuraTaskPollState {poll}(AuraTaskFrame *frame) {{ {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame); if (data == NULL || aura_task_frame_cancel_requested(frame)) return AURA_TASK_CANCELLED; {reap}(data); if (!data->pinned) {{ if (aura_ffi_handle_pin_for_boundary(data->listener, AURA_FFI_BOUNDARY_TASK, &data->pin) != AURA_FFI_OK) return AURA_TASK_FAILED; data->pinned = true; }} if (aura_signal_shutdown_requested() && !data->stopping) {{ (void)aura_tcp_listener_close((AuraTcpListener *)data->pin.resource); data->stopping = true; }} if (data->stopping) {{ if (data->connection_count == 0) return AURA_TASK_COMPLETE; if (!aura_task_frame_wait_on(frame, data->connections[0])) return AURA_TASK_FAILED; return AURA_TASK_PENDING; }} if (data->connection_count >= 64) {{ if (!aura_task_frame_wait_on(frame, data->connections[0])) return AURA_TASK_FAILED; return AURA_TASK_PENDING; }} AuraTcpStream *stream = NULL; AuraTcpStatus status = aura_tcp_listener_accept((AuraTcpListener *)data->pin.resource, 0, &stream); if (status == AURA_TCP_CLOSED) {{ data->stopping = true; if (data->connection_count == 0) return AURA_TASK_COMPLETE; if (!aura_task_frame_wait_on(frame, data->connections[0])) return AURA_TASK_FAILED; return AURA_TASK_PENDING; }} if (status == AURA_TCP_PENDING || status == AURA_TCP_TIMEOUT) {{ if (!aura_task_frame_wait_tcp_listener(frame, (const AuraTcpListener *)data->pin.resource, 1)) return AURA_TASK_FAILED; return AURA_TASK_PENDING; }} if (status != AURA_TCP_OK || stream == NULL) return AURA_TASK_FAILED; AuraFfiOpaqueHandle *stream_handle = NULL; if (aura_ffi_handle_new(stream, aura_destroy_tcp_stream_resource, &stream_handle) != AURA_FFI_OK) {{ aura_tcp_stream_destroy(stream); return AURA_TASK_FAILED; }} {handler_ty} connection_handler = data->handler; if (connection_handler.env != NULL) aura_fun_env_retain(connection_handler.env); AuraTaskFrame *connection = aura_fn_std_http_serveConnection(stream_handle, connection_handler); if (connection == NULL) {{ if (connection_handler.env != NULL) aura_fun_env_free(connection_handler.env); (void)aura_ffi_handle_drop(&stream_handle); return AURA_TASK_FAILED; }} if (data->connection_count == data->connection_capacity) {{ size_t next_capacity = data->connection_capacity == 0 ? 8 : data->connection_capacity * 2; AuraTaskFrame **next = (AuraTaskFrame **)realloc(data->connections, next_capacity * sizeof(*next)); if (next == NULL) {{ (void)aura_task_executor_release(__aura_task_executor, &connection); return AURA_TASK_FAILED; }} data->connections = next; data->connection_capacity = next_capacity; }} data->connections[data->connection_count++] = connection; if (!aura_task_frame_wait_tcp_listener(frame, (const AuraTcpListener *)data->pin.resource, 1)) return AURA_TASK_FAILED; return AURA_TASK_PENDING; }}");
+    let _ = writeln!(out, "{} {{ AuraTaskFrame *frame = aura_task_frame_new(sizeof({data_ty}), {poll}, {destroy}); if (frame == NULL) return NULL; {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame); data->listener = {listener}; data->handler = {handler}; if (__aura_task_executor != NULL && !aura_task_executor_submit(__aura_task_executor, frame)) {{ aura_task_frame_destroy(frame); return NULL; }} return frame; }}", c_async_fun_signature(f, checked));
+    true
+}
+
+fn emit_async_fun_std_http_serve_connection(
+    out: &mut String,
+    f: &AsyncFunDecl,
+    checked: &CheckedFile,
+) -> bool {
+    if f.params.len() != 2 {
+        return false;
+    }
+    let handler_ty = c_type_ref_subst(&f.params[1].ty, checked, &[], &[]);
+    if !handler_ty.starts_with("aura_fp_Fun_") {
+        return false;
+    }
+    let base = c_fun_name("std.http", "serveConnection", &[]);
+    let data_ty = format!("aura_async_data_{base}");
+    let bridge = format!("aura_async_bridge_{base}");
+    let poll = format!("aura_async_poll_{base}");
+    let cancel = format!("aura_async_cancel_{base}");
+    let destroy = format!("aura_async_destroy_{base}");
+    let stream = mangle_ident(&f.params[0].name.name);
+    let handler = mangle_ident(&f.params[1].name.name);
+    let _ = writeln!(out, "typedef struct {data_ty} {{ AuraFfiOpaqueHandle *stream; AuraFfiOpaqueHandle *connection; {handler_ty} handler; AuraTaskFrame *child; aura_cls_std_http_Request *request; aura_cls_std_http_Response *response; AuraFfiOpaqueHandle *request_handle; AuraFfiOpaqueHandle *response_handle; bool rooted; }} {data_ty};");
+    let _ = writeln!(out, "static void {destroy}(AuraTaskFrame *frame) {{ {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame); if (data == NULL) return; if (data->rooted) {{ aura_gc_remove_root((void **)&data->request); aura_gc_remove_root((void **)&data->response); }} if (data->child != NULL && __aura_task_executor != NULL) (void)aura_task_executor_release(__aura_task_executor, &data->child); if (data->request_handle != NULL) (void)aura_ffi_handle_drop(&data->request_handle); if (data->response_handle != NULL) (void)aura_ffi_handle_drop(&data->response_handle); if (data->connection != NULL) (void)aura_ffi_handle_drop(&data->connection); if (data->stream != NULL) (void)aura_ffi_handle_drop(&data->stream); if (data->handler.env != NULL) aura_fun_env_free(data->handler.env); }}");
+    let _ = writeln!(out, "static AuraTaskPollState {cancel}(AuraTaskFrame *frame) {{ {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame); if (data != NULL && data->child != NULL && __aura_task_executor != NULL) {{ AuraTaskPollState state = aura_task_frame_state(data->child); if (state != AURA_TASK_COMPLETE && state != AURA_TASK_FAILED && state != AURA_TASK_CANCELLED) (void)aura_task_executor_cancel(__aura_task_executor, data->child); }} return AURA_TASK_CANCELLED; }}");
+    let _ = writeln!(out, "static AuraTaskPollState {bridge}(AuraTaskFrame *frame, const AuraHttpRequest *request, AuraHttpResponse *response, void *user_data) {{ {data_ty} *data = ({data_ty} *)user_data; if (data == NULL || request == NULL || response == NULL) return AURA_TASK_FAILED; if (data->child == NULL) {{ if (aura_ffi_handle_new((void *)request, NULL, &data->request_handle) != AURA_FFI_OK || aura_ffi_handle_new((void *)response, NULL, &data->response_handle) != AURA_FFI_OK) return AURA_TASK_FAILED; data->request = aura_new_std_http_Request(data->request_handle); data->response = aura_new_std_http_Response(data->response_handle, data->connection); if (data->request == NULL || data->response == NULL) return AURA_TASK_FAILED; aura_gc_add_root((void **)&data->request); aura_gc_add_root((void **)&data->response); data->rooted = true; data->child = data->handler.fn(data->handler.env, data->request, data->response); if (data->child == NULL) return AURA_TASK_FAILED; }} AuraTaskPollState state = aura_task_frame_state(data->child); if (state == AURA_TASK_READY) state = aura_task_frame_poll_once(data->child); if (state == AURA_TASK_PENDING) {{ if (!aura_task_frame_wait_on(frame, data->child)) return AURA_TASK_FAILED; return AURA_TASK_PENDING; }} if (state == AURA_TASK_FAILED) {{ (void)aura_task_frame_propagate_error(frame, data->child); if (__aura_task_executor != NULL) (void)aura_task_executor_release_terminal(__aura_task_executor, &data->child); return AURA_TASK_FAILED; }} if (state != AURA_TASK_COMPLETE) return state; aura_gc_remove_root((void **)&data->request); aura_gc_remove_root((void **)&data->response); data->rooted = false; if (data->request_handle != NULL) (void)aura_ffi_handle_drop(&data->request_handle); if (data->response_handle != NULL) (void)aura_ffi_handle_drop(&data->response_handle); data->request = NULL; data->response = NULL; if (__aura_task_executor != NULL) (void)aura_task_executor_release_terminal(__aura_task_executor, &data->child); return AURA_TASK_COMPLETE; }}");
+    let _ = writeln!(out, "static AuraTaskPollState {poll}(AuraTaskFrame *frame) {{ {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame); if (data == NULL || aura_task_frame_cancel_requested(frame)) return AURA_TASK_CANCELLED; if (aura_task_frame_resume_state(frame) == 0) {{ void *raw = NULL; AuraHttpConnection *connection = NULL; if (aura_ffi_handle_take_owned(&data->stream, &raw) != AURA_FFI_OK || aura_http_connection_create_from_stream((AuraTcpStream *)raw, NULL, &connection) != AURA_HTTP_CONNECTION_OK || connection == NULL) return AURA_TASK_FAILED; if (aura_ffi_handle_new(connection, aura_http_connection_destroy_resource, &data->connection) != AURA_FFI_OK) {{ aura_http_connection_destroy_resource(connection); return AURA_TASK_FAILED; }} aura_task_frame_set_resume_state(frame, 1); }} return aura_http_connection_poll_async_task_handle(frame, data->connection, {bridge}, data); }}");
+    let _ = writeln!(out, "{} {{ AuraTaskFrame *frame = aura_task_frame_new(sizeof({data_ty}), {poll}, {destroy}); if (frame == NULL) return NULL; aura_task_frame_set_cancel_handler(frame, {cancel}); {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame); data->stream = {stream}; data->handler = {handler}; if (__aura_task_executor != NULL && !aura_task_executor_submit(__aura_task_executor, frame)) {{ aura_task_frame_destroy(frame); return NULL; }} return frame; }}", c_async_fun_signature(f, checked));
+    true
+}
+
+fn emit_async_fun_std_http_request_body_chunk(
+    out: &mut String,
+    f: &AsyncFunDecl,
+    checked: &CheckedFile,
+) -> bool {
+    if f.params.len() != 2 || type_ref_local_key_expand(&f.params[1].ty, &[], &[], checked) != "Int"
+    {
+        return false;
+    }
+    let base = c_fun_name("std.http", "readChunk", &[]);
+    let data_ty = format!("aura_async_data_{base}");
+    let poll = format!("aura_async_poll_{base}");
+    let destroy = format!("aura_async_destroy_{base}");
+    let destroy_result = format!("aura_async_result_destroy_{base}");
+    let destroy_error = format!("aura_async_error_destroy_{base}");
+    let body = mangle_ident(&f.params[0].name.name);
+    let capacity = mangle_ident(&f.params[1].name.name);
+
+    out.push_str("/* compiler-generated std.http.readChunk: bounded borrowed request reader */\n");
+    let _ = writeln!(
+        out,
+        "typedef struct {data_ty} {{ AuraFfiOpaqueHandle *handle; AuraFfiHandlePin pin; bool pinned; size_t capacity; char *buffer; }} {data_ty};"
+    );
+    let _ = writeln!(
+        out,
+        "static void {destroy}(AuraTaskFrame *frame) {{ {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame); if (data != NULL) {{ free(data->buffer); if (data->pinned) (void)aura_ffi_handle_unpin(&data->pin); }} }}"
+    );
+    let _ = writeln!(
+        out,
+        "static void {destroy_result}(void *value, size_t size) {{ (void)size; if (value != NULL) {{ char **text = (char **)value; free(*text); free(text); }} }}"
+    );
+    let _ = writeln!(
+        out,
+        "static void {destroy_error}(void *value, size_t size) {{ (void)size; free(value); }}"
+    );
+    let _ = writeln!(
+        out,
+        "static AuraTaskPollState {poll}(AuraTaskFrame *frame) {{"
+    );
+    let _ = writeln!(
+        out,
+        "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame);"
+    );
+    out.push_str("  if (aura_task_frame_cancel_requested(frame)) return AURA_TASK_CANCELLED;\n  switch (aura_task_frame_resume_state(frame)) {\n    case 0: {\n      if (data == NULL || data->handle == NULL || data->capacity == 0) return AURA_TASK_FAILED;\n      if (aura_ffi_handle_pin_for_boundary(data->handle, AURA_FFI_BOUNDARY_TASK, &data->pin) != AURA_FFI_OK) return AURA_TASK_FAILED;\n      data->pinned = true; data->buffer = (char *)malloc(data->capacity + 1); if (data->buffer == NULL) return AURA_TASK_FAILED;\n      aura_task_frame_set_resume_state(frame, 1);\n    }\n    case 1: {\n      size_t count = 0; AuraTcpStatus status = aura_http_request_read_body((const AuraHttpRequest *)data->pin.resource, (unsigned char *)data->buffer, data->capacity, &count);\n      if (status == AURA_TCP_PENDING || status == AURA_TCP_TIMEOUT) { if (!aura_http_request_wait_body(frame, (const AuraHttpRequest *)data->pin.resource)) return AURA_TASK_FAILED; return AURA_TASK_PENDING; }\n      if (status != AURA_TCP_OK && status != AURA_TCP_EOF) { const char *message = \"request body read failed\"; size_t length = strlen(message) + 1; char *error = (char *)malloc(length); if (error == NULL) return AURA_TASK_FAILED; memcpy(error, message, length); aura_task_frame_set_error_at(frame, error, length, ");
+    out.push_str(&destroy_error);
+    out.push_str(", UINT32_C(0)); return AURA_TASK_FAILED; }\n      data->buffer[count] = '\\0'; char **result = (char **)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; *result = data->buffer; data->buffer = NULL; aura_task_frame_set_result(frame, result, sizeof(*result), ");
+    out.push_str(&destroy_result);
+    out.push_str(
+        "); return AURA_TASK_COMPLETE;\n    }\n    default: return AURA_TASK_FAILED;\n  }\n}\n",
+    );
+    let _ = writeln!(out, "{} {{", c_async_fun_signature(f, checked));
+    let _ = writeln!(
+        out,
+        "  AuraTaskFrame *frame = aura_task_frame_new(sizeof({data_ty}), {poll}, {destroy});"
+    );
+    out.push_str("  if (frame == NULL) return NULL;\n");
+    let _ = writeln!(
+        out,
+        "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame);"
+    );
+    let _ = writeln!(
+        out,
+        "  if ({capacity} <= 0) {{ aura_task_frame_destroy(frame); return NULL; }} data->handle = {body} == NULL ? NULL : {body}->handle; data->capacity = (size_t){capacity}; if (data->capacity > 16384) data->capacity = 16384; data->pinned = false; data->buffer = NULL;"
+    );
+    out.push_str("  if (__aura_task_executor != NULL && !aura_task_executor_submit(__aura_task_executor, frame)) { aura_task_frame_destroy(frame); return NULL; }\n  return frame;\n}\n");
+    true
 }
 
 fn emit_async_fun_std_net_stream(
@@ -6414,6 +7333,74 @@ fn emit_async_fun_std_net_stream(
         let _ = writeln!(out, "  data->handle = {handle}; data->length = {value} == NULL ? 0 : (uint64_t)strlen({value}); data->capacity = 0; data->offset = 0; data->pinned = false; data->buffer = NULL;");
         let _ = writeln!(out, "  if (data->length != 0) {{ data->buffer = (char *)malloc((size_t)data->length); if (data->buffer == NULL) {{ aura_task_frame_destroy(frame); return NULL; }} memcpy(data->buffer, {value}, (size_t)data->length); }}");
     }
+    out.push_str("  if (__aura_task_executor != NULL && !aura_task_executor_submit(__aura_task_executor, frame)) { aura_task_frame_destroy(frame); return NULL; }\n  return frame;\n}\n");
+    true
+}
+
+fn emit_async_fun_std_net_accept(
+    out: &mut String,
+    f: &AsyncFunDecl,
+    checked: &CheckedFile,
+) -> bool {
+    if f.params.len() != 1
+        || !type_ref_local_key_expand(&f.params[0].ty, &[], &[], checked)
+            .starts_with("ForeignHandle_")
+        || !f.return_type.as_ref().is_some_and(|ty| {
+            type_ref_local_key_expand(ty, &[], &[], checked).starts_with("ForeignHandle_")
+        })
+    {
+        return false;
+    }
+    let base = c_fun_name("std.net", "accept", &[]);
+    let data_ty = format!("aura_async_data_{base}");
+    let poll_fn = format!("aura_async_poll_{base}");
+    let destroy_data = format!("aura_async_destroy_{base}");
+    let destroy_result = format!("aura_async_result_destroy_{base}");
+    let destroy_error = format!("aura_async_error_destroy_{base}");
+    let handle = mangle_ident(&f.params[0].name.name);
+    out.push_str(
+        "/* compiler-generated std.net.accept: pinned AuraTcpListener + readiness resume */\n",
+    );
+    let _ = writeln!(
+        out,
+        "typedef struct {data_ty} {{ AuraFfiOpaqueHandle *listener; AuraFfiHandlePin pin; bool pinned; }} {data_ty};"
+    );
+    let _ = writeln!(
+        out,
+        "static void {destroy_data}(AuraTaskFrame *frame) {{ {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame); if (data != NULL && data->pinned) (void)aura_ffi_handle_unpin(&data->pin); }}"
+    );
+    let _ = writeln!(
+        out,
+        "static void {destroy_result}(void *data, size_t size) {{ (void)size; if (data != NULL) {{ AuraFfiOpaqueHandle **value = (AuraFfiOpaqueHandle **)data; if (*value != NULL) (void)aura_ffi_handle_drop(value); free(value); }} }}"
+    );
+    let _ = writeln!(
+        out,
+        "static void {destroy_error}(void *data, size_t size) {{ (void)size; free(data); }}"
+    );
+    let _ = writeln!(
+        out,
+        "static AuraTaskPollState {poll_fn}(AuraTaskFrame *frame) {{"
+    );
+    let _ = writeln!(
+        out,
+        "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame);"
+    );
+    out.push_str("  if (aura_task_frame_cancel_requested(frame)) return AURA_TASK_CANCELLED;\n  switch (aura_task_frame_resume_state(frame)) {\n    case 0:\n");
+    out.push_str("      if (data == NULL || data->listener == NULL) return AURA_TASK_FAILED;\n      if (aura_ffi_handle_pin_for_boundary(data->listener, AURA_FFI_BOUNDARY_TASK, &data->pin) != AURA_FFI_OK) return AURA_TASK_FAILED; data->pinned = true;\n      aura_task_frame_set_resume_state(frame, 1);\n    case 1: {\n      AuraTcpStream *__stream = NULL; AuraTcpStatus status = aura_tcp_listener_accept((AuraTcpListener *)data->pin.resource, 0, &__stream);\n      if (status == AURA_TCP_PENDING || status == AURA_TCP_TIMEOUT) { if (!aura_task_frame_wait_tcp_listener(frame, (const AuraTcpListener *)data->pin.resource, 1)) return AURA_TASK_FAILED; return AURA_TASK_PENDING; }\n      if (status != AURA_TCP_OK || __stream == NULL) { const char *message = \"accept failed\"; size_t length = strlen(message) + 1; char *error = (char *)malloc(length); if (error == NULL) return AURA_TASK_FAILED; memcpy(error, message, length); aura_task_frame_set_error_at(frame, error, length, ");
+    out.push_str(&destroy_error);
+    out.push_str(", UINT32_C(0)); return AURA_TASK_FAILED; }\n      AuraFfiOpaqueHandle *__handle = NULL; if (aura_ffi_handle_new((void *)__stream, aura_destroy_tcp_stream_resource, &__handle) != AURA_FFI_OK) { aura_tcp_stream_destroy(__stream); return AURA_TASK_FAILED; } AuraFfiOpaqueHandle **result = (AuraFfiOpaqueHandle **)malloc(sizeof(*result)); if (result == NULL) { (void)aura_ffi_handle_drop(&__handle); return AURA_TASK_FAILED; } *result = __handle; aura_task_frame_set_result(frame, result, sizeof(*result), ");
+    out.push_str(&destroy_result);
+    out.push_str(
+        "); return AURA_TASK_COMPLETE;\n    }\n    default: return AURA_TASK_FAILED;\n  }\n}\n",
+    );
+    let _ = writeln!(out, "{} {{", c_async_fun_signature(f, checked));
+    let _ = writeln!(out, "  AuraTaskFrame *frame = aura_task_frame_new(sizeof({data_ty}), {poll_fn}, {destroy_data});");
+    out.push_str("  if (frame == NULL) return NULL;\n");
+    let _ = writeln!(
+        out,
+        "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame);"
+    );
+    let _ = writeln!(out, "  data->listener = {handle}; data->pinned = false;");
     out.push_str("  if (__aura_task_executor != NULL && !aura_task_executor_submit(__aura_task_executor, frame)) { aura_task_frame_destroy(frame); return NULL; }\n  return frame;\n}\n");
     true
 }
@@ -6896,6 +7883,10 @@ fn emit_async_fun_general_multi_await(
             "  {} {n} = data->{n};",
             c_type_ref_subst(&p.ty, checked, &params, &[])
         );
+        if p.name.name == "this" {
+            let cty = c_type_ref_subst(&p.ty, checked, &params, &[]);
+            let _ = writeln!(out, "  {cty} this = data->{n};");
+        }
     }
     for (v, key) in &locals {
         let n = mangle_ident(&v.name.name);
@@ -7378,6 +8369,10 @@ fn emit_async_fun_multi_await(
             "      {} {n} = data->{n};",
             c_type_ref_subst(&p.ty, checked, &params, &[])
         );
+        if p.name.name == "this" {
+            let cty = c_type_ref_subst(&p.ty, checked, &params, &[]);
+            let _ = writeln!(out, "      {cty} this = data->{n};");
+        }
     }
     for stmt in &f.body.stmts[..awaits[0].0] {
         let Stmt::Var(v) = stmt else { continue };
@@ -7811,11 +8806,11 @@ fn emit_async_fun_single_await(
     );
     for p in &f.params {
         let n = mangle_ident(&p.name.name);
-        let _ = writeln!(
-            out,
-            "  {} {n} = data->{n};",
-            c_type_ref_subst(&p.ty, checked, &params, &[])
-        );
+        let cty = c_type_ref_subst(&p.ty, checked, &params, &[]);
+        let _ = writeln!(out, "  {cty} {n} = data->{n};");
+        if p.name.name == "this" {
+            let _ = writeln!(out, "  {cty} this = data->{n};");
+        }
     }
     for (v, key) in &locals {
         let n = mangle_ident(&v.name.name);
@@ -7905,11 +8900,11 @@ fn emit_async_fun_single_await(
     out.push_str("    case 0: {\n");
     for p in &f.params {
         let n = mangle_ident(&p.name.name);
-        let _ = writeln!(
-            out,
-            "      {} {n} = data->{n};",
-            c_type_ref_subst(&p.ty, checked, &params, &[])
-        );
+        let cty = c_type_ref_subst(&p.ty, checked, &params, &[]);
+        let _ = writeln!(out, "      {cty} {n} = data->{n};");
+        if p.name.name == "this" {
+            let _ = writeln!(out, "      {cty} this = data->{n};");
+        }
     }
     for (v, key) in &locals {
         let n = mangle_ident(&v.name.name);
@@ -8007,10 +9002,17 @@ fn async_ctx<'a>(
     fparams: &[Param],
     ret: &Option<TypeRef>,
 ) -> EmitCtx<'a> {
+    // Synthetic async class methods carry `this` as their first parameter.
+    // Preserve the receiver class in expression lowering so field access such
+    // as `this.value` keeps its declared type across CFG suspension states.
+    let method_class = fparams.iter().find(|p| p.name.name == "this").map(|p| {
+        let key = type_ref_local_key_expand(&p.ty, params, &[], checked);
+        Box::leak(full_type_mono(&key, checked).into_boxed_str()) as &'a str
+    });
     let mut ctx = EmitCtx {
         checked,
         detector,
-        method_class: None,
+        method_class,
         type_params: params.to_vec(),
         type_args: Vec::new(),
         locals: vec![HashMap::new()],
@@ -8046,7 +9048,7 @@ fn async_ctx_for_shape<'a>(checked: &'a CheckedFile) -> EmitCtx<'a> {
 
 /// C22l slice 1: lower an async function with no suspension points to a task
 /// frame whose first poll executes an ordinary helper body exactly once.
-fn emit_async_fun_no_await(
+pub(crate) fn emit_async_fun_no_await(
     out: &mut String,
     f: &AsyncFunDecl,
     checked: &CheckedFile,
@@ -8096,6 +9098,13 @@ fn emit_async_fun_no_await(
             let _ = writeln!(
                 out,
                 "  if (data != NULL && data->{n} != NULL) (void)aura_ffi_handle_drop(&data->{n});"
+            );
+        }
+        if p.name.name == "this" && is_heap_class_mono(&full_type_mono(&key, checked), checked) {
+            let n = mangle_ident(&p.name.name);
+            let _ = writeln!(
+                out,
+                "  if (data != NULL && data->{n} != NULL) aura_gc_remove_root((void **)&data->{n});"
             );
         }
     }
@@ -8283,17 +9292,17 @@ fn emit_async_fun_no_await(
     out.push_str(&clone_string);
     out.push_str(", ");
     out.push_str(&destroy_error);
-    out.push_str(", 0, 0, 0); return AURA_TASK_FAILED; }\n");
+    out.push_str(", 0, 0, 0); aura_task_frame_set_error_type_name(frame, \"Int\"); return AURA_TASK_FAILED; }\n");
     out.push_str("  if (aura_ex_matches(\"Bool\")) { const char *text = aura_ex_as_bool() ? \"true\" : \"false\"; size_t len = strlen(text); char *error = (char *)malloc(len + 1); if (error == NULL) { aura_ex_clear(); aura_try_leave(); return AURA_TASK_FAILED; } memcpy(error, text, len + 1); aura_ex_clear(); aura_try_leave(); aura_task_frame_set_error_span_with_clone(frame, error, len + 1, ");
     out.push_str(&clone_string);
     out.push_str(", ");
     out.push_str(&destroy_error);
-    out.push_str(", 0, 0, 0); return AURA_TASK_FAILED; }\n");
+    out.push_str(", 0, 0, 0); aura_task_frame_set_error_type_name(frame, \"Bool\"); return AURA_TASK_FAILED; }\n");
     out.push_str("  if (aura_ex_matches(\"String\")) { const char *value = aura_ex_as_string(); size_t len = value ? strlen(value) : 0; char *error = (char *)malloc(len + 1); if (error == NULL) { aura_ex_clear(); aura_try_leave(); return AURA_TASK_FAILED; } if (value != NULL) memcpy(error, value, len + 1); else error[0] = '\\0'; aura_ex_clear(); aura_try_leave(); aura_task_frame_set_error_span_with_clone(frame, error, len + 1, ");
     out.push_str(&clone_string);
     out.push_str(", ");
     out.push_str(&destroy_error);
-    out.push_str(", 0, 0, 0); return AURA_TASK_FAILED; }\n");
+    out.push_str(", 0, 0, 0); aura_task_frame_set_error_type_name(frame, \"String\"); return AURA_TASK_FAILED; }\n");
     for (type_name, cty, clone, destroy, message_field) in &class_error_helpers {
         let message_expr = message_field.as_ref().map_or_else(
             || format!("\"{type_name}\""),
@@ -8331,6 +9340,9 @@ fn emit_async_fun_no_await(
                 "  if (data->{n} != NULL && aura_ffi_handle_retain(data->{n}) != AURA_FFI_OK) {{ aura_task_frame_destroy(frame); return NULL; }}"
             );
         }
+        if p.name.name == "this" && is_heap_class_mono(&full_type_mono(&key, checked), checked) {
+            let _ = writeln!(out, "  aura_gc_add_root((void **)&data->{n});");
+        }
     }
     out.push_str("  if (__aura_task_executor != NULL && !aura_task_executor_submit(__aura_task_executor, frame)) { aura_task_frame_destroy(frame); return NULL; }\n");
     out.push_str("  return frame;\n}\n");
@@ -8350,7 +9362,10 @@ fn emit_async_body(
     let mut ctx = EmitCtx {
         checked,
         detector,
-        method_class: None,
+        method_class: f.params.iter().find(|p| p.name.name == "this").map(|p| {
+            let key = type_ref_local_key_expand(&p.ty, params, &[], checked);
+            Box::leak(full_type_mono(&key, checked).into_boxed_str()) as &'static str
+        }),
         type_params: params.to_vec(),
         type_args: Vec::new(),
         locals: vec![HashMap::new()],
@@ -8374,6 +9389,11 @@ fn emit_async_body(
     for p in &f.params {
         let key = type_ref_local_key_expand(&p.ty, params, &[], checked);
         ctx.define_local(&p.name.name, full_type_mono(&key, checked));
+    }
+    if let Some(this_param) = f.params.iter().find(|p| p.name.name == "this") {
+        let cty = c_type_ref_subst(&this_param.ty, checked, params, &[]);
+        out.push_str("  /* Async class-method bodies use the normal `this` spelling. */\n");
+        let _ = writeln!(out, "  {cty} this = a_this;");
     }
     emit_block(out, &f.body, 1, &mut ctx);
     crate::stmt::emit_release_task_handle_owners(out, 1, &ctx, &ctx.task_handle_owners_all());
@@ -9822,6 +10842,30 @@ fn walk_expr_lambdas<'a>(e: &'a Expr, out: &mut Vec<&'a LambdaExpr>) {
 /// Collect Fun types that need C typedefs (lambdas + AST annotations).
 fn collect_fun_tys(checked: &CheckedFile) -> Vec<Ty> {
     let mut out: Vec<Ty> = checked.lambda_tys.values().cloned().collect();
+    fn from_semantic_ty(ty: &Ty, acc: &mut Vec<Ty>) {
+        match ty {
+            Ty::Fun { params, ret } => {
+                acc.push(ty.clone());
+                for param in params {
+                    from_semantic_ty(param, acc);
+                }
+                from_semantic_ty(ret, acc);
+            }
+            Ty::Nullable(inner)
+            | Ty::Task(inner)
+            | Ty::TaskHandle(inner)
+            | Ty::Channel(inner)
+            | Ty::ForeignHandle(inner) => from_semantic_ty(inner, acc),
+            Ty::ClassApp { args, .. }
+            | Ty::EnumApp { args, .. }
+            | Ty::InterfaceApp { args, .. } => {
+                for arg in args {
+                    from_semantic_ty(arg, acc);
+                }
+            }
+            _ => {}
+        }
+    }
     fn from_type_ref(t: &TypeRef, acc: &mut Vec<Ty>, open_params: &[String]) {
         if let Some(fun) = &t.fun {
             let params: Vec<Ty> = fun
@@ -9915,6 +10959,15 @@ fn collect_fun_tys(checked: &CheckedFile) -> Vec<Ty> {
             from_type_ref(rt, &mut out, &params);
         }
     }
+    // Type aliases are already expanded in checked function signatures. Walk
+    // those semantic types as well, otherwise an alias to a function type
+    // misses the C fat-pointer typedef required by the generated signature.
+    for f in &checked.functions {
+        for param in &f.params {
+            from_semantic_ty(param, &mut out);
+        }
+        from_semantic_ty(&f.ret, &mut out);
+    }
     for c in &checked.ast.classes {
         let class_params: Vec<String> = c.type_params.iter().map(|p| p.name.name.clone()).collect();
         for field in &c.fields {
@@ -9950,6 +11003,21 @@ fn emit_fun_typedefs(out: &mut String, checked: &CheckedFile) {
         if seen.insert(key) {
             emit_fun_typedef(out, ty, checked);
         }
+    }
+    // `std.http` server lowering is emitted for the imported package even when
+    // an application only calls a client helper. Its handler ABI must therefore
+    // be declared independently of whether the application has a matching
+    // lambda from which generic typedef collection can infer it.
+    let http_handler_key = "Fun_std_http_Request_std_http_Response__Task_Unit";
+    let uses_http_server_lowering = checked.ast.async_functions.iter().any(|fun_decl| {
+        async_fun_decl_package(fun_decl, checked) == "std.http"
+            && matches!(fun_decl.name.name.as_str(), "serve" | "serveConnection")
+    });
+    if uses_http_server_lowering && seen.insert(http_handler_key.to_string()) {
+        out.push_str("typedef struct {\n");
+        out.push_str("  void *env;\n");
+        out.push_str("  AuraTaskFrame *(*fn)(void *env, aura_cls_std_http_Request *, aura_cls_std_http_Response *);\n");
+        out.push_str("} aura_fp_Fun_std_http_Request_std_http_Response__Task_Unit;\n");
     }
     if !seen.is_empty() {
         out.push('\n');
@@ -10231,6 +11299,207 @@ pub(crate) fn emit_fun(
     let params: Vec<String> = f.type_params.iter().map(|p| p.name.name.clone()).collect();
     let _ = writeln!(out, "{} {{", c_fun_signature(f, checked, args));
     let pkg = fun_decl_package(f, checked);
+    if pkg == "std.time" && f.name.name == "nowMillis" && f.params.is_empty() {
+        out.push_str("  return aura_time_monotonic_millis();\n}\n");
+        return;
+    }
+    if pkg == "std.task" && f.name.name == "cancelAfter" && f.params.len() == 2 {
+        let task = mangle_ident(&f.params[0].name.name);
+        let timeout = mangle_ident(&f.params[1].name.name);
+        let _ = writeln!(out, "  return {task} != NULL && aura_task_frame_set_cancel_deadline({task}, (int){timeout}) != 0;");
+        out.push_str("}\n");
+        return;
+    }
+    if pkg == "std.task" && f.name.name == "linkCancellation" && f.params.len() == 2 {
+        let parent = mangle_ident(&f.params[0].name.name);
+        let child = mangle_ident(&f.params[1].name.name);
+        let _ = writeln!(
+            out,
+            "  return aura_task_frame_link_cancellation({parent}, {child}) != 0;"
+        );
+        out.push_str("}\n");
+        return;
+    }
+    if pkg == "std.encoding" && f.params.len() == 1 {
+        let value = mangle_ident(&f.params[0].name.name);
+        let intrinsic = match f.name.name.as_str() {
+            "hexEncode" => "aura_encoding_hex_encode",
+            "hexDecode" => "aura_encoding_hex_decode",
+            "base64Encode" => "aura_encoding_base64_encode",
+            "base64Decode" => "aura_encoding_base64_decode",
+            "percentEncode" => "aura_encoding_percent_encode",
+            "percentDecode" => "aura_encoding_percent_decode",
+            "isValidUtf8" => "aura_encoding_is_valid_utf8",
+            _ => "",
+        };
+        if !intrinsic.is_empty() {
+            let _ = writeln!(out, "  return {intrinsic}({value});");
+            out.push_str("}\n");
+            return;
+        }
+    }
+    if pkg == "std.url" && f.params.len() == 1 {
+        let value = mangle_ident(&f.params[0].name.name);
+        let intrinsic = match f.name.name.as_str() {
+            "isOriginForm" => "aura_url_is_origin_form",
+            "path" => "aura_url_path",
+            "normalizePath" => "aura_url_normalize_path",
+            "query" => "aura_url_query",
+            "isAbsolute" => "aura_url_is_absolute",
+            "authority" => "aura_url_authority",
+            "authorityHost" => "aura_url_authority_host",
+            "authorityPort" => "aura_url_authority_port",
+            _ => "",
+        };
+        if !intrinsic.is_empty() {
+            let _ = writeln!(out, "  return {intrinsic}({value});");
+            out.push_str("}\n");
+            return;
+        }
+    }
+    if pkg == "std.url" && f.name.name == "queryValue" && f.params.len() == 2 {
+        let target = mangle_ident(&f.params[0].name.name);
+        let key = mangle_ident(&f.params[1].name.name);
+        out.push_str(&format!(
+            "  return aura_url_query_value({target}, {key});\n}}\n"
+        ));
+        return;
+    }
+    if pkg == "std.mime" && f.params.len() == 1 {
+        let value = mangle_ident(&f.params[0].name.name);
+        let intrinsic = match f.name.name.as_str() {
+            "isValidType" => "aura_mime_is_valid_type",
+            "sanitizeFilename" => "aura_mime_sanitize_filename",
+            "dispositionFilename" => "aura_mime_disposition_filename",
+            _ => "",
+        };
+        if !intrinsic.is_empty() {
+            let _ = writeln!(out, "  return {intrinsic}({value});");
+            out.push_str("}\n");
+            return;
+        }
+    }
+    if pkg == "std.bytes" {
+        let intrinsic = match (f.name.name.as_str(), f.params.len()) {
+            ("copy", 1) => Some((
+                "aura_bytes_copy",
+                vec![mangle_ident(&f.params[0].name.name)],
+            )),
+            ("concat", 2) => Some((
+                "aura_bytes_concat",
+                vec![
+                    mangle_ident(&f.params[0].name.name),
+                    mangle_ident(&f.params[1].name.name),
+                ],
+            )),
+            ("slice", 3) => Some((
+                "aura_bytes_slice",
+                vec![
+                    mangle_ident(&f.params[0].name.name),
+                    mangle_ident(&f.params[1].name.name),
+                    mangle_ident(&f.params[2].name.name),
+                ],
+            )),
+            ("equals", 2) => Some((
+                "aura_bytes_equals",
+                vec![
+                    mangle_ident(&f.params[0].name.name),
+                    mangle_ident(&f.params[1].name.name),
+                ],
+            )),
+            _ => None,
+        };
+        if let Some((name, args)) = intrinsic {
+            let _ = writeln!(out, "  return {name}({});", args.join(", "));
+            out.push_str("}\n");
+            return;
+        }
+    }
+    if pkg == "std.fs" {
+        let intrinsic = match (f.name.name.as_str(), f.params.len()) {
+            ("join", 2) => Some((
+                "aura_fs_join",
+                vec![
+                    mangle_ident(&f.params[0].name.name),
+                    mangle_ident(&f.params[1].name.name),
+                ],
+            )),
+            ("basename", 1) => Some((
+                "aura_fs_basename",
+                vec![mangle_ident(&f.params[0].name.name)],
+            )),
+            ("dirname", 1) => Some((
+                "aura_fs_dirname",
+                vec![mangle_ident(&f.params[0].name.name)],
+            )),
+            ("extension", 1) => Some((
+                "aura_fs_extension",
+                vec![mangle_ident(&f.params[0].name.name)],
+            )),
+            ("isAbsolute", 1) => Some((
+                "aura_fs_is_absolute",
+                vec![mangle_ident(&f.params[0].name.name)],
+            )),
+            ("isDirectory", 1) => Some((
+                "aura_fs_is_directory",
+                vec![mangle_ident(&f.params[0].name.name)],
+            )),
+            ("fileMode", 1) => Some((
+                "aura_fs_file_mode",
+                vec![mangle_ident(&f.params[0].name.name)],
+            )),
+            ("permissions", 1) => Some((
+                "aura_fs_permissions",
+                vec![mangle_ident(&f.params[0].name.name)],
+            )),
+            ("modifiedMillis", 1) => Some((
+                "aura_fs_modified_millis",
+                vec![mangle_ident(&f.params[0].name.name)],
+            )),
+            ("listNames", 1) => Some((
+                "aura_fs_list_names",
+                vec![mangle_ident(&f.params[0].name.name)],
+            )),
+            ("isSymlink", 1) => Some((
+                "aura_fs_is_symlink",
+                vec![mangle_ident(&f.params[0].name.name)],
+            )),
+            _ => None,
+        };
+        if let Some((name, args)) = intrinsic {
+            let _ = writeln!(out, "  return {name}({});", args.join(", "));
+            out.push_str("}\n");
+            return;
+        }
+    }
+    if pkg == "std.os" {
+        let intrinsic = match (f.name.name.as_str(), f.params.len()) {
+            ("getEnv", 1) => Some((
+                "aura_os_get_env",
+                vec![mangle_ident(&f.params[0].name.name)],
+            )),
+            ("setEnv", 2) => Some((
+                "aura_os_set_env",
+                vec![
+                    mangle_ident(&f.params[0].name.name),
+                    mangle_ident(&f.params[1].name.name),
+                ],
+            )),
+            ("unsetEnv", 1) => Some((
+                "aura_os_unset_env",
+                vec![mangle_ident(&f.params[0].name.name)],
+            )),
+            ("cwd", 0) => Some(("aura_os_cwd", Vec::new())),
+            ("pid", 0) => Some(("aura_os_pid", Vec::new())),
+            ("platform", 0) => Some(("aura_os_platform", Vec::new())),
+            _ => None,
+        };
+        if let Some((name, args)) = intrinsic {
+            let _ = writeln!(out, "  return {name}({});", args.join(", "));
+            out.push_str("}\n");
+            return;
+        }
+    }
     // std.io console + file intrinsics (runtime `aura_*`).
     if pkg == "std.io" {
         match (f.name.name.as_str(), f.params.len()) {
@@ -10351,7 +11620,129 @@ pub(crate) fn emit_fun(
             _ => {}
         }
     }
+    if pkg == "std.dns" && f.name.name == "resolveHost" && f.params.len() == 2 {
+        let host = mangle_ident(&f.params[0].name.name);
+        let prefer = mangle_ident(&f.params[1].name.name);
+        let _ = writeln!(
+            out,
+            "  return aura_dns_resolve_host({host}, {prefer} ? 1 : 0);"
+        );
+        out.push_str("}\n");
+        return;
+    }
+    if pkg == "std.dns" && f.name.name == "resolveHostList" && f.params.len() == 2 {
+        let host = mangle_ident(&f.params[0].name.name);
+        let prefer = mangle_ident(&f.params[1].name.name);
+        let _ = writeln!(
+            out,
+            "  return aura_dns_resolve_host_list({host}, {prefer} ? 1 : 0);"
+        );
+        out.push_str("}\n");
+        return;
+    }
+    if pkg == "std.json" && f.params.len() == 1 {
+        let value = mangle_ident(&f.params[0].name.name);
+        match f.name.name.as_str() {
+            "isValid" => {
+                let _ = writeln!(out, "  return aura_json_is_valid({value});");
+                out.push_str("}\n");
+                return;
+            }
+            "errorOffset" => {
+                let _ = writeln!(out, "  return aura_json_error_offset({value});");
+                out.push_str("}\n");
+                return;
+            }
+            "escapeString" => {
+                let _ = writeln!(out, "  return aura_json_escape_string({value});");
+                out.push_str("}\n");
+                return;
+            }
+            _ => {}
+        }
+    }
+    if pkg == "std.signal" {
+        match (f.name.name.as_str(), f.params.len()) {
+            ("installShutdown", 0) => {
+                out.push_str("  return aura_signal_install_shutdown() != 0;\n}\n");
+                return;
+            }
+            ("shutdownRequested", 0) => {
+                out.push_str("  return aura_signal_shutdown_requested();\n}\n");
+                return;
+            }
+            ("clearShutdown", 0) => {
+                out.push_str("  aura_signal_clear_shutdown();\n}\n");
+                return;
+            }
+            _ => {}
+        }
+    }
+    if pkg == "std.error" && f.name.name == "kindCode" && f.params.len() == 1 {
+        let code = mangle_ident(&f.params[0].name.name);
+        let _ = writeln!(out, "  return aura_error_kind_code({code});");
+        out.push_str("}\n");
+        return;
+    }
+    if pkg == "std.log" && f.params.len() == 1 {
+        let message = mangle_ident(&f.params[0].name.name);
+        let level = match f.name.name.as_str() {
+            "debug" => Some(0),
+            "info" => Some(1),
+            "warn" => Some(2),
+            "error" => Some(3),
+            _ => None,
+        };
+        if let Some(level) = level {
+            let _ = writeln!(out, "  aura_log({level}, {message});");
+            out.push_str("}\n");
+            return;
+        }
+    }
+    if pkg == "std.log" {
+        if f.name.name == "setMinLevel" && f.params.len() == 1 {
+            let level = mangle_ident(&f.params[0].name.name);
+            let _ = writeln!(out, "  return aura_log_set_min_level({level});");
+            out.push_str("}\n");
+            return;
+        }
+        if f.name.name == "minLevel" && f.params.is_empty() {
+            out.push_str("  return aura_log_get_min_level();\n}\n");
+            return;
+        }
+    }
     if pkg == "std.net" {
+        if let ("closeListener", 1) = (f.name.name.as_str(), f.params.len()) {
+            let listener = mangle_ident(&f.params[0].name.name);
+            out.push_str("  AuraFfiHandlePin __pin = {0}; if (");
+            out.push_str(&listener);
+            out.push_str(" == NULL || aura_ffi_handle_pin_for_boundary(");
+            out.push_str(&listener);
+            out.push_str(", AURA_FFI_BOUNDARY_SYNC, &__pin) != AURA_FFI_OK) return false; (void)aura_tcp_listener_close((AuraTcpListener *)__pin.resource); (void)aura_ffi_handle_unpin(&__pin); return true;\n}\n");
+            return;
+        }
+        if let ("closeStream", 1) = (f.name.name.as_str(), f.params.len()) {
+            let stream = mangle_ident(&f.params[0].name.name);
+            out.push_str("  AuraFfiHandlePin __pin = {0}; if (");
+            out.push_str(&stream);
+            out.push_str(" == NULL || aura_ffi_handle_pin_for_boundary(");
+            out.push_str(&stream);
+            out.push_str(", AURA_FFI_BOUNDARY_SYNC, &__pin) != AURA_FFI_OK) return false; (void)aura_tcp_stream_close((AuraTcpStream *)__pin.resource); (void)aura_ffi_handle_unpin(&__pin); return true;\n}\n");
+            return;
+        }
+        if let ("listen", 1) = (f.name.name.as_str(), f.params.len()) {
+            let port = mangle_ident(&f.params[0].name.name);
+            out.push_str(
+                "  AuraTcpListener *__listener = NULL; AuraFfiOpaqueHandle *__handle = NULL; uint16_t __bound_port = 0;\n",
+            );
+            let _ = writeln!(
+                out,
+                "  if ({port} < 0 || {port} > UINT16_MAX || aura_tcp_listener_bind((uint16_t){port}, &__bound_port, &__listener) != AURA_TCP_OK || __listener == NULL) {{ aura_throw_string(\"std.net.listen failed\"); return NULL; }}"
+            );
+            out.push_str("  if (aura_ffi_handle_new((void *)__listener, aura_destroy_tcp_listener_resource, &__handle) != AURA_FFI_OK) { aura_tcp_listener_destroy(__listener); aura_throw_string(\"std.net.listen failed\"); return NULL; }\n");
+            out.push_str("  return __handle;\n}\n");
+            return;
+        }
         if let ("connect", 2) = (f.name.name.as_str(), f.params.len()) {
             let port = mangle_ident(&f.params[0].name.name);
             let timeout = mangle_ident(&f.params[1].name.name);
@@ -10386,6 +11777,30 @@ pub(crate) fn emit_fun(
                 out.push_str("  AuraFfiHandlePin __pin = {0}; if (!aura_http_pin_resource(");
                 out.push_str(&handle);
                 out.push_str(", &__pin)) { aura_throw_string(\"http request handle is invalid\"); return NULL; } const char *__value = aura_http_request_version((const AuraHttpRequest *)__pin.resource); size_t __length = __value == NULL ? 0 : strlen(__value); char *__copy = aura_http_copy_bytes(__value, __length); (void)aura_ffi_handle_unpin(&__pin); if (__copy == NULL) { aura_throw_string(\"http request version allocation failed\"); return NULL; } return __copy;\n}");
+                return;
+            }
+            ("requestHeaderCount", 1) => {
+                out.push_str("  AuraFfiHandlePin __pin = {0}; if (!aura_http_pin_resource(");
+                out.push_str(&handle);
+                out.push_str(", &__pin)) { aura_throw_string(\"http request handle is invalid\"); return 0; } int64_t __count = (int64_t)aura_http_request_header_count((const AuraHttpRequest *)__pin.resource); (void)aura_ffi_handle_unpin(&__pin); return __count;\n}");
+                return;
+            }
+            ("requestHeaderName", 2) | ("requestHeaderValue", 2) => {
+                let index = mangle_ident(&f.params[1].name.name);
+                let accessor = if f.name.name == "requestHeaderName" {
+                    "aura_http_request_header_name"
+                } else {
+                    "aura_http_request_header_value"
+                };
+                out.push_str("  AuraFfiHandlePin __pin = {0}; if (!aura_http_pin_resource(");
+                out.push_str(&handle);
+                out.push_str(", &__pin)) { aura_throw_string(\"http request handle is invalid\"); return NULL; } const char *__value = ");
+                out.push_str(accessor);
+                out.push_str("((const AuraHttpRequest *)__pin.resource, ");
+                out.push_str(&index);
+                out.push_str(" < 0 ? SIZE_MAX : (size_t)");
+                out.push_str(&index);
+                out.push_str("); size_t __length = __value == NULL ? 0 : strlen(__value); char *__copy = aura_http_copy_bytes(__value, __length); (void)aura_ffi_handle_unpin(&__pin); if (__copy == NULL) { aura_throw_string(\"http request header allocation failed\"); return NULL; } return __copy;\n}");
                 return;
             }
             ("requestBody", 1) => {
@@ -10456,6 +11871,38 @@ pub(crate) fn emit_fun(
         let _ = writeln!(out, "  aura_assert({arg});");
         out.push_str("}\n");
         return;
+    }
+    if pkg == "std.test" {
+        let intrinsic = match (f.name.name.as_str(), f.params.len()) {
+            ("assert", 1) => Some(("aura_assert", vec![mangle_ident(&f.params[0].name.name)])),
+            ("assertEqInt", 2) => Some((
+                "aura_assert_eq_int",
+                vec![
+                    mangle_ident(&f.params[0].name.name),
+                    mangle_ident(&f.params[1].name.name),
+                ],
+            )),
+            ("assertEqString", 2) => Some((
+                "aura_assert_eq_string",
+                vec![
+                    mangle_ident(&f.params[0].name.name),
+                    mangle_ident(&f.params[1].name.name),
+                ],
+            )),
+            ("assertEqBool", 2) => Some((
+                "aura_assert_eq_bool",
+                vec![
+                    mangle_ident(&f.params[0].name.name),
+                    mangle_ident(&f.params[1].name.name),
+                ],
+            )),
+            _ => None,
+        };
+        if let Some((name, args)) = intrinsic {
+            let _ = writeln!(out, "  {name}({});", args.join(", "));
+            out.push_str("}\n");
+            return;
+        }
     }
     let ret_key = f
         .return_type

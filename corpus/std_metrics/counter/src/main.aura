@@ -1,0 +1,13 @@
+package demo.stdmetrics.counter
+
+import std.io as Io
+import std.metrics
+
+fun main() {
+  val counter = Counter(2)
+  Io.println(counter.increment().toString())
+  Io.println(counter.add(4).toString())
+  counter.reset()
+  Io.println(counter.get().toString())
+  Io.println(counter.prometheus("aura_requests_total"))
+}

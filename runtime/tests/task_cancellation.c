@@ -202,12 +202,58 @@ static void test_release_pending_cancels_and_reclaims(void)
   aura_task_executor_shutdown(executor);
 }
 
+static void test_cancel_deadline_wakes_pending_task(void)
+{
+  AuraTaskExecutor *executor = aura_task_executor_new();
+  assert(executor != NULL);
+  AuraTaskFrame *frame = aura_task_frame_new(sizeof(CancellationTask),
+                                             poll_pending, NULL);
+  assert(frame != NULL);
+  assert(aura_task_executor_submit(executor, frame) == 1);
+  assert(aura_task_executor_run_one(executor) == 1);
+  assert(aura_task_frame_state(frame) == AURA_TASK_PENDING);
+  assert(aura_task_frame_set_cancel_deadline(frame, 0) == 1);
+  assert(aura_task_executor_poll_waiting(executor, 10) == 1);
+  assert(aura_task_frame_state(frame) == AURA_TASK_READY);
+  assert(aura_task_executor_run_one(executor) == 1);
+  assert(aura_task_frame_state(frame) == AURA_TASK_CANCELLED);
+  assert(aura_task_executor_release(executor, &frame) == 1);
+  aura_task_executor_shutdown(executor);
+}
+
+static void test_parent_cancellation_propagates_to_linked_child(void)
+{
+  AuraTaskExecutor *executor = aura_task_executor_new();
+  assert(executor != NULL);
+  AuraTaskFrame *parent = aura_task_frame_new(sizeof(CancellationTask),
+                                              poll_pending, NULL);
+  AuraTaskFrame *child = aura_task_frame_new(sizeof(CancellationTask),
+                                             poll_pending, NULL);
+  assert(parent != NULL && child != NULL);
+  assert(aura_task_executor_submit(executor, parent) == 1);
+  assert(aura_task_executor_submit(executor, child) == 1);
+  assert(aura_task_executor_run_one(executor) == 1);
+  assert(aura_task_executor_run_one(executor) == 1);
+  assert(aura_task_frame_link_cancellation(parent, child) == 1);
+  assert(aura_task_executor_cancel(executor, parent) == 1);
+  assert(aura_task_executor_run_one(executor) == 1);
+  assert(aura_task_frame_state(parent) == AURA_TASK_CANCELLED);
+  assert(aura_task_frame_state(child) == AURA_TASK_READY);
+  assert(aura_task_executor_run_one(executor) == 1);
+  assert(aura_task_frame_state(child) == AURA_TASK_CANCELLED);
+  assert(aura_task_executor_release(executor, &parent) == 1);
+  assert(aura_task_executor_release(executor, &child) == 1);
+  aura_task_executor_shutdown(executor);
+}
+
 int main(void)
 {
   test_ready_request_ack_and_join();
   test_pending_request_ack_and_unjoined_shutdown();
   test_completion_wins_if_published_first();
   test_release_pending_cancels_and_reclaims();
+  test_cancel_deadline_wakes_pending_task();
+  test_parent_cancellation_propagates_to_linked_child();
   aura_gc_shutdown();
   return 0;
 }

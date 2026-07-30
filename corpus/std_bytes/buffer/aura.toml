@@ -1,0 +1,6 @@
+[package]
+name = "demo.stdbytes.buffer"
+
+[[bin]]
+name = "buffer"
+path = "src"

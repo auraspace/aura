@@ -52,6 +52,10 @@ pub(crate) fn unify_ty(
         }
         (Ty::Nullable(_p), Ty::Null) => Ok(()),
         (Ty::Nullable(p), c) => unify_ty(p, c, map),
+        (Ty::Task(p), Ty::Task(c))
+        | (Ty::TaskHandle(p), Ty::TaskHandle(c))
+        | (Ty::Channel(p), Ty::Channel(c))
+        | (Ty::ForeignHandle(p), Ty::ForeignHandle(c)) => unify_ty(p, c, map),
         (Ty::ClassApp { name: n1, args: a1 }, Ty::ClassApp { name: n2, args: a2 })
         | (Ty::EnumApp { name: n1, args: a1 }, Ty::EnumApp { name: n2, args: a2 })
             if n1 == n2 && a1.len() == a2.len() =>
@@ -90,6 +94,10 @@ pub fn subst_ty(ty: &Ty, map: &HashMap<String, Ty>) -> Ty {
             params: params.iter().map(|p| subst_ty(p, map)).collect(),
             ret: Box::new(subst_ty(ret, map)),
         },
+        Ty::Task(inner) => Ty::Task(Box::new(subst_ty(inner, map))),
+        Ty::TaskHandle(inner) => Ty::TaskHandle(Box::new(subst_ty(inner, map))),
+        Ty::Channel(inner) => Ty::Channel(Box::new(subst_ty(inner, map))),
+        Ty::ForeignHandle(inner) => Ty::ForeignHandle(Box::new(subst_ty(inner, map))),
         other => other.clone(),
     }
 }

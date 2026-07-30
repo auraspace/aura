@@ -1,0 +1,10 @@
+[package]
+name = "demo.stdhttp.shutdown"
+
+[[bin]]
+name = "shutdown"
+path = "src"
+
+[dependencies]
+std.net = { path = "../../../std/net" }
+std.http = { path = "../../../std/http" }

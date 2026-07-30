@@ -1,0 +1,18 @@
+package demo.stdhttp.clientpost
+
+import std.http
+
+async fun fetch(port: Int): Unit {
+  val response: ClientResponse = await postResponse(port, "/stream", "aura-client-post")
+  println(response.status.toString())
+  println(response.body)
+}
+
+fun main() {
+  val values = args()
+  if (values.len < 2 || values.get(1).toInt() == null) {
+    exit(2)
+  }
+  val port: Int = values.get(1).toInt()!!
+  fetch(port)
+}

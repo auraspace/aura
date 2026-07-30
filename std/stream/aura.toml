@@ -1,0 +1,6 @@
+[package]
+name = "std.stream"
+
+[[bin]]
+name = "stream"
+path = "src"

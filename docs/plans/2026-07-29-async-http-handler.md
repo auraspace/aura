@@ -1,6 +1,6 @@
 # Async HTTP Handler Completion Plan
 
-Status: proposed
+Status: in progress
 Owner: Compiler Expert + Runtime & Integration
 Related workstreams: G1-G5, A4-A8, IO3-IO5, H5-H8, RFC-007
 
@@ -26,76 +26,389 @@ Already available in bounded form:
 - Nonblocking POSIX TCP listener/stream primitives and bounded fd readiness.
 - Runtime task frames, cancellation cleanup hooks, GC root retention, and
   bounded async I/O lowering.
-- Typed HTTP request/response accessors through a limited `std.http` bridge.
-- Synchronous native route dispatch and native HTTP health fixtures.
+- Typed HTTP request/response values through the `std.http` bridge, including
+  request snapshots and task-owned response builders.
+- Aura-level async routing and native HTTP health/shutdown fixtures.
 
 Still incomplete:
 
-- Aura-owned `Request` and `Response` values with a stable typed API.
-- Compiler-generated handlers that can suspend and resume across arbitrary
-  supported control flow.
-- Transfer of request, response, socket, and body ownership into the handler
-  task frame.
-- End-to-end scheduler integration for accept, read, handler execution, and
-  partial response writes.
-- Async routing, timeout/disconnect cancellation, and a runnable Aura-level
-  server example.
+- General async lowering beyond the currently covered bounded CFG and
+  ownership families.
+- Full typed task/error and stream abstractions for the broader stdlib.
+- Extended protocols (TLS, HTTP/2, HTTP/3/QUIC, WebSockets, compression,
+  multipart) and an HTTP client.
+- Cross-platform and clean-installed-release acceptance for every protocol.
 
 ## Implementation checklist
 
 ### Contract and architecture
 
-- [ ] C01 Freeze the public `std.http` request, response, route, and server API.
-- [ ] C02 Freeze typed error conventions shared by `std.os`, `std.net`,
+- [x] C01 Freeze the public `std.http` request, response, route, and server API.
+- [x] C02 Freeze typed error conventions shared by `std.os`, `std.net`,
       `std.dns`, `std.http`, and protocol adapters.
-- [ ] C03 Document copy, borrow, pin, ownership, GC-root, and destruction
+- [x] C03 Document copy, borrow, pin, ownership, GC-root, and destruction
       rules for every value that can cross `await`.
-- [ ] C04 Define supported targets, capability checks, limits, timeouts, and
+- [x] C04 Define supported targets, capability checks, limits, timeouts, and
       compatibility policy for each protocol.
-- [ ] C05 Add RFC/spec updates for decisions that affect language or runtime
+- [x] C05 Add RFC/spec updates for decisions that affect language or runtime
       ABI behavior.
+
+Contract decision (2026-07-29): the first-class handler is
+`Handler = (Request, Response) -> Task<Unit>`, with a task-owned mutable
+`Response` builder rather than a returned response value. `Request` is an owned snapshot
+and `Response` is valid only until the handler's terminal path. The public API
+contains no native or `ForeignHandle` values. The frozen base target is bounded
+HTTP/1.1 on Linux amd64 and macOS arm64; all extended protocols remain explicit
+capability-gated follow-ons. RFC-007 records the limits, failure mapping,
+ownership, cancellation, and exactly-once cleanup rules.
 
 ### Compiler and runtime
 
 - [ ] R01 Complete general async state-machine lowering for handler control
       flow, multiple awaits, errors, cancellation, and cleanup.
-- [ ] R02 Retain request/response/body/socket values in task frames safely.
-- [ ] R03 Integrate accept, read, write, timeout, and cancellation waits with
+
+  Progress: the general CFG now converts primitive `throw` statements reached
+  after an `await` into owned task-frame errors rather than longjmping through
+  a returned poller. Error text, source span, cancellation cleanup, and
+  repeated joins are covered for the String path. Bounded single-await catches
+  now decode owned `String`, `Int`, and `Bool` failures by tagged task-frame
+  error type, including a non-Unit awaited value declaration whose success
+  value is copied before the catch continuation. Finally-on-failure remains
+  bounded to one awaited child.
+  Multi-await catch regions and nested failure cleanup remain open; bounded
+  non-generic class throws without array fields
+  now clone typed payloads into the task-frame error slot. Catch-free
+  `try/finally` success paths now lower through explicit continuation states.
+  Async class methods
+  now route through the bounded async dispatch used by top-level functions,
+  retaining a synthetic `this` frame slot and rebinding it in the covered CFG
+  resume paths. Closed generic class monomorphs now receive the same lowering
+  when the method body is independent of the class type parameter; richer
+  generic payload substitution and fully general class-method CFG coverage
+  still need additional method-aware lowering.
+
+  Evidence: `parses_async_class_method_as_task_returning_method` verifies the
+  `async fun method(): T` class syntax lowers to `Task<T>`, while
+  `class_task_method_allows_await_and_checks_inner_result` covers sema's async
+  context and inner-result checking. The codegen fixture
+  `compiles_async_class_method_with_await` covers frame emission and rebinding
+  `this` after one and two suspension points. The runtime fixture
+  `builds_and_runs_async_class_method_branch_loop` additionally covers a
+  method-aware general CFG with a loop, conditional, repeated awaits, and
+  typed `this.value` access after suspension.
+  `compiles_async_method_on_generic_class_mono` covers a closed `Box<Int>` async
+  method frame and wrapper. `builds_and_runs_async_generic_class_method_returning_type_parameter`
+  now exercises substituted `T` return values for `Int`, owned `String`,
+  `Array<Int>`, nested `Node` class, and `Array<Node>` monomorphs after an
+  await, including sanitizer cleanup of aggregate and nested-class results.
+  Short nested class keys are normalized to package-qualified C symbols before
+  method dispatch.
+  `builds_and_runs_async_try_finally_after_await` covers the success path for
+  `try/finally` around an awaited operation.
+  `builds_and_runs_async_catch_after_await`,
+  `builds_and_runs_async_non_unit_catch_after_await`,
+  `builds_and_runs_async_primitive_catches_after_await`, and
+  `builds_and_runs_async_class_method_catch_after_await` cover the bounded
+  single-await `catch (String)` path, including owned error extraction from
+  the child task and class-method frame lowering.
+  `builds_and_runs_async_finally_after_await_failure` now proves that a failed
+  awaited child propagates its owned error only after the `finally` body runs.
+  `compiles_async_class_throw_after_await_with_owned_payload` covers typed
+  class error cloning and type-name propagation. Multi-await try regions with
+  primitive catches now lower through one shared catch continuation and are
+  covered by `builds_and_runs_async_multi_await_catch_region`. Typed class
+  catches now clone the child payload into an owned frame slot, survive forced
+  GC, and are covered by `builds_and_runs_async_class_catch_after_await`.
+  Same-name catches with changing types, nested class-field rooting, and nested
+  failure cleanup remain open.
+
+- [x] R02 Retain request/response/body/socket values in task frames safely.
+
+  Evidence: generated HTTP request/response/body tasks pin their opaque
+  handles across readiness waits and release them on every terminal path;
+  socket/connection handles are retained by the async server bridge. Native
+  coverage exercises partial body reads, streamed response writes, typed
+  connection pins across `await`, cancellation, disconnect, forced GC, and
+  executor shutdown.
+
+- [x] R03 Integrate accept, read, write, timeout, and cancellation waits with
       the scheduler and readiness poller.
-- [ ] R04 Preserve partial-read and partial-write offsets across resumption.
-- [ ] R05 Enforce borrow barriers across `await`, `spawn`, channel, and task
+- [x] R04 Preserve partial-read and partial-write offsets across resumption.
+- [x] R05 Enforce borrow barriers across `await`, `spawn`, channel, and task
       outcome boundaries.
-- [ ] R06 Verify exactly-once close/destroy under success, failure, cancel,
+
+  Evidence: sema rejects borrow-derived operands at `await`, `spawn`, channel
+  create/send/receive/close, `join`, and `cancel`; it also rejects reference
+  payloads in task and channel storage plus escaping return/assignment paths.
+  `async_boundaries_reject_borrowed_values` covers the task-outcome and channel
+  regressions.
+
+- [x] R06 Verify exactly-once close/destroy under success, failure, cancel,
       disconnect, forced GC, and executor shutdown.
-- [ ] R07 Add concurrent task limits, connection limits, body limits, and
+
+  Evidence: `runtime/tests/http_async.c` covers suspended success, handler
+  failure, cancellation, peer disconnect, forced GC while a typed handle is
+  pinned, timeout, keep-alive, and executor/server teardown; the native fixture
+  passes under strict compilation and ASAN/UBSAN manifest execution.
+
+- [x] R07 Add concurrent task limits, connection limits, body limits, and
       backpressure limits.
+
+  Evidence: the executor enforces a configurable bounded live-task count
+  (default 4096, hard cap 65536); HTTP servers enforce max active connections
+  and max requests per connection; parser/reader and response streaming enforce
+  bounded headers, bodies, aggregate buffers, and output. Native tests cover
+  connection-limit rejection, task-limit rejection/recovery, oversized input,
+  and POLLOUT backpressure resumption.
 
 ### Core stdlib
 
 - [ ] S01 Complete shared `Result`/error types and platform error mapping.
+
+  Progress: embedded `std.error` now provides a transport-neutral `ErrorKind`,
+  owned `Error`, and generic `Outcome<T, E>` with import-safe success/failure
+  constructors. The bounded HTTP client exposes typed `getResponseResult` and
+  `postResponseResult` framing outcomes while preserving the raw compatibility
+  APIs. `std.error.kindCode` now maps common native errno/status values into
+  stable category IDs (invalid input, not found, permission, I/O, network,
+  timeout, cancellation, protocol, limit, closed, unsupported, unknown), with
+  native codegen coverage in the shared error fixture. Full transport-specific
+  errors now expose an explicit `isRetryable` policy for transient I/O,
+  network, and timeout outcomes. Full transport-specific error payloads and
+  same-named `Result` unification remain open because the
+  merged-package resolver currently cannot disambiguate duplicate generic enum
+  names.
+
 - [ ] S02 Complete `std.task` and `std.time` task, timer, deadline, and
       cancellation APIs.
+
+  `std.task.joinTask` and `std.task.cancelTask` now expose the bounded existing
+  lifecycle over `TaskHandle<T>` and typed task outcomes. `std.task.isCancelled`
+  provides a cooperative cancellation query inside generated async frames.
+  `std.time.sleep` is monotonic, and `std.time.Duration`/`sleepFor` provide a
+  typed duration layer; absolute deadlines now use monotonic `Deadline`,
+  `after`, and `sleepUntil` APIs. Timeout composition and parent/child
+  structured cancellation remain open. `std.task.cancelAfter<T>` now installs
+  a monotonic cancellation deadline on a live task handle; the scheduler wakes
+  pending tasks at expiry and publishes cooperative cancellation.
+  `std.task.linkCancellation<P,C>` now provides bounded parent-to-child
+  cooperative cancellation for handles sharing one executor; frame teardown
+  unlinks relationships deterministically. Full cancellation scopes,
+  deadlines spanning multiple children, and graceful executor shutdown remain
+  open.
+  Evidence: `lowers_std_task_is_cancelled_inside_async_frame` checks the frame
+  ABI lowering and native compilation; `corpus/std_task/lifecycle` checks the
+  public package surface and linking API; the runtime cancellation test covers
+  propagation and cleanup.
+  `corpus/std_time/duration` checks the public package surface; the codegen
+  timer fixture runs the real monotonic wait.
+
 - [ ] S03 Complete `std.sync` mutex, rwlock, once, atomic, and lock-safety
       behavior.
+
+  Progress: embedded `std.sync.AtomicInt` now provides sequentially consistent
+  `load`, `store`, `fetchAdd`, and `compareExchange` operations backed by
+  compiler atomics. Native codegen and `corpus/std_sync/atomic` cover the
+  closed class ABI. The same bounded package now includes CAS-based,
+  non-blocking `Mutex.tryLock`/`unlock` and one-shot `Once.tryEnter`; the
+  native fixture and corpus exercise ownership-free state transitions. A
+  bounded CAS-based `RwLock` now supports concurrent readers, exclusive
+  writers, explicit read/write unlock, and state inspection. Blocking/async
+  lock adapters, lock ordering, and broader atomic types remain open.
+
 - [ ] S04 Complete `std.bytes`/`std.stream` owned buffers and async reader/
       writer adapters.
+
+  Progress: embedded `std.bytes` now provides owned `copy`, `concat`, bounded
+  `slice`, and byte-wise `equals` operations with native allocation and null
+  bounds failures. `builds_and_runs_std_bytes_owned_operations` and
+  `corpus/std_bytes/owned` cover codegen, package embedding, and CLI checks.
+  Embedded `std.stream.Reader`/`Writer` classes now wrap owned TCP streams with
+  async `read`/`write` methods and idempotent close operations; the
+  `corpus/std_stream/adapters` check and native build cover class-method async
+  lowering. `std.bytes.Buffer` now provides owned `Array<Int>` storage with
+  byte-range validation, nullable indexing, and deep cloning; the
+  `corpus/std_bytes/buffer` fixture covers its native class ABI. Zero-copy
+  views, raw descriptor-backed buffers, and richer stream error/backpressure
+  adapters remain open.
+
 - [ ] S05 Complete `std.os` process/environment and `std.fs` path/filesystem
       APIs.
+
+  Progress: embedded `std.fs` now provides bounded portable `join`,
+  `basename`, `dirname`, `extension`, and `isAbsolute` helpers with native
+  owned results. `builds_and_runs_std_fs_path_helpers` and
+  `corpus/std_fs/paths` cover the ABI and clean CLI path. Metadata, directory,
+  permissions, process, and typed platform-error APIs remain open.
+  Embedded `std.os` additionally provides bounded environment lookup/mutation,
+  cwd, pid, and platform identification; the native fixture and
+  `corpus/std_os/process` cover the process-facing ABI. Typed environment
+  wrappers now return shared `Outcome` values for missing variables and failed
+  updates. Process spawning, signals, permissions, and typed process errors
+  remain open. `std.fs` now also
+  exposes bounded `isDirectory` and stable `fileMode` metadata queries backed
+  by `stat`, covered by the native path fixture and `corpus/std_fs/paths`.
+  `std.fs.permissions` now exposes the low nine POSIX permission bits with a
+  stable zero-on-error fallback, also covered by that fixture. The same
+  package now exposes second-resolution `modifiedMillis` epoch timestamps with
+  a `-1` error sentinel. `listNames` adds a newline-delimited directory
+  snapshot capped at 64 KiB and returns null on unsupported/error paths.
+  `isSymlink` adds an explicit non-following link check (`lstat` on POSIX),
+  covered by the native fixture and `corpus/std_fs/paths`. Typed
+  `readTextResult`/`writeTextResult` wrappers now map soft file failures to the
+  shared `std.error.Outcome` contract. Directory iteration, process APIs, and
+  richer platform-error mapping remain open.
+
 - [ ] S06 Complete `std.net` TCP transport with typed async operations.
+
+  Progress: `std.net` now provides non-throwing `readStreamResult` and
+  `writeStreamResult` wrappers returning `std.error.Outcome`, while the
+  existing readiness-driven stream operations remain available for
+  compatibility. `corpus/std_net/typed` verifies the shared outcome types and
+  native build path. Address-list APIs, richer timeout/cancellation payloads,
+  and cross-platform transport errors remain open. String success payloads now
+  clone and deep-clean through the owned `OutcomeOk` constructor; generic enum
+  class-payload rooting remains tracked separately in `ERROR-002`.
+
 - [ ] S07 Complete `std.dns` resolution, timeout, cancellation, and address
       selection.
-- [ ] S08 Complete `std.encoding` UTF-8, Base64, hex, and percent encoding.
+
+  Progress: embedded `std.dns.resolveHost(host, preferIpv6)` performs a
+  bounded numeric IPv4/IPv6 lookup, prefers the requested family, falls back
+  to the other family, and returns an owned nullable address. Native codegen
+  and `corpus/std_dns/resolve` cover the ABI and literal-address path. Async
+  resolver cancellation, explicit timeout enforcement, and service-name
+  lookup remain open. `resolveHostList` now returns a preference-ordered,
+  newline-delimited numeric address snapshot capped at 64 KiB, while
+  `resolveHostResult` wraps lookup failure in the shared `std.error.Outcome`
+  network error type.
+
+- [x] S08 Complete `std.encoding` UTF-8, Base64, hex, and percent encoding.
+
+  The embedded `std.encoding` package exposes UTF-8 validation, RFC 4648
+  Base64, lowercase hex, and RFC 3986 percent encode/decode functions. Native
+  implementations are bounded by the input string size, reject malformed
+  escapes/alphabets and decoded NUL bytes, and return nullable results for
+  invalid decodes. `builds_and_runs_std_encoding_round_trips` and
+  `corpus/std_encoding/roundtrip` cover native execution, package embedding,
+  and the clean CLI build path.
+
 - [ ] S09 Complete `std.url` and `std.mime` parsing and sanitization helpers.
+
+  Progress: embedded bounded packages now validate HTTP origin-form targets,
+  extract path/query components, recognize bounded absolute authorities,
+  extract userinfo-safe host/port components and exact raw query values,
+  validate media types with parameters, sanitize upload filenames, and extract
+  sanitized MIME disposition filenames. URL-level `encodeComponent` and
+  `decodeComponent` now reuse the strict percent codec and reject malformed
+  escapes/NULs. `normalizePath` now removes bounded dot segments while
+  preserving the origin-form root and trailing slash. Native fixtures and
+  `corpus/std_url_mime/sanitize` cover the ABI and clean CLI path. Full RFC
+  URL normalization and multipart metadata remain open.
+
 - [ ] S10 Complete `std.json` value model, parser, serializer, typed mapping,
       limits, and diagnostics.
+
+  Progress: embedded `std.json` now validates complete UTF-8 JSON values with
+  bounded 64-level nesting, strings, arrays, objects, literals, and strict
+  number grammar; `escapeString` emits owned JSON string literals. Native
+  codegen and `corpus/std_json/basic` cover valid/invalid framing and escapes.
+  `std.json.Value` now retains validated JSON text with owned `raw` and
+  `serialize` accessors; `parse` returns null for invalid input and
+  `corpus/std_json/value` covers the model. `Value.kind` and root-type
+  predicates now provide bounded object/array/string/number/bool/null
+  navigation. `errorOffset` reports the first invalid byte (or `-1` for
+  complete JSON). Member/array traversal, serializer ordering,
+  typed mapping, and configurable limits remain open.
+
 - [ ] S11 Complete `std.log`, `std.metrics`, and `std.signal` integration.
+
+  Progress: embedded `std.log` now exposes bounded debug/info/warn/error text
+  levels with deterministic stderr prefixes and flush behavior. Native codegen
+  and `corpus/std_log/basic` cover the package surface. Structured key/value
+  info/error helpers now render deterministic fields through the existing
+  sinks. `setMinLevel`/`minLevel` now provide a bounded process-local level
+  filter; configurable sinks and OS signal integration remain open.
+  Embedded `std.metrics.Counter`
+  now provides sequentially consistent add/increment/get/reset operations;
+  native codegen and `corpus/std_metrics/counter` cover the counter ABI.
+  `Counter.prometheus(name)` now emits one bounded text exposition sample.
+  Cross-process aggregation and richer export formats remain open. Embedded
+  `std.signal` now installs SIGINT/SIGTERM handlers and exposes a clearable
+  shutdown flag; native codegen and `corpus/std_signal/shutdown` cover the
+  supported-target state path. The generated `std.http.serve` loop now observes
+  the flag, closes the listener, stops accepting, and waits for tracked
+  connection tasks to reach terminal state before completing. Unsupported-target
+  typed errors are still open; `runtime/tests/signal_shutdown.c` now proves
+  SIGINT/SIGTERM delivery and clear/re-arm behavior in the sanitizer matrix.
+
 - [ ] S12 Complete `std.test` async, timer, network, and sanitizer fixtures.
+
+  Progress: embedded `std.test` now provides deterministic Bool/Int/String
+  assertion helpers backed by the native failure diagnostics. Native codegen,
+  `corpus/std_test/assertions`, and the existing `@test` harness cover the
+  synchronous assertion path. `corpus/std_test/async` now runs assertions
+  after a real `std.time.sleep` suspension and prints its completion marker;
+  async network helpers, fixture isolation, and broader sanitizer orchestration
+  remain open.
 
 ### HTTP and protocol support
 
-- [ ] H01 Implement typed `Request`/`Response` values and async routing.
-- [ ] H02 Implement HTTP/1.1 keep-alive, streaming bodies, errors, and
+- [x] H01 Implement typed `Request`/`Response` values and async routing.
+- [x] H02 Implement HTTP/1.1 keep-alive, streaming bodies, errors, and
       graceful shutdown through Aura APIs.
+
+  Bounded keep-alive, timeout/500 error mapping, partial writes, and listener
+  shutdown are covered by `runtime/tests/http_async.c` and the shutdown corpus
+  fixture. `scripts/http-aura-smoke.sh` launches the Aura example on an
+  isolated port and verifies GET `/health` (200), unknown target (404), and
+  POST `/health` (405), plus 16 concurrent GET clients, after the handler
+  suspends twice. The runtime also decodes bounded inbound chunked request
+  bodies into owned snapshots; the Aura `/stream` example verifies that payload
+  survives handler suspension. Content-Length and chunked request streaming,
+  plus chunked response streaming, are available; trailer fields remain
+  unexposed.
+
+  Streaming contract (2026-07-29, implemented for Content-Length and chunked):
+  `Request` exposes one `RequestBody` reader for a Content-Length- or
+  chunked-framed request.
+  `await readChunk(capacity)` returns an owned, non-empty String of at most
+  `min(capacity, 16 KiB)`, or `""` exactly once EOF is reached. The reader is
+  valid only while its handler task is alive, only one read may be pending,
+  and the connection cannot parse its next keep-alive request until EOF. A
+  handler that returns/cancels before EOF forces `Connection: close`, avoiding
+  request-boundary desynchronization. Disconnection, cancellation, and a body
+  read timeout terminate the reader and close the connection; buffered
+  response output is discarded. Chunked trailers are validated as an empty
+  trailer section but are not exposed as public fields yet.
+
+  Foundation progress: the native parser now has an internal header-first mode
+  that validates and owns request metadata while reporting the exact header
+  boundary plus Content-Length/chunked framing without consuming body bytes.
+  `runtime/tests/http_parser.c` verifies partial Content-Length and chunked
+  inputs. Task handlers for non-empty Content-Length and chunked requests now
+  enter before the full body arrives; synchronous handlers retain the proven
+  snapshot path.
+
+  The native Content-Length reader core now consumes only the declared body
+  bytes from a connection-owned unread buffer or socket and leaves pipelined
+  bytes untouched. `runtime/tests/http_async.c` proves a task handler parks on
+  a partial body, resumes at EOF, and parses the following pipelined request.
+  Returning before EOF forces `Connection: close`. This reader is still a
+  public Aura `RequestBody.readChunk` bridge: the parser accepts async class
+  methods as `Task<T>` methods and compiler lowering pins the request only for
+  the read task, caps each owned chunk at 16 KiB, and resumes with the reader's
+  body deadline. `corpus/std_http/stream_body` builds the method call and the
+  `/stream` smoke route executes it. A terminal reader task releases its
+  exclusive claim immediately, so sequential calls do not depend on executor
+  frame reclamation. `Response.writeChunk(body)` pins the response and
+  connection across partial writes, commits chunked headers once, emits each
+  owned chunk, and appends the terminal chunk after handler completion.
+  `runtime/tests/http_response.c` covers framing and post-commit mutation;
+  `/stream-response` smoke validates two awaited chunks as `onetwo`.
+  Trailer fields remain unexposed; non-empty trailers are rejected by the
+  streaming reader to preserve the bounded public contract.
+
 - [ ] H03 Implement TLS termination, certificate loading, SNI, ALPN, reload,
       key cleanup, and handshake errors.
 - [ ] H04 Implement HTTP/2 framing, HPACK, stream lifecycle, multiplexing,
@@ -111,13 +424,49 @@ Still incomplete:
 - [ ] H09 Add HTTP client APIs for HTTP/1.1 and the supported HTTP/2/HTTP/3
       transports.
 
+  Bounded HTTP/1.1 loopback `std.http.get(port, target)` and
+  `std.http.post(port, target, body)` now run over `std.net`; both collect
+  readiness-driven TCP reads through EOF with a 64 KiB aggregate limit. POST
+  writes an exact `Content-Length` and deliberately closes after one response.
+  `corpus/std_http/client`, `corpus/std_http/client_post`, and
+  `scripts/http-aura-smoke.sh` prove standalone Aura clients obtain the Aura
+  server's `200 OK` health and echo responses.
+  `getResponse` and `postResponse` additionally parse the bounded status line
+  and body into `ClientResponse`; invalid framing yields status zero until
+  typed client errors are available. `getResponseResult` and
+  `postResponseResult` now return the shared `std.error.Outcome` with a
+  protocol `Error` for invalid framing. Custom request headers, request/response
+  streaming, typed errors, TLS, HTTP/2, and HTTP/3 remain open, so this row is
+  intentionally unchecked.
+
 ### Security and interoperability
 
 - [ ] X01 Add parser fuzzing for HTTP/1.1, HTTP/2, HTTP/3, WebSocket, JSON,
       URL, MIME, and multipart inputs.
+
+  Progress: `runtime/tests/http_parser_fuzz.c` mutates deterministic
+  Content-Length, chunked, and keep-alive request seeds, while
+  `runtime/tests/stdlib_parser_fuzz.c` mutates bounded JSON, percent, URL,
+  and MIME inputs under ASAN/UBSAN.
+  HTTP/2, HTTP/3, WebSocket, and multipart parser seeds remain open with those
+  protocol implementations.
+
 - [ ] X02 Add hostile-client tests for slowloris, oversized headers/bodies,
       decompression bombs, invalid frames, and connection exhaustion.
+
+  Progress: the existing HTTP hardening, parser-fuzz seed, async disconnect,
+  timeout, active-connection-limit, oversized-header/body, and malformed
+  framing fixtures run in the sanitizer matrix. Slowloris/decompression-bomb
+  coverage and extended-protocol invalid-frame tests remain open.
+
 - [ ] X03 Run ASAN/UBSAN and forced-GC tests across every native resource path.
+
+  Evidence: `bash scripts/sanitizer-smoke.sh` passed the complete current
+  `runtime/tests/sanitizer-seeds.tsv` matrix, including HTTP parser fuzz,
+  HTTP hardening, HTTP async lifecycle, HTTP health, async I/O, task
+  cancellation/GC, and FFI paths. Full extended-protocol and cross-target
+  coverage remains open.
+
 - [ ] X04 Run protocol conformance suites and verify ALPN negotiation,
       certificate policy, framing, and status/error mapping.
 - [ ] X05 Audit secrets, private keys, logs, authorization data, and error
@@ -125,14 +474,19 @@ Still incomplete:
 
 ### Examples, docs, and release
 
-- [ ] D01 Replace native-only health fixtures with a real Aura async HTTP
+- [x] D01 Replace native-only health fixtures with a real Aura async HTTP
       server example.
 - [ ] D02 Add examples for TLS, HTTP/2, HTTP/3, WebSocket, compression, and
       multipart upload/download.
-- [ ] D03 Document local build/run commands, limits, target support, and
+- [x] D03 Document local build/run commands, limits, target support, and
       troubleshooting for every example.
-- [ ] D04 Run clean-host acceptance with the installed CLI and embedded stdlib.
-- [ ] D05 Update release notes, roadmap, RFC status, and `agents/debts.md` for
+- [x] D04 Run clean-host acceptance with the installed CLI and embedded stdlib.
+
+  Evidence: an offline release install under `/private/tmp/aura-install`
+  passed `aura check`, `aura build`, and loopback GET/404/405 smoke for the
+  Aura health server.
+
+- [x] D05 Update release notes, roadmap, RFC status, and `agents/debts.md` for
       every deferred or bounded capability.
 - [ ] D06 Do not mark the feature complete until all required acceptance rows
       below have reproducible evidence.

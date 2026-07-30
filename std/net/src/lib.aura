@@ -1,40 +1,42 @@
-// std.net — bounded primitive network/HTTP bridge.
+// std.net — bounded runtime-backed TCP transport.
 //
-// The typed TCP handles in runtime/aura_ffi.h are intentionally not exposed
-// here yet: Aura FFI v1 accepts only Int, Bool, String, and Unit.  These
-// operations therefore use bounded String/Int values and copy the returned
-// C string into Aura-owned storage at the call boundary.
+// ForeignHandle resources keep descriptors opaque to Aura code. The compiler
+// pins them only for the boundary operation and task frame that owns a wait.
 
 package std.net
 
-/// Return the loopback echo of `payload`, or an empty String on timeout,
-/// transport failure, unsupported host, or a payload over 64 KiB.
-/// `timeoutMs` must be non-negative; zero performs a non-blocking attempt.
-@foreign(library = "aura_net_ffi", target = "native", link = "static", abi = 1, abi_id = "c")
-pub extern "C" fun aura_net_loopback_echo(payload: String, timeoutMs: Int): String
+import std.error as NetErrs
 
-/// Parse one bounded HTTP/1.1 request and return its response status:
-/// 200 for a valid request, 400 for malformed input, 413 when the request
-/// exceeds the bounded parser budget, and 405 for an unsupported method.
-@foreign(library = "aura_net_ffi", target = "native", link = "static", abi = 1, abi_id = "c")
-pub extern "C" fun aura_net_http_request_status(request: String): Int
-
-/// Serialize a bounded HTTP response. The returned String is copied into Aura
-/// ownership by the primitive FFI boundary; invalid status/body input returns
-/// an empty String.
-@foreign(library = "aura_net_ffi", target = "native", link = "static", abi = 1, abi_id = "c")
-pub extern "C" fun aura_net_http_response(status: Int, body: String): String
-
-pub fun loopbackEcho(payload: String, timeoutMs: Int): String {
-  return aura_net_loopback_echo(payload, timeoutMs)
+/// Bind a nonblocking loopback TCP listener. `port` may be zero to request an
+/// ephemeral port. The returned owned handle closes when it leaves scope.
+/// A later async `accept` API will consume this listener without blocking a
+/// scheduler worker.
+pub fun listen(port: Int): ForeignHandle<Int> {
+  throw "listen intrinsic"
 }
 
-pub fun requestStatus(request: String): Int {
-  return aura_net_http_request_status(request)
+/// Connect to a loopback TCP listener within `timeoutMs`. The returned stream
+/// is an owned resource and may be used by the async read/write operations.
+pub fun connect(port: Int, timeoutMs: Int): ForeignHandle<Int> {
+  throw "connect intrinsic"
 }
 
-pub fun response(status: Int, body: String): String {
-  return aura_net_http_response(status, body)
+/// Suspend until an incoming stream is available on `listener`. The returned
+/// stream is owned by the task result and remains valid across `await`.
+pub async fun accept(listener: ForeignHandle<Int>): ForeignHandle<Int> {
+  throw "accept intrinsic"
+}
+
+/// Close a listener. The operation is idempotent; a valid listener reports
+/// `true` whether it was just closed or had already reached a terminal state.
+pub fun closeListener(listener: ForeignHandle<Int>): Bool {
+  throw "closeListener intrinsic"
+}
+
+/// Close a stream. Pending reads and writes observe the terminal state after
+/// the scheduler removes their readiness registration.
+pub fun closeStream(stream: ForeignHandle<Int>): Bool {
+  throw "closeStream intrinsic"
 }
 
 /// Read up to `capacity` bytes from a typed TCP stream and suspend until it
@@ -43,8 +45,50 @@ pub async fun readStream(stream: ForeignHandle<Int>, capacity: Int): String {
   return ""
 }
 
+/// Read until EOF or `capacity` bytes have been accumulated. This is bounded
+/// and suitable for small request/response messages; streaming consumers must
+/// use `readStream` so one peer cannot force an unbounded allocation.
+pub async fun readAllStream(stream: ForeignHandle<Int>, capacity: Int): String {
+  if (capacity <= 0) {
+    return ""
+  }
+  var content = ""
+  var remaining = capacity
+  while (remaining > 0) {
+    val chunk: String = await readStream(stream, remaining)
+    if (chunk.isEmpty()) {
+      return content
+    }
+    content = content + chunk
+    remaining = capacity - content.len
+  }
+  return content
+}
+
 /// Write all content to a typed TCP stream and return the transferred byte
 /// count. The input is copied into the task frame before the first await.
 pub async fun writeStream(stream: ForeignHandle<Int>, content: String): Int {
   return 0
+}
+
+/// Non-throwing read wrapper. `OutcomeOk` contains the owned chunk (or the
+/// empty string at EOF); transport failures are classified as network errors.
+pub async fun readStreamResult(stream: ForeignHandle<Int>, capacity: Int): NetErrs.Outcome<String, NetErrs.Error> {
+  try {
+    val chunk: String = await readStream(stream, capacity)
+    return NetErrs.success(chunk)
+  } catch (error: String) {
+    return NetErrs.failure(NetErrs.network(error, 0))
+  }
+}
+
+/// Non-throwing write wrapper. The success value is the number of bytes sent;
+/// transport failures are classified as network errors.
+pub async fun writeStreamResult(stream: ForeignHandle<Int>, content: String): NetErrs.Outcome<Int, NetErrs.Error> {
+  try {
+    val transferred: Int = await writeStream(stream, content)
+    return NetErrs.success(transferred)
+  } catch (error: String) {
+    return NetErrs.failure(NetErrs.network(error, 0))
+  }
 }

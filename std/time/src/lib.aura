@@ -1,0 +1,61 @@
+// std.time -- bounded monotonic timer primitives.
+
+package std.time
+
+/// A non-negative monotonic duration represented in milliseconds.
+pub class Duration(pub val milliseconds: Int) {
+  pub fun isValid(): Bool {
+    return this.milliseconds >= 0
+  }
+}
+
+/// Construct a millisecond duration. Negative values remain representable so
+/// callers can validate user input explicitly with `isValid()`.
+pub fun milliseconds(value: Int): Duration {
+  return Duration(value)
+}
+
+/// Current monotonic clock in milliseconds. It is not wall-clock time.
+pub fun nowMillis(): Int {
+  throw "time intrinsic"
+}
+
+/// A monotonic point at which an operation should be considered expired.
+pub class Deadline(pub val atMillis: Int) {
+  pub fun isExpired(): Bool {
+    return nowMillis() >= this.atMillis
+  }
+
+  pub fun remaining(): Duration {
+    val value = this.atMillis - nowMillis()
+    if (value <= 0) {
+      return Duration(0)
+    }
+    return Duration(value)
+  }
+}
+
+/// Create a deadline relative to the current monotonic clock.
+pub fun after(duration: Duration): Deadline {
+  return Deadline(nowMillis() + duration.milliseconds)
+}
+
+/// Suspend the current task for `milliseconds` using the runtime monotonic
+/// clock. Negative durations fail the task; wall-clock changes do not affect
+/// the deadline.
+pub async fun sleep(milliseconds: Int): Unit {
+  throw "time intrinsic"
+}
+
+/// Suspend for a typed monotonic duration.
+pub async fun sleepFor(duration: Duration): Unit {
+  await sleep(duration.milliseconds)
+}
+
+/// Suspend until a monotonic deadline, returning immediately if it elapsed.
+pub async fun sleepUntil(deadline: Deadline): Unit {
+  val remaining = deadline.remaining()
+  if (remaining.milliseconds > 0) {
+    await sleep(remaining.milliseconds)
+  }
+}

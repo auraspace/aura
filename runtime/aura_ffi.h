@@ -94,6 +94,24 @@ const char *aura_tcp_last_error(void);
 
 #define AURA_FFI_ABI_VERSION 1u
 
+/* Bounded std.dns numeric address selection. */
+const char *aura_dns_resolve_host(const char *host, int prefer_ipv6);
+const char *aura_dns_resolve_host_list(const char *host, int prefer_ipv6);
+const char *aura_url_normalize_path(const char *path);
+_Bool aura_json_is_valid(const char *value);
+int64_t aura_json_error_offset(const char *value);
+const char *aura_json_escape_string(const char *value);
+int aura_signal_install_shutdown(void);
+_Bool aura_signal_shutdown_requested(void);
+void aura_signal_clear_shutdown(void);
+int64_t aura_error_kind_code(int64_t code);
+_Bool aura_fs_is_directory(const char *path);
+int64_t aura_fs_file_mode(const char *path);
+int64_t aura_fs_permissions(const char *path);
+int64_t aura_fs_modified_millis(const char *path);
+const char *aura_fs_list_names(const char *path);
+_Bool aura_fs_is_symlink(const char *path);
+
 typedef enum AuraFfiStatus {
   AURA_FFI_OK = 0,
   AURA_FFI_INVALID = 1,
@@ -205,6 +223,12 @@ typedef enum AuraFfiBoundary {
 typedef struct AuraTaskExecutor AuraTaskExecutor;
 typedef struct AuraTaskFrame AuraTaskFrame;
 typedef void (*AuraTaskFrameGcMarkFn)(AuraTaskFrame *frame);
+int64_t aura_time_monotonic_millis(void);
+int aura_task_frame_set_cancel_deadline(AuraTaskFrame *frame, int timeout_ms);
+int aura_task_frame_link_cancellation(AuraTaskFrame *parent,
+                                      AuraTaskFrame *child);
+int aura_task_executor_set_max_live_tasks(AuraTaskExecutor *executor,
+                                          size_t max_live_tasks);
 #define AURA_TASK_POLL_STATE_DEFINED 1
 typedef enum AuraTaskPollState {
   AURA_TASK_READY = 0,
@@ -237,6 +261,14 @@ const char *aura_http_request_header_value(const AuraHttpRequest *request,
                                            size_t index);
 const unsigned char *aura_http_request_body(const AuraHttpRequest *request);
 size_t aura_http_request_body_length(const AuraHttpRequest *request);
+/* Returns an AuraTcpStatus value without requiring the optional net ABI. */
+int aura_http_request_read_body(const AuraHttpRequest *request,
+                                unsigned char *out, size_t capacity,
+                                size_t *out_bytes);
+int aura_http_request_body_read_begin(const AuraHttpRequest *request);
+void aura_http_request_body_read_end(const AuraHttpRequest *request);
+int aura_http_request_wait_body(AuraTaskFrame *frame,
+                                const AuraHttpRequest *request);
 int aura_http_response_status(const AuraHttpResponse *response);
 size_t aura_http_response_header_count(const AuraHttpResponse *response);
 const char *aura_http_response_header_name(const AuraHttpResponse *response,
@@ -246,6 +278,20 @@ const char *aura_http_response_header_value(const AuraHttpResponse *response,
 const unsigned char *aura_http_response_body(const AuraHttpResponse *response);
 size_t aura_http_response_body_length(const AuraHttpResponse *response);
 int aura_http_response_keep_alive(const AuraHttpResponse *response);
+int aura_http_response_stream_started(const AuraHttpResponse *response);
+int aura_http_response_stream_begin(AuraHttpResponse *response, void *output,
+                                    size_t capacity, size_t *out_length);
+int aura_http_response_stream_chunk(const void *chunk, size_t chunk_length,
+                                    void *output, size_t capacity,
+                                    size_t *out_length);
+int aura_http_response_stream_finish(const AuraHttpResponse *response,
+                                     void *output, size_t capacity,
+                                     size_t *out_length);
+int aura_http_connection_stream_write(AuraHttpConnection *connection,
+                                      const void *data, size_t length,
+                                      size_t *out_written);
+int aura_http_connection_wait_write(AuraTaskFrame *frame,
+                                    const AuraHttpConnection *connection);
 
 typedef AuraTaskPollState (*AuraHttpTaskHandler)(AuraTaskFrame *frame,
                                                   const AuraHttpRequest *request,

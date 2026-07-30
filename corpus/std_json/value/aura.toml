@@ -1,0 +1,6 @@
+[package]
+name = "demo.stdjson.value"
+
+[[bin]]
+name = "value"
+path = "src"

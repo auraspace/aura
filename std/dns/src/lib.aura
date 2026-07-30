@@ -1,0 +1,26 @@
+// std.dns -- bounded numeric address selection.
+
+package std.dns
+
+import std.error as DnsErrs
+
+/// Resolve `host` to one numeric IPv4/IPv6 address. The resolver prefers IPv6
+/// when requested, then falls back to the other family; failure returns null.
+pub fun resolveHost(host: String, preferIpv6: Bool): String? {
+  throw "dns intrinsic"
+}
+
+/// Return a bounded preference-ordered newline-delimited list of numeric
+/// addresses. The result is null when resolution fails.
+pub fun resolveHostList(host: String, preferIpv6: Bool): String? {
+  throw "dns intrinsic"
+}
+
+/// Non-throwing resolver result with a shared network error on lookup failure.
+pub fun resolveHostResult(host: String, preferIpv6: Bool): DnsErrs.Outcome<String, DnsErrs.Error> {
+  val address = resolveHost(host, preferIpv6)
+  if (address == null) {
+    return DnsErrs.failure(DnsErrs.network("host resolution failed", 0))
+  }
+  return DnsErrs.success(address!!)
+}

@@ -1,0 +1,24 @@
+package demo.stdurlmime.sanitize
+
+import std.io
+import std.url
+import std.mime
+
+fun main() {
+  if (isOriginForm("/health")) { println("origin") }
+  println(path("/health?ready=true")!!)
+  println(normalizePath("/a/./b/../c")!!)
+  println(normalizePath("/a/b/../../")!!)
+  if (normalizePath("/a?x=1") == null) { println("bad-path") }
+  println(query("/health?ready=true")!!)
+  if (isAbsolute("https://example.test/health")) { println(authority("https://example.test/health")!!) }
+  println(authorityHost("https://user@[::1]:8443/health")!!)
+  println(authorityPort("https://user@[::1]:8443/health")!!)
+  println(queryValue("/health?ready=true&name=alice", "name")!!)
+  if (isValidType("application/json")) { println("media") }
+  println(sanitizeFilename("upload/file.json")!!)
+  println(dispositionFilename("attachment; filename=\"report.txt\"")!!)
+  println(encodeComponent("a b/c"))
+  println(decodeComponent("a%20b%2Fc")!!)
+  if (decodeComponent("bad%Q0") == null) { println("bad-escape") }
+}

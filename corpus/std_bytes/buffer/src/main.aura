@@ -1,0 +1,15 @@
+package demo.stdbytes.buffer
+
+import std.bytes
+
+fun main() {
+  val bytes = newBuffer()
+  bytes.push(65)
+  bytes.push(256)
+  println(bytes.length().toString())
+  println(bytes.get(0)!!.toString())
+  if (bytes.get(9) == null) { println("bounds") }
+  val copy = bytes.clone()
+  copy.push(66)
+  println(copy.length().toString())
+}

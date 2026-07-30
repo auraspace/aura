@@ -1,0 +1,46 @@
+// std.fs -- bounded portable path helpers.
+
+package std.fs
+
+import std.error as FsErrs
+import std.io as FsIo
+
+pub fun join(base: String, child: String): String { throw "fs intrinsic" }
+pub fun basename(path: String): String { throw "fs intrinsic" }
+pub fun dirname(path: String): String { throw "fs intrinsic" }
+pub fun extension(path: String): String? { throw "fs intrinsic" }
+pub fun isAbsolute(path: String): Bool { throw "fs intrinsic" }
+
+/// Return whether `path` exists and names a directory.
+pub fun isDirectory(path: String): Bool { throw "fs intrinsic" }
+
+/// Return a stable bounded mode: 0 missing/error, 1 regular file, 2
+/// directory, 3 other filesystem node.
+pub fun fileMode(path: String): Int { throw "fs intrinsic" }
+
+/// Return the low nine POSIX permission bits, or 0 when metadata is absent.
+pub fun permissions(path: String): Int { throw "fs intrinsic" }
+
+/// Return the modification time as Unix epoch milliseconds, or -1 on error.
+pub fun modifiedMillis(path: String): Int { throw "fs intrinsic" }
+
+/// Return a bounded newline-delimited snapshot of directory entry names.
+pub fun listNames(path: String): String { throw "fs intrinsic" }
+
+/// Inspect the path itself (without following it) for a symbolic link.
+pub fun isSymlink(path: String): Bool { throw "fs intrinsic" }
+
+pub fun readTextResult(path: String): FsErrs.Outcome<String, FsErrs.Error> {
+  val content = FsIo.tryReadFile(path)
+  if (content == null) {
+    return FsErrs.failure(FsErrs.notFound("file read failed", 0))
+  }
+  return FsErrs.success(content!!)
+}
+
+pub fun writeTextResult(path: String, content: String): FsErrs.Outcome<Bool, FsErrs.Error> {
+  if (!FsIo.tryWriteFile(path, content)) {
+    return FsErrs.failure(FsErrs.invalidInput("file write failed", 0))
+  }
+  return FsErrs.success(true)
+}

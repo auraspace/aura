@@ -1,0 +1,18 @@
+package demo.stdjson.value
+
+import std.io
+import std.json
+
+fun main() {
+  val value = parse("{\"ok\":true}")
+  if (value != null) {
+    println(value!!.raw())
+    println(value!!.serialize())
+    println(value!!.kind())
+    if (value!!.isObject()) { println("object") }
+  }
+  val scalar = parse("[1, true, null]")
+  if (scalar != null && scalar!!.isArray()) { println("array") }
+  if (parse("{bad") == null) { println("invalid") }
+  println(errorOffset("{bad").toString())
+}

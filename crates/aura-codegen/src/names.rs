@@ -1029,7 +1029,14 @@ pub(crate) fn escape_c_string(s: &str) -> String {
             '\r' => out.push_str("\\r"),
             '\t' => out.push_str("\\t"),
             c if c.is_ascii_graphic() || c == ' ' => out.push(c),
-            c => out.push_str(&format!("\\x{:02x}", c as u32)),
+            c => {
+                // Encode Unicode literals as their UTF-8 bytes; emitting the
+                // scalar value directly would turn U+00E9 into invalid C byte E9.
+                let mut bytes = [0u8; 4];
+                for byte in c.encode_utf8(&mut bytes).as_bytes() {
+                    out.push_str(&format!("\\x{byte:02x}"));
+                }
+            }
         }
     }
     out

@@ -1,0 +1,6 @@
+[package]
+name = "demo.stddns.resolve"
+
+[[bin]]
+name = "resolve"
+path = "src"

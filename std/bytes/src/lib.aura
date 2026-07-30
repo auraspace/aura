@@ -1,0 +1,59 @@
+// std.bytes -- bounded owned byte-string utilities.
+
+package std.bytes
+
+/// Return an independent owned copy of the byte string.
+pub fun copy(value: String): String {
+  throw "bytes intrinsic"
+}
+
+/// Concatenate two owned byte strings.
+pub fun concat(left: String, right: String): String {
+  throw "bytes intrinsic"
+}
+
+/// Return an owned byte slice using a start offset and length; null on bounds
+/// violations or arithmetic overflow.
+pub fun slice(value: String, start: Int, length: Int): String? {
+  throw "bytes intrinsic"
+}
+
+/// Compare byte strings without locale or Unicode normalization.
+pub fun equals(left: String, right: String): Bool {
+  throw "bytes intrinsic"
+}
+
+/// Owned byte buffer backed by an Aura `Array<Int>`. Values are restricted to
+/// the unsigned-byte range [0, 255].
+pub class Buffer(private val values: Array<Int>) {
+  pub fun length(): Int {
+    return values.len
+  }
+
+  /// Return null for an out-of-bounds index.
+  pub fun get(index: Int): Int? {
+    if (index < 0 || index >= values.len) {
+      return null
+    }
+    return values.get(index)
+  }
+
+  /// Append one byte. Returns false when `value` is outside [0, 255].
+  pub fun push(value: Int): Bool {
+    if (value < 0 || value > 255) {
+      return false
+    }
+    values.push(value)
+    return true
+  }
+
+  /// Deep-copy the buffer and its owned array storage.
+  pub fun clone(): Buffer {
+    return Buffer(values.clone())
+  }
+}
+
+/// Construct an empty owned byte buffer.
+pub fun newBuffer(): Buffer {
+  return Buffer(Array(0))
+}

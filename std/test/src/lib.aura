@@ -1,0 +1,8 @@
+// std.test -- deterministic assertion helpers for native and corpus tests.
+
+package std.test
+
+pub fun assert(condition: Bool) { }
+pub fun assertEqInt(left: Int, right: Int) { }
+pub fun assertEqString(left: String, right: String) { }
+pub fun assertEqBool(left: Bool, right: Bool) { }

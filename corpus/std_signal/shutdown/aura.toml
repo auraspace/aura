@@ -1,0 +1,6 @@
+[package]
+name = "demo.stdsignal.shutdown"
+
+[[bin]]
+name = "shutdown"
+path = "src"

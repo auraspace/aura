@@ -1,0 +1,11 @@
+[package]
+name = "demo.stdurlmime.sanitize"
+
+[[bin]]
+name = "sanitize"
+path = "src"
+
+[dependencies]
+std.io = { path = "../../../std/io" }
+std.url = { path = "../../../std/url" }
+std.mime = { path = "../../../std/mime" }

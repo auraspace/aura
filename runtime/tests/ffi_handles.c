@@ -298,6 +298,23 @@ static void test_nested_handle_uses_outer_ownership_contract(void)
   assert(released_resources == before + 1);
 }
 
+static void test_take_owned_moves_resource_without_destroying_it(void)
+{
+  int *value = (int *)malloc(sizeof(*value));
+  AuraFfiOpaqueHandle *handle = NULL;
+  void *resource = NULL;
+  unsigned before = released_resources;
+  assert(value != NULL);
+  *value = 7;
+  assert(aura_ffi_handle_new(value, destroy_resource, &handle) == AURA_FFI_OK);
+  assert(aura_ffi_handle_take_owned(&handle, &resource) == AURA_FFI_OK);
+  assert(handle == NULL);
+  assert(resource == value);
+  assert(released_resources == before);
+  destroy_resource(resource);
+  assert(released_resources == before + 1);
+}
+
 int main(void)
 {
   test_nullable_and_boundaries();
@@ -309,6 +326,7 @@ int main(void)
   test_frame_owned_pin_survives_owner_release();
   test_retained_owner_survives_lexical_drop();
   test_nested_handle_uses_outer_ownership_contract();
-  assert(released_resources == 10);
+  test_take_owned_moves_resource_without_destroying_it();
+  assert(released_resources == 11);
   return 0;
 }

@@ -117,6 +117,7 @@ fun main() {
   val g: Greeter = Greeter("Aura")
   println(g.greet())
 }
+
 "#;
     let file = parse_file(src).expect("parse");
     assert_eq!(file.classes.len(), 1);
@@ -134,6 +135,18 @@ fun main() {
         },
         other => panic!("expected call stmt, got {other:?}"),
     }
+}
+
+#[test]
+fn parses_async_class_method_as_task_returning_method() {
+    let file = parse_file(
+        "package main\nclass Reader() { async fun read(): String { throw \"intrinsic\" } }\n",
+    )
+    .expect("async class method parses");
+    let method = &file.classes[0].methods[0];
+    let task = method.return_type.as_ref().expect("task return type");
+    assert_eq!(task.name.name, "Task");
+    assert_eq!(task.type_args[0].name.name, "String");
 }
 
 #[test]

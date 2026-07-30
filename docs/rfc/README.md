@@ -17,30 +17,30 @@ Details and residual trade-offs are expanded in individual RFCs. Locked cross-cu
 
 ### Locked design decisions (Solid Draft)
 
-| Decision         | Choice                                                                                                 |
-| ---------------- | ------------------------------------------------------------------------------------------------------ |
-| Object model     | Java-like classes; **final by default**; `companion`; value `struct`                                   |
-| Nullability      | `T` non-null; `T?` nullable; flow-sensitive narrowing (locals)                                         |
-| Errors           | Unchecked exceptions + `Result` (no checked throws)                                                    |
-| Arrays / lambdas | `Array<T>`; `(params) => …`                                                                            |
-| Strings          | Immutable                                                                                              |
-| Memory           | Tracing GC; static-linked runtime default                                                              |
-| Concurrency      | M:N tasks, channels, `async`/`await`; structured concurrency encouraged; race detector                 |
-| Generics         | Monomorphization (+ vtable interface dispatch)                                                         |
-| Impl coherence   | Interface impl in package of class **or** interface                                                    |
-| Backend          | LLVM native; multipass compiler → query engine later                                                   |
-| Toolchain        | Rust                                                                                                   |
-| Deploy           | Single executable; minisign release signatures                                                         |
-| Interop v1       | C ABI FFI                                                                                              |
-| Targets v1       | Server + CLI; linux/mac/win × amd64/arm64                                                              |
-| Macros v1        | Derives first; hygienic pattern macros later; proc in **process** sandbox; macros in normal packages   |
-| Packages         | `aura.toml` + lockfile (**always committed**); flat CLI (`aura add`); flat names; reserve `std`/`aura` |
-| Build            | No build scripts in MVP; LTO opt-in; no stable intermediate lib format yet                             |
-| Stdlib           | Core only; **no** `std.http` in v1; small prelude; growable `List<T>` (+ builtin `Array`)              |
-| Test             | `@test` package-private OK; same-process default; fixtures deferred                                    |
-| Attributes       | Unknown `@attr` → hard **error**                                                                       |
-| GC path          | free-all MVP → STW mark-sweep → concurrent later                                                       |
-| Dist             | minisign; musl & win-arm64 **tier2**; toolchain via GitHub Releases                                    |
+| Decision         | Choice                                                                                                                  |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Object model     | Java-like classes; **final by default**; `companion`; value `struct`                                                    |
+| Nullability      | `T` non-null; `T?` nullable; flow-sensitive narrowing (locals)                                                          |
+| Errors           | Unchecked exceptions + `Result` (no checked throws)                                                                     |
+| Arrays / lambdas | `Array<T>`; `(params) => …`                                                                                             |
+| Strings          | Immutable                                                                                                               |
+| Memory           | Tracing GC; static-linked runtime default                                                                               |
+| Concurrency      | M:N tasks, channels, `async`/`await`; structured concurrency encouraged; race detector                                  |
+| Generics         | Monomorphization (+ vtable interface dispatch)                                                                          |
+| Impl coherence   | Interface impl in package of class **or** interface                                                                     |
+| Backend          | LLVM native; multipass compiler → query engine later                                                                    |
+| Toolchain        | Rust                                                                                                                    |
+| Deploy           | Single executable; minisign release signatures                                                                          |
+| Interop v1       | C ABI FFI                                                                                                               |
+| Targets v1       | Server + CLI; linux/mac/win × amd64/arm64                                                                               |
+| Macros v1        | Derives first; hygienic pattern macros later; proc in **process** sandbox; macros in normal packages                    |
+| Packages         | `aura.toml` + lockfile (**always committed**); flat CLI (`aura add`); flat names; reserve `std`/`aura`                  |
+| Build            | No build scripts in MVP; LTO opt-in; no stable intermediate lib format yet                                              |
+| Stdlib           | Core only; bounded `std.http` HTTP/1.1 server, no HTTP framework; small prelude; growable `List<T>` (+ builtin `Array`) |
+| Test             | `@test` package-private OK; same-process default; fixtures deferred                                                     |
+| Attributes       | Unknown `@attr` → hard **error**                                                                                        |
+| GC path          | free-all MVP → STW mark-sweep → concurrent later                                                                        |
+| Dist             | minisign; musl & win-arm64 **tier2**; toolchain via GitHub Releases                                                     |
 
 ## RFC matrix
 
