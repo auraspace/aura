@@ -218,6 +218,10 @@ fn is_task_result_string_owner_key(key: &str) -> bool {
     key == "std_io_Result_String_std_io_TaskError"
 }
 
+pub(crate) fn is_shared_outcome_error_owner_key(key: &str) -> bool {
+    key.starts_with("std_error_Outcome_") && key.ends_with("_std_error_Error")
+}
+
 fn task_result_array_owner_key(key: &str) -> Option<&str> {
     key.strip_prefix("std_io_Result_")
         .and_then(|rest| rest.strip_suffix("_std_io_TaskError"))
@@ -693,6 +697,12 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                 let _ = writeln!(
                     out,
                     "{p}if ({dst}.tag == 0 && {dst}.data.Ok.value != NULL) aura_gc_add_root((void **)&{dst}.data.Ok.value);"
+                );
+            }
+            if is_shared_outcome_error_owner_key(&ty_name) {
+                let _ = writeln!(
+                    out,
+                    "{p}if ({dst}.tag == 1 && {dst}.data.OutcomeErr.error != NULL) {{ aura_gc_add_root((void **)&{dst}.data.OutcomeErr.error); {dst}.data.OutcomeErr.owned = true; }}"
                 );
             }
             if let Some(src) = string_move_src {

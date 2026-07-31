@@ -1756,6 +1756,62 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_shared_outcome_class_error_cleanup() {
+        let file = aura_parser::parse_file(
+            r#"package std.error
+enum ErrorKind { case Protocol }
+class Error(val kind: ErrorKind, val message: String, val code: Int) {}
+enum Outcome<T, E> {
+  case OutcomeOk(value: T)
+  case OutcomeErr(error: E)
+}
+fun fail(): Outcome<String, Error> {
+  return OutcomeErr(Error(Protocol(), "bad", 400))
+}
+async fun child(): Int { return 1 }
+async fun asyncFail(): Outcome<String, Error> {
+  val ignored: Int = await child()
+  return OutcomeErr(Error(Protocol(), "async-bad", 401))
+}
+fun main() {
+  val result: Outcome<String, Error> = fail()
+  gc_collect()
+  match (result) {
+    case OutcomeOk(value) => { println("unexpected") }
+    case OutcomeErr(error) => { println(error.message) }
+  }
+}
+"#,
+        )
+        .expect("parse shared Outcome class-error fixture");
+        let generated = emit_c_from_ast(&file).expect("emit shared Outcome class-error fixture");
+        assert!(generated.contains("data.OutcomeErr.owned"));
+        assert!(generated.contains("aura_gc_remove_root"));
+        assert!(generated.contains("aura_async_data_drop_std_error_asyncFail"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-shared-outcome-error-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile shared Outcome class-error fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run shared Outcome class-error fixture");
+        assert!(
+            output.status.success(),
+            "Outcome class-error fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "bad\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_std_sync_atomic_int() {
         let file = aura_parser::parse_file(
             r#"package std.sync

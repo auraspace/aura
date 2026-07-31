@@ -53,6 +53,22 @@ fn shared_outcome_string_ok(e: &EnumDecl, pkg: &str, args: &[Ty], variant: &str)
         && matches!(args.first(), Some(Ty::String))
 }
 
+fn shared_outcome_error_class(
+    e: &EnumDecl,
+    pkg: &str,
+    args: &[Ty],
+    variant: &str,
+    checked: &CheckedFile,
+) -> bool {
+    pkg == "std.error"
+        && e.name.name == "Outcome"
+        && variant == "OutcomeErr"
+        && args.get(1).is_some_and(|ty| {
+            matches!(ty, Ty::Class(_) | Ty::ClassApp { .. })
+                && c_type_from_ty(ty, checked).trim_end().ends_with('*')
+        })
+}
+
 fn enum_field_c_type(
     field: &Param,
     params: &[String],
@@ -106,6 +122,9 @@ pub(crate) fn emit_enum_typedef(
                 out.push_str("      bool owned;\n");
             }
             if shared_outcome_string_ok(e, &pkg, args, &v.name.name) {
+                out.push_str("      bool owned;\n");
+            }
+            if shared_outcome_error_class(e, &pkg, args, &v.name.name, checked) {
                 out.push_str("      bool owned;\n");
             }
             let _ = writeln!(out, "    }} {};", mangle_ident(&v.name.name));
@@ -208,6 +227,9 @@ pub(crate) fn emit_enum_defs(out: &mut String, checked: &CheckedFile, e: &EnumDe
             }
             if shared_outcome_string_ok(e, &pkg, args, &v.name.name) {
                 let _ = writeln!(out, "  self.data.OutcomeOk.owned = false;");
+            }
+            if shared_outcome_error_class(e, &pkg, args, &v.name.name, checked) {
+                let _ = writeln!(out, "  self.data.OutcomeErr.owned = false;");
             }
         }
         out.push_str("  return self;\n}\n");

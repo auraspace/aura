@@ -108,6 +108,20 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
                         }
                         return "Unit".into();
                     }
+                    if let Some(f) = ctx.checked.ast.async_functions.iter().find(|f| {
+                        f.name.name == inst.name
+                            && (inst.package.is_empty()
+                                || async_fun_decl_package(f, ctx.checked) == inst.package)
+                    }) {
+                        if let Some(rt) = &f.return_type {
+                            if let Some(result) = type_ref_to_ty(rt, ctx) {
+                                return format!("Task_{}", ty_full_mono(&result));
+                            }
+                            let result = type_ref_local_key(rt, &[], &inst.type_args);
+                            return format!("Task_{}", full_type_mono(&result, ctx.checked));
+                        }
+                        return "Task_Unit".into();
+                    }
                     if let Some(f) = ctx.checked.ast.foreign_functions.iter().find(|f| {
                         f.name.name == inst.name
                             && (inst.package.is_empty()
@@ -1853,6 +1867,14 @@ pub(crate) fn spawn_result_key(body: &Block, ctx: &EmitCtx<'_>) -> String {
 pub(crate) fn async_inner_key(expr: &Expr, ctx: &EmitCtx<'_>) -> String {
     let key = infer_type_name(expr, ctx);
     task_inner_key(&key).unwrap_or("Unit").to_string()
+}
+
+fn ty_full_mono(ty: &Ty) -> String {
+    match ty {
+        Ty::Class(name) | Ty::Enum(name) => mono_key(name, &[]),
+        Ty::ClassApp { name, args } | Ty::EnumApp { name, args } => mono_key(name, args),
+        other => other.mono_suffix(),
+    }
 }
 
 fn emit_async_expr(expr: &AsyncExpr, ctx: &mut EmitCtx<'_>) -> String {

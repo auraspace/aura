@@ -2177,6 +2177,10 @@ fn emit_owned_value_cleanup(
             out,
             "{pad}if ({expr}.tag == 0 && {expr}.data.OutcomeOk.owned && {expr}.data.OutcomeOk.value != NULL) {{ free((void *){expr}.data.OutcomeOk.value); {expr}.data.OutcomeOk.value = NULL; {expr}.data.OutcomeOk.owned = false; }}"
         );
+        let _ = writeln!(
+            out,
+            "{pad}if ({expr}.tag == 1 && {expr}.data.OutcomeErr.owned && {expr}.data.OutcomeErr.error != NULL) {{ aura_gc_remove_root((void **)&{expr}.data.OutcomeErr.error); {expr}.data.OutcomeErr.error = NULL; {expr}.data.OutcomeErr.owned = false; }}"
+        );
         return;
     }
     if is_array_type_key(key) {
@@ -2779,7 +2783,7 @@ fn emit_async_fun_cfg_int(
         if return_key.contains("Outcome_String") && return_key.contains("std_error_Error") {
             let _ = writeln!(
                 out,
-                "  (void)size; if (data != NULL) {{ {result_cty} *result = ({result_cty} *)data; if (result->tag == 0 && result->data.OutcomeOk.owned && result->data.OutcomeOk.value != NULL) free((void *)result->data.OutcomeOk.value); free(result); }}\n}}\n\n"
+                "  (void)size; if (data != NULL) {{ {result_cty} *result = ({result_cty} *)data; if (result->tag == 0 && result->data.OutcomeOk.owned && result->data.OutcomeOk.value != NULL) free((void *)result->data.OutcomeOk.value); if (result->tag == 1 && result->data.OutcomeErr.owned && result->data.OutcomeErr.error != NULL) aura_gc_remove_root((void **)&result->data.OutcomeErr.error); free(result); }}\n}}\n\n"
             );
         } else {
             out.push_str("  (void)size; free(data);\n}\n\n");
@@ -3204,6 +3208,11 @@ fn emit_async_fun_cfg_int(
                     let _ = writeln!(
                         out,
                         "        {result_cty} *__aura_result = ({result_cty} *)malloc(sizeof(*__aura_result)); if (__aura_result == NULL) return AURA_TASK_FAILED; *__aura_result = {value}; if (*__aura_result != NULL && aura_ffi_handle_retain(*__aura_result) != AURA_FFI_OK) {{ free(__aura_result); return AURA_TASK_FAILED; }} aura_task_frame_set_result(frame, __aura_result, sizeof(*__aura_result), {destroy_result}); return AURA_TASK_COMPLETE;"
+                    );
+                } else if crate::stmt::is_shared_outcome_error_owner_key(&value_key) {
+                    let _ = writeln!(
+                        out,
+                        "        {result_cty} *__aura_result = ({result_cty} *)malloc(sizeof(*__aura_result)); if (__aura_result == NULL) return AURA_TASK_FAILED; *__aura_result = {value}; if (__aura_result->tag == 1 && __aura_result->data.OutcomeErr.error != NULL) {{ aura_gc_add_root((void **)&__aura_result->data.OutcomeErr.error); __aura_result->data.OutcomeErr.owned = true; }} aura_task_frame_set_result(frame, __aura_result, sizeof(*__aura_result), {destroy_result}); return AURA_TASK_COMPLETE;"
                     );
                 } else {
                     let _ = writeln!(out, "        {result_cty} *__aura_result = ({result_cty} *)malloc(sizeof(*__aura_result)); if (__aura_result == NULL) return AURA_TASK_FAILED; *__aura_result = {value}; aura_task_frame_set_result(frame, __aura_result, sizeof(*__aura_result), {destroy_result}); return AURA_TASK_COMPLETE;");

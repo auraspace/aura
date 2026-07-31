@@ -1508,10 +1508,15 @@ TaskError>` ABI, plus cooperative `isCancelled()` inside generated async
   allows the typed TCP wrappers to compile and run through success/failure
   continuations. `std.error.Outcome<String, Error>` success values use a
   cloning owned constructor and deep-clean their nested String on result/frame
-  destruction.
-- Residual: generic enum class-payload rooting/cleanup (including the `Error`
-  branch) still needs a dedicated ownership ABI before all Outcome variants
-  can claim leak-free payload cleanup.
+  destruction. The `OutcomeErr(Error)` branch now carries an ownership bit;
+  local bindings root the Error object and scope cleanup removes that root, while
+  general CFG async frames register the same cleanup contract. Native coverage
+  forces GC before observing the class error and compiles an awaited Outcome
+  producer with the generated frame drop hook.
+- Residual: generic enum class-payload rooting/clone/drop beyond the canonical
+  `Outcome<String, Error>` shape, and task joins whose payload is itself a
+  generic enum, still need a generalized ownership ABI before all Outcome
+  variants can claim leak-free payload cleanup.
 
 ### LOG-001 logging surface remains bounded (2026-07-30)
 
