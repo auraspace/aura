@@ -8,7 +8,7 @@
 | **Layer**    | Runtime                            |
 | **Authors**  |                                    |
 | **Created**  | 2026-07-15                         |
-| **Updated**  | 2026-07-29                         |
+| **Updated**  | 2026-07-31                         |
 | **Estimate** | 40–80 pages                        |
 | **Depends**  | RFC-001, RFC-002, RFC-003, RFC-006 |
 | **Blocks**   | RFC-011                            |
@@ -21,7 +21,18 @@ This RFC outlines the **Aura standard library** for servers and CLIs: prelude, c
 
 Implementation is primarily **Aura**, with thin runtime/FFI bridges where required.
 
-**Toolchain today (2026-07-29, C22t + alpha follow-up):** repo packages `std/io` (console, file, process, stdin, exit, and non-throwing `readFileResult`/`writeFileResult`), `std/error` (bounded shared `ErrorKind`, owned `Error`, and generic `Outcome<T,E>`), `std/assert`, `std/task` (bounded typed `joinTask`/`cancelTask` lifecycle wrappers), and `std/collections` (Map/Set, generic `HashMap<K,V>`/`HashSet<T>`, Iterable, generic map/filter/fold, join, hash-collection snapshots/HOFs, read-only snapshot iterators, epoch-invalidated live HashMap/HashSet iterators, `HashMapEntry` snapshots with direct `for-in`, key-based `HashMap.entry(key)` mutation handles, and invalidation-checked `HashMap.liveEntry(key)` views). C22 and the alpha follow-up add deterministic task frames, bounded await/control-flow lowering, bounded channels, typed payload cleanup, typed exception causes, and bounded FFI pin retention; there is not yet a complete `std/task` or typed async networking package. Strict file I/O still throws `String`; Result wrappers provide structured failures, while HTTP client typed framing uses the shared Outcome surface. JSON, logging, crypto, synchronization, and full async I/O remain deferred.
+**Toolchain today (2026-07-31):** the repository ships the package set listed in
+the [standard-library guide](../guide/standard-library.md): `std.io`,
+`std.assert`, `std.collections`, `std.error`, `std.bytes`, `std.encoding`,
+`std.json`, `std.mime`, `std.fs`, `std.os`, `std.net`, `std.dns`, `std.url`,
+`std.http`, `std.stream`, `std.time`, `std.task`, `std.sync`, `std.signal`,
+`std.log`, `std.metrics`, and `std.test`. The bounded APIs include typed
+shared outcomes, loopback TCP/HTTP, monotonic timers, cooperative task
+cancellation, nonblocking synchronization, encoding and JSON validation, and
+structured logging/metrics. Some operations remain intentionally bounded or
+runtime-backed: strict file APIs may throw `String`, `std.net` is loopback-only,
+JSON exposes root classification rather than object traversal, and crypto/TLS,
+UDP, Unix sockets, and framework-level HTTP routing are not part of this core.
 
 ## 2. Motivation
 
@@ -66,31 +77,34 @@ Compiler MVP needs types to lower; users need I/O and collections for non-toy pr
 
 ## 6. Design
 
-### 6.1 Package map (v1)
+### 6.1 Package map (design and shipped surface)
 
-| Package                | Contents                                                                                                                                                    |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `std.prelude`          | Auto-imported essentials: `String` methods surface, `Result`, `Option`/`T?` helpers, `println` maybe re-export                                              |
-| `std.core`             | `Any`, `Error`, primitives wrappers if any                                                                                                                  |
-| `std.collections`      | `List`, `Map`, `Set`, `Vec`/`ArrayList`, iterators                                                                                                          |
-| `std.str` / string ops | Unicode-aware helpers                                                                                                                                       |
-| `std.io`               | Reader/Writer, files, stdin/stdout                                                                                                                          |
-| `std.os`               | Bounded environment, cwd, pid, and platform helpers; process spawn/status and typed errors remain follow-on                                                 |
-| `std.fs`               | Bounded portable path join/basename/dirname/extension helpers; metadata and directory APIs remain follow-on                                                 |
-| `std.net`              | TCP/UDP/Unix sockets and transport primitives                                                                                                               |
-| `std.http`             | Bounded HTTP/1.1 request/response and async server API; routing frameworks, HTTP/2+, TLS, and clients remain separately gated                               |
-| `std.json`             | Parse/serialize                                                                                                                                             |
-| `std.log`              | Structured levels                                                                                                                                           |
-| `std.sync`             | Sequentially consistent `AtomicInt` plus bounded non-blocking CAS `Mutex`/`Once`; RwLock and scheduler-aware lock adapters remain follow-on                 |
-| `std.task`             | Bounded `joinTask`/`cancelTask`, cooperative `isCancelled`, and monotonic `cancelAfter<T>` deadlines; structured parent/child cancellation remains deferred |
-| `std.time`             | Monotonic timer sleep; Instant, Duration, and wall-clock formatting remain follow-on                                                                        |
-| `std.crypto`           | Hash (SHA-2), HMAC, random; TLS via well-scoped API                                                                                                         |
-| `std.encoding`         | UTF-8 validation, Base64, hex, and RFC 3986 percent encoding; malformed decodes return nullable results and decoded NUL bytes are rejected                  |
-| `std.bytes`            | Owned byte-string copy, concatenation, bounded slicing, and byte-wise equality; raw buffers and async stream adapters remain separate                       |
-| `std.url` / `std.mime` | Bounded origin-form URL/path/query validation and media-type/filename sanitization; authority parsing and multipart metadata remain follow-on               |
-| `std.ffi`              | C string/buffer helpers                                                                                                                                     |
-| `std.reflect`          | Opt-in reflection (RFC-009)                                                                                                                                 |
-| `std.test`             | Assert helpers (RFC-011)                                                                                                                                    |
+| Package           | Contents                                                                                                  |
+| ----------------- | --------------------------------------------------------------------------------------------------------- |
+| `std.io`          | Console, files, stdin, argv, owned file handles, and async descriptor I/O                                 |
+| `std.assert`      | Runtime assertion primitive                                                                               |
+| `std.test`        | Deterministic Bool/Int/String assertion helpers                                                           |
+| `std.collections` | `Map`, `Set`, generic `HashMap`/`HashSet`, snapshot/live iterators, `Iterable`, and HOFs                  |
+| `std.error`       | Shared `ErrorKind`, owned `Error`, and generic `Outcome<T,E>`                                             |
+| `std.bytes`       | Owned byte strings and bounded mutable byte buffers                                                       |
+| `std.encoding`    | UTF-8, base64, hex, and RFC 3986 percent encoding                                                         |
+| `std.json`        | Bounded validation, escaping, parsing, and root classification                                            |
+| `std.mime`        | Media-type validation and filename sanitization                                                           |
+| `std.fs`          | Portable paths and bounded filesystem metadata snapshots                                                  |
+| `std.os`          | Environment, cwd, pid, and platform helpers                                                               |
+| `std.net`         | Loopback nonblocking TCP listeners, connections, and streams                                              |
+| `std.dns`         | Bounded numeric host resolution                                                                           |
+| `std.url`         | Origin-form and absolute URI component validation                                                         |
+| `std.http`        | Bounded HTTP/1.1 client/server request and response API; routing frameworks, HTTP/2+, TLS remain separate |
+| `std.stream`      | Async reader/writer adapters over owned network streams                                                   |
+| `std.time`        | Monotonic durations, deadlines, and async sleep                                                           |
+| `std.task`        | Task join, cooperative cancellation, delayed cancellation, and parent/child cancellation linking          |
+| `std.sync`        | Sequentially consistent atomics, nonblocking mutex/RW locks, and one-shot gates                           |
+| `std.signal`      | SIGINT/SIGTERM graceful-shutdown state                                                                    |
+| `std.log`         | Level-filtered and structured text logging                                                                |
+| `std.metrics`     | Sequentially consistent counters and Prometheus samples                                                   |
+| `std.crypto`      | Planned hash, HMAC, random, and TLS foundations                                                           |
+| `std.reflect`     | Planned opt-in reflection (RFC-009)                                                                       |
 
 ### 6.2 Error conventions
 
@@ -288,17 +302,22 @@ stored, sent, or retained by a task or channel.
 
 ### 6.5 I/O & net
 
-- Async methods such as `await file.readToEnd()` and `await tcp.accept()` remain design examples; await suspension lowering and async I/O are deferred.
-- Blocking variants available for scripts; prefer async in servers.
+- The shipped bounded async surface includes `std.io.readFd`/`writeFd`,
+  `std.net.accept`/`readStream`/`writeStream`, and the `std.http` client/server
+  adapters. These operations preserve owned handles and inputs across await.
+- `std.net` remains loopback-only; UDP, Unix-domain sockets, TLS, and broad
+  blocking convenience APIs are separate follow-ons.
 
 ### 6.6 JSON
 
 ```aura
-val user = Json.parse<User>(text)?  // or Result
-val text = Json.stringify(user)
+val value = Json.parse(text)
+val text = value?.serialize()
 ```
 
-- Uses attributes for field names (RFC-009) when available; MVP may require manual serializers.
+- The shipped MVP validates complete values, preserves their input text, and
+  exposes root classification. Object-member and array-index traversal plus
+  typed mapping remain follow-ons.
 
 ### 6.7 Crypto baseline
 
@@ -339,13 +358,13 @@ fun main() {
 
 ## 7. Open questions
 
-| #   | Question                         | Options                                | Owner  | Status                                                                      |
-| --- | -------------------------------- | -------------------------------------- | ------ | --------------------------------------------------------------------------- |
-| 1   | Bounded `std.http` server in v1? | defer or HTTP/1.1 core                 | Stdlib | **Resolved** — ship the bounded HTTP/1.1 server; client remains deferred    |
-| 2   | List naming: List vs Vec         | `List` + growable `Vec` or single type | Stdlib | **Resolved** — single growable `List<T>`; keep builtin `Array<T>`; no `Vec` |
-| 3   | Password hash in std?            | no                                     | Stdlib | **Resolved** — ecosystem                                                    |
-| 4   | Prelude size                     | small                                  | Stdlib | **Resolved** — minimal prelude                                              |
-| 5   | Default collection traversal     | snapshot or live                       | Stdlib | **Resolved** — snapshots by default; live views require a named contract    |
+| #   | Question                                | Options                                | Owner  | Status                                                                                                               |
+| --- | --------------------------------------- | -------------------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------- |
+| 1   | Bounded `std.http` server/client in v1? | defer or HTTP/1.1 core                 | Stdlib | **Resolved** — ship the bounded HTTP/1.1 server and loopback client; keep routing, TLS, and extended protocols gated |
+| 2   | List naming: List vs Vec                | `List` + growable `Vec` or single type | Stdlib | **Resolved** — single growable `List<T>`; keep builtin `Array<T>`; no `Vec`                                          |
+| 3   | Password hash in std?                   | no                                     | Stdlib | **Resolved** — ecosystem                                                                                             |
+| 4   | Prelude size                            | small                                  | Stdlib | **Resolved** — minimal prelude                                                                                       |
+| 5   | Default collection traversal            | snapshot or live                       | Stdlib | **Resolved** — snapshots by default; live views require a named contract                                             |
 
 ## 8. Rationale & trade-offs
 
@@ -387,6 +406,7 @@ Go-like pragmatic breadth without framework lock-in. Async-first net matches run
 
 | Date       | Author | Change                                                                                                         |
 | ---------- | ------ | -------------------------------------------------------------------------------------------------------------- |
+| 2026-07-31 |        | Synchronize the shipped package map and bounded API status with the standard-library guide                     |
 | 2026-07-29 |        | Admit bounded `std.http` HTTP/1.1 server contract; retain framework and extended protocols as gated follow-ons |
 | 2026-07-16 |        | Lock `List<T>` naming; Status → **Accepted**                                                                   |
 | 2026-07-16 |        | Status → **In Review** — Review: package map locked; most packages still sketch-level                          |

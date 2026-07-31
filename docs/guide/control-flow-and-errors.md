@@ -101,7 +101,10 @@ fun parseFlag(s: String): Result<Bool, String> {
 }
 ```
 
-Exact variant spelling and helpers follow the compiler/corpus; treat this as the conceptual shape and check `corpus/enum/` samples.
+`std.io.Result<T, E>` uses `Ok(value)` and `Err(error)`. The shared
+`std.error.Outcome<T, E>` uses `OutcomeOk(value)` and `OutcomeErr(error)` when
+packages need a transport-neutral result surface. Both are ordinary enums and
+can be handled with exhaustive `match`.
 
 ## Exceptions: `throw` / `try` / `catch` / `finally`
 
@@ -128,7 +131,9 @@ fun safe(): Int {
 
 Payload types currently include scalars and object-ish values in the implementation path — see compiler notes / corpus `control/try_catch.aura`.
 
-**Alpha note:** file I/O in `std.io` throws `String` messages on failure (not `Result` yet). Max read size 256 MiB.
+**I/O note:** strict file APIs still throw `String` messages on failure, while
+`std.io.readFileResult` / `writeFileResult` and the typed `std.error` wrappers
+provide non-throwing alternatives. Text file reads are bounded at 256 MiB.
 
 ## Choosing Result vs throw
 

@@ -68,17 +68,20 @@ printf 'line\n' | cargo run -p aura-cli -- run corpus/std_io/stdin
 
 ### Files (C11a / C12p)
 
-| API                                                    | Role                                       |
-| ------------------------------------------------------ | ------------------------------------------ |
-| `readFile(path): String`                               | read entire regular file (throws on error) |
-| `tryReadFile(path): String?`                           | soft read; `null` on missing/error (C12p)  |
-| `writeFile(path, content)`                             | create/truncate and write                  |
-| `tryWriteFile(path, content): Bool`                    | soft write; `false` on failure             |
-| `readFileResult(path): Result<String, String>`         | non-throwing read with error payload       |
-| `writeFileResult(path, content): Result<Bool, String>` | non-throwing write with error payload      |
-| `appendFile(path, content)`                            | append (create if needed)                  |
-| `fileExists(path): Bool`                               | regular file present                       |
-| `fileSize(path): Int`                                  | byte size (throws if missing)              |
+| API                                                    | Role                                                          |
+| ------------------------------------------------------ | ------------------------------------------------------------- |
+| `readFile(path): String`                               | read entire regular file (throws on error)                    |
+| `tryReadFile(path): String?`                           | soft read; `null` on missing/error (C12p)                     |
+| `writeFile(path, content)`                             | create/truncate and write                                     |
+| `tryWriteFile(path, content): Bool`                    | soft write; `false` on failure                                |
+| `readFileResult(path): Result<String, String>`         | non-throwing read with error payload                          |
+| `writeFileResult(path, content): Result<Bool, String>` | non-throwing write with error payload                         |
+| `appendFile(path, content)`                            | append (create if needed)                                     |
+| `fileExists(path): Bool`                               | regular file present                                          |
+| `fileSize(path): Int`                                  | byte size (throws if missing)                                 |
+| `openFile(path, mode): ForeignHandle<Int>`             | owned handle; mode 0 read, 1 truncate, 2 read/write, 3 append |
+| `readFd(fd, capacity): String`                         | async bounded descriptor read                                 |
+| `writeFd(fd, content): Int`                            | async descriptor write; returns bytes                         |
 
 Typical use (explicit import or auto-prelude on package builds):
 
@@ -118,35 +121,44 @@ Dogfood CLI that ties args + soft read + String tools: `examples/wc` ([README](h
 
 ## `std.assert`
 
-Use with `aura test` and `@test` functions:
+`std.assert.assert(condition)` is the runtime assertion primitive. Use it with
+`aura test` and `@test` functions:
 
 ```bash
 aura run corpus/std_assert/app
 ```
 
-Prefer package tests that exercise `assert` / `assert_eq` for `Int` / `String` / `Bool` in the current MVP.
+The typed `assertEqInt`, `assertEqString`, and `assertEqBool` helpers belong to
+`std.test`; the language-level `assert_eq` helpers are separate builtins.
 
 ## `std.collections`
 
-| Type / helper                                                  | Notes                                                                               |
-| -------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| `Map<K, V>`                                                    | Linear map; `get` → `V?`; `put` / `remove` / `clear`                                |
-| `Set<T>`                                                       | Generic set (linear)                                                                |
-| `HashMap<K,V>`                                                 | Generic open addressing with `K: Hashable`; `containsValue` (C19a)                  |
-| `HashSet<T>`                                                   | Generic open addressing backed by `HashMap<T,Bool>`; `containsAll(Array<T>)` (C19a) |
-| `Hashable`                                                     | `hash(): Int`; built-in for `Int` and `String` (C14)                                |
-| `keyArray()` / `valueArray()`                                  | `HashMap` snapshots in logical table order (C18)                                    |
-| `HashMapEntry<K,V>` / `entries()`                              | Key/value snapshot pairs in logical table order (C19b)                              |
-| `toArray()`                                                    | `HashSet` snapshots in logical table order (C18)                                    |
-| `map_hash_map_values`                                          | Generic `(K,V) -> R` map-entry HOF (C18)                                            |
-| `filter_hash_set` / `map_hash_set`                             | Generic set HOFs returning arrays (C18)                                             |
-| `Iterable<E>`                                                  | `len` + `get` protocol for `for-in`, including entry snapshots (C19c)               |
-| `keyIterator()` / `entryIterator()` / `iterator()`             | Read-only deterministic snapshots for HashMap/HashSet (C20g)                        |
-| `liveKeyIterator()` / `liveEntryIterator()` / `liveIterator()` | Invalidation-checked live HashMap/HashSet cursors (C20j)                            |
-| `map<T,R>` / `filter<T>` / `fold<T,A>`                         | Generic array HOFs; verified for `Int` and `String` (C16)                           |
-| `map_ints` / `filter_ints` / `fold_ints`                       | Int compatibility wrappers                                                          |
-| `map_strings` / `filter_strings` / `fold_strings`              | String compatibility wrappers (C12o)                                                |
-| `join(parts, sep)`                                             | `Array<String>` → `String` with separator (C12j)                                    |
+| Type / helper                                                            | Notes                                                                               |
+| ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------- |
+| `Map<K, V>`                                                              | Linear map; `get` → `V?`; `put` / `remove` / `clear`                                |
+| `Set<T>`                                                                 | Generic set (linear)                                                                |
+| `map_string_int()` / `set()`                                             | Empty concrete compatibility factories                                              |
+| `HashMap<K,V>`                                                           | Generic open addressing with `K: Hashable`; `containsValue` (C19a)                  |
+| `hash_map()` / `hash_map_str()` / `hash_set()`                           | Empty generic collection factories                                                  |
+| `HashSet<T>`                                                             | Generic open addressing backed by `HashMap<T,Bool>`; `containsAll(Array<T>)` (C19a) |
+| `HashMapEntryHandle` / `HashMapLiveEntry`                                | Key-based mutation handle and epoch-checked live entry view                         |
+| `get` / `getOr` / `contains` / `replace`                                 | Nullable lookup, default lookup, membership, and existing-value replacement         |
+| `grow` / `capacity` / `len` / `isEmpty` / `clear`                        | Table sizing and collection state operations                                        |
+| `Hashable`                                                               | `hash(): Int`; built-in for `Int` and `String` (C14)                                |
+| `keyArray()` / `valueArray()`                                            | `HashMap` snapshots in logical table order (C18)                                    |
+| `HashMapEntry<K,V>` / `entries()`                                        | Key/value snapshot pairs in logical table order (C19b)                              |
+| `toArray()`                                                              | `HashSet` snapshots in logical table order (C18)                                    |
+| `map_hash_map_values`                                                    | Generic `(K,V) -> R` map-entry HOF (C18)                                            |
+| `filter_hash_set` / `map_hash_set`                                       | Generic set HOFs returning arrays (C18)                                             |
+| `Iterable<E>`                                                            | `len` + `get` protocol for `for-in`, including entry snapshots (C19c)               |
+| `keyIterator()` / `entryIterator()` / `iterator()`                       | Read-only deterministic snapshots for HashMap/HashSet (C20g)                        |
+| `liveKeyIterator()` / `liveEntryIterator()` / `liveIterator()`           | Invalidation-checked live HashMap/HashSet cursors (C20j)                            |
+| `HashMapKeyIterator` / `HashMapEntryIterator` / `HashSetIterator`        | Snapshot values exposing `len()` and `get(i)`                                       |
+| `HashMapLiveKeyIterator` / `HashMapLiveIterator` / `HashSetLiveIterator` | Live cursors exposing `isValid()`, `hasNext()`, and `next()`                        |
+| `map<T,R>` / `filter<T>` / `fold<T,A>`                                   | Generic array HOFs; verified for `Int` and `String` (C16)                           |
+| `map_ints` / `filter_ints` / `fold_ints`                                 | Int compatibility wrappers                                                          |
+| `map_strings` / `filter_strings` / `fold_strings`                        | String compatibility wrappers (C12o)                                                |
+| `join(parts, sep)`                                                       | `Array<String>` → `String` with separator (C12j)                                    |
 
 See [Arrays](./arrays.md) for HOF usage and capture limits.
 
@@ -187,11 +199,225 @@ Value replacement remains visible while a cursor is valid. Map live entry
 iterators yield `HashMapLiveEntry` views, whose `get()` and `set(value)` are
 also invalidation-checked.
 
+## `std.error`
+
+Shared non-throwing error surface used by filesystem, OS, DNS, network, and
+HTTP adapters.
+
+| API                                                  | Contract                                                                                                                                 |
+| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `ErrorKind`                                          | Stable categories: invalid input, not found, permission, I/O, network, timeout, cancelled, protocol, limit, closed, unsupported, unknown |
+| `Error(kind, message, code)`                         | Owned error payload; `isRetryable()` identifies transient I/O/network/timeout failures                                                   |
+| `protocol` / `network` / `invalidInput` / `notFound` | Error constructors                                                                                                                       |
+| `kindCode(code)`                                     | Map a native status code to the stable category number                                                                                   |
+| `Outcome<T,E>`                                       | `OutcomeOk(value)` or `OutcomeErr(error)`                                                                                                |
+| `success` / `failure` / `isSuccess`                  | Import-safe outcome constructors and inspection                                                                                          |
+
+## `std.bytes`
+
+| API                           | Contract                                                        |
+| ----------------------------- | --------------------------------------------------------------- |
+| `copy` / `concat` / `equals`  | Owned byte-string copy, concatenation, and exact comparison     |
+| `slice(value, start, length)` | Bounded owned slice; returns null for invalid bounds            |
+| `Buffer`                      | Mutable owned byte buffer; `length`, `get`, `push`, and `clone` |
+| `newBuffer()`                 | Empty `Buffer` factory                                          |
+
+`Buffer.push` accepts only values from 0 through 255. String operations are
+byte-oriented and do not perform Unicode normalization.
+
+## `std.encoding`
+
+| API                               | Contract                                                   |
+| --------------------------------- | ---------------------------------------------------------- |
+| `isValidUtf8`                     | Validate a complete UTF-8 byte sequence                    |
+| `hexEncode` / `hexDecode`         | Lowercase hexadecimal encoding and bounded decoding        |
+| `base64Encode` / `base64Decode`   | RFC 4648 base64 without line wrapping                      |
+| `percentEncode` / `percentDecode` | RFC 3986 component escaping; malformed escapes return null |
+
+## `std.json`
+
+| API                                                                          | Contract                                                                   |
+| ---------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `isValid`                                                                    | Validate one complete bounded JSON value                                   |
+| `errorOffset`                                                                | First invalid byte offset, or -1 for valid input                           |
+| `escapeString`                                                               | Encode a JSON string literal including quotes                              |
+| `parse`                                                                      | Return a validated `Value`, or null                                        |
+| `Value.raw` / `serialize`                                                    | Return the preserved validated JSON text                                   |
+| `Value.kind`                                                                 | Return `object`, `array`, `string`, `number`, `bool`, `null`, or `invalid` |
+| `Value.isObject` / `isArray` / `isString` / `isNumber` / `isBool` / `isNull` | Root-kind predicates                                                       |
+
+The current `Value` model intentionally does not expose object-member or array
+index access yet.
+
+## `std.mime`
+
+| API                   | Contract                                                 |
+| --------------------- | -------------------------------------------------------- |
+| `isValidType`         | Validate a media type and semicolon-delimited parameters |
+| `sanitizeFilename`    | Remove path separators and reject unsafe or empty names  |
+| `dispositionFilename` | Extract and sanitize a `filename` parameter              |
+
+## `std.fs`
+
+| API                                           | Contract                                                   |
+| --------------------------------------------- | ---------------------------------------------------------- |
+| `join` / `basename` / `dirname` / `extension` | Portable path composition and components                   |
+| `isAbsolute`                                  | Check host-specific absolute path syntax                   |
+| `isDirectory` / `isSymlink`                   | Inspect filesystem node kind without throwing              |
+| `fileMode`                                    | 0 missing/error, 1 regular file, 2 directory, 3 other node |
+| `permissions`                                 | Low nine POSIX permission bits, or 0 when unavailable      |
+| `modifiedMillis`                              | Unix epoch modification time, or -1 on error               |
+| `listNames`                                   | Bounded newline-delimited directory-entry snapshot         |
+| `readTextResult` / `writeTextResult`          | Shared `std.error.Outcome` wrappers over text file I/O     |
+
+## `std.os`
+
+| API                                                | Contract                                               |
+| -------------------------------------------------- | ------------------------------------------------------ |
+| `getEnv` / `setEnv` / `unsetEnv`                   | Read, update, or remove environment variables          |
+| `cwd` / `pid` / `platform`                         | Current directory, process ID, and platform identifier |
+| `getEnvResult` / `setEnvResult` / `unsetEnvResult` | Non-throwing shared error wrappers                     |
+
+## `std.net`
+
+`std.net` is loopback-only in the current bounded POSIX runtime surface. Handles
+are owned `ForeignHandle<Int>` resources and async operations preserve them
+across suspension.
+
+| API                                         | Contract                                             |
+| ------------------------------------------- | ---------------------------------------------------- |
+| `listen(port)` / `connect(port, timeoutMs)` | Create a listener or connect to a loopback stream    |
+| `accept(listener)`                          | Async accepted-stream operation                      |
+| `closeListener` / `closeStream`             | Idempotent terminal close operations                 |
+| `readStream(stream, capacity)`              | Async single-chunk read; empty string means EOF      |
+| `readAllStream(stream, capacity)`           | Async read-until-EOF bounded by aggregate capacity   |
+| `writeStream(stream, content)`              | Async complete write; returns transferred byte count |
+| `readStreamResult` / `writeStreamResult`    | Shared `std.error.Outcome` wrappers                  |
+
+## `std.dns`
+
+| API                                 | Contract                                          |
+| ----------------------------------- | ------------------------------------------------- |
+| `resolveHost(host, preferIpv6)`     | One numeric IPv4/IPv6 address, or null            |
+| `resolveHostList(host, preferIpv6)` | Preference-ordered newline-delimited address list |
+| `resolveHostResult`                 | Shared network error outcome for lookup failure   |
+
+## `std.url`
+
+| API                                       | Contract                                         |
+| ----------------------------------------- | ------------------------------------------------ |
+| `isOriginForm` / `path` / `normalizePath` | Validate and process HTTP origin-form targets    |
+| `query` / `queryValue`                    | Read raw query text or one exact key value       |
+| `isAbsolute` / `authority`                | Validate and extract absolute-URI authority      |
+| `authorityHost` / `authorityPort`         | Extract host and explicit decimal port           |
+| `encodeComponent` / `decodeComponent`     | RFC 3986 component encoding and bounded decoding |
+
+## `std.http`
+
+Bounded HTTP/1.1 values and loopback client/server helpers built on
+`std.net`. Server handlers receive scoped `Request` and `Response` objects;
+raw foreign handles remain package-private.
+
+| API                                                             | Contract                                              |
+| --------------------------------------------------------------- | ----------------------------------------------------- |
+| `Handler`                                                       | `(Request, Response) -> Task<Unit>` handler type      |
+| `serveConnection` / `serve`                                     | Async bounded HTTP server entry points                |
+| `get` / `post`                                                  | Async raw response helpers for loopback servers       |
+| `ClientResponse(status, body)`                                  | Parsed bounded response value                         |
+| `getResponse` / `postResponse`                                  | Raw client helpers returning `ClientResponse`         |
+| `getResponseResult` / `postResponseResult`                      | Typed response helpers returning `std.error.Outcome`  |
+| `Request.method` / `target` / `version`                         | Request-line fields                                   |
+| `Request.headerCount` / `headerName` / `headerValue`            | Bounded header snapshot access                        |
+| `Request.body` / `bodyReader`                                   | Body snapshot or single-reader body adapter           |
+| `RequestBody.readChunk`                                         | Async bounded body chunk read; empty string means EOF |
+| `Response.status` / `keepAlive`                                 | Inspect response state                                |
+| `Response.setStatus` / `setKeepAlive` / `setBody` / `addHeader` | Configure response before commit                      |
+| `Response.writeChunk`                                           | Async chunked response write; commits on first call   |
+
+## `std.stream`
+
+| API                     | Contract                                                 |
+| ----------------------- | -------------------------------------------------------- |
+| `Reader(stream)`        | Handler-scoped async reader over an owned network stream |
+| `Reader.read(capacity)` | Read one bounded chunk                                   |
+| `Reader.close()`        | Idempotently close the underlying stream                 |
+| `Writer(stream)`        | Handler-scoped async writer over an owned network stream |
+| `Writer.write(content)` | Write all content and return transferred bytes           |
+| `Writer.close()`        | Idempotently close the underlying stream                 |
+
+## `std.time`
+
+All clocks and deadlines are monotonic; wall-clock changes do not affect them.
+
+| API                                       | Contract                                                      |
+| ----------------------------------------- | ------------------------------------------------------------- |
+| `Duration(milliseconds)` / `milliseconds` | Typed duration; negative values are representable but invalid |
+| `Duration.isValid`                        | Check for a non-negative duration                             |
+| `nowMillis`                               | Current monotonic timestamp                                   |
+| `Deadline(atMillis)`                      | Absolute monotonic expiry point                               |
+| `Deadline.isExpired` / `remaining`        | Inspect expiry and get a non-negative remainder               |
+| `after(duration)`                         | Create a deadline relative to now                             |
+| `sleep` / `sleepFor` / `sleepUntil`       | Async monotonic suspension helpers                            |
+
+## `std.task`
+
+| API                               | Contract                                                   |
+| --------------------------------- | ---------------------------------------------------------- |
+| `joinTask(task)`                  | Observe completion as `std.io.Result<T, TaskError>`        |
+| `cancelTask(task)`                | Request cooperative cancellation; idempotent               |
+| `cancelAfter(task, milliseconds)` | Arm delayed cancellation; false for invalid/terminal tasks |
+| `linkCancellation(parent, child)` | Propagate cancellation between live tasks                  |
+| `isCancelled()`                   | Inspect cancellation of the current async task             |
+
+## `std.sync`
+
+These primitives are nonblocking. `tryLock`, `tryRead`, and `tryWrite` return
+false instead of blocking an async worker.
+
+| API         | Contract                                                                                         |
+| ----------- | ------------------------------------------------------------------------------------------------ |
+| `AtomicInt` | Sequentially consistent `load`, `store`, `fetchAdd`, and `compareExchange`                       |
+| `Mutex`     | `tryLock`, `unlock`, and `isLocked` cooperative mutex state                                      |
+| `RwLock`    | Nonblocking `tryRead`/`tryWrite`, `unlockRead`/`unlockWrite`, `readerCount`, and `isWriteLocked` |
+| `Once`      | One-shot `tryEnter` gate and `isDone` inspection                                                 |
+
+## `std.signal`
+
+| API                   | Contract                                             |
+| --------------------- | ---------------------------------------------------- |
+| `installShutdown()`   | Install SIGINT/SIGTERM handling on supported targets |
+| `shutdownRequested()` | Read the in-process graceful-shutdown flag           |
+| `clearShutdown()`     | Clear the flag after the application drains work     |
+
+## `std.log`
+
+| API                                 | Contract                                                                   |
+| ----------------------------------- | -------------------------------------------------------------------------- |
+| `debug` / `info` / `warn` / `error` | Emit level-filtered text events                                            |
+| `setMinLevel(level)`                | Set 0=debug, 1=info, 2=warn, 3=error threshold                             |
+| `minLevel()`                        | Read the current threshold                                                 |
+| `infoFields` / `errorFields`        | Emit alternating key/value context fields; odd trailing fields are ignored |
+
+## `std.metrics`
+
+| API                                   | Contract                                        |
+| ------------------------------------- | ----------------------------------------------- |
+| `Counter`                             | Mutable sequentially consistent integer counter |
+| `add` / `increment` / `get` / `reset` | Counter mutation and inspection                 |
+| `prometheus(name)`                    | Render one Prometheus text exposition sample    |
+
+## `std.test`
+
+| API                                               | Contract                          |
+| ------------------------------------------------- | --------------------------------- |
+| `assert(condition)`                               | Fail the current test when false  |
+| `assertEqInt` / `assertEqString` / `assertEqBool` | Type-specific equality assertions |
+
 ## How the CLI finds `std.*`
 
 - Auto-prelude **`std.io`** for package builds
-- Path resolution for `std.*` (io / assert / collections):
-  1. `AURA_STD` (directory that contains `io/`, `assert/`, …)
+- Path resolution for any `std.*` package:
+  1. `AURA_STD` (directory that contains package directories)
   2. Walk-up from the package looking for monorepo `std/<pkg>`
   3. Release install: `share/aura/std/<pkg>` next to the toolchain
   4. Embedded copy materialized under `~/.cache/aura/<version>/std/`

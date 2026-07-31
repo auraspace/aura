@@ -24,6 +24,7 @@ fun main() {
 | Form            | Example                                         |
 | --------------- | ----------------------------------------------- |
 | Function        | `fun add(a: Int, b: Int): Int { return a + b }` |
+| Async function  | `async fun load(): String { return "ok" }`      |
 | Expr-body fun   | `fun double(x: Int): Int = x * 2`               |
 | Local           | `val x = 1` / `var y = 2`                       |
 | Class           | `class C(var n: Int) { fun f() {} }`            |
@@ -36,17 +37,21 @@ fun main() {
 | Type alias      | `type Id = Int`                                 |
 | Top-level const | `const N: Int = 42`                             |
 | Test            | `@test fun t() { assert_eq(1, 1) }`             |
+| Attribute       | `@deprecated("use newName")`                    |
 
 ## Types
 
-| Form                  | Meaning                         |
-| --------------------- | ------------------------------- |
-| `Int` `Bool` `String` | Scalars                         |
-| `T?`                  | Nullable                        |
-| `Array<T>`            | Array                           |
-| `Result<T, E>`        | Success / error                 |
-| `(T) -> U`            | Function type (params → result) |
-| `T : Bound`           | Type param bound                |
+| Form                        | Meaning                            |
+| --------------------------- | ---------------------------------- |
+| `Int` `Bool` `String`       | Scalars                            |
+| `T?`                        | Nullable                           |
+| `Array<T>`                  | Array                              |
+| `Result<T, E>`              | Success / error                    |
+| `(T) -> U`                  | Function type (params → result)    |
+| `T : Bound`                 | Type param bound                   |
+| `ref T`                     | Scoped non-owning reference        |
+| `Task<T>` / `TaskHandle<T>` | Async result / spawned task handle |
+| `Channel<T>`                | Bounded async FIFO channel         |
 
 ## Lambdas (C10 + C12 captures)
 
@@ -70,6 +75,42 @@ val add = (x: Int) => base + x
 | `val` Array                                     | Non-owning `{data,len,cap}` view (C12l)                                                  |
 | `var` Int / Bool / String / class / Array / Fun | Shared mutable box; lambdas share writes (C12m, C20c-e)                                  |
 | Captured Array ownership / live view            | Shared storage is covered; escaping live views and mutation invalidation remain deferred |
+
+## Async and tasks
+
+```aura
+async fun answer(): Int { return 42 }
+
+fun main() {
+  val task: TaskHandle<Int> = spawn {
+    return await answer()
+  }
+  join(task)
+  cancel(task)
+}
+```
+
+`await` is valid inside `async fun` and spawned bodies. `Channel<T>(capacity)`
+provides bounded `send`, `receive`, and `close` operations. See
+[Async, tasks & borrowing](./async-and-borrowing.md) for ownership boundaries.
+
+## Attributes
+
+Common supported forms:
+
+```aura
+@test(tag = "fast")
+fun testFast() { assert_eq(1, 1) }
+
+@derive(Equals, HashCode, Debug)
+struct Point(val x: Int, val y: Int) {}
+
+@deprecated(since = "0.1.1")
+fun oldApi() {}
+```
+
+See [Attributes & derives](./attributes-and-derives.md) for targets and
+validation rules.
 
 ## Operators (common)
 
@@ -134,6 +175,12 @@ match (e) {
 
 try { } catch (e: String) { } finally { }
 throw "msg"
+
+// scoped borrow
+fun size(xs: Array<Int>): Int {
+  val view: ref Array<Int> = xs
+  return view.len
+}
 ```
 
 ## Packages & imports

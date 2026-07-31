@@ -2,7 +2,7 @@
 title: CLI
 section: Toolchain
 order: 40
-summary: aura new, init, version, check, build, run, test, fmt, and race — the verbs you use every day.
+summary: aura new, init, check, build, run, test, fmt, race, publish, update, and language-server.
 ---
 
 # CLI
@@ -35,7 +35,9 @@ cargo run -p aura-cli -- <command> [args]
 | `fmt [--check] <path>`    | Format/check a source file, package, or folder |
 | `lsp` / `language-server` | Run the stdio Aura language server (`auralsp`) |
 | `emit-c <file\|dir>`      | Emit C (advanced / debugging)                  |
-| `version`                 | Print CLI version (`aura 0.1.1-alpha`)         |
+| `publish [path]`          | Validate locally or upload to a registry       |
+| `update`                  | Check, or activate, a toolchain update         |
+| `version`                 | Print the installed CLI version                |
 
 Examples:
 
@@ -48,6 +50,10 @@ aura test path
 aura test path --test-name filter --format json
 aura race path --format json
 aura fmt path/src/main.aura
+aura publish --dry-run path
+# upload requires a registry URL and AURA_REGISTRY_TOKEN
+aura publish --registry https://registry.example path
+aura update --package aura --current 0.1.1-alpha
 auralsp
 # or: aura lsp
 aura version
@@ -94,6 +100,11 @@ With no path, package commands look for `./aura.toml`. Package mode unlocks mult
 
 `build` / `run` use the **C backend**: Aura → C → system `cc`, linked with `aura_rt.c` (embedded in the CLI, or from the release tree / `AURA_RUNTIME`). LLVM IR remains the longer-term backend ([RFC-004](/rfc/004)).
 
+`build` accepts one input path and optionally `-o <binary>`. `run` builds into
+`target/aura/` and forwards arguments after `--`. `test` accepts
+`--test-name <pattern>` (alias `--filter`) and `--format json`; `race` is the
+test command with detector mode enabled.
+
 ## Diagnostics
 
 Type and name errors print human-readable messages (`path:line:col` + snippet). Prefer `check` in editors/CI when you only need validation.
@@ -107,9 +118,18 @@ aura init                # same layout in `.` (name from directory)
 
 Hyphens in the path become underscores in the package name (`my-app` → package `my_app`). Existing `aura.toml` / `src/` are never overwritten.
 
-## Not yet available
+## Registry and update commands
 
-RFC-012 also describes `add`, `doc`, `clean`, and a complete toolchain manager; those remain deferred. `publish` and `update` exist for the release/registry workflow, but live credentialed publication and broader package UX are not yet a stable end-user path. Process argv, stdin (`readLine` / `readAllStdin`), and `exit` are available via `std.io`.
+`publish --dry-run` validates and previews a package without network access.
+Upload requires `--registry <url>` (or `AURA_REGISTRY_URL`) and
+`AURA_REGISTRY_TOKEN`. `update` checks a toolchain registry; `--activate`
+downloads and atomically switches the active executable, with `--json` for
+machine-readable output. These are bounded alpha workflows, not a complete
+package UX.
+
+RFC-012 also describes `add`, `doc`, `clean`, and a complete toolchain manager;
+those remain deferred. Process argv, stdin (`readLine` / `readAllStdin`), and
+`exit` are available via `std.io`.
 
 ## Next
 

@@ -11,12 +11,15 @@ Normative rules: [RFC-002](/rfc/002). MVP keywords and surface: [RFC-001 §6.0](
 
 ## Scalars you will see first
 
-| Type       | Notes                                                                      |
-| ---------- | -------------------------------------------------------------------------- |
-| `Int`      | Integer (overflow policy is documented in RFCs; prefer checked ops in dev) |
-| `Bool`     | `true` / `false`                                                           |
-| `String`   | Immutable C-string bytes (no embedded NUL; indices are UTF-8 **bytes**)    |
-| `Array<T>` | Growable array — see [Arrays](./arrays.md)                                 |
+| Type            | Notes                                                                      |
+| --------------- | -------------------------------------------------------------------------- |
+| `Int`           | Integer (overflow policy is documented in RFCs; prefer checked ops in dev) |
+| `Bool`          | `true` / `false`                                                           |
+| `String`        | Immutable C-string bytes (no embedded NUL; indices are UTF-8 **bytes**)    |
+| `Array<T>`      | Growable array — see [Arrays](./arrays.md)                                 |
+| `Task<T>`       | Result of an async computation; consume with `await`                       |
+| `TaskHandle<T>` | Handle returned by `spawn`; consume with `join` or `cancel`                |
+| `Channel<T>`    | Bounded FIFO async communication channel                                   |
 
 Function parameters and returns use explicit types in most examples:
 
@@ -126,6 +129,20 @@ See [Classes, structs & interfaces](./classes-and-structs.md) and `corpus/iface/
 ```aura
 type Id = Int
 const MAX: Int = 100
+```
+
+## Scoped references
+
+`ref T` is a non-owning, non-null reference with lexical lifetime. It cannot be
+returned, stored in a heap object, captured by an escaping lambda, or moved
+across `await`, `spawn`, task storage, or channel boundaries. Use an owning
+value or `clone()` when the value must outlive its source scope.
+
+```aura
+fun firstLength(items: Array<Int>): Int {
+  val view: ref Array<Int> = items
+  return view.len
+}
 ```
 
 ## Generics (preview)
