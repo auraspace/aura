@@ -60,8 +60,10 @@ When you resolve debt, update or remove the matching entry.
 - Progress: attributes are retained as typed sema metadata, built-in and
   registered `UserDerive`/`UserMacro` AST expansions record their phase and source origin, and
   the lexer now exposes delimiter-aware token trees with span-preserving
-  flattening, metavariable matching, and hygienic-template substitution
-  primitives for RFC-010 expansion. Generated C exposes a versioned
+  flattening, metavariable matching, and template substitution primitives for
+  RFC-010 expansion; the parser now expands top-level function-like rules
+  before AST construction with a bounded recursion limit. Generated C exposes
+  a versioned
   Binary/Runtime metadata table. Built-in
   `Equals`, `HashCode`, `Debug`, and `ToString` derives are compiler-generated
   and ownership-checked.

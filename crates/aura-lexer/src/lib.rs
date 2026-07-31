@@ -5,7 +5,7 @@ use std::fmt;
 
 pub mod token_tree;
 
-pub use token_tree::{Delimiter, TokenTree};
+pub use token_tree::{match_pattern, substitute, Delimiter, TokenTree};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Token {
@@ -123,6 +123,8 @@ pub enum TokenKind {
     At,
     /// `$` macro metavariable introducer.
     Dollar,
+    /// `;` separates declarative macro rules.
+    Semi,
 
     Eof,
 }
@@ -254,6 +256,7 @@ impl<'a> Lexer<'a> {
             },
             b'@' => self.simple(TokenKind::At, 1),
             b'$' => self.simple(TokenKind::Dollar, 1),
+            b';' => self.simple(TokenKind::Semi, 1),
             b'.' => {
                 if self.peek_at(1) == Some(b'.') {
                     if self.peek_at(2) == Some(b'=') {

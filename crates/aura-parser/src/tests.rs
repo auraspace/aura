@@ -680,3 +680,24 @@ fn rejects_malformed_task_and_channel_operations() {
         assert!(err.message.contains(expected), "{src}: {}", err.message);
     }
 }
+
+#[test]
+fn expands_declarative_macro_before_ast_parsing() {
+    let file = parse_file(
+        "package demo\nmacro! identity { ($value:expr) => { $value }; }\nfun main() { println(identity!(42).toString()) }\n",
+    )
+    .expect("declarative macro should expand before parsing");
+    assert_eq!(file.functions.len(), 1);
+    assert!(matches!(
+        file.functions[0].body.stmts.first(),
+        Some(Stmt::Expr(Expr::Call(_)))
+    ));
+}
+
+#[test]
+fn reports_declarative_macro_recursion_limit() {
+    let error =
+        parse_file("package demo\nmacro! loop { () => { loop!() }; }\nfun main() { loop!() }\n")
+            .expect_err("recursive macro must be bounded");
+    assert!(error.message.contains("recursion limit"));
+}
