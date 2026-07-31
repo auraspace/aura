@@ -14,7 +14,7 @@ const DEBUG_STRING: &str = "debugString";
 
 fn error(code: &str, message: String, span: Span) -> SemaError {
     SemaError {
-        message: format!("[{code}] {message}"),
+        message: format!("[{code}] [phase=derive] {message}"),
         span,
     }
 }
@@ -58,6 +58,9 @@ fn debug_derive(attributes: &[Attribute]) -> Option<(&'static str, Span)> {
         }
         attribute.args.iter().find_map(|arg| match arg {
             AttributeArg::Positional(AttributeValue::Ident(name)) if name.name == "Debug" => {
+                Some((TO_STRING, attribute.span))
+            }
+            AttributeArg::Positional(AttributeValue::Ident(name)) if name.name == "ToString" => {
                 Some((TO_STRING, attribute.span))
             }
             AttributeArg::Positional(AttributeValue::Ident(name)) if name.name == "DebugString" => {

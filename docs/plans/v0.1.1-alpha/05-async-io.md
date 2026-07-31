@@ -100,13 +100,15 @@ so `spawn { await writeFile(handle, ...) }` survives outer lexical cleanup;
 native coverage now verifies a write/read round trip with forced GC, repeated
 typed joins, and queued cancellation cleanup. General CFG async callers now
 retain typed-handle parameters across multiple awaits in branch/loop frames;
-portable regular-file async I/O and a general reactor abstraction remain open.
+the versioned `AuraReactor` boundary now owns the POSIX poll policy, with
+non-POSIX backends remaining a separate target capability.
 
 ## IO3. TCP listener and stream integration
 
 **Objective:** Provide reliable TCP transport for client and server workloads.
 
-**Implementation status:** Partial. `runtime/aura_rt.c` now exposes an opaque,
+**Implementation status:** Complete for the bounded G3 compiler/runtime slice.
+`runtime/aura_rt.c` now exposes an opaque,
 status-based endpoint-aware TCP listener/stream slice on POSIX targets. Bind creates
 a listening socket (including ephemeral port selection), accept/connect use
 nonblocking descriptors with an explicit millisecond poll bound, and read/write
@@ -115,8 +117,9 @@ Close transitions are idempotent and destroy releases the owning handle. The
 API is guarded by `AURA_TCP_POSIX` (`__unix__`/`__APPLE__`); unsupported targets
 return `AURA_TCP_UNSUPPORTED`. The task ABI now provides bounded listener and
 stream readiness adapters that borrow the owned nonblocking descriptor and
-delegate to the executor's inline fd wait. Address parsing, full partial-I/O
-readiness coverage, and cross-host evidence remain open.
+delegate to the executor's inline fd wait. Typed operation fixtures cover
+partial I/O, EOF, peer failure, backpressure, cancellation, and exactly-once
+cleanup. Non-POSIX backends remain a separate target capability.
 
 **Checklist:**
 
@@ -128,9 +131,11 @@ readiness coverage, and cross-host evidence remain open.
       shutdown behavior for the bounded slice; general address parsing remains
       open.
 - [x] Make listener/stream descriptor ownership explicit through idempotent
-      close/destroy; task/cancellation transfer remains open.
+      close/destroy; task/cancellation transfer is covered by typed operation
+      handles.
 - [x] Register bounded listener/stream readiness waits through the task frame;
-      full operation ownership and cancellation transfer remain open.
+      typed operation ownership and cancellation transfer are covered by the
+      G3 operation-handle ABI.
 
 **Acceptance:** Loopback client/server exchange data without blocking or losing
 bytes.
@@ -154,37 +159,36 @@ and queues the frame exactly once, so completion, failure, and cancellation
 callbacks share the same wake protocol. The native disconnect fixture closes
 the peer, observes `AURA_TCP_EOF`, publishes a terminal task failure, and
 verifies registered file/socket cleanup releases descriptors and buffers
-exactly once. This still does not register `AuraFile`/`AuraTcpStream` operations
-with a readiness source or scheduler. A bounded POSIX `fd/events` wait is now
+exactly once. Typed `AuraFile`/`AuraTcpStream` operations now register with the
+bounded POSIX readiness source and scheduler. A bounded POSIX `fd/events` wait is now
 stored inline in the frame; `aura_task_executor_poll_waiting` polls all
 registered descriptors in one bounded turn and wakes each ready frame, with
 timeout, multi-wait, and cancellation coverage. The compiler-generated
-`std.io.readFd` and `std.io.writeFd` slices now consume this wake path; adapter-specific
-`AuraFile`/`AuraTcpStream` operation lowering remains open.
+`std.io.readFd` and `std.io.writeFd` slices now consume this wake path, and the
+typed file/TCP operation handles use the same registration and cleanup path.
 
 **Checklist:**
 
 - [x] Cancel pending file and TCP operations without double-close for
       frame-registered adapter resources.
 - [x] Wake suspended tasks when operations fail or cancel through the bounded
-      adapter wake protocol; generic POSIX fd readiness is covered, while
-      file operation registration and full TCP operation ownership remain open.
+      adapter wake protocol; typed file/TCP registration and ownership are
+      covered by the G3 operation-handle ABI.
 - [x] Poll a bounded POSIX fd wait and wake its pending frame exactly once;
       timeout and cancellation clear the registration before resumption.
-- [x] Reclaim buffers and descriptors after bounded native disconnect; the
-      peer-close/EOF path is connected to frame terminal cleanup, while
-      scheduler-wide failure completion remains open.
+- [x] Reclaim buffers and descriptors after bounded native disconnect; peer
+      close/EOF and typed failure paths connect to frame terminal cleanup.
 - [x] Drain or cancel frame-registered outstanding operations deterministically
       at shutdown.
 
 **Acceptance:** No frame-registered operation survives its owning task or
-executor shutdown. The full server-shutdown acceptance remains open until
-native file/TCP adapters provide operation registration and wake sources.
+executor shutdown. The bounded G3 server-shutdown acceptance is complete;
+regular-file readiness portability and non-POSIX backends remain outside it.
 
 **Verification:** `runtime/tests/task_io_cleanup_sanitizer.c` covers real file
 and TCP descriptors under cancellation, failure, forced executor shutdown, and
-peer disconnect with ASAN/UBSAN. Native disconnect races and scheduler-wide
-wakeup remain deferred.
+peer disconnect with ASAN/UBSAN; the typed operation fixture additionally
+covers file EOF and TCP peer-write failure.
 
 **Dependencies:** IO2, IO3, S5.
 
@@ -192,26 +196,29 @@ wakeup remain deferred.
 
 **Objective:** Connect I/O completion to bounded channels safely.
 
-**Implementation status:** Bounded executor/channel bridge complete. The
+**Implementation status:** Bounded executor/channel bridge and network response
+backpressure are complete. The
 capacity-limited channel wakes pending consumers when a producer sends and
 wakes pending producers when a consumer removes a value. FIFO payload order,
 owned-value destruction, cancellation, and close behavior are covered by
-`runtime/tests/task_channel.c`; network completion and scheduler-wide
-backpressure remain open.
+`runtime/tests/task_channel.c`. HTTP response writes and typed TCP writes use
+the same readiness/backpressure path; richer streaming adapters remain outside
+this bounded slice.
 
 **Checklist:**
 
 - [x] Suspend producers when bounded channels are full.
 - [x] Suspend consumers when bounded channels have no data.
 - [x] Preserve FIFO ordering and payload ownership.
-- [x] Define bounded close and cancellation propagation; peer-failure and
-      network-operation propagation remain open.
+- [x] Define bounded close and cancellation propagation, including peer-failure
+      and network-operation propagation for the typed G3/G4 paths.
 
 **Acceptance:** Backpressure never loses, duplicates, or leaks a message.
 
 **Verification:** `runtime/tests/task_channel.c` runs producer/consumer,
 full/empty, FIFO, close, cancellation, and cleanup cases under the runtime
-fixture. Slow-peer and network completion remain deferred to IO3/IO6.
+fixture. Slow-peer and network completion are covered by the typed TCP
+and HTTP readiness fixtures; richer streaming remains outside this slice.
 
 **Dependencies:** IO3, S1–S6.
 

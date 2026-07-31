@@ -51,20 +51,27 @@ When you resolve debt, update or remove the matching entry.
 - Next step: implement the remaining compiler/runtime capabilities without
   changing the locked source contracts.
 
-### API-006 compiler/runtime/tooling boundary inventory (2026-07-31)
+### API-006 compiler/runtime/tooling boundary inventory (2026-07-31, updated)
 
 - Area: RFC-001/002/004/005/006/008/012/013/014 surfaces outside `std` source APIs
-- Symptom: compiler metadata/derive expansion, concurrent tracing GC,
+- Symptom: user macro expansion/sandboxing, concurrent tracing GC,
   cross-target build/sysroot delivery, release self-update, and full LSP
   protocol behavior are described by RFCs but are not all implemented.
-- Why deferred: concurrent tracing collection needs write barriers and precise
-  stack maps beyond the current executor-safe STW collector; the other items
-  are compiler, package-manager, distribution, or tooling contracts rather
-  than ordinary Aura functions. Exposing fake std wrappers would hide the real
-  ownership and capability boundaries.
-- Next step: use the explicit rows in `docs/api/deferred-alpha.md` as the
-  implementation queue and add a compiler/runtime gate before promoting each
-  row to a callable API.
+- Progress: attributes are retained as typed sema metadata, built-in and
+  registered `UserDerive`/`UserMacro` AST expansions record their phase and source origin, and
+  generated C exposes a versioned Binary/Runtime metadata table. Built-in
+  `Equals`, `HashCode`, `Debug`, and `ToString` derives are compiler-generated
+  and ownership-checked.
+- Why the remaining macro boundary is deferred: user declarative/procedural
+  macros require a token-tree expansion model plus an out-of-process sandbox
+  and versioned plugin ABI; implementing a fake in-process hook would violate
+  RFC-010's supply-chain and capability contract. Concurrent tracing collection
+  still needs write barriers and precise stack maps beyond the executor-safe
+  STW collector; cross-target build/sysroot, self-update, and full LSP remain
+  separate tooling/distribution work.
+- Next step: implement RFC-010 token expansion and sandbox ABI as a dedicated
+  compiler/tooling workstream, then add package side tables and full runtime
+  reflection without changing the metadata ABI version.
 
 ### NET-001 endpoint parsing is synchronous and string-based (2026-07-31)
 
@@ -510,14 +517,15 @@ When you resolve debt, update or remove the matching entry.
   then add supported-host evidence once the documented Aura-level server path
   exists.
 
-### HTTP async handler and Aura typed-handle gaps remain (H5, updated 2026-07-28)
+### HTTP async handler and Aura typed-handle gaps remain (H5, updated 2026-07-31)
 
 - Area: async HTTP connection integration
-- Symptom: the runtime bridge now has a suspending native task-handler callback,
-  but cannot carry an Aura typed HTTP/TCP handle through compiler-generated
-  async handler state.
-- Why deferred: compiler/FFI boundary work and async handler ownership are
-  explicitly outside this runtime HTTP/net slice.
+- Symptom: the bounded compiler-generated handler path is shipped, but
+  arbitrary async handler CFG shapes and cross-target evidence are not yet
+  general.
+- Why deferred: the remaining CFG cases need method-aware state-machine
+  lowering and ownership proofs; a fallback would weaken cancellation and
+  backpressure guarantees.
 - Progress: `runtime/tests/http_async.c` now proves a task handler can retain
   request/response state across a readiness suspension and cancellation, in
   addition to independent pending
@@ -620,8 +628,8 @@ request_timeout` response, then closes; runtime timeout and sanitizer
   suspending handler control flow. The bounded `std.time.sleep` intrinsic is
   intentionally separate from that unresolved generic path. The Aura example's
   loopback curl smoke and a fresh offline installed-CLI release smoke now pass;
-  cross-target sanitizer evidence remains required before marking HTTP-001
-  complete.
+  cross-target sanitizer evidence and the less-common method-aware CFG shapes
+  remain required before marking HTTP-001 complete.
 - Remaining: public `std.net` and `std.http` bridge APIs still expose the
   pre-contract `Bool`/raw-handle outcome shapes. RFC-007 now freezes the
   replacement `Result<T, PackageError>` mapping, but implementing those
@@ -1231,8 +1239,8 @@ TaskError>` locals release their payload at scope exit. Nested
   intrinsic that pins the borrowed opaque handle in the task frame, reads from
   its `AuraFile` resource, owns the result buffer, and unpins on terminal frame
   cleanup. `std.io.openFile(path, mode)` now creates the owned
-  `AuraFfiOpaqueHandle`; a native Aura fixture covers construction and lexical
-  cleanup. Native async read execution and broader caller coverage remain open.
+  `AuraFfiOpaqueHandle`; native Aura fixtures cover construction, lexical
+  cleanup, and async read execution.
 - `std.io.writeFile(file: ForeignHandle<Int>, content)` now mirrors that pin
   lifetime, owns the input buffer, handles short writes through the frame wait
   state, and returns the transferred byte count. Bounded `spawn` now retains a
@@ -1262,14 +1270,13 @@ TaskError>` locals release their payload at scope exit. Nested
 - `std.net.readStream` and `std.net.writeStream` now lower typed
   `ForeignHandle<Int>` values to task-pinned `AuraTcpStream` operations with
   readiness waits, EOF/error handling, short-write continuation, and terminal
-  unpin cleanup. The fixture proves generated C compilation and ABI wiring;
-  `std.net.connect(port, timeout)` now constructs an owned typed stream handle
-  with a compiler ABI fixture; native Aura-level loopback construction and
-  transfer remain host-gated and open.
+  unpin cleanup. Compiler and native sanitizer fixtures cover the generated
+  ABI, loopback construction, transfer, peer failure, and cleanup;
+  `std.net.connect(port, timeout)` constructs an owned typed stream handle.
 - The slice intentionally does not claim arbitrary aggregate caller capture or
-  a general reactor policy. Portable regular-file behavior is covered for the
-  currently supported POSIX hosts; cross-platform reactor semantics remain
-  open.
+  cross-platform reactor implementations. Portable regular-file and loopback
+  behavior is covered for the currently supported POSIX hosts; the versioned
+  `AuraReactor` policy boundary and POSIX implementation are now shipped.
   Keep IO-002 partial until those boundaries have typed Aura-facing contracts
   and native sanitizer coverage.
 

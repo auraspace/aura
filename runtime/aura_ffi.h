@@ -229,6 +229,22 @@ typedef enum AuraFfiBoundary {
 typedef struct AuraTaskExecutor AuraTaskExecutor;
 typedef struct AuraTaskFrame AuraTaskFrame;
 typedef struct AuraTaskScope AuraTaskScope;
+typedef struct AuraReactor AuraReactor;
+typedef int (*AuraReactorPollFn)(void *data, AuraTaskExecutor *executor,
+                                 int timeout_ms);
+typedef void (*AuraReactorDestroyFn)(void *data);
+
+#define AURA_REACTOR_ABI_VERSION 1u
+
+/* A reactor owns only readiness policy. Task frames remain executor-owned;
+ * poll implementations must wake them through aura_task_executor_wake_waiting
+ * and must not destroy or retain a frame after the poll call returns. */
+AuraReactor *aura_reactor_new(AuraReactorPollFn poll, void *data,
+                              AuraReactorDestroyFn data_destroy);
+AuraReactor *aura_reactor_posix_new(void);
+void aura_reactor_destroy(AuraReactor *reactor);
+int aura_task_executor_set_reactor(AuraTaskExecutor *executor,
+                                   AuraReactor *reactor);
 void aura_gc_collect_executor(AuraTaskExecutor *executor);
 typedef struct AuraTaskChannel AuraTaskChannel;
 typedef struct AuraTaskSelect AuraTaskSelect;

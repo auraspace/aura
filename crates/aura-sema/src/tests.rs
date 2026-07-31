@@ -1,7 +1,11 @@
-use crate::check_file;
 use crate::ty::Ty;
+use crate::{
+    check_file, check_file_with_derives, check_file_with_macros, MacroError, MacroExpansion,
+    UserDerive, UserMacro,
+};
 use aura_ast::{
-    AsyncExpr, AsyncFunDecl, Block, ChannelSendExpr, Expr, Ident, Span, SpawnExpr, Stmt,
+    AsyncExpr, AsyncFunDecl, Block, ChannelSendExpr, ClassDecl, Expr, File, FunDecl, Ident, Span,
+    SpawnExpr, Stmt,
 };
 use aura_parser::parse_file;
 
@@ -28,6 +32,118 @@ fn mono_suffix() {
         args: vec![Ty::String],
     };
     assert_eq!(t.mono_suffix(), "Box_String");
+}
+
+#[test]
+fn checked_file_exposes_retention_and_derive_expansion_metadata() {
+    let file = parse_file(
+        "package demo\n@reflect\n@derive(Equals) class Point(@deprecated(\"old\") val x: Int) {}\n",
+    )
+    .expect("metadata fixture parses");
+    let checked = check_file(&file).expect("metadata fixture checks");
+    assert!(checked
+        .attribute_metadata
+        .iter()
+        .any(|item| item.name == "reflect" && item.retention.abi_code() == 2));
+    assert!(checked
+        .attribute_metadata
+        .iter()
+        .any(|item| item.name == "deprecated" && item.retention.abi_code() == 1));
+    let expansion = checked
+        .expansions
+        .iter()
+        .find(|item| item.generated_item == "Point.equals")
+        .expect("Equals expansion metadata");
+    assert_eq!(expansion.phase, "derive");
+    assert_eq!(expansion.macro_name, "Equals");
+    assert_eq!(expansion.invocation_span, expansion.generated_span);
+}
+
+struct CustomMarkerDerive;
+
+impl UserDerive for CustomMarkerDerive {
+    fn name(&self) -> &str {
+        "CustomMarker"
+    }
+
+    fn expand(&self, _input: &ClassDecl) -> Result<Vec<FunDecl>, MacroError> {
+        let fixture =
+            parse_file("package demo\nclass Generated() { fun marker(): Int { return 1 } }\n")
+                .expect("user derive fixture parses");
+        Ok(fixture.classes[0].methods.clone())
+    }
+}
+
+#[test]
+fn registered_user_derive_expands_before_typecheck() {
+    let file = parse_file("package demo\n@derive(CustomMarker) class Value() {}\n")
+        .expect("user derive source parses");
+    let derive = CustomMarkerDerive;
+    let checked = check_file_with_derives(&file, &[&derive]).expect("user derive checks");
+    assert!(checked.ast.classes[0]
+        .methods
+        .iter()
+        .any(|method| method.name.name == "marker"));
+    assert!(checked
+        .expansions
+        .iter()
+        .any(|item| item.macro_name == "CustomMarker" && item.generated_item == "Value.marker"));
+}
+
+struct CustomMarkerMacro;
+
+impl UserMacro for CustomMarkerMacro {
+    fn name(&self) -> &str {
+        "CustomMarkerMacro"
+    }
+
+    fn expand(&self, file: &mut File) -> Result<Vec<MacroExpansion>, MacroError> {
+        let class = file.classes.first_mut().ok_or_else(|| MacroError {
+            message: "expected a class".into(),
+            span: file.span,
+        })?;
+        let invocation_span = class.span;
+        let fixture = parse_file(
+            "package demo\n@derive(CustomMarker) class Generated() { fun macroMarker(): Int { return 1 } }\n",
+        )
+        .expect("user macro fixture parses");
+        let method = fixture.classes[0].methods[0].clone();
+        let generated_span = method.span;
+        class
+            .attributes
+            .extend(fixture.classes[0].attributes.iter().cloned());
+        class.methods.push(method);
+        Ok(vec![MacroExpansion {
+            macro_name: self.name().into(),
+            generated_item: "Value.macroMarker".into(),
+            invocation_span,
+            generated_span,
+        }])
+    }
+}
+
+#[test]
+fn registered_user_macro_expands_before_typecheck() {
+    let file = parse_file("package demo\nclass Value() {}\n").expect("user macro source parses");
+    let macro_impl = CustomMarkerMacro;
+    let derive = CustomMarkerDerive;
+    let checked =
+        check_file_with_macros(&file, &[&macro_impl], &[&derive]).expect("user macro checks");
+    assert!(checked.ast.classes[0]
+        .methods
+        .iter()
+        .any(|method| method.name.name == "macroMarker"));
+    assert!(checked.ast.classes[0]
+        .methods
+        .iter()
+        .any(|method| method.name.name == "marker"));
+    let expansion = checked
+        .expansions
+        .iter()
+        .find(|item| item.generated_item == "Value.macroMarker")
+        .expect("user macro expansion metadata");
+    assert_eq!(expansion.phase, "macro");
+    assert_eq!(expansion.macro_name, "CustomMarkerMacro");
 }
 
 #[test]
@@ -488,7 +604,7 @@ fn attributes_report_unknown_target_duplicate_and_conflict() {
 
 #[test]
 fn reserved_attributes_and_derives_fail_explicitly() {
-    let file = parse_file("package t\n@derive(ToString, Json) class Value() {}\n")
+    let file = parse_file("package t\n@derive(Json) class Value() {}\n")
         .expect("reserved attribute syntax");
     let errors = check_file(&file).expect_err("reserved metadata must not be silently ignored");
     let messages = errors
@@ -501,11 +617,8 @@ fn reserved_attributes_and_derives_fail_explicitly() {
             .iter()
             .filter(|message| message.contains("AURA-M3-UNSUPPORTED"))
             .count(),
-        2
+        1
     );
-    assert!(messages
-        .iter()
-        .any(|message| message.contains("derive `ToString`")));
     assert!(messages
         .iter()
         .any(|message| message.contains("derive `Json`")));

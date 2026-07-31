@@ -181,6 +181,17 @@ MVP without full proc macros reduces security and stability risk while covering 
 - Rust book: macros; rustc expand
 - RFC-004, RFC-009, RFC-005
 
+## 12.1 Implemented host derive boundary
+
+The Rust compiler exposes `aura_sema::UserDerive`/`aura_sema::UserMacro` and
+`check_file_with_derives`/`check_file_with_macros`. Registered implementations
+receive an AST class or file and expand before typecheck; duplicate members,
+ownership rules, diagnostic phase markers, and expansion-origin metadata are
+applied uniformly with built-in derives. These host APIs are deliberately not
+a package-level proc-macro ABI: source-level token macros and untrusted
+procedural derives still require the RFC-010 process sandbox and versioned
+plugin protocol.
+
 ---
 
 ## Changelog

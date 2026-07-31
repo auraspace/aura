@@ -16,6 +16,7 @@ task_select	0	runtime/tests/task_select.c	cc -std=c11 -Wall -Wextra -Werror -fsa
 task_channel_concurrent	0	runtime/tests/task_channel_concurrent.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -pthread runtime/tests/task_channel_concurrent.c
 task_workers	0	runtime/tests/task_workers.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -pthread runtime/tests/task_workers.c
 task_workers_reactor	0	runtime/tests/task_workers_reactor.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -pthread runtime/tests/task_workers_reactor.c
+reactor_abstraction	0	runtime/tests/reactor_abstraction.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined runtime/tests/reactor_abstraction.c
 gc_concurrent	0	runtime/tests/gc_concurrent.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -pthread runtime/tests/gc_concurrent.c
 task_scope_failure	0	runtime/tests/task_scope_failure.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -pthread runtime/tests/task_scope_failure.c
 task_spawn_blocking	0	runtime/tests/task_spawn_blocking.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -pthread runtime/tests/task_spawn_blocking.c

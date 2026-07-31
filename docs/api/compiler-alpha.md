@@ -12,7 +12,7 @@ silently changing program meaning.
 | `@test`                            | Supported        | Discover a package-private test function                   |
 | `@foreign(...)`                    | Supported subset | Declare C library, target, link, ABI, and failure metadata |
 | `@bench`                           | Reserved         | Discover a benchmark function; runner contract is deferred |
-| `@derive(...)`                     | Reserved         | Expand only the locked derive names below                  |
+| `@derive(...)`                     | Supported subset | Expand the implemented built-in derives below              |
 | `@deprecated(...)`                 | Reserved         | Emit a source diagnostic without changing runtime behavior |
 | `@inline`, `@noinline`, `@cold`    | Reserved         | Optimization hints; ignored until backend support exists   |
 | `@throws`, `@unsafe`, `@repr(...)` | Reserved         | Tooling/safety/layout metadata; no implicit behavior       |
@@ -24,17 +24,27 @@ explicit unsupported/reserved diagnostic until their phase is implemented.
 
 ## Derive names
 
-The alpha derive vocabulary is reserved as:
+The alpha derive vocabulary is:
 
-- `Debug` -> `debugString(value) -> String`
-- `Equals` -> `equals(left, right) -> Bool`
-- `Hash` -> `hash(value) -> Int`
-- `ToString` -> `toString(value) -> String`
-- `Json` -> `std.json.decode<T>` mapping metadata
+- `Debug` -> generated `toString() -> String`
+- `Equals` -> generated `equals(other) -> Bool`
+- `Hash`/`HashCode` -> generated `hashCode() -> Int`
+- `ToString` -> generated `toString() -> String`
+- `Json` -> reserved mapping metadata; not implemented
 
-The generated member spelling and collision rules are part of the contract;
-the expansion backend is not yet implemented. Derives must never generate
-private ownership bypasses or retain borrowed values across async boundaries.
+The generated member spelling and collision rules are part of the contract.
+The sema boundary records each generated item and its invocation span, and the
+C backend exposes Binary/Runtime attribute metadata through
+`AURA_METADATA_ABI_VERSION = 1`. Derives must never generate private ownership
+bypasses or retain borrowed values across async boundaries.
+
+`CheckedFile.attribute_metadata` retains normalized attribute names, arguments,
+target, retention, and source span. `CheckedFile.expansions` records the
+macro/derive phase, macro name, generated item, and both source spans. Source-retained
+attributes remain available to compiler tools but are not emitted into the
+binary metadata table. Expansion/attribute diagnostics carry a stable
+`phase=derive` or `phase=attribute` marker, so tools can preserve expansion
+ordering when presenting errors.
 
 ## Retention
 
@@ -45,8 +55,17 @@ work, not stdlib behavior.
 
 ## Blocking boundaries
 
-- Parser/sema: attribute declarations, target validation, derive expansion,
-  recursion limits, and collision diagnostics.
-- Codegen/runtime: binary metadata emission, runtime retention, generic type
-  identity, and generated ownership-safe members.
+- Parser/sema: attribute declarations, target validation, built-in derive
+  expansion, collision diagnostics, and expansion-origin metadata.
+- Codegen/runtime: versioned binary metadata emission, runtime retention,
+  generic type identity, and generated ownership-safe members.
 - Tooling: expansion previews, source maps, and stable diagnostics.
+
+Compiler hosts can register a `UserDerive` implementation through
+`check_file_with_derives`, or a deterministic AST `UserMacro` through
+`check_file_with_macros`; both expand before typecheck and receive the same
+ownership, diagnostics, and expansion-origin treatment as built-ins. Source-
+level declarative macros and sandboxed procedural derives remain a separate
+boundary: the language still needs token-tree expansion and the RFC-010
+out-of-process sandbox ABI before arbitrary package code can execute during
+compilation.

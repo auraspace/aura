@@ -7952,6 +7952,25 @@ typedef struct AuraTaskFrame AuraTaskFrame;
 typedef struct AuraTaskExecutor AuraTaskExecutor;
 typedef struct AuraTaskChannel AuraTaskChannel;
 typedef struct AuraTaskSelect AuraTaskSelect;
+typedef struct AuraReactor AuraReactor;
+
+typedef int (*AuraReactorPollFn)(void *data, AuraTaskExecutor *executor,
+                                 int timeout_ms);
+typedef void (*AuraReactorDestroyFn)(void *data);
+
+#define AURA_REACTOR_ABI_VERSION 1u
+
+struct AuraReactor
+{
+  uint32_t abi_version;
+  AuraReactorPollFn poll;
+  void *data;
+  AuraReactorDestroyFn data_destroy;
+};
+
+static int aura_posix_reactor_poll(void *data, AuraTaskExecutor *executor,
+                                   int timeout_ms);
+static AuraReactor *aura_reactor_posix_new_internal(void);
 
 typedef void (*AuraTaskResultDestroyFn)(void *data, size_t size);
 typedef void *(*AuraTaskResultCloneFn)(const void *data, size_t size,
@@ -10089,6 +10108,7 @@ struct AuraTaskExecutor
   AuraTaskFailureHookFn failure_hook;
   void *failure_hook_context;
   int wake_pipe[2];
+  AuraReactor *reactor;
 #if defined(AURA_TCP_POSIX)
   pthread_mutex_t worker_lock;
   pthread_cond_t worker_cond;
@@ -10281,6 +10301,12 @@ AuraTaskExecutor *aura_task_executor_new(void)
     executor->max_live_tasks = AURA_TASK_DEFAULT_MAX_LIVE_TASKS;
     executor->wake_pipe[0] = -1;
     executor->wake_pipe[1] = -1;
+    executor->reactor = aura_reactor_posix_new_internal();
+    if (executor->reactor == NULL)
+    {
+      free(executor);
+      return NULL;
+    }
 #if defined(AURA_TCP_POSIX)
     if (pipe(executor->wake_pipe) == 0)
     {
@@ -10679,8 +10705,8 @@ int aura_task_executor_wake_waiting(AuraTaskExecutor *executor, AuraTaskFrame *f
  * of frames cleared and queued. This bounded single-threaded API provides a
  * deterministic multi-descriptor readiness turn without claiming a full
  * cross-platform event-loop policy. */
-static int aura_task_executor_poll_waiting_impl(AuraTaskExecutor *executor,
-                                                int timeout_ms)
+static int aura_posix_reactor_poll(void *data, AuraTaskExecutor *executor,
+                                   int timeout_ms)
 {
   AuraTaskFrame *frame;
   struct pollfd *descriptors;
@@ -10695,6 +10721,7 @@ static int aura_task_executor_poll_waiting_impl(AuraTaskExecutor *executor,
   int poll_timeout = timeout_ms;
   int has_deadline = 0;
 
+  (void)data;
   if (executor == NULL || executor->shutdown || timeout_ms < 0)
   {
     return 0;
@@ -10887,6 +10914,82 @@ static int aura_task_executor_poll_waiting_impl(AuraTaskExecutor *executor,
   return (int)woke;
 }
 
+AuraReactor *aura_reactor_new(AuraReactorPollFn poll, void *data,
+                              AuraReactorDestroyFn data_destroy)
+{
+  AuraReactor *reactor;
+  if (poll == NULL)
+  {
+    return NULL;
+  }
+  reactor = (AuraReactor *)calloc(1, sizeof(*reactor));
+  if (reactor == NULL)
+  {
+    return NULL;
+  }
+  reactor->abi_version = AURA_REACTOR_ABI_VERSION;
+  reactor->poll = poll;
+  reactor->data = data;
+  reactor->data_destroy = data_destroy;
+  return reactor;
+}
+
+static AuraReactor *aura_reactor_posix_new_internal(void)
+{
+  return aura_reactor_new(aura_posix_reactor_poll, NULL, NULL);
+}
+
+AuraReactor *aura_reactor_posix_new(void)
+{
+  return aura_reactor_posix_new_internal();
+}
+
+void aura_reactor_destroy(AuraReactor *reactor)
+{
+  if (reactor == NULL)
+  {
+    return;
+  }
+  if (reactor->data_destroy != NULL && reactor->data != NULL)
+  {
+    reactor->data_destroy(reactor->data);
+    reactor->data = NULL;
+  }
+  free(reactor);
+}
+
+int aura_task_executor_set_reactor(AuraTaskExecutor *executor,
+                                   AuraReactor *reactor)
+{
+  AuraReactor *replacement = reactor;
+  if (executor == NULL || executor->shutdown || executor->owned_count != 0 ||
+      executor->ready_count != 0 ||
+      aura_task_executor_has_workers(executor))
+  {
+    return 0;
+  }
+  if (replacement == NULL)
+  {
+    replacement = aura_reactor_posix_new_internal();
+    if (replacement == NULL)
+    {
+      return 0;
+    }
+  }
+  if (replacement->abi_version != AURA_REACTOR_ABI_VERSION ||
+      replacement->poll == NULL)
+  {
+    if (replacement != reactor)
+    {
+      aura_reactor_destroy(replacement);
+    }
+    return 0;
+  }
+  aura_reactor_destroy(executor->reactor);
+  executor->reactor = replacement;
+  return 1;
+}
+
 int aura_task_executor_poll_waiting(AuraTaskExecutor *executor, int timeout_ms)
 {
   int result;
@@ -10899,7 +11002,10 @@ int aura_task_executor_poll_waiting(AuraTaskExecutor *executor, int timeout_ms)
     pthread_mutex_unlock(&executor->worker_lock);
   }
 #endif
-  result = aura_task_executor_poll_waiting_impl(executor, timeout_ms);
+  result = executor->reactor != NULL && executor->reactor->poll != NULL
+               ? executor->reactor->poll(executor->reactor->data, executor,
+                                         timeout_ms)
+               : aura_posix_reactor_poll(NULL, executor, timeout_ms);
 #if defined(AURA_TCP_POSIX)
   if (executor->workers_started)
   {
@@ -11707,6 +11813,7 @@ void aura_task_executor_shutdown(AuraTaskExecutor *executor)
     close(executor->wake_pipe[1]);
   }
 #endif
+  aura_reactor_destroy(executor->reactor);
   free(executor);
 }
 

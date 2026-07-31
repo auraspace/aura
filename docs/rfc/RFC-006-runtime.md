@@ -8,7 +8,7 @@
 | **Layer**    | Runtime                   |
 | **Authors**  |                           |
 | **Created**  | 2026-07-15                |
-| **Updated**  | 2026-07-28                |
+| **Updated**  | 2026-07-31                |
 | **Estimate** | 40–60 pages               |
 | **Depends**  | RFC-000, RFC-001, RFC-003 |
 | **Blocks**   | RFC-007, RFC-008, RFC-013 |
@@ -19,7 +19,7 @@
 
 This RFC specifies the **Aura runtime** linked into application binaries: tracing **GC**, **M:N task scheduler**, async I/O reactor, exception personality support, panic/abort paths, timers, and **C ABI FFI** bridges. The runtime is shipped as libraries produced by the Rust toolchain and linked by `aura build`, not installed as a separate end-user package.
 
-**Toolchain today (2026-07-31):** embedded C runtime [`runtime/aura_rt.c`](../../runtime/aura_rt.c) linked by the C backend — console/file/process I/O, exception frames with typed causes, Array/String ownership helpers, executor-coordinated stop-the-world mark/sweep GC, opt-in POSIX M:N workers, a POSIX poll/timer reactor, task-frame ABI, bounded channels/select, structured scopes, blocking jobs, task-safe lazy cells, and bounded FFI pin retention. The remaining boundaries are arbitrary await lowering, non-empty capture transfer, complete cancellation/outcome propagation, non-POSIX reactor backends, a concurrent tracing collector, and typed HTTP handles.
+**Toolchain today (2026-07-31):** embedded C runtime [`runtime/aura_rt.c`](../../runtime/aura_rt.c) linked by the C backend — console/file/process I/O, exception frames with typed causes, Array/String ownership helpers, executor-coordinated stop-the-world mark/sweep GC, opt-in POSIX M:N workers, a versioned `AuraReactor` poll/timer boundary with POSIX default implementation, task-frame ABI, bounded channels/select, structured scopes, blocking jobs, task-safe lazy cells, and bounded FFI pin retention. The remaining boundaries are arbitrary await lowering, non-empty capture transfer, complete cancellation/outcome propagation, non-POSIX reactor backends, and a concurrent tracing collector.
 
 ## 2. Motivation
 
@@ -110,7 +110,12 @@ Runtime components may be implemented in **Rust** (and/or C for tiny stubs), exp
 
 ### 6.4 Async I/O
 
-- The current POSIX reactor uses `poll` plus a wake pipe and monotonic timers.
+- `AuraReactor` is a versioned policy boundary (`AURA_REACTOR_ABI_VERSION`)
+  owned by the executor. `aura_reactor_posix_new()` supplies the default
+  implementation; `aura_task_executor_set_reactor()` can replace it before
+  tasks or workers are active. Reactor polling never owns task frames and must
+  return after waking or leaving registrations pending.
+- The POSIX reactor uses `poll` plus a wake pipe and monotonic timers.
 - Stdlib net/fs async APIs can park tasks rather than blocking workers; epoll,
   kqueue, and IOCP backends remain platform follow-ups.
 - Timers: min-heap / time wheel wheel in runtime.

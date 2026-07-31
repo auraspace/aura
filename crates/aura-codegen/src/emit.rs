@@ -38,6 +38,7 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("#include <errno.h>\n");
     out.push_str("#include <setjmp.h>\n");
     emit_ffi_abi_declarations(&mut out);
+    emit_metadata_abi(&mut out, checked);
     emit_foreign_prototypes(&mut out, checked);
     emit_fallback_unit_join_result(&mut out, checked);
     out.push_str("void aura_print(const char *s);\n");
@@ -6661,6 +6662,84 @@ fn emit_ffi_abi_declarations(out: &mut String) {
     out.push_str("AuraFfiOutcome aura_ffi_map_error(int32_t);\n\n");
 }
 
+fn c_metadata_string(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
+}
+
+/// Emit the versioned compiler metadata ABI. Source-retained attributes stay
+/// in `CheckedFile` for tools, while Binary/Runtime entries cross into the
+/// generated artifact through this stable, read-only table.
+fn emit_metadata_abi(out: &mut String, checked: &CheckedFile) {
+    out.push_str("#define AURA_METADATA_ABI_VERSION 1u\n");
+    out.push_str("typedef struct { const char *declaration; const char *target; const char *name; const char *args; uint32_t retention; uint32_t span_start; uint32_t span_end; } AuraAttributeMetadata;\n");
+    out.push_str("typedef struct { const char *phase; const char *macro_name; const char *generated_item; uint32_t invocation_start; uint32_t invocation_end; uint32_t generated_start; uint32_t generated_end; } AuraExpansionMetadata;\n");
+    let retained = checked
+        .attribute_metadata
+        .iter()
+        .filter(|metadata| metadata.retention.abi_code() != 0)
+        .collect::<Vec<_>>();
+    out.push_str("static const AuraAttributeMetadata aura_attribute_metadata[] = {\n");
+    if retained.is_empty() {
+        out.push_str("  { NULL, NULL, NULL, NULL, 0u, 0u, 0u },\n");
+    } else {
+        for metadata in retained {
+            let args = metadata.args.join(",");
+            let _ = writeln!(
+                out,
+                "  {{ \"{}\", \"{}\", \"{}\", \"{}\", {}u, {}u, {}u }},",
+                c_metadata_string(&metadata.declaration),
+                c_metadata_string(&metadata.target),
+                c_metadata_string(&metadata.name),
+                c_metadata_string(&args),
+                metadata.retention.abi_code(),
+                metadata.span.start,
+                metadata.span.end
+            );
+        }
+    }
+    out.push_str("};\n");
+    let _ = writeln!(
+        out,
+        "static const size_t aura_attribute_metadata_count = {}u;",
+        checked
+            .attribute_metadata
+            .iter()
+            .filter(|metadata| metadata.retention.abi_code() != 0)
+            .count()
+    );
+    out.push_str("const AuraAttributeMetadata *aura_generated_attribute_metadata(size_t *count) { if (count != NULL) *count = aura_attribute_metadata_count; return aura_attribute_metadata_count == 0 ? NULL : aura_attribute_metadata; }\n");
+
+    out.push_str("static const AuraExpansionMetadata aura_expansion_metadata[] = {\n");
+    if checked.expansions.is_empty() {
+        out.push_str("  { NULL, NULL, NULL, 0u, 0u, 0u, 0u },\n");
+    } else {
+        for metadata in &checked.expansions {
+            let _ = writeln!(
+                out,
+                "  {{ \"{}\", \"{}\", \"{}\", {}u, {}u, {}u, {}u }},",
+                c_metadata_string(&metadata.phase),
+                c_metadata_string(&metadata.macro_name),
+                c_metadata_string(&metadata.generated_item),
+                metadata.invocation_span.start,
+                metadata.invocation_span.end,
+                metadata.generated_span.start,
+                metadata.generated_span.end
+            );
+        }
+    }
+    out.push_str("};\n");
+    let _ = writeln!(
+        out,
+        "static const size_t aura_expansion_metadata_count = {}u;",
+        checked.expansions.len()
+    );
+    out.push_str("const AuraExpansionMetadata *aura_generated_expansion_metadata(size_t *count) { if (count != NULL) *count = aura_expansion_metadata_count; return aura_expansion_metadata_count == 0 ? NULL : aura_expansion_metadata; }\n\n");
+}
+
 /// F2: emit only the primitive C ABI surface declared by `@foreign`.
 /// String is intentionally represented as a borrowed `const char *` handle.
 fn emit_foreign_prototypes(out: &mut String, checked: &CheckedFile) {
@@ -6863,6 +6942,21 @@ async fun run(handle: ForeignHandle<Int>): Unit { native_use(handle) }\n",
         let attribute = &checked.ast.functions[0].attributes[0];
         assert_eq!(attribute.name.name, "deprecated");
         assert_eq!(attribute.args.len(), 1);
+    }
+
+    #[test]
+    fn generated_artifact_exposes_retained_attribute_and_expansion_abi() {
+        let file = parse_file(
+            "package demo\n@reflect\n@derive(Equals) class Point(@deprecated(\"old\") val x: Int) {}\n",
+        )
+        .expect("metadata fixture parses");
+        let checked = aura_sema::check_file(&file).expect("metadata fixture checks");
+        let generated = emit_c_with(&checked, EmitOptions::default());
+        assert!(generated.contains("#define AURA_METADATA_ABI_VERSION 1u"));
+        assert!(generated.contains("aura_generated_attribute_metadata"));
+        assert!(generated.contains("aura_generated_expansion_metadata"));
+        assert!(generated.contains("Point.equals"));
+        assert!(generated.contains("AURA_METADATA_ABI_VERSION"));
     }
 
     #[test]

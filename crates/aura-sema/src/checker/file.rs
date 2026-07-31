@@ -1610,6 +1610,8 @@ impl Checker {
             lambda_tys: self.lambda_tys.clone(),
             expr_tys: self.expr_tys.clone(),
             lambda_captures: self.lambda_captures.clone(),
+            attribute_metadata: crate::attributes::collect_metadata(file),
+            expansions: Vec::new(),
             ast: file.clone(),
         })
     }

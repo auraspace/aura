@@ -145,7 +145,47 @@ pub struct CheckedFile {
     pub expr_tys: HashMap<(u32, u32), Ty>,
     /// C10h/C12m: LambdaExpr.span.start → outer captures in stable name order.
     pub lambda_captures: HashMap<u32, Vec<LambdaCapture>>,
+    /// Attribute metadata retained by the compiler boundary.
+    pub attribute_metadata: Vec<AttributeMetadata>,
+    /// Synthetic items and their expansion origins.
+    pub expansions: Vec<ExpansionMetadata>,
     pub ast: File,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AttributeMetadata {
+    pub declaration: String,
+    pub target: String,
+    pub name: String,
+    pub retention: MetadataRetention,
+    pub args: Vec<String>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MetadataRetention {
+    Source,
+    Binary,
+    Runtime,
+}
+
+impl MetadataRetention {
+    pub fn abi_code(self) -> u32 {
+        match self {
+            Self::Source => 0,
+            Self::Binary => 1,
+            Self::Runtime => 2,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExpansionMetadata {
+    pub phase: String,
+    pub macro_name: String,
+    pub generated_item: String,
+    pub invocation_span: Span,
+    pub generated_span: Span,
 }
 
 /// One free-variable capture of a lambda (C10h/C12m).
