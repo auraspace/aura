@@ -30,6 +30,22 @@ fn task_result_foreign_handle_ok(e: &EnumDecl, pkg: &str, args: &[Ty], variant: 
         && matches!(args, [Ty::ForeignHandle(_), Ty::Enum(name)] if name == "TaskError@std.io")
 }
 
+fn task_result_class_ok(
+    e: &EnumDecl,
+    pkg: &str,
+    args: &[Ty],
+    variant: &str,
+    checked: &CheckedFile,
+) -> bool {
+    pkg == "std.io"
+        && e.name.name == "Result"
+        && variant == "Ok"
+        && args.first().is_some_and(|ty| {
+            matches!(ty, Ty::Class(_) | Ty::ClassApp { .. })
+                && c_type_from_ty(ty, checked).trim_end().ends_with('*')
+        })
+}
+
 fn shared_outcome_string_ok(e: &EnumDecl, pkg: &str, args: &[Ty], variant: &str) -> bool {
     pkg == "std.error"
         && e.name.name == "Outcome"
@@ -80,13 +96,13 @@ pub(crate) fn emit_enum_typedef(
             if task_error && v.name.name == "Failed" {
                 out.push_str("      bool owned;\n");
             }
-            if task_error && v.name.name == "FailedTyped" {
-                out.push_str("      bool owned;\n");
-            }
             if task_result_string_ok(e, &pkg, args, &v.name.name) {
                 out.push_str("      bool owned;\n");
             }
             if task_result_foreign_handle_ok(e, &pkg, args, &v.name.name) {
+                out.push_str("      bool owned;\n");
+            }
+            if task_result_class_ok(e, &pkg, args, &v.name.name, checked) {
                 out.push_str("      bool owned;\n");
             }
             if shared_outcome_string_ok(e, &pkg, args, &v.name.name) {
@@ -174,7 +190,7 @@ pub(crate) fn emit_enum_defs(out: &mut String, checked: &CheckedFile, e: &EnumDe
                 n,
                 n
             );
-            if task_error && (v.name.name == "Failed" || v.name.name == "FailedTyped") {
+            if task_error && v.name.name == "Failed" {
                 let _ = writeln!(
                     out,
                     "  self.data.{}.owned = false;",
@@ -185,6 +201,9 @@ pub(crate) fn emit_enum_defs(out: &mut String, checked: &CheckedFile, e: &EnumDe
                 let _ = writeln!(out, "  self.data.Ok.owned = false;");
             }
             if task_result_foreign_handle_ok(e, &pkg, args, &v.name.name) {
+                let _ = writeln!(out, "  self.data.Ok.owned = false;");
+            }
+            if task_result_class_ok(e, &pkg, args, &v.name.name, checked) {
                 let _ = writeln!(out, "  self.data.Ok.owned = false;");
             }
             if shared_outcome_string_ok(e, &pkg, args, &v.name.name) {
@@ -202,16 +221,6 @@ pub(crate) fn emit_enum_defs(out: &mut String, checked: &CheckedFile, e: &EnumDe
             ctor,
             c_enum_type(&mono)
         );
-        if let Some(typed_tag) = e.variants.iter().position(|v| v.name.name == "FailedTyped") {
-            let ctor = c_variant_ctor_name(&mono, "FailedTypedOwned");
-            let _ = writeln!(
-                out,
-                "{} {}(const char *error, const char *typeName) {{ {} self; self.tag = {typed_tag}; self.data.FailedTyped.error = error; self.data.FailedTyped.typeName = typeName; self.data.FailedTyped.owned = true; return self; }}",
-                c_enum_type(&mono),
-                ctor,
-                c_enum_type(&mono)
-            );
-        }
     }
     if task_result_string_ok(e, &pkg, args, "Ok") {
         let ctor = c_variant_ctor_name(&mono, "OkOwned");
@@ -230,6 +239,17 @@ pub(crate) fn emit_enum_defs(out: &mut String, checked: &CheckedFile, e: &EnumDe
             "{} {}(AuraFfiOpaqueHandle *value) {{ {} self; self.tag = 0; self.data.Ok.value = value; self.data.Ok.owned = true; return self; }}",
             c_enum_type(&mono),
             ctor,
+            c_enum_type(&mono)
+        );
+    }
+    if task_result_class_ok(e, &pkg, args, "Ok", checked) {
+        let ctor = c_variant_ctor_name(&mono, "OkOwned");
+        let _ = writeln!(
+            out,
+            "{} {}({} value) {{ {} self; self.tag = 0; self.data.Ok.value = value; self.data.Ok.owned = true; return self; }}",
+            c_enum_type(&mono),
+            ctor,
+            c_type_from_ty(&args[0], checked),
             c_enum_type(&mono)
         );
     }

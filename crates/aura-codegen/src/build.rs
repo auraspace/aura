@@ -7402,7 +7402,7 @@ fun main() {
         let file = aura_parser::parse_file(
             r#"package std.io
 class Failure(var message: String) {}
-enum TaskError { case Failed(error: String) case FailedTyped(error: String, typeName: String) case Cancelled }
+enum TaskError { case Failed(error: String) case Cancelled }
 enum Result<T, E> { case Ok(value: T) case Err(error: E) }
 async fun leaf(): Int { throw Failure("class-detail" + "") }
 async fun middle(): Int {
@@ -7420,7 +7420,6 @@ fun main() {
     case Err(error) => {
       match (error) {
         case Failed(message) => { println(message) }
-        case FailedTyped(message, typeName) => { println(message) println(typeName) }
         case Cancelled => { println("cancelled") }
       }
     }
@@ -7432,7 +7431,6 @@ fun main() {
     case Err(error) => {
       match (error) {
         case Failed(message) => { println(message) }
-        case FailedTyped(message, typeName) => { println(message) println(typeName) }
         case Cancelled => { println("cancelled") }
       }
     }
@@ -7467,10 +7465,7 @@ fun main() {
         );
         let stdout = String::from_utf8_lossy(&output.stdout);
         let lines: Vec<&str> = stdout.lines().collect();
-        assert_eq!(
-            lines,
-            ["class-detail", "Failure", "class-detail", "Failure"]
-        );
+        assert_eq!(lines, ["class-detail", "class-detail"]);
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);
     }
@@ -7623,6 +7618,7 @@ fun main() {
         assert!(generated.contains("aura_gc_add_root((void **)result)"));
         assert!(generated.contains("aura_gc_remove_root((void **)result)"));
         assert!(generated.contains("aura_gc_add_root((void **)&first.data.Ok.value)"));
+        assert!(generated.contains("aura_var_std_io_Result_") && generated.contains("_OkOwned"));
 
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()

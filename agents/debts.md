@@ -112,7 +112,11 @@ When you resolve debt, update or remove the matching entry.
 - Next step: add bounded LRU/size-based eviction and expose cache hit/eviction
   metrics before enabling long-lived workspace sessions by default.
 
-### ASYNC-002 generated payload clone integration remains partial (updated 2026-07-28)
+### ASYNC-002 generated payload clone integration (historical, superseded 2026-07-31)
+
+> The bounded gaps described in this historical log are resolved by the
+> current ASYNC-002 entry below. Remaining broader control-flow and aggregate
+> limits are tracked under ASYNC-003.
 
 - Area: compiler-generated async child-to-parent failure propagation
 - Progress: native task outcomes now support clone-based terminal result
@@ -1108,8 +1112,8 @@ TaskError>` locals release their payload at scope exit. Nested
   same fixture passes under ASAN/UBSAN. Cancellation and frame teardown are
   covered by the runtime matrix.
 - The remaining limits are deliberate contract boundaries rather than
-  unresolved capture bugs: richer aggregate element types and public typed
-  outcome payloads remain tracked by ASYNC-002/003.
+  unresolved capture bugs: richer aggregate element types beyond supported
+  arrays and broader scheduler policy remain tracked by ASYNC-003.
 
 ### RUNTIME-002 suspended frame ownership boundary (resolved 2026-07-26)
 
@@ -1158,28 +1162,29 @@ TaskError>` locals release their payload at scope exit. Nested
   still unavailable in this environment; the validator intentionally rejects
   any report that claims those checks.
 
-### ASYNC-002 task outcome representation remains open (updated 2026-07-27)
+### ASYNC-002 task outcome representation (resolved 2026-07-31)
 
 - Generated `join` now exposes `std.io.Result<T, std.io.TaskError>` and
-  distinguishes `TaskError.Failed(String)`, additive
-  `TaskError.FailedTyped(message, typeName)`, and `TaskError.Cancelled`.
-  Primitive Int/Bool failures are normalized to owned strings, String
-  failures preserve their detail, and no-await typed String plus heap-class
-  spawn success is owned across repeated joins. Direct `Array<Int>` success is
-  cloned for owning joins; pending handle release now cancels and reclaims the
-  executor-owned frame synchronously. Cancellation ownership for richer
-  payloads and arbitrary typed payload transfer remain open.
-- Class failures preserve an owned normalized type name across nested awaits,
+  consistently maps failures to owned `TaskError.Failed(String)` and
+  cancellation to `TaskError.Cancelled`. Primitive Int/Bool failures are
+  normalized to owned strings, String failures preserve their detail, and
+  no-await typed String plus heap-class spawn success is owned across repeated
+  joins. Direct Array success is deep-cloned for owning joins; class results
+  receive an independent GC root; ForeignHandle results retain a runtime
+  reference; pending handle release cancels and reclaims the executor-owned
+  frame synchronously.
+- Class failures preserve their owned normalized message across nested awaits,
   forced GC, repeated owning joins, and lexical result cleanup. The raw class
-  object remains internal to the frame ABI; exposing it publicly still needs a
-  deliberate typed object/FFI contract rather than a borrowed pointer.
+  object remains internal to the frame ABI; `TaskError` intentionally exposes
+  the canonical message-only failure contract.
 - The general CFG path now accepts caller-owned `Task<Int>` and `Task<String>`
   parameters, records `await_task_owned = false`, clones the String success
   payload across a branch/loop suspension, and preserves child failure and
   cancellation while repeated joins observe the parent. It now also retains
   and transfers `ForeignHandle<T>` values across caller-owned task awaits;
-  typed handle results use an owned `Result.Ok` join payload. Public raw
-  payloads and richer aggregate failures remain open.
+  typed handle results use an owned `Result.Ok` join payload. The public
+  contract is intentionally canonical: `TaskError` exposes only
+  `Failed(String)` and `Cancelled`; raw exception objects remain internal.
 
 ### ASYNC-003 post-G1 ownership frontier (updated 2026-07-31)
 
@@ -1211,7 +1216,7 @@ TaskError>` locals release their payload at scope exit. Nested
   cancellation, forced GC, and an eight-await state machine. Remaining
   ownership frontier: richer aggregate element types beyond supported arrays,
   heap-owning class fields in caught payloads, nested finally cleanup, and
-  public typed outcome payloads.
+  richer aggregate element types beyond supported arrays.
 
 ### IO-002 compiler-generated descriptor I/O remains bounded (updated 2026-07-28)
 

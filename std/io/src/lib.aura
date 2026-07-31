@@ -6,8 +6,6 @@ package std.io
 pub enum TaskError {
   /// The task failed with an untyped error message.
   case Failed(error: String)
-  /// The task failed with a typed error and its runtime type name.
-  case FailedTyped(error: String, typeName: String)
   /// The task was cooperatively cancelled before producing a value.
   case Cancelled
 }

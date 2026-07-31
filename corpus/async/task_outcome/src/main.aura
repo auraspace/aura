@@ -15,7 +15,6 @@ fun main() {
         case Err(error) => {
             match (error) {
                 case Failed(message) => { Io.println(message) }
-                case FailedTyped(message, typeName) => { Io.println(message) }
                 case Cancelled => { Io.println("joined task cancelled") }
             }
         }
