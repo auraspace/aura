@@ -72,7 +72,7 @@ run_native_fixture() {
     extra=(-D AURA_RUNTIME_NO_MAIN)
   fi
   printf 'sanitizer smoke: %s\n' "$fixture"
-  "$real_cc" "${extra[@]}" -std=c11 -Wall -Wextra -Werror \
+  "$real_cc" "${extra[@]}" -D_POSIX_C_SOURCE=200809L -std=c11 -Wall -Wextra -Werror \
     -fsanitize=address,undefined -fno-omit-frame-pointer \
     -o "$output" "$source"
   ASAN_OPTIONS="$native_asan_options" \

@@ -13,7 +13,7 @@ fi
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/aura-http-health.XXXXXX")"
 trap 'rm -rf "$tmp"' EXIT
 
-"$cc" -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined \
+"$cc" -D_POSIX_C_SOURCE=200809L -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined \
   -fno-omit-frame-pointer -o "$tmp/http-health" examples/http-health/http_health.c
 ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0:halt_on_error=1}" \
   UBSAN_OPTIONS="${UBSAN_OPTIONS:-halt_on_error=1:print_stacktrace=1}" \

@@ -48,13 +48,13 @@ pass 'race failure exits 1'
 
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/aura-race-regression.XXXXXX")"
 trap 'rm -rf "$tmp"' EXIT
-cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined \
+cc -D_POSIX_C_SOURCE=200809L -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined \
   -o "$tmp/race-report" runtime/tests/race_report.c
 "$tmp/race-report" >"$tmp/report.txt"
 pass 'planted-race, race-free, channel, and suppression fixtures (C asserts)'
 
 for fixture in race_tracker ffi_owned; do
-  cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined \
+  cc -D_POSIX_C_SOURCE=200809L -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined \
     -o "$tmp/$fixture" "runtime/tests/$fixture.c"
   "$tmp/$fixture"
 done

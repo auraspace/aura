@@ -22,7 +22,7 @@ trap 'rm -rf "$tmp"' EXIT
 
 for fixture in ffi_owned ffi_handles ffi_callbacks; do
   printf 'ffi regression: %s\n' "$fixture"
-  "$cc" -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined \
+  "$cc" -D_POSIX_C_SOURCE=200809L -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined \
     -fno-omit-frame-pointer -o "$tmp/$fixture" "runtime/tests/$fixture.c"
   ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0:halt_on_error=1}" \
     UBSAN_OPTIONS="${UBSAN_OPTIONS:-halt_on_error=1:print_stacktrace=1}" \

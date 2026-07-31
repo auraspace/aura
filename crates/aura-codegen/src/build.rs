@@ -2130,7 +2130,7 @@ fun main() { Worker().run() }
             .and_then(|path| path.parent())
             .expect("workspace root");
         let dir = std::env::temp_dir();
-        let stem = format!("aura-async-class-catch-{}", std::process::id());
+        let stem = format!("aura-async-class-method-catch-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
         build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
