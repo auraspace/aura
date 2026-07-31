@@ -2043,10 +2043,10 @@ fn emit_join(j: &JoinExpr, ctx: &mut EmitCtx<'_>, owned_error: bool) -> String {
         out.push_str(&format!(
             "else {{ {cty} __join_handle = __join_result.data != NULL ? *(({cty} *)__join_result.data) : NULL; if (__join_handle != NULL && aura_ffi_handle_retain(__join_handle) != AURA_FFI_OK) __join_handle = NULL; __join_value = {result_ok_owned}(__join_handle); }} "
         ));
-    } else if owned_error && is_plain_enum_mono(&inner, ctx.checked) {
-        // Enums containing only scalar/unit fields are safely copied by value.
+    } else if owned_error && is_enum_mono(&inner, ctx.checked) {
+        let clone_fn = format!("{cty}_clone");
         out.push_str(&format!(
-            "else {{ __join_value = {result_ok}(__join_result.data != NULL ? *(({cty} *)__join_result.data) : ({cty}){{0}}); }} "
+            "else {{ {cty} __join_payload = __join_result.data != NULL ? *(({cty} *)__join_result.data) : ({cty}){{0}}; __join_value = {result_ok}({clone_fn}(&__join_payload)); }} "
         ));
     } else if !owned_error || matches!(inner.as_str(), "Int" | "Bool") {
         out.push_str(&format!(
@@ -2059,24 +2059,20 @@ fn emit_join(j: &JoinExpr, ctx: &mut EmitCtx<'_>, owned_error: bool) -> String {
     out
 }
 
-fn is_plain_enum_mono(key: &str, checked: &CheckedFile) -> bool {
+fn is_enum_mono(key: &str, checked: &CheckedFile) -> bool {
     let Some((base, args)) = mono_split(key, checked) else {
         return false;
     };
-    let Some(enum_decl) = checked.ast.enums.iter().find(|e| e.name.name == base) else {
-        return false;
-    };
-    let params: Vec<String> = enum_decl
-        .type_params
+    checked
+        .ast
+        .enums
         .iter()
-        .map(|p| p.name.name.clone())
-        .collect();
-    enum_decl.variants.iter().all(|variant| {
-        variant.fields.iter().all(|field| {
-            let field_key = type_ref_local_key_expand(&field.ty, &params, args, checked);
-            matches!(field_key.as_str(), "Int" | "Bool" | "Unit")
-        })
-    })
+        .any(|enum_decl| enum_decl.name.name == base)
+        && (args.is_empty()
+            || checked
+                .mono_enums
+                .iter()
+                .any(|(name, candidate)| name == base && candidate.as_slice() == args))
 }
 
 fn emit_await(a: &AwaitExpr, ctx: &mut EmitCtx<'_>) -> String {

@@ -10010,10 +10010,19 @@ fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile, detector:
             let result_cty = crate::stmt::local_key_to_c(&spawn_return_key, checked);
             let result_destroy = format!("aura_spawn_result_destroy_{}", spawn.span.start);
             let result_tmp = format!("__ret_{}", return_span.start);
-            let _ = writeln!(
-                out,
-                "  {result_cty} *result = ({result_cty} *)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; *result = {result_tmp}; aura_task_frame_set_result(frame, result, sizeof(*result), {result_destroy}); return AURA_TASK_COMPLETE;"
-            );
+            if crate::expr::mono_split(&spawn_return_key, checked)
+                .is_some_and(|(base, _)| checked.ast.enums.iter().any(|e| e.name.name == base))
+            {
+                let _ = writeln!(
+                    out,
+                    "  {result_cty} *result = ({result_cty} *)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; *result = {result_cty}_clone(&{result_tmp}); aura_task_frame_set_result(frame, result, sizeof(*result), {result_destroy}); return AURA_TASK_COMPLETE;"
+                );
+            } else {
+                let _ = writeln!(
+                    out,
+                    "  {result_cty} *result = ({result_cty} *)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; *result = {result_tmp}; aura_task_frame_set_result(frame, result, sizeof(*result), {result_destroy}); return AURA_TASK_COMPLETE;"
+                );
+            }
             let _ = writeln!(out, "}}");
             let _ = writeln!(
                 out,
@@ -10023,6 +10032,13 @@ fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile, detector:
                 let _ = writeln!(
                     out,
                     "  (void)size; if (data != NULL) {{ {result_cty} *result = ({result_cty} *)data; if (result->tag == 0 && result->data.OutcomeOk.owned && result->data.OutcomeOk.value != NULL) free((void *)result->data.OutcomeOk.value); if (result->tag == 1 && result->data.OutcomeErr.owned && result->data.OutcomeErr.error != NULL) aura_gc_remove_root((void **)&result->data.OutcomeErr.error); free(result); }}"
+                );
+            } else if crate::expr::mono_split(&spawn_return_key, checked)
+                .is_some_and(|(base, _)| checked.ast.enums.iter().any(|e| e.name.name == base))
+            {
+                let _ = writeln!(
+                    out,
+                    "  (void)size; if (data != NULL) {{ {result_cty} *result = ({result_cty} *)data; {result_cty}_drop(result); free(result); }}"
                 );
             } else {
                 out.push_str("  (void)size; free(data);\n");

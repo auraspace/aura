@@ -1608,6 +1608,9 @@ TaskError>` ABI, plus cooperative `isCancelled()` inside generated async
 - Progress: owned join now accepts enum payloads whose variants contain only
   scalar/unit fields, with native sanitizer coverage for repeated task result
   observation.
+- Progress: generated enum monomorphs now expose clone/drop helpers for owned
+  String fields; generic spawn and owned join use them, covered by repeated
+  join plus forced-GC sanitizer execution.
 - Residual: generic bounded pollers still need dedicated clone/destroy paths for
-  enums containing owned fields and richer aggregates beyond the shared Outcome
-  case.
+  enum fields containing nested arrays/classes/foreign handles and richer
+  aggregates beyond the shared Outcome case.

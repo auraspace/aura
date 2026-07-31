@@ -161,6 +161,9 @@ pub(crate) fn emit_enum_forwards(
             c_variant_signature(e, v, checked, &params, args, &mono)
         );
     }
+    let cty = c_enum_type(&mono);
+    let _ = writeln!(out, "{cty} {cty}_clone(const {cty} *source);");
+    let _ = writeln!(out, "void {cty}_drop({cty} *value);");
 }
 
 pub(crate) fn c_variant_signature(
@@ -300,4 +303,89 @@ pub(crate) fn emit_enum_defs(out: &mut String, checked: &CheckedFile, e: &EnumDe
             c_enum_type(&mono)
         );
     }
+    emit_enum_clone_drop(out, checked, e, args);
+}
+
+fn variant_has_owned_field(
+    e: &EnumDecl,
+    pkg: &str,
+    args: &[Ty],
+    variant: &str,
+    checked: &CheckedFile,
+) -> bool {
+    task_error_variant(e, pkg, variant)
+        || task_result_string_ok(e, pkg, args, variant)
+        || task_result_foreign_handle_ok(e, pkg, args, variant)
+        || task_result_class_ok(e, pkg, args, variant, checked)
+        || task_result_enum_ok(e, pkg, args, variant)
+        || shared_outcome_string_ok(e, pkg, args, variant)
+        || shared_outcome_error_class(e, pkg, args, variant, checked)
+}
+
+fn task_error_variant(e: &EnumDecl, pkg: &str, variant: &str) -> bool {
+    pkg == "std.io" && e.name.name == "TaskError" && variant == "Failed"
+}
+
+fn emit_enum_clone_drop(out: &mut String, checked: &CheckedFile, e: &EnumDecl, args: &[Ty]) {
+    let params: Vec<String> = e.type_params.iter().map(|p| p.name.name.clone()).collect();
+    let pkg = enum_decl_package(e, checked);
+    let mono = type_mono(&pkg, &e.name.name, args);
+    let cty = c_enum_type(&mono);
+    let _ = writeln!(out, "{cty} {cty}_clone(const {cty} *source) {{");
+    let _ = writeln!(
+        out,
+        "  {cty} copy = source == NULL ? ({cty}){{0}} : *source;"
+    );
+    out.push_str("  if (source == NULL) return copy;\n  switch (source->tag) {\n");
+    for (tag, variant) in e.variants.iter().enumerate() {
+        let vn = mangle_ident(&variant.name.name);
+        let _ = writeln!(out, "    case {tag}: {{");
+        for field in &variant.fields {
+            if enum_field_is_unit(field, &params, args, checked) {
+                continue;
+            }
+            let key = type_ref_local_key_expand(&field.ty, &params, args, checked);
+            let fnm = mangle_ident(&field.name.name);
+            if key == "String" {
+                let _ = writeln!(
+                    out,
+                    "      if (source->data.{vn}.{fnm} != NULL) {{ size_t len = strlen(source->data.{vn}.{fnm}); char *text = (char *)malloc(len + 1); if (text == NULL) abort(); memcpy(text, source->data.{vn}.{fnm}, len + 1); copy.data.{vn}.{fnm} = text; }}"
+                );
+                if variant_has_owned_field(e, &pkg, args, &variant.name.name, checked) {
+                    let _ = writeln!(out, "      copy.data.{vn}.owned = true;");
+                }
+            }
+        }
+        out.push_str("      break;\n    }\n");
+    }
+    out.push_str("    default: break;\n  }\n  return copy;\n}\n");
+    let _ = writeln!(out, "void {cty}_drop({cty} *value) {{");
+    out.push_str("  if (value == NULL) return;\n  switch (value->tag) {\n");
+    for (tag, variant) in e.variants.iter().enumerate() {
+        let vn = mangle_ident(&variant.name.name);
+        let _ = writeln!(out, "    case {tag}: {{");
+        for field in &variant.fields {
+            if enum_field_is_unit(field, &params, args, checked) {
+                continue;
+            }
+            let key = type_ref_local_key_expand(&field.ty, &params, args, checked);
+            let fnm = mangle_ident(&field.name.name);
+            if key == "String" {
+                if variant_has_owned_field(e, &pkg, args, &variant.name.name, checked) {
+                    let _ = writeln!(
+                        out,
+                        "      if (value->data.{vn}.owned && value->data.{vn}.{fnm} != NULL) free((void *)value->data.{vn}.{fnm});"
+                    );
+                } else {
+                    let _ = writeln!(
+                        out,
+                        "      if (value->data.{vn}.{fnm} != NULL) free((void *)value->data.{vn}.{fnm});"
+                    );
+                }
+                let _ = writeln!(out, "      value->data.{vn}.{fnm} = NULL;");
+            }
+        }
+        out.push_str("      break;\n    }\n");
+    }
+    out.push_str("    default: break;\n  }\n}\n");
 }

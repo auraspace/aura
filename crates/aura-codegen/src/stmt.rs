@@ -257,6 +257,15 @@ fn task_result_class_owner_key<'a>(key: &'a str, ctx: &EmitCtx<'_>) -> Option<&'
     is_heap_class_mono(payload, ctx.checked).then_some(payload)
 }
 
+fn task_result_enum_owner_key<'a>(key: &'a str, ctx: &EmitCtx<'_>) -> Option<&'a str> {
+    let payload = key
+        .strip_prefix("std_io_Result_")
+        .and_then(|rest| rest.strip_suffix("_std_io_TaskError"))?;
+    crate::expr::mono_split(payload, ctx.checked)
+        .is_some_and(|(base, _)| ctx.checked.ast.enums.iter().any(|e| e.name.name == base))
+        .then_some(payload)
+}
+
 pub(crate) fn emit_free_task_result_owners(
     out: &mut String,
     indent: usize,
@@ -294,6 +303,12 @@ pub(crate) fn emit_free_task_result_owners(
         } else if is_task_result_shared_outcome_error_owner_key(key) {
             format!(
                 "if ({n}.tag == 0 && {n}.data.Ok.owned) {{ if ({n}.data.Ok.value.tag == 0 && {n}.data.Ok.value.data.OutcomeOk.owned && {n}.data.Ok.value.data.OutcomeOk.value != NULL) {{ free((void *){n}.data.Ok.value.data.OutcomeOk.value); {n}.data.Ok.value.data.OutcomeOk.value = NULL; {n}.data.Ok.value.data.OutcomeOk.owned = false; }} if ({n}.data.Ok.value.tag == 1 && {n}.data.Ok.value.data.OutcomeErr.owned && {n}.data.Ok.value.data.OutcomeErr.error != NULL) {{ aura_gc_remove_root((void **)&{n}.data.Ok.value.data.OutcomeErr.error); {n}.data.Ok.value.data.OutcomeErr.error = NULL; {n}.data.Ok.value.data.OutcomeErr.owned = false; }} {n}.data.Ok.owned = false; }} "
+            )
+        } else if task_result_enum_owner_key(key, ctx).is_some() {
+            let payload = task_result_enum_owner_key(key, ctx).unwrap();
+            let payload_cty = local_key_to_c(payload, ctx.checked);
+            format!(
+                "if ({n}.tag == 0 && {n}.data.Ok.owned) {{ {payload_cty}_drop(&{n}.data.Ok.value); {n}.data.Ok.owned = false; }} "
             )
         } else {
             String::new()

@@ -1960,6 +1960,68 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_join_of_string_enum_payload() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+enum Payload { case Text(value: String) }
+fun main() {
+  val task = spawn {
+    return Text("owned-enum")
+  }
+  val first: Result<Payload, TaskError> = join(task)
+  match (first) {
+    case Ok(value) => {
+      match (value) {
+        case Text(text) => { println(text) }
+      }
+    }
+    case Err(error) => { println("failed") }
+  }
+  gc_collect()
+  val second: Result<Payload, TaskError> = join(task)
+  match (second) {
+    case Ok(value) => {
+      match (value) {
+        case Text(text) => { println(text) }
+      }
+    }
+    case Err(error) => { println("failed") }
+  }
+}
+"#,
+        )
+        .expect("parse String enum task payload fixture");
+        let generated = emit_c_from_ast(&file).expect("emit String enum task payload fixture");
+        assert!(generated.contains("aura_enum_std_io_Payload_clone"));
+        assert!(generated.contains("aura_enum_std_io_Payload_drop"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-joined-string-enum-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile String enum task payload fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run String enum task payload fixture");
+        assert!(
+            output.status.success(),
+            "String enum task payload failed: {output:?}"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "owned-enum\nowned-enum\n"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_std_sync_atomic_int() {
         let file = aura_parser::parse_file(
             r#"package std.sync
