@@ -20,8 +20,8 @@ must update it together with this document.
 | `std.tls`, `std.udp`, `std.websocket`, `std.compress`, `std.multipart` | Locked placeholder                     | Transport/protocol shapes exist; backends and parsers are not wired                                                                                         |
 | `std.json` traversal/mapping                                           | Locked placeholder                     | `Value.get`, `at`, `asString`, `keys`, `clone`, `byteLength`, `depth`, `parseWithOptions`, `parseResult`, and `decode<T>` are reserved and fail explicitly  |
 | `std.json` parse policy                                                | Locked placeholder                     | `ParseOptions`, `DuplicateKeyPolicy`, and `ParseError` reserve bounds/duplicate-key semantics                                                               |
-| `std.task.taskScope`, `Select<T>`, `spawnBlocking<T>`                  | Locked placeholder                     | Structured concurrency and worker-pool names/signatures are reserved; calls fail explicitly                                                                 |
-| `std.sync.Lazy<T>`                                                     | Locked placeholder                     | Exactly-once lazy initialization shape is reserved; calls fail explicitly                                                                                   |
+| `std.task.taskScope`, `Select<T>`, `spawnBlocking<T>`                  | Bounded implementation                 | Scope supervision, channel selection, and worker-pool execution are available within the documented MVP limits                                              |
+| `std.sync.Lazy<T>`                                                     | Bounded implementation                 | Exactly-once task-safe initialization is available within the documented MVP limits                                                                         |
 | `std.collections.List<T>`                                              | Implemented (initial)                  | Owning Array-backed list with `List.of`, `listOf`, indexed mutation, stack operations, and generic `map<R>`; iterator/clone semantics remain follow-up work |
 | `std.test.benchmark`, `snapshot`, `property`                           | Locked placeholder                     | RFC-011 advanced test hooks fail explicitly; runner protocols are not wired                                                                                 |
 | Unix sockets, HTTP/2+, HTTP/3/QUIC                                     | Reserved                               | Design/API follow-ons; no package is exposed yet                                                                                                            |
@@ -39,7 +39,7 @@ remain compatible.
 The API surface is now broad enough for CLI, file, collection, service, and
 bounded HTTP applications. “Complete” still requires separate implementation
 work for general async lowering and aggregate ownership, non-empty spawn
-capture transfer, macro/derive expansion, thread scheduling and concurrent GC,
+capture transfer, macro/derive expansion, a concurrent tracing collector,
 cryptographic/TLS backends, full JSON traversal/mapping, and release evidence
 on deferred targets. Those gaps are tracked as debt rather than hidden behind
 an unstable API.

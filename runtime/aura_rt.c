@@ -19,6 +19,7 @@
 #endif
 #if defined(__unix__) || defined(__APPLE__)
 #include <unistd.h>
+#include <pthread.h>
 #endif
 
 static volatile sig_atomic_t aura_shutdown_signal = 0;
@@ -143,7 +144,16 @@ typedef enum AuraFfiBoundary
 #define AURA_FFI_BOUNDARY_REJECTED ((AuraFfiStatus)3)
 #define AURA_FFI_BUSY ((AuraFfiStatus)4)
 typedef struct AuraTaskFrame AuraTaskFrame;
+typedef struct AuraTaskScope AuraTaskScope;
+#ifndef AURA_LAZY_TYPES_DEFINED
+#define AURA_LAZY_TYPES_DEFINED 1
+typedef struct AuraLazyCell AuraLazyCell;
+typedef void (*AuraLazyInitFn)(AuraLazyCell *cell, void *environment);
+typedef void (*AuraLazyValueDestroyFn)(void *value);
+#endif
 typedef void (*AuraTaskFrameGcMarkFn)(AuraTaskFrame *frame);
+typedef void (*AuraTaskBlockingFn)(AuraTaskFrame *frame, void *environment);
+typedef void (*AuraTaskBlockingEnvDestroyFn)(void *environment);
 typedef struct AuraIoOperationHandle AuraIoOperationHandle;
 typedef void (*AuraIoOperationCleanupFn)(void *resource);
 typedef enum AuraIoOperationKind
@@ -203,6 +213,12 @@ typedef enum AuraFfiOutcome
  * even when aura_ffi.h was included before this translation unit. */
 typedef struct AuraTaskExecutor AuraTaskExecutor;
 typedef struct AuraTaskFrame AuraTaskFrame;
+#ifndef AURA_LAZY_TYPES_DEFINED
+#define AURA_LAZY_TYPES_DEFINED 1
+typedef struct AuraLazyCell AuraLazyCell;
+typedef void (*AuraLazyInitFn)(AuraLazyCell *cell, void *environment);
+typedef void (*AuraLazyValueDestroyFn)(void *value);
+#endif
 
 #ifndef AURA_TASK_POLL_STATE_DEFINED
 #define AURA_TASK_POLL_STATE_DEFINED 1
@@ -4952,6 +4968,34 @@ typedef struct AuraGcNode
 
 static AuraGcNode *aura_gc_list = NULL;
 
+#if defined(__unix__) || defined(__APPLE__)
+static pthread_once_t aura_gc_lock_once = PTHREAD_ONCE_INIT;
+static pthread_mutex_t aura_gc_lock;
+
+static void aura_gc_lock_init(void)
+{
+  pthread_mutexattr_t attributes;
+  pthread_mutexattr_init(&attributes);
+  pthread_mutexattr_settype(&attributes, PTHREAD_MUTEX_RECURSIVE);
+  pthread_mutex_init(&aura_gc_lock, &attributes);
+  pthread_mutexattr_destroy(&attributes);
+}
+
+static void aura_gc_lock_enter(void)
+{
+  pthread_once(&aura_gc_lock_once, aura_gc_lock_init);
+  pthread_mutex_lock(&aura_gc_lock);
+}
+
+static void aura_gc_lock_leave(void)
+{
+  pthread_mutex_unlock(&aura_gc_lock);
+}
+#else
+static void aura_gc_lock_enter(void) {}
+static void aura_gc_lock_leave(void) {}
+#endif
+
 /* Conservative root slots: pointers to variables that hold GC pointers. */
 #define AURA_GC_MAX_ROOTS 256
 static void **aura_gc_roots[AURA_GC_MAX_ROOTS];
@@ -4976,14 +5020,17 @@ static int aura_gc_mark_sp = 0;
 
 void aura_gc_add_root(void **slot)
 {
+  aura_gc_lock_enter();
   if (slot == NULL)
   {
+    aura_gc_lock_leave();
     return;
   }
   for (int i = 0; i < aura_gc_root_n; i++)
   {
     if (aura_gc_roots[i] == slot)
     {
+      aura_gc_lock_leave();
       return;
     }
   }
@@ -4993,12 +5040,15 @@ void aura_gc_add_root(void **slot)
     abort();
   }
   aura_gc_roots[aura_gc_root_n++] = slot;
+  aura_gc_lock_leave();
 }
 
 void aura_gc_remove_root(void **slot)
 {
+  aura_gc_lock_enter();
   if (slot == NULL)
   {
+    aura_gc_lock_leave();
     return;
   }
   for (int i = 0; i < aura_gc_root_n; i++)
@@ -5007,16 +5057,20 @@ void aura_gc_remove_root(void **slot)
     {
       aura_gc_roots[i] = aura_gc_roots[aura_gc_root_n - 1];
       aura_gc_root_n--;
+      aura_gc_lock_leave();
       return;
     }
   }
+  aura_gc_lock_leave();
 }
 
 /* C6e: register Array.data / Array.len so collect marks element GC pointers. */
 void aura_gc_add_array_root(void **data_slot, int64_t *len_slot)
 {
+  aura_gc_lock_enter();
   if (data_slot == NULL || len_slot == NULL)
   {
+    aura_gc_lock_leave();
     return;
   }
   for (int i = 0; i < aura_gc_array_root_n; i++)
@@ -5024,6 +5078,7 @@ void aura_gc_add_array_root(void **data_slot, int64_t *len_slot)
     if (aura_gc_array_roots[i].data_slot == data_slot)
     {
       aura_gc_array_roots[i].len_slot = len_slot;
+      aura_gc_lock_leave();
       return;
     }
   }
@@ -5035,12 +5090,15 @@ void aura_gc_add_array_root(void **data_slot, int64_t *len_slot)
   aura_gc_array_roots[aura_gc_array_root_n].data_slot = data_slot;
   aura_gc_array_roots[aura_gc_array_root_n].len_slot = len_slot;
   aura_gc_array_root_n++;
+  aura_gc_lock_leave();
 }
 
 void aura_gc_remove_array_root(void **data_slot)
 {
+  aura_gc_lock_enter();
   if (data_slot == NULL)
   {
+    aura_gc_lock_leave();
     return;
   }
   for (int i = 0; i < aura_gc_array_root_n; i++)
@@ -5049,9 +5107,11 @@ void aura_gc_remove_array_root(void **data_slot)
     {
       aura_gc_array_roots[i] = aura_gc_array_roots[aura_gc_array_root_n - 1];
       aura_gc_array_root_n--;
+      aura_gc_lock_leave();
       return;
     }
   }
+  aura_gc_lock_leave();
 }
 
 static AuraGcNode *aura_gc_find(void *ptr)
@@ -5108,6 +5168,7 @@ static void aura_gc_mark_scan(AuraGcNode *n)
 
 void *aura_gc_alloc_full(size_t size, void (*dtor)(void *), void (*mark_extras)(void *))
 {
+  aura_gc_lock_enter();
   void *p = malloc(size);
   if (p == NULL && size > 0)
   {
@@ -5131,6 +5192,7 @@ void *aura_gc_alloc_full(size_t size, void (*dtor)(void *), void (*mark_extras)(
   n->mark_extras = mark_extras;
   n->next = aura_gc_list;
   aura_gc_list = n;
+  aura_gc_lock_leave();
   return p;
 }
 
@@ -5148,6 +5210,7 @@ static void aura_gc_release(void *ptr)
   {
     return;
   }
+  aura_gc_lock_enter();
   AuraGcNode **link = &aura_gc_list;
   while (*link != NULL)
   {
@@ -5161,17 +5224,21 @@ static void aura_gc_release(void *ptr)
       }
       free(n->ptr);
       free(n);
+      aura_gc_lock_leave();
       return;
     }
     link = &n->next;
   }
+  aura_gc_lock_leave();
 }
 
 /* C7b: mark a GC object pointer (for generated mark_extras on Array fields). */
 void aura_gc_mark_ptr(void *obj)
 {
+  aura_gc_lock_enter();
   if (obj == NULL)
   {
+    aura_gc_lock_leave();
     return;
   }
   AuraGcNode *n = aura_gc_find(obj);
@@ -5179,6 +5246,7 @@ void aura_gc_mark_ptr(void *obj)
   {
     aura_gc_mark_push(n);
   }
+  aura_gc_lock_leave();
 }
 
 /* Frames are malloc-owned, so their opaque data is not visible to the
@@ -6668,6 +6736,7 @@ const char *aura_mime_disposition_filename(const char *value)
 /* C4z/C5f/C6a/C6e: stop-the-world deep mark + sweep when roots are registered. */
 void aura_gc_collect(void)
 {
+  aura_gc_lock_enter();
   for (AuraGcNode *n = aura_gc_list; n != NULL; n = n->next)
   {
     n->marked = 0;
@@ -6679,6 +6748,7 @@ void aura_gc_collect(void)
     {
       n->marked = 1;
     }
+    aura_gc_lock_leave();
     return;
   }
   aura_gc_mark_sp = 0;
@@ -6760,10 +6830,12 @@ void aura_gc_collect(void)
       link = &n->next;
     }
   }
+  aura_gc_lock_leave();
 }
 
 void aura_gc_shutdown(void)
 {
+  aura_gc_lock_enter();
   AuraGcNode *n = aura_gc_list;
   while (n != NULL)
   {
@@ -6780,6 +6852,7 @@ void aura_gc_shutdown(void)
   aura_gc_root_n = 0;
   aura_gc_array_root_n = 0;
   aura_ex_dispose_cleared_causes();
+  aura_gc_lock_leave();
 }
 
 /* ---- F3 bounded foreign String/Array ABI ---- */
@@ -7878,6 +7951,7 @@ int aura_race_happens_before(const AuraRaceEvent *before, const AuraRaceEvent *a
 typedef struct AuraTaskFrame AuraTaskFrame;
 typedef struct AuraTaskExecutor AuraTaskExecutor;
 typedef struct AuraTaskChannel AuraTaskChannel;
+typedef struct AuraTaskSelect AuraTaskSelect;
 
 typedef void (*AuraTaskResultDestroyFn)(void *data, size_t size);
 typedef void *(*AuraTaskResultCloneFn)(const void *data, size_t size,
@@ -8011,6 +8085,7 @@ struct AuraTaskFrame
   AuraTaskFrame *owned_next;
   AuraTaskChannel *waiting_channel;
   void *waiting_node;
+  AuraTaskSelect *waiting_select;
   int fd_wait_fd;
   short fd_wait_events;
   int fd_wait_active;
@@ -8025,9 +8100,27 @@ struct AuraTaskFrame
   AuraTaskFrameGcMarkFn gc_mark;
   AuraTaskFrame *gc_next;
   AuraTaskFfiPin *ffi_pins;
+  AuraTaskScope *scope;
+  AuraTaskFrame *scope_next;
+  int scope_owned;
+  int handle_owned;
+#if defined(AURA_TCP_POSIX)
+  pthread_t blocking_thread;
+  pthread_mutex_t blocking_lock;
+  AuraTaskBlockingFn blocking_fn;
+  AuraTaskBlockingEnvDestroyFn blocking_env_destroy;
+  void *blocking_env;
+  int blocking_started;
+  int blocking_thread_created;
+  int blocking_done;
+#endif
 };
 
 static AuraTaskFrame *aura_gc_task_frames = NULL;
+
+static int aura_task_executor_has_workers(AuraTaskExecutor *executor);
+int aura_task_executor_start_workers(AuraTaskExecutor *executor,
+                                     size_t worker_count);
 
 static void aura_task_frame_unlink_cancel_parent(AuraTaskFrame *frame);
 static void aura_task_frame_detach_cancel_children(AuraTaskFrame *frame);
@@ -8158,6 +8251,9 @@ static void aura_task_frame_detach_waiters(AuraTaskFrame *frame);
 static void aura_task_frame_wake_waiters(AuraTaskFrame *frame);
 
 static uint64_t aura_task_next_id = 1;
+int aura_task_executor_wake(AuraTaskExecutor *executor, AuraTaskFrame *frame);
+int aura_task_executor_submit(AuraTaskExecutor *executor, AuraTaskFrame *frame);
+void aura_task_frame_destroy(AuraTaskFrame *frame);
 
 AuraTaskFrame *aura_task_frame_new(size_t data_size,
                                    AuraTaskPollFn poll,
@@ -8196,6 +8292,97 @@ AuraTaskFrame *aura_task_frame_new(size_t data_size,
   aura_gc_task_frames = frame;
   return frame;
 }
+
+#if defined(AURA_TCP_POSIX)
+static AuraTaskPollState aura_task_blocking_poll(AuraTaskFrame *frame)
+{
+  int done;
+  if (frame == NULL)
+  {
+    return AURA_TASK_FAILED;
+  }
+  pthread_mutex_lock(&frame->blocking_lock);
+  done = frame->blocking_done;
+  pthread_mutex_unlock(&frame->blocking_lock);
+  return done ? AURA_TASK_COMPLETE : AURA_TASK_PENDING;
+}
+
+static void *aura_task_blocking_thread(void *context)
+{
+  AuraTaskFrame *frame = (AuraTaskFrame *)context;
+  frame->blocking_fn(frame, frame->blocking_env);
+  pthread_mutex_lock(&frame->blocking_lock);
+  frame->blocking_done = 1;
+  pthread_mutex_unlock(&frame->blocking_lock);
+  if (frame->executor != NULL)
+  {
+    (void)aura_task_executor_wake(frame->executor, frame);
+  }
+  return NULL;
+}
+
+static void aura_task_blocking_run_inline(AuraTaskFrame *frame)
+{
+  int cancelled;
+  if (frame == NULL || frame->blocking_fn == NULL) return;
+  pthread_mutex_lock(&frame->blocking_lock);
+  cancelled = frame->cancel_requested;
+  frame->blocking_started = 1;
+  pthread_mutex_unlock(&frame->blocking_lock);
+  if (!cancelled)
+    frame->blocking_fn(frame, frame->blocking_env);
+  pthread_mutex_lock(&frame->blocking_lock);
+  frame->blocking_done = 1;
+  pthread_mutex_unlock(&frame->blocking_lock);
+}
+
+AuraTaskFrame *aura_task_frame_new_blocking(
+    AuraTaskExecutor *executor, AuraTaskBlockingFn function, void *environment,
+    AuraTaskBlockingEnvDestroyFn environment_destroy)
+{
+  AuraTaskFrame *frame;
+  if (executor == NULL || function == NULL)
+  {
+    return NULL;
+  }
+  frame = aura_task_frame_new(0, aura_task_blocking_poll, NULL);
+  if (frame == NULL || pthread_mutex_init(&frame->blocking_lock, NULL) != 0)
+  {
+    aura_task_frame_destroy(frame);
+    return NULL;
+  }
+  frame->blocking_fn = function;
+  frame->blocking_env = environment;
+  frame->blocking_env_destroy = environment_destroy;
+#if defined(AURA_TCP_POSIX)
+  if (!aura_task_executor_has_workers(executor))
+    (void)aura_task_executor_start_workers(executor, 4);
+#endif
+  if (aura_task_executor_has_workers(executor))
+  {
+    frame->blocking_started = 0;
+    frame->blocking_thread_created = 0;
+  }
+  else if (pthread_create(&frame->blocking_thread, NULL, aura_task_blocking_thread,
+                          frame) != 0)
+  {
+    frame->blocking_started = 0;
+    aura_task_frame_destroy(frame);
+    return NULL;
+  }
+  else
+  {
+    frame->blocking_started = 1;
+    frame->blocking_thread_created = 1;
+  }
+  if (!aura_task_executor_submit(executor, frame))
+  {
+    aura_task_frame_destroy(frame);
+    return NULL;
+  }
+  return frame;
+}
+#endif
 
 void aura_task_frame_set_gc_mark(AuraTaskFrame *frame,
                                  AuraTaskFrameGcMarkFn mark)
@@ -9692,6 +9879,19 @@ void aura_task_frame_destroy(AuraTaskFrame *frame)
   {
     return;
   }
+#if defined(AURA_TCP_POSIX)
+  if (frame->blocking_thread_created)
+  {
+    pthread_join(frame->blocking_thread, NULL);
+    frame->blocking_started = 0;
+    frame->blocking_thread_created = 0;
+  }
+  if (frame->blocking_env_destroy != NULL && frame->blocking_env != NULL)
+  {
+    frame->blocking_env_destroy(frame->blocking_env);
+    frame->blocking_env = NULL;
+  }
+#endif
   aura_gc_unlink_task_frame(frame);
   aura_task_frame_unlink_cancel_parent(frame);
   aura_task_frame_detach_cancel_children(frame);
@@ -9722,6 +9922,12 @@ void aura_task_frame_destroy(AuraTaskFrame *frame)
     aura_gc_release(frame->data);
     frame->data = NULL;
   }
+#if defined(AURA_TCP_POSIX)
+  if (frame->blocking_fn != NULL)
+  {
+    pthread_mutex_destroy(&frame->blocking_lock);
+  }
+#endif
   free(frame);
 }
 
@@ -9736,6 +9942,140 @@ void aura_task_frame_destroy(AuraTaskFrame *frame)
  * threads, blocking waits, or implicit polling are used.
  */
 
+#if defined(AURA_TCP_POSIX)
+struct AuraLazyCell
+{
+  pthread_mutex_t lock;
+  pthread_cond_t condition;
+  int state; /* 0=uninitialized, 1=initializing, 2=initialized, 3=failed */
+  int published;
+  void *value;
+  AuraLazyInitFn init;
+  void *environment;
+  AuraTaskBlockingEnvDestroyFn environment_destroy;
+  AuraLazyValueDestroyFn value_destroy;
+};
+
+AuraLazyCell *aura_lazy_cell_new(AuraLazyInitFn init, void *environment,
+                                 AuraTaskBlockingEnvDestroyFn environment_destroy)
+{
+  AuraLazyCell *cell;
+  if (init == NULL)
+  {
+    return NULL;
+  }
+  cell = (AuraLazyCell *)calloc(1, sizeof(*cell));
+  if (cell == NULL)
+  {
+    return NULL;
+  }
+  if (pthread_mutex_init(&cell->lock, NULL) != 0)
+  {
+    free(cell);
+    return NULL;
+  }
+  if (pthread_cond_init(&cell->condition, NULL) != 0)
+  {
+    pthread_mutex_destroy(&cell->lock);
+    free(cell);
+    return NULL;
+  }
+  cell->init = init;
+  cell->environment = environment;
+  cell->environment_destroy = environment_destroy;
+  return cell;
+}
+
+void aura_lazy_cell_publish(AuraLazyCell *cell, void *value, size_t size,
+                            AuraLazyValueDestroyFn value_destroy)
+{
+  (void)size;
+  if (cell == NULL)
+  {
+    return;
+  }
+  pthread_mutex_lock(&cell->lock);
+  cell->value = value;
+  cell->value_destroy = value_destroy;
+  cell->published = 1;
+  pthread_mutex_unlock(&cell->lock);
+}
+
+void *aura_lazy_cell_value(AuraLazyCell *cell)
+{
+  void *value = NULL;
+  if (cell == NULL)
+  {
+    return NULL;
+  }
+  pthread_mutex_lock(&cell->lock);
+  while (cell->state == 1)
+  {
+    pthread_cond_wait(&cell->condition, &cell->lock);
+  }
+  if (cell->state == 0)
+  {
+    cell->state = 1;
+    pthread_mutex_unlock(&cell->lock);
+    cell->init(cell, cell->environment);
+    pthread_mutex_lock(&cell->lock);
+    cell->state = cell->published ? 2 : 3;
+    if (cell->environment_destroy != NULL && cell->environment != NULL)
+    {
+      cell->environment_destroy(cell->environment);
+      cell->environment = NULL;
+    }
+    pthread_cond_broadcast(&cell->condition);
+  }
+  if (cell->state == 2)
+  {
+    value = cell->value;
+  }
+  pthread_mutex_unlock(&cell->lock);
+  return value;
+}
+
+int aura_lazy_cell_is_initialized(AuraLazyCell *cell)
+{
+  int initialized;
+  if (cell == NULL)
+  {
+    return 0;
+  }
+  pthread_mutex_lock(&cell->lock);
+  initialized = cell->state == 2;
+  pthread_mutex_unlock(&cell->lock);
+  return initialized;
+}
+
+void aura_lazy_cell_destroy(AuraLazyCell *cell)
+{
+  if (cell == NULL)
+  {
+    return;
+  }
+  pthread_mutex_lock(&cell->lock);
+  while (cell->state == 1)
+  {
+    pthread_cond_wait(&cell->condition, &cell->lock);
+  }
+  if (cell->value_destroy != NULL && cell->value != NULL)
+  {
+    cell->value_destroy(cell->value);
+    cell->value = NULL;
+  }
+  if (cell->environment_destroy != NULL && cell->environment != NULL)
+  {
+    cell->environment_destroy(cell->environment);
+    cell->environment = NULL;
+  }
+  pthread_mutex_unlock(&cell->lock);
+  pthread_cond_destroy(&cell->condition);
+  pthread_mutex_destroy(&cell->lock);
+  free(cell);
+}
+#endif
+
 struct AuraTaskExecutor
 {
   AuraTaskFrame *ready_head;
@@ -9748,7 +10088,92 @@ struct AuraTaskExecutor
   AuraRaceTracker *race_tracker;
   AuraTaskFailureHookFn failure_hook;
   void *failure_hook_context;
+  int wake_pipe[2];
+#if defined(AURA_TCP_POSIX)
+  pthread_mutex_t worker_lock;
+  pthread_cond_t worker_cond;
+  pthread_t *workers;
+  size_t worker_count;
+  int workers_stop;
+  int workers_started;
+  pthread_t reactor_thread;
+  int reactor_stop;
+  int reactor_started;
+  int reactor_active;
+  int active_workers;
+  int gc_requested;
+#endif
 };
+
+struct AuraTaskScope
+{
+  AuraTaskExecutor *executor;
+  AuraTaskScope *previous;
+  AuraTaskFrame *frames;
+  int active;
+};
+
+static _Thread_local AuraTaskScope *aura_task_current_scope = NULL;
+static _Thread_local AuraTaskExecutor *aura_task_current_executor = NULL;
+
+static int aura_task_executor_has_workers(AuraTaskExecutor *executor)
+{
+#if defined(AURA_TCP_POSIX)
+  return executor != NULL && executor->workers_started;
+#else
+  (void)executor;
+  return 0;
+#endif
+}
+static void aura_task_scope_adopt(AuraTaskFrame *frame);
+int aura_task_executor_poll_waiting(AuraTaskExecutor *executor, int timeout_ms);
+
+void aura_gc_collect_executor(AuraTaskExecutor *executor)
+{
+#if defined(AURA_TCP_POSIX)
+  if (executor != NULL && executor->workers_started)
+  {
+    pthread_mutex_lock(&executor->worker_lock);
+    executor->gc_requested = 1;
+    pthread_cond_broadcast(&executor->worker_cond);
+    int current_worker = aura_task_current_executor == executor;
+    while (executor->active_workers > (current_worker ? 1 : 0))
+    {
+      pthread_cond_wait(&executor->worker_cond, &executor->worker_lock);
+    }
+    pthread_mutex_unlock(&executor->worker_lock);
+
+    aura_gc_collect();
+
+    pthread_mutex_lock(&executor->worker_lock);
+    executor->gc_requested = 0;
+    pthread_cond_broadcast(&executor->worker_cond);
+    pthread_mutex_unlock(&executor->worker_lock);
+    return;
+  }
+#endif
+  aura_gc_collect();
+}
+
+static void aura_task_executor_lock(AuraTaskExecutor *executor)
+{
+#if defined(AURA_TCP_POSIX)
+  if (executor != NULL && executor->workers_started)
+    pthread_mutex_lock(&executor->worker_lock);
+#else
+  (void)executor;
+#endif
+}
+
+static void aura_task_executor_unlock(AuraTaskExecutor *executor)
+{
+#if defined(AURA_TCP_POSIX)
+  if (executor != NULL && executor->workers_started)
+    pthread_mutex_unlock(&executor->worker_lock);
+#else
+  (void)executor;
+#endif
+}
 
 #define AURA_TASK_DEFAULT_MAX_LIVE_TASKS ((size_t)4096)
 #define AURA_TASK_MAX_LIVE_TASKS_LIMIT ((size_t)65536)
@@ -9758,9 +10183,32 @@ struct AuraTaskExecutor
  * operation layout to the executor code. */
 static int aura_io_operation_ready(AuraTaskFrame *frame, short revents);
 
+#if defined(AURA_TCP_POSIX)
+#define AURA_TASK_MAX_WORKERS ((size_t)64)
+static void aura_task_executor_finish_poll_unlocked(
+    AuraTaskExecutor *executor, AuraTaskFrame *frame, AuraTaskPollState state);
+#endif
+
 int aura_task_executor_wake(AuraTaskExecutor *executor, AuraTaskFrame *frame);
 int aura_task_executor_cancel(AuraTaskExecutor *executor, AuraTaskFrame *frame);
 static void aura_task_channel_cancel_wait(AuraTaskFrame *frame);
+static void aura_task_select_cancel_wait(AuraTaskFrame *frame);
+static int aura_task_executor_wake_unlocked(AuraTaskExecutor *executor,
+                                            AuraTaskFrame *frame);
+
+static void aura_task_scope_adopt(AuraTaskFrame *frame)
+{
+  AuraTaskScope *scope = aura_task_current_scope;
+  if (frame == NULL || scope == NULL || !scope->active ||
+      scope->executor != frame->executor)
+  {
+    return;
+  }
+  frame->scope = scope;
+  frame->scope_owned = 1;
+  frame->scope_next = scope->frames;
+  scope->frames = frame;
+}
 
 AuraTaskPollState aura_task_frame_poll_once(AuraTaskFrame *frame)
 {
@@ -9831,6 +10279,15 @@ AuraTaskExecutor *aura_task_executor_new(void)
   if (executor != NULL)
   {
     executor->max_live_tasks = AURA_TASK_DEFAULT_MAX_LIVE_TASKS;
+    executor->wake_pipe[0] = -1;
+    executor->wake_pipe[1] = -1;
+#if defined(AURA_TCP_POSIX)
+    if (pipe(executor->wake_pipe) == 0)
+    {
+      (void)fcntl(executor->wake_pipe[0], F_SETFL, O_NONBLOCK);
+      (void)fcntl(executor->wake_pipe[1], F_SETFL, O_NONBLOCK);
+    }
+#endif
   }
   return executor;
 }
@@ -9920,12 +10377,27 @@ static void aura_task_executor_push_owned(AuraTaskExecutor *executor,
 
 int aura_task_executor_submit(AuraTaskExecutor *executor, AuraTaskFrame *frame)
 {
+  int result;
+#if defined(AURA_TCP_POSIX)
+  if (executor != NULL && executor->workers_started)
+  {
+    pthread_mutex_lock(&executor->worker_lock);
+  }
+#endif
   if (executor == NULL || frame == NULL || executor->shutdown || frame->executor != NULL ||
       executor->owned_count >= executor->max_live_tasks)
   {
+#if defined(AURA_TCP_POSIX)
+    if (executor != NULL && executor->workers_started)
+    {
+      pthread_mutex_unlock(&executor->worker_lock);
+    }
+#endif
     return 0;
   }
   aura_task_executor_push_owned(executor, frame);
+  frame->handle_owned = 1;
+  aura_task_scope_adopt(frame);
   if (executor->race_tracker != NULL)
   {
     (void)aura_race_tracker_record(executor->race_tracker,
@@ -9936,10 +10408,23 @@ int aura_task_executor_submit(AuraTaskExecutor *executor, AuraTaskFrame *frame)
                                    NULL);
   }
   frame->state = AURA_TASK_READY;
+#if defined(AURA_TCP_POSIX)
+  if (executor->workers_started)
+  {
+    result = aura_task_executor_wake_unlocked(executor, frame);
+    if (result != 0)
+    {
+      pthread_cond_signal(&executor->worker_cond);
+    }
+    pthread_mutex_unlock(&executor->worker_lock);
+    return result;
+  }
+#endif
   return aura_task_executor_wake(executor, frame);
 }
 
-int aura_task_executor_wake(AuraTaskExecutor *executor, AuraTaskFrame *frame)
+static int aura_task_executor_wake_unlocked(AuraTaskExecutor *executor,
+                                            AuraTaskFrame *frame)
 {
   if (executor == NULL || frame == NULL || executor->shutdown || frame->executor != executor ||
       frame->queued || frame->state == AURA_TASK_COMPLETE || frame->state == AURA_TASK_FAILED ||
@@ -9961,6 +10446,32 @@ int aura_task_executor_wake(AuraTaskExecutor *executor, AuraTaskFrame *frame)
   executor->ready_count++;
   frame->state = AURA_TASK_READY;
   return 1;
+}
+
+int aura_task_executor_wake(AuraTaskExecutor *executor, AuraTaskFrame *frame)
+{
+  int result;
+#if defined(AURA_TCP_POSIX)
+  if (executor != NULL && executor->wake_pipe[1] >= 0)
+  {
+    const unsigned char signal_byte = 1;
+    /* Signal before taking the queue lock so a reactor blocked in poll can
+     * observe the wake even while another worker is publishing the queue. */
+    (void)write(executor->wake_pipe[1], &signal_byte, sizeof(signal_byte));
+  }
+  if (executor != NULL && executor->workers_started)
+  {
+    pthread_mutex_lock(&executor->worker_lock);
+    result = aura_task_executor_wake_unlocked(executor, frame);
+    if (result != 0)
+    {
+      pthread_cond_signal(&executor->worker_cond);
+    }
+    pthread_mutex_unlock(&executor->worker_lock);
+    return result;
+  }
+#endif
+  return aura_task_executor_wake_unlocked(executor, frame);
 }
 
 static void aura_task_frame_detach_wait_target(AuraTaskFrame *frame)
@@ -10168,14 +10679,17 @@ int aura_task_executor_wake_waiting(AuraTaskExecutor *executor, AuraTaskFrame *f
  * of frames cleared and queued. This bounded single-threaded API provides a
  * deterministic multi-descriptor readiness turn without claiming a full
  * cross-platform event-loop policy. */
-int aura_task_executor_poll_waiting(AuraTaskExecutor *executor, int timeout_ms)
+static int aura_task_executor_poll_waiting_impl(AuraTaskExecutor *executor,
+                                                int timeout_ms)
 {
   AuraTaskFrame *frame;
   struct pollfd *descriptors;
   AuraTaskFrame **frames;
   size_t count = 0;
+  size_t descriptor_count;
   size_t index = 0;
   size_t woke = 0;
+  int pipe_woke = 0;
   int result;
   int64_t now;
   int poll_timeout = timeout_ms;
@@ -10185,6 +10699,15 @@ int aura_task_executor_poll_waiting(AuraTaskExecutor *executor, int timeout_ms)
   {
     return 0;
   }
+#if defined(AURA_TCP_POSIX)
+  /* Consume stale submissions before blocking; a wake arriving after this
+   * drain remains visible to poll and interrupts the wait. */
+  if (executor->wake_pipe[0] >= 0)
+  {
+    unsigned char buffer[64];
+    while (read(executor->wake_pipe[0], buffer, sizeof(buffer)) > 0) {}
+  }
+#endif
   for (frame = executor->owned_head; frame != NULL; frame = frame->owned_next)
   {
     if (frame->state != AURA_TASK_PENDING)
@@ -10232,11 +10755,18 @@ int aura_task_executor_poll_waiting(AuraTaskExecutor *executor, int timeout_ms)
   {
     return (int)woke;
   }
-  if (count == 0 && !has_deadline)
+  descriptor_count = count;
+#if defined(AURA_TCP_POSIX)
+  if (executor->wake_pipe[0] >= 0)
+  {
+    descriptor_count++;
+  }
+#endif
+  if (descriptor_count == 0 && !has_deadline)
   {
     return 0;
   }
-  if (count == 0)
+  if (descriptor_count == 0)
   {
     (void)poll(NULL, 0, poll_timeout);
     now = aura_time_monotonic_millis();
@@ -10258,14 +10788,23 @@ int aura_task_executor_poll_waiting(AuraTaskExecutor *executor, int timeout_ms)
     }
     return (int)woke;
   }
-  descriptors = (struct pollfd *)calloc(count, sizeof(*descriptors));
-  frames = (AuraTaskFrame **)calloc(count, sizeof(*frames));
+  descriptors = (struct pollfd *)calloc(descriptor_count, sizeof(*descriptors));
+  frames = (AuraTaskFrame **)calloc(descriptor_count, sizeof(*frames));
   if (descriptors == NULL || frames == NULL)
   {
     free(descriptors);
     free(frames);
     return 0;
   }
+  index = 0;
+#if defined(AURA_TCP_POSIX)
+  if (executor->wake_pipe[0] >= 0)
+  {
+    descriptors[index] = (struct pollfd){executor->wake_pipe[0], POLLIN, 0};
+    frames[index] = NULL;
+    index++;
+  }
+#endif
   for (frame = executor->owned_head; frame != NULL; frame = frame->owned_next)
   {
     if (!frame->fd_wait_active || frame->waiting_node == NULL ||
@@ -10281,14 +10820,23 @@ int aura_task_executor_poll_waiting(AuraTaskExecutor *executor, int timeout_ms)
     frames[index] = frame;
     index++;
   }
-  result = poll(descriptors, count, poll_timeout);
+  result = poll(descriptors, descriptor_count, poll_timeout);
   if (result > 0 || (result < 0 && errno != EINTR))
   {
-    for (index = 0; index < count; index++)
+    for (index = 0; index < descriptor_count; index++)
     {
       if (result < 0 || descriptors[index].revents != 0)
       {
         AuraTaskFrame *ready_frame = frames[index];
+#if defined(AURA_TCP_POSIX)
+        if (ready_frame == NULL)
+        {
+          unsigned char buffer[64];
+          while (read(executor->wake_pipe[0], buffer, sizeof(buffer)) > 0) {}
+          pipe_woke = 1;
+          continue;
+        }
+#endif
         if (result >= 0)
         {
           int operation_result =
@@ -10322,9 +10870,8 @@ int aura_task_executor_poll_waiting(AuraTaskExecutor *executor, int timeout_ms)
       woke += (size_t)aura_task_executor_cancel(executor, frame);
       continue;
     }
-    if (!frame->fd_wait_active || frame->waiting_node == NULL ||
-        frame->state != AURA_TASK_PENDING || frame->fd_wait_deadline_ms == 0 ||
-        now < frame->fd_wait_deadline_ms)
+    if (frame->waiting_node == NULL || frame->state != AURA_TASK_PENDING ||
+        frame->fd_wait_deadline_ms == 0 || now < frame->fd_wait_deadline_ms)
     {
       continue;
     }
@@ -10333,7 +10880,36 @@ int aura_task_executor_poll_waiting(AuraTaskExecutor *executor, int timeout_ms)
   }
   free(descriptors);
   free(frames);
+  if (woke == 0 && pipe_woke && executor->ready_count != 0)
+  {
+    return 1;
+  }
   return (int)woke;
+}
+
+int aura_task_executor_poll_waiting(AuraTaskExecutor *executor, int timeout_ms)
+{
+  int result;
+  if (executor == NULL) return 0;
+#if defined(AURA_TCP_POSIX)
+  if (executor->workers_started)
+  {
+    pthread_mutex_lock(&executor->worker_lock);
+    executor->reactor_active++;
+    pthread_mutex_unlock(&executor->worker_lock);
+  }
+#endif
+  result = aura_task_executor_poll_waiting_impl(executor, timeout_ms);
+#if defined(AURA_TCP_POSIX)
+  if (executor->workers_started)
+  {
+    pthread_mutex_lock(&executor->worker_lock);
+    if (executor->reactor_active != 0) executor->reactor_active--;
+    pthread_cond_broadcast(&executor->worker_cond);
+    pthread_mutex_unlock(&executor->worker_lock);
+  }
+#endif
+  return result;
 }
 
 int aura_task_executor_cancel(AuraTaskExecutor *executor, AuraTaskFrame *frame)
@@ -10348,7 +10924,10 @@ int aura_task_executor_cancel(AuraTaskExecutor *executor, AuraTaskFrame *frame)
     return 0;
   }
   frame->cancel_requested = 1;
-  aura_task_channel_cancel_wait(frame);
+  if (frame->waiting_select != NULL)
+    aura_task_select_cancel_wait(frame);
+  else
+    aura_task_channel_cancel_wait(frame);
   aura_task_frame_detach_wait_target(frame);
   aura_task_frame_clear_waiting(frame);
   if (!frame->queued)
@@ -10360,21 +10939,37 @@ int aura_task_executor_cancel(AuraTaskExecutor *executor, AuraTaskFrame *frame)
 
 size_t aura_task_executor_ready_count(const AuraTaskExecutor *executor)
 {
-  return executor != NULL ? executor->ready_count : 0;
+  size_t count = 0;
+  if (executor != NULL)
+  {
+    aura_task_executor_lock((AuraTaskExecutor *)executor);
+    count = executor->ready_count;
+    aura_task_executor_unlock((AuraTaskExecutor *)executor);
+  }
+  return count;
 }
 
 size_t aura_task_executor_task_count(const AuraTaskExecutor *executor)
 {
-  return executor != NULL ? executor->owned_count : 0;
+  size_t count = 0;
+  if (executor != NULL)
+  {
+    aura_task_executor_lock((AuraTaskExecutor *)executor);
+    count = executor->owned_count;
+    aura_task_executor_unlock((AuraTaskExecutor *)executor);
+  }
+  return count;
 }
 
-int aura_task_executor_run_one(AuraTaskExecutor *executor)
+static AuraTaskFrame *aura_task_executor_pop_ready_unlocked(
+    AuraTaskExecutor *executor)
 {
-  if (executor == NULL || executor->shutdown || executor->ready_head == NULL)
+  AuraTaskFrame *frame;
+  if (executor == NULL || executor->ready_head == NULL)
   {
-    return 0;
+    return NULL;
   }
-  AuraTaskFrame *frame = executor->ready_head;
+  frame = executor->ready_head;
   executor->ready_head = frame->queue_next;
   if (executor->ready_head == NULL)
   {
@@ -10383,17 +10978,19 @@ int aura_task_executor_run_one(AuraTaskExecutor *executor)
   frame->queue_next = NULL;
   frame->queued = 0;
   executor->ready_count--;
+  return frame;
+}
 
-  uint64_t previous_task_id = aura_race_active_task_id;
-  uint32_t previous_source_id = aura_race_active_source_id;
-  aura_race_active_task_id = frame->task_id;
-  aura_race_active_source_id = frame->race_source_id;
-  AuraTaskPollState state = aura_task_frame_poll_once(frame);
-  aura_race_active_task_id = previous_task_id;
-  aura_race_active_source_id = previous_source_id;
+static void aura_task_executor_finish_poll_unlocked(
+    AuraTaskExecutor *executor, AuraTaskFrame *frame, AuraTaskPollState state)
+{
+  if (executor == NULL || frame == NULL)
+  {
+    return;
+  }
   if (state == AURA_TASK_READY)
   {
-    aura_task_executor_wake(executor, frame);
+    (void)aura_task_executor_wake_unlocked(executor, frame);
   }
   else if (state == AURA_TASK_PENDING || state == AURA_TASK_COMPLETE ||
            state == AURA_TASK_FAILED || state == AURA_TASK_CANCELLED)
@@ -10417,9 +11014,249 @@ int aura_task_executor_run_one(AuraTaskExecutor *executor)
     {
       kind = AURA_RACE_TASK_CANCELLED;
     }
-    (void)aura_race_tracker_record(
-        executor->race_tracker, frame->task_id, 0, frame->race_source_id, kind, NULL);
+    (void)aura_race_tracker_record(executor->race_tracker, frame->task_id, 0,
+                                   frame->race_source_id, kind, NULL);
   }
+}
+
+#if defined(AURA_TCP_POSIX)
+static void *aura_task_executor_worker_main(void *context)
+{
+  AuraTaskExecutor *executor = (AuraTaskExecutor *)context;
+  for (;;)
+  {
+    AuraTaskFrame *frame;
+    AuraTaskPollState state;
+    AuraTaskScope *previous_scope;
+    pthread_mutex_lock(&executor->worker_lock);
+    while ((executor->ready_head == NULL || executor->gc_requested) &&
+           !executor->workers_stop)
+    {
+      pthread_cond_wait(&executor->worker_cond, &executor->worker_lock);
+    }
+    if (executor->ready_head == NULL && executor->workers_stop)
+    {
+      pthread_mutex_unlock(&executor->worker_lock);
+      return NULL;
+    }
+    frame = aura_task_executor_pop_ready_unlocked(executor);
+    if (frame != NULL) executor->active_workers++;
+    pthread_mutex_unlock(&executor->worker_lock);
+    if (frame == NULL)
+    {
+      continue;
+    }
+    previous_scope = aura_task_current_scope;
+    aura_task_current_scope = frame->scope;
+    AuraTaskExecutor *previous_executor = aura_task_current_executor;
+    aura_task_current_executor = executor;
+    aura_race_active_task_id = frame->task_id;
+    aura_race_active_source_id = frame->race_source_id;
+    if (frame->blocking_fn != NULL && !frame->blocking_started)
+      aura_task_blocking_run_inline(frame);
+    state = aura_task_frame_poll_once(frame);
+    aura_race_active_task_id = 0;
+    aura_race_active_source_id = 0;
+    aura_task_current_scope = previous_scope;
+    aura_task_current_executor = previous_executor;
+    pthread_mutex_lock(&executor->worker_lock);
+    aura_task_executor_finish_poll_unlocked(executor, frame, state);
+    if (executor->active_workers != 0) executor->active_workers--;
+    pthread_cond_broadcast(&executor->worker_cond);
+    if (state == AURA_TASK_READY)
+    {
+      pthread_cond_signal(&executor->worker_cond);
+    }
+    pthread_mutex_unlock(&executor->worker_lock);
+  }
+}
+
+static void *aura_task_executor_reactor_main(void *context)
+{
+  AuraTaskExecutor *executor = (AuraTaskExecutor *)context;
+  for (;;)
+  {
+    pthread_mutex_lock(&executor->worker_lock);
+    int stopping = executor->reactor_stop;
+    pthread_mutex_unlock(&executor->worker_lock);
+    if (stopping) return NULL;
+    (void)aura_task_executor_poll_waiting(executor, 100);
+  }
+}
+
+int aura_task_executor_start_workers(AuraTaskExecutor *executor,
+                                     size_t worker_count)
+{
+  size_t started = 0;
+  if (executor == NULL || executor->shutdown || executor->workers_started ||
+      worker_count == 0 || worker_count > AURA_TASK_MAX_WORKERS)
+  {
+    return 0;
+  }
+  if (pthread_mutex_init(&executor->worker_lock, NULL) != 0)
+  {
+    return 0;
+  }
+  if (pthread_cond_init(&executor->worker_cond, NULL) != 0)
+  {
+    pthread_mutex_destroy(&executor->worker_lock);
+    return 0;
+  }
+  executor->workers = (pthread_t *)calloc(worker_count, sizeof(*executor->workers));
+  if (executor->workers == NULL)
+  {
+    pthread_cond_destroy(&executor->worker_cond);
+    pthread_mutex_destroy(&executor->worker_lock);
+    return 0;
+  }
+  executor->worker_count = worker_count;
+  executor->workers_stop = 0;
+  executor->workers_started = 1;
+  for (; started < worker_count; started++)
+  {
+    if (pthread_create(&executor->workers[started], NULL,
+                       aura_task_executor_worker_main, executor) != 0)
+    {
+      break;
+    }
+  }
+  if (started != worker_count)
+  {
+    pthread_mutex_lock(&executor->worker_lock);
+    executor->workers_stop = 1;
+    pthread_cond_broadcast(&executor->worker_cond);
+    pthread_mutex_unlock(&executor->worker_lock);
+    for (size_t i = 0; i < started; i++)
+    {
+      pthread_join(executor->workers[i], NULL);
+    }
+    free(executor->workers);
+    executor->workers = NULL;
+    executor->worker_count = 0;
+    executor->workers_started = 0;
+    pthread_cond_destroy(&executor->worker_cond);
+    pthread_mutex_destroy(&executor->worker_lock);
+    return 0;
+  }
+  executor->reactor_stop = 0;
+  if (pthread_create(&executor->reactor_thread, NULL,
+                    aura_task_executor_reactor_main, executor) != 0)
+  {
+    pthread_mutex_lock(&executor->worker_lock);
+    executor->workers_stop = 1;
+    pthread_cond_broadcast(&executor->worker_cond);
+    pthread_mutex_unlock(&executor->worker_lock);
+    for (size_t i = 0; i < worker_count; i++)
+      pthread_join(executor->workers[i], NULL);
+    free(executor->workers);
+    executor->workers = NULL;
+    executor->worker_count = 0;
+    executor->workers_started = 0;
+    pthread_cond_destroy(&executor->worker_cond);
+    pthread_mutex_destroy(&executor->worker_lock);
+    return 0;
+  }
+  executor->reactor_started = 1;
+  return 1;
+}
+
+void aura_task_executor_stop_workers(AuraTaskExecutor *executor)
+{
+  if (executor == NULL || !executor->workers_started)
+  {
+    return;
+  }
+  pthread_mutex_lock(&executor->worker_lock);
+  executor->reactor_stop = 1;
+  pthread_mutex_unlock(&executor->worker_lock);
+  if (executor->reactor_started)
+  {
+    if (executor->wake_pipe[1] >= 0)
+    {
+      const unsigned char signal_byte = 1;
+      (void)write(executor->wake_pipe[1], &signal_byte, sizeof(signal_byte));
+    }
+    pthread_join(executor->reactor_thread, NULL);
+    executor->reactor_started = 0;
+  }
+  pthread_mutex_lock(&executor->worker_lock);
+  executor->workers_stop = 1;
+  pthread_cond_broadcast(&executor->worker_cond);
+  pthread_mutex_unlock(&executor->worker_lock);
+  for (size_t i = 0; i < executor->worker_count; i++)
+  {
+    pthread_join(executor->workers[i], NULL);
+  }
+  free(executor->workers);
+  executor->workers = NULL;
+  executor->worker_count = 0;
+  executor->workers_started = 0;
+  pthread_cond_destroy(&executor->worker_cond);
+  pthread_mutex_destroy(&executor->worker_lock);
+}
+#endif
+
+int aura_task_executor_run_one(AuraTaskExecutor *executor)
+{
+  AuraTaskFrame *frame;
+  AuraTaskPollState state;
+  AuraTaskScope *previous_scope;
+  uint64_t previous_task_id;
+  uint32_t previous_source_id;
+  if (executor == NULL || executor->shutdown)
+  {
+    return 0;
+  }
+#if defined(AURA_TCP_POSIX)
+  if (executor->workers_started)
+  {
+    pthread_mutex_lock(&executor->worker_lock);
+    while (executor->gc_requested && !executor->workers_stop)
+      pthread_cond_wait(&executor->worker_cond, &executor->worker_lock);
+  }
+#endif
+  frame = aura_task_executor_pop_ready_unlocked(executor);
+#if defined(AURA_TCP_POSIX)
+  if (executor->workers_started && frame != NULL) executor->active_workers++;
+  if (executor->workers_started)
+  {
+    pthread_mutex_unlock(&executor->worker_lock);
+  }
+#endif
+  if (frame == NULL)
+  {
+    return 0;
+  }
+  previous_task_id = aura_race_active_task_id;
+  previous_source_id = aura_race_active_source_id;
+  previous_scope = aura_task_current_scope;
+  aura_task_current_scope = frame->scope;
+  AuraTaskExecutor *previous_executor = aura_task_current_executor;
+  aura_task_current_executor = executor;
+  aura_race_active_task_id = frame->task_id;
+  aura_race_active_source_id = frame->race_source_id;
+  if (frame->blocking_fn != NULL && !frame->blocking_started)
+    aura_task_blocking_run_inline(frame);
+  state = aura_task_frame_poll_once(frame);
+  aura_race_active_task_id = previous_task_id;
+  aura_race_active_source_id = previous_source_id;
+  aura_task_current_scope = previous_scope;
+  aura_task_current_executor = previous_executor;
+#if defined(AURA_TCP_POSIX)
+  if (executor->workers_started)
+  {
+    pthread_mutex_lock(&executor->worker_lock);
+  }
+#endif
+  aura_task_executor_finish_poll_unlocked(executor, frame, state);
+#if defined(AURA_TCP_POSIX)
+  if (executor->workers_started)
+  {
+    if (executor->active_workers != 0) executor->active_workers--;
+    pthread_cond_broadcast(&executor->worker_cond);
+    pthread_mutex_unlock(&executor->worker_lock);
+  }
+#endif
   return 1;
 }
 
@@ -10435,20 +11272,24 @@ size_t aura_task_executor_run(AuraTaskExecutor *executor)
 
 int aura_task_executor_has_live_tasks(const AuraTaskExecutor *executor)
 {
+  int live = 0;
   if (executor == NULL || executor->shutdown)
   {
     return 0;
   }
+  aura_task_executor_lock((AuraTaskExecutor *)executor);
   for (const AuraTaskFrame *frame = executor->owned_head; frame != NULL;
        frame = frame->owned_next)
   {
     if (frame->state != AURA_TASK_COMPLETE && frame->state != AURA_TASK_FAILED &&
         frame->state != AURA_TASK_CANCELLED)
     {
-      return 1;
+      live = 1;
+      break;
     }
   }
-  return 0;
+  aura_task_executor_unlock((AuraTaskExecutor *)executor);
+  return live;
 }
 
 /* Observe a frame owned by this executor. Joining an unsubmitted frame
@@ -10658,23 +11499,53 @@ int aura_task_executor_release(AuraTaskExecutor *executor, AuraTaskFrame **handl
   {
     return 0;
   }
+  if (frame->scope_owned)
+  {
+    /* The lexical handle gives up only its reference; the active scope keeps
+     * the executor-owned frame alive until the scope drains it. */
+    frame->handle_owned = 0;
+    *handle = NULL;
+    return 1;
+  }
   if (frame->state != AURA_TASK_COMPLETE && frame->state != AURA_TASK_FAILED &&
       frame->state != AURA_TASK_CANCELLED)
   {
-    if (!aura_task_executor_cancel(executor, frame) ||
-        !aura_task_executor_unqueue(executor, frame))
+    if (!aura_task_executor_cancel(executor, frame))
     {
       return 0;
     }
-    if (aura_task_frame_poll_once(frame) != AURA_TASK_CANCELLED &&
-        frame->state != AURA_TASK_FAILED)
+#if defined(AURA_TCP_POSIX)
+    if (executor->workers_started)
+    {
+      pthread_mutex_lock(&executor->worker_lock);
+      while (frame->state != AURA_TASK_COMPLETE &&
+             frame->state != AURA_TASK_FAILED &&
+             frame->state != AURA_TASK_CANCELLED && !executor->shutdown)
+      {
+        pthread_cond_wait(&executor->worker_cond, &executor->worker_lock);
+      }
+      pthread_mutex_unlock(&executor->worker_lock);
+    }
+    else
+#endif
+    if (!aura_task_executor_unqueue(executor, frame) ||
+        (aura_task_frame_poll_once(frame) != AURA_TASK_CANCELLED &&
+         frame->state != AURA_TASK_FAILED))
     {
       return 0;
     }
   }
+  aura_task_executor_lock(executor);
+#if defined(AURA_TCP_POSIX)
+  while (executor->workers_started && executor->reactor_active != 0)
+  {
+    pthread_cond_wait(&executor->worker_cond, &executor->worker_lock);
+  }
+#endif
   if (frame->queued || frame->waiting_channel != NULL ||
       frame->waiting_node != NULL)
   {
+    aura_task_executor_unlock(executor);
     return 0;
   }
 
@@ -10685,6 +11556,7 @@ int aura_task_executor_release(AuraTaskExecutor *executor, AuraTaskFrame **handl
   }
   if (*link == NULL)
   {
+    aura_task_executor_unlock(executor);
     return 0;
   }
   *link = frame->owned_next;
@@ -10694,10 +11566,91 @@ int aura_task_executor_release(AuraTaskExecutor *executor, AuraTaskFrame **handl
   {
     executor->owned_count--;
   }
+  aura_task_executor_unlock(executor);
   *handle = NULL;
+  frame->handle_owned = 0;
   aura_task_executor_report_unjoined_failure(executor, frame);
   aura_task_frame_destroy(frame);
   return 1;
+}
+
+AuraTaskScope *aura_task_scope_begin(AuraTaskExecutor *executor)
+{
+  AuraTaskScope *scope;
+  if (executor == NULL || executor->shutdown)
+  {
+    return NULL;
+  }
+  scope = (AuraTaskScope *)calloc(1, sizeof(*scope));
+  if (scope == NULL)
+  {
+    return NULL;
+  }
+  scope->executor = executor;
+  scope->previous = aura_task_current_scope;
+  scope->active = 1;
+  aura_task_current_scope = scope;
+  return scope;
+}
+
+static int aura_task_scope_has_live_frames(const AuraTaskScope *scope)
+{
+  for (const AuraTaskFrame *frame = scope->frames; frame != NULL;
+       frame = frame->scope_next)
+  {
+    if (frame->state != AURA_TASK_COMPLETE &&
+        frame->state != AURA_TASK_FAILED &&
+        frame->state != AURA_TASK_CANCELLED)
+    {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+int aura_task_scope_end(AuraTaskScope *scope)
+{
+  AuraTaskFrame *frame;
+  int outcome = 0;
+  if (scope == NULL || !scope->active)
+  {
+    return 0;
+  }
+  scope->active = 0;
+  if (aura_task_current_scope == scope)
+  {
+    aura_task_current_scope = scope->previous;
+  }
+  while (aura_task_scope_has_live_frames(scope))
+  {
+    if (aura_task_executor_run_one(scope->executor) == 0 &&
+        aura_task_executor_poll_waiting(scope->executor, 1000) == 0)
+    {
+      break;
+    }
+  }
+  for (frame = scope->frames; frame != NULL; frame = frame->scope_next)
+  {
+    if (frame->state == AURA_TASK_FAILED) outcome = 1;
+    else if (frame->state == AURA_TASK_CANCELLED && outcome == 0) outcome = 2;
+  }
+  frame = scope->frames;
+  scope->frames = NULL;
+  while (frame != NULL)
+  {
+    AuraTaskFrame *next = frame->scope_next;
+    frame->scope_next = NULL;
+    frame->scope = NULL;
+    frame->scope_owned = 0;
+    if (!frame->handle_owned && frame->executor == scope->executor)
+    {
+      AuraTaskFrame *owned = frame;
+      (void)aura_task_executor_release(scope->executor, &owned);
+    }
+    frame = next;
+  }
+  free(scope);
+  return outcome;
 }
 
 /* Release a frame whose terminal state was observed by a direct parent poll.
@@ -10729,6 +11682,9 @@ void aura_task_executor_shutdown(AuraTaskExecutor *executor)
   {
     return;
   }
+#if defined(AURA_TCP_POSIX)
+  aura_task_executor_stop_workers(executor);
+#endif
   executor->shutdown = 1;
   AuraTaskFrame *frame = executor->owned_head;
   while (frame != NULL)
@@ -10741,6 +11697,16 @@ void aura_task_executor_shutdown(AuraTaskExecutor *executor)
     aura_task_frame_destroy(frame);
     frame = next;
   }
+#if defined(AURA_TCP_POSIX)
+  if (executor->wake_pipe[0] >= 0)
+  {
+    close(executor->wake_pipe[0]);
+  }
+  if (executor->wake_pipe[1] >= 0)
+  {
+    close(executor->wake_pipe[1]);
+  }
+#endif
   free(executor);
 }
 
@@ -11315,8 +12281,27 @@ struct AuraTaskChannelWaiter
   AuraTaskFrame *frame;
   AuraTaskChannelValue value;
   AuraTaskChannelValue *out;
+  AuraTaskSelect *select;
+  size_t select_index;
   AuraTaskChannelWaiter *next;
 };
+
+struct AuraTaskSelect
+{
+  AuraTaskChannel **channels;
+  size_t count;
+  size_t capacity;
+  size_t next_index;
+  AuraTaskFrame *frame;
+  AuraTaskChannelValue value;
+  size_t selected_index;
+  AuraTaskChannelStatus selected_status;
+  int selected;
+};
+
+AuraTaskChannelStatus aura_task_channel_receive(AuraTaskChannel *channel,
+                                                 AuraTaskFrame *receiver,
+                                                 AuraTaskChannelValue *out);
 
 struct AuraTaskChannel
 {
@@ -11332,6 +12317,34 @@ struct AuraTaskChannel
   AuraTaskChannelWaiter *receive_tail;
   AuraRaceTracker *race_tracker;
 };
+
+#if defined(__unix__) || defined(__APPLE__)
+static pthread_once_t aura_task_channel_lock_once = PTHREAD_ONCE_INIT;
+static pthread_mutex_t aura_task_channel_lock;
+
+static void aura_task_channel_lock_init(void)
+{
+  pthread_mutexattr_t attributes;
+  pthread_mutexattr_init(&attributes);
+  pthread_mutexattr_settype(&attributes, PTHREAD_MUTEX_RECURSIVE);
+  pthread_mutex_init(&aura_task_channel_lock, &attributes);
+  pthread_mutexattr_destroy(&attributes);
+}
+
+static void aura_task_channel_lock_enter(void)
+{
+  pthread_once(&aura_task_channel_lock_once, aura_task_channel_lock_init);
+  pthread_mutex_lock(&aura_task_channel_lock);
+}
+
+static void aura_task_channel_lock_leave(void)
+{
+  pthread_mutex_unlock(&aura_task_channel_lock);
+}
+#else
+static void aura_task_channel_lock_enter(void) {}
+static void aura_task_channel_lock_leave(void) {}
+#endif
 
 void aura_task_channel_set_race_tracker(AuraTaskChannel *channel,
                                          AuraRaceTracker *tracker)
@@ -11438,6 +12451,7 @@ static void aura_task_channel_cancel_wait(AuraTaskFrame *frame)
   }
   AuraTaskChannel *channel = frame->waiting_channel;
   AuraTaskChannelWaiter *waiter = (AuraTaskChannelWaiter *)frame->waiting_node;
+  aura_task_channel_lock_enter();
   int receiver = waiter->out != NULL;
   aura_task_channel_unlink(channel, waiter, receiver);
   if (!receiver)
@@ -11447,6 +12461,174 @@ static void aura_task_channel_cancel_wait(AuraTaskFrame *frame)
   free(waiter);
   frame->waiting_channel = NULL;
   frame->waiting_node = NULL;
+  aura_task_channel_lock_leave();
+}
+
+static void aura_task_select_unlink_waiters(AuraTaskSelect *select)
+{
+  if (select == NULL) return;
+  for (size_t i = 0; i < select->count; i++)
+  {
+    AuraTaskChannel *channel = select->channels[i];
+    if (channel == NULL) continue;
+    AuraTaskChannelWaiter **link = &channel->receive_head;
+    while (*link != NULL)
+    {
+      AuraTaskChannelWaiter *waiter = *link;
+      if (waiter->select != select)
+      {
+        link = &waiter->next;
+        continue;
+      }
+      *link = waiter->next;
+      if (channel->receive_tail == waiter)
+      {
+        channel->receive_tail = NULL;
+        for (AuraTaskChannelWaiter *tail = channel->receive_head; tail != NULL; tail = tail->next)
+          channel->receive_tail = tail;
+      }
+      free(waiter);
+    }
+  }
+}
+
+static void aura_task_select_cancel_wait(AuraTaskFrame *frame)
+{
+  if (frame == NULL || frame->waiting_select == NULL) return;
+  aura_task_channel_lock_enter();
+  AuraTaskSelect *select = frame->waiting_select;
+  aura_task_select_unlink_waiters(select);
+  select->frame = NULL;
+  frame->waiting_select = NULL;
+  frame->waiting_node = NULL;
+  aura_task_channel_lock_leave();
+}
+
+static void aura_task_select_finish(AuraTaskSelect *select,
+                                    AuraTaskChannelStatus status,
+                                    size_t index,
+                                    AuraTaskChannelValue value)
+{
+  if (select == NULL || select->selected) return;
+  select->selected = 1;
+  select->selected_index = index;
+  select->selected_status = status;
+  select->value = value;
+  AuraTaskFrame *frame = select->frame;
+  aura_task_select_unlink_waiters(select);
+  select->frame = NULL;
+  if (frame != NULL)
+  {
+    frame->waiting_select = NULL;
+    frame->waiting_node = NULL;
+    aura_task_channel_wake(frame);
+  }
+  (void)status;
+}
+
+AuraTaskSelect *aura_task_select_new(void)
+{
+  return (AuraTaskSelect *)calloc(1, sizeof(AuraTaskSelect));
+}
+
+int aura_task_select_add(AuraTaskSelect *select, AuraTaskChannel *channel)
+{
+  if (select == NULL || channel == NULL) return 0;
+  aura_task_channel_lock_enter();
+  if (select->count == select->capacity)
+  {
+    size_t capacity = select->capacity == 0 ? 4 : select->capacity * 2;
+    AuraTaskChannel **channels = (AuraTaskChannel **)realloc(select->channels, capacity * sizeof(*channels));
+    if (channels == NULL) { aura_task_channel_lock_leave(); return 0; }
+    select->channels = channels;
+    select->capacity = capacity;
+  }
+  select->channels[select->count++] = channel;
+  aura_task_channel_lock_leave();
+  return 1;
+}
+
+AuraTaskChannelStatus aura_task_select_next(AuraTaskSelect *select,
+                                            AuraTaskFrame *frame,
+                                            AuraTaskChannelValue *out,
+                                            size_t *index)
+{
+  if (select == NULL || out == NULL || index == NULL || select->count == 0)
+    return AURA_CHANNEL_ERROR;
+  aura_task_channel_lock_enter();
+  if (select->selected)
+  {
+    *out = select->value;
+    select->value = (AuraTaskChannelValue){NULL, 0, NULL};
+    *index = select->selected_index;
+    select->selected = 0;
+    AuraTaskChannelStatus status = select->selected_status;
+    aura_task_channel_lock_leave();
+    return status;
+  }
+  size_t start = select->next_index % select->count;
+  for (size_t offset = 0; offset < select->count; offset++)
+  {
+    size_t i = (start + offset) % select->count;
+    AuraTaskChannelValue value = {NULL, 0, NULL};
+    AuraTaskChannelStatus status = aura_task_channel_receive(select->channels[i], NULL, &value);
+    if (status == AURA_CHANNEL_OK)
+    {
+      select->next_index = (i + 1) % select->count;
+      *out = value;
+      *index = i;
+      aura_task_channel_lock_leave();
+      return status;
+    }
+    if (status == AURA_CHANNEL_CLOSED)
+    {
+      select->next_index = (i + 1) % select->count;
+      *out = (AuraTaskChannelValue){NULL, 0, NULL};
+      *index = i;
+      aura_task_channel_lock_leave();
+      return status;
+    }
+  }
+  if (frame == NULL) { aura_task_channel_lock_leave(); return AURA_CHANNEL_PENDING; }
+  select->frame = frame;
+  frame->waiting_select = select;
+  frame->waiting_node = select;
+  for (size_t offset = 0; offset < select->count; offset++)
+  {
+    size_t i = (start + offset) % select->count;
+    AuraTaskChannel *channel = select->channels[i];
+    AuraTaskChannelWaiter *waiter = (AuraTaskChannelWaiter *)calloc(1, sizeof(*waiter));
+    if (waiter == NULL)
+    {
+      aura_task_select_cancel_wait(frame);
+      aura_task_channel_lock_leave();
+      return AURA_CHANNEL_ERROR;
+    }
+    waiter->frame = frame;
+    waiter->select = select;
+    waiter->select_index = i;
+    if (channel->receive_tail == NULL) channel->receive_head = waiter;
+    else channel->receive_tail->next = waiter;
+    channel->receive_tail = waiter;
+  }
+  aura_task_channel_lock_leave();
+  return AURA_CHANNEL_PENDING;
+}
+
+size_t aura_task_select_selected_index(const AuraTaskSelect *select)
+{
+  return select != NULL ? select->selected_index : 0;
+}
+
+void aura_task_select_destroy(AuraTaskSelect *select)
+{
+  if (select == NULL) return;
+  aura_task_channel_lock_enter();
+  aura_task_select_unlink_waiters(select);
+  free(select->channels);
+  aura_task_channel_value_destroy(&select->value);
+  aura_task_channel_lock_leave();
+  free(select);
 }
 
 AuraTaskChannel *aura_task_channel_new(size_t capacity)
@@ -11477,12 +12659,26 @@ size_t aura_task_channel_capacity(const AuraTaskChannel *channel)
 
 size_t aura_task_channel_count(const AuraTaskChannel *channel)
 {
-  return channel != NULL ? channel->count : 0;
+  size_t count = 0;
+  if (channel != NULL)
+  {
+    aura_task_channel_lock_enter();
+    count = channel->count;
+    aura_task_channel_lock_leave();
+  }
+  return count;
 }
 
 int aura_task_channel_is_closed(const AuraTaskChannel *channel)
 {
-  return channel != NULL && channel->closed;
+  int closed = 0;
+  if (channel != NULL)
+  {
+    aura_task_channel_lock_enter();
+    closed = channel->closed;
+    aura_task_channel_lock_leave();
+  }
+  return closed;
 }
 
 AuraTaskChannelStatus aura_task_channel_send(AuraTaskChannel *channel,
@@ -11493,22 +12689,34 @@ AuraTaskChannelStatus aura_task_channel_send(AuraTaskChannel *channel,
   {
     return AURA_CHANNEL_ERROR;
   }
+  aura_task_channel_lock_enter();
   aura_task_channel_record(channel, sender, AURA_RACE_CHANNEL_SEND);
   if (channel->closed)
   {
     aura_task_channel_value_destroy(&value);
+    aura_task_channel_lock_leave();
     return AURA_CHANNEL_CLOSED;
   }
   if (channel->receive_head != NULL)
   {
     AuraTaskChannelWaiter *receiver = channel->receive_head;
     aura_task_channel_unlink(channel, receiver, 1);
+    if (receiver->select != NULL)
+    {
+      AuraTaskSelect *select = receiver->select;
+      size_t index = receiver->select_index;
+      free(receiver);
+      aura_task_select_finish(select, AURA_CHANNEL_OK, index, value);
+      aura_task_channel_lock_leave();
+      return AURA_CHANNEL_OK;
+    }
     *receiver->out = value;
     AuraTaskFrame *receiver_frame = receiver->frame;
     receiver_frame->waiting_channel = NULL;
     receiver_frame->waiting_node = NULL;
     free(receiver);
     aura_task_channel_wake(receiver_frame);
+    aura_task_channel_lock_leave();
     return AURA_CHANNEL_OK;
   }
   if (channel->count < channel->capacity)
@@ -11516,15 +12724,18 @@ AuraTaskChannelStatus aura_task_channel_send(AuraTaskChannel *channel,
     channel->values[channel->tail] = value;
     channel->tail = (channel->tail + 1) % channel->capacity;
     channel->count++;
+    aura_task_channel_lock_leave();
     return AURA_CHANNEL_OK;
   }
   if (sender == NULL)
   {
+    aura_task_channel_lock_leave();
     return AURA_CHANNEL_PENDING;
   }
   AuraTaskChannelWaiter *waiter = (AuraTaskChannelWaiter *)calloc(1, sizeof(*waiter));
   if (waiter == NULL)
   {
+    aura_task_channel_lock_leave();
     return AURA_CHANNEL_ERROR;
   }
   waiter->frame = sender;
@@ -11536,6 +12747,7 @@ AuraTaskChannelStatus aura_task_channel_send(AuraTaskChannel *channel,
   channel->send_tail = waiter;
   sender->waiting_channel = channel;
   sender->waiting_node = waiter;
+  aura_task_channel_lock_leave();
   return AURA_CHANNEL_PENDING;
 }
 
@@ -11547,6 +12759,7 @@ AuraTaskChannelStatus aura_task_channel_receive(AuraTaskChannel *channel,
   {
     return AURA_CHANNEL_ERROR;
   }
+  aura_task_channel_lock_enter();
   aura_task_channel_record(channel, receiver, AURA_RACE_CHANNEL_RECEIVE);
   if (channel->count != 0)
   {
@@ -11565,22 +12778,26 @@ AuraTaskChannelStatus aura_task_channel_receive(AuraTaskChannel *channel,
       sender_frame->waiting_channel = NULL;
       sender_frame->waiting_node = NULL;
       free(sender);
-      aura_task_channel_wake(sender_frame);
+    aura_task_channel_wake(sender_frame);
     }
+    aura_task_channel_lock_leave();
     return AURA_CHANNEL_OK;
   }
   if (channel->closed)
   {
     *out = (AuraTaskChannelValue){NULL, 0, NULL};
+    aura_task_channel_lock_leave();
     return AURA_CHANNEL_CLOSED;
   }
   if (receiver == NULL)
   {
+    aura_task_channel_lock_leave();
     return AURA_CHANNEL_PENDING;
   }
   AuraTaskChannelWaiter *waiter = (AuraTaskChannelWaiter *)calloc(1, sizeof(*waiter));
   if (waiter == NULL)
   {
+    aura_task_channel_lock_leave();
     return AURA_CHANNEL_ERROR;
   }
   waiter->frame = receiver;
@@ -11592,6 +12809,7 @@ AuraTaskChannelStatus aura_task_channel_receive(AuraTaskChannel *channel,
   channel->receive_tail = waiter;
   receiver->waiting_channel = channel;
   receiver->waiting_node = waiter;
+  aura_task_channel_lock_leave();
   return AURA_CHANNEL_PENDING;
 }
 
@@ -11601,8 +12819,10 @@ int aura_task_channel_close_from(AuraTaskChannel *channel, AuraTaskFrame *closer
   {
     return 0;
   }
+  aura_task_channel_lock_enter();
   if (channel->closed)
   {
+    aura_task_channel_lock_leave();
     return 0;
   }
   aura_task_channel_record(channel, closer, AURA_RACE_CHANNEL_CLOSE);
@@ -11622,12 +12842,24 @@ int aura_task_channel_close_from(AuraTaskChannel *channel, AuraTaskFrame *closer
   {
     AuraTaskChannelWaiter *waiter = channel->receive_head;
     aura_task_channel_unlink(channel, waiter, 1);
-    waiter->frame->waiting_channel = NULL;
-    waiter->frame->waiting_node = NULL;
     AuraTaskFrame *frame = waiter->frame;
-    free(waiter);
-    aura_task_channel_wake(frame);
+    if (waiter->select != NULL)
+    {
+      AuraTaskSelect *select = waiter->select;
+      size_t index = waiter->select_index;
+      free(waiter);
+      aura_task_select_finish(select, AURA_CHANNEL_CLOSED, index,
+                              (AuraTaskChannelValue){NULL, 0, NULL});
+    }
+    else
+    {
+      frame->waiting_channel = NULL;
+      frame->waiting_node = NULL;
+      free(waiter);
+      aura_task_channel_wake(frame);
+    }
   }
+  aura_task_channel_lock_leave();
   return 1;
 }
 
@@ -11643,6 +12875,7 @@ void aura_task_channel_destroy(AuraTaskChannel *channel)
     return;
   }
   (void)aura_task_channel_close(channel);
+  aura_task_channel_lock_enter();
   while (channel->count != 0)
   {
     aura_task_channel_value_destroy(&channel->values[channel->head]);
@@ -11650,6 +12883,7 @@ void aura_task_channel_destroy(AuraTaskChannel *channel)
     channel->count--;
   }
   free(channel->values);
+  aura_task_channel_lock_leave();
   free(channel);
 }
 

@@ -17,11 +17,11 @@
 
 ## 1. Abstract
 
-This RFC defines Aura’s **memory and concurrency model**: tracing GC, reference vs value semantics, lightweight **tasks**, bounded channels, `async`/`await`, shared-memory synchronization, happens-before rules, and the policy that **data races are bugs**—detected in development, not licensed as silent undefined behavior. C22 freezes a deterministic single-threaded task/event-loop MVP; the broader multi-worker model remains future work.
+This RFC defines Aura’s **memory and concurrency model**: tracing GC, reference vs value semantics, lightweight **tasks**, bounded channels, `async`/`await`, shared-memory synchronization, happens-before rules, and the policy that **data races are bugs**—detected in development, not licensed as silent undefined behavior. The current runtime adds an opt-in POSIX M:N worker pool and reactor around the cooperative task model.
 
 Runtime implementation details (scheduler, collector algorithm) are expanded in **RFC-006**; this document is the language-level contract.
 
-**Toolchain today (2026-07-28, C22t + alpha follow-up):** class instances are GC heap references, `struct` values remain by-value, and execution is single-threaded. The runtime has stop-the-world mark/sweep with registered roots and task-frame storage scans, plus ownership handling for Array/String values, captured environments, typed exception causes, and bounded FFI pins. C20c–e add MVP shared pointer boxes for mutable class, Array, and nested Fun captures; C20g adds read-only collection snapshots. C21b–e add sema-checked scoped refs and borrow-safe Array field returns. C22a–i land async/task syntax and barriers; C22j–k task frames/executor; C22n–o bounded channels and typed payloads. C22l–m and the v0.1.1-alpha follow-up remain partial: bounded await/control-flow shapes are executable, while arbitrary lowering, richer captures, full outcome propagation, async I/O, and typed HTTP handles remain open.
+**Toolchain today (2026-07-31):** class instances are GC heap references and `struct` values remain by-value. The runtime has registered-root stop-the-world mark/sweep coordinated with concurrent worker activity, an opt-in POSIX M:N worker pool, a POSIX poll reactor, bounded channels/select, task scopes, blocking jobs, and task-safe lazy cells. C20c–e add MVP shared pointer boxes for mutable class, Array, and nested Fun captures; C20g adds read-only collection snapshots. C21b–e add sema-checked scoped refs and borrow-safe Array field returns. C22a–i land async/task syntax and barriers; C22j–k task frames/executor; C22n–o bounded channels and typed payloads. Arbitrary async CFG lowering, richer captures, full cancellation/outcome propagation, non-POSIX backends, and a concurrent tracing collector remain open.
 
 ## 2. Motivation
 
@@ -111,7 +111,7 @@ implementation follow-ups, not changes to the source contract.
 | Hybrid arenas            | Optional later for buffers    |
 | Regions                  | Future                        |
 
-**Decision:** Tracing GC. Phased algorithm (RFC-006): free-all MVP (shipped) → precise **stop-the-world mark-sweep** next → concurrent collector later.
+**Decision:** Tracing GC. The current phase is precise **stop-the-world mark-sweep** with executor safepoints; a concurrent tracing collector remains a later phase.
 
 Safe Aura guarantees:
 

@@ -178,7 +178,15 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     // translation units only need the stable opaque declarations below.
     out.push_str("typedef struct AuraTaskFrame AuraTaskFrame;\n");
     out.push_str("typedef struct AuraTaskExecutor AuraTaskExecutor;\n");
+    out.push_str("void aura_gc_collect_executor(AuraTaskExecutor *executor);\n");
+    out.push_str("typedef struct AuraTaskScope AuraTaskScope;\n");
+    out.push_str("typedef struct AuraLazyCell AuraLazyCell;\n");
+    out.push_str("typedef void (*AuraLazyInitFn)(AuraLazyCell *, void *);\n");
+    out.push_str("typedef void (*AuraLazyValueDestroyFn)(void *);\n");
+    out.push_str("typedef void (*AuraTaskBlockingFn)(AuraTaskFrame *, void *);\n");
+    out.push_str("typedef void (*AuraTaskBlockingEnvDestroyFn)(void *);\n");
     out.push_str("typedef struct AuraTaskChannel AuraTaskChannel;\n");
+    out.push_str("typedef struct AuraTaskSelect AuraTaskSelect;\n");
     out.push_str("typedef struct AuraFile AuraFile;\n");
     out.push_str("typedef enum { AURA_FILE_OK = 0, AURA_FILE_PENDING = 1, AURA_FILE_EOF = 2, AURA_FILE_ERROR = -1, AURA_FILE_CLOSED = -2, AURA_FILE_UNSUPPORTED = -3, AURA_FILE_PERMISSION = -4 } AuraFileStatus;\n");
     out.push_str("typedef enum { AURA_FILE_READ = 0, AURA_FILE_WRITE = 1, AURA_FILE_READ_WRITE = 2, AURA_FILE_APPEND = 3 } AuraFileMode;\n");
@@ -277,6 +285,18 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("typedef void *(*AuraTaskResultCloneFn)(const void *data, size_t size, size_t *cloned_size);\n");
     out.push_str("AuraTaskPollState aura_task_poll_unit(AuraTaskFrame *frame);\n");
     out.push_str("AuraTaskFrame *aura_task_frame_new(size_t data_size, AuraTaskPollFn poll, AuraTaskFrameDestroyFn destroy);\n");
+    out.push_str("AuraTaskFrame *aura_task_frame_new_blocking(AuraTaskExecutor *, AuraTaskBlockingFn, void *, AuraTaskBlockingEnvDestroyFn);\n");
+    out.push_str("AuraTaskScope *aura_task_scope_begin(AuraTaskExecutor *);\n");
+    out.push_str("int aura_task_scope_end(AuraTaskScope *);\n");
+    out.push_str(
+        "AuraLazyCell *aura_lazy_cell_new(AuraLazyInitFn, void *, AuraTaskBlockingEnvDestroyFn);\n",
+    );
+    out.push_str(
+        "void aura_lazy_cell_publish(AuraLazyCell *, void *, size_t, AuraLazyValueDestroyFn);\n",
+    );
+    out.push_str("void *aura_lazy_cell_value(AuraLazyCell *);\n");
+    out.push_str("int aura_lazy_cell_is_initialized(AuraLazyCell *);\n");
+    out.push_str("void aura_lazy_cell_destroy(AuraLazyCell *);\n");
     out.push_str(
         "void aura_task_frame_set_cancel_handler(AuraTaskFrame *frame, AuraTaskCancelFn cancel);\n",
     );
@@ -330,6 +350,10 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("AuraTaskResult aura_task_frame_result(const AuraTaskFrame *frame);\n");
     out.push_str("AuraTaskExecutor *aura_task_executor_new(void);\n");
     out.push_str("int aura_task_executor_set_max_live_tasks(AuraTaskExecutor *executor, size_t max_live_tasks);\n");
+    out.push_str(
+        "int aura_task_executor_start_workers(AuraTaskExecutor *executor, size_t worker_count);\n",
+    );
+    out.push_str("void aura_task_executor_stop_workers(AuraTaskExecutor *executor);\n");
     out.push_str("void aura_task_executor_set_race_tracker(AuraTaskExecutor *executor, AuraRaceTracker *tracker);\n");
     out.push_str(
         "int aura_task_executor_submit(AuraTaskExecutor *executor, AuraTaskFrame *frame);\n",
@@ -358,6 +382,10 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("AuraTaskChannelStatus aura_task_channel_receive(AuraTaskChannel *channel, AuraTaskFrame *receiver, AuraTaskChannelValue *out);\n");
     out.push_str("int aura_task_channel_close(AuraTaskChannel *channel);\n");
     out.push_str("void aura_task_channel_destroy(AuraTaskChannel *channel);\n");
+    out.push_str("AuraTaskSelect *aura_task_select_new(void);\n");
+    out.push_str("int aura_task_select_add(AuraTaskSelect *select, AuraTaskChannel *channel);\n");
+    out.push_str("AuraTaskChannelStatus aura_task_select_next(AuraTaskSelect *select, AuraTaskFrame *frame, AuraTaskChannelValue *out, size_t *index);\n");
+    out.push_str("void aura_task_select_destroy(AuraTaskSelect *select);\n");
     out.push_str("void aura_task_channel_value_destroy_free(void *data, size_t size);\n");
     out.push_str("void aura_task_channel_value_destroy_class(void *data, size_t size);\n");
     out.push_str("static void aura_task_channel_value_destroy_foreign_handle(void *data, size_t size) { (void)size; if (data != NULL) { AuraFfiOpaqueHandle **handle = (AuraFfiOpaqueHandle **)data; if (*handle != NULL) (void)aura_ffi_handle_drop(handle); free(data); } }\n");
@@ -665,6 +693,7 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     // declarations are visible. Unsupported bodies keep the explicit abort
     // path in expression emission.
     emit_bounded_spawn_pollers(&mut out, checked, opts.detector);
+    emit_lazy_helpers(&mut out, checked);
 
     // Definitions
     for c in &checked.ast.classes {
@@ -1063,7 +1092,7 @@ fn emit_async_fun_while_branch_join_await_array(
     );
     let _ = writeln!(
         out,
-        " data->{value_name} = __copy; data->await_task = NULL; int64_t {index_name} = data->{index_name}; {value_cty} {value_name} = data->{value_name}; aura_gc_collect(); data->{index_name} = {index_rhs}; goto {head_label}; }}\n}}"
+        " data->{value_name} = __copy; data->await_task = NULL; int64_t {index_name} = data->{index_name}; {value_cty} {value_name} = data->{value_name}; aura_gc_collect_executor(__aura_task_executor); data->{index_name} = {index_rhs}; goto {head_label}; }}\n}}"
     );
     let _ = writeln!(out, "{} {{", c_async_fun_signature(f, checked));
     let _ = writeln!(
@@ -3820,7 +3849,7 @@ fn emit_async_fun_while_multi_conditional_await_int(
     }
     let _ = writeln!(
         out,
-        "    aura_gc_collect(); data->{total} = {total_rhs}; data->{index} = {index_rhs}; aura_task_frame_set_resume_state(frame, 0); goto {head_label};\n  }}\n",
+        "    aura_gc_collect_executor(__aura_task_executor); data->{total} = {total_rhs}; data->{index} = {index_rhs}; aura_task_frame_set_resume_state(frame, 0); goto {head_label};\n  }}\n",
         total = names[1],
         index = names[0]
     );
@@ -4071,7 +4100,7 @@ fn emit_async_fun_while_two_conditional_await_int(
     let _ = writeln!(out, "    data->{second_name} = child_result.data == NULL ? 0 : *((int64_t *)child_result.data); data->await_task_1 = NULL; goto {post_label};\n  }}\n");
 
     let _ = writeln!(out, "{post_label}:\n  {index_name} = data->{index_name}; {total_name} = data->{total_name}; {first_name} = data->{first_name}; {second_name} = data->{second_name};");
-    let _ = writeln!(out, "  aura_gc_collect(); data->{total_name} = {total_rhs}; data->{index_name} = {index_rhs}; aura_task_frame_set_resume_state(frame, 0); goto {head_label};\n");
+    let _ = writeln!(out, "  aura_gc_collect_executor(__aura_task_executor); data->{total_name} = {total_rhs}; data->{index_name} = {index_rhs}; aura_task_frame_set_resume_state(frame, 0); goto {head_label};\n");
     let _ = writeln!(out, "{done_label}:\n  {{ int64_t *result = (int64_t *)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; *result = data->{total_name}; aura_task_frame_set_result(frame, result, sizeof(*result), {destroy_result}); return AURA_TASK_COMPLETE; }}\n}}\n\n");
     let _ = writeln!(out, "{} {{", c_async_fun_signature(f, checked));
     let _ = writeln!(out, "  AuraTaskFrame *frame = aura_task_frame_new(sizeof({data_ty}), {poll_fn}, NULL); if (frame == NULL) return NULL;");
@@ -11096,6 +11125,78 @@ fn emit_capture_drop_helpers(out: &mut String, checked: &CheckedFile) {
     }
 }
 
+fn emit_lazy_helpers(out: &mut String, checked: &CheckedFile) {
+    let mut emitted = HashSet::new();
+    for (name, args) in &checked.mono_classes {
+        let Some(class) = checked.ast.classes.iter().find(|candidate| {
+            candidate.name.name == *name
+                && candidate.origin_package == "std.sync"
+                && candidate.name.name == "Lazy"
+        }) else {
+            continue;
+        };
+        let _ = class;
+        let Some(result_ty) = args.first() else {
+            continue;
+        };
+        let suffix = result_ty.mono_suffix();
+        if !emitted.insert(suffix.clone()) {
+            continue;
+        }
+        let fun = Ty::Fun {
+            params: Vec::new(),
+            ret: Box::new(result_ty.clone()),
+        };
+        let fun_ty = c_fun_typedef(&fun.mono_suffix());
+        let env_ty = format!("aura_lazy_env_{suffix}");
+        let init = format!("aura_lazy_init_{suffix}");
+        let env_destroy = format!("aura_lazy_env_destroy_{suffix}");
+        let value_destroy = format!("aura_lazy_value_destroy_{suffix}");
+        let result_cty = c_type_from_ty(result_ty, checked);
+        let _ = writeln!(out, "typedef struct {{ {fun_ty} body; }} {env_ty};");
+        let _ = writeln!(out, "static void {env_destroy}(void *value) {{ {env_ty} *env = ({env_ty} *)value; if (env != NULL) {{ aura_fun_env_free(env->body.env); free(env); }} }}");
+        let _ = writeln!(out, "static void {value_destroy}(void *value) {{");
+        if suffix == "String" {
+            out.push_str(
+                "  if (value != NULL) { char **text = (char **)value; free(*text); free(text); }\n",
+            );
+        } else {
+            out.push_str("  free(value);\n");
+        }
+        out.push_str("}\n");
+        let _ = writeln!(
+            out,
+            "static void {init}(AuraLazyCell *cell, void *value) {{"
+        );
+        let _ = writeln!(out, "  {env_ty} *env = ({env_ty} *)value;");
+        if suffix == "Unit" {
+            out.push_str("  env->body.fn(env->body.env);\n  void *__marker = malloc(1);\n");
+            let _ = writeln!(
+                out,
+                "  aura_lazy_cell_publish(cell, __marker, 1, {value_destroy});"
+            );
+        } else if suffix == "String" {
+            out.push_str("  const char *__value = env->body.fn(env->body.env);\n  char **result = (char **)malloc(sizeof(*result));\n  if (result == NULL) return;\n  if (__value == NULL) *result = NULL; else { size_t length = strlen(__value) + 1; *result = (char *)malloc(length); if (*result != NULL) memcpy(*result, __value, length); }\n  if (__value != NULL && *result == NULL) { free(result); return; }\n");
+            let _ = writeln!(
+                out,
+                "  aura_lazy_cell_publish(cell, result, sizeof(*result), {value_destroy});"
+            );
+        } else {
+            let _ = writeln!(
+                out,
+                "  {result_cty} *__value = ({result_cty} *)malloc(sizeof(*__value));"
+            );
+            out.push_str("  if (__value == NULL) return;\n");
+            out.push_str("  *__value = env->body.fn(env->body.env);\n");
+            let _ = writeln!(
+                out,
+                "  aura_lazy_cell_publish(cell, __value, sizeof(*__value), {value_destroy});"
+            );
+        }
+        out.push_str("}\n\n");
+    }
+}
+
 fn emit_lambda_fns(out: &mut String, checked: &CheckedFile, detector: bool) {
     if checked.lambda_tys.is_empty() {
         return;
@@ -11289,6 +11390,70 @@ fn emit_lambda_fns(out: &mut String, checked: &CheckedFile, detector: bool) {
     }
 }
 
+fn emit_spawn_blocking_helper(out: &mut String, f: &FunDecl, checked: &CheckedFile, args: &[Ty]) {
+    let params: Vec<String> = f.type_params.iter().map(|p| p.name.name.clone()).collect();
+    let Some(result_ty) = args.first() else {
+        return;
+    };
+    let suffix = result_ty.mono_suffix();
+    let helper = format!("aura_spawn_blocking_{suffix}");
+    let env_ty = format!("aura_spawn_blocking_env_{suffix}");
+    let fun_ty = c_type_ref_subst(&f.params[0].ty, checked, &params, args);
+    let result_cty = c_type_from_ty(result_ty, checked);
+    let destroy = format!("aura_spawn_blocking_destroy_{suffix}");
+    let result_destroy = format!("aura_spawn_blocking_result_destroy_{suffix}");
+
+    let _ = writeln!(out, "typedef struct {{ {fun_ty} body; }} {env_ty};");
+    let _ = writeln!(out, "static void {destroy}(void *value) {{");
+    let _ = writeln!(out, "  {env_ty} *env = ({env_ty} *)value;");
+    out.push_str("  if (env != NULL) { aura_fun_env_free(env->body.env); free(env); }\n}\n");
+    let _ = writeln!(
+        out,
+        "static void {result_destroy}(void *value, size_t size) {{"
+    );
+    out.push_str("  (void)size;\n");
+    if result_ty.mono_suffix() == "String" {
+        out.push_str(
+            "  if (value != NULL) { char **text = (char **)value; free(*text); free(text); }\n",
+        );
+    } else {
+        out.push_str("  free(value);\n");
+    }
+    out.push_str("}\n");
+    let _ = writeln!(
+        out,
+        "static void {helper}(AuraTaskFrame *frame, void *value) {{"
+    );
+    let _ = writeln!(out, "  {env_ty} *env = ({env_ty} *)value;");
+    out.push_str("  if (env == NULL || aura_task_frame_cancel_requested(frame)) return;\n");
+    if result_ty.mono_suffix() == "Unit" {
+        out.push_str("  env->body.fn(env->body.env);\n");
+    } else if result_ty.mono_suffix() == "String" {
+        out.push_str("  const char *__value = env->body.fn(env->body.env);\n");
+        out.push_str("  char **result = (char **)malloc(sizeof(*result));\n");
+        out.push_str("  if (result == NULL) return;\n");
+        out.push_str("  if (__value == NULL) *result = NULL; else { size_t length = strlen(__value) + 1; *result = (char *)malloc(length); if (*result != NULL) memcpy(*result, __value, length); }\n");
+        out.push_str("  if (__value != NULL && *result == NULL) { free(result); return; }\n");
+        let _ = writeln!(
+            out,
+            "  aura_task_frame_set_result(frame, result, sizeof(*result), {result_destroy});"
+        );
+    } else {
+        let _ = writeln!(out, "  {result_cty} __value = env->body.fn(env->body.env);");
+        let _ = writeln!(
+            out,
+            "  {result_cty} *result = ({result_cty} *)malloc(sizeof(*result));"
+        );
+        out.push_str("  if (result == NULL) return;\n");
+        out.push_str("  *result = __value;\n");
+        let _ = writeln!(
+            out,
+            "  aura_task_frame_set_result(frame, result, sizeof(*result), {result_destroy});"
+        );
+    }
+    out.push_str("}\n\n");
+}
+
 pub(crate) fn emit_fun(
     out: &mut String,
     f: &FunDecl,
@@ -11297,8 +11462,98 @@ pub(crate) fn emit_fun(
     detector: bool,
 ) {
     let params: Vec<String> = f.type_params.iter().map(|p| p.name.name.clone()).collect();
-    let _ = writeln!(out, "{} {{", c_fun_signature(f, checked, args));
     let pkg = fun_decl_package(f, checked);
+    let is_spawn_blocking = pkg == "std.task"
+        && f.name.name == "spawnBlocking"
+        && f.params.len() == 1
+        && args.len() == 1;
+    let is_task_scope = pkg == "std.task" && f.name.name == "taskScope" && f.params.len() == 1;
+    let is_lazy =
+        pkg == "std.sync" && f.name.name == "lazy" && f.params.len() == 1 && args.len() == 1;
+    let is_select =
+        pkg == "std.task" && f.name.name == "select" && f.params.is_empty() && args.len() == 1;
+    if is_spawn_blocking {
+        emit_spawn_blocking_helper(out, f, checked, args);
+    }
+    let _ = writeln!(out, "{} {{", c_fun_signature(f, checked, args));
+    if is_spawn_blocking {
+        let suffix = args[0].mono_suffix();
+        let env_ty = format!("aura_spawn_blocking_env_{suffix}");
+        let helper = format!("aura_spawn_blocking_{suffix}");
+        let destroy = format!("aura_spawn_blocking_destroy_{suffix}");
+        let body = mangle_ident(&f.params[0].name.name);
+        let fun_ty = c_type_ref_subst(&f.params[0].ty, checked, &params, args);
+        let _ = writeln!(
+            out,
+            "  {env_ty} *__env = ({env_ty} *)malloc(sizeof(*__env));"
+        );
+        out.push_str(
+            "  if (__env == NULL || __aura_task_executor == NULL) { free(__env); return NULL; }\n",
+        );
+        let _ = writeln!(out, "  __env->body = ({fun_ty}){body};");
+        out.push_str("  if (__env->body.env != NULL) aura_fun_env_retain(__env->body.env);\n");
+        let _ = writeln!(out, "  return aura_task_frame_new_blocking(__aura_task_executor, {helper}, __env, {destroy});");
+        out.push_str("}\n");
+        return;
+    }
+    if is_task_scope {
+        let body = mangle_ident(&f.params[0].name.name);
+        out.push_str("  AuraTaskScope *__scope = aura_task_scope_begin(__aura_task_executor);\n");
+        out.push_str("  if (__scope == NULL) return;\n");
+        let _ = writeln!(out, "  jmp_buf __scope_jb_{};", f.span.start);
+        let _ = writeln!(out, "  if (setjmp(__scope_jb_{}) == 0) {{", f.span.start);
+        let _ = writeln!(out, "    aura_try_enter(&__scope_jb_{});", f.span.start);
+        let _ = writeln!(out, "    {body}.fn({body}.env);");
+        out.push_str("    aura_try_leave();\n");
+        out.push_str("    int __scope_status = aura_task_scope_end(__scope);\n");
+        out.push_str(
+            "    if (__scope_status == 1) aura_throw_string(\"structured child task failed\");\n",
+        );
+        out.push_str("    if (__scope_status == 2) aura_throw_string(\"structured child task cancelled\");\n");
+        out.push_str("  } else {\n");
+        out.push_str("    aura_task_scope_end(__scope);\n");
+        out.push_str("    aura_ex_rethrow();\n");
+        out.push_str("  }\n");
+        out.push_str("}\n");
+        return;
+    }
+    if is_lazy {
+        let suffix = args[0].mono_suffix();
+        let env_ty = format!("aura_lazy_env_{suffix}");
+        let init = format!("aura_lazy_init_{suffix}");
+        let env_destroy = format!("aura_lazy_env_destroy_{suffix}");
+        let body = mangle_ident(&f.params[0].name.name);
+        let fun_ty = c_type_ref_subst(&f.params[0].ty, checked, &params, args);
+        let mono = type_mono("std.sync", "Lazy", args);
+        let ctor = c_ctor_name(&mono);
+        out.push_str("  if (__aura_task_executor == NULL) return NULL;\n");
+        let _ = writeln!(
+            out,
+            "  {env_ty} *__env = ({env_ty} *)malloc(sizeof(*__env));"
+        );
+        out.push_str("  if (__env == NULL) return NULL;\n");
+        let _ = writeln!(out, "  __env->body = ({fun_ty}){body};");
+        out.push_str("  if (__env->body.env != NULL) aura_fun_env_retain(__env->body.env);\n");
+        let _ = writeln!(
+            out,
+            "  AuraLazyCell *__cell = aura_lazy_cell_new({init}, __env, {env_destroy});"
+        );
+        out.push_str("  if (__cell == NULL) { ");
+        let _ = writeln!(out, "{env_destroy}(__env); return NULL; }}");
+        let _ = writeln!(out, "  return {ctor}((int64_t)(uintptr_t)__cell);");
+        out.push_str("}\n");
+        return;
+    }
+    if is_select {
+        let mono = type_mono("std.task", "Select", args);
+        let ctor = c_ctor_name(&mono);
+        out.push_str("  if (__aura_task_executor == NULL) return NULL;\n");
+        out.push_str("  AuraTaskSelect *__select = aura_task_select_new();\n");
+        out.push_str("  if (__select == NULL) return NULL;\n");
+        let _ = writeln!(out, "  return {ctor}((int64_t)(uintptr_t)__select);");
+        out.push_str("}\n");
+        return;
+    }
     if pkg == "std.time" && f.name.name == "nowMillis" && f.params.is_empty() {
         out.push_str("  return aura_time_monotonic_millis();\n}\n");
         return;

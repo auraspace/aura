@@ -228,13 +228,30 @@ typedef enum AuraFfiBoundary {
  * cancellation remains idempotent and releases the resource at most once. */
 typedef struct AuraTaskExecutor AuraTaskExecutor;
 typedef struct AuraTaskFrame AuraTaskFrame;
+typedef struct AuraTaskScope AuraTaskScope;
+void aura_gc_collect_executor(AuraTaskExecutor *executor);
+typedef struct AuraTaskChannel AuraTaskChannel;
+typedef struct AuraTaskSelect AuraTaskSelect;
 typedef void (*AuraTaskFrameGcMarkFn)(AuraTaskFrame *frame);
+typedef void (*AuraTaskBlockingFn)(AuraTaskFrame *frame, void *environment);
+typedef void (*AuraTaskBlockingEnvDestroyFn)(void *environment);
+AuraTaskFrame *aura_task_frame_new_blocking(
+    AuraTaskExecutor *executor, AuraTaskBlockingFn function, void *environment,
+    AuraTaskBlockingEnvDestroyFn environment_destroy);
+AuraTaskScope *aura_task_scope_begin(AuraTaskExecutor *executor);
+int aura_task_scope_end(AuraTaskScope *scope);
+AuraTaskSelect *aura_task_select_new(void);
+int aura_task_select_add(AuraTaskSelect *select, AuraTaskChannel *channel);
+void aura_task_select_destroy(AuraTaskSelect *select);
 int64_t aura_time_monotonic_millis(void);
 int aura_task_frame_set_cancel_deadline(AuraTaskFrame *frame, int timeout_ms);
 int aura_task_frame_link_cancellation(AuraTaskFrame *parent,
                                       AuraTaskFrame *child);
 int aura_task_executor_set_max_live_tasks(AuraTaskExecutor *executor,
                                           size_t max_live_tasks);
+int aura_task_executor_start_workers(AuraTaskExecutor *executor,
+                                     size_t worker_count);
+void aura_task_executor_stop_workers(AuraTaskExecutor *executor);
 #define AURA_TASK_POLL_STATE_DEFINED 1
 typedef enum AuraTaskPollState {
   AURA_TASK_READY = 0,

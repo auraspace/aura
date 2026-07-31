@@ -460,6 +460,12 @@ fn emit_class_gc_hooks(
         let _ = writeln!(out, "static void {}(void *p) {{", c_dtor_name(mono));
         let _ = writeln!(out, "  {cty} *self = ({cty} *)p;");
         out.push_str("  if (self == NULL) { return; }\n");
+        if class_decl_package(c, checked) == "std.sync" && c.name.name == "Lazy" {
+            out.push_str("  if (self->placeholder != 0) { aura_lazy_cell_destroy((AuraLazyCell *)(uintptr_t)self->placeholder); self->placeholder = 0; }\n");
+        }
+        if class_decl_package(c, checked) == "std.task" && c.name.name == "Select" {
+            out.push_str("  if (self->placeholder != 0) { aura_task_select_destroy((AuraTaskSelect *)(uintptr_t)self->placeholder); self->placeholder = 0; }\n");
+        }
         for name in &string_fields {
             let f = mangle_ident(name);
             let _ = writeln!(
@@ -594,6 +600,18 @@ pub(crate) fn emit_class_defs(
             } else if class_decl_package(c, checked) == "std.sync"
                 && c.name.name == "Once"
                 && emit_once_method(out, c, m, checked, &params, args, &mono)
+            {
+            } else if class_decl_package(c, checked) == "std.sync"
+                && c.name.name == "Lazy"
+                && emit_lazy_method(out, c, m, checked, &params, args, &mono)
+            {
+            } else if class_decl_package(c, checked) == "std.task"
+                && c.name.name == "Select"
+                && emit_select_next_method(out, c, m, checked, &params, args, &mono)
+            {
+            } else if class_decl_package(c, checked) == "std.task"
+                && c.name.name == "Select"
+                && emit_select_method(out, c, m, checked, &params, args, &mono)
             {
             } else if class_decl_package(c, checked) == "std.metrics"
                 && c.name.name == "Counter"
@@ -742,6 +760,133 @@ fn emit_once_method(
         }
         _ => false,
     }
+}
+
+fn emit_lazy_method(
+    out: &mut String,
+    c: &ClassDecl,
+    m: &FunDecl,
+    checked: &CheckedFile,
+    params: &[String],
+    args: &[Ty],
+    mono: &str,
+) -> bool {
+    let signature = c_method_signature_mono(c, m, checked, params, args, mono);
+    let cell = "(AuraLazyCell *)(uintptr_t)this->placeholder";
+    match (m.name.name.as_str(), m.params.len()) {
+        ("isInitialized", 0) => {
+            let _ = writeln!(out, "{signature} {{ return this != NULL && this->placeholder != 0 && aura_lazy_cell_is_initialized({cell}); }}");
+            true
+        }
+        ("get", 0) if !args.is_empty() => {
+            let result = c_type_from_ty(&args[0], checked);
+            if args[0].mono_suffix() == "Unit" {
+                let _ = writeln!(out, "{signature} {{ if (this != NULL && this->placeholder != 0) (void)aura_lazy_cell_value({cell}); }}");
+            } else {
+                let _ = writeln!(out, "{signature} {{ {result} *__value = ({result} *)aura_lazy_cell_value({cell}); if (__value == NULL) return ({result}){{0}}; return *__value; }}");
+            }
+            true
+        }
+        _ => false,
+    }
+}
+
+fn emit_select_method(
+    out: &mut String,
+    c: &ClassDecl,
+    m: &FunDecl,
+    checked: &CheckedFile,
+    params: &[String],
+    args: &[Ty],
+    mono: &str,
+) -> bool {
+    let signature = c_method_signature_mono(c, m, checked, params, args, mono);
+    match (m.name.name.as_str(), m.params.len()) {
+        ("add", 1) => {
+            let channel = mangle_ident(&m.params[0].name.name);
+            let _ = writeln!(
+                out,
+                "{signature} {{ if (this == NULL || this->placeholder == 0 || {channel} == NULL || !aura_task_select_add((AuraTaskSelect *)(uintptr_t)this->placeholder, {channel})) return NULL; return this; }}"
+            );
+            true
+        }
+        _ => false,
+    }
+}
+
+fn emit_select_next_method(
+    out: &mut String,
+    c: &ClassDecl,
+    m: &FunDecl,
+    checked: &CheckedFile,
+    params: &[String],
+    args: &[Ty],
+    mono: &str,
+) -> bool {
+    let Some(element) = args.first() else {
+        return false;
+    };
+    let kind = match element.mono_suffix().as_str() {
+        "Int" => "int",
+        "Bool" => "bool",
+        "String" => "string",
+        key if is_heap_class_mono(key, checked) => "class",
+        key if key == "ForeignHandle" || key.starts_with("ForeignHandle_") => "foreign_handle",
+        _ => return false,
+    };
+    if m.name.name != "next" || !m.params.is_empty() {
+        return false;
+    }
+    let base = format!("aura_select_next_{mono}");
+    let data = format!("{base}_data");
+    let poll = format!("{base}_poll");
+    let signature = c_method_signature_mono(c, m, checked, params, args, mono);
+    let _ = writeln!(
+        out,
+        "typedef struct {{ AuraTaskSelect *select; void *owner; }} {data};"
+    );
+    let _ = writeln!(out, "static void {base}_destroy(AuraTaskFrame *frame) {{ {data} *data = ({data} *)aura_task_frame_data(frame); if (data != NULL && data->owner != NULL) aura_gc_remove_root(&data->owner); }}");
+    if kind == "string" {
+        let _ = writeln!(out, "static void {base}_result_destroy(void *raw, size_t size) {{ (void)size; const char **result = (const char **)raw; if (result != NULL) {{ free((void *)*result); free(result); }} }}");
+    } else if kind == "class" {
+        let _ = writeln!(out, "static void {base}_result_destroy(void *raw, size_t size) {{ (void)size; void **result = (void **)raw; if (result != NULL) {{ aura_gc_remove_root(result); free(result); }} }}");
+    } else if kind == "foreign_handle" {
+        let _ = writeln!(out, "static void {base}_result_destroy(void *raw, size_t size) {{ (void)size; AuraFfiOpaqueHandle **result = (AuraFfiOpaqueHandle **)raw; if (result != NULL) {{ if (*result != NULL) (void)aura_ffi_handle_drop(result); free(result); }} }}");
+    } else {
+        let _ = writeln!(out, "static void {base}_result_destroy(void *raw, size_t size) {{ (void)size; free(raw); }}");
+    }
+    let _ = writeln!(
+        out,
+        "static AuraTaskPollState {poll}(AuraTaskFrame *frame) {{"
+    );
+    let _ = writeln!(out, "  {data} *data = ({data} *)aura_task_frame_data(frame); AuraTaskChannelValue value = {{0}}; size_t index = 0; AuraTaskChannelStatus status = aura_task_select_next(data == NULL ? NULL : data->select, frame, &value, &index);");
+    let result_code = match kind {
+        "int" => "aura_opt_i64 *result = (aura_opt_i64 *)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; result->has = status == AURA_CHANNEL_OK; result->value = (status == AURA_CHANNEL_OK && value.data != NULL) ? *((int64_t *)value.data) : 0; if (value.data != NULL) aura_task_channel_value_destroy_free(value.data, value.size); aura_task_frame_set_result(frame, result, sizeof(*result), aura_select_next_std_task_Select_Int_result_destroy);",
+        "bool" => "aura_opt_bool *result = (aura_opt_bool *)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; result->has = status == AURA_CHANNEL_OK; result->value = (status == AURA_CHANNEL_OK && value.data != NULL) ? *((bool *)value.data) : false; if (value.data != NULL) aura_task_channel_value_destroy_free(value.data, value.size); aura_task_frame_set_result(frame, result, sizeof(*result), aura_select_next_std_task_Select_Bool_result_destroy);",
+        "string" => "const char **result = (const char **)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; *result = status == AURA_CHANNEL_OK ? (const char *)value.data : NULL; value.data = NULL; if (value.data != NULL) aura_task_channel_value_destroy_free(value.data, value.size); aura_task_frame_set_result(frame, result, sizeof(*result), aura_select_next_std_task_Select_String_result_destroy);",
+        "class" => "void **result = (void **)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; *result = (status == AURA_CHANNEL_OK && value.data != NULL) ? *((void **)value.data) : NULL; aura_gc_add_root(result); if (value.data != NULL) aura_task_channel_value_destroy_class(value.data, value.size); aura_task_frame_set_result(frame, result, sizeof(*result), aura_select_next_RESULT_CLASS);",
+        "foreign_handle" => "AuraFfiOpaqueHandle **result = (AuraFfiOpaqueHandle **)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; *result = (status == AURA_CHANNEL_OK && value.data != NULL) ? *((AuraFfiOpaqueHandle **)value.data) : NULL; if (value.data != NULL) { *((AuraFfiOpaqueHandle **)value.data) = NULL; aura_task_channel_value_destroy_foreign_handle(value.data, value.size); } aura_task_frame_set_result(frame, result, sizeof(*result), aura_select_next_RESULT_FOREIGN);",
+        _ => unreachable!(),
+    };
+    let result_code = result_code
+        .replace("aura_select_next_std_task_Select_Int", &format!("{base}"))
+        .replace("aura_select_next_std_task_Select_Bool", &format!("{base}"))
+        .replace(
+            "aura_select_next_std_task_Select_String",
+            &format!("{base}"),
+        )
+        .replace(
+            "aura_select_next_RESULT_CLASS",
+            &format!("{base}_result_destroy"),
+        )
+        .replace(
+            "aura_select_next_RESULT_FOREIGN",
+            &format!("{base}_result_destroy"),
+        );
+    let _ = writeln!(out, "  (void)index; if (status == AURA_CHANNEL_PENDING) return AURA_TASK_PENDING; if (status == AURA_CHANNEL_ERROR) return AURA_TASK_FAILED; {result_code} return AURA_TASK_COMPLETE;");
+    out.push_str("}\n");
+    let _ = writeln!(out, "{signature} {{ if (this == NULL || this->placeholder == 0 || __aura_task_executor == NULL) return NULL; AuraTaskFrame *__frame = aura_task_frame_new(sizeof({data}), {poll}, {base}_destroy); if (__frame == NULL) return NULL; {data} *__data = ({data} *)aura_task_frame_data(__frame); __data->select = (AuraTaskSelect *)(uintptr_t)this->placeholder; __data->owner = this; aura_gc_add_root(&__data->owner); if (!aura_task_executor_submit(__aura_task_executor, __frame)) {{ aura_task_frame_destroy(__frame); return NULL; }} return __frame; }}");
+    true
 }
 
 fn emit_rwlock_method(

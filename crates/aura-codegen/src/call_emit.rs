@@ -1073,7 +1073,7 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
             }
             // C5m: builtin STW GC collect.
             if id.name == "gc_collect" && c.args.is_empty() {
-                return "aura_gc_collect()".into();
+                return "aura_gc_collect_executor(__aura_task_executor)".into();
             }
             // RUNTIME-003: expose the active cause chain without leaking the
             // runtime's borrowed type-name storage into Aura String values.

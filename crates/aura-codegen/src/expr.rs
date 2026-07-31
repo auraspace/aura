@@ -2098,12 +2098,12 @@ fn emit_channel_send(s: &ChannelSendExpr, ctx: &mut EmitCtx<'_>) -> String {
     };
     let (alloc, destroy) = match kind {
         "int" => (format!("int64_t *__p = (int64_t *)malloc(sizeof(*__p)); if (__p == NULL) abort(); *__p = (int64_t)({value});"), "aura_task_channel_value_destroy_free"),
-        "free" => (format!("const char *__s = ({value}); size_t __n = __s == NULL ? 0 : strlen(__s); char *__p = (char *)malloc(__n + 1); if (__p == NULL) abort(); if (__n != 0) memcpy(__p, __s, __n); __p[__n] = '\\0';"), "aura_task_channel_value_destroy_free"),
+        "free" => (format!("const char *__text = ({value}); size_t __n = __text == NULL ? 0 : strlen(__text); char *__p = (char *)malloc(__n + 1); if (__p == NULL) abort(); if (__n != 0) memcpy(__p, __text, __n); __p[__n] = '\\0';"), "aura_task_channel_value_destroy_free"),
         "class" => (format!("void *__obj = (void *)({value}); void **__p = (void **)malloc(sizeof(*__p)); if (__p == NULL) abort(); *__p = __obj; aura_gc_add_root(__p);"), "aura_task_channel_value_destroy_class"),
         "foreign_handle" => (format!("AuraFfiOpaqueHandle *__handle = (AuraFfiOpaqueHandle *)({value}); if (__handle != NULL && aura_ffi_handle_retain(__handle) != AURA_FFI_OK) abort(); AuraFfiOpaqueHandle **__p = (AuraFfiOpaqueHandle **)malloc(sizeof(*__p)); if (__p == NULL) abort(); *__p = __handle;"), "aura_task_channel_value_destroy_foreign_handle"),
         _ => unreachable!(),
     };
-    format!("({{ {alloc} AuraTaskChannelValue __v = {{ __p, sizeof(*__p), {destroy} }}; aura_race_set_source_id(UINT32_C({})); AuraTaskChannelStatus __s = aura_task_channel_send({channel}, NULL, __v); aura_race_set_source_id(0); if (__s == AURA_CHANNEL_PENDING || __s == AURA_CHANNEL_ERROR) {destroy}(__v.data, __v.size); (void)__s; (void)0; }})", s.span.start)
+    format!("({{ {alloc} AuraTaskChannelValue __v = {{ __p, sizeof(*__p), {destroy} }}; aura_race_set_source_id(UINT32_C({})); AuraTaskChannelStatus __status = aura_task_channel_send({channel}, NULL, __v); aura_race_set_source_id(0); if (__status == AURA_CHANNEL_PENDING || __status == AURA_CHANNEL_ERROR) {destroy}(__v.data, __v.size); (void)__status; (void)0; }})", s.span.start)
 }
 
 fn emit_channel_receive(r: &ChannelReceiveExpr, ctx: &mut EmitCtx<'_>) -> String {

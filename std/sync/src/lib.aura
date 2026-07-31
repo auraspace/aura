@@ -61,18 +61,18 @@ pub class Once(private var state: Int) {
   pub fun isDone(): Bool { return false }
 }
 
-/// Exactly-once lazy initialization. The initializer and retention boundary
-/// are reserved; the alpha implementation does not execute the body.
+/// Exactly-once, task-safe lazy initialization. The compiler supplies the
+/// runtime cell and initializer retention boundary for this declaration.
 pub class Lazy<T>(private val placeholder: Int) {
   pub fun get(): T {
-    throw "std.sync Lazy.get is a placeholder"
+    throw "std.sync Lazy.get requires the runtime intrinsic"
   }
 
   pub fun isInitialized(): Bool {
-    throw "std.sync Lazy.isInitialized is a placeholder"
+    throw "std.sync Lazy.isInitialized requires the runtime intrinsic"
   }
 }
 
 pub fun lazy<T>(initializer: () -> T): Lazy<T> {
-  throw "std.sync lazy is a placeholder"
+  throw "std.sync lazy requires the runtime intrinsic"
 }

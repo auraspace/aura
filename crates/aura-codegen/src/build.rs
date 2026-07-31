@@ -8451,4 +8451,104 @@ fun main() {{
         let _ = fs::remove_file(generated_c);
         let _ = fs::remove_file(path);
     }
+
+    #[test]
+    fn builds_and_runs_std_task_select_constructor_and_add() {
+        let file = parse_file(
+            r#"package std.task
+pub class Box(private val value: Int) {}
+pub class Select<T>(private val placeholder: Int) {
+  pub fun add(channel: Channel<T>): Select<T> { throw "intrinsic" }
+  pub async fun next(): T? { throw "intrinsic" }
+}
+pub fun select<T>(): Select<T> { throw "intrinsic" }
+async fun main() {
+  val channel: Channel<Int> = Channel<Int>(1)
+  val selector: Select<Int> = select<Int>()
+  selector.add(channel)
+  channel.send(9)
+  val value: Int? = await selector.next()
+  if (value != null) { println(value!!.toString()) }
+  val boolChannel: Channel<Bool> = Channel<Bool>(1)
+  val boolSelector: Select<Bool> = select<Bool>()
+  boolSelector.add(boolChannel)
+  boolChannel.send(true)
+  val boolValue: Bool? = await boolSelector.next()
+  val stringChannel: Channel<String> = Channel<String>(1)
+  val stringSelector: Select<String> = select<String>()
+  stringSelector.add(stringChannel)
+  stringChannel.send("ok")
+  val stringValue: String? = await stringSelector.next()
+  val boxChannel: Channel<Box> = Channel<Box>(1)
+  val boxSelector: Select<Box> = select<Box>()
+  boxSelector.add(boxChannel)
+  boxChannel.send(Box(3))
+  val boxValue: Box? = await boxSelector.next()
+}
+"#,
+        )
+        .expect("parse select fixture");
+        let generated = emit_c_from_ast(&file).expect("emit select fixture");
+        assert!(generated.contains("aura_task_select_new"));
+        assert!(generated.contains("aura_task_select_add"));
+        assert!(generated.contains("aura_task_select_next"));
+        assert!(generated.contains("aura_select_next_std_task_Select_Bool_result_destroy"));
+        assert!(generated.contains("aura_select_next_std_task_Select_String_result_destroy"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-std-task-select-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile select fixture");
+        let output = Command::new(&bin).output().expect("run select fixture");
+        assert!(output.status.success(), "select fixture failed: {output:?}");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn task_scope_rethrows_after_cleanup() {
+        let file = parse_file(
+            r#"package std.task
+pub fun taskScope(body: () -> Unit): Unit { throw "intrinsic" }
+fun main() {
+  try {
+    taskScope(() => { throw "scope-failure" })
+  } catch (error: String) {
+    println(error)
+  }
+}
+"#,
+        )
+        .expect("parse task scope exception fixture");
+        let generated = emit_c_from_ast(&file).expect("emit task scope exception fixture");
+        assert!(generated.contains("aura_task_scope_end(__scope)"));
+        assert!(generated.contains("aura_ex_rethrow()"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-std-task-scope-exception-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile task scope exception fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run task scope exception fixture");
+        assert!(
+            output.status.success(),
+            "task scope exception fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "scope-failure\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
 }

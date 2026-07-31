@@ -285,7 +285,7 @@ Plans:
 ### P3 — Expand (after hello)
 
 1. ~~Language surface through C21~~ (funs/lambdas, mutable captures, scoped `ref T`, borrow-safe field returns, Array-of-interface support) → C22 surface/borrow rules and bounded await lowering landed; general lowering and richer captures remain later work
-2. Runtime: ~~GC + process I/O + String Array free + Fun env RC~~ → C22 deterministic executor/channels, task storage scans, typed causes, and bounded FFI pin retention landed; OS-thread scheduling, full async I/O, concurrent GC, and richer frame ownership remain later work
+2. Runtime: ~~GC + process I/O + String Array free + Fun env RC~~ → C22 deterministic executor/channels, task storage scans, typed causes, and bounded FFI pin retention landed; POSIX OS-thread scheduling, poll reactor, and executor-safe GC landed; arbitrary async lowering, concurrent tracing GC, non-POSIX backends, and richer frame ownership remain later work
 3. Toolchain: ~~path deps + registry K1 offline~~ → ~~**S2:** verified HTTPS + nested locked registry deps and published `0.1.1-alpha`~~ → live publish/update and tier-2/native evidence remain open
 4. Stdlib: ~~io + collections + C13 toString/case/eprint/tryWrite + C14 generic HashMap + C15 generic HashSet + C18 hash-collection HOFs + C19 accessors/entry snapshots/entry for-in + C20 snapshot/live iterators and entry mutation + C21i Result I/O~~
 5. Cross targets + signed releases — ~~**S2 contract:** Linux amd64, macOS arm64/amd64~~; minisign-signed release manifests are shipped; Windows amd64 and OS notarization remain deferred

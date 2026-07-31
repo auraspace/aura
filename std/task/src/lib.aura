@@ -34,30 +34,30 @@ pub fun isCancelled(): Bool {
   return false
 }
 
-/// RFC-003 structured-concurrency scope placeholder. The current compiler
-/// cannot yet lower a scope body with async captures and child supervision.
+/// Run the body inside a structured child-task scope. The compiler supplies
+/// the runtime supervision boundary for this declaration.
 pub fun taskScope(body: () -> Unit): Unit {
-  throw "std.task taskScope is a placeholder"
+  throw "std.task taskScope requires the runtime intrinsic"
 }
 
-/// Selection over channels. The scheduler/readiness and fairness contract is
-/// reserved; no worker or channel probing occurs in the alpha placeholder.
+/// Selection over channels. The compiler supplies scheduler-backed readiness
+/// and fair round-robin probing for this declaration.
 pub class Select<T>(private val placeholder: Int) {
   pub fun add(channel: Channel<T>): Select<T> {
-    throw "std.task Select.add is a placeholder"
+    throw "std.task Select.add requires the runtime intrinsic"
   }
 
   pub async fun next(): T? {
-    throw "std.task Select.next is a placeholder"
+    throw "std.task Select.next requires the runtime intrinsic"
   }
 }
 
 pub fun select<T>(): Select<T> {
-  throw "std.task select is a placeholder"
+  throw "std.task select requires the runtime intrinsic"
 }
 
-/// Run blocking work on a future worker pool instead of the cooperative
-/// executor. Worker placement and cancellation semantics are not implemented.
+/// Run blocking work on the runtime worker pool instead of the cooperative
+/// executor. Cancellation is cooperative at the worker boundary.
 pub fun spawnBlocking<T>(body: () -> T): TaskHandle<T> {
-  throw "std.task spawnBlocking is a placeholder"
+  throw "std.task spawnBlocking requires the runtime intrinsic"
 }

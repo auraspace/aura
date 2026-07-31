@@ -68,13 +68,13 @@ Details and residual trade-offs are expanded in individual RFCs. Locked cross-cu
 
 Living execution status is [docs/roadmap.md](../roadmap.md) (compiler **C0–C22 bounded async slices**, plus **S2** release/toolchain work). RFCs stay design docs; each has a short **Toolchain today** note where relevant.
 
-| Layer            | Shipped (subset)                                                                                | Still deferred                           |
-| ---------------- | ----------------------------------------------------------------------------------------------- | ---------------------------------------- |
-| Language / types | classes, iface, generics, struct/enum, null ops, Array, packages, lambdas/captures, scoped refs | general async ownership, macros          |
-| Compiler         | C backend + `aura check/build/run/test/race/fmt`, diagnostics, generic substitution             | LLVM, incremental                        |
-| Runtime          | embedded runtime, I/O, exceptions/causes, Array ownership, GC mark/sweep, task frames/channels  | worker pools, concurrent GC              |
-| Packages / CLI   | path + locked registry consumption, core commands, release tooling                              | live publish, workspaces                 |
-| Stdlib / test    | `std.io` / `assert` / generic collections + HOFs, filters, race mode, JSON reports              | net/JSON packages, async tests, coverage |
+| Layer            | Shipped (subset)                                                                                                      | Still deferred                            |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
+| Language / types | classes, iface, generics, struct/enum, null ops, Array, packages, lambdas/captures, scoped refs                       | general async ownership, macros           |
+| Compiler         | C backend + `aura check/build/run/test/race/fmt`, diagnostics, generic substitution                                   | LLVM, incremental                         |
+| Runtime          | embedded runtime, I/O, exceptions/causes, Array ownership, GC mark/sweep, POSIX workers/reactor, task frames/channels | concurrent tracing GC, non-POSIX backends |
+| Packages / CLI   | path + locked registry consumption, core commands, release tooling                                                    | live publish, workspaces                  |
+| Stdlib / test    | `std.io` / `assert` / generic collections + HOFs, filters, race mode, JSON reports                                    | net/JSON packages, async tests, coverage  |
 
 ## Synopsis (one glance per RFC)
 

@@ -42,7 +42,7 @@ When you resolve debt, update or remove the matching entry.
 
 ### API-004 RFC contract placeholders (2026-07-31)
 
-- Area: `std.reflect`, `std.test`, shared errors, and BuiltIn async surface
+- Area: `std.reflect`, `std.test`, and shared errors
 - Symptom: canonical RFC names/signatures remain reserved for reflection,
   package-specific error enums, assertion execution, and metadata emission.
 - Why deferred: namespace-qualified enum variants and full runtime
@@ -51,29 +51,17 @@ When you resolve debt, update or remove the matching entry.
 - Next step: implement the remaining compiler/runtime capabilities without
   changing the locked source contracts.
 
-### API-005 deferred RFC surface inventory (2026-07-31)
-
-- Area: RFC-003 structured concurrency/select/lazy, RFC-009/010 attributes and
-  macros, RFC-011 benchmark/property testing
-- Symptom: the stable RFC-003 names now have source placeholders, while
-  attribute declarations, macro expansion, and benchmark/snapshot/property
-  runners still have deferred compiler/runner behavior; source hooks now exist
-  for the latter group.
-- Why deferred: async closure lowering, scheduler/worker ownership, metadata
-  retention, macro ABI/sandboxing, and generated-test protocols are incomplete.
-- Next step: implement `Select`/`Lazy`/`spawnBlocking` against the locked
-  signatures, then freeze attribute and generated-test grammar before adding
-  more source declarations.
-
 ### API-006 compiler/runtime/tooling boundary inventory (2026-07-31)
 
 - Area: RFC-001/002/004/005/006/008/012/013/014 surfaces outside `std` source APIs
-- Symptom: compiler metadata/derive expansion, worker scheduling and async I/O,
+- Symptom: compiler metadata/derive expansion, concurrent tracing GC,
   cross-target build/sysroot delivery, release self-update, and full LSP
   protocol behavior are described by RFCs but are not all implemented.
-- Why deferred: these are compiler, runtime, package-manager, distribution,
-  or tooling contracts rather than ordinary Aura functions; exposing fake std
-  wrappers would hide the real ownership and capability boundaries.
+- Why deferred: concurrent tracing collection needs write barriers and precise
+  stack maps beyond the current executor-safe STW collector; the other items
+  are compiler, package-manager, distribution, or tooling contracts rather
+  than ordinary Aura functions. Exposing fake std wrappers would hide the real
+  ownership and capability boundaries.
 - Next step: use the explicit rows in `docs/api/deferred-alpha.md` as the
   implementation queue and add a compiler/runtime gate before promoting each
   row to a callable API.

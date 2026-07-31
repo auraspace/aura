@@ -388,16 +388,16 @@ All clocks and deadlines are monotonic; wall-clock changes do not affect them.
 
 ## `std.task`
 
-| API                               | Contract                                                   |
-| --------------------------------- | ---------------------------------------------------------- |
-| `joinTask(task)`                  | Observe completion as `std.io.Result<T, TaskError>`        |
-| `cancelTask(task)`                | Request cooperative cancellation; idempotent               |
-| `cancelAfter(task, milliseconds)` | Arm delayed cancellation; false for invalid/terminal tasks |
-| `linkCancellation(parent, child)` | Propagate cancellation between live tasks                  |
-| `isCancelled()`                   | Inspect cancellation of the current async task             |
-| `taskScope(body)`                 | RFC-003 structured-concurrency placeholder; call fails     |
-| `Select<T>` / `select<T>()`       | Channel selection placeholder; call fails                  |
-| `spawnBlocking<T>(body)`          | Worker-pool placeholder; call fails                        |
+| API                               | Contract                                                    |
+| --------------------------------- | ----------------------------------------------------------- |
+| `joinTask(task)`                  | Observe completion as `std.io.Result<T, TaskError>`         |
+| `cancelTask(task)`                | Request cooperative cancellation; idempotent                |
+| `cancelAfter(task, milliseconds)` | Arm delayed cancellation; false for invalid/terminal tasks  |
+| `linkCancellation(parent, child)` | Propagate cancellation between live tasks                   |
+| `isCancelled()`                   | Inspect cancellation of the current async task              |
+| `taskScope(body)`                 | Structured scope with child adoption and cancellation drain |
+| `Select<T>` / `select<T>()`       | Scheduler-backed channel selection with fair wakeups        |
+| `spawnBlocking<T>(body)`          | OS-worker execution with cooperative cancellation           |
 
 ## `std.sync`
 
@@ -410,7 +410,7 @@ false instead of blocking an async worker.
 | `Mutex`                 | `tryLock`, `unlock`, and `isLocked` cooperative mutex state                                      |
 | `RwLock`                | Nonblocking `tryRead`/`tryWrite`, `unlockRead`/`unlockWrite`, `readerCount`, and `isWriteLocked` |
 | `Once`                  | One-shot `tryEnter` gate and `isDone` inspection                                                 |
-| `Lazy<T>` / `lazy<T>()` | Exactly-once initialization placeholder; call fails                                              |
+| `Lazy<T>` / `lazy<T>()` | Exactly-once task-safe initialization cell                                                       |
 
 ## `std.signal`
 
