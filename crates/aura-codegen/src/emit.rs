@@ -2763,6 +2763,9 @@ fn emit_async_fun_cfg_int(
             let _ = writeln!(out, "  aura_gc_mark_ptr((void *)data->{name});");
         } else if crate::array_emit::is_array_of_heap_class(key, checked) {
             let _ = writeln!(out, "  for (int64_t __gm = 0; __gm < data->{name}.len; __gm++) aura_gc_mark_ptr((void *)data->{name}.data[__gm]);");
+        } else if crate::expr::is_enum_mono(key, checked) {
+            let cty = crate::stmt::local_key_to_c(key, checked);
+            let _ = writeln!(out, "  {cty}_mark(&data->{name});");
         }
     };
     for param in &f.params {

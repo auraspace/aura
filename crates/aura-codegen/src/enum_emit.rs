@@ -164,6 +164,7 @@ pub(crate) fn emit_enum_forwards(
     let cty = c_enum_type(&mono);
     let _ = writeln!(out, "{cty} {cty}_clone(const {cty} *source);");
     let _ = writeln!(out, "void {cty}_drop({cty} *value);");
+    let _ = writeln!(out, "void {cty}_mark(const {cty} *value);");
 }
 
 pub(crate) fn c_variant_signature(
@@ -449,6 +450,37 @@ fn emit_enum_clone_drop(out: &mut String, checked: &CheckedFile, e: &EnumDecl, a
         if has_owned {
             let _ = writeln!(out, "        value->data.{vn}.owned = false;");
             out.push_str("      }\n");
+        }
+        out.push_str("      break;\n    }\n");
+    }
+    out.push_str("    default: break;\n  }\n}\n");
+
+    let _ = writeln!(out, "void {cty}_mark(const {cty} *value) {{");
+    out.push_str("  if (value == NULL) return;\n  switch (value->tag) {\n");
+    for (tag, variant) in e.variants.iter().enumerate() {
+        let vn = mangle_ident(&variant.name.name);
+        let _ = writeln!(out, "    case {tag}: {{");
+        for field in &variant.fields {
+            if enum_field_is_unit(field, &params, args, checked) {
+                continue;
+            }
+            let key = type_ref_local_key_expand(&field.ty, &params, args, checked);
+            let full_key = crate::expr::full_type_mono(&key, checked);
+            let fnm = mangle_ident(&field.name.name);
+            if is_heap_class_mono(&full_key, checked) {
+                let _ = writeln!(
+                    out,
+                    "      aura_gc_mark_ptr((void *)value->data.{vn}.{fnm});"
+                );
+            } else if crate::array_emit::is_array_of_heap_class(&full_key, checked) {
+                let _ = writeln!(
+                    out,
+                    "      for (int64_t __gm = 0; __gm < value->data.{vn}.{fnm}.len; __gm++) aura_gc_mark_ptr((void *)value->data.{vn}.{fnm}.data[__gm]);"
+                );
+            } else if crate::expr::is_enum_mono(&full_key, checked) {
+                let nested_cty = c_enum_type(&full_key);
+                let _ = writeln!(out, "      {nested_cty}_mark(&value->data.{vn}.{fnm});");
+            }
         }
         out.push_str("      break;\n    }\n");
     }

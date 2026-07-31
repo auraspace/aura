@@ -9411,4 +9411,65 @@ fun main() {
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);
     }
+
+    #[test]
+    fn builds_and_runs_enum_heap_payload_across_await_gc() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+class Box(val value: Int) {}
+async fun leaf(value: Int): Box { return Box(value) }
+async fun choose(choice: Result<Box, TaskError>, task: Task<Box>): Box {
+  gc_collect()
+  val next: Box = await task
+  gc_collect()
+  match (choice) {
+    case Ok(value) => { return value }
+    case Err(error) => { return next }
+  }
+  return next
+}
+fun main() {
+  val task = spawn { val value: Box = await choose(Ok(Box(73)), leaf(11)) return value }
+  val first: Result<Box, TaskError> = join(task)
+  match (first) {
+    case Ok(value) => { println(value.value.toString()) }
+    case Err(error) => { println("error") }
+  }
+  gc_collect()
+  val second: Result<Box, TaskError> = join(task)
+  match (second) {
+    case Ok(value) => { println(value.value.toString()) }
+    case Err(error) => { println("repeat-error") }
+  }
+}
+"#,
+        )
+        .expect("parse enum heap payload await fixture");
+        let generated = emit_c_from_ast(&file).expect("emit enum heap payload await fixture");
+        assert!(generated.contains("_mark(const aura_enum_"));
+        assert!(generated.contains("aura_gc_mark_ptr((void *)value->data.Ok.value)"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-enum-heap-payload-await-gc-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile enum heap payload await fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run enum heap payload await fixture");
+        assert!(
+            output.status.success(),
+            "enum heap payload await fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "73\n73\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
 }

@@ -1242,9 +1242,12 @@ TaskError>` locals release their payload at scope exit. Nested
   primitive/class catch continuation, and nested Array elements in `for-in`
   are cloned before suspension. Native fixtures cover success, failure,
   cancellation, forced GC, and an eight-await state machine. Remaining
-  ownership frontier: enum aggregate values now clone/drop across general CFG
-  await/return boundaries; heap-owning class fields in caught payloads, nested
-  finally cleanup, and mixed aggregate element policies remain open.
+  ownership frontier: owned enum aggregate values now clone/drop across general
+  CFG await/return boundaries, and async frame GC marking now traverses enum
+  fields containing heap classes, arrays of heap classes, or nested enums.
+  Ordinary enum payloads remain borrowed unless their ABI marks ownership;
+  heap-owning class fields in caught payloads, nested finally cleanup, and mixed
+  aggregate element policies remain open.
 
 ### IO-002 compiler-generated descriptor I/O remains bounded (updated 2026-07-28)
 
@@ -1616,6 +1619,8 @@ TaskError>` ABI, plus cooperative `isCancelled()` inside generated async
   join plus forced-GC sanitizer execution.
 - Progress: the same enum clone/drop boundary now handles nested Array, class,
   foreign-handle, and enum fields, including root/retain transitions.
+- Progress: generated enum mark helpers now let async frame GC traverse nested
+  heap-class payloads without treating borrowed enum fields as owned.
 - Residual: generic bounded pollers still need dedicated clone/destroy paths for
   mixed aggregates whose elements require recursive ownership policies beyond
   the generated enum boundary.
