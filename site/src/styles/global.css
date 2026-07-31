@@ -83,7 +83,12 @@
   }
 
   a {
-    @apply text-accent;
+    @apply text-accent cursor-pointer;
+  }
+
+  button,
+  [role='button'] {
+    cursor: pointer;
   }
 
   ::selection {
@@ -162,6 +167,58 @@
   /* Soft float — same idea as vochi.xyz `.float-y` */
   .float-y {
     animation: floaty 7s ease-in-out infinite;
+  }
+
+  /* Ambient radial background glow */
+  .glow-mesh {
+    background-image: radial-gradient(
+      circle at 50% -20%,
+      color-mix(in oklab, var(--accent) 15%, transparent),
+      transparent 70%
+    );
+  }
+
+  .glow-mesh-subtle {
+    background-image: radial-gradient(
+      circle at 80% 30%,
+      color-mix(in oklab, var(--accent) 8%, transparent),
+      transparent 50%
+    );
+  }
+
+  .glass-card {
+    background: color-mix(in oklab, var(--card) 85%, transparent);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+
+  .terminal-box {
+    box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.25);
+  }
+
+  /* Custom sleek scrollbar for tabs, code windows, and tables */
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: color-mix(in oklab, var(--border-strong) 85%, transparent);
+    border-radius: 9999px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: var(--accent);
+  }
+
+  .custom-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklab, var(--border-strong) 85%, transparent)
+      transparent;
   }
 
   @keyframes floaty {
@@ -255,6 +312,13 @@
     @apply rounded-none;
   }
 
+  .home-page-code pre.shiki,
+  .home-page-code pre.shiki code {
+    font-size: 12px !important;
+    line-height: 1.65 !important;
+    padding: 0 !important;
+  }
+
   .shiki-wrap code,
   .rfc-article pre.shiki code,
   .docs-article pre.shiki code {
@@ -265,7 +329,7 @@
   html:not([data-theme='dark']) .shiki,
   html:not([data-theme='dark']) .shiki span {
     color: var(--shiki-light) !important;
-    background-color: var(--shiki-light-bg) !important;
+    background-color: transparent !important;
     font-style: var(--shiki-light-font-style) !important;
     font-weight: var(--shiki-light-font-weight) !important;
     text-decoration: var(--shiki-light-text-decoration) !important;
@@ -274,10 +338,56 @@
   html[data-theme='dark'] .shiki,
   html[data-theme='dark'] .shiki span {
     color: var(--shiki-dark) !important;
-    background-color: var(--shiki-dark-bg) !important;
+    background-color: transparent !important;
     font-style: var(--shiki-dark-font-style) !important;
     font-weight: var(--shiki-dark-font-weight) !important;
     text-decoration: var(--shiki-dark-text-decoration) !important;
+  }
+
+  /* Override Shiki token colors to match Aura UI design system tokens */
+  /* Keywords -> --accent */
+  .shiki span[style*='color:#D73A49'],
+  .shiki span[style*='color:#CF222E'],
+  .shiki span[style*='color:#FF7B72'],
+  .shiki span[style*='color:#F97583'],
+  .shiki span[style*='color:#d73a49'],
+  .shiki span[style*='color:#cf222e'],
+  .shiki span[style*='color:#ff7b72'],
+  .shiki span[style*='color:#f97583'] {
+    color: var(--accent) !important;
+    font-weight: 500;
+  }
+
+  /* Comments -> --muted */
+  .shiki span[style*='color:#6A737D'],
+  .shiki span[style*='color:#8B949E'],
+  .shiki span[style*='color:#6a737d'],
+  .shiki span[style*='color:#8b949e'] {
+    color: var(--muted) !important;
+    font-style: italic;
+  }
+
+  /* Strings -> --accent-deep */
+  .shiki span[style*='color:#032F62'],
+  .shiki span[style*='color:#A5D6FF'],
+  .shiki span[style*='color:#0A3069'],
+  .shiki span[style*='color:#032f62'],
+  .shiki span[style*='color:#a5d6ff'],
+  .shiki span[style*='color:#0a3069'] {
+    color: var(--accent-deep) !important;
+  }
+
+  /* Functions & Types -> --fg */
+  .shiki span[style*='color:#6F42C1'],
+  .shiki span[style*='color:#D2A8FF'],
+  .shiki span[style*='color:#6f42c1'],
+  .shiki span[style*='color:#d2a8ff'],
+  .shiki span[style*='color:#005CC5'],
+  .shiki span[style*='color:#79C0FF'],
+  .shiki span[style*='color:#005cc5'],
+  .shiki span[style*='color:#79c0ff'] {
+    color: var(--fg) !important;
+    font-weight: 500;
   }
 
   .shiki-fallback {
