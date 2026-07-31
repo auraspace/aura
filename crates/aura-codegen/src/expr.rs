@@ -594,6 +594,7 @@ fn spawn_capture_type_supported(key: &str, checked: &CheckedFile) -> bool {
         || is_array_type_key(key)
         || is_fun_type_key(key)
         || is_heap_class_mono(key, checked)
+        || is_enum_mono(key, checked)
 }
 
 fn spawn_body_contains_await(block: &Block) -> bool {
@@ -1928,6 +1929,9 @@ fn emit_async_expr(expr: &AsyncExpr, ctx: &mut EmitCtx<'_>) -> String {
                             format!("__spawn_data->{n} = {}(&{n});", crate::names::c_method_name(key, "clone"))
                         } else if is_fun_type_key(key) {
                             format!("__spawn_data->{n} = {n}; if (__spawn_data->{n}.env != NULL) aura_fun_env_retain(__spawn_data->{n}.env);")
+                        } else if is_enum_mono(key, ctx.checked) {
+                            let cty = crate::stmt::local_key_to_c(key, ctx.checked);
+                            format!("__spawn_data->{n} = {cty}_clone(&{n});")
                         } else {
                             format!("__spawn_data->{n} = {n};")
                         }
@@ -2059,7 +2063,7 @@ fn emit_join(j: &JoinExpr, ctx: &mut EmitCtx<'_>, owned_error: bool) -> String {
     out
 }
 
-fn is_enum_mono(key: &str, checked: &CheckedFile) -> bool {
+pub(crate) fn is_enum_mono(key: &str, checked: &CheckedFile) -> bool {
     let Some((base, args)) = mono_split(key, checked) else {
         return false;
     };

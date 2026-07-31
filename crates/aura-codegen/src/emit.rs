@@ -9799,6 +9799,9 @@ fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile, detector:
                         out,
                         "  if (data != NULL && data->{n}.env != NULL) aura_fun_env_free(data->{n}.env);"
                     );
+                } else if crate::expr::is_enum_mono(key, checked) {
+                    let cty = crate::stmt::local_key_to_c(key, checked);
+                    let _ = writeln!(out, "  if (data != NULL) {cty}_drop(&data->{n});");
                 }
             }
             if let Some((await_var, _)) = await_shape.as_ref() {
@@ -9933,6 +9936,12 @@ fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile, detector:
                         "  {} {n} = data->{n}; if ({n}.env != NULL) aura_fun_env_retain({n}.env);",
                         crate::stmt::local_key_to_c(key, checked)
                     );
+                } else if crate::expr::is_enum_mono(key, checked) {
+                    let _ = writeln!(
+                        out,
+                        "  {} {n} = data->{n};",
+                        crate::stmt::local_key_to_c(key, checked)
+                    );
                 } else {
                     let _ = writeln!(
                         out,
@@ -9973,9 +9982,6 @@ fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile, detector:
             async_frame: None,
             task_poller: true,
         };
-        let spawn_return_key =
-            full_type_mono(&crate::expr::spawn_result_key(&spawn.body, &ctx), checked);
-        ctx.return_key = Some(spawn_return_key.clone());
         for capture in &captures {
             let name = &capture.name;
             let key = &capture.key;
@@ -9989,6 +9995,9 @@ fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile, detector:
                 ctx.mark_fun_owner(name);
             }
         }
+        let spawn_return_key =
+            full_type_mono(&crate::expr::spawn_result_key(&spawn.body, &ctx), checked);
+        ctx.return_key = Some(spawn_return_key.clone());
         let defer_return = spawn_return_key != "Unit";
         for (index, stmt) in spawn.body.stmts.iter().enumerate() {
             crate::stmt::emit_stmt(out, stmt, 1, &mut ctx);

@@ -1967,8 +1967,9 @@ enum TaskError { case Failed(error: String) case Cancelled }
 enum Result<T, E> { case Ok(value: T) case Err(error: E) }
 enum Payload { case Text(value: String) }
 fun main() {
+  val payload: Payload = Text("owned-enum")
   val task = spawn {
-    return Text("owned-enum")
+    return payload
   }
   val first: Result<Payload, TaskError> = join(task)
   match (first) {

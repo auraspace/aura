@@ -1136,9 +1136,12 @@ TaskError>` locals release their payload at scope exit. Nested
   function-call, class-constructor, `Array<T>`, and sema-resolved expression
   locals before laying out the capture struct; native fixtures cover
   unannotated primitive, array, and expression captures.
+- Spawn frame discovery now also accepts enum captures and uses generated
+  enum clone/drop helpers for owned String/resource fields; an unannotated
+  captured enum survives repeated owning joins and forced GC.
 - The remaining limits are deliberate contract boundaries rather than
-  unresolved capture bugs: richer aggregate element types beyond supported
-  arrays and broader scheduler policy remain tracked by ASYNC-003.
+  unresolved capture bugs: richer aggregate nesting across suspension and
+  broader scheduler policy remain tracked by ASYNC-003.
 
 ### RUNTIME-002 suspended frame ownership boundary (resolved 2026-07-26)
 
