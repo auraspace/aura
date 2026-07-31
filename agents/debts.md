@@ -631,6 +631,10 @@ request_timeout` response, then closes; runtime timeout and sanitizer
   public fields; the bounded reader accepts only an empty trailer section.
   `Request.body()` remains a snapshot accessor for paths that materialize one;
   header-first task handlers must use `bodyReader()` for non-empty bodies.
+- Progress (2026-07-31): compiler coverage now includes an HTTP handler whose
+  async child uses the general CFG lowering across multiple awaits and a
+  branch; the connection bridge continues to propagate child failure and
+  cancellation through the existing waiter contract.
 - Remaining: general async lowering supports the bounded caller-owned task and
   handle families used by the server, but does not yet lower arbitrary
   suspending handler control flow. The bounded `std.time.sleep` intrinsic is

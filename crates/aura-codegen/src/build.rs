@@ -2323,7 +2323,11 @@ pub class Request(private val handle: ForeignHandle<Int>) {}
 pub class Response(private val handle: ForeignHandle<Int>, private val connection: ForeignHandle<Int>) {}
 async fun serveConnection(stream: ForeignHandle<Int>, handler: (Request, Response) -> Task<Unit>): Unit { throw "intrinsic" }
 async fun serve(listener: ForeignHandle<Int>, handler: (Request, Response) -> Task<Unit>): Unit { throw "intrinsic" }
-async fun health(request: Request, response: Response): Unit {}
+async fun tick(): Unit {}
+async fun health(request: Request, response: Response): Unit {
+  await tick()
+  if (true) { await tick() }
+}
 fun makeHandler(): (Request, Response) -> Task<Unit> {
   return (request: Request, response: Response) => health(request, response)
 }
@@ -2345,6 +2349,8 @@ fun main() { makeHandler() }
         assert!(generated.contains("aura_task_executor_release(__aura_task_executor, &connection)"));
         assert!(generated.contains("aura_gc_add_root((void **)&data->request)"));
         assert!(generated.contains("aura_task_frame_wait_tcp_listener"));
+        assert!(generated.contains("aura async general CFG Unit lowering"));
+        assert!(generated.contains("aura_task_frame_wait_on(frame, data->await_task)"));
     }
 
     #[test]
