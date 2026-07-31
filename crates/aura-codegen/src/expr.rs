@@ -18,6 +18,19 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
         Expr::Bool(_) => "Bool".into(),
         Expr::String(_) => "String".into(),
         Expr::Call(c) => {
+            // Method-call result types are resolved by the same path used for
+            // chained receivers. Keep free-function handling below separate.
+            if matches!(c.callee.as_ref(), Expr::Field(_))
+                && ctx
+                    .checked
+                    .call_instantiations
+                    .get(&c.span.start)
+                    .is_some_and(|inst| !inst.is_static && !inst.is_constructor)
+            {
+                if let Some(ty) = resolve_type_name(e, ctx) {
+                    return ty;
+                }
+            }
             if let (Expr::Field(fe), Some(inst)) = (
                 c.callee.as_ref(),
                 ctx.checked.call_instantiations.get(&c.span.start),
