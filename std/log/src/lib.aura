@@ -2,14 +2,22 @@
 
 package std.log
 
+/// Emit a diagnostic event at the debug level.
 pub fun debug(message: String) { }
+
+/// Emit an informational event.
 pub fun info(message: String) { }
+
+/// Emit a warning event.
 pub fun warn(message: String) { }
+
+/// Emit an error event.
 pub fun error(message: String) { }
 
 /// Set the minimum emitted level: 0=debug, 1=info, 2=warn, 3=error.
 pub fun setMinLevel(level: Int): Bool { return false }
 
+/// Return the configured minimum emitted level using the `setMinLevel` scale.
 pub fun minLevel(): Int { return 0 }
 
 /// Emit an info event with alternating key/value fields. Odd trailing fields

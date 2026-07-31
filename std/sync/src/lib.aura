@@ -4,33 +4,59 @@ package std.sync
 
 /// Sequentially consistent signed 64-bit atomic value.
 pub class AtomicInt(private var value: Int) {
+  /// Read the current value with sequentially consistent ordering.
   pub fun load(): Int { return this.value }
+
+  /// Replace the value with `nextValue`.
   pub fun store(nextValue: Int): Unit { }
+
+  /// Add `amount` and return the value observed before the addition.
   pub fun fetchAdd(amount: Int): Int { return this.value }
+
+  /// Replace `expected` with `desired` only when the current value matches.
   pub fun compareExchange(expected: Int, desired: Int): Bool { return false }
 }
 
 /// Cooperative mutex state. `tryLock` never blocks an async worker; callers
 /// should yield/retry or use a higher-level async lock adapter.
 pub class Mutex(private var state: Int) {
+  /// Acquire the mutex without blocking; return false when it is held.
   pub fun tryLock(): Bool { return false }
+
+  /// Release the mutex held by the current owner.
   pub fun unlock(): Unit { }
+
+  /// Return whether the mutex is currently held.
   pub fun isLocked(): Bool { return false }
 }
 
 /// Non-blocking reader/writer lock. State is zero for unlocked, positive for
 /// active readers, and negative for one active writer.
 pub class RwLock(private var state: Int) {
+  /// Acquire a reader slot without blocking.
   pub fun tryRead(): Bool { return false }
+
+  /// Acquire exclusive write access without blocking.
   pub fun tryWrite(): Bool { return false }
+
+  /// Release one reader slot held by the current owner.
   pub fun unlockRead(): Unit { }
+
+  /// Release the write lock held by the current owner.
   pub fun unlockWrite(): Unit { }
+
+  /// Return the number of active readers, or zero while write-locked.
   pub fun readerCount(): Int { return 0 }
+
+  /// Return whether a writer currently holds the lock.
   pub fun isWriteLocked(): Bool { return false }
 }
 
 /// One-shot initialization gate. `tryEnter` wins exactly once.
 pub class Once(private var state: Int) {
+  /// Claim the gate; only the first caller returns true.
   pub fun tryEnter(): Bool { return false }
+
+  /// Return whether the one-shot gate has already been claimed.
   pub fun isDone(): Bool { return false }
 }

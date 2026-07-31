@@ -2,7 +2,14 @@
 
 package std.test
 
+/// Fail the current test when `condition` is false.
 pub fun assert(condition: Bool) { }
+
+/// Fail the current test unless two integer values are equal.
 pub fun assertEqInt(left: Int, right: Int) { }
+
+/// Fail the current test unless two strings are equal.
 pub fun assertEqString(left: String, right: String) { }
+
+/// Fail the current test unless two boolean values are equal.
 pub fun assertEqBool(left: Bool, right: Bool) { }

@@ -4,21 +4,36 @@ package std.error
 
 /// Stable category for errors crossing a standard-library boundary.
 pub enum ErrorKind {
+  /// The caller supplied an invalid value or combination of values.
   case ErrorInvalidInput
+  /// The requested resource does not exist.
   case ErrorNotFound
+  /// The operation was rejected by the operating system or service policy.
   case ErrorPermission
+  /// A local input/output operation failed.
   case ErrorIo
+  /// A network transport operation failed.
   case ErrorNetwork
+  /// An operation exceeded its time budget.
   case ErrorTimeout
+  /// An operation was stopped by cooperative cancellation.
   case ErrorCancelled
+  /// A peer sent data that violates the expected protocol.
   case ErrorProtocol
+  /// A configured size, count, or resource bound was exceeded.
   case ErrorLimit
+  /// The target resource is already closed.
   case ErrorClosed
+  /// The requested operation is not supported on this target.
   case ErrorUnsupported
+  /// The failure cannot be classified more specifically.
   case ErrorUnknown
 }
 
 /// Owned error payload suitable for returning from stdlib APIs.
+///
+/// `kind` is the stable category, `message` is human-readable detail, and
+/// `code` carries the originating native status or protocol code.
 pub class Error(pub val kind: ErrorKind, pub val message: String, pub val code: Int) {
   /// Whether a bounded caller may retry after a transient transport failure.
   pub fun isRetryable(): Bool {
@@ -50,10 +65,12 @@ pub fun network(message: String, code: Int): Error {
   return Error(ErrorNetwork(), message, code)
 }
 
+/// Construct an invalid-input error.
 pub fun invalidInput(message: String, code: Int): Error {
   return Error(ErrorInvalidInput(), message, code)
 }
 
+/// Construct a not-found error.
 pub fun notFound(message: String, code: Int): Error {
   return Error(ErrorNotFound(), message, code)
 }
@@ -70,7 +87,9 @@ pub fun kindCode(code: Int): Int {
 /// The nominal name is intentionally distinct from `std.io.Result` until the
 /// merged-package resolver can disambiguate same-named generic enums.
 pub enum Outcome<T, E> {
+  /// The operation completed and carries its value.
   case OutcomeOk(value: T)
+  /// The operation failed and carries its error payload.
   case OutcomeErr(error: E)
 }
 

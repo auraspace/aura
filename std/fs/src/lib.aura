@@ -5,10 +5,19 @@ package std.fs
 import std.error as FsErrs
 import std.io as FsIo
 
+/// Join `base` and `child` using the host path separator rules.
 pub fun join(base: String, child: String): String { throw "fs intrinsic" }
+
+/// Return the final non-separator component of `path`.
 pub fun basename(path: String): String { throw "fs intrinsic" }
+
+/// Return the directory portion of `path`.
 pub fun dirname(path: String): String { throw "fs intrinsic" }
+
+/// Return the final extension, or null when the basename has none.
 pub fun extension(path: String): String? { throw "fs intrinsic" }
+
+/// Return whether `path` is absolute under the host path rules.
 pub fun isAbsolute(path: String): Bool { throw "fs intrinsic" }
 
 /// Return whether `path` exists and names a directory.
@@ -30,6 +39,7 @@ pub fun listNames(path: String): String { throw "fs intrinsic" }
 /// Inspect the path itself (without following it) for a symbolic link.
 pub fun isSymlink(path: String): Bool { throw "fs intrinsic" }
 
+/// Read text through a shared error outcome instead of throwing.
 pub fun readTextResult(path: String): FsErrs.Outcome<String, FsErrs.Error> {
   val content = FsIo.tryReadFile(path)
   if (content == null) {
@@ -38,6 +48,7 @@ pub fun readTextResult(path: String): FsErrs.Outcome<String, FsErrs.Error> {
   return FsErrs.success(content!!)
 }
 
+/// Write text through a shared error outcome instead of throwing.
 pub fun writeTextResult(path: String, content: String): FsErrs.Outcome<Bool, FsErrs.Error> {
   if (!FsIo.tryWriteFile(path, content)) {
     return FsErrs.failure(FsErrs.invalidInput("file write failed", 0))

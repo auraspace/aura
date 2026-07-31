@@ -12,6 +12,9 @@ Collections package (RFC-007).
 | `set()`                                     | Empty `Set<String>` factory                                                                     |
 | `Hashable`                                  | `hash(): Int`; compiler-backed implementations for `Int` and `String` (C14)                     |
 | `HashMap<K,V>`                              | Generic open addressing; `K: Hashable`; `hash_map()` and `hash_map_str()` factories (C14)       |
+| `HashMapEntry<K,V>`                         | Immutable key/value snapshot returned by `entries()` and entry iterators                        |
+| `HashMapEntryHandle<K,V>`                   | Key-based update handle returned by `entry()`; survives rehashing                               |
+| `HashMapLiveEntry<K,V>`                     | Epoch-checked live view returned by `liveEntry()` and live iterators                            |
 | `HashSet<T>`                                | Generic open addressing backed by `HashMap<T, Bool>`; `T: Hashable`; `hash_set()` factory (C15) |
 | `keyArray()` / `valueArray()`               | Live `HashMap` snapshots in logical table order (C18)                                           |
 | `toArray()`                                 | Live `HashSet` snapshot in logical table order (C18)                                            |
@@ -19,6 +22,7 @@ Collections package (RFC-007).
 | `iterator()`                                | Read-only `HashSet` snapshot iterator; mutation-safe (C20g)                                     |
 | `liveKeyIterator()` / `liveEntryIterator()` | Invalidation-checked live `HashMap` cursors (C20j)                                              |
 | `liveIterator()`                            | Invalidation-checked live `HashSet` cursor (C20j)                                               |
+| `containsAll`                               | Check that every key in an input array is present in a `HashSet`                                |
 | `map_hash_map_values`                       | Generic `(K,V) -> R` map-entry HOF returning `Array<R>` (C18)                                   |
 | `filter_hash_set` / `map_hash_set`          | Generic set HOFs returning arrays (C18)                                                         |
 | `Iterable<E>`                               | Protocol: `len(): Int` + `get(i: Int): E` for `for-in` (C8d)                                    |
@@ -54,6 +58,13 @@ invalidate a cursor. Insert, remove, clear, and grow/rehash advance the source
 epoch and invalidate the cursor; an invalid cursor becomes terminal and
 `next()` returns `null`. Live entries and cursors retain their source and never
 expose raw table storage.
+
+`HashMap.entry(key)` returns a key-based `HashMapEntryHandle`; `set(value)`
+updates the key when it is still present and remains safe across rehashing.
+`HashMap.liveEntry(key)` returns an epoch-checked `HashMapLiveEntry`; its
+`isValid()`, `get()`, and `set(value)` operations fail safely after structural
+mutation. `HashMapEntry` values and snapshot iterator elements are immutable
+copies, so their public `key` and `value` fields do not alias table slots.
 
 **Also available language-wide:**
 

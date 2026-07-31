@@ -4,13 +4,25 @@ package std.os
 
 import std.error as OsErrs
 
+/// Return the value of environment variable `name`, or null when unset.
 pub fun getEnv(name: String): String? { throw "os intrinsic" }
+
+/// Set environment variable `name` and return whether the update succeeded.
 pub fun setEnv(name: String, value: String): Bool { throw "os intrinsic" }
+
+/// Remove environment variable `name` and return whether removal succeeded.
 pub fun unsetEnv(name: String): Bool { throw "os intrinsic" }
+
+/// Return the process current working directory.
 pub fun cwd(): String { throw "os intrinsic" }
+
+/// Return the current process identifier.
 pub fun pid(): Int { throw "os intrinsic" }
+
+/// Return the runtime platform identifier, such as `macos` or `linux`.
 pub fun platform(): String { throw "os intrinsic" }
 
+/// Return an environment value as a shared success/not-found outcome.
 pub fun getEnvResult(name: String): OsErrs.Outcome<String, OsErrs.Error> {
   val value = getEnv(name)
   if (value == null) {
@@ -19,6 +31,7 @@ pub fun getEnvResult(name: String): OsErrs.Outcome<String, OsErrs.Error> {
   return OsErrs.success(value!!)
 }
 
+/// Set an environment value without throwing on a native update failure.
 pub fun setEnvResult(name: String, value: String): OsErrs.Outcome<Bool, OsErrs.Error> {
   if (!setEnv(name, value)) {
     return OsErrs.failure(OsErrs.invalidInput("environment update failed", 0))
@@ -26,6 +39,7 @@ pub fun setEnvResult(name: String, value: String): OsErrs.Outcome<Bool, OsErrs.E
   return OsErrs.success(true)
 }
 
+/// Remove an environment value without throwing on a native update failure.
 pub fun unsetEnvResult(name: String): OsErrs.Outcome<Bool, OsErrs.Error> {
   if (!unsetEnv(name)) {
     return OsErrs.failure(OsErrs.invalidInput("environment removal failed", 0))

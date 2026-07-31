@@ -2,8 +2,12 @@
 
 package std.time
 
-/// A non-negative monotonic duration represented in milliseconds.
+/// A duration represented in monotonic milliseconds.
+///
+/// `milliseconds` is public so callers can inspect the value. Negative values
+/// remain representable for validation, but are not valid sleep durations.
 pub class Duration(pub val milliseconds: Int) {
+  /// Return whether this duration is non-negative and therefore usable.
   pub fun isValid(): Bool {
     return this.milliseconds >= 0
   }
@@ -21,11 +25,15 @@ pub fun nowMillis(): Int {
 }
 
 /// A monotonic point at which an operation should be considered expired.
+///
+/// `atMillis` is the absolute monotonic timestamp used for comparisons.
 pub class Deadline(pub val atMillis: Int) {
+  /// Return whether the monotonic deadline has been reached.
   pub fun isExpired(): Bool {
     return nowMillis() >= this.atMillis
   }
 
+  /// Return the non-negative duration remaining until this deadline.
   pub fun remaining(): Duration {
     val value = this.atMillis - nowMillis()
     if (value <= 0) {

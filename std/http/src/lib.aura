@@ -60,8 +60,11 @@ pub async fun post(port: Int, target: String, body: String): String {
   return response
 }
 
-/// A bounded parsed HTTP/1.1 response. Invalid framing is represented by a
-/// zero status and empty body until typed client errors are available.
+/// A bounded parsed HTTP/1.1 response.
+///
+/// `status` is the three-digit status code and `body` is the response payload
+/// after the header terminator. Invalid framing is represented by status 0 and
+/// an empty body by the non-result parsing helpers.
 pub class ClientResponse(pub val status: Int, pub val body: String) {}
 
 /// Fetch one loopback HTTP/1.1 response and split its status line and body.
@@ -115,12 +118,19 @@ fun parseResponseResult(raw: String): Errs.Outcome<ClientResponse, Errs.Error> {
   return Errs.success(ClientResponse(parsed!!, raw.substring(bodyStart + 4, raw.len)))
 }
 
+/// Handler-scoped view of an inbound HTTP request.
 pub class Request(private val handle: ForeignHandle<Int>) {
+  /// Return the request method, such as `GET` or `POST`.
   pub fun method(): String { return requestMethod(this.handle) }
+  /// Return the raw request target.
   pub fun target(): String { return requestTarget(this.handle) }
+  /// Return the request protocol version.
   pub fun version(): String { return requestVersion(this.handle) }
+  /// Return the number of request headers in the bounded snapshot.
   pub fun headerCount(): Int { return requestHeaderCount(this.handle) }
+  /// Return the header name at `index`.
   pub fun headerName(index: Int): String { return requestHeaderName(this.handle, index) }
+  /// Return the header value at `index`.
   pub fun headerValue(index: Int): String { return requestHeaderValue(this.handle, index) }
   /// Returns a bounded decoded snapshot when one was materialized by the
   /// connection path. Streaming handlers should use `bodyReader` instead.
@@ -133,20 +143,28 @@ pub class Request(private val handle: ForeignHandle<Int>) {
 /// `readChunk` returns an owned non-empty String, capped at 16 KiB, or an
 /// empty String at EOF. Snapshot-only bodies without streaming framing fail.
 pub class RequestBody(private val handle: ForeignHandle<Int>) {
+  /// Read the next bounded body chunk, or an empty string at EOF.
   pub async fun readChunk(capacity: Int): String {
   throw "http intrinsic"
   }
 }
 
+/// Handler-scoped mutable view of an outbound HTTP response.
 pub class Response(private val handle: ForeignHandle<Int>,
                    private val connection: ForeignHandle<Int>) {
+  /// Return the current response status code.
   pub fun status(): Int { return responseStatus(this.handle) }
+  /// Return whether the response keeps the connection alive.
   pub fun keepAlive(): Bool { return responseKeepAlive(this.handle) }
+  /// Set the response status before headers are committed.
   pub fun setStatus(status: Int): Bool { return responseSetStatus(this.handle, status) }
+  /// Enable or disable connection reuse before the response is committed.
   pub fun setKeepAlive(keepAlive: Bool): Bool {
     return responseSetKeepAlive(this.handle, keepAlive)
   }
+  /// Replace the buffered response body before it is committed.
   pub fun setBody(body: String): Bool { return responseSetBody(this.handle, body) }
+  /// Add one response header before the response is committed.
   pub fun addHeader(name: String, value: String): Bool {
     return responseAddHeader(this.handle, name, value)
   }

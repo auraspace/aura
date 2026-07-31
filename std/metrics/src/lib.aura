@@ -2,10 +2,18 @@
 
 package std.metrics
 
+/// Mutable counter with sequentially consistent updates.
 pub class Counter(private var value: Int) {
+  /// Add `amount` and return the resulting counter value.
   pub fun add(amount: Int): Int { return 0 }
+
+  /// Add one and return the resulting counter value.
   pub fun increment(): Int { return 0 }
+
+  /// Return the current counter value without changing it.
   pub fun get(): Int { return 0 }
+
+  /// Reset the counter to zero.
   pub fun reset(): Unit { }
 
   /// Render one Prometheus text exposition sample with the current value.

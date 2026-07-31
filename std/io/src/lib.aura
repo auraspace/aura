@@ -4,15 +4,20 @@ package std.io
 
 /// Terminal outcome for an asynchronous task join.
 pub enum TaskError {
+  /// The task failed with an untyped error message.
   case Failed(error: String)
+  /// The task failed with a typed error and its runtime type name.
   case FailedTyped(error: String, typeName: String)
+  /// The task was cooperatively cancelled before producing a value.
   case Cancelled
 }
 
 /// Non-throwing result used by task joins and structured file wrappers below.
 /// Error strings are owned Aura Strings; callers may retain or return them.
 pub enum Result<T, E> {
+  /// A successful operation carrying `value`.
   case Ok(value: T)
+  /// A failed operation carrying `error`.
   case Err(error: E)
 }
 

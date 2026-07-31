@@ -2,20 +2,31 @@
 // C14: Hashable + one generic open-addressing HashMap<K, V>.
 package std.collections
 
+/// Minimal indexed iteration contract used by `for-in` lowering.
 pub interface Iterable<E> {
+  /// Return the number of elements exposed by the iterable.
   fun len(): Int
+  /// Return the element at logical index `i`.
   fun get(i: Int): E
 }
 
 /// Hash protocol. Int and String have compiler-backed implementations.
 pub interface Hashable {
+  /// Return a stable hash consistent with equality.
   fun hash(): Int
 }
 
+/// Linear-search map backed by parallel key and value arrays.
+///
+/// `keys` is the public key storage used by iteration; values at the same
+/// indexes in the private parallel storage belong to those keys.
 pub class Map<K, V>(pub val keys: Array<K>, val vals: Array<V>) {
+  /// Return the number of key/value pairs.
   pub fun len(): Int { return this.keys.len }
+  /// Return whether the map contains no entries.
   pub fun isEmpty(): Bool { return this.keys.len == 0 }
 
+  /// Insert or replace `k`; return true only when a new key was inserted.
   pub fun put(k: K, v: V): Bool {
     for (i in 0..this.keys.len) {
       if (this.keys.get(i) == k) {
@@ -28,6 +39,7 @@ pub class Map<K, V>(pub val keys: Array<K>, val vals: Array<V>) {
     return true
   }
 
+  /// Return the value for `k`, or null when the key is absent.
   pub fun get(k: K): V? {
     for (i in 0..this.keys.len) {
       if (this.keys.get(i) == k) { return this.vals.get(i) }
@@ -35,6 +47,7 @@ pub class Map<K, V>(pub val keys: Array<K>, val vals: Array<V>) {
     return null
   }
 
+  /// Return the value for `k`, or `default` when the key is absent.
   pub fun getOr(k: K, default: V): V {
     for (i in 0..this.keys.len) {
       if (this.keys.get(i) == k) { return this.vals.get(i) }
@@ -42,6 +55,7 @@ pub class Map<K, V>(pub val keys: Array<K>, val vals: Array<V>) {
     return default
   }
 
+  /// Return whether `k` is present.
   pub fun contains(k: K): Bool {
     for (i in 0..this.keys.len) {
       if (this.keys.get(i) == k) { return true }
@@ -49,6 +63,7 @@ pub class Map<K, V>(pub val keys: Array<K>, val vals: Array<V>) {
     return false
   }
 
+  /// Remove `k` and return whether an entry was removed.
   pub fun remove(k: K): Bool {
     for (i in 0..this.keys.len) {
       if (this.keys.get(i) == k) {
@@ -65,6 +80,7 @@ pub class Map<K, V>(pub val keys: Array<K>, val vals: Array<V>) {
     return false
   }
 
+  /// Remove all entries from the map.
   pub fun clear() {
     this.keys.clear()
     this.vals.clear()
@@ -77,11 +93,16 @@ pub fun map_string_int(): Map<String, Int> {
   return Map<String, Int>(Array(0), Array(0))
 }
 
+/// Linear-search set backed by an owned value array.
 pub class Set<T>(pub val keys: Array<T>) {
+  /// Return the number of values in the set.
   pub fun len(): Int { return this.keys.len }
+  /// Return the value at logical index `i`.
   pub fun get(i: Int): T { return this.keys.get(i) }
+  /// Return whether the set contains no values.
   pub fun isEmpty(): Bool { return this.keys.len == 0 }
 
+  /// Return whether `k` is present.
   pub fun contains(k: T): Bool {
     for (i in 0..this.keys.len) {
       if (this.keys.get(i) == k) { return true }
@@ -89,6 +110,7 @@ pub class Set<T>(pub val keys: Array<T>) {
     return false
   }
 
+  /// Add `k` and return false when it was already present.
   pub fun add(k: T): Bool {
     for (i in 0..this.keys.len) {
       if (this.keys.get(i) == k) { return false }
@@ -97,6 +119,7 @@ pub class Set<T>(pub val keys: Array<T>) {
     return true
   }
 
+  /// Remove `k` and return whether a value was removed.
   pub fun remove(k: T): Bool {
     for (i in 0..this.keys.len) {
       if (this.keys.get(i) == k) {
@@ -109,12 +132,17 @@ pub class Set<T>(pub val keys: Array<T>) {
     return false
   }
 
+  /// Remove all values from the set.
   pub fun clear() { this.keys.clear() }
 }
 
+/// Construct an empty `Set<String>`.
 pub fun set(): Set<String> { return Set<String>(Array(0)) }
 
-/// One key/value pair captured by HashMap.entries().
+/// One immutable key/value pair captured by `HashMap.entries()`.
+///
+/// `key` is the key snapshot and `value` is the value observed at capture
+/// time; later map mutation does not update either field.
 pub class HashMapEntry<K, V>(pub val key: K, pub val value: V) {
 }
 
@@ -133,15 +161,18 @@ pub class HashMapEntryHandle<K : Hashable, V>(val map: HashMap<K, V>, val key: K
 /// map epoch, invalidating this view before a later get() or set() can observe
 /// a rehashed or removed slot.
 pub class HashMapLiveEntry<K : Hashable, V>(val map: HashMap<K, V>, pub val key: K, val epoch: Int) {
+  /// Return whether this view still refers to a present, unmodified entry.
   pub fun isValid(): Bool {
     return this.map.epoch == this.epoch && this.map.contains(this.key)
   }
 
+  /// Read the entry value, or null when the view is invalid.
   pub fun get(): V? {
     if (!this.isValid()) { return null }
     return this.map.get(this.key)
   }
 
+  /// Replace the entry value while the view remains valid.
   pub fun set(value: V): Bool {
     if (!this.isValid()) { return false }
     return this.map.replace(this.key, value)
@@ -150,26 +181,34 @@ pub class HashMapLiveEntry<K : Hashable, V>(val map: HashMap<K, V>, pub val key:
 
 /// Read-only snapshot iterator over HashMap keys.
 pub class HashMapKeyIterator<K>(val items: Array<K>) {
+  /// Return the number of snapshotted keys.
   pub fun len(): Int { return this.items.len }
+  /// Return the snapshotted key at `i`.
   pub fun get(i: Int): K { return this.items.get(i) }
 }
 
 /// Read-only snapshot iterator over HashMap entries.
 pub class HashMapEntryIterator<K, V>(val items: Array<HashMapEntry<K, V>>) {
+  /// Return the number of snapshotted entries.
   pub fun len(): Int { return this.items.len }
+  /// Return the snapshotted entry at `i`.
   pub fun get(i: Int): HashMapEntry<K, V> { return this.items.get(i) }
 }
 
 /// Read-only snapshot iterator over HashSet keys.
 pub class HashSetIterator<T>(val items: Array<T>) {
+  /// Return the number of snapshotted keys.
   pub fun len(): Int { return this.items.len }
+  /// Return the snapshotted key at `i`.
   pub fun get(i: Int): T { return this.items.get(i) }
 }
 
 /// Invalidation-checked live iterator over HashMap keys.
 pub class HashMapLiveKeyIterator<K : Hashable, V>(val map: HashMap<K, V>, var slot: Int, val epoch: Int) {
+  /// Return whether structural map changes have not invalidated this cursor.
   pub fun isValid(): Bool { return this.map.epoch == this.epoch }
 
+  /// Return whether a further live key is available.
   pub fun hasNext(): Bool {
     if (!this.isValid()) { return false }
     for (i in this.slot..this.map.state.len) {
@@ -178,6 +217,7 @@ pub class HashMapLiveKeyIterator<K : Hashable, V>(val map: HashMap<K, V>, var sl
     return false
   }
 
+  /// Return and advance to the next live key, or null at end/invalidation.
   pub fun next(): K? {
     if (!this.isValid()) { return null }
     for (i in this.slot..this.map.state.len) {
@@ -193,8 +233,10 @@ pub class HashMapLiveKeyIterator<K : Hashable, V>(val map: HashMap<K, V>, var sl
 /// Invalidation-checked live iterator over HashMap entries.
 /// Structural map mutation invalidates the cursor; value replacement does not.
 pub class HashMapLiveIterator<K : Hashable, V>(val map: HashMap<K, V>, var slot: Int, val epoch: Int) {
+  /// Return whether structural map changes have not invalidated this cursor.
   pub fun isValid(): Bool { return this.map.epoch == this.epoch }
 
+  /// Return whether a further live entry is available.
   pub fun hasNext(): Bool {
     if (!this.isValid()) { return false }
     for (i in this.slot..this.map.state.len) {
@@ -203,6 +245,7 @@ pub class HashMapLiveIterator<K : Hashable, V>(val map: HashMap<K, V>, var slot:
     return false
   }
 
+  /// Return and advance to the next live entry, or null at end/invalidation.
   pub fun next(): HashMapLiveEntry<K, V>? {
     if (!this.isValid()) { return null }
     for (i in this.slot..this.map.state.len) {
@@ -218,8 +261,10 @@ pub class HashMapLiveIterator<K : Hashable, V>(val map: HashMap<K, V>, var slot:
 /// Invalidation-checked live iterator over HashSet keys.
 /// Structural table mutation invalidates the cursor.
 pub class HashSetLiveIterator<T : Hashable>(val table: HashMap<T, Bool>, var slot: Int, val epoch: Int) {
+  /// Return whether structural set changes have not invalidated this cursor.
   pub fun isValid(): Bool { return this.table.epoch == this.epoch }
 
+  /// Return whether a further live key is available.
   pub fun hasNext(): Bool {
     if (!this.isValid()) { return false }
     for (i in this.slot..this.table.state.len) {
@@ -228,6 +273,7 @@ pub class HashSetLiveIterator<T : Hashable>(val table: HashMap<T, Bool>, var slo
     return false
   }
 
+  /// Return and advance to the next live key, or null at end/invalidation.
   pub fun next(): T? {
     if (!this.isValid()) { return null }
     for (i in this.slot..this.table.state.len) {
@@ -240,9 +286,11 @@ pub class HashSetLiveIterator<T : Hashable>(val table: HashMap<T, Bool>, var slo
   }
 }
 
-/// Open-addressing map. state: 0 empty, 1 full, 2 tombstone.
-/// The key bound supplies both the hash operation and the equality contract.
+/// Open-addressing map. `state` uses 0 for empty, 1 for full, and 2 for a
+/// tombstone. `epoch` changes after structural mutation and invalidates live
+/// iterators and entry views. The key bound supplies hash and equality.
 pub class HashMap<K : Hashable, V>(var keys: Array<K>, var vals: Array<V>, var state: Array<Int>, var epoch: Int) {
+  /// Return the number of allocated table slots, including empty slots.
   pub fun capacity(): Int { return this.keys.len }
 
   /// Snapshot iterator. Later map mutation does not affect this iterator.
@@ -308,6 +356,7 @@ pub class HashMap<K : Hashable, V>(var keys: Array<K>, var vals: Array<V>, var s
     return HashMapLiveEntry<K, V>(this, k, this.epoch)
   }
 
+  /// Return the number of live entries.
   pub fun len(): Int {
     var n: Int = 0
     for (i in 0..this.state.len) {
@@ -316,6 +365,7 @@ pub class HashMap<K : Hashable, V>(var keys: Array<K>, var vals: Array<V>, var s
     return n
   }
 
+  /// Return whether the map has no live entries.
   pub fun isEmpty(): Bool {
     for (i in 0..this.state.len) {
       if (this.state.get(i) == 1) { return false }
@@ -352,6 +402,7 @@ pub class HashMap<K : Hashable, V>(var keys: Array<K>, var vals: Array<V>, var s
     epoch = epoch + 1
   }
 
+  /// Insert or replace `k`; return true only when a new key was inserted.
   pub fun put(k: K, v: V): Bool {
     var n = this.keys.len
     if (n == 0) {
@@ -434,6 +485,7 @@ pub class HashMap<K : Hashable, V>(var keys: Array<K>, var vals: Array<V>, var s
     return false
   }
 
+  /// Return the value for `k`, or null when the key is absent.
   pub fun get(k: K): V? {
     val n = this.keys.len
     if (n == 0) { return null }
@@ -447,11 +499,13 @@ pub class HashMap<K : Hashable, V>(var keys: Array<K>, var vals: Array<V>, var s
     return null
   }
 
+  /// Return the value for `k`, or `default` when the key is absent.
   pub fun getOr(k: K, default: V): V {
     val got = this.get(k)
     return got ?: default
   }
 
+  /// Return whether `k` is present.
   pub fun contains(k: K): Bool {
     val n = this.keys.len
     if (n == 0) { return false }
@@ -490,6 +544,7 @@ pub class HashMap<K : Hashable, V>(var keys: Array<K>, var vals: Array<V>, var s
     return false
   }
 
+  /// Remove `k`, invalidate live cursors, and report whether it existed.
   pub fun remove(k: K): Bool {
     val n = this.keys.len
     if (n == 0) { return false }
@@ -507,6 +562,7 @@ pub class HashMap<K : Hashable, V>(var keys: Array<K>, var vals: Array<V>, var s
     return false
   }
 
+  /// Remove all entries and invalidate live cursors when the table changed.
   pub fun clear() {
     var changed = false
     for (i in 0..this.state.len) {
@@ -517,18 +573,26 @@ pub class HashMap<K : Hashable, V>(var keys: Array<K>, var vals: Array<V>, var s
   }
 }
 
+/// Construct an empty `HashMap<String, Int>` with the default capacity.
 pub fun hash_map(): HashMap<String, Int> {
   return HashMap<String, Int>(Array(16), Array(16), Array(16), 0)
 }
 
+/// Construct an empty `HashMap<String, String>` with the default capacity.
 pub fun hash_map_str(): HashMap<String, String> {
   return HashMap<String, String>(Array(16), Array(16), Array(16), 0)
 }
 
-/// Open-addressing set backed by the generic HashMap.
+/// Open-addressing set backed by the generic `HashMap<T, Bool>`.
+///
+/// `table` owns the storage; callers should use the set methods rather than
+/// mutating the backing map directly.
 pub class HashSet<T : Hashable>(var table: HashMap<T, Bool>) {
+  /// Return the allocated table capacity.
   pub fun capacity(): Int { return this.table.capacity() }
+  /// Return the number of live keys.
   pub fun len(): Int { return this.table.len() }
+  /// Return whether the set is empty.
   pub fun isEmpty(): Bool { return this.table.isEmpty() }
 
   /// Snapshot iterator. Later set mutation does not affect this iterator.
@@ -544,7 +608,9 @@ pub class HashSet<T : Hashable>(var table: HashMap<T, Bool>) {
   /// Return live keys in logical table order.
   pub fun toArray(): Array<T> { return this.table.keyArray() }
 
+  /// Add `k` and return false when it was already present.
   pub fun add(k: T): Bool { return this.table.put(k, true) }
+  /// Return whether `k` is present.
   pub fun contains(k: T): Bool { return this.table.contains(k) }
 
   /// True when every requested key is present; an empty request is true.
@@ -555,7 +621,9 @@ pub class HashSet<T : Hashable>(var table: HashMap<T, Bool>) {
     return true
   }
 
+  /// Remove `k` and return whether a key was removed.
   pub fun remove(k: T): Bool { return this.table.remove(k) }
+  /// Remove all keys and invalidate live iterators when the table changed.
   pub fun clear() { this.table.clear() }
 
   /// Return the live key at logical index i, for duck Iterable / for-in.
@@ -571,6 +639,7 @@ pub class HashSet<T : Hashable>(var table: HashMap<T, Bool>) {
   }
 }
 
+/// Construct an empty `HashSet<String>` with the default capacity.
 pub fun hash_set(): HashSet<String> {
   return HashSet<String>(HashMap<String, Bool>(Array(16), Array(16), Array(16), 0))
 }
@@ -607,12 +676,14 @@ pub fun map<T, R>(xs: Array<T>, f: (T) -> R): Array<R> {
   return out
 }
 
+/// Keep elements of `xs` whose predicate returns true, preserving order.
 pub fun filter<T>(xs: Array<T>, pred: (T) -> Bool): Array<T> {
   val out: Array<T> = Array(0)
   for (x in xs) { if (pred(x)) { out.push(x) } }
   return out
 }
 
+/// Fold `xs` from left to right, starting with `init`.
 pub fun fold<T, A>(xs: Array<T>, init: A, f: (A, T) -> A): A {
   var acc = init
   for (x in xs) { acc = f(acc, x) }
@@ -620,30 +691,37 @@ pub fun fold<T, A>(xs: Array<T>, init: A, f: (A, T) -> A): A {
 }
 
 /// Compatibility wrappers for the pre-generic API.
+/// Map integer values while retaining the legacy API name.
 pub fun map_ints(xs: Array<Int>, f: (Int) -> Int): Array<Int> {
   return map<Int, Int>(xs, f)
 }
 
+/// Filter integer values while retaining the legacy API name.
 pub fun filter_ints(xs: Array<Int>, pred: (Int) -> Bool): Array<Int> {
   return filter<Int>(xs, pred)
 }
 
+/// Fold integer values while retaining the legacy API name.
 pub fun fold_ints(xs: Array<Int>, init: Int, f: (Int, Int) -> Int): Int {
   return fold<Int, Int>(xs, init, f)
 }
 
+/// Map strings while retaining the legacy API name.
 pub fun map_strings(xs: Array<String>, f: (String) -> String): Array<String> {
   return map<String, String>(xs, f)
 }
 
+/// Filter strings while retaining the legacy API name.
 pub fun filter_strings(xs: Array<String>, pred: (String) -> Bool): Array<String> {
   return filter<String>(xs, pred)
 }
 
+/// Fold strings while retaining the legacy API name.
 pub fun fold_strings(xs: Array<String>, init: String, f: (String, String) -> String): String {
   return fold<String, String>(xs, init, f)
 }
 
+/// Join all parts with `sep`; return an empty string for an empty array.
 pub fun join(parts: Array<String>, sep: String): String {
   if (parts.len == 0) { return "" }
   var out: String = parts.get(0)

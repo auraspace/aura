@@ -23,9 +23,11 @@ pub fun equals(left: String, right: String): Bool {
   throw "bytes intrinsic"
 }
 
-/// Owned byte buffer backed by an Aura `Array<Int>`. Values are restricted to
-/// the unsigned-byte range [0, 255].
+/// Owned byte buffer backed by an Aura `Array<Int>`.
+///
+/// Values passed to `push` must be in the unsigned-byte range [0, 255].
 pub class Buffer(private val values: Array<Int>) {
+  /// Return the number of bytes currently stored in the buffer.
   pub fun length(): Int {
     return values.len
   }

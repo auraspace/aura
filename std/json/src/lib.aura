@@ -17,9 +17,10 @@ pub fun escapeString(value: String): String? {
   return null
 }
 
-/// Validated, owned JSON value. The bounded MVP preserves canonical input
-/// text and exposes root-node classification; member/array access remains a
-/// follow-on API.
+/// Validated, owned JSON value.
+///
+/// The bounded MVP preserves the input text in `raw` form and exposes
+/// root-node classification; member and array access remain follow-on APIs.
 pub class Value(private val text: String) {
   /// Return the owned JSON text exactly as parsed.
   pub fun raw(): String {
@@ -49,11 +50,17 @@ pub class Value(private val text: String) {
     return "invalid"
   }
 
+  /// Return true when the root node is a JSON object.
   pub fun isObject(): Bool { return this.kind() == "object" }
+  /// Return true when the root node is a JSON array.
   pub fun isArray(): Bool { return this.kind() == "array" }
+  /// Return true when the root node is a JSON string.
   pub fun isString(): Bool { return this.kind() == "string" }
+  /// Return true when the root node is a JSON number.
   pub fun isNumber(): Bool { return this.kind() == "number" }
+  /// Return true when the root node is a JSON boolean.
   pub fun isBool(): Bool { return this.kind() == "bool" }
+  /// Return true when the root node is JSON null.
   pub fun isNull(): Bool { return this.kind() == "null" }
 }
 
