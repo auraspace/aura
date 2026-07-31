@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.1.1-alpha.2 (2026-07-31)
+
+Second alpha patch release with portability and registry acceptance fixes
+
+Full notes: [`docs/releases/0.1.1-alpha.2.md`](docs/releases/0.1.1-alpha.2.md).
+
+### Changes
+
+- feat: dynamically set AURA_VERSION from Cargo.toml in install-smoke.sh and improve TAG_VERSION handling in package-release.sh
+- feat: replace INADDR_LOOPBACK with AURA_NET_LOOPBACK_ADDR for consistency in loopback address handling
+- feat: update registry acceptance script to use aura-package for testing and verification
+- feat: enhance call expression emission and improve health check response validation in smoke test
+- feat: add POSIX compliance flag to C compilation scripts for improved compatibility
+- feat: update site metadata and enhance home page content for clarity and engagement
+- feat: enhance documentation and standard library details
+- feat: enhance standard library documentation and improve error handling
+- style: format code for consistency and readability in health handler
+- feat: update VSCode extension configuration and build process
+- feat: enhance Aura Language Support with project commands and CLI integration
+- feat: complete bounded async HTTP handler stack
+- feat(sema): add return path analysis and diagnostics for non-unit functions
+- feat(vscode): update .gitignore to include bin directory and add NOTE.md for language-server binaries
+- feat: implement minimal aura.toml parsing and loading
+- feat: add Aura Language Support extension for VS Code
+
 ## 0.1.1-alpha.1 (2026-07-29)
 
 First alpha release
