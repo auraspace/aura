@@ -7854,7 +7854,7 @@ fun main() {
     #[test]
     fn builds_and_runs_bounded_int_local_capture() {
         let file = aura_parser::parse_file(
-            "package demo\nfun report(value: Int) { if (value == 41) { println(\"local captured\") } }\nfun main() { val captured: Int = 41\nval task = spawn { report(captured) } join(task) }\n",
+            "package demo\nfun report(value: Int) { if (value == 41) { println(\"local captured\") } }\nfun main() { val captured = 41\nval task = spawn { report(captured) } join(task) }\n",
         )
         .expect("parse local Int capture spawn");
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -8376,7 +8376,7 @@ fun main() {
     #[test]
     fn builds_and_runs_bounded_array_local_capture() {
         let file = aura_parser::parse_file(
-            "package demo\nfun report(values: Array<Int>) { if (values.len == 3) { println(\"local array\") } }\nfun main() { val captured: Array<Int> = Array<Int>(3)\nval task = spawn { report(captured) } join(task) }\n",
+            "package demo\nfun report(values: Array<Int>) { if (values.len == 3) { println(\"local array\") } }\nfun main() { val captured = Array<Int>(3)\nval task = spawn { report(captured) } join(task) }\n",
         )
         .expect("parse local Array capture spawn");
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

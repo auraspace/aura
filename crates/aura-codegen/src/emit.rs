@@ -10702,6 +10702,42 @@ fn spawn_parameter_locals(
         .collect()
 }
 
+/// Infer the small set of local types needed while collecting spawn frames.
+/// Sema already checked the initializer; this fallback keeps unannotated
+/// locals available to the frame layout pass instead of silently omitting them.
+fn infer_spawn_local_key(expr: &Expr, checked: &CheckedFile) -> Option<String> {
+    match expr {
+        Expr::Int(_) => Some("Int".into()),
+        Expr::Bool(_) => Some("Bool".into()),
+        Expr::String(_) => Some("String".into()),
+        Expr::Group(inner, _) => infer_spawn_local_key(inner, checked),
+        Expr::Lambda(lambda) => checked
+            .lambda_tys
+            .get(&lambda.span.start)
+            .map(Ty::mono_suffix),
+        Expr::Call(call) => {
+            let inst = checked.call_instantiations.get(&call.span.start)?;
+            let args = inst.type_args.clone();
+            if inst.is_constructor {
+                if inst.name == "Array" && args.len() == 1 {
+                    return Some(format!("Array_{}", args[0].mono_suffix()));
+                }
+                return Some(type_mono(&inst.package, &inst.name, &args));
+            }
+            let function = checked
+                .ast
+                .functions
+                .iter()
+                .find(|function| function.name.name == inst.name)?;
+            function
+                .return_type
+                .as_ref()
+                .map(|ty| type_ref_local_key_expand(ty, &[], &args, checked))
+        }
+        _ => None,
+    }
+}
+
 fn collect_spawns_block<'a>(
     block: &'a Block,
     available: &HashMap<String, String>,
@@ -10714,8 +10750,11 @@ fn collect_spawns_block<'a>(
         match stmt {
             Stmt::Var(v) => {
                 collect_spawns_expr(&v.init, &available, checked, mutable_captures, out);
-                if let Some(ty) = &v.ty {
-                    let key = type_ref_local_key_expand(ty, &[], &[], checked);
+                let key =
+                    v.ty.as_ref()
+                        .map(|ty| type_ref_local_key_expand(ty, &[], &[], checked))
+                        .or_else(|| infer_spawn_local_key(&v.init, checked));
+                if let Some(key) = key {
                     available.insert(v.name.name.clone(), full_type_mono(&key, checked));
                 }
             }

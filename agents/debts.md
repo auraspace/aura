@@ -651,7 +651,8 @@ request_timeout` response, then closes; runtime timeout and sanitizer
   streaming, TLS, HTTP/2, or HTTP/3 support. `getResponse` and `postResponse`
   now supply a bounded status/body view but map malformed framing to status
   zero until the typed error model exists. Generic `spawn` capture lowering
-  also still needs static frame-layout support for unannotated local captures.
+  still needs initializer inference for richer expressions and open generic
+  local types.
 - Next step: add typed request/response client values and error outcomes, then
   extend transport capability-gated support with parser and cancellation tests.
 
@@ -1119,6 +1120,9 @@ TaskError>` locals release their payload at scope exit. Nested
   supported capture kind across `await`, forced GC, and repeated joins; the
   same fixture passes under ASAN/UBSAN. Cancellation and frame teardown are
   covered by the runtime matrix.
+- Spawn frame discovery now infers unannotated `Int`, `Bool`, `String`, lambda,
+  function-call, class-constructor, and `Array<T>` locals before laying out the
+  capture struct; native fixtures cover unannotated primitive and array captures.
 - The remaining limits are deliberate contract boundaries rather than
   unresolved capture bugs: richer aggregate element types beyond supported
   arrays and broader scheduler policy remain tracked by ASYNC-003.
