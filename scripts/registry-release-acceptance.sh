@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Network-independent G6/G8 registry and release acceptance.
 #
-# The local HTTP fixture in aura-cli exercises the same publish, sparse-index,
+# The local HTTP fixture in aura-package exercises the same publish, sparse-index,
 # checksum, install, update, rollback, and executable paths used by production.
-# Offline release metadata signing is verified in aura-cli with aura-sig-v1;
+# Offline release metadata signing is verified in aura-package with aura-sig-v1;
 # this script also checks that the release workflow remains fail-closed for its
 # separate production artifact-signing policy.
 set -Eeuo pipefail
@@ -23,16 +23,16 @@ run() {
 }
 
 run "registry package fixture acceptance" \
-  env AURA_U8_REPORT="$u8_report" cargo test -p aura-cli u8_local_registry_release_acceptance_publishes_installs_updates_rolls_back_and_runs -- --nocapture
+  env AURA_U8_REPORT="$u8_report" cargo test -p aura-package u8_local_registry_release_acceptance_publishes_installs_updates_rolls_back_and_runs -- --nocapture
 [[ -s "$u8_report" ]] || { printf 'registry acceptance: U8 test produced no evidence report\n' >&2; exit 1; }
 run "publish receipt and update verification regressions" \
-  cargo test -p aura-cli publish_fixture -- --nocapture
+  cargo test -p aura-package publish_fixture -- --nocapture
 run "registry cryptographic trust regressions" \
-  cargo test -p aura-cli registry_signature_v1 -- --nocapture
+  cargo test -p aura-package registry_signature_v1 -- --nocapture
 run "atomic update verification regressions" \
-  cargo test -p aura-cli u7_ -- --nocapture
+  cargo test -p aura-package u7_ -- --nocapture
 run "registry protocol and compatibility tests" \
-  cargo test -p aura-cli package -- --nocapture
+  cargo test -p aura-package package -- --nocapture
 run "release signing and target policy" \
   bash scripts/validate-release-policy.sh
 
@@ -44,10 +44,10 @@ grep -Eq 'AURA_MINISIGN_PUBLIC_KEY' .github/workflows/release.yml
 grep -Eq 'minisign -Vm' .github/workflows/release.yml
 grep -Eq 'file .*x86_64|file "\$bin"' .github/workflows/release.yml
 grep -Eq 'required.*native|cross-file' scripts/release-targets.tsv
-grep -Eq 'fn parse_receipt' crates/aura-cli/src/package/registry.rs
-grep -Eq 'publish receipt does not match' crates/aura-cli/src/package/registry.rs
-grep -Eq 'aura-sig-v1' crates/aura-cli/src/package/registry.rs
-grep -Eq 'verify_package_signatures' crates/aura-cli/src/package/registry.rs
+grep -Eq 'fn parse_receipt' crates/aura-package/src/package/registry.rs
+grep -Eq 'publish receipt does not match' crates/aura-package/src/package/registry.rs
+grep -Eq 'aura-sig-v1' crates/aura-package/src/package/registry.rs
+grep -Eq 'verify_package_signatures' crates/aura-package/src/package/registry.rs
 
 host="$(uname -s)-$(uname -m)"
 cat >"$report" <<EOF
