@@ -1911,6 +1911,55 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_join_of_plain_enum_payload() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+enum Color { case Red case Blue(value: Int) }
+fun main() {
+  val task = spawn {
+    return Blue(7)
+  }
+  val outcome: Result<Color, TaskError> = join(task)
+  match (outcome) {
+    case Ok(value) => {
+      match (value) {
+        case Red => { println("red") }
+        case Blue(number) => { println(number.toString()) }
+      }
+    }
+    case Err(error) => { println("failed") }
+  }
+}
+"#,
+        )
+        .expect("parse plain enum task payload fixture");
+        let generated = emit_c_from_ast(&file).expect("emit plain enum task payload fixture");
+        assert!(!generated.contains("unsupported owned task outcome payload type"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-joined-plain-enum-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile plain enum task payload fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run plain enum task payload fixture");
+        assert!(
+            output.status.success(),
+            "plain enum task payload failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "7\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_std_sync_atomic_int() {
         let file = aura_parser::parse_file(
             r#"package std.sync

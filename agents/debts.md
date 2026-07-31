@@ -1605,5 +1605,9 @@ TaskError>` ABI, plus cooperative `isCancelled()` inside generated async
 - Progress: bounded generic spawns now publish inferred non-Unit return values
   through the task result ABI; nested Outcome<String, Error> returns transfer
   payload ownership and survive repeated owning joins and forced GC.
+- Progress: owned join now accepts enum payloads whose variants contain only
+  scalar/unit fields, with native sanitizer coverage for repeated task result
+  observation.
 - Residual: generic bounded pollers still need dedicated clone/destroy paths for
-  arbitrary enum payloads and richer aggregates beyond the shared Outcome case.
+  enums containing owned fields and richer aggregates beyond the shared Outcome
+  case.
