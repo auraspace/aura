@@ -24,7 +24,8 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 AURA_HOME="${AURA_HOME:-${HOME}/.aura}"
 AURA_INSTALL_URL="${AURA_INSTALL_URL:-https://aura.fadosoft.com/install.sh}"
-AURA_VERSION="${AURA_VERSION:-0.1.1-alpha}"
+package_version="$(grep -E '^version = ' "$root/Cargo.toml" | head -1 | sed 's/.*"\(.*\)"/\1/')"
+AURA_VERSION="${AURA_VERSION:-${package_version:-0.1.1-alpha}}"
 mode="default"
 fail=0
 

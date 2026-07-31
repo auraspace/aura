@@ -37,7 +37,11 @@ if [[ -z "${TAG_VERSION:-}" ]]; then
   if [[ -n "${GITHUB_REF_NAME:-}" && "${GITHUB_REF_NAME}" == v* ]]; then
     TAG_VERSION="${GITHUB_REF_NAME#v}"
   else
-    TAG_VERSION="${VERSION}-alpha"
+    if [[ "$VERSION" == *-* ]]; then
+      TAG_VERSION="$VERSION"
+    else
+      TAG_VERSION="${VERSION}-alpha"
+    fi
   fi
 else
   # Allow callers to pass a tag with a leading v.
