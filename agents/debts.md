@@ -663,10 +663,8 @@ request_timeout` response, then closes; runtime timeout and sanitizer
 - Why deferred: the complete C22l state-machine/capture lowering and frame-root
   contract are not implemented; the shipped slice is limited to bounded
   straight-line async bodies.
-- Progress: frame captures, pending operations, results, and errors now have explicit ownership metadata, GC root registration, borrowed-value rejection, and exactly-once release. The compiler already rejects borrowed values crossing await/spawn/channel boundaries. The runtime now exposes paired typed frame-data mark/drop hooks; the drop hook runs once after poll-specific cleanup and before frame data release, with native regression coverage.
-- Next step: wire generated async frame layouts to precise per-field mark/drop
-  callbacks for richer aggregate locals; the conservative frame scan remains
-  the compatibility fallback until every generated layout has that metadata.
+- Progress: frame captures, pending operations, results, and errors now have explicit ownership metadata, GC root registration, borrowed-value rejection, and exactly-once release. The compiler already rejects borrowed values crossing await/spawn/channel boundaries. The runtime exposes paired typed frame-data mark/drop hooks; the general CFG lowering now registers generated callbacks for heap-class and `Array<Class>` fields and moves aggregate cleanup into the exactly-once drop callback, with native regression coverage.
+- Next step: apply the same generated callback contract to the remaining specialized async lowerers and richer nested aggregate layouts; the conservative frame scan remains the compatibility fallback until every generated layout has that metadata.
 
 ### Async lowering and task outcome gaps (C22t, 2026-07-22)
 

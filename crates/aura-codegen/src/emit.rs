@@ -283,6 +283,10 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("typedef AuraTaskPollState (*AuraTaskPollFn)(AuraTaskFrame *frame);\n");
     out.push_str("typedef AuraTaskPollState (*AuraTaskCancelFn)(AuraTaskFrame *frame);\n");
     out.push_str("typedef void (*AuraTaskFrameDestroyFn)(AuraTaskFrame *frame);\n");
+    out.push_str("typedef void (*AuraTaskFrameGcMarkFn)(AuraTaskFrame *frame);\n");
+    out.push_str(
+        "typedef void (*AuraTaskFrameDataDropFn)(AuraTaskFrame *frame, void *data, size_t size);\n",
+    );
     out.push_str("typedef void (*AuraTaskResultDestroyFn)(void *data, size_t size);\n");
     out.push_str("typedef void *(*AuraTaskResultCloneFn)(const void *data, size_t size, size_t *cloned_size);\n");
     out.push_str("AuraTaskPollState aura_task_poll_unit(AuraTaskFrame *frame);\n");
@@ -301,6 +305,12 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("void aura_lazy_cell_destroy(AuraLazyCell *);\n");
     out.push_str(
         "void aura_task_frame_set_cancel_handler(AuraTaskFrame *frame, AuraTaskCancelFn cancel);\n",
+    );
+    out.push_str(
+        "void aura_task_frame_set_gc_mark(AuraTaskFrame *frame, AuraTaskFrameGcMarkFn mark);\n",
+    );
+    out.push_str(
+        "void aura_task_frame_set_data_drop(AuraTaskFrame *frame, AuraTaskFrameDataDropFn drop);\n",
     );
     out.push_str("void *aura_task_frame_data(AuraTaskFrame *frame);\n");
     out.push_str("uint64_t aura_task_frame_task_id(const AuraTaskFrame *frame);\n");
@@ -2448,6 +2458,8 @@ fn emit_async_fun_cfg_int(
     let data_ty = format!("aura_async_data_{base}");
     let poll_fn = format!("aura_async_poll_{base}");
     let destroy_data = format!("aura_async_destroy_{base}");
+    let data_drop = format!("aura_async_data_drop_{base}");
+    let gc_mark = format!("aura_async_gc_mark_{base}");
     let destroy_result = format!("aura_async_result_destroy_{base}");
     let lowering_kind = match return_key.as_str() {
         "Unit" => "Unit",
@@ -2572,6 +2584,15 @@ fn emit_async_fun_cfg_int(
         "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame);"
     );
     out.push_str("  if (data != NULL && data->await_task != NULL && data->await_task_owned && __aura_task_executor != NULL) (void)aura_task_executor_release(__aura_task_executor, &data->await_task);\n");
+    out.push_str("}\n\n");
+    let _ = writeln!(
+        out,
+        "static void {data_drop}(AuraTaskFrame *frame, void *raw_data, size_t size) {{"
+    );
+    let _ = writeln!(
+        out,
+        "  {data_ty} *data = ({data_ty} *)raw_data; (void)frame; (void)size;"
+    );
     out.push_str("  AuraFfiOpaqueHandle *__aura_released_handle = NULL;\n");
     for param in &f.params {
         let key = type_ref_local_key_expand(&param.ty, &params, &[], checked);
@@ -2675,6 +2696,35 @@ fn emit_async_fun_cfg_int(
             out,
             "  if (data->{name} != NULL) {{ {dtor}(data->{name}); data->{name} = NULL; }}"
         );
+    }
+    out.push_str("}\n\n");
+    let _ = writeln!(out, "static void {gc_mark}(AuraTaskFrame *frame) {{");
+    let _ = writeln!(
+        out,
+        "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame); if (data == NULL) return;"
+    );
+    let mut emit_gc_mark = |name: &str, key: &str| {
+        let name = mangle_ident(name);
+        if is_heap_class_mono(key, checked) {
+            let _ = writeln!(out, "  aura_gc_mark_ptr((void *)data->{name});");
+        } else if crate::array_emit::is_array_of_heap_class(key, checked) {
+            let _ = writeln!(out, "  for (int64_t __gm = 0; __gm < data->{name}.len; __gm++) aura_gc_mark_ptr((void *)data->{name}.data[__gm]);");
+        }
+    };
+    for param in &f.params {
+        emit_gc_mark(
+            &param.name.name,
+            &type_ref_local_key_expand(&param.ty, &params, &[], checked),
+        );
+    }
+    for (var, key) in &vars {
+        emit_gc_mark(&var.name.name, key);
+    }
+    for (name, key) in &cfg_locals {
+        emit_gc_mark(name, key);
+    }
+    for (name, key) in &match_bindings {
+        emit_gc_mark(name, key);
     }
     out.push_str("}\n\n");
     let _ = writeln!(
@@ -3136,6 +3186,7 @@ fn emit_async_fun_cfg_int(
     out.push_str("      default: return AURA_TASK_FAILED;\n    }\n  }\n}\n\n");
     let _ = writeln!(out, "{} {{", c_async_fun_signature(f, checked));
     let _ = writeln!(out, "  AuraTaskFrame *frame = aura_task_frame_new(sizeof({data_ty}), {poll_fn}, {destroy_data}); if (frame == NULL) return NULL;");
+    let _ = writeln!(out, "  aura_task_frame_set_gc_mark(frame, {gc_mark}); aura_task_frame_set_data_drop(frame, {data_drop});");
     let _ = writeln!(
         out,
         "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame);"
