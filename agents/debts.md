@@ -7,6 +7,78 @@ When you resolve debt, update or remove the matching entry.
 
 ## Open
 
+### API-001 alpha std crypto/reflection placeholders (2026-07-31)
+
+- Area: `std.crypto`, `std.reflect`
+- Symptom: the alpha API and package resolution are locked, but cryptographic,
+  TLS, and reflection operations intentionally throw placeholder errors.
+- Why deferred: secure crypto backend selection, key ownership, capability
+  policy, and metadata retention need a dedicated implementation/RFC pass.
+- Next step: implement a verified platform crypto provider and opt-in metadata
+  emission without changing the locked signatures.
+
+### API-002 alpha protocol placeholders (2026-07-31)
+
+- Area: `std.tls`, `std.udp`, `std.websocket`, `std.compress`, `std.multipart`
+- Symptom: package contracts and typed values are locked, but all transport,
+  framing, compression, and multipart operations fail explicitly.
+- Why deferred: each backend needs independent capability limits, async
+  ownership rules, parser hardening, and sanitizer coverage.
+- Next step: implement TLS/UDP foundations first, then WebSocket and bounded
+  streaming adapters, without changing the locked public signatures.
+
+### API-003 alpha data API placeholders (2026-07-31)
+
+- Area: `std.json.Value`, `std.collections.List<T>`
+- Symptom: JSON tree traversal, cloning, policy-aware parsing, typed mapping,
+  and the growable-list contract are source-visible but intentionally fail at
+  runtime.
+- Why deferred: owned JSON trees, duplicate-key policy, byte/depth enforcement,
+  generic decode derives, list growth, invalidation, and clone/iterator
+  semantics need one coherent ownership pass.
+- Next step: implement JSON limits/policy and owned traversal first, then add
+  reflection/derive-backed `decode<T>` and back `List<T>` with finalized
+  ownership and iterator rules.
+
+### API-004 RFC contract placeholders (2026-07-31)
+
+- Area: `std.reflect`, `std.test`, shared errors, and BuiltIn async surface
+- Symptom: canonical RFC names/signatures are reserved, but reflection,
+  generic List transforms, package-specific error enums, assertion execution,
+  and metadata emission are not implemented.
+- Why deferred: alpha compiler/runtime lacks static class members, generic
+  method type parameters, namespace-qualified enum variants, and full runtime
+  metadata/ownership support.
+- Next step: implement those compiler/runtime capabilities without changing
+  the locked source contracts.
+
+### API-005 deferred RFC surface inventory (2026-07-31)
+
+- Area: RFC-003 structured concurrency/select/lazy, RFC-009/010 attributes and
+  macros, RFC-011 benchmark/property testing
+- Symptom: the stable RFC-003 names now have source placeholders, while
+  attribute declarations, macro expansion, and benchmark/snapshot/property
+  runners still have deferred compiler/runner behavior; source hooks now exist
+  for the latter group.
+- Why deferred: async closure lowering, scheduler/worker ownership, metadata
+  retention, macro ABI/sandboxing, and generated-test protocols are incomplete.
+- Next step: implement `Select`/`Lazy`/`spawnBlocking` against the locked
+  signatures, then freeze attribute and generated-test grammar before adding
+  more source declarations.
+
+### API-006 compiler/runtime/tooling boundary inventory (2026-07-31)
+
+- Area: RFC-001/002/004/005/006/008/012/013/014 surfaces outside `std` source APIs
+- Symptom: compiler metadata/derive expansion, worker scheduling and async I/O,
+  cross-target build/sysroot delivery, release self-update, and full LSP
+  protocol behavior are described by RFCs but are not all implemented.
+- Why deferred: these are compiler, runtime, package-manager, distribution,
+  or tooling contracts rather than ordinary Aura functions; exposing fake std
+  wrappers would hide the real ownership and capability boundaries.
+- Next step: use the explicit rows in `docs/api/deferred-alpha.md` as the
+  implementation queue and add a compiler/runtime gate before promoting each
+  row to a callable API.
+
 ### NET-001 endpoint parsing is synchronous and string-based (2026-07-31)
 
 - Area: `std.net`, POSIX runtime TCP transport
@@ -1466,8 +1538,15 @@ TaskError>` ABI, plus cooperative `isCancelled()` inside generated async
   object/array classification.
 - Progress: `errorOffset` reports the first invalid byte offset and `-1` for
   complete JSON values, covered by the value corpus.
-- Residual: member/array traversal, serializer ordering,
-  typed mappings, and configurable byte/depth limits remain deferred.
+- Progress: traversal (`get`, `at`, `asString`, `keys`), independent-copy,
+  size/depth inspection, duplicate-key policy, bounded parse options, typed
+  parse results, and `decode<T>` now have locked source placeholders and
+  corpus type coverage. Placeholder calls fail explicitly and do not claim
+  backend behavior.
+- Residual: implement the owned node tree and its clone/aliasing ABI, enforce
+  byte/depth limits during parsing, preserve source-order/duplicate-key
+  semantics, and add reflection/derive-backed typed mappings. Serializer
+  ordering remains part of the tree backend contract.
 
 ### SIGNAL-001 signal integration remains bounded (2026-07-30)
 

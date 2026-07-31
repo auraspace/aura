@@ -60,3 +60,19 @@ pub class Once(private var state: Int) {
   /// Return whether the one-shot gate has already been claimed.
   pub fun isDone(): Bool { return false }
 }
+
+/// Exactly-once lazy initialization. The initializer and retention boundary
+/// are reserved; the alpha implementation does not execute the body.
+pub class Lazy<T>(private val placeholder: Int) {
+  pub fun get(): T {
+    throw "std.sync Lazy.get is a placeholder"
+  }
+
+  pub fun isInitialized(): Bool {
+    throw "std.sync Lazy.isInitialized is a placeholder"
+  }
+}
+
+pub fun lazy<T>(initializer: () -> T): Lazy<T> {
+  throw "std.sync lazy is a placeholder"
+}

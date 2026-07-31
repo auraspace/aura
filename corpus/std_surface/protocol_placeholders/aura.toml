@@ -1,0 +1,6 @@
+[package]
+name = "std_surface_protocol_placeholders"
+
+[[bin]]
+name = "protocol_placeholders"
+path = "src"

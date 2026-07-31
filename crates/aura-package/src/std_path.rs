@@ -1,4 +1,4 @@
-//! Locate the in-tree / installed `std/<leaf>` packages (io, assert, collections, net, http, time).
+//! Locate the in-tree / installed `std/<leaf>` packages shipped by the alpha API lock.
 //!
 //! Search order:
 //! 1. `AURA_STD` env (directory that **contains** `io/`, `assert/`, …)
@@ -88,6 +88,13 @@ pub fn find_std_package_dir(from: &Path, leaf: &str) -> Option<PathBuf> {
             | "json"
             | "signal"
             | "stream"
+            | "crypto"
+            | "reflect"
+            | "tls"
+            | "udp"
+            | "websocket"
+            | "compress"
+            | "multipart"
     ) {
         return None;
     }
@@ -498,6 +505,104 @@ const EMBEDDED_STD_FILES: &[(&str, &str)] = &[
             "/../../std/signal/src/lib.aura"
         )),
     ),
+    (
+        "crypto/aura.toml",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../std/crypto/aura.toml"
+        )),
+    ),
+    (
+        "crypto/src/lib.aura",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../std/crypto/src/lib.aura"
+        )),
+    ),
+    (
+        "reflect/aura.toml",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../std/reflect/aura.toml"
+        )),
+    ),
+    (
+        "reflect/src/lib.aura",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../std/reflect/src/lib.aura"
+        )),
+    ),
+    (
+        "tls/aura.toml",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../std/tls/aura.toml"
+        )),
+    ),
+    (
+        "tls/src/lib.aura",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../std/tls/src/lib.aura"
+        )),
+    ),
+    (
+        "udp/aura.toml",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../std/udp/aura.toml"
+        )),
+    ),
+    (
+        "udp/src/lib.aura",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../std/udp/src/lib.aura"
+        )),
+    ),
+    (
+        "websocket/aura.toml",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../std/websocket/aura.toml"
+        )),
+    ),
+    (
+        "websocket/src/lib.aura",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../std/websocket/src/lib.aura"
+        )),
+    ),
+    (
+        "compress/aura.toml",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../std/compress/aura.toml"
+        )),
+    ),
+    (
+        "compress/src/lib.aura",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../std/compress/src/lib.aura"
+        )),
+    ),
+    (
+        "multipart/aura.toml",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../std/multipart/aura.toml"
+        )),
+    ),
+    (
+        "multipart/src/lib.aura",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../std/multipart/src/lib.aura"
+        )),
+    ),
 ];
 
 #[cfg(test)]
@@ -666,6 +771,29 @@ mod tests {
         assert!(EMBEDDED_STD_FILES
             .iter()
             .any(|(p, c)| *p == "task/src/lib.aura" && c.contains("package std.task")));
+    }
+
+    #[test]
+    fn embedded_has_alpha_placeholder_packages() {
+        assert!(EMBEDDED_STD_FILES.iter().any(|(p, c)| {
+            *p == "crypto/src/lib.aura" && c.contains("package std.crypto") && c.contains("sha256")
+        }));
+        assert!(EMBEDDED_STD_FILES.iter().any(|(p, c)| {
+            *p == "reflect/src/lib.aura"
+                && c.contains("package std.reflect")
+                && c.contains("typeInfo")
+        }));
+        for (path, package) in [
+            ("tls/src/lib.aura", "package std.tls"),
+            ("udp/src/lib.aura", "package std.udp"),
+            ("websocket/src/lib.aura", "package std.websocket"),
+            ("compress/src/lib.aura", "package std.compress"),
+            ("multipart/src/lib.aura", "package std.multipart"),
+        ] {
+            assert!(EMBEDDED_STD_FILES
+                .iter()
+                .any(|(p, c)| *p == path && c.contains(package)));
+        }
     }
 
     #[test]

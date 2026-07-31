@@ -1,0 +1,22 @@
+// std.compress -- alpha API shell for bounded streaming compression.
+
+package std.compress
+
+pub enum Codec {
+  case Gzip
+  case Deflate
+}
+
+pub class Options(pub val codec: Codec, pub val level: Int) {}
+
+pub fun options(codec: Codec, level: Int): Options {
+  return Options(codec, level)
+}
+
+pub fun compress(value: String, settings: Options): String {
+  throw "std.compress compress is a placeholder"
+}
+
+pub fun decompress(value: String, codec: Codec): String {
+  throw "std.compress decompress is a placeholder"
+}

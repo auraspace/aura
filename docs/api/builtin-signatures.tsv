@@ -1,0 +1,37 @@
+# receiver-or-function member signature contract
+Array<T> len field -> Int owned array length
+Array<T> get (Int) -> T checked indexed read
+Array<T> set (Int, T) -> Unit checked indexed write
+Array<T> push (T) -> Unit append element
+Array<T> pop () -> T remove last element
+Array<T> clear () -> Unit remove all elements
+Array<T> isEmpty () -> Bool empty check
+Array<T> reserve (Int) -> Unit capacity hint
+Array<T> clone () -> Array<T> independent owned copy; nested arrays/strings are cloned
+String len field -> Int byte length in alpha
+String isEmpty () -> Bool empty check
+String charAt (Int) -> Int UTF-8 byte value 0..255
+String startsWith (String) -> Bool prefix predicate
+String contains (String) -> Bool substring predicate
+String endsWith (String) -> Bool suffix predicate
+String hash () -> Int deterministic string hash
+String indexOf (String) -> Int byte index, -1 when absent
+String split (String) -> Array<String> owned segments
+String trim () -> String ASCII whitespace trim
+String trimStart () -> String ASCII leading whitespace trim
+String trimEnd () -> String ASCII trailing whitespace trim
+String toLower () -> String ASCII case conversion
+String toUpper () -> String ASCII case conversion
+String toInt () -> Int? decimal parse
+String substring (Int, Int) -> String exclusive-end byte slice
+Int toString () -> String decimal formatting
+Int hash () -> Int deterministic integer hash
+async fun f(...) call -> Task<T> async function result
+spawn body -> TaskHandle<T> enqueue once
+await Task<T> -> T async context only
+join TaskHandle<T> -> Result<T, TaskError> repeatable join
+cancel TaskHandle<T> -> Unit cooperative idempotent request
+Channel<T> constructor (Int) -> Channel<T> positive capacity
+send (Channel<T>, T) -> Unit FIFO payload enqueue
+receive Channel<T> -> T? queued values then closed outcome
+close Channel<T> -> Unit idempotent close

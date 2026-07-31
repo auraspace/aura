@@ -35,6 +35,13 @@ Aura’s **core** stdlib is intentionally small ([RFC-007](/rfc/007), [RFC-000](
 | `std.log`         | `std/log`         | Bounded level-based and structured text logging                                          |
 | `std.metrics`     | `std/metrics`     | Sequentially consistent counters and Prometheus samples                                  |
 | `std.test`        | `std/test`        | Deterministic assertion helpers for native and corpus tests                              |
+| `std.crypto`      | `std/crypto`      | Locked hash, HMAC, randomness, and TLS placeholder surface                               |
+| `std.reflect`     | `std/reflect`     | Locked opt-in runtime metadata placeholder surface                                       |
+| `std.tls`         | `std/tls`         | Locked certificate/config/async TLS placeholder surface                                  |
+| `std.udp`         | `std/udp`         | Locked endpoint/datagram/async UDP placeholder surface                                   |
+| `std.websocket`   | `std/websocket`   | Locked message/connection placeholder surface                                            |
+| `std.compress`    | `std/compress`    | Locked gzip/deflate codec placeholder surface                                            |
+| `std.multipart`   | `std/multipart`   | Locked multipart parser/encoder placeholder surface                                      |
 
 Builtins such as `Array<T>` and core scalars are part of the **language**, not a separate import. String methods (`indexOf`, `split`, `trim`, `toInt`, …) are language surface — see [Types](./types-and-nullability.md) and the [cheatsheet](./syntax-cheatsheet.md).
 
@@ -128,8 +135,14 @@ Dogfood CLI that ties args + soft read + String tools: `examples/wc` ([README](h
 aura run corpus/std_assert/app
 ```
 
-The typed `assertEqInt`, `assertEqString`, and `assertEqBool` helpers belong to
-`std.test`; the language-level `assert_eq` helpers are separate builtins.
+The RFC-011 names are `assertTrue`, generic `assertEqual`, generic
+`assertNotNull`, and `assertFails`. The typed `assertEqInt`, `assertEqString`,
+and `assertEqBool` helpers remain alpha compatibility aliases; the
+language-level `assert_eq` helpers are separate builtins.
+
+`benchmark`, `snapshot`, and `property` reserve the RFC-011 advanced testing
+hooks and currently fail explicitly; the runner, snapshot store, generators,
+and reports are deferred.
 
 ## `std.collections`
 
@@ -159,6 +172,12 @@ The typed `assertEqInt`, `assertEqString`, and `assertEqBool` helpers belong to
 | `map_ints` / `filter_ints` / `fold_ints`                                 | Int compatibility wrappers                                                          |
 | `map_strings` / `filter_strings` / `fold_strings`                        | String compatibility wrappers (C12o)                                                |
 | `join(parts, sep)`                                                       | `Array<String>` → `String` with separator (C12j)                                    |
+
+`List<T>`, `List.of(...)`, `listOf(...)`, and `list<T>()` reserve the
+growable-list API. Its methods (`len`, `isEmpty`, `get`, `set`, `push`, `pop`,
+`clear`, and `map`) currently throw an explicit placeholder error; use
+`Array<T>` or the shipped map/set types until the ownership and iterator
+contract is implemented.
 
 See [Arrays](./arrays.md) for HOF usage and capture limits.
 
@@ -204,14 +223,14 @@ also invalidation-checked.
 Shared non-throwing error surface used by filesystem, OS, DNS, network, and
 HTTP adapters.
 
-| API                                                  | Contract                                                                                                                                 |
-| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `ErrorKind`                                          | Stable categories: invalid input, not found, permission, I/O, network, timeout, cancelled, protocol, limit, closed, unsupported, unknown |
-| `Error(kind, message, code)`                         | Owned error payload; `isRetryable()` identifies transient I/O/network/timeout failures                                                   |
-| `protocol` / `network` / `invalidInput` / `notFound` | Error constructors                                                                                                                       |
-| `kindCode(code)`                                     | Map a native status code to the stable category number                                                                                   |
-| `Outcome<T,E>`                                       | `OutcomeOk(value)` or `OutcomeErr(error)`                                                                                                |
-| `success` / `failure` / `isSuccess`                  | Import-safe outcome constructors and inspection                                                                                          |
+| API                                                  | Contract                                                                                                                                                                                          |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ErrorKind`                                          | RFC names: `InvalidInput`, `Unsupported`, `NotFound`, `PermissionDenied`, `WouldBlock`, `TimedOut`, `Cancelled`, `Disconnected`, `LimitExceeded`, `Protocol`, `System` plus legacy alpha variants |
+| `Error(kind, message, code)`                         | Owned error payload; `isRetryable()` identifies transient I/O/network/timeout failures                                                                                                            |
+| `protocol` / `network` / `invalidInput` / `notFound` | Error constructors                                                                                                                                                                                |
+| `kindCode(code)`                                     | Map a native status code to the stable category number                                                                                                                                            |
+| `Outcome<T,E>`                                       | `OutcomeOk(value)` or `OutcomeErr(error)`                                                                                                                                                         |
+| `success` / `failure` / `isSuccess`                  | Import-safe outcome constructors and inspection                                                                                                                                                   |
 
 ## `std.bytes`
 
@@ -245,9 +264,16 @@ byte-oriented and do not perform Unicode normalization.
 | `Value.raw` / `serialize`                                                    | Return the preserved validated JSON text                                   |
 | `Value.kind`                                                                 | Return `object`, `array`, `string`, `number`, `bool`, `null`, or `invalid` |
 | `Value.isObject` / `isArray` / `isString` / `isNumber` / `isBool` / `isNull` | Root-kind predicates                                                       |
+| `Value.get` / `at` / `asString` / `keys`                                     | Locked traversal/type-access placeholders; calls fail explicitly           |
+| `ParseOptions` / `DuplicateKeyPolicy` / `ParseError`                         | Locked bounds, duplicate-key, and typed-failure contract                   |
+| `parseWithOptions` / `parseResult` / `decode<T>`                             | Locked parser/mapping placeholders; calls fail explicitly                  |
+| `Value.clone` / `byteLength` / `depth`                                       | Locked ownership/tree-metadata placeholders; calls fail explicitly         |
 
 The current `Value` model intentionally does not expose object-member or array
-index access yet.
+index access yet. `ParseOptions` reserves `maxBytes`, `maxDepth`, and explicit
+duplicate-key behavior (`Reject`, `FirstWins`, `LastWins`). The eventual tree
+backend must make `Value.clone()` independent and preserve ownership across
+`Outcome`, task, and mapping boundaries; no placeholder returns fake data.
 
 ## `std.mime`
 
@@ -370,18 +396,22 @@ All clocks and deadlines are monotonic; wall-clock changes do not affect them.
 | `cancelAfter(task, milliseconds)` | Arm delayed cancellation; false for invalid/terminal tasks |
 | `linkCancellation(parent, child)` | Propagate cancellation between live tasks                  |
 | `isCancelled()`                   | Inspect cancellation of the current async task             |
+| `taskScope(body)`                 | RFC-003 structured-concurrency placeholder; call fails     |
+| `Select<T>` / `select<T>()`       | Channel selection placeholder; call fails                  |
+| `spawnBlocking<T>(body)`          | Worker-pool placeholder; call fails                        |
 
 ## `std.sync`
 
 These primitives are nonblocking. `tryLock`, `tryRead`, and `tryWrite` return
 false instead of blocking an async worker.
 
-| API         | Contract                                                                                         |
-| ----------- | ------------------------------------------------------------------------------------------------ |
-| `AtomicInt` | Sequentially consistent `load`, `store`, `fetchAdd`, and `compareExchange`                       |
-| `Mutex`     | `tryLock`, `unlock`, and `isLocked` cooperative mutex state                                      |
-| `RwLock`    | Nonblocking `tryRead`/`tryWrite`, `unlockRead`/`unlockWrite`, `readerCount`, and `isWriteLocked` |
-| `Once`      | One-shot `tryEnter` gate and `isDone` inspection                                                 |
+| API                     | Contract                                                                                         |
+| ----------------------- | ------------------------------------------------------------------------------------------------ |
+| `AtomicInt`             | Sequentially consistent `load`, `store`, `fetchAdd`, and `compareExchange`                       |
+| `Mutex`                 | `tryLock`, `unlock`, and `isLocked` cooperative mutex state                                      |
+| `RwLock`                | Nonblocking `tryRead`/`tryWrite`, `unlockRead`/`unlockWrite`, `readerCount`, and `isWriteLocked` |
+| `Once`                  | One-shot `tryEnter` gate and `isDone` inspection                                                 |
+| `Lazy<T>` / `lazy<T>()` | Exactly-once initialization placeholder; call fails                                              |
 
 ## `std.signal`
 
@@ -410,10 +440,35 @@ false instead of blocking an async worker.
 
 ## `std.test`
 
-| API                                               | Contract                          |
-| ------------------------------------------------- | --------------------------------- |
-| `assert(condition)`                               | Fail the current test when false  |
-| `assertEqInt` / `assertEqString` / `assertEqBool` | Type-specific equality assertions |
+| API                                                            | Contract                          |
+| -------------------------------------------------------------- | --------------------------------- |
+| `assert(condition)`                                            | Fail the current test when false  |
+| `assertTrue` / `assertEqual` / `assertNotNull` / `assertFails` | RFC-011 canonical test assertions |
+
+## `std.crypto` (placeholder)
+
+The alpha contract reserves `Digest`, `TlsConfig`, `TlsConnection`,
+`randomBytes`, `sha256`, `hmacSha256`, `constantTimeEquals`, and
+`connectTls`. The declarations are source-compatible placeholders; every
+cryptographic or TLS operation currently throws an explicit placeholder error.
+No security guarantee should be inferred from this package until a verified
+backend lands.
+
+## `std.reflect` (placeholder)
+
+The alpha contract reserves `TypeKind`, `TypeInfo`, `MemberInfo`, `typeInfo`,
+`fields`, `methods`, and `isReflectable`. Metadata generation is not wired yet;
+the operation functions throw explicit placeholder errors rather than returning
+incomplete metadata.
+
+## Protocol placeholders
+
+The following packages reserve the next application-facing API shapes:
+`std.tls`, `std.udp`, `std.websocket`, `std.compress`, and `std.multipart`.
+They provide typed configuration/value shells and explicit placeholder errors;
+they do not open sockets, negotiate TLS, parse frames, compress bytes, or parse
+multipart data yet. Unix sockets, HTTP/2/3, and QUIC remain reserved without a
+public package until their ownership and capability contracts are settled.
 
 ## How the CLI finds `std.*`
 

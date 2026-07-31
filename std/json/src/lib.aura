@@ -2,6 +2,50 @@
 
 package std.json
 
+import std.error as JsonErrs
+
+/// Policy for duplicate object member names.
+pub enum DuplicateKeyPolicy {
+  case Reject
+  case FirstWins
+  case LastWins
+}
+
+/// Bounds and duplicate-key behavior for future tree parsing.
+pub class ParseOptions(pub val maxBytes: Int,
+                       pub val maxDepth: Int,
+                       pub val duplicateKeys: DuplicateKeyPolicy) {}
+
+/// RFC-007 typed JSON parsing failure contract.
+pub enum ParseError {
+  case JsonInvalidInput(offset: Int)
+  case JsonLimitExceeded(limit: Int)
+  case JsonDuplicateKey(key: String)
+  case JsonTypeMismatch(expected: String)
+}
+
+pub fun parseOptions(maxBytes: Int,
+                     maxDepth: Int,
+                     duplicateKeys: DuplicateKeyPolicy): ParseOptions {
+  return ParseOptions(maxBytes, maxDepth, duplicateKeys)
+}
+
+pub fun rejectDuplicateKeys(): DuplicateKeyPolicy {
+  return Reject()
+}
+
+pub fun firstDuplicateKeyWins(): DuplicateKeyPolicy {
+  return FirstWins()
+}
+
+pub fun lastDuplicateKeyWins(): DuplicateKeyPolicy {
+  return LastWins()
+}
+
+pub fun defaultParseOptions(): ParseOptions {
+  throw "std.json defaultParseOptions is a placeholder"
+}
+
 /// Validate one complete JSON value with bounded nesting and UTF-8 input.
 pub fun isValid(value: String): Bool {
   return false
@@ -20,7 +64,7 @@ pub fun escapeString(value: String): String? {
 /// Validated, owned JSON value.
 ///
 /// The bounded MVP preserves the input text in `raw` form and exposes
-/// root-node classification; member and array access remain follow-on APIs.
+/// root-node classification; member and array access are locked placeholders.
 pub class Value(private val text: String) {
   /// Return the owned JSON text exactly as parsed.
   pub fun raw(): String {
@@ -30,6 +74,21 @@ pub class Value(private val text: String) {
   /// Serialize the value. The MVP serializer returns the validated text.
   pub fun serialize(): String {
     return text
+  }
+
+  /// Return an independent owned tree copy once tree storage is implemented.
+  pub fun clone(): Value {
+    throw "std.json Value.clone is a placeholder"
+  }
+
+  /// Return the encoded byte length of this value.
+  pub fun byteLength(): Int {
+    throw "std.json Value.byteLength is a placeholder"
+  }
+
+  /// Return the maximum nested container depth of this value.
+  pub fun depth(): Int {
+    throw "std.json Value.depth is a placeholder"
   }
 
   /// Return the root node kind: object, array, string, number, bool, or null.
@@ -62,6 +121,28 @@ pub class Value(private val text: String) {
   pub fun isBool(): Bool { return this.kind() == "bool" }
   /// Return true when the root node is JSON null.
   pub fun isNull(): Bool { return this.kind() == "null" }
+
+  /// Look up an object member by exact key. Object traversal is an alpha
+  /// placeholder until the owned value tree and duplicate-key policy land.
+  pub fun get(key: String): Value? {
+    throw "std.json Value.get is a placeholder"
+  }
+
+  /// Return one array element by index. Array traversal is an alpha
+  /// placeholder until the owned value tree and bounds contract land.
+  pub fun at(index: Int): Value? {
+    throw "std.json Value.at is a placeholder"
+  }
+
+  /// Decode a JSON string root into an owned Aura string.
+  pub fun asString(): String? {
+    throw "std.json Value.asString is a placeholder"
+  }
+
+  /// Return the object member names in source order.
+  pub fun keys(): Array<String> {
+    throw "std.json Value.keys is a placeholder"
+  }
 }
 
 /// Parse and retain one complete JSON value, or return null on invalid input.
@@ -70,4 +151,22 @@ pub fun parse(value: String): Value? {
     return null
   }
   return Value(value)
+}
+
+/// Parse with explicit bounds and duplicate-key policy.
+pub fun parseWithOptions(value: String, options: ParseOptions): Value? {
+  throw "std.json parseWithOptions is a placeholder"
+}
+
+/// Typed parse result. Mapping and ownership are deferred, but the error
+/// channel is reserved now so callers do not depend on null-only failure.
+pub fun parseResult(value: String,
+                    options: ParseOptions): JsonErrs.Outcome<Value, ParseError> {
+  throw "std.json parseResult is a placeholder"
+}
+
+/// Map a validated JSON value to an application type once derives/reflection
+/// provide the serializer contract.
+pub fun decode<T>(value: Value): T? {
+  throw "std.json decode is a placeholder"
 }

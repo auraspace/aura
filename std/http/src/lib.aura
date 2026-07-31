@@ -82,13 +82,13 @@ pub async fun postResponse(endpoint: String, target: String, body: String): Clie
 }
 
 /// Typed variant that preserves protocol failures instead of returning status 0.
-pub async fun getResponseResult(endpoint: String, target: String): Errs.Outcome<ClientResponse, Errs.Error> {
+pub async fun getResponseResult(endpoint: String, target: String): Errs.Outcome<ClientResponse, Errs.HttpError> {
   val raw: String = await get(endpoint, target)
   return parseResponseResult(raw)
 }
 
 /// Typed variant of `postResponse` with shared std.error payloads.
-pub async fun postResponseResult(endpoint: String, target: String, body: String): Errs.Outcome<ClientResponse, Errs.Error> {
+pub async fun postResponseResult(endpoint: String, target: String, body: String): Errs.Outcome<ClientResponse, Errs.HttpError> {
   val raw: String = await post(endpoint, target, body)
   return parseResponseResult(raw)
 }
@@ -106,14 +106,14 @@ fun parseResponse(raw: String): ClientResponse {
   return ClientResponse(parsed!!, raw.substring(bodyStart + 4, raw.len))
 }
 
-fun parseResponseResult(raw: String): Errs.Outcome<ClientResponse, Errs.Error> {
+fun parseResponseResult(raw: String): Errs.Outcome<ClientResponse, Errs.HttpError> {
   val bodyStart = raw.indexOf("\r\n\r\n")
   if (!raw.startsWith("HTTP/1.") || raw.len < 12 || bodyStart < 0) {
-    return Errs.failure(Errs.protocol("invalid HTTP response framing", 0))
+    return Errs.failure(Errs.asHttpError(Errs.protocol("invalid HTTP response framing", 0)))
   }
   val parsed = raw.substring(9, 12).toInt()
   if (parsed == null) {
-    return Errs.failure(Errs.protocol("invalid HTTP status code", 0))
+    return Errs.failure(Errs.asHttpError(Errs.protocol("invalid HTTP status code", 0)))
   }
   return Errs.success(ClientResponse(parsed!!, raw.substring(bodyStart + 4, raw.len)))
 }

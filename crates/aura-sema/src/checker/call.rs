@@ -5,7 +5,7 @@ use aura_ast::{CallExpr, Expr, Span};
 use super::{is_array_primitive_elem, Checker};
 use crate::error::SemaError;
 use crate::sigs::{CallInstantiation, ClassSig, EnumSig, EnumVariantSig, FunSig};
-use crate::ty::{nominal_key, Ty};
+use crate::ty::{nominal_key, split_nominal, Ty};
 use crate::util::{subst_ty, type_subst_map, unify_ty};
 
 impl Checker {
@@ -469,6 +469,28 @@ impl Checker {
         if self.classes.contains_key(&name) {
             let class = self.resolve_class(&name, c.callee.span())?;
             return self.check_class_ctor(&class, c, expected);
+        }
+
+        // Resolve a duplicate variant name from the expected enum first. This
+        // keeps enum variants package/type-scoped while preserving the legacy
+        // global fallback for untyped constructors.
+        if let Some(expected) = expected {
+            let enum_key = match expected {
+                Ty::Enum(name) | Ty::EnumApp { name, .. } => Some(name.as_str()),
+                _ => None,
+            };
+            if let Some(enum_key) = enum_key {
+                let (enum_name, _) = split_nominal(enum_key);
+                if self
+                    .enums
+                    .get(enum_name)
+                    .into_iter()
+                    .flatten()
+                    .any(|sig| sig.variants.iter().any(|v| v.name == name))
+                {
+                    return self.check_variant_ctor(enum_name, &name, c, Some(expected));
+                }
+            }
         }
 
         // Enum variant constructor: Ok(...), Red()

@@ -1,0 +1,29 @@
+// std.udp -- alpha API shell for datagram transport.
+
+package std.udp
+
+pub class Endpoint(pub val host: String, pub val port: Int) {}
+
+pub class Datagram(pub val source: Endpoint, pub val payload: String) {}
+
+pub class Socket(pub val endpoint: Endpoint) {
+  pub async fun receive(capacity: Int): Datagram {
+    throw "std.udp receive is a placeholder"
+  }
+
+  pub async fun send(target: Endpoint, payload: String): Int {
+    throw "std.udp send is a placeholder"
+  }
+
+  pub fun close(): Unit {
+    throw "std.udp close is a placeholder"
+  }
+}
+
+pub fun endpoint(host: String, port: Int): Endpoint {
+  return Endpoint(host, port)
+}
+
+pub fun bind(value: Endpoint): Socket {
+  throw "std.udp bind is a placeholder"
+}

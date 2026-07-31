@@ -40,18 +40,18 @@ pub fun listNames(path: String): String { throw "fs intrinsic" }
 pub fun isSymlink(path: String): Bool { throw "fs intrinsic" }
 
 /// Read text through a shared error outcome instead of throwing.
-pub fun readTextResult(path: String): FsErrs.Outcome<String, FsErrs.Error> {
+pub fun readTextResult(path: String): FsErrs.Outcome<String, FsErrs.OsError> {
   val content = FsIo.tryReadFile(path)
   if (content == null) {
-    return FsErrs.failure(FsErrs.notFound("file read failed", 0))
+    return FsErrs.failure(FsErrs.asOsError(FsErrs.notFound("file read failed", 0)))
   }
   return FsErrs.success(content!!)
 }
 
 /// Write text through a shared error outcome instead of throwing.
-pub fun writeTextResult(path: String, content: String): FsErrs.Outcome<Bool, FsErrs.Error> {
+pub fun writeTextResult(path: String, content: String): FsErrs.Outcome<Bool, FsErrs.OsError> {
   if (!FsIo.tryWriteFile(path, content)) {
-    return FsErrs.failure(FsErrs.invalidInput("file write failed", 0))
+    return FsErrs.failure(FsErrs.asOsError(FsErrs.invalidInput("file write failed", 0)))
   }
   return FsErrs.success(true)
 }

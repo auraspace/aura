@@ -1,0 +1,6 @@
+[package]
+name = "std.udp"
+
+[[bin]]
+name = "udp"
+path = "src"

@@ -472,8 +472,7 @@ impl Checker {
                     });
                     continue;
                 }
-                if self.variant_to_enum.contains_key(&v.name.name)
-                    || self.functions.contains_key(&v.name.name)
+                if self.functions.contains_key(&v.name.name)
                     || self.classes.contains_key(&v.name.name)
                     || self.enums.contains_key(&v.name.name)
                 {
@@ -513,7 +512,8 @@ impl Checker {
                     continue;
                 }
                 self.variant_to_enum
-                    .insert(v.name.name.clone(), e.name.name.clone());
+                    .entry(v.name.name.clone())
+                    .or_insert_with(|| e.name.name.clone());
                 let tag = variants.len();
                 variants.push(EnumVariantSig {
                     name: v.name.name.clone(),

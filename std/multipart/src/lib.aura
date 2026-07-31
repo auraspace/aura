@@ -1,0 +1,19 @@
+// std.multipart -- alpha API shell for bounded multipart bodies.
+
+package std.multipart
+
+pub class Part(pub val name: String, pub val filename: String, pub val contentType: String, pub val body: String) {}
+
+pub class Parser(pub val boundary: String) {
+  pub fun parse(value: String): Array<Part> {
+    throw "std.multipart parse is a placeholder"
+  }
+}
+
+pub fun parser(boundary: String): Parser {
+  return Parser(boundary)
+}
+
+pub fun encode(parts: Array<Part>, boundary: String): String {
+  throw "std.multipart encode is a placeholder"
+}

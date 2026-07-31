@@ -26,14 +26,19 @@ the [standard-library guide](../guide/standard-library.md): `std.io`,
 `std.assert`, `std.collections`, `std.error`, `std.bytes`, `std.encoding`,
 `std.json`, `std.mime`, `std.fs`, `std.os`, `std.net`, `std.dns`, `std.url`,
 `std.http`, `std.stream`, `std.time`, `std.task`, `std.sync`, `std.signal`,
-`std.log`, `std.metrics`, and `std.test`. The bounded APIs include typed
+`std.log`, `std.metrics`, `std.test`, `std.crypto`, `std.reflect`, `std.tls`,
+`std.udp`, `std.websocket`, `std.compress`, and `std.multipart`. The
+first twenty-one packages expose bounded usable behavior; `std.crypto` and
+`std.reflect` are now locked alpha placeholders whose calls fail explicitly
+until their backends are implemented. The bounded APIs include typed
 shared outcomes, loopback TCP/HTTP, monotonic timers, cooperative task
 cancellation, nonblocking synchronization, encoding and JSON validation, and
 structured logging/metrics. Some operations remain intentionally bounded or
 runtime-backed: strict file APIs may throw `String`, `std.net` uses endpoint
 strings with loopback as the port-only default,
-JSON exposes root classification rather than object traversal, and crypto/TLS,
-UDP, Unix sockets, and framework-level HTTP routing are not part of this core.
+JSON exposes root classification with traversal/mapping placeholders, and crypto/TLS,
+UDP, Unix sockets, and framework-level HTTP routing are not implemented in this
+alpha core.
 
 ## 2. Motivation
 
@@ -80,32 +85,37 @@ Compiler MVP needs types to lower; users need I/O and collections for non-toy pr
 
 ### 6.1 Package map (design and shipped surface)
 
-| Package           | Contents                                                                                                  |
-| ----------------- | --------------------------------------------------------------------------------------------------------- |
-| `std.io`          | Console, files, stdin, argv, owned file handles, and async descriptor I/O                                 |
-| `std.assert`      | Runtime assertion primitive                                                                               |
-| `std.test`        | Deterministic Bool/Int/String assertion helpers                                                           |
-| `std.collections` | `Map`, `Set`, generic `HashMap`/`HashSet`, snapshot/live iterators, `Iterable`, and HOFs                  |
-| `std.error`       | Shared `ErrorKind`, owned `Error`, and generic `Outcome<T,E>`                                             |
-| `std.bytes`       | Owned byte strings and bounded mutable byte buffers                                                       |
-| `std.encoding`    | UTF-8, base64, hex, and RFC 3986 percent encoding                                                         |
-| `std.json`        | Bounded validation, escaping, parsing, and root classification                                            |
-| `std.mime`        | Media-type validation and filename sanitization                                                           |
-| `std.fs`          | Portable paths and bounded filesystem metadata snapshots                                                  |
-| `std.os`          | Environment, cwd, pid, and platform helpers                                                               |
-| `std.net`         | Endpoint-aware nonblocking TCP listeners, connections, and streams                                        |
-| `std.dns`         | Bounded numeric host resolution                                                                           |
-| `std.url`         | Origin-form and absolute URI component validation                                                         |
-| `std.http`        | Bounded HTTP/1.1 client/server request and response API; routing frameworks, HTTP/2+, TLS remain separate |
-| `std.stream`      | Async reader/writer adapters over owned network streams                                                   |
-| `std.time`        | Monotonic durations, deadlines, and async sleep                                                           |
-| `std.task`        | Task join, cooperative cancellation, delayed cancellation, and parent/child cancellation linking          |
-| `std.sync`        | Sequentially consistent atomics, nonblocking mutex/RW locks, and one-shot gates                           |
-| `std.signal`      | SIGINT/SIGTERM graceful-shutdown state                                                                    |
-| `std.log`         | Level-filtered and structured text logging                                                                |
-| `std.metrics`     | Sequentially consistent counters and Prometheus samples                                                   |
-| `std.crypto`      | Planned hash, HMAC, random, and TLS foundations                                                           |
-| `std.reflect`     | Planned opt-in reflection (RFC-009)                                                                       |
+| Package           | Contents                                                                                                           |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `std.io`          | Console, files, stdin, argv, owned file handles, and async descriptor I/O                                          |
+| `std.assert`      | Runtime assertion primitive                                                                                        |
+| `std.test`        | Deterministic Bool/Int/String assertion helpers                                                                    |
+| `std.collections` | `Map`, `Set`, generic `HashMap`/`HashSet`, snapshot/live iterators, `Iterable`, and HOFs                           |
+| `std.error`       | Shared `ErrorKind`, owned `Error`, and generic `Outcome<T,E>`                                                      |
+| `std.bytes`       | Owned byte strings and bounded mutable byte buffers                                                                |
+| `std.encoding`    | UTF-8, base64, hex, and RFC 3986 percent encoding                                                                  |
+| `std.json`        | Bounded validation, escaping, parsing, root classification, policy, and typed mapping surface                      |
+| `std.mime`        | Media-type validation and filename sanitization                                                                    |
+| `std.fs`          | Portable paths and bounded filesystem metadata snapshots                                                           |
+| `std.os`          | Environment, cwd, pid, and platform helpers                                                                        |
+| `std.net`         | Endpoint-aware nonblocking TCP listeners, connections, and streams                                                 |
+| `std.dns`         | Bounded numeric host resolution                                                                                    |
+| `std.url`         | Origin-form and absolute URI component validation                                                                  |
+| `std.http`        | Bounded HTTP/1.1 server and loopback client request/response API; routing frameworks, HTTP/2+, TLS remain separate |
+| `std.stream`      | Async reader/writer adapters over owned network streams                                                            |
+| `std.time`        | Monotonic durations, deadlines, and async sleep                                                                    |
+| `std.task`        | Task join, cooperative cancellation, delayed cancellation, and parent/child cancellation linking                   |
+| `std.sync`        | Sequentially consistent atomics, nonblocking mutex/RW locks, and one-shot gates                                    |
+| `std.signal`      | SIGINT/SIGTERM graceful-shutdown state                                                                             |
+| `std.log`         | Level-filtered and structured text logging                                                                         |
+| `std.metrics`     | Sequentially consistent counters and Prometheus samples                                                            |
+| `std.crypto`      | **Locked placeholder:** hash, HMAC, random, and TLS foundations                                                    |
+| `std.reflect`     | **Locked placeholder:** opt-in reflection metadata (RFC-009)                                                       |
+| `std.tls`         | **Locked placeholder:** certificate, config, and async connection surface                                          |
+| `std.udp`         | **Locked placeholder:** endpoints, datagrams, and async socket surface                                             |
+| `std.websocket`   | **Locked placeholder:** messages, ping/pong, close, and async connection surface                                   |
+| `std.compress`    | **Locked placeholder:** gzip/deflate codec options and bounded transforms                                          |
+| `std.multipart`   | **Locked placeholder:** parts, parser, and encoder surface                                                         |
 
 ### 6.2 Error conventions
 
@@ -139,7 +149,7 @@ may carry package-specific, non-secret detail:
 | `System`           | An otherwise unmapped OS error; includes a stable operation name and numeric code. | os, net, dns, http |
 
 `std.os.OsError`, `std.net.NetError`, `std.dns.DnsError`, and
-`std.http.HttpError` are package-owned enums with a `kind` in that set; they
+`std.http.HttpError` are package-owned error types with a `kind` in that set; they
 do not expose native pointers, native errno storage, DNS resolver text, TLS
 keys, request bodies, headers, or authorization values. Adapters map an inner
 error to their own error type while preserving the common kind and adding only
@@ -171,8 +181,9 @@ methods to 405, oversized input to 413, handler failure to one bounded 500,
 and timeout to 408. Read, write, and idle timeouts default to 30 seconds and
 are bounded to 30 seconds; async waits use monotonic deadlines rather than
 wall clock time. TLS, HTTP/2, HTTP/3, WebSockets, compression, multipart,
-and the HTTP client are capability-gated follow-on API areas; they are not
-silently emulated by the HTTP/1.1 server.
+and extended protocols remain capability-gated follow-on API areas; the
+bounded HTTP client is part of the shipped alpha surface and is not silently
+emulated by the HTTP/1.1 server.
 
 The parser accepts bounded `Content-Length` and inbound `Transfer-Encoding:
 chunked` request bodies. Chunked bytes are decoded into the same owned bounded
@@ -288,7 +299,10 @@ Mutex.withLock(mu) { /* ... */ }
 
 #### 6.4.1 C22 task/channel API contract
 
-`std.task` exposes the task operations from RFC-003. `async fun f(...): T`
+`std.task` exposes the task operations from RFC-003. Its alpha placeholder
+surface also reserves `Select<T>`, `select<T>()`, and
+`spawnBlocking<T>(() -> T)`; these fail explicitly until the scheduler and
+worker runtime contracts are implemented. `async fun f(...): T`
 produces `Task<T>`; `spawn` returns `TaskHandle<T>`. `join` is repeatable and
 returns a typed task outcome. `cancel` is cooperative and has no preemptive
 or OS-thread behavior. `isCancelled()` reports the current task's cancellation
@@ -317,8 +331,12 @@ val text = value?.serialize()
 ```
 
 - The shipped MVP validates complete values, preserves their input text, and
-  exposes root classification. Object-member and array-index traversal plus
-  typed mapping remain follow-ons.
+  exposes root classification. The alpha API also locks placeholders for
+  traversal (`Value.get`, `at`, `asString`, `keys`), independent ownership
+  (`Value.clone`), size/depth metadata, bounded parsing, duplicate-key policy,
+  typed failures, and `decode<T>`. These calls fail explicitly until the
+  owned tree and reflection/derive mapping backends exist. `ParseOptions`
+  reserves `maxBytes`, `maxDepth`, and `Reject`/`FirstWins`/`LastWins`.
 
 ### 6.7 Crypto baseline
 

@@ -106,7 +106,12 @@ Or simpler v1: built-in set + user attributes as classes marked `@attribute`.
 
 Default for user attrs: **Binary** (available to tools/dependents without runtime bloat). Runtime requires explicit opt-in.
 
-### 6.5 Built-in attributes (non-exhaustive)
+### 6.5 Built-in attributes (alpha vocabulary)
+
+The alpha names and their implementation status are locked in
+[`docs/api/compiler-alpha.md`](../api/compiler-alpha.md). Reserved names are
+accepted only after their parser/sema phase is enabled; until then they must
+produce an explicit unsupported diagnostic rather than being silently ignored.
 
 | Attribute                       | Role                                    |
 | ------------------------------- | --------------------------------------- |
@@ -186,7 +191,8 @@ Pay-as-you-go metadata protects single-binary size and optimization. Attributes 
 
 ## 9. Unresolved / future work
 
-- Full `std.reflect` surface
+- Backend implementation for the locked `Type`, `Method`, `Field`, `TypeId`,
+  `typeOf<T>()`, and `typeIdOf<T>()` placeholder surface
 - Annotation processors beyond macros
 - Source generators pipeline
 

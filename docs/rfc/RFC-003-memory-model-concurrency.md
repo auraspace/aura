@@ -217,20 +217,32 @@ than once; every join after completion observes the cached outcome.
 latter is the scheduled identity used by `join` and `cancel`. C22 has no
 preemptive cancellation, OS-thread affinity, or implicit auto-restart.
 
+The alpha std surface reserves `std.task.taskScope(() -> Unit)`,
+`std.task.Select<T>`, `std.task.select<T>()`, and
+`std.task.spawnBlocking<T>(() -> T)` as placeholders for structured
+concurrency, channel selection, and worker-pool execution. They fail explicitly
+until async closure lowering, child supervision, readiness fairness, and worker
+runtime support are available; the conceptual block form remains the RFC
+language target.
+
 ### 6.6 Shared-state concurrency
 
 **Primitives (stdlib):**
 
-| API                      | Role                     |
-| ------------------------ | ------------------------ |
-| `Mutex<T>` / `RwLock<T>` | Critical sections        |
-| `Channel<T>` / `Select`  | Message passing          |
-| `Atomic*`                | Lock-free counters/flags |
-| `Once` / `Lazy`          | Init                     |
+| API                     | Role                     |
+| ----------------------- | ------------------------ |
+| `Mutex` / `RwLock`      | Critical sections        |
+| `Channel<T>` / `Select` | Message passing          |
+| `Atomic*`               | Lock-free counters/flags |
+| `Once` / `Lazy`         | Init                     |
 
 **Default style:** share-memory-by-communicating when practical; locks when needed.
 
 There is **no** borrow-based `Send`/`Sync` enforcement. Documentation and optional attributes may mark thread-hostile types. Race detector covers misuse.
+
+The alpha `Mutex` and `RwLock` are non-generic state gates; protected data is
+owned by the caller and is not stored in the lock. A future generic guard API
+must first define guard lifetime, async cancellation, and ownership behavior.
 
 #### 6.6.1 Bounded channel contract (C22)
 
@@ -247,6 +259,25 @@ released according to normal GC/value rules. Cancellation removes a waiting
 operation without reordering other waiters. A channel owns or retains queued
 payloads until delivery, drain, or close cleanup; a C21 `ref T` is never a
 legal payload across this boundary.
+
+#### 6.6.2 Alpha placeholder contracts
+
+`std.task.select<T>()` constructs a selector and
+`Select<T>.add(Channel<T>) -> Select<T>` registers a channel. The eventual
+`await selector.next() -> T?` operation returns one ready value or the closed
+sentinel after all registered channels close. The alpha source declarations
+throw placeholders; readiness fairness, registration mutation, and a richer
+closed-channel outcome remain runtime work.
+
+`std.sync.lazy<T>(() -> T) -> Lazy<T>` reserves exactly-once initialization;
+`Lazy<T>.get() -> T` and `isInitialized() -> Bool` must be safe across the
+future worker scheduler. The alpha calls throw placeholders until task-safe
+retention and initialization races are defined.
+
+`std.task.spawnBlocking<T>(() -> T) -> TaskHandle<T>` reserves execution of a
+blocking closure on a worker pool. It must not run blocking work on the
+cooperative executor, and cancellation must define whether queued/running work
+is abandoned or joined. The alpha call throws a placeholder.
 
 ### 6.7 Memory consistency model
 

@@ -74,22 +74,22 @@ pub async fun writeStream(stream: ForeignHandle<Int>, content: String): Int {
 
 /// Non-throwing read wrapper. `OutcomeOk` contains the owned chunk (or the
 /// empty string at EOF); transport failures are classified as network errors.
-pub async fun readStreamResult(stream: ForeignHandle<Int>, capacity: Int): NetErrs.Outcome<String, NetErrs.Error> {
+pub async fun readStreamResult(stream: ForeignHandle<Int>, capacity: Int): NetErrs.Outcome<String, NetErrs.NetError> {
   try {
     val chunk: String = await readStream(stream, capacity)
     return NetErrs.success(chunk)
   } catch (error: String) {
-    return NetErrs.failure(NetErrs.network(error, 0))
+    return NetErrs.failure(NetErrs.asNetError(NetErrs.network(error, 0)))
   }
 }
 
 /// Non-throwing write wrapper. The success value is the number of bytes sent;
 /// transport failures are classified as network errors.
-pub async fun writeStreamResult(stream: ForeignHandle<Int>, content: String): NetErrs.Outcome<Int, NetErrs.Error> {
+pub async fun writeStreamResult(stream: ForeignHandle<Int>, content: String): NetErrs.Outcome<Int, NetErrs.NetError> {
   try {
     val transferred: Int = await writeStream(stream, content)
     return NetErrs.success(transferred)
   } catch (error: String) {
-    return NetErrs.failure(NetErrs.network(error, 0))
+    return NetErrs.failure(NetErrs.asNetError(NetErrs.network(error, 0)))
   }
 }

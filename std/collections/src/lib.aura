@@ -2,6 +2,60 @@
 // C14: Hashable + one generic open-addressing HashMap<K, V>.
 package std.collections
 
+/// Growable list contract reserved for the post-MVP collection backend.
+///
+/// The alpha shell fixes the ownership-neutral type and method names while
+/// growth, iterator invalidation, and clone semantics are still being designed.
+pub class List<T>(private val placeholder: Int) {
+  /// RFC-007 growable-list constructor. Storage is not implemented yet.
+  pub fun of(first: T, second: T, third: T): List<T> {
+    throw "std.collections List.of is a placeholder"
+  }
+
+  pub fun len(): Int {
+    throw "std.collections List is a placeholder"
+  }
+
+  pub fun isEmpty(): Bool {
+    throw "std.collections List is a placeholder"
+  }
+
+  pub fun get(index: Int): T {
+    throw "std.collections List is a placeholder"
+  }
+
+  pub fun set(index: Int, value: T): Unit {
+    throw "std.collections List is a placeholder"
+  }
+
+  pub fun push(value: T): Unit {
+    throw "std.collections List is a placeholder"
+  }
+
+  pub fun pop(): T {
+    throw "std.collections List is a placeholder"
+  }
+
+  pub fun clear(): Unit {
+    throw "std.collections List is a placeholder"
+  }
+
+  /// Homogeneous alpha form; generic element transforms remain a compiler
+  /// follow-on because methods cannot declare their own type parameters yet.
+  pub fun map(f: (T) -> T): List<T> {
+    throw "std.collections List.map is a placeholder"
+  }
+}
+
+/// RFC-007 constructor spelling reserved until static class members exist.
+pub fun listOf<T>(first: T, second: T, third: T): List<T> {
+  throw "std.collections listOf is a placeholder"
+}
+
+pub fun list<T>(): List<T> {
+  return List<T>(0)
+}
+
 /// Minimal indexed iteration contract used by `for-in` lowering.
 pub interface Iterable<E> {
   /// Return the number of elements exposed by the iterable.

@@ -87,6 +87,11 @@ macro! vec {
 
 ### 6.3 Derive macros
 
+The alpha derive vocabulary is `Debug`, `Equals`, `Hash`, `ToString`, and
+`Json`, with generated-member and ownership rules recorded in
+[`docs/api/compiler-alpha.md`](../api/compiler-alpha.md). The names are locked
+before expansion is implemented.
+
 ```aura
 @derive(Debug, Equals)
 class Point(val x: Int, val y: Int)

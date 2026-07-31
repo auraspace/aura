@@ -1,0 +1,22 @@
+// Alpha API smoke: reserved protocol packages are source-compatible shells.
+
+package std_surface_protocol_placeholders
+
+import std.tls as Tls
+import std.udp as Udp
+import std.websocket as Ws
+import std.compress as Compress
+import std.multipart as Multipart
+
+fun main() {
+  val tls = Tls.config("example.test", true)
+  val endpoint = Udp.endpoint("127.0.0.1", 9000)
+  val message = Ws.text("hello")
+  val settings = Compress.options(Gzip(), 6)
+  val part = Multipart.Part("file", "a.txt", "text/plain", "hello")
+  println(tls.serverName)
+  println(endpoint.host)
+  println(message.payload)
+  println(settings.level.toString())
+  println(part.filename)
+}

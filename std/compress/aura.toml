@@ -1,0 +1,6 @@
+[package]
+name = "std.compress"
+
+[[bin]]
+name = "compress"
+path = "src"

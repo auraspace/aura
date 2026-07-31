@@ -1,0 +1,30 @@
+# package	status	contract	notes
+std.io	locked	docs/api/std-alpha.md	console, files, stdin, argv, tasks, and errors
+std.assert	locked	docs/api/std-alpha.md	assertion primitive
+std.collections	locked	docs/api/std-alpha.md	linear and hash collections, iterators, HOFs
+std.error	locked	docs/api/std-alpha.md	shared errors and Outcome
+std.bytes	locked	docs/api/std-alpha.md	owned byte strings and buffers
+std.encoding	locked	docs/api/std-alpha.md	UTF-8, hex, base64, percent encoding
+std.json	locked	docs/api/std-alpha.md	bounded JSON validation and root values
+std.mime	locked	docs/api/std-alpha.md	media types and filename sanitization
+std.fs	locked	docs/api/std-alpha.md	paths and filesystem metadata
+std.os	locked	docs/api/std-alpha.md	environment and process helpers
+std.net	locked	docs/api/std-alpha.md	bounded TCP transport
+std.dns	locked	docs/api/std-alpha.md	numeric host resolution
+std.url	locked	docs/api/std-alpha.md	URI component helpers
+std.http	locked	docs/api/std-alpha.md	bounded HTTP/1.1 values and server/client
+std.stream	locked	docs/api/std-alpha.md	reader/writer adapters
+std.time	locked	docs/api/std-alpha.md	monotonic duration and deadlines
+std.task	locked	docs/api/std-alpha.md	task lifecycle, cancellation, Select, spawnBlocking, and taskScope placeholders
+std.sync	locked	docs/api/std-alpha.md	atomics, locks, gates, and Lazy placeholder
+std.signal	locked	docs/api/std-alpha.md	graceful shutdown state
+std.log	locked	docs/api/std-alpha.md	level and structured logging
+std.metrics	locked	docs/api/std-alpha.md	counters and Prometheus samples
+std.test	locked	docs/api/std-alpha.md	test assertions and advanced testing placeholders
+std.crypto	locked	docs/api/std-alpha.md	hash, HMAC, randomness, TLS placeholder contract
+std.reflect	locked	docs/api/std-alpha.md	opt-in metadata placeholder contract
+std.tls	locked	docs/api/std-alpha.md	TLS config, certificates, and async connection placeholder contract
+std.udp	locked	docs/api/std-alpha.md	UDP endpoint, datagram, and socket placeholder contract
+std.websocket	locked	docs/api/std-alpha.md	WebSocket messages and connection placeholder contract
+std.compress	locked	docs/api/std-alpha.md	gzip/deflate bounded codec placeholder contract
+std.multipart	locked	docs/api/std-alpha.md	multipart parts and parser placeholder contract
