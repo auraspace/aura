@@ -4,7 +4,7 @@ import std.error as Errs
 import std.net
 
 async fun inspect(stream: ForeignHandle<Int>): Unit {
-  val result: Errs.Outcome<String, Errs.Error> =
+  val result: Errs.Outcome<String, Errs.NetError> =
     await readStreamResult(stream, 32)
   if (Errs.isSuccess(result)) {
     println("read-ok")

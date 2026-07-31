@@ -13,7 +13,7 @@ fun main() {
   if (addresses != null) {
     Io.println("list")
   }
-  val result: Errs.Outcome<String, Errs.Error> = resolveHostResult("127.0.0.1", false)
+  val result: Errs.Outcome<String, Errs.DnsError> = resolveHostResult("127.0.0.1", false)
   if (Errs.isSuccess(result)) {
     Io.println("resolved")
   }
