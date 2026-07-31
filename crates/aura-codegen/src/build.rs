@@ -7757,6 +7757,78 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_all_bounded_capture_kinds_across_await_and_gc() {
+        let file = aura_parser::parse_file(
+            r#"package demo
+class Box(val value: Int) {}
+async fun ready(): Int { return 7 }
+fun report(number: Int, flag: Bool, text: String, values: Array<Int>, box: Box, f: (Int) -> Int) {
+  println(number.toString())
+  if (flag) { println(text) }
+  println(values.len.toString())
+  println(box.value.toString())
+  println(f(2).toString())
+}
+fun main() {
+  var number: Int = 1
+  var flag: Bool = false
+  var text: String = "before"
+  var values: Array<Int> = Array<Int>(1)
+  var box: Box = Box(3)
+  val captured: (Int) -> Int = (n: Int) => n + 1
+  val task = spawn {
+    val readyValue: Int = await ready()
+    gc_collect()
+    report(number, flag, text, values, box, captured)
+    println(readyValue.toString())
+    return
+  }
+  number = 2
+  flag = true
+  text = "after"
+  values.push(2)
+  box = Box(4)
+  gc_collect()
+  join(task)
+  gc_collect()
+  join(task)
+}
+"#,
+        )
+        .expect("parse all bounded capture kinds across await");
+        let generated =
+            emit_c_from_ast(&file).expect("emit all bounded capture kinds across await");
+        assert!(generated.contains("aura_box_i64 * number;"));
+        assert!(generated.contains("aura_box_bool * flag;"));
+        assert!(generated.contains("aura_box_str * text;"));
+        assert!(generated.contains("aura_box_ptr * values;"));
+        assert!(generated.contains("aura_box_ptr * box;"));
+        assert!(generated.contains("aura_fun_env_retain(__spawn_data->captured.env)"));
+        assert!(generated.contains("aura_task_frame_wait_on(frame, data->await_task)"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-bounded-all-captures-await-gc-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile all bounded capture kinds across await");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run all bounded capture kinds across await");
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "2\nafter\n2\n4\n3\n7\n"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_bounded_int_parameter_capture() {
         let file = aura_parser::parse_file(
             "package demo\nfun report(value: Int) { if (value == 41) { println(\"captured\") } }\nfun launch(value: Int) { val task = spawn { report(value) } join(task) }\nfun main() { launch(41) }\n",

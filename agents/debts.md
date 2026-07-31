@@ -1098,19 +1098,18 @@ TaskError>` locals release their payload at scope exit. Nested
   their dependencies are implemented; extend the manifest as each dependency
   closes.
 
-### S2 bounded primitive capture (2026-07-23)
+### S2 bounded primitive capture (resolved 2026-07-31)
 
-- The compiler now copies `Int` parameters and explicitly typed local bindings,
-  heap-duplicates `String` parameters and locals, roots class pointers, and
-  deep-clones `Array<Int>`/`Array<String>` parameters and explicitly typed
-  locals, and retains `Fun` environments used by the bounded one-shot spawn
-  subset in frame data. These five capture categories are covered by native
-  codegen fixtures. Other Array element types, transfer, and cancellation
-  ownership remain deferred until the complete frame ABI is available; extend
-  the capture representation before claiming
-  those broader types. A bounded first-statement `await` now materializes
-  captured values after child completion, covered by the native codegen
-  fixture.
+- The compiler copies `Int` values, boxes mutable `Int`/`Bool`/`String`/Array/
+  class captures, heap-duplicates immutable `String` captures, roots class
+  pointers, deep-clones supported arrays, and retains `Fun` environments in
+  bounded spawn frames. A comprehensive native codegen fixture exercises every
+  supported capture kind across `await`, forced GC, and repeated joins; the
+  same fixture passes under ASAN/UBSAN. Cancellation and frame teardown are
+  covered by the runtime matrix.
+- The remaining limits are deliberate contract boundaries rather than
+  unresolved capture bugs: richer aggregate element types and public typed
+  outcome payloads remain tracked by ASYNC-002/003.
 
 ### RUNTIME-002 suspended frame ownership boundary (resolved 2026-07-26)
 
