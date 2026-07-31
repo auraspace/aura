@@ -59,7 +59,9 @@ When you resolve debt, update or remove the matching entry.
   protocol behavior are described by RFCs but are not all implemented.
 - Progress: attributes are retained as typed sema metadata, built-in and
   registered `UserDerive`/`UserMacro` AST expansions record their phase and source origin, and
-  generated C exposes a versioned Binary/Runtime metadata table. Built-in
+  the lexer now exposes delimiter-aware token trees with span-preserving
+  flattening for RFC-010 expansion. Generated C exposes a versioned
+  Binary/Runtime metadata table. Built-in
   `Equals`, `HashCode`, `Debug`, and `ToString` derives are compiler-generated
   and ownership-checked.
 - Why the remaining macro boundary is deferred: user declarative/procedural
