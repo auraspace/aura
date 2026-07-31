@@ -1250,7 +1250,7 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
             }
         }
         Stmt::Expr(e) => {
-            let _ = writeln!(out, "{p}{};", emit_expr(e, ctx));
+            let _ = writeln!(out, "{p}(void)({});", emit_expr(e, ctx));
         }
     }
 }

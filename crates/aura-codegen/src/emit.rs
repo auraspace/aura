@@ -1970,7 +1970,7 @@ impl<'a> AsyncCfgBuilder<'a> {
                 self.finish(
                     state,
                     AsyncCfgNode::Action {
-                        code: format!("{code};"),
+                        code: format!("(void)({code});"),
                         next,
                     },
                 );
