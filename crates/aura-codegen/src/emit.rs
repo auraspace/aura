@@ -995,6 +995,8 @@ fn emit_async_fun_while_branch_join_await_array(
     let data_ty = format!("aura_async_data_{base}");
     let poll_fn = format!("aura_async_poll_{base}");
     let destroy_data = format!("aura_async_destroy_{base}");
+    let data_drop = format!("aura_async_data_drop_{base}");
+    let gc_mark = format!("aura_async_gc_mark_{base}");
     let destroy_result = format!("aura_async_result_destroy_{base}");
     let index_name = mangle_ident(&index_var.name.name);
     let value_name = mangle_ident(&value_var.name.name);
@@ -1047,6 +1049,33 @@ fn emit_async_fun_while_branch_join_await_array(
         &format!("data->{value_name}"),
         &return_key,
     );
+    out.push_str("}\n\n");
+    let _ = writeln!(
+        out,
+        "static void {data_drop}(AuraTaskFrame *frame, void *raw_data, size_t size) {{"
+    );
+    let _ = writeln!(
+        out,
+        "  {data_ty} *data = ({data_ty} *)raw_data; (void)frame; (void)size;"
+    );
+    crate::array_emit::emit_array_contents_free(
+        out,
+        1,
+        &format!("data->{value_name}"),
+        &return_key,
+    );
+    out.push_str("}\n\n");
+    let _ = writeln!(out, "static void {gc_mark}(AuraTaskFrame *frame) {{");
+    let _ = writeln!(
+        out,
+        "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame); if (data == NULL) return;"
+    );
+    if crate::array_emit::is_array_of_heap_class(&return_key, checked) {
+        let _ = writeln!(
+            out,
+            "  for (int64_t __gm = 0; __gm < data->{value_name}.len; __gm++) aura_gc_mark_ptr((void *)data->{value_name}.data[__gm]);"
+        );
+    }
     out.push_str("}\n\n");
     let _ = writeln!(
         out,
@@ -1109,7 +1138,7 @@ fn emit_async_fun_while_branch_join_await_array(
     let _ = writeln!(out, "{} {{", c_async_fun_signature(f, checked));
     let _ = writeln!(
         out,
-        "  AuraTaskFrame *frame = aura_task_frame_new(sizeof({data_ty}), {poll_fn}, {destroy_data}); if (frame == NULL) return NULL;"
+        "  AuraTaskFrame *frame = aura_task_frame_new(sizeof({data_ty}), {poll_fn}, {destroy_data}); if (frame == NULL) return NULL; aura_task_frame_set_gc_mark(frame, {gc_mark}); aura_task_frame_set_data_drop(frame, {data_drop});"
     );
     let _ = writeln!(
         out,

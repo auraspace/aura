@@ -4893,6 +4893,9 @@ fun main() {
         );
         assert!(generated.contains("aura_method_Array_Int_clone"));
         assert!(generated.contains("aura_async_destroy_std_io_collect"));
+        assert!(generated.contains("aura_async_data_drop_std_io_collect"));
+        assert!(generated.contains("aura_async_gc_mark_std_io_collect"));
+        assert!(generated.contains("aura_task_frame_set_data_drop(frame"));
         assert!(generated.contains("aura_task_frame_set_resume_state(frame, 2)"));
         assert!(generated.contains("aura_gc_collect"));
 
