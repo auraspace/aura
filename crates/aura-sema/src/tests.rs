@@ -487,6 +487,31 @@ fn attributes_report_unknown_target_duplicate_and_conflict() {
 }
 
 #[test]
+fn reserved_attributes_and_derives_fail_explicitly() {
+    let file = parse_file("package t\n@derive(ToString, Json) class Value() {}\n")
+        .expect("reserved attribute syntax");
+    let errors = check_file(&file).expect_err("reserved metadata must not be silently ignored");
+    let messages = errors
+        .errors
+        .iter()
+        .map(|error| error.message.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        messages
+            .iter()
+            .filter(|message| message.contains("AURA-M3-UNSUPPORTED"))
+            .count(),
+        2
+    );
+    assert!(messages
+        .iter()
+        .any(|message| message.contains("derive `ToString`")));
+    assert!(messages
+        .iter()
+        .any(|message| message.contains("derive `Json`")));
+}
+
+#[test]
 fn async_boundaries_reject_borrowed_values() {
     let mut await_file =
         parse_file("package t\nfun main(x: ref String): String { return await x }\n")

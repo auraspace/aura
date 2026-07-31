@@ -208,6 +208,34 @@ fn validate_attributes(attributes: &[Attribute], target: Target, errors: &mut Ve
             }
         }
         validate_arguments(attribute, spec, errors);
+        validate_implementation(attribute, errors);
+    }
+}
+
+fn validate_implementation(attribute: &Attribute, errors: &mut Vec<SemaError>) {
+    let name = attribute.name.name.as_str();
+    match name {
+        "derive" => {
+            for arg in &attribute.args {
+                let AttributeArg::Positional(AttributeValue::Ident(derive)) = arg else {
+                    continue;
+                };
+                if !matches!(
+                    derive.name.as_str(),
+                    "Equals" | "Eq" | "HashCode" | "Hash" | "Debug" | "DebugString"
+                ) {
+                    errors.push(error(
+                        "AURA-M3-UNSUPPORTED",
+                        format!(
+                            "derive `{}` is reserved but not implemented in this compiler",
+                            derive.name
+                        ),
+                        arg.span(),
+                    ));
+                }
+            }
+        }
+        _ => {}
     }
 }
 
