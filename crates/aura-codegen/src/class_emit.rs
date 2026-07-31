@@ -270,11 +270,34 @@ pub(crate) fn emit_class_forwards(
         c_ctor_signature_mono(c, checked, &params, args, &mono)
     );
     for m in &c.methods {
-        let _ = writeln!(
-            out,
-            "{};",
-            c_method_signature_mono(c, m, checked, &params, args, &mono)
-        );
+        let method_monos: Vec<Vec<Ty>> = if m.type_params.is_empty() {
+            vec![Vec::new()]
+        } else {
+            checked
+                .mono_methods
+                .iter()
+                .filter(|(name, class_args, method, _)| {
+                    name == &c.name.name && class_args == args && method == &m.name.name
+                })
+                .map(|(_, _, _, method_args)| method_args.clone())
+                .collect()
+        };
+        for method_args in method_monos {
+            let signature = if m.type_params.is_empty() {
+                c_method_signature_mono(c, m, checked, &params, args, &mono)
+            } else {
+                c_method_signature_with_method_args(
+                    c,
+                    m,
+                    checked,
+                    &params,
+                    args,
+                    &mono,
+                    &method_args,
+                )
+            };
+            let _ = writeln!(out, "{signature};");
+        }
     }
     // C9a: upcast forwards for non-generic and mono generic class implements.
     let mut emitted_upcasts = HashSet::new();
@@ -530,47 +553,81 @@ pub(crate) fn emit_class_defs(
     emit_ctor_mono(out, c, checked, &params, args, &mono);
     out.push('\n');
     for m in &c.methods {
-        if class_decl_package(c, checked) == "std.http"
-            && c.name.name == "RequestBody"
-            && m.name.name == "readChunk"
-        {
-            emit_http_request_body_read_chunk_method(out, c, m, checked, &params, args, &mono);
-        } else if class_decl_package(c, checked) == "std.http"
-            && c.name.name == "Response"
-            && m.name.name == "writeChunk"
-        {
-            emit_http_response_write_chunk_method(out, c, m, checked, &params, args, &mono);
-        } else if class_decl_package(c, checked) == "std.sync"
-            && c.name.name == "AtomicInt"
-            && emit_atomic_int_method(out, c, m, checked, &params, args, &mono)
-        {
-            // The AtomicInt methods use compiler atomics rather than ordinary
-            // field loads/stores; the fallback body remains only for unknown
-            // methods added to the class.
-        } else if class_decl_package(c, checked) == "std.sync"
-            && c.name.name == "Mutex"
-            && emit_mutex_method(out, c, m, checked, &params, args, &mono)
-        {
-        } else if class_decl_package(c, checked) == "std.sync"
-            && c.name.name == "RwLock"
-            && emit_rwlock_method(out, c, m, checked, &params, args, &mono)
-        {
-        } else if class_decl_package(c, checked) == "std.sync"
-            && c.name.name == "Once"
-            && emit_once_method(out, c, m, checked, &params, args, &mono)
-        {
-        } else if class_decl_package(c, checked) == "std.metrics"
-            && c.name.name == "Counter"
-            && emit_counter_method(out, c, m, checked, &params, args, &mono)
-        {
-        } else if is_async_class_method(m) {
-            if !emit_async_class_method(out, c, m, checked, detector, &mono, &params, args) {
-                emit_method_mono(out, c, m, checked, &params, args, &mono, detector);
-            }
+        let method_monos: Vec<Vec<Ty>> = if m.type_params.is_empty() {
+            vec![Vec::new()]
         } else {
-            emit_method_mono(out, c, m, checked, &params, args, &mono, detector);
+            checked
+                .mono_methods
+                .iter()
+                .filter(|(name, class_args, method, _)| {
+                    name == &c.name.name && class_args == args && method == &m.name.name
+                })
+                .map(|(_, _, _, method_args)| method_args.clone())
+                .collect()
+        };
+        for method_args in method_monos {
+            if class_decl_package(c, checked) == "std.http"
+                && c.name.name == "RequestBody"
+                && m.name.name == "readChunk"
+            {
+                emit_http_request_body_read_chunk_method(out, c, m, checked, &params, args, &mono);
+            } else if class_decl_package(c, checked) == "std.http"
+                && c.name.name == "Response"
+                && m.name.name == "writeChunk"
+            {
+                emit_http_response_write_chunk_method(out, c, m, checked, &params, args, &mono);
+            } else if class_decl_package(c, checked) == "std.sync"
+                && c.name.name == "AtomicInt"
+                && emit_atomic_int_method(out, c, m, checked, &params, args, &mono)
+            {
+                // The AtomicInt methods use compiler atomics rather than ordinary
+                // field loads/stores; the fallback body remains only for unknown
+                // methods added to the class.
+            } else if class_decl_package(c, checked) == "std.sync"
+                && c.name.name == "Mutex"
+                && emit_mutex_method(out, c, m, checked, &params, args, &mono)
+            {
+            } else if class_decl_package(c, checked) == "std.sync"
+                && c.name.name == "RwLock"
+                && emit_rwlock_method(out, c, m, checked, &params, args, &mono)
+            {
+            } else if class_decl_package(c, checked) == "std.sync"
+                && c.name.name == "Once"
+                && emit_once_method(out, c, m, checked, &params, args, &mono)
+            {
+            } else if class_decl_package(c, checked) == "std.metrics"
+                && c.name.name == "Counter"
+                && emit_counter_method(out, c, m, checked, &params, args, &mono)
+            {
+            } else if is_async_class_method(m) {
+                if !emit_async_class_method(out, c, m, checked, detector, &mono, &params, args) {
+                    emit_method_mono(
+                        out,
+                        c,
+                        m,
+                        checked,
+                        &params,
+                        args,
+                        &mono,
+                        detector,
+                        &method_args,
+                    );
+                }
+            } else {
+                emit_method_mono(
+                    out,
+                    c,
+                    m,
+                    checked,
+                    &params,
+                    args,
+                    &mono,
+                    detector,
+                    &method_args,
+                );
+            }
+            out.push('\n');
         }
-        out.push('\n');
     }
     // C9a: emit upcasts for this class monomorph's implements.
     let mut emitted_upcasts = HashSet::new();
@@ -1049,7 +1106,11 @@ pub(crate) fn c_method_signature_mono(
 ) -> String {
     let _ = c;
     let ret = c_type_from_opt(&m.return_type, checked, params, args);
-    let mut ps = vec![format!("{} *this", c_class_type(mono))];
+    let mut ps = if m.modifiers.contains(&Modifier::Static) {
+        Vec::new()
+    } else {
+        vec![format!("{} *this", c_class_type(mono))]
+    };
     for p in &m.params {
         ps.push(format!(
             "{} {}",
@@ -1060,6 +1121,39 @@ pub(crate) fn c_method_signature_mono(
     format!(
         "{ret} {}({})",
         c_method_name(mono, &m.name.name),
+        ps.join(", ")
+    )
+}
+
+fn c_method_signature_with_method_args(
+    _c: &ClassDecl,
+    m: &FunDecl,
+    checked: &CheckedFile,
+    params: &[String],
+    args: &[Ty],
+    mono: &str,
+    method_args: &[Ty],
+) -> String {
+    let mut all_params = params.to_vec();
+    all_params.extend(m.type_params.iter().map(|p| p.name.name.clone()));
+    let mut all_args = args.to_vec();
+    all_args.extend_from_slice(method_args);
+    let ret = c_type_from_opt(&m.return_type, checked, &all_params, &all_args);
+    let mut ps = if m.modifiers.contains(&Modifier::Static) {
+        Vec::new()
+    } else {
+        vec![format!("{} *this", c_class_type(mono))]
+    };
+    for p in &m.params {
+        ps.push(format!(
+            "{} {}",
+            c_type_ref_subst(&p.ty, checked, &all_params, &all_args),
+            mangle_ident(&p.name.name)
+        ));
+    }
+    format!(
+        "{ret} {}({})",
+        c_generic_method_name(mono, &m.name.name, method_args),
         ps.join(", ")
     )
 }
@@ -1175,22 +1269,27 @@ pub(crate) fn emit_method_mono(
     args: &[Ty],
     mono: &str,
     detector: bool,
+    method_args: &[Ty],
 ) {
     let _ = writeln!(
         out,
         "{} {{",
-        c_method_signature_mono(c, m, checked, params, args, mono)
+        c_method_signature_with_method_args(c, m, checked, params, args, mono, method_args)
     );
+    let mut all_params = params.to_vec();
+    all_params.extend(m.type_params.iter().map(|p| p.name.name.clone()));
+    let mut all_args = args.to_vec();
+    all_args.extend_from_slice(method_args);
     let ret_key = m
         .return_type
         .as_ref()
-        .map(|t| type_ref_local_key_expand(t, params, args, checked));
+        .map(|t| type_ref_local_key_expand(t, &all_params, &all_args, checked));
     let mut ctx = EmitCtx {
         checked,
         detector,
         method_class: Some(mono),
-        type_params: params.to_vec(),
-        type_args: args.to_vec(),
+        type_params: all_params.clone(),
+        type_args: all_args.clone(),
         locals: vec![HashMap::new()],
         array_owners: vec![std::collections::HashSet::new()],
         fun_owners: vec![std::collections::HashSet::new()],
@@ -1210,12 +1309,12 @@ pub(crate) fn emit_method_mono(
         task_poller: false,
     };
     for f in &c.fields {
-        let key = type_ref_local_key_expand(&f.ty, params, args, checked);
+        let key = type_ref_local_key_expand(&f.ty, &all_params, &all_args, checked);
         let mono_key = crate::expr::full_type_mono(&key, checked);
         ctx.define_local(&f.name.name, mono_key);
     }
     for p in &m.params {
-        let key = type_ref_local_key_expand(&p.ty, params, args, checked);
+        let key = type_ref_local_key_expand(&p.ty, &all_params, &all_args, checked);
         let mono_key = crate::expr::full_type_mono(&key, checked);
         ctx.define_local(&p.name.name, mono_key.clone());
         // C6b/C21d: owning Array params own the buffer; `ref Array<T>` params
@@ -1243,7 +1342,7 @@ pub(crate) fn emit_method_mono(
         }
     }
     // `this` is a heap pointer for classes — root it for the method body.
-    if is_heap_class_mono(mono, checked) {
+    if !m.modifiers.contains(&Modifier::Static) && is_heap_class_mono(mono, checked) {
         ctx.mark_gc_root("this");
         out.push_str("  aura_gc_add_root((void **)&this);\n");
     }
@@ -1263,6 +1362,6 @@ pub(crate) fn emit_method_mono(
     }
     crate::stmt::emit_free_fun_owners(out, 1, &ctx, &ctx.fun_owners_all());
     crate::stmt::emit_release_box_locals(out, 1, &ctx, &ctx.box_owners_all());
-    emit_return_fallback(out, &m.return_type, checked, params, args);
+    emit_return_fallback(out, &m.return_type, checked, &all_params, &all_args);
     out.push_str("}\n");
 }

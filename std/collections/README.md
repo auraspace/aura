@@ -7,6 +7,7 @@ Collections package (RFC-007).
 | API                                         | Notes                                                                                           |
 | ------------------------------------------- | ----------------------------------------------------------------------------------------------- |
 | `Map<K,V>`                                  | Linear `put` / `get` (`V?`) / `getOr` / `contains` / `remove` / `clear` / `len` / `isEmpty`     |
+| `List<T>`                                   | Array-backed growable list with `List.of`, `listOf`, indexed operations, and generic `map<R>`   |
 | `map_string_int()`                          | Empty `Map<String, Int>` factory (renamed when generic `map<T,R>` was added)                    |
 | `Set<T>`                                    | Linear `add` / `remove` / `contains` / `clear` / `len` / `isEmpty` / `get(i)` (C8g/C8h)         |
 | `set()`                                     | Empty `Set<String>` factory                                                                     |

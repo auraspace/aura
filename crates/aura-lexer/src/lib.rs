@@ -52,6 +52,7 @@ pub enum TokenKind {
     Override,
     Open,
     Final,
+    Static,
     This,
     /// Generic constraint clause: `where T : Named`.
     Where,
@@ -158,6 +159,7 @@ impl TokenKind {
                 | TokenKind::Override
                 | TokenKind::Open
                 | TokenKind::Final
+                | TokenKind::Static
                 | TokenKind::This
                 | TokenKind::Where
                 | TokenKind::Is
@@ -493,6 +495,7 @@ impl<'a> Lexer<'a> {
             "override" => TokenKind::Override,
             "open" => TokenKind::Open,
             "final" => TokenKind::Final,
+            "static" => TokenKind::Static,
             "this" => TokenKind::This,
             "where" => TokenKind::Where,
             "is" => TokenKind::Is,

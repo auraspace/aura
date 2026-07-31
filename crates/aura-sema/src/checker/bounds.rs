@@ -7,6 +7,35 @@ use crate::error::SemaError;
 use crate::ty::Ty;
 
 impl Checker {
+    pub(crate) fn bind_nested_type_params(
+        &mut self,
+        params: &[TypeParam],
+    ) -> Result<(), SemaError> {
+        for p in params {
+            if self.type_params.contains_key(&p.name.name) {
+                return Err(SemaError {
+                    message: format!("duplicate type parameter `{}`", p.name.name),
+                    span: p.name.span,
+                });
+            }
+            let mut bounds = Vec::new();
+            for b in &p.bounds {
+                let isig = self
+                    .resolve_interface(&b.name, b.span)
+                    .map_err(|_| SemaError {
+                        message: format!(
+                            "unknown bound `{}` (C2e: bounds must be interfaces)",
+                            b.name
+                        ),
+                        span: b.span,
+                    })?;
+                bounds.push(crate::ty::nominal_key(&isig.package, &b.name));
+            }
+            self.type_params.insert(p.name.name.clone(), bounds);
+        }
+        Ok(())
+    }
+
     pub(crate) fn bind_type_params(&mut self, params: &[TypeParam]) -> Result<(), SemaError> {
         self.type_params.clear();
         for p in params {

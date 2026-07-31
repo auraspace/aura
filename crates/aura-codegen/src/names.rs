@@ -309,6 +309,21 @@ pub(crate) fn c_method_name(mono: &str, method: &str) -> String {
     format!("aura_method_{mono}_{method}")
 }
 
+pub(crate) fn c_generic_method_name(mono: &str, method: &str, args: &[Ty]) -> String {
+    if args.is_empty() {
+        c_method_name(mono, method)
+    } else {
+        format!(
+            "{}_{}",
+            c_method_name(mono, method),
+            args.iter()
+                .map(Ty::mono_suffix)
+                .collect::<Vec<_>>()
+                .join("_")
+        )
+    }
+}
+
 pub(crate) fn is_primitive_name(n: &str) -> bool {
     matches!(n, "Int" | "Bool" | "String" | "Unit")
 }
@@ -453,7 +468,12 @@ pub(crate) fn ty_to_c_local(t: &Ty, checked: &CheckedFile) -> String {
 /// This must recurse through type arguments: a direct substitution handles `T`,
 /// but a type such as `Array<Pair<K, V>>` needs both `K` and `V` replaced before
 /// its monomorph key is used by C emission.
-fn type_ref_to_ty_subst(ty: &TypeRef, checked: &CheckedFile, params: &[String], args: &[Ty]) -> Ty {
+pub(crate) fn type_ref_to_ty_subst(
+    ty: &TypeRef,
+    checked: &CheckedFile,
+    params: &[String],
+    args: &[Ty],
+) -> Ty {
     if let Some(fun) = &ty.fun {
         let fun_ty = Ty::Fun {
             params: fun

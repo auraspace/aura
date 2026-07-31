@@ -268,6 +268,7 @@ pub(crate) struct Checker {
     mono_classes: HashSet<(String, Vec<Ty>)>,
     mono_enums: HashSet<(String, Vec<Ty>)>,
     mono_funs: HashSet<(String, Vec<Ty>)>,
+    mono_methods: HashSet<(String, Vec<Ty>, String, Vec<Ty>)>,
     mono_interfaces: HashSet<(String, Vec<Ty>)>,
     call_instantiations: HashMap<u32, CallInstantiation>,
     /// C10d: LambdaExpr.span.start → Fun type.
@@ -382,6 +383,9 @@ impl Checker {
                 is_abstract: false,
                 is_override: false,
                 visibility: aura_ast::MemberVisibility::Public,
+                type_params: Vec::new(),
+                bounds: HashMap::new(),
+                is_static: false,
                 span: Span::new(0, 0),
             },
         );
@@ -396,6 +400,9 @@ impl Checker {
                 is_abstract: false,
                 is_override: false,
                 visibility: aura_ast::MemberVisibility::Public,
+                type_params: Vec::new(),
+                bounds: HashMap::new(),
+                is_static: false,
                 span: Span::new(0, 0),
             },
         );
@@ -410,6 +417,9 @@ impl Checker {
                 is_abstract: false,
                 is_override: false,
                 visibility: aura_ast::MemberVisibility::Public,
+                type_params: Vec::new(),
+                bounds: HashMap::new(),
+                is_static: false,
                 span: Span::new(0, 0),
             },
         );
@@ -425,6 +435,9 @@ impl Checker {
                 is_abstract: false,
                 is_override: false,
                 visibility: aura_ast::MemberVisibility::Public,
+                type_params: Vec::new(),
+                bounds: HashMap::new(),
+                is_static: false,
                 span: Span::new(0, 0),
             },
         );
@@ -440,6 +453,9 @@ impl Checker {
                 is_abstract: false,
                 is_override: false,
                 visibility: aura_ast::MemberVisibility::Public,
+                type_params: Vec::new(),
+                bounds: HashMap::new(),
+                is_static: false,
                 span: Span::new(0, 0),
             },
         );
@@ -455,6 +471,9 @@ impl Checker {
                 is_abstract: false,
                 is_override: false,
                 visibility: aura_ast::MemberVisibility::Public,
+                type_params: Vec::new(),
+                bounds: HashMap::new(),
+                is_static: false,
                 span: Span::new(0, 0),
             },
         );
@@ -470,6 +489,9 @@ impl Checker {
                 is_abstract: false,
                 is_override: false,
                 visibility: aura_ast::MemberVisibility::Public,
+                type_params: Vec::new(),
+                bounds: HashMap::new(),
+                is_static: false,
                 span: Span::new(0, 0),
             },
         );
@@ -488,6 +510,9 @@ impl Checker {
                 is_abstract: false,
                 is_override: false,
                 visibility: aura_ast::MemberVisibility::Public,
+                type_params: Vec::new(),
+                bounds: HashMap::new(),
+                is_static: false,
                 span: Span::new(0, 0),
             },
         );
@@ -534,6 +559,7 @@ impl Checker {
             mono_classes: HashSet::new(),
             mono_enums: HashSet::new(),
             mono_funs: HashSet::new(),
+            mono_methods: HashSet::new(),
             mono_interfaces: HashSet::new(),
             call_instantiations: HashMap::new(),
             lambda_tys: HashMap::new(),
@@ -901,6 +927,7 @@ impl Checker {
         m: &FunDecl,
         expected_ret: &Ty,
     ) -> Result<(), SemaError> {
+        self.bind_nested_type_params(&m.type_params)?;
         self.locals.push(HashMap::new());
         let pkg = if class.origin_package.is_empty() {
             self.current_package.as_str()

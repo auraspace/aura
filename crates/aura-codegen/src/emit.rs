@@ -585,6 +585,9 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
         }
     }
 
+    // Fun-type typedefs must precede class method prototypes that use them.
+    emit_fun_typedefs(&mut out, checked);
+
     // Forward decls
     for c in &checked.ast.classes {
         if c.type_params.is_empty() {
@@ -636,9 +639,6 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
             }
         }
     }
-    // C10e/f: fun-type typedefs must precede any signature using them.
-    emit_fun_typedefs(&mut out, checked);
-
     for f in &checked.ast.functions {
         if f.name.name == "main" {
             continue;

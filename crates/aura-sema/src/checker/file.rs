@@ -1038,18 +1038,16 @@ impl Checker {
 
             let mut methods = HashMap::new();
             for m in &c.methods {
-                if !m.type_params.is_empty() {
-                    self.errors.push(SemaError {
-                        message: "C2b: methods cannot declare their own type parameters yet".into(),
-                        span: m.name.span,
-                    });
-                    continue;
-                }
                 if methods.contains_key(&m.name.name) {
                     self.errors.push(SemaError {
                         message: format!("duplicate method `{}`", m.name.name),
                         span: m.name.span,
                     });
+                    continue;
+                }
+                let class_params = c.type_params.clone();
+                if let Err(err) = self.bind_nested_type_params(&m.type_params) {
+                    self.errors.push(err);
                     continue;
                 }
                 let params = match m
@@ -1081,6 +1079,11 @@ impl Checker {
                     },
                     None => Ty::Unit,
                 };
+                self.type_params.clear();
+                if let Err(err) = self.bind_type_params(&class_params) {
+                    self.errors.push(err);
+                    continue;
+                }
                 methods.insert(
                     m.name.name.clone(),
                     ClassMethodSig {
@@ -1088,6 +1091,9 @@ impl Checker {
                         name: m.name.name.clone(),
                         params,
                         ret,
+                        type_params: m.type_params.iter().map(|p| p.name.name.clone()).collect(),
+                        bounds: Self::bounds_map_from_params(&m.type_params),
+                        is_static: m.modifiers.contains(&aura_ast::Modifier::Static),
                         is_open: m.modifiers.contains(&aura_ast::Modifier::Open),
                         is_abstract: m.modifiers.contains(&aura_ast::Modifier::Abstract),
                         is_override: m.modifiers.contains(&aura_ast::Modifier::Override),
@@ -1407,6 +1413,12 @@ impl Checker {
                 let Some(msig) = csig.methods.get(&m.name.name) else {
                     continue;
                 };
+                // Each method gets a fresh class-generic scope before its own
+                // type parameters are layered on by `check_method`.
+                if let Err(err) = self.bind_type_params(&c.type_params) {
+                    self.errors.push(err);
+                    continue;
+                }
                 // Class async methods are represented in the AST as methods
                 // returning `Task<T>`, while their body returns the inner `T`.
                 // Check the body against that inner result just like a
@@ -1558,6 +1570,10 @@ impl Checker {
             );
             sa.cmp(&sb)
         });
+        let mut mono_methods: Vec<_> = self.mono_methods.iter().cloned().collect();
+        mono_methods.sort_by_key(|(class, class_args, method, method_args)| {
+            format!("{class}_{class_args:?}_{method}_{method_args:?}")
+        });
         let mut mono_interfaces: Vec<_> = self.mono_interfaces.iter().cloned().collect();
         mono_interfaces.sort_by(|a, b| {
             let sa = format!(
@@ -1588,6 +1604,7 @@ impl Checker {
             mono_classes,
             mono_enums,
             mono_funs,
+            mono_methods,
             mono_interfaces,
             call_instantiations: self.call_instantiations.clone(),
             lambda_tys: self.lambda_tys.clone(),

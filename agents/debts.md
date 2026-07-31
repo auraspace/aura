@@ -29,28 +29,27 @@ When you resolve debt, update or remove the matching entry.
 
 ### API-003 alpha data API placeholders (2026-07-31)
 
-- Area: `std.json.Value`, `std.collections.List<T>`
-- Symptom: JSON tree traversal, cloning, policy-aware parsing, typed mapping,
-  and the growable-list contract are source-visible but intentionally fail at
-  runtime.
+- Area: `std.json.Value`, `std.collections.List<T>` follow-up semantics
+- Symptom: JSON tree traversal, cloning, policy-aware parsing, and typed
+  mapping remain placeholders; List iterator invalidation and clone semantics
+  are not yet specified in the implementation.
 - Why deferred: owned JSON trees, duplicate-key policy, byte/depth enforcement,
-  generic decode derives, list growth, invalidation, and clone/iterator
-  semantics need one coherent ownership pass.
-- Next step: implement JSON limits/policy and owned traversal first, then add
-  reflection/derive-backed `decode<T>` and back `List<T>` with finalized
-  ownership and iterator rules.
+  generic decode derives, and collection snapshot rules need a coherent
+  ownership pass. The initial Array-backed List storage and generic `map<R>`
+  are implemented.
+- Next step: implement JSON limits/policy first, then finalize List clone and
+  iterator behavior without changing the locked source names.
 
 ### API-004 RFC contract placeholders (2026-07-31)
 
 - Area: `std.reflect`, `std.test`, shared errors, and BuiltIn async surface
-- Symptom: canonical RFC names/signatures are reserved, but reflection,
-  generic List transforms, package-specific error enums, assertion execution,
-  and metadata emission are not implemented.
-- Why deferred: alpha compiler/runtime lacks static class members, generic
-  method type parameters, namespace-qualified enum variants, and full runtime
-  metadata/ownership support.
-- Next step: implement those compiler/runtime capabilities without changing
-  the locked source contracts.
+- Symptom: canonical RFC names/signatures remain reserved for reflection,
+  package-specific error enums, assertion execution, and metadata emission.
+- Why deferred: namespace-qualified enum variants and full runtime
+  metadata/ownership support are still incomplete. Generic class methods and
+  static class members were implemented for the List API in this change.
+- Next step: implement the remaining compiler/runtime capabilities without
+  changing the locked source contracts.
 
 ### API-005 deferred RFC surface inventory (2026-07-31)
 

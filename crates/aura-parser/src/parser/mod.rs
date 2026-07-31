@@ -283,6 +283,7 @@ impl Parser {
                 TokenKind::Final => Modifier::Final,
                 TokenKind::Abstract => Modifier::Abstract,
                 TokenKind::Override => Modifier::Override,
+                TokenKind::Static => Modifier::Static,
                 _ => break,
             };
             self.bump();

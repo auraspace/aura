@@ -27,6 +27,9 @@ pub struct ClassMethodSig {
     pub name: String,
     pub params: Vec<Ty>,
     pub ret: Ty,
+    pub type_params: Vec<String>,
+    pub bounds: HashMap<String, Vec<String>>,
+    pub is_static: bool,
     pub is_open: bool,
     pub is_abstract: bool,
     pub is_override: bool,
@@ -110,6 +113,9 @@ pub struct CallInstantiation {
     /// Declaring package for free-function calls (C3o mangling); empty for builtins/ctors.
     pub package: String,
     pub type_args: Vec<Ty>,
+    /// Generic type arguments declared by a class method.
+    pub method_type_args: Vec<Ty>,
+    pub is_static: bool,
     /// Set for enum variant constructors (`Ok`, `Err`, …).
     pub variant: Option<String>,
 }
@@ -127,6 +133,8 @@ pub struct CheckedFile {
     pub mono_enums: Vec<(String, Vec<Ty>)>,
     /// Concrete generic function instantiations used.
     pub mono_funs: Vec<(String, Vec<Ty>)>,
+    /// Concrete generic class-method instantiations used in this file.
+    pub mono_methods: Vec<(String, Vec<Ty>, String, Vec<Ty>)>,
     /// Concrete generic interface instantiations used (C8c).
     pub mono_interfaces: Vec<(String, Vec<Ty>)>,
     /// CallExpr.span.start → resolved type arguments (for codegen).

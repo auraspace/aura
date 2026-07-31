@@ -126,6 +126,35 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
     if let Expr::Field(fe) = c.callee.as_ref() {
         // C3n: package alias qualified free function `Math.square(...)`.
         if let Expr::Ident(id) = fe.object.as_ref() {
+            if let Some(inst) = ctx
+                .checked
+                .call_instantiations
+                .get(&c.span.start)
+                .filter(|i| i.is_static)
+            {
+                let subst = aura_sema::type_subst_map(&ctx.type_params, &ctx.type_args);
+                let class_args = inst
+                    .type_args
+                    .iter()
+                    .map(|t| aura_sema::subst_ty(t, &subst))
+                    .collect::<Vec<_>>();
+                let method_args = inst
+                    .method_type_args
+                    .iter()
+                    .map(|t| aura_sema::subst_ty(t, &subst))
+                    .collect::<Vec<_>>();
+                let mono = type_mono(&inst.package, &id.name, &class_args);
+                let args = c
+                    .args
+                    .iter()
+                    .map(|a| emit_expr(a, ctx))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                return format!(
+                    "{}({args})",
+                    c_generic_method_name(&mono, &fe.field.name, &method_args)
+                );
+            }
             let is_alias = ctx.checked.ast.imports.iter().any(|imp| {
                 imp.alias
                     .as_ref()
@@ -691,7 +720,15 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                 let ret_c = c_type_from_opt(&m.return_type, ctx.checked, &params, &targs);
                 let call = format!(
                     "{}({})",
-                    c_method_name(&owner_mono, &fe.field.name),
+                    c_generic_method_name(
+                        &owner_mono,
+                        &fe.field.name,
+                        &ctx.checked
+                            .call_instantiations
+                            .get(&c.span.start)
+                            .map(|i| i.method_type_args.clone())
+                            .unwrap_or_default()
+                    ),
                     args.join(", ")
                 );
                 let call = if let Some(static_class) = current_class {
@@ -773,7 +810,15 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
         }
         let call = format!(
             "{}({})",
-            c_method_name(&mono, &fe.field.name),
+            c_generic_method_name(
+                &mono,
+                &fe.field.name,
+                &ctx.checked
+                    .call_instantiations
+                    .get(&c.span.start)
+                    .map(|i| i.method_type_args.clone())
+                    .unwrap_or_default()
+            ),
             args.join(", ")
         );
         // C4s: `?.` short-circuit to NULL when receiver is null (pointer-like results).

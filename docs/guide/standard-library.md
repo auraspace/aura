@@ -173,11 +173,10 @@ and reports are deferred.
 | `map_strings` / `filter_strings` / `fold_strings`                        | String compatibility wrappers (C12o)                                                |
 | `join(parts, sep)`                                                       | `Array<String>` → `String` with separator (C12j)                                    |
 
-`List<T>`, `List.of(...)`, `listOf(...)`, and `list<T>()` reserve the
-growable-list API. Its methods (`len`, `isEmpty`, `get`, `set`, `push`, `pop`,
-`clear`, and `map`) currently throw an explicit placeholder error; use
-`Array<T>` or the shipped map/set types until the ownership and iterator
-contract is implemented.
+`List<T>`, `List.of(...)`, `listOf(...)`, and `list<T>()` provide the initial
+growable-list API backed by owning `Array<T>` storage. `map<R>` supports
+element-type transforms; iterator invalidation and clone semantics remain
+follow-up work.
 
 See [Arrays](./arrays.md) for HOF usage and capture limits.
 

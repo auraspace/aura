@@ -485,7 +485,7 @@ impl Parser {
 
     /// Try `lhs<T, U>(...)`. Restores position if it is a comparison (`a < b`).
     pub(crate) fn try_parse_generic_call(&mut self, lhs: Expr) -> Result<Option<Expr>, ParseError> {
-        if !matches!(lhs, Expr::Ident(_)) {
+        if !matches!(lhs, Expr::Ident(_) | Expr::Field(_)) {
             return Ok(None);
         }
         let saved = self.idx;

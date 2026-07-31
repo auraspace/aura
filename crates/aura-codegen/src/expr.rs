@@ -18,6 +18,47 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
         Expr::Bool(_) => "Bool".into(),
         Expr::String(_) => "String".into(),
         Expr::Call(c) => {
+            if let (Expr::Field(fe), Some(inst)) = (
+                c.callee.as_ref(),
+                ctx.checked.call_instantiations.get(&c.span.start),
+            ) {
+                if inst.is_static {
+                    let class_name = match fe.object.as_ref() {
+                        Expr::Ident(id) => id.name.as_str(),
+                        _ => "",
+                    };
+                    if let Some(class) = ctx
+                        .checked
+                        .ast
+                        .classes
+                        .iter()
+                        .find(|x| x.name.name == class_name)
+                    {
+                        if let Some(method) =
+                            class.methods.iter().find(|m| m.name.name == fe.field.name)
+                        {
+                            if let Some(rt) = &method.return_type {
+                                let params = class
+                                    .type_params
+                                    .iter()
+                                    .map(|p| p.name.name.clone())
+                                    .chain(method.type_params.iter().map(|p| p.name.name.clone()))
+                                    .collect::<Vec<_>>();
+                                let subst =
+                                    aura_sema::type_subst_map(&ctx.type_params, &ctx.type_args);
+                                let args = inst
+                                    .type_args
+                                    .iter()
+                                    .chain(inst.method_type_args.iter())
+                                    .map(|t| aura_sema::subst_ty(t, &subst))
+                                    .collect::<Vec<_>>();
+                                return type_ref_local_key(rt, &params, &args);
+                            }
+                            return "Unit".into();
+                        }
+                    }
+                }
+            }
             if let Expr::Ident(id) = c.callee.as_ref() {
                 match id.name.as_str() {
                     "exception_cause_count"
@@ -2727,7 +2768,18 @@ pub(crate) fn resolve_type_name(expr: &Expr, ctx: &EmitCtx<'_>) -> Option<String
                                         } else {
                                             (Vec::new(), Vec::new())
                                         };
-                                    return Some(type_ref_local_key(rt, &ps, &as_));
+                                    let method_args = ctx
+                                        .checked
+                                        .call_instantiations
+                                        .get(&c.span.start)
+                                        .map(|i| i.method_type_args.clone())
+                                        .unwrap_or_default();
+                                    let mut all_ps = ps;
+                                    all_ps
+                                        .extend(m.type_params.iter().map(|p| p.name.name.clone()));
+                                    let mut all_as = as_;
+                                    all_as.extend(method_args);
+                                    return Some(type_ref_local_key(rt, &all_ps, &all_as));
                                 }
                             }
                         }
