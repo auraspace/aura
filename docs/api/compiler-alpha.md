@@ -68,8 +68,8 @@ ownership, diagnostics, and expansion-origin treatment as built-ins. The
 lexer now provides a span-preserving, delimiter-aware token-tree model,
 metavariable matcher, and template substitution primitives; top-level
 function-like rules now expand before AST construction with a bounded
-recursion limit. Repetition, full hygiene, package-exported macro discovery,
-and sandboxed
-procedural derives remain a separate boundary: the language still needs
-token-tree rule expansion and the RFC-010 out-of-process sandbox ABI before
-arbitrary package code can execute during compilation.
+recursion limit. Repetition, full hygiene, and package-exported macro
+discovery remain open. The sema API now exposes the versioned RFC-010 process
+protocol with bounded output/timeout handling and fail-closed OS sandbox
+selection for plugin hosts; package build integration still remains to be
+wired.

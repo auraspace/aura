@@ -62,15 +62,18 @@ When you resolve debt, update or remove the matching entry.
   the lexer now exposes delimiter-aware token trees with span-preserving
   flattening, metavariable matching, and template substitution primitives for
   RFC-010 expansion; the parser now expands top-level function-like rules
-  before AST construction with a bounded recursion limit. Generated C exposes
-  a versioned
+  before AST construction with a bounded recursion limit. A versioned binary
+  plugin request/response ABI now has explicit UTF-8 framing, ABI rejection,
+  output limits, timeout handling, and fail-closed OS sandbox selection.
+  Generated C exposes a versioned
   Binary/Runtime metadata table. Built-in
   `Equals`, `HashCode`, `Debug`, and `ToString` derives are compiler-generated
   and ownership-checked.
-- Why the remaining macro boundary is deferred: user declarative/procedural
-  macros require a token-tree expansion model plus an out-of-process sandbox
-  and versioned plugin ABI; implementing a fake in-process hook would violate
-  RFC-010's supply-chain and capability contract. Concurrent tracing collection
+- Why the remaining macro boundary is deferred: repetition/hygiene rules,
+  package macro discovery, and plugin integration into the package build still
+  need to consume the new primitives. The runner refuses hosts without a
+  supported OS sandbox instead of weakening RFC-010's supply-chain and
+  capability contract. Concurrent tracing collection
   still needs write barriers and precise stack maps beyond the executor-safe
   STW collector; cross-target build/sysroot, self-update, and full LSP remain
   separate tooling/distribution work.
