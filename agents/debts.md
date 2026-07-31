@@ -192,7 +192,7 @@ When you resolve debt, update or remove the matching entry.
 - Next step: connect remaining richer aggregate payload ownership and
   suspended await failure propagation to the clone/destroy boundary.
 
-### ASYNC-003 conditional await inside bounded loops remains partial (updated 2026-07-28)
+### ASYNC-003 legacy bounded-loop slices (superseded 2026-07-31)
 
 - Area: compiler-generated async state-machine control flow
 - Progress: the C backend now lowers the bounded post-await branch continuation
@@ -273,17 +273,13 @@ When you resolve debt, update or remove the matching entry.
 - A general CFG `for (item in Array<Int>)` body with an awaited `Task<Int>` now
   persists the moved iterator, index, binding, and temporary child across
   suspension; forced GC, repeated typed joins, and queued cancellation are
-  covered by native codegen fixtures. Aggregate and non-`Int` element iterators
-  remain deliberately outside this slice.
-- Why still deferred: arbitrary nested loops beyond the supported two-level
-  Int shape, richer aggregate `for-in`, unbounded conditional-await
-  counts beyond the current bounded
-  fixture shape,
-  nested branch-local values, and richer payload types still fall back to the
-  existing bounded-shape rejection path; `break`/`continue` outside the new
-  top-level Int loop CFG slice remain unsupported.
-- Next step: generalize the control-flow graph/state numbering to those
-  remaining shapes after frame-root and typed-outcome ownership coverage grows.
+  covered by native codegen fixtures. Nested array elements, await assignments,
+  nested catch routing, and eight-await linear state machines are now covered
+  by the general CFG path; richer aggregate ownership remains in the newer
+  ASYNC-003 frontier below.
+- This historical entry is retained only to preserve the evidence trail for
+  the specialized lowering slices it superseded. Current residual ownership
+  work is tracked once, below, instead of as a bounded-control-flow blocker.
 
 ### SAN-002 broader compiler-generated ownership remains out of scope (resolved mandatory gate, 2026-07-23)
 
@@ -1087,13 +1083,13 @@ TaskError>` locals release their payload at scope exit. Nested
   binaries or provide concurrent vector-clock diagnostics. Those remain
   deferred until the runtime exposes a process-level report handoff.
 
-### A4 async lowering boundary (updated 2026-07-23)
+### A4 async lowering boundary (superseded by G1, updated 2026-07-31)
 
-- Bounded straight-line, branch-join, multi-await, and one top-level integer
-  loop/await shape now hoist supported locals into task frames and generate
-  executable resume edges. General control flow, mutable capture transfer,
-  async GC roots, and complete failure/cancellation outcome propagation remain
-  open; extend the frame representation before claiming the broader contract.
+- G1 now provides explicit CFG/state-machine lowering for its requested branch,
+  loop, `for-in`, `break`/`continue`, `try`/`catch`, `match`, and arbitrary
+  linear-await shapes, with native success/failure/cancellation/GC evidence.
+  Remaining work here is ownership/capture and public outcome propagation,
+  which belongs to G2 and is tracked by ASYNC-002/003/006.
 
 ### C5 corpus split scope (2026-07-23)
 
@@ -1109,9 +1105,9 @@ TaskError>` locals release their payload at scope exit. Nested
   deep-clones `Array<Int>`/`Array<String>` parameters and explicitly typed
   locals, and retains `Fun` environments used by the bounded one-shot spawn
   subset in frame data. These five capture categories are covered by native
-  codegen fixtures. Other Array element types, transfer, arbitrary await
-  placement, and cancellation ownership remain deferred until the complete
-  frame ABI is available; extend the capture representation before claiming
+  codegen fixtures. Other Array element types, transfer, and cancellation
+  ownership remain deferred until the complete frame ABI is available; extend
+  the capture representation before claiming
   those broader types. A bounded first-statement `await` now materializes
   captured values after child completion, covered by the native codegen
   fixture.
@@ -1186,8 +1182,10 @@ TaskError>` locals release their payload at scope exit. Nested
   typed handle results use an owned `Result.Ok` join payload. Public raw
   payloads and richer aggregate failures remain open.
 
-### ASYNC-003 general CFG lowering remains bounded (updated 2026-07-28)
+### ASYNC-003 post-G1 ownership frontier (updated 2026-07-31)
 
+- G1's requested control-flow surface is complete; the residual below is
+  ownership work rather than missing branch/loop lowering.
 - The compiler now emits an explicit state graph for nested `if -> while -> await`
   and `while -> if -> await` shapes. Each await persists the graph state, child
   ownership bit, and live locals while propagating failure/cancellation across
@@ -1200,20 +1198,21 @@ TaskError>` locals release their payload at scope exit. Nested
   borrowed across nested awaits; native coverage proves success, failure,
   cancellation, forced GC, and repeated owning joins without static child
   release.
-- Enum `match` statements with binding-free arms now lower to explicit tag
-  branches in the same graph; native coverage proves branch selection,
-  repeated joins, typed failure/cancellation, and forced GC. Pattern bindings,
-  General CFG range loops now persist their iterator and bound across each
+- Enum `match` statements, including supported pattern bindings, now lower to
+  explicit tag branches in the same graph; native coverage proves branch
+  selection, repeated joins, typed failure/cancellation, and forced GC.
+  Pattern bindings,
+  general CFG range loops now persist their iterator and bound across each
   await, including loop comparisons, loop back-edges, GC, and
-  cancellation; a native fixture proves repeated owning joins. Catch clauses
-  and finally-on-failure remain outside the async CFG contract, although
-  catch-free `try/finally` success paths now lower to explicit states and
-  bounded non-generic class throws without array fields clone typed payloads
-  into task-frame error storage. Pattern
-  bindings, richer aggregate `for-in`, richer aggregate locals, arbitrary CFG joins, unbounded
-  conditional-await counts, and full public typed outcome payloads still need
-  dedicated ownership and cleanup rules before this can replace all bounded
-  lowering families.
+  cancellation; a native fixture proves repeated owning joins. Await
+  assignments now use the same graph, including nested loop/branch paths.
+  Await failures from nested `if`/loop control flow route through a shared
+  primitive/class catch continuation, and nested Array elements in `for-in`
+  are cloned before suspension. Native fixtures cover success, failure,
+  cancellation, forced GC, and an eight-await state machine. Remaining
+  ownership frontier: richer aggregate element types beyond supported arrays,
+  heap-owning class fields in caught payloads, nested finally cleanup, and
+  public typed outcome payloads.
 
 ### IO-002 compiler-generated descriptor I/O remains bounded (updated 2026-07-28)
 
@@ -1351,8 +1350,9 @@ TaskError>` ABI, plus cooperative `isCancelled()` inside generated async
   and survive forced GC in a native regression. The bounded single-await
   finally path runs before propagating child failure.
 - Residual: class fields that themselves own heap objects still need explicit
-  rooting/clone support; same-name catches whose types change, nested catch
-  control flow, and nested finally cleanup remain deferred to R01.
+  rooting/clone support; same-name catches whose types change and nested
+  finally cleanup remain deferred to R01. Nested protected branch/loop catch
+  control flow is now covered by the general CFG path.
 
 ### ENCODING-001 bounded std.encoding contract (resolved 2026-07-30)
 

@@ -1119,8 +1119,16 @@ struct AsyncCfgBuilder<'a> {
     cfg_locals: Vec<(String, String)>,
     owned_class_catches: Vec<(String, String)>,
     match_bindings: Vec<(String, String)>,
+    catch_context: Option<AsyncCatchContext>,
     return_key: String,
     supported: bool,
+}
+
+#[derive(Clone)]
+struct AsyncCatchContext {
+    catch_name: String,
+    catch_key: String,
+    catch_state: usize,
 }
 
 impl<'a> AsyncCfgBuilder<'a> {
@@ -1132,6 +1140,7 @@ impl<'a> AsyncCfgBuilder<'a> {
             cfg_locals: Vec::new(),
             owned_class_catches: Vec::new(),
             match_bindings: Vec::new(),
+            catch_context: None,
             return_key,
             supported: true,
         }
@@ -1188,19 +1197,29 @@ impl<'a> AsyncCfgBuilder<'a> {
                     }
                     let operand = emit_expr(&await_expr.operand, &mut self.ctx);
                     let state = self.alloc();
-                    self.finish(
-                        state,
+                    let owns_task =
+                        await_operand_is_temporary(&await_expr.operand, self.ctx.checked);
+                    let node = if let Some(catch) = self.catch_context.clone() {
+                        AsyncCfgNode::AwaitCatchValue {
+                            value: mangle_ident(&name),
+                            value_key: key,
+                            operand,
+                            owns_task,
+                            catch_name: mangle_ident(&catch.catch_name),
+                            catch_key: catch.catch_key,
+                            catch_state: catch.catch_state,
+                            next,
+                        }
+                    } else {
                         AsyncCfgNode::Await {
                             value: mangle_ident(&name),
                             value_key: key,
                             operand,
-                            owns_task: await_operand_is_temporary(
-                                &await_expr.operand,
-                                self.ctx.checked,
-                            ),
+                            owns_task,
                             next,
-                        },
-                    );
+                        }
+                    };
+                    self.finish(state, node);
                     state
                 } else {
                     if expr_contains_async(&var.init)
@@ -1258,7 +1277,7 @@ impl<'a> AsyncCfgBuilder<'a> {
                 let body_state = self.emit_block(
                     &loop_stmt.body.stmts,
                     condition_state,
-                    break_state.or(Some(next)),
+                    Some(next),
                     Some(condition_state),
                 );
                 let condition = emit_expr(&loop_stmt.cond, &mut self.ctx);
@@ -1294,7 +1313,7 @@ impl<'a> AsyncCfgBuilder<'a> {
                 let body_state = self.emit_block(
                     &range.body.stmts,
                     increment_state,
-                    break_state.or(Some(next)),
+                    Some(next),
                     Some(increment_state),
                 );
                 let comparison = if range.inclusive {
@@ -1401,6 +1420,10 @@ impl<'a> AsyncCfgBuilder<'a> {
                     self.supported = false;
                     return next;
                 };
+                if !async_cfg_value_supported(elem_key, self.ctx.checked) {
+                    self.supported = false;
+                    return next;
+                }
                 if self.locals.contains_key(&binding) {
                     self.supported = false;
                     return next;
@@ -1420,7 +1443,7 @@ impl<'a> AsyncCfgBuilder<'a> {
                 let body_state = self.emit_block(
                     &for_in.body.stmts,
                     increment_state,
-                    break_state.or(Some(next)),
+                    Some(next),
                     Some(increment_state),
                 );
                 let bind_state = self.alloc();
@@ -1451,6 +1474,13 @@ impl<'a> AsyncCfgBuilder<'a> {
                 let bind_code = if elem_key == "String" {
                     format!(
                         "if ({binding}__owned && {binding} != NULL) free((void *){binding}); {bind_code} {binding}__owned = true;"
+                    )
+                } else if is_array_type_key(elem_key) {
+                    let cty = crate::stmt::local_key_to_c(elem_key, self.ctx.checked);
+                    let clone = crate::names::c_method_name(elem_key, "clone");
+                    let free = crate::array_emit::array_contents_free_expr(&binding, elem_key);
+                    format!(
+                        "{cty} __for_value = {bind_code}; {free} {binding} = {clone}(&__for_value);"
                     )
                 } else {
                     bind_code
@@ -1756,78 +1786,24 @@ impl<'a> AsyncCfgBuilder<'a> {
                     self.owned_class_catches
                         .push((catch_name.clone(), catch_key.clone()));
                 }
+                // Emit the catch continuation without the inner context: a
+                // failure in a catch body belongs to the surrounding try.
+                let outer_catch = self.catch_context.clone();
+                self.catch_context = outer_catch.clone();
                 let catch_state =
                     self.emit_block(&catch.body.stmts, next, break_state, continue_state);
-                // Build the protected body backwards so every awaited child
-                // routes failures to the same catch continuation. Synchronous
-                // statements are delegated to the normal CFG emitter.
-                let mut protected_next = next;
-                for stmt in try_stmt.try_block.stmts.iter().rev() {
-                    let await_value = match stmt {
-                        Stmt::Expr(Expr::Async(AsyncExpr::Await(await_expr))) => {
-                            Some((await_expr, None))
-                        }
-                        Stmt::Var(var) => match &var.init {
-                            Expr::Async(AsyncExpr::Await(await_expr)) => {
-                                let Some(value_key) = self.locals.get(&var.name.name).cloned()
-                                else {
-                                    self.supported = false;
-                                    return next;
-                                };
-                                if !async_cfg_value_supported(&value_key, self.ctx.checked) {
-                                    self.supported = false;
-                                    return next;
-                                }
-                                Some((await_expr, Some((mangle_ident(&var.name.name), value_key))))
-                            }
-                            _ => None,
-                        },
-                        _ => None,
-                    };
-                    if let Some((await_expr, value)) = await_value {
-                        if expr_contains_async(&await_expr.operand) {
-                            self.supported = false;
-                            return next;
-                        }
-                        let operand = emit_expr(&await_expr.operand, &mut self.ctx);
-                        let state = self.alloc();
-                        let owns_task =
-                            await_operand_is_temporary(&await_expr.operand, self.ctx.checked);
-                        let catch_name = mangle_ident(&catch_name);
-                        self.finish(
-                            state,
-                            match value {
-                                Some((value, value_key)) => AsyncCfgNode::AwaitCatchValue {
-                                    value,
-                                    value_key,
-                                    operand,
-                                    owns_task,
-                                    catch_name,
-                                    catch_key: catch_key.clone(),
-                                    catch_state,
-                                    next: protected_next,
-                                },
-                                None => AsyncCfgNode::AwaitCatch {
-                                    operand,
-                                    owns_task,
-                                    catch_name,
-                                    catch_key: catch_key.clone(),
-                                    catch_state,
-                                    next: protected_next,
-                                },
-                            },
-                        );
-                        protected_next = state;
-                    } else {
-                        protected_next = self.emit_block(
-                            std::slice::from_ref(stmt),
-                            protected_next,
-                            break_state,
-                            continue_state,
-                        );
-                    }
-                }
-                protected_next
+
+                // Every await reached in the protected CFG, including awaits
+                // nested under branches and loops, targets this continuation.
+                self.catch_context = Some(AsyncCatchContext {
+                    catch_name,
+                    catch_key,
+                    catch_state,
+                });
+                let protected_entry =
+                    self.emit_block(&try_stmt.try_block.stmts, next, break_state, continue_state);
+                self.catch_context = outer_catch;
+                protected_entry
             }
             Stmt::Break(_) => break_state.unwrap_or_else(|| {
                 self.supported = false;
@@ -1906,9 +1882,43 @@ impl<'a> AsyncCfgBuilder<'a> {
                     self.supported = false;
                     return next;
                 };
-                if expr_contains_async(&assign.value)
-                    || !async_cfg_value_supported(&key, self.ctx.checked)
-                {
+                if !async_cfg_value_supported(&key, self.ctx.checked) {
+                    self.supported = false;
+                    return next;
+                }
+                if let Expr::Async(AsyncExpr::Await(await_expr)) = assign.value.as_ref() {
+                    if expr_contains_async(&await_expr.operand) {
+                        self.supported = false;
+                        return next;
+                    }
+                    let operand = emit_expr(&await_expr.operand, &mut self.ctx);
+                    let state = self.alloc();
+                    let owns_task =
+                        await_operand_is_temporary(&await_expr.operand, self.ctx.checked);
+                    let node = if let Some(catch) = self.catch_context.clone() {
+                        AsyncCfgNode::AwaitCatchValue {
+                            value: mangle_ident(&assign.name.name),
+                            value_key: key,
+                            operand,
+                            owns_task,
+                            catch_name: mangle_ident(&catch.catch_name),
+                            catch_key: catch.catch_key,
+                            catch_state: catch.catch_state,
+                            next,
+                        }
+                    } else {
+                        AsyncCfgNode::Await {
+                            value: mangle_ident(&assign.name.name),
+                            value_key: key,
+                            operand,
+                            owns_task,
+                            next,
+                        }
+                    };
+                    self.finish(state, node);
+                    return state;
+                }
+                if expr_contains_async(&assign.value) {
                     self.supported = false;
                     return next;
                 }
@@ -1945,17 +1955,24 @@ impl<'a> AsyncCfgBuilder<'a> {
                 }
                 let operand = emit_expr(&await_expr.operand, &mut self.ctx);
                 let state = self.alloc();
-                self.finish(
-                    state,
+                let owns_task = await_operand_is_temporary(&await_expr.operand, self.ctx.checked);
+                let node = if let Some(catch) = self.catch_context.clone() {
+                    AsyncCfgNode::AwaitCatch {
+                        operand,
+                        owns_task,
+                        catch_name: mangle_ident(&catch.catch_name),
+                        catch_key: catch.catch_key,
+                        catch_state: catch.catch_state,
+                        next,
+                    }
+                } else {
                     AsyncCfgNode::AwaitUnit {
                         operand,
-                        owns_task: await_operand_is_temporary(
-                            &await_expr.operand,
-                            self.ctx.checked,
-                        ),
+                        owns_task,
                         next,
-                    },
-                );
+                    }
+                };
+                self.finish(state, node);
                 state
             }
             Stmt::Expr(expr) => {
@@ -3070,7 +3087,7 @@ fn emit_async_fun_cfg_int(
                 } else if value_key == "String" {
                     let _ = writeln!(
                         out,
-                        "        const char *__src = {value}; const char *__copy = NULL; if (__src != NULL) {{ size_t __len = strlen(__src); char *__owned = (char *)malloc(__len + 1); if (__owned == NULL) {{ {free_src_on_error} return AURA_TASK_FAILED; }} memcpy(__owned, __src, __len + 1); __copy = __owned; }} {free_src} const char **result = (const char **)malloc(sizeof(*result)); if (result == NULL) {{ free((void *)__copy); return AURA_TASK_FAILED; }} *result = __copy; aura_task_frame_set_result(frame, result, sizeof(*result), {destroy_result}); return AURA_TASK_COMPLETE;",
+                        "        const char *__src = {value}; const char *__copy = NULL; if (__src != NULL) {{ size_t __len = strlen(__src); char *__owned = (char *)malloc(__len + 1); if (__owned == NULL) {{ {free_src_on_error} return AURA_TASK_FAILED; }} memcpy(__owned, __src, __len + 1); __copy = __owned; }} {free_src} const char **__aura_result = (const char **)malloc(sizeof(*__aura_result)); if (__aura_result == NULL) {{ free((void *)__copy); return AURA_TASK_FAILED; }} *__aura_result = __copy; aura_task_frame_set_result(frame, __aura_result, sizeof(*__aura_result), {destroy_result}); return AURA_TASK_COMPLETE;",
                         free_src_on_error = if value_is_owned_temp { "free((void *)__src);" } else { "" },
                         free_src = if value_is_owned_temp { "if (__src != NULL) free((void *)__src);" } else { "" },
                     );
@@ -3100,7 +3117,7 @@ fn emit_async_fun_cfg_int(
                 } else if is_heap_class_mono(&value_key, checked) {
                     let _ = writeln!(
                         out,
-                        "        {result_cty} *result = ({result_cty} *)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; *result = {value}; aura_gc_add_root((void **)result); aura_task_frame_set_result(frame, result, sizeof(*result), {destroy_result}); return AURA_TASK_COMPLETE;"
+                        "        {result_cty} *__aura_result = ({result_cty} *)malloc(sizeof(*__aura_result)); if (__aura_result == NULL) return AURA_TASK_FAILED; *__aura_result = {value}; aura_gc_add_root((void **)__aura_result); aura_task_frame_set_result(frame, __aura_result, sizeof(*__aura_result), {destroy_result}); return AURA_TASK_COMPLETE;"
                     );
                 } else if value_key == "ForeignHandle" || value_key.starts_with("ForeignHandle_") {
                     let result_cty = crate::stmt::local_key_to_c(&value_key, checked);
@@ -3109,7 +3126,7 @@ fn emit_async_fun_cfg_int(
                         "        {result_cty} *__aura_result = ({result_cty} *)malloc(sizeof(*__aura_result)); if (__aura_result == NULL) return AURA_TASK_FAILED; *__aura_result = {value}; if (*__aura_result != NULL && aura_ffi_handle_retain(*__aura_result) != AURA_FFI_OK) {{ free(__aura_result); return AURA_TASK_FAILED; }} aura_task_frame_set_result(frame, __aura_result, sizeof(*__aura_result), {destroy_result}); return AURA_TASK_COMPLETE;"
                     );
                 } else {
-                    let _ = writeln!(out, "        {result_cty} *result = ({result_cty} *)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; *result = {value}; aura_task_frame_set_result(frame, result, sizeof(*result), {destroy_result}); return AURA_TASK_COMPLETE;");
+                    let _ = writeln!(out, "        {result_cty} *__aura_result = ({result_cty} *)malloc(sizeof(*__aura_result)); if (__aura_result == NULL) return AURA_TASK_FAILED; *__aura_result = {value}; aura_task_frame_set_result(frame, __aura_result, sizeof(*__aura_result), {destroy_result}); return AURA_TASK_COMPLETE;");
                 }
             }
         }
@@ -6957,7 +6974,7 @@ fun main() {}
         assert!(generated.contains("bool value;"));
         assert!(generated.contains("AURA_TASK_CANCELLED"));
         assert!(generated.contains("aura_task_frame_propagate_error(frame, data->await_task)"));
-        assert!(generated.contains("aura_task_frame_set_result(frame, result"));
+        assert!(generated.contains("aura_task_frame_set_result(frame, __aura_result"));
     }
 
     #[test]
@@ -6992,7 +7009,7 @@ fun main() {}
         let checked = aura_sema::check_file(&file).expect("general CFG class fixture checks");
         let generated = emit_c_with(&checked, EmitOptions::default());
         assert!(generated.contains("aura async general CFG Class lowering"));
-        assert!(generated.contains("aura_gc_add_root((void **)result)"));
+        assert!(generated.contains("aura_gc_add_root((void **)__aura_result"));
         assert!(generated.contains("aura_gc_remove_root((void **)data)"));
         assert!(generated.contains("aura_task_frame_propagate_error(frame, data->await_task)"));
     }

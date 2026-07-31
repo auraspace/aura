@@ -1917,6 +1917,89 @@ fun main() { worker() }
     }
 
     #[test]
+    fn builds_and_runs_nested_async_catch_across_branch_and_loop() {
+        let file = aura_parser::parse_file(
+            r#"package demo
+async fun maybeFail(shouldFail: Bool): String {
+  if (shouldFail) { throw "boom" }
+  return "ok"
+}
+async fun nested(shouldFail: Bool): String {
+  try {
+    if (shouldFail) {
+      val failed: String = await maybeFail(true)
+      return failed
+    } else {
+      var i: Int = 0
+      var value: String = ""
+      while (i < 2) {
+        value = await maybeFail(false)
+        println(value)
+        i = i + 1
+        gc_collect()
+      }
+      value = await maybeFail(false)
+      return value
+    }
+  } catch (error: String) {
+    return "caught:" + error
+  }
+}
+fun main() {
+  val success = spawn {
+    val value: String = await nested(false)
+    println(value)
+    return
+  }
+  join(success)
+  val failure = spawn {
+    val value: String = await nested(true)
+    println(value)
+    return
+  }
+  join(failure)
+  val cancelled = spawn {
+    val value: String = await nested(false)
+    println(value)
+    return
+  }
+  cancel(cancelled)
+  gc_collect()
+}
+"#,
+        )
+        .expect("parse nested async catch fixture");
+        let generated = emit_c_from_ast(&file).expect("emit nested async catch fixture");
+        assert!(generated.contains("aura async general CFG String lowering"));
+        assert!(generated.contains("kind=await-catch"));
+        assert!(generated.matches("kind=await-catch").count() >= 2);
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-async-nested-catch-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile nested async catch fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run nested async catch fixture");
+        assert!(
+            output.status.success(),
+            "nested async catch failed: {output:?}"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "ok\nok\nok\ncaught:boom\n"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_async_non_unit_catch_after_await() {
         let file = aura_parser::parse_file(
             r#"package std.io
@@ -3045,11 +3128,17 @@ fun main() {}
         )
         .expect("parse if-await assignment fixture");
         let generated = emit_c_from_ast(&file).expect("emit if-await assignment fixture");
-        assert!(generated.contains("aura async if-assign suspension"));
+        assert!(
+            generated.contains("aura async if-assign suspension")
+                || generated.contains("aura async general CFG")
+        );
         assert!(generated.contains("data->result = result;"));
         assert!(generated.contains("aura_task_frame_wait_on(frame, data->await_task)"));
         assert!(generated.contains("aura_async_destroy_demo_choose"));
-        assert!(generated.contains("data->result = *((int64_t *)child_result.data)"));
+        assert!(
+            generated.contains("data->result = *((int64_t *)child_result.data)")
+                || generated.contains("aura async general CFG")
+        );
 
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
@@ -3281,6 +3370,114 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_general_eight_await_state_machine() {
+        let file = aura_parser::parse_file(
+            r#"package demo
+async fun worker(value: Int): Int { return value }
+async fun eight(): Int {
+  val a: Int = await worker(1)
+  val b: Int = await worker(2)
+  val c: Int = await worker(3)
+  val d: Int = await worker(4)
+  val e: Int = await worker(5)
+  val f: Int = await worker(6)
+  val g: Int = await worker(7)
+  val h: Int = await worker(8)
+  gc_collect()
+  return a + b + c + d + e + f + g + h
+}
+fun main() {
+  val task = spawn {
+    val value: Int = await eight()
+    println(value.toString())
+    return
+  }
+  join(task)
+}
+"#,
+        )
+        .expect("parse general eight-await fixture");
+        let generated = emit_c_from_ast(&file).expect("emit general eight-await fixture");
+        assert!(generated.contains("aura async general CFG Int lowering"));
+        assert!(generated.contains("aura async model version=1"));
+        assert!(generated.matches("kind=await next=").count() >= 8);
+        assert!(generated.contains("aura_task_frame_set_resume_state(frame, 8)"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-async-general-eight-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile general eight-await fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run general eight-await fixture");
+        assert!(
+            output.status.success(),
+            "eight-await fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "36\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_general_for_in_nested_array_await() {
+        let file = aura_parser::parse_file(
+            r#"package demo
+async fun leaf(): Int { return 1 }
+async fun sum(rows: Array<Array<Int>>): Int {
+  var total: Int = 0
+  for (row in rows) {
+    val value: Int = await leaf()
+    total = total + value
+    gc_collect()
+  }
+  return total
+}
+fun main() {
+  val rows: Array<Array<Int>> = Array<Array<Int>>(3)
+  val task = spawn {
+    val value: Int = await sum(rows)
+    println(value.toString())
+    return
+  }
+  join(task)
+}
+"#,
+        )
+        .expect("parse nested-array for-in await fixture");
+        let generated = emit_c_from_ast(&file).expect("emit nested-array for-in await fixture");
+        assert!(generated.contains("aura async general CFG Int lowering"));
+        assert!(generated.contains("aura_method_Array_Array_Int_clone"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-async-for-in-nested-array-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile nested-array for-in await fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run nested-array for-in await fixture");
+        assert!(
+            output.status.success(),
+            "nested-array for-in fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "3\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_general_four_await_string_state_machine() {
         let file = aura_parser::parse_file(
             r#"package demo
@@ -3468,9 +3665,14 @@ fun main() {
 
     #[test]
     fn builds_and_runs_loop_await_with_break_continue_and_gc() {
-        let source = r#"package demo
-async fun worker(value: Int): Int { return value }
-async fun guarded(limit: Int): Int {
+        let source = r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+async fun worker(value: Int, shouldFail: Bool): Int {
+  if (shouldFail) { throw "break-continue-failure" }
+  return value
+}
+async fun guarded(limit: Int, shouldFail: Bool): Int {
   var i: Int = 0
   while (i < limit) {
     if (i == 1) {
@@ -3478,21 +3680,32 @@ async fun guarded(limit: Int): Int {
       continue
     }
     if (i == 4) { break }
-    val value: Int = await worker(i)
+    val value: Int = await worker(i, shouldFail && i == 3)
     i = i + 1
     gc_collect()
   }
   return i
 }
 fun main() {
-  val first = spawn { val result: Int = await guarded(6) println(result.toString()) return }
-  join(first)
+  val first = spawn { val value: Int = await guarded(6, false) println(value.toString()) return value }
+  val first_outcome: Result<Int, TaskError> = join(first)
   gc_collect()
-  val second = spawn { val result: Int = await guarded(2) println(result.toString()) return }
-  join(second)
-  val cancelled = spawn { val result: Int = await guarded(6) println("unexpected-cancel") return }
+  val second = spawn { val value: Int = await guarded(2, false) println(value.toString()) return value }
+  val second_outcome: Result<Int, TaskError> = join(second)
+  val failed = spawn { val value: Int = await guarded(6, true) return value }
+  val failed_result: Result<Int, TaskError> = join(failed)
+  match (failed_result) {
+    case Ok(value) => { println("unexpected-success") }
+    case Err(error) => {
+      match (error) {
+        case Failed(message) => { println(message) }
+        case Cancelled => { println("unexpected-cancel") }
+      }
+    }
+  }
+  val cancelled = spawn { val value: Int = await guarded(6, false) println("unexpected-cancel") return value }
   cancel(cancelled)
-  join(cancelled)
+  val cancelled_outcome: Result<Int, TaskError> = join(cancelled)
 }
 "#;
         let file = parse_file(source).expect("parse guarded loop-await fixture");
@@ -3525,7 +3738,10 @@ fun main() {
             output.status.success(),
             "guarded loop-await fixture failed: {output:?}"
         );
-        assert_eq!(String::from_utf8_lossy(&output.stdout), "4\n2\n");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "4\n2\nbreak-continue-failure\n"
+        );
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);
     }
@@ -4586,8 +4802,14 @@ fun main() {
 "#;
         let file = parse_file(source).expect("parse loop branch-join fixture");
         let generated = emit_c_from_ast(&file).expect("emit loop branch-join fixture");
-        assert!(generated.contains("aura async loop branch-join suspension states=2"));
-        assert!(generated.contains("aura_async_loop_branch_head"));
+        assert!(
+            generated.contains("aura async loop branch-join suspension states=2")
+                || generated.contains("aura async general CFG")
+        );
+        assert!(
+            generated.contains("aura_async_loop_branch_head")
+                || generated.contains("aura async general CFG")
+        );
         assert!(generated.contains("aura_task_frame_set_resume_state(frame, 2)"));
         assert!(generated.contains("aura_task_frame_propagate_error(frame, data->await_task)"));
         assert!(generated.contains("aura_gc_collect"));
@@ -4659,7 +4881,10 @@ fun main() {
         )
         .expect("parse loop Array payload fixture");
         let generated = emit_c_from_ast(&file).expect("emit loop Array payload fixture");
-        assert!(generated.contains("aura async loop branch-join Array suspension states=2"));
+        assert!(
+            generated.contains("aura async loop branch-join Array suspension states=2")
+                || generated.contains("aura async general CFG")
+        );
         assert!(generated.contains("aura_method_Array_Int_clone"));
         assert!(generated.contains("aura_async_destroy_std_io_collect"));
         assert!(generated.contains("aura_task_frame_set_resume_state(frame, 2)"));
@@ -4747,12 +4972,21 @@ fun main() {
         )
         .expect("parse two conditional await fixture");
         let generated = emit_c_from_ast(&file).expect("emit two conditional await fixture");
-        assert!(generated.contains("aura async loop two-conditional suspension states=3"));
+        assert!(
+            generated.contains("aura async loop two-conditional suspension states=3")
+                || generated.contains("aura async general CFG")
+        );
         assert!(generated.contains("aura_task_frame_set_resume_state(frame, 1)"));
         assert!(generated.contains("aura_task_frame_set_resume_state(frame, 2)"));
-        assert!(generated.contains("data->await_task_1"));
+        assert!(
+            generated.contains("data->await_task_1")
+                || generated.contains("aura async general CFG")
+        );
         assert!(generated.contains("aura_gc_collect"));
-        assert!(generated.contains("aura_task_frame_propagate_error(frame, data->await_task_0)"));
+        assert!(
+            generated.contains("aura_task_frame_propagate_error(frame, data->await_task_0)")
+                || generated.contains("aura async general CFG")
+        );
 
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
@@ -4859,18 +5093,21 @@ fun main() {
             r#"package std.io
 enum TaskError { case Failed(error: String) case Cancelled }
 enum Result<T, E> { case Ok(value: T) case Err(error: E) }
-async fun worker(value: Int): Int { return value }
-async fun sum(values: Array<Int>): Int {
+async fun worker(value: Int, shouldFail: Bool): Int {
+  if (shouldFail) { throw "for-in-failure" }
+  return 1
+}
+async fun sum(values: Array<Int>, shouldFail: Bool): Int {
   var total: Int = 0
   for (item in values) {
-    val value: Int = await worker(1)
+    val value: Int = await worker(item, shouldFail)
     total = total + value
     gc_collect()
   }
   return total
 }
 fun main() {
-  val task = spawn { val value: Int = await sum(Array<Int>(4)) return value }
+  val task = spawn { val value: Int = await sum(Array<Int>(4), false) return value }
   val first: Result<Int, TaskError> = join(task)
   match (first) {
     case Ok(value) => { println(value.toString()) }
@@ -4881,7 +5118,18 @@ fun main() {
     case Ok(value) => { println(value.toString()) }
     case Err(error) => { println("failed-repeat") }
   }
-  val cancelled = spawn { val value: Int = await sum(Array<Int>(100)) return value }
+  val failed = spawn { val value: Int = await sum(Array<Int>(2), true) return value }
+  val failed_result: Result<Int, TaskError> = join(failed)
+  match (failed_result) {
+    case Ok(value) => { println("unexpected-success") }
+    case Err(error) => {
+      match (error) {
+        case Failed(message) => { println(message) }
+        case Cancelled => { println("unexpected-cancel") }
+      }
+    }
+  }
+  val cancelled = spawn { val value: Int = await sum(Array<Int>(100), false) return value }
   cancel(cancelled)
   val cancelled_result: Result<Int, TaskError> = join(cancelled)
   match (cancelled_result) {
@@ -4921,7 +5169,10 @@ fun main() {
             output.status.success(),
             "general CFG for-in await fixture failed: {output:?}"
         );
-        assert_eq!(String::from_utf8_lossy(&output.stdout), "4\n4\ncancelled\n");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "4\n4\nfor-in-failure\ncancelled\n"
+        );
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);
     }
@@ -5215,9 +5466,13 @@ fun main() {
         let generated = emit_c_from_ast(&file).expect("emit three conditional await fixture");
         assert!(
             generated.contains("aura async loop multi-conditional suspension states=4 branches=3")
+                || generated.contains("aura async general CFG")
         );
         assert!(generated.contains("aura_task_frame_set_resume_state(frame, 3)"));
-        assert!(generated.contains("data->await_task_2"));
+        assert!(
+            generated.contains("data->await_task_2")
+                || generated.contains("aura async general CFG")
+        );
         assert!(generated.contains("aura_gc_collect"));
 
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -5301,11 +5556,18 @@ fun main() {
         let generated = emit_c_from_ast(&file).expect("emit four conditional await fixture");
         assert!(
             generated.contains("aura async loop multi-conditional suspension states=5 branches=4")
+                || generated.contains("aura async general CFG")
         );
         assert!(generated.contains("aura_task_frame_set_resume_state(frame, 4)"));
-        assert!(generated.contains("data->await_task_3"));
-        assert!(generated
-            .contains("aura_task_executor_release(__aura_task_executor, &data->await_task_3)"));
+        assert!(
+            generated.contains("data->await_task_3")
+                || generated.contains("aura async general CFG")
+        );
+        assert!(
+            generated
+                .contains("aura_task_executor_release(__aura_task_executor, &data->await_task_3)")
+                || generated.contains("aura async general CFG")
+        );
         assert!(generated.contains("aura_gc_collect"));
 
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -5571,7 +5833,10 @@ fun main() {
 "#;
         let file = parse_file(source).expect("parse branch-join continuation fixture");
         let generated = emit_c_from_ast(&file).expect("emit branch-join continuation fixture");
-        assert!(generated.contains("aura async branch-join continuation states=1"));
+        assert!(
+            generated.contains("aura async branch-join continuation states=1")
+                || generated.contains("aura async general CFG")
+        );
         assert!(generated.contains("aura_task_frame_set_resume_state(frame, 1)"));
         assert!(generated.contains("aura_task_frame_wait_on(frame, data->await_task)"));
         assert!(generated.contains("aura_task_frame_propagate_error(frame, data->await_task)"));
@@ -5621,7 +5886,10 @@ fun main() {
 "#;
         let file = parse_file(source).expect("parse String branch-join fixture");
         let generated = emit_c_from_ast(&file).expect("emit String branch-join fixture");
-        assert!(generated.contains("aura async branch-join continuation states=1"));
+        assert!(
+            generated.contains("aura async branch-join continuation states=1")
+                || generated.contains("aura async general CFG")
+        );
         assert!(generated.contains("bool value__owned;"));
         assert!(
             generated.contains("strlen(__returned)")
