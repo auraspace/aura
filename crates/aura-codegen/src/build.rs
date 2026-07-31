@@ -1854,6 +1854,7 @@ fun main() { worker() }
         .expect("parse async try-finally fixture");
         let generated = emit_c_from_ast(&file).expect("emit async try-finally fixture");
         assert!(generated.contains("aura async general CFG Unit lowering"));
+        assert!(generated.contains("kind=await-finally"));
 
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
@@ -1895,6 +1896,7 @@ fun main() { worker() }
         .expect("parse async catch fixture");
         let generated = emit_c_from_ast(&file).expect("emit async catch fixture");
         assert!(generated.contains("aura_task_frame_error(data->await_task)"));
+        assert!(generated.contains("kind=await-catch"));
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .and_then(|path| path.parent())
@@ -3220,6 +3222,18 @@ fun main() {
         )
         .expect("parse general four-await fixture");
         let generated = emit_c_from_ast(&file).expect("emit general four-await fixture");
+        let generated_again = emit_c_from_ast(&file).expect("re-emit general four-await fixture");
+        assert_eq!(
+            generated, generated_again,
+            "async model dump must be deterministic"
+        );
+        assert!(generated.contains("aura async model version=1"));
+        assert!(generated.contains("aura async frame fields:"));
+        assert!(generated.contains("base:Int"));
+        assert!(generated.contains("label:String"));
+        assert!(generated.contains("aura async state=0 kind="));
+        assert!(generated.contains("kind=await next="));
+        assert!(generated.contains("kind=return"));
         for state in 1..=4 {
             assert!(generated.contains(&format!(
                 "aura async general suspension state={state} kind=await"

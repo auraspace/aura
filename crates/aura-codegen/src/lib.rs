@@ -3,6 +3,7 @@
 //! Classes/structs → C structs; interfaces/enums → tagged unions.
 
 mod array_emit;
+mod async_model;
 mod build;
 mod cache;
 mod call_emit;

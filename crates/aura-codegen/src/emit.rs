@@ -7,6 +7,7 @@ use aura_ast::*;
 use aura_sema::{CheckedFile, Ty};
 
 use crate::array_emit::{emit_array_mono, is_array_mono, is_array_type_key};
+use crate::async_model::{AsyncCfgNode, AsyncFrameField, AsyncStateMachine};
 use crate::class_emit::*;
 use crate::ctx::{EmitCtx, EmitOptions};
 use crate::enum_emit::*;
@@ -1109,74 +1110,6 @@ fn emit_async_fun_while_branch_join_await_array(
     }
     out.push_str("  data->await_task = NULL; if (__aura_task_executor != NULL && !aura_task_executor_submit(__aura_task_executor, frame)) { aura_task_frame_destroy(frame); return NULL; } return frame;\n}");
     true
-}
-
-#[derive(Clone)]
-enum AsyncCfgNode {
-    Action {
-        code: String,
-        next: usize,
-    },
-    Branch {
-        condition: String,
-        then_state: usize,
-        else_state: usize,
-    },
-    Await {
-        value: String,
-        value_key: String,
-        operand: String,
-        owns_task: bool,
-        next: usize,
-    },
-    AwaitUnit {
-        operand: String,
-        owns_task: bool,
-        next: usize,
-    },
-    /// Restricted async catch: catches a failed awaited task as an owned
-    /// primitive error and resumes in a catch body without longjmping.
-    AwaitCatch {
-        operand: String,
-        owns_task: bool,
-        catch_name: String,
-        catch_key: String,
-        catch_state: usize,
-        next: usize,
-    },
-    /// Bounded catch around a single awaited value declaration. The value is
-    /// copied before the child frame is released, then control continues.
-    AwaitCatchValue {
-        value: String,
-        value_key: String,
-        operand: String,
-        owns_task: bool,
-        catch_name: String,
-        catch_key: String,
-        catch_state: usize,
-        next: usize,
-    },
-    AwaitFinally {
-        operand: String,
-        owns_task: bool,
-        finally_state: usize,
-        next: usize,
-    },
-    Fail,
-    Return {
-        value: String,
-        value_key: String,
-        value_is_ident: bool,
-        value_is_owned_temp: bool,
-    },
-    /// A throw after suspension must publish an owned task error instead of
-    /// longjmping through a poller that may already have returned.
-    Throw {
-        value: String,
-        value_key: String,
-        span_start: u32,
-        span_end: u32,
-    },
 }
 
 struct AsyncCfgBuilder<'a> {
@@ -2508,6 +2441,50 @@ fn emit_async_fun_cfg_int(
         _ if is_heap_class_mono(&return_key, checked) => "Class",
         _ => "Array",
     };
+    let mut frame_fields = Vec::new();
+    for param in &f.params {
+        frame_fields.push(AsyncFrameField {
+            name: param.name.name.clone(),
+            type_key: type_ref_local_key_expand(&param.ty, &params, &[], checked),
+        });
+    }
+    // Keep the debug contract aligned with the actual frame declarations.
+    // The model owns its display keys so it remains valid while C is emitted.
+    for (var, key) in &vars {
+        frame_fields.push(AsyncFrameField {
+            name: var.name.name.clone(),
+            type_key: key.clone(),
+        });
+    }
+    for (name, key) in &cfg_locals {
+        frame_fields.push(AsyncFrameField {
+            name: name.clone(),
+            type_key: key.clone(),
+        });
+    }
+    for (name, key) in &match_bindings {
+        frame_fields.push(AsyncFrameField {
+            name: name.clone(),
+            type_key: key.clone(),
+        });
+    }
+    frame_fields.push(AsyncFrameField {
+        name: "await_task".into(),
+        type_key: "TaskFrame*".into(),
+    });
+    frame_fields.push(AsyncFrameField {
+        name: "await_task_owned".into(),
+        type_key: "Bool".into(),
+    });
+    frame_fields.push(AsyncFrameField {
+        name: "await_failed".into(),
+        type_key: "Bool".into(),
+    });
+    AsyncStateMachine {
+        frame_fields,
+        nodes: &builder.nodes,
+    }
+    .dump_comments(out);
     let _ = writeln!(
         out,
         "/* aura async general CFG {lowering_kind} lowering states={} */",
