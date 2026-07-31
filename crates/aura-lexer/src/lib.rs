@@ -72,6 +72,8 @@ pub enum TokenKind {
     Join,
     /// C22: request cooperative cancellation of a task.
     Cancel,
+    /// RFC-010 declarative macro declaration.
+    Macro,
 
     Ident(String),
     Int(i64),
@@ -119,6 +121,8 @@ pub enum TokenKind {
     QuestionDot,
     /// `@` attribute introducer (`@test`).
     At,
+    /// `$` macro metavariable introducer.
+    Dollar,
 
     Eof,
 }
@@ -172,6 +176,7 @@ impl TokenKind {
                 | TokenKind::Spawn
                 | TokenKind::Join
                 | TokenKind::Cancel
+                | TokenKind::Macro
         )
     }
 }
@@ -248,6 +253,7 @@ impl<'a> Lexer<'a> {
                 _ => self.simple(TokenKind::Question, 1),
             },
             b'@' => self.simple(TokenKind::At, 1),
+            b'$' => self.simple(TokenKind::Dollar, 1),
             b'.' => {
                 if self.peek_at(1) == Some(b'.') {
                     if self.peek_at(2) == Some(b'=') {
@@ -508,6 +514,7 @@ impl<'a> Lexer<'a> {
             "spawn" => TokenKind::Spawn,
             "join" => TokenKind::Join,
             "cancel" => TokenKind::Cancel,
+            "macro" => TokenKind::Macro,
             _ => TokenKind::Ident(text.to_string()),
         };
         Ok(Token {

@@ -65,8 +65,9 @@ Compiler hosts can register a `UserDerive` implementation through
 `check_file_with_derives`, or a deterministic AST `UserMacro` through
 `check_file_with_macros`; both expand before typecheck and receive the same
 ownership, diagnostics, and expansion-origin treatment as built-ins. The
-lexer now provides a span-preserving, delimiter-aware token-tree model for
-the next expansion phase. Source-level declarative matching and sandboxed
+lexer now provides a span-preserving, delimiter-aware token-tree model,
+metavariable matcher, and template substitution primitives for the next
+expansion phase. Source-level declarative matching and sandboxed
 procedural derives remain a separate boundary: the language still needs
 token-tree rule expansion and the RFC-010 out-of-process sandbox ABI before
 arbitrary package code can execute during compilation.

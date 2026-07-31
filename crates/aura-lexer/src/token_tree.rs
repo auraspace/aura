@@ -2,6 +2,7 @@
 
 use crate::{Token, TokenKind};
 use aura_ast::Span;
+use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Delimiter {
@@ -18,6 +19,100 @@ pub enum TokenTree {
         span: Span,
         children: Vec<TokenTree>,
     },
+}
+
+pub type MacroCaptures = BTreeMap<String, TokenTree>;
+
+/// Match one declarative macro rule against a token-tree sequence. Metavariables
+/// use `$name` or `$name:fragment`; the fragment label is retained for callers
+/// but the lexer-level matcher deliberately leaves fragment parsing to the
+/// language parser.
+pub fn match_pattern(pattern: &[TokenTree], input: &[TokenTree]) -> Option<MacroCaptures> {
+    fn visit(pattern: &[TokenTree], input: &[TokenTree], captures: &mut MacroCaptures) -> bool {
+        if pattern.is_empty() {
+            return input.is_empty();
+        }
+        if let Some((name, consumed)) = metavariable(pattern) {
+            let Some(value) = input.first() else {
+                return false;
+            };
+            if let Some(existing) = captures.get(&name) {
+                if !same_tree(existing, value) {
+                    return false;
+                }
+            } else {
+                captures.insert(name, value.clone());
+            }
+            return visit(&pattern[consumed..], &input[1..], captures);
+        }
+        let Some((expected, rest)) = pattern.split_first() else {
+            return input.is_empty();
+        };
+        let Some(actual) = input.first() else {
+            return false;
+        };
+        if let (
+            TokenTree::Group {
+                delimiter: expected_delimiter,
+                children: expected_children,
+                ..
+            },
+            TokenTree::Group {
+                delimiter: actual_delimiter,
+                children: actual_children,
+                ..
+            },
+        ) = (expected, actual)
+        {
+            if expected_delimiter != actual_delimiter
+                || !visit(expected_children, actual_children, captures)
+            {
+                return false;
+            }
+        } else if !same_tree(expected, actual) {
+            return false;
+        }
+        visit(rest, &input[1..], captures)
+    }
+
+    let mut captures = MacroCaptures::new();
+    visit(pattern, input, &mut captures).then_some(captures)
+}
+
+/// Substitute `$name` occurrences in a macro template. Unknown metavariables
+/// remain untouched so the caller can report a hygienic expansion error.
+pub fn substitute(template: &[TokenTree], captures: &MacroCaptures) -> Vec<TokenTree> {
+    let mut output = Vec::new();
+    let mut index = 0;
+    while index < template.len() {
+        if let Some((name, consumed)) = metavariable(&template[index..]) {
+            if let Some(value) = captures.get(&name) {
+                output.push(value.clone());
+            } else {
+                output.extend_from_slice(&template[index..index + consumed]);
+            }
+            index += consumed;
+        } else {
+            output.push(substitute_tree(&template[index], captures));
+            index += 1;
+        }
+    }
+    output
+}
+
+fn substitute_tree(tree: &TokenTree, captures: &MacroCaptures) -> TokenTree {
+    match tree {
+        TokenTree::Leaf(_) => tree.clone(),
+        TokenTree::Group {
+            delimiter,
+            span,
+            children,
+        } => TokenTree::Group {
+            delimiter: delimiter.clone(),
+            span: *span,
+            children: substitute(children, captures),
+        },
+    }
 }
 
 impl TokenTree {
@@ -145,6 +240,68 @@ fn delimiter_tokens(delimiter: &Delimiter, span: Span) -> (Token, Token) {
     (Token { kind: open, span }, Token { kind: close, span })
 }
 
+fn metavariable(tokens: &[TokenTree]) -> Option<(String, usize)> {
+    let [TokenTree::Leaf(Token {
+        kind: TokenKind::Dollar,
+        ..
+    }), TokenTree::Leaf(Token {
+        kind: TokenKind::Ident(name),
+        ..
+    }), ..] = tokens
+    else {
+        return None;
+    };
+    let consumed = if tokens.get(2).is_some_and(|token| {
+        matches!(
+            token,
+            TokenTree::Leaf(Token {
+                kind: TokenKind::Colon,
+                ..
+            })
+        )
+    }) {
+        if !matches!(
+            tokens.get(3),
+            Some(TokenTree::Leaf(Token {
+                kind: TokenKind::Ident(_),
+                ..
+            }))
+        ) {
+            return None;
+        }
+        4
+    } else {
+        2
+    };
+    Some((name.clone(), consumed))
+}
+
+fn same_tree(left: &TokenTree, right: &TokenTree) -> bool {
+    match (left, right) {
+        (TokenTree::Leaf(left), TokenTree::Leaf(right)) => left.kind == right.kind,
+        (
+            TokenTree::Group {
+                delimiter: left_delimiter,
+                children: left_children,
+                ..
+            },
+            TokenTree::Group {
+                delimiter: right_delimiter,
+                children: right_children,
+                ..
+            },
+        ) => {
+            left_delimiter == right_delimiter
+                && left_children.len() == right_children.len()
+                && left_children
+                    .iter()
+                    .zip(right_children)
+                    .all(|(left, right)| same_tree(left, right))
+        }
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -184,5 +341,23 @@ mod tests {
         let tokens = lex("package demo\nfun main() {\n").expect("lex");
         let error = TokenTree::from_tokens(&tokens).expect_err("missing close must fail");
         assert!(error.contains("unterminated"));
+    }
+
+    #[test]
+    fn matches_and_substitutes_metavariables_without_spans() {
+        let pattern = TokenTree::from_tokens(&lex("$value:expr").expect("lex pattern"))
+            .expect("group pattern");
+        let input = TokenTree::from_tokens(&lex("42").expect("lex input")).expect("group input");
+        let captures = match_pattern(&pattern, &input).expect("match");
+        let template = TokenTree::from_tokens(&lex("wrap($value)").expect("lex template"))
+            .expect("group template");
+        let expanded = substitute(&template, &captures);
+        let mut flattened = Vec::new();
+        for item in &expanded {
+            item.flatten(&mut flattened);
+        }
+        assert!(flattened
+            .iter()
+            .any(|token| token.kind == TokenKind::Int(42)));
     }
 }
