@@ -15,9 +15,12 @@ use std::sync::Arc;
 
 const SERVER_NAME: &str = "auralsp";
 
+type ExpressionTypes = Arc<HashMap<(u32, u32), aura_sema::Ty>>;
+type PackageExpressionResult = (ExpressionTypes, HashMap<PathBuf, u32>);
+
 struct PackageExpressionCache {
     revision: u64,
-    expression_types: Option<Arc<HashMap<(u32, u32), aura_sema::Ty>>>,
+    expression_types: Option<ExpressionTypes>,
     source_bases: HashMap<PathBuf, u32>,
 }
 
@@ -828,7 +831,7 @@ impl Server {
             local_type_declaration
                 .as_ref()
                 .and_then(|(type_uri, type_symbol)| {
-                    self.document_text(&type_uri)
+                    self.document_text(type_uri)
                         .map(|text| documentation_before(text, type_symbol.range.start as usize))
                 })
                 .unwrap_or_default()
@@ -1421,10 +1424,7 @@ impl Server {
         direct.or(declaration_type).or(initializer_type)
     }
 
-    fn expression_types_for_document(
-        &self,
-        uri: &str,
-    ) -> Option<(Arc<HashMap<(u32, u32), aura_sema::Ty>>, u32)> {
+    fn expression_types_for_document(&self, uri: &str) -> Option<(ExpressionTypes, u32)> {
         if let Some(target_path) = uri_to_path(uri) {
             if let Some(manifest) = manifest_for(&target_path) {
                 let revision = self.host.snapshot().id().get();
@@ -1514,10 +1514,7 @@ impl Server {
         &self,
         manifest: PathBuf,
         revision: u64,
-        result: Option<(
-            Arc<HashMap<(u32, u32), aura_sema::Ty>>,
-            HashMap<PathBuf, u32>,
-        )>,
+        result: Option<PackageExpressionResult>,
     ) {
         let (expression_types, source_bases) = result
             .map(|(expression_types, source_bases)| (Some(expression_types), source_bases))

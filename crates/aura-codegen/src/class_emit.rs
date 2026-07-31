@@ -515,6 +515,7 @@ fn emit_class_gc_hooks(
     }
 }
 
+#[allow(clippy::if_same_then_else)]
 pub(crate) fn emit_class_defs(
     out: &mut String,
     checked: &CheckedFile,
@@ -766,6 +767,7 @@ fn is_async_class_method(m: &FunDecl) -> bool {
         .is_some_and(|ret| ret.name.name == "Task" && ret.type_args.len() == 1)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn emit_async_class_method(
     out: &mut String,
     c: &ClassDecl,

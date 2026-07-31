@@ -684,9 +684,7 @@ impl Parser {
         } else {
             false
         };
-        let end = if nullable {
-            self.tokens[self.idx.saturating_sub(1)].span.end
-        } else if has_type_args {
+        let end = if nullable || has_type_args {
             self.tokens[self.idx.saturating_sub(1)].span.end
         } else {
             name.span.end

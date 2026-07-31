@@ -463,6 +463,11 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
             // No auto-trim; optional leading +/-; empty/invalid/overflow → null.
             if fe.field.name == "toInt" {
                 let none = null_opt_prim("Opt_Int");
+                let free_owned_receiver = if string_expr_is_owned_temp(&fe.object, ctx) {
+                    " free((void *)__s);"
+                } else {
+                    ""
+                };
                 let call = format!(
                     "({{ const char *__s = ({obj}); \
                      if (__s == NULL) __s = \"\"; \
@@ -483,7 +488,7 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                          }} \
                        }} \
                      }} \
-                     __out; }})"
+                     {free_owned_receiver} __out; }})"
                 );
                 if fe.safe {
                     return format!("(({obj}) == NULL ? {none} : {call})");

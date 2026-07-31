@@ -69,7 +69,9 @@ server_pid=$!
 for _ in $(seq 1 40); do
   if curl --silent --show-error --max-time 1 \
     "http://127.0.0.1:$port/health" >"$tmp/health" 2>/dev/null; then
-    break
+    # A successful transfer can still contain a transient/non-health response
+    # while the server task is coming up; only accept the expected body.
+    [[ "$(cat "$tmp/health")" == "ok" ]] && break
   fi
   if ! kill -0 "$server_pid" 2>/dev/null; then
     cat "$tmp/server.log" >&2
