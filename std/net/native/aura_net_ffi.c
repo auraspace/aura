@@ -18,6 +18,7 @@
 #define AURA_NET_MAX_PAYLOAD (64u * 1024u)
 #define AURA_NET_MAX_HTTP (16u * 1024u * 1024u)
 #define AURA_NET_MAX_RESPONSE (16u * 1024u * 1024u)
+#define AURA_NET_LOOPBACK_ADDR UINT32_C(0x7f000001)
 
 static _Thread_local char aura_net_result[AURA_NET_MAX_RESPONSE + 1u];
 
@@ -46,14 +47,14 @@ const char *aura_net_loopback_echo(const char *payload, int64_t timeout_ms)
   if (listener < 0 || client < 0) goto fail;
   memset(&address, 0, sizeof(address));
   address.sin_family = AF_INET;
-  address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  address.sin_addr.s_addr = htonl(AURA_NET_LOOPBACK_ADDR);
   address.sin_port = htons(0);
   if (bind(listener, (struct sockaddr *)&address, sizeof(address)) != 0 ||
       listen(listener, 1) != 0 ||
       getsockname(listener, (struct sockaddr *)&address, &address_len) != 0)
     goto fail;
   /* macOS may leave the bound address as 0.0.0.0; connect to loopback explicitly. */
-  address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  address.sin_addr.s_addr = htonl(AURA_NET_LOOPBACK_ADDR);
   if (connect(client, (struct sockaddr *)&address, address_len) != 0)
     goto fail;
   peer = accept(listener, NULL, NULL);
