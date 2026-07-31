@@ -249,6 +249,8 @@ void aura_gc_collect_executor(AuraTaskExecutor *executor);
 typedef struct AuraTaskChannel AuraTaskChannel;
 typedef struct AuraTaskSelect AuraTaskSelect;
 typedef void (*AuraTaskFrameGcMarkFn)(AuraTaskFrame *frame);
+typedef void (*AuraTaskFrameDataDropFn)(AuraTaskFrame *frame, void *data,
+                                        size_t size);
 typedef void (*AuraTaskBlockingFn)(AuraTaskFrame *frame, void *environment);
 typedef void (*AuraTaskBlockingEnvDestroyFn)(void *environment);
 AuraTaskFrame *aura_task_frame_new_blocking(
@@ -385,6 +387,10 @@ int64_t aura_io_write_fd(int fd, const void *buffer, uint64_t length);
  * for every GC object reachable from that frame's live state. */
 void aura_task_frame_set_gc_mark(AuraTaskFrame *frame,
                                  AuraTaskFrameGcMarkFn mark);
+/* Drop typed references stored in frame data exactly once, after the
+ * poll-specific destroy callback and before the frame data is released. */
+void aura_task_frame_set_data_drop(AuraTaskFrame *frame,
+                                   AuraTaskFrameDataDropFn drop);
 
 /* Retain a foreign handle pin in the task frame until frame destruction.  This
  * is the ownership bridge for compiler-generated TASK/AWAIT state; callers do

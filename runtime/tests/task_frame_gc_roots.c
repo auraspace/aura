@@ -14,6 +14,7 @@ typedef struct
 static int drops;
 static int capture_gc_drops;
 static int outcome_gc_drops;
+static int frame_data_drops;
 
 static void drop_gc(void *data)
 {
@@ -43,6 +44,14 @@ static void drop_outcome_gc(void *data)
 {
   (void)data;
   outcome_gc_drops++;
+}
+
+static void drop_frame_data(AuraTaskFrame *frame, void *data, size_t size)
+{
+  assert(frame != NULL);
+  assert(data != NULL);
+  assert(size == sizeof(FrameState));
+  frame_data_drops++;
 }
 
 static AuraTaskPollState poll_pending(AuraTaskFrame *frame)
@@ -124,6 +133,7 @@ int main(void)
                                              poll_pending, NULL);
   assert(frame != NULL);
   aura_task_frame_set_gc_mark(frame, mark_frame);
+  aura_task_frame_set_data_drop(frame, drop_frame_data);
   FrameState *state = (FrameState *)aura_task_frame_data(frame);
 
   void *child = aura_gc_alloc_full(sizeof(uint64_t), drop_gc, NULL);
@@ -145,6 +155,7 @@ int main(void)
   assert(drops == 0);
 
   aura_task_frame_destroy(frame);
+  assert(frame_data_drops == 1);
   aura_gc_collect();
   assert(drops == 2);
 

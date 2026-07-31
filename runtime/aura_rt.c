@@ -7978,6 +7978,8 @@ typedef void *(*AuraTaskResultCloneFn)(const void *data, size_t size,
 typedef AuraTaskPollState (*AuraTaskPollFn)(AuraTaskFrame *frame);
 typedef AuraTaskPollState (*AuraTaskCancelFn)(AuraTaskFrame *frame);
 typedef void (*AuraTaskFrameDestroyFn)(AuraTaskFrame *frame);
+typedef void (*AuraTaskFrameDataDropFn)(AuraTaskFrame *frame, void *data,
+                                        size_t size);
 typedef void (*AuraTaskCleanupFn)(void *data);
 
 typedef enum
@@ -8117,6 +8119,7 @@ struct AuraTaskFrame
   AuraTaskFrame *cancel_children_head;
   AuraTaskFrame *cancel_sibling_next;
   AuraTaskFrameGcMarkFn gc_mark;
+  AuraTaskFrameDataDropFn data_drop;
   AuraTaskFrame *gc_next;
   AuraTaskFfiPin *ffi_pins;
   AuraTaskScope *scope;
@@ -8409,6 +8412,15 @@ void aura_task_frame_set_gc_mark(AuraTaskFrame *frame,
   if (frame != NULL)
   {
     frame->gc_mark = mark;
+  }
+}
+
+void aura_task_frame_set_data_drop(AuraTaskFrame *frame,
+                                   AuraTaskFrameDataDropFn drop)
+{
+  if (frame != NULL)
+  {
+    frame->data_drop = drop;
   }
 }
 
@@ -9921,6 +9933,10 @@ void aura_task_frame_destroy(AuraTaskFrame *frame)
   if (frame->destroy != NULL)
   {
     frame->destroy(frame);
+  }
+  if (frame->data_drop != NULL)
+  {
+    frame->data_drop(frame, frame->data, frame->data_size);
   }
   aura_task_frame_unpin_foreign_handles(frame);
   aura_task_result_release(&frame->result, NULL, &frame->result_destroy,
