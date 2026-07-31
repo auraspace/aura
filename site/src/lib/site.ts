@@ -3,10 +3,10 @@ export const SITE_ORIGIN = 'https://aura.fadosoft.com'
 
 export const SITE_NAME = 'Aura'
 
-export const DEFAULT_TITLE = 'Aura · Write services that leave as one binary'
+export const DEFAULT_TITLE = 'Aura · Easy to write. Boring to deploy.'
 
 export const DEFAULT_DESCRIPTION =
-  'Aura is a statically typed language with classes, null-safe types, and lightweight tasks that ships as a single native binary.'
+  'Aura is a statically typed language with familiar classes, null-safe types, GC, and native builds in one Rust-powered toolchain.'
 
 /**
  * Absolute public URL for a route path.

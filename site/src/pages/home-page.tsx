@@ -4,13 +4,11 @@ import {
   IconBrandGithub,
   IconCheck,
   IconCircleCheck,
-  IconCode,
   IconComponents,
   IconExternalLink,
   IconFileText,
   IconPackage,
   IconPlayerPlay,
-  IconRocket,
   IconShieldCheck,
   IconTerminal2,
   type Icon,
@@ -26,89 +24,79 @@ import {
 } from '@/components/motion/reveal'
 import { getAllMeta } from '@/lib/rfc/load-rfcs'
 
-const FEATURES: {
-  n: string
+const PILLARS: {
   title: string
   body: string
   Icon: Icon
 }[] = [
   {
-    n: '01',
-    title: 'One artifact from source',
-    body: 'aura build produces a single native executable. The GC and scheduler link into the binary — no runtime install on the host.',
-    Icon: IconPackage,
-  },
-  {
-    n: '02',
-    title: 'Null-safe by default',
-    body: 'T is non-null. T? is opt-in. Flow-sensitive narrowing keeps the safe path short and the escape hatch explicit.',
-    Icon: IconShieldCheck,
-  },
-  {
-    n: '03',
-    title: 'Tasks, not thread soup',
-    body: 'M:N lightweight tasks and channels for concurrent I/O. A class model without ownership ceremony.',
-    Icon: IconBinaryTree2,
-  },
-  {
-    n: '04',
-    title: 'Classes and value types',
-    body: 'Classes and interfaces for the domain. Distinct structs when you want values, not references.',
+    title: 'Familiar on purpose',
+    body: 'Classes, interfaces, methods, generics, and value types make application code readable without importing a framework first.',
     Icon: IconComponents,
   },
   {
-    n: '05',
-    title: 'Toolchain is the language',
-    body: 'check, build, run, test, and packages are first-class CLI verbs — not a pile of third-party scripts.',
-    Icon: IconTerminal2,
-  },
-  {
-    n: '06',
-    title: 'Designed in public RFCs',
-    body: 'Vision, types, memory, runtime, and packages are written down before they ossify. Read the decisions, not just the code.',
-    Icon: IconFileText,
-  },
-]
-
-const METHOD: {
-  n: string
-  title: string
-  body: string
-  Icon: Icon
-}[] = [
-  {
-    n: '01',
-    title: 'Write what you already know.',
-    body: 'Classes, methods, interfaces, and a statement-oriented surface. Hello world needs no framework and no ceremony.',
-    Icon: IconCode,
-  },
-  {
-    n: '02',
-    title: 'Let the compiler hold the line.',
-    body: 'Nullability, exhaustiveness, and package boundaries surface early. Diagnostics are part of the product, not an afterthought.',
+    title: 'Null safety in the type system',
+    body: 'Values are non-null by default. Optional values are explicit, and flow-sensitive checks keep the safe path direct.',
     Icon: IconShieldCheck,
   },
   {
-    n: '03',
-    title: 'Ship one file.',
-    body: 'The default deploy story is a single executable you can copy onto a server, drop in a container, or hand out as a CLI.',
-    Icon: IconRocket,
+    title: 'A runtime that stays with the program',
+    body: 'GC and runtime support link into the executable, so the machine running your service does not need a separate Aura install.',
+    Icon: IconPackage,
+  },
+  {
+    title: 'Concurrency with visible boundaries',
+    body: 'Spawn, join, cancellation, and bounded channels are explicit. Today the executor is deliberately single-threaded and deterministic.',
+    Icon: IconBinaryTree2,
   },
 ]
 
-const PROOF = [
+const WORKFLOW: {
+  command: string
+  title: string
+  body: string
+}[] = [
   {
-    n: '01',
-    t: 'Nullability and Result live in the type system, not style guides.',
+    command: 'aura check ./service',
+    title: 'Catch problems early',
+    body: 'Parse and typecheck the whole package with source-aware diagnostics.',
   },
   {
-    n: '02',
-    t: 'Single-binary deploy is a design principle, not a packaging tip.',
+    command: 'aura test ./service',
+    title: 'Test through the same toolchain',
+    body: 'Run package tests without adding a separate task runner.',
   },
   {
-    n: '03',
-    t: 'Corpus programs compile and run through the aura CLI today.',
+    command: 'aura build ./service -o service',
+    title: 'Produce a native executable',
+    body: 'The C backend compiles your package and links the Aura runtime into the artifact.',
   },
+  {
+    command: './service',
+    title: 'Run it without Aura installed',
+    body: 'Copy the executable to a machine or place it in a small container image.',
+  },
+]
+
+const WORKS_TODAY = [
+  {
+    t: 'Check, build, run, test, format, and emit C from one CLI.',
+  },
+  {
+    t: 'Build multi-file packages with aura.toml and locked dependencies.',
+  },
+  {
+    t: 'Get human-readable diagnostics or structured JSON for tooling.',
+  },
+  {
+    t: 'Compile real corpus programs and repository examples through the C backend.',
+  },
+] as const
+
+const COMES_LATER = [
+  'LLVM as the production backend',
+  'General async lowering and multi-threaded scheduling',
+  'A complete hosted package registry and toolchain manager',
 ] as const
 
 function HeroCodeCard() {
@@ -116,10 +104,7 @@ function HeroCodeCard() {
     <div className="float-y relative mx-auto w-full max-w-[380px] md:ml-auto md:mr-0">
       <div className="lift-md relative rounded-[28px] border border-border-strong bg-card p-5">
         <div className="flex items-center justify-between pb-4">
-          <div className="flex items-center gap-1.5">
-            <span className="inline-block h-1.5 w-1.5 rounded-full bg-accent" />
-            <span className="eyebrow">Compile</span>
-          </div>
+          <span className="font-mono text-[11px] text-muted">source</span>
           <span className="eyebrow inline-flex items-center gap-1 text-ink-muted">
             <IconTerminal2 size={12} stroke={1.75} aria-hidden />
             hello.aura
@@ -127,7 +112,6 @@ function HeroCodeCard() {
         </div>
 
         <div className="overflow-hidden rounded-2xl border border-border bg-tint p-4 font-mono text-[12.5px] leading-[1.65]">
-          <div className="text-muted">{'// C0 corpus'}</div>
           <div>
             <span className="text-accent">package</span> main
           </div>
@@ -143,13 +127,13 @@ function HeroCodeCard() {
         <div className="mt-4 rounded-xl border border-border bg-bg px-4 py-3">
           <div className="flex items-baseline justify-between gap-3">
             <span className="font-display text-[18px] tracking-tight">
-              one binary
+              native executable
             </span>
-            <span className="eyebrow text-ink-muted">native</span>
+            <span className="font-mono text-[11px] text-ink-muted">ready</span>
           </div>
           <div className="mt-1 flex items-center justify-between gap-2">
             <span className="font-mono text-[11px] text-muted">
-              aura run hello.aura
+              aura build hello.aura
             </span>
             <span className="inline-flex items-center gap-1 font-mono text-[11px] text-accent">
               <IconCheck size={12} stroke={2} aria-hidden />
@@ -188,15 +172,12 @@ export function HomePage() {
           <div className="home-section grid grid-cols-1 items-center gap-14 md:grid-cols-12 md:gap-10">
             <div className="md:col-span-7">
               <Reveal onMount y={8} delay={0.02}>
-                <div className="inline-flex items-center gap-2 rounded-full border border-border-strong bg-card px-3 py-1.5">
-                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-accent" />
-                  <span className="eyebrow">Open source · Rust toolchain</span>
-                </div>
+                <p className="eyebrow">A compiled language for service code</p>
               </Reveal>
 
               <h1 className="mt-7 font-display text-[40px] leading-[1.05] font-medium tracking-tight text-balance md:text-[68px] md:leading-[1.02]">
                 <Reveal onMount y={16} delay={0.08} className="block">
-                  Write services that
+                  Easy to write.
                 </Reveal>
                 <Reveal
                   onMount
@@ -204,15 +185,14 @@ export function HomePage() {
                   delay={0.14}
                   className="block italic text-muted"
                 >
-                  leave as one binary.
+                  Boring to deploy.
                 </Reveal>
               </h1>
 
               <Reveal onMount y={12} delay={0.2}>
                 <p className="mt-7 max-w-[520px] text-pretty text-[17px] leading-[1.55] text-muted md:text-[18px]">
-                  Aura is a statically typed language with classes, null-safe
-                  types, and lightweight tasks. The runtime ships inside a
-                  single native executable.
+                  Aura combines familiar classes, null-safe types, GC, and
+                  native builds in one Rust-powered toolchain.
                 </p>
               </Reveal>
 
@@ -228,12 +208,6 @@ export function HomePage() {
                   </Link>
                 </div>
               </Reveal>
-
-              <Reveal onMount y={8} delay={0.32}>
-                <p className="mt-5 eyebrow text-ink-muted">
-                  MIT · {rfcCount} RFCs · compiler through C5n
-                </p>
-              </Reveal>
             </div>
 
             <Reveal onMount y={16} delay={0.18} className="md:col-span-5">
@@ -242,36 +216,42 @@ export function HomePage() {
           </div>
         </section>
 
-        {/* Features */}
+        {/* Product promise */}
         <section
           id="features"
           className="border-t border-border py-20 md:py-24"
         >
           <div className="home-section">
             <Reveal y={12}>
-              <p className="eyebrow">What you get</p>
               <h2 className="mt-4 max-w-[720px] font-display text-[34px] leading-[1.1] font-medium tracking-tight text-balance md:text-[48px]">
-                Small promises.
+                Productive language design,
                 <span className="italic text-muted">
                   {' '}
-                  Kept all the way to the binary.
+                  without outsourcing the deploy story.
                 </span>
               </h2>
+              <p className="mt-6 max-w-[620px] text-[17px] leading-[1.65] text-muted">
+                Aura keeps application code approachable while making the build
+                artifact explicit from the start.
+              </p>
             </Reveal>
 
-            <Stagger className="mt-14 grid grid-cols-1 gap-x-10 gap-y-12 sm:grid-cols-2 lg:grid-cols-3">
-              {FEATURES.map((f) => (
-                <StaggerItem key={f.n} className="max-w-[360px]">
-                  <article>
+            <Stagger className="mt-14 grid grid-cols-1 gap-6 md:grid-cols-2">
+              {PILLARS.map((pillar, index) => (
+                <StaggerItem key={pillar.title}>
+                  <article
+                    className={`h-full rounded-2xl border border-border p-7 ${
+                      index === 0 || index === 3 ? 'bg-tint/70' : 'bg-card'
+                    }`}
+                  >
                     <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-full border border-border bg-card text-accent">
-                      <f.Icon size={20} stroke={1.5} aria-hidden />
+                      <pillar.Icon size={20} stroke={1.5} aria-hidden />
                     </div>
-                    <span className="eyebrow text-ink-muted">{f.n}</span>
-                    <h3 className="mt-3 font-display text-[22px] leading-snug tracking-tight">
-                      {f.title}
+                    <h3 className="font-display text-[23px] leading-snug tracking-tight">
+                      {pillar.title}
                     </h3>
                     <p className="mt-3 text-[15px] leading-[1.55] text-muted">
-                      {f.body}
+                      {pillar.body}
                     </p>
                   </article>
                 </StaggerItem>
@@ -280,124 +260,28 @@ export function HomePage() {
           </div>
         </section>
 
-        {/* Story */}
+        {/* Deploy path */}
         <section className="border-t border-border bg-tint/60 py-20 md:py-28">
-          <div className="home-section grid grid-cols-1 gap-12 md:grid-cols-12 md:gap-10">
-            <Reveal
-              y={14}
-              className="md:col-span-4 md:sticky md:top-28 md:self-start"
-            >
-              <aside>
-                <p className="eyebrow">Origin</p>
-                <h2 className="mt-4 font-display text-[32px] leading-[1.1] font-medium tracking-tight md:text-[36px]">
-                  Why Aura
-                  <span className="block italic text-muted">exists.</span>
-                </h2>
-                <p className="mt-5 max-w-[280px] text-[15px] leading-[1.55] text-muted">
-                  A middle path between everyday productivity and a deploy story
-                  that stays simple.
-                </p>
-                <dl className="mt-8 space-y-3 border-t border-border pt-6 text-[13px]">
-                  <div className="flex justify-between gap-4">
-                    <dt className="eyebrow text-ink-muted">Spec</dt>
-                    <dd className="font-medium text-fg">RFC-000</dd>
-                  </div>
-                  <div className="flex justify-between gap-4">
-                    <dt className="eyebrow text-ink-muted">Status</dt>
-                    <dd className="font-medium text-fg">Accepted</dd>
-                  </div>
-                  <div className="flex justify-between gap-4">
-                    <dt className="eyebrow text-ink-muted">Layer</dt>
-                    <dd className="font-medium text-fg">Foundation</dd>
-                  </div>
-                </dl>
-              </aside>
-            </Reveal>
-
-            <div className="md:col-span-7 md:col-start-6">
-              <Reveal y={16}>
-                <blockquote className="font-display text-[28px] leading-[1.25] font-medium tracking-tight text-balance md:text-[36px]">
-                  <span className="block">We kept choosing between</span>
-                  <span className="block italic text-muted">
-                    comfort and a clean deploy.
-                  </span>
-                </blockquote>
-              </Reveal>
-
-              <Stagger
-                className="mt-10 space-y-5 text-[17px] leading-[1.7] text-muted"
-                staggerDelay={0.06}
-              >
-                <StaggerItem y={10}>
-                  <p>
-                    Dynamic runtimes iterate fast, then leave you with two
-                    languages: the one you write and the one ops has to install.
-                    Systems languages are sharp and safe, but ownership ceremony
-                    is heavy for everyday service code.
-                  </p>
-                </StaggerItem>
-                <StaggerItem y={10}>
-                  <p>
-                    Managed platforms are productive until the footprint and the
-                    ship story get in the way. Transpiled stacks bring libraries
-                    — and a second runtime gap.
-                  </p>
-                </StaggerItem>
-                <StaggerItem y={10}>
-                  <p className="text-fg">
-                    Aura aims at the middle path: class-based productivity,
-                    concurrent tasks with GC, and a single native artifact you
-                    can copy onto a machine.
-                  </p>
-                </StaggerItem>
-                <StaggerItem y={10}>
-                  <p>
-                    The language is Aura. The toolchain is Rust. The long path
-                    is LLVM; today a C backend already checks, builds, runs, and
-                    tests real packages from this repository.
-                  </p>
-                </StaggerItem>
-              </Stagger>
-
-              <Reveal y={10} delay={0.1} className="mt-10">
-                <Link to="/rfc/000" className="btn-ghost">
-                  Read RFC-000 · Vision & design principles
-                  <IconArrowRight size={15} stroke={1.75} aria-hidden />
-                </Link>
-              </Reveal>
-            </div>
-          </div>
-        </section>
-
-        {/* Method */}
-        <section className="border-t border-border py-20 md:py-24">
           <div className="home-section">
-            <Reveal y={12}>
-              <p className="eyebrow">The Aura method</p>
-              <h2 className="mt-4 max-w-[640px] font-display text-[34px] leading-[1.1] font-medium tracking-tight text-balance md:text-[44px]">
-                From familiar source
-                <span className="italic text-muted">
-                  {' '}
-                  to one deployable file.
-                </span>
+            <Reveal y={14}>
+              <p className="eyebrow">The deploy path</p>
+              <h2 className="mt-4 max-w-[700px] font-display text-[34px] leading-[1.1] font-medium tracking-tight text-balance md:text-[48px]">
+                One toolchain from first check
+                <span className="italic text-muted"> to running process.</span>
               </h2>
             </Reveal>
 
-            <Stagger
-              className="mt-14 grid grid-cols-1 gap-10 md:grid-cols-3 md:gap-8"
-              staggerDelay={0.1}
-            >
-              {METHOD.map((step) => (
-                <StaggerItem key={step.n}>
-                  <article className="rounded-2xl border border-border bg-card p-6 transition-shadow duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:shadow-[var(--lift)]">
-                    <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-full border border-border bg-tint text-accent">
-                      <step.Icon size={20} stroke={1.5} aria-hidden />
-                    </div>
-                    <span className="eyebrow text-ink-muted">{step.n}</span>
-                    <h3 className="mt-3 font-display text-[22px] leading-snug tracking-tight">
+            <Stagger className="mt-14 grid grid-cols-1 gap-px overflow-hidden rounded-2xl border border-border bg-border md:grid-cols-2">
+              {WORKFLOW.map((step) => (
+                <StaggerItem key={step.command}>
+                  <article className="h-full bg-card p-7 md:p-8">
+                    <code className="font-mono text-[13px] text-accent">
+                      $ {step.command}
+                    </code>
+                    <h3 className="mt-6 font-display text-[23px] leading-snug tracking-tight">
                       {step.title}
                     </h3>
-                    <p className="mt-3 text-[15px] leading-[1.55] text-muted">
+                    <p className="mt-3 max-w-[420px] text-[15px] leading-[1.6] text-muted">
                       {step.body}
                     </p>
                   </article>
@@ -407,25 +291,62 @@ export function HomePage() {
           </div>
         </section>
 
-        {/* Quiet proof */}
+        {/* Origin */}
         <section className="border-t border-border py-20 md:py-24">
-          <div className="home-section grid grid-cols-1 items-start gap-12 md:grid-cols-12">
+          <div className="home-section grid grid-cols-1 gap-12 md:grid-cols-12 md:gap-10">
             <Reveal y={14} className="md:col-span-5">
-              <p className="eyebrow">Quiet proof</p>
-              <h2 className="mt-4 font-display text-[32px] leading-[1.12] font-medium tracking-tight md:text-[40px]">
-                Spec first.
-                <span className="block italic text-muted">
-                  Then the compiler.
-                </span>
+              <h2 className="font-display text-[34px] leading-[1.1] font-medium tracking-tight text-balance md:text-[44px]">
+                Why build another language?
               </h2>
-              <p className="mt-5 max-w-[420px] text-[16px] leading-[1.6] text-muted">
-                The site you are on indexes the RFCs that lock the language,
-                runtime, packages, and CLI — before features silently diverge.
+              <p className="mt-6 max-w-[430px] text-[17px] leading-[1.65] text-muted">
+                Because application developers should not have to choose between
+                approachable code and a deployment model they can fully explain.
               </p>
             </Reveal>
 
-            <motion.ul
-              className="md:col-span-6 md:col-start-7 m-0 list-none space-y-0 divide-y divide-border border-y border-border p-0"
+            <Reveal
+              y={14}
+              delay={0.08}
+              className="md:col-span-6 md:col-start-7"
+            >
+              <div className="space-y-6 text-[17px] leading-[1.7] text-muted">
+                <p>
+                  Aura takes familiar object-oriented tools, adds explicit null
+                  safety and managed memory, then carries those decisions
+                  through a native build pipeline.
+                </p>
+                <p className="text-fg">
+                  The goal is not to hide systems behavior. It is to give
+                  everyday service code a smaller, more predictable operational
+                  footprint.
+                </p>
+              </div>
+              <Link to="/rfc/000" className="btn-ghost mt-9">
+                Read the design principles
+                <IconArrowRight size={15} stroke={1.75} aria-hidden />
+              </Link>
+            </Reveal>
+          </div>
+        </section>
+
+        {/* Current status */}
+        <section className="border-t border-border bg-tint/60 py-20 md:py-24">
+          <div className="home-section grid grid-cols-1 items-start gap-12 md:grid-cols-12 md:gap-10">
+            <Reveal y={14} className="md:col-span-5">
+              <h2 className="font-display text-[32px] leading-[1.12] font-medium tracking-tight md:text-[40px]">
+                Useful today.
+                <span className="block italic text-muted">
+                  Honest about what comes next.
+                </span>
+              </h2>
+              <p className="mt-5 max-w-[420px] text-[16px] leading-[1.6] text-muted">
+                Aura is open source and developed against {rfcCount} public
+                RFCs, an executable corpus, and repository examples.
+              </p>
+            </Reveal>
+
+            <motion.div
+              className="md:col-span-6 md:col-start-7"
               initial="hidden"
               whileInView="show"
               viewport={{ once: true, amount: 0.2 }}
@@ -436,31 +357,67 @@ export function HomePage() {
                 },
               }}
             >
-              {PROOF.map((row) => (
-                <motion.li
-                  key={row.n}
-                  className="flex gap-4 py-5"
-                  variants={{
-                    hidden: { opacity: 0, y: 10 },
-                    show: {
-                      opacity: 1,
-                      y: 0,
-                      transition: { duration: 0.6, ease: easeOutExpo },
-                    },
-                  }}
-                >
-                  <IconCircleCheck
-                    size={20}
-                    stroke={1.5}
-                    className="mt-0.5 shrink-0 text-accent"
-                    aria-hidden
-                  />
-                  <span className="text-[16px] leading-snug text-fg">
-                    {row.t}
-                  </span>
-                </motion.li>
-              ))}
-            </motion.ul>
+              <div className="rounded-2xl border border-border bg-card p-7">
+                <h3 className="font-display text-[22px] tracking-tight">
+                  Works today
+                </h3>
+                <ul className="mt-5 m-0 list-none space-y-4 p-0">
+                  {WORKS_TODAY.map((row) => (
+                    <motion.li
+                      key={row.t}
+                      className="flex gap-3"
+                      variants={{
+                        hidden: { opacity: 0, y: 10 },
+                        show: {
+                          opacity: 1,
+                          y: 0,
+                          transition: { duration: 0.6, ease: easeOutExpo },
+                        },
+                      }}
+                    >
+                      <IconCircleCheck
+                        size={19}
+                        stroke={1.5}
+                        className="mt-0.5 shrink-0 text-accent"
+                        aria-hidden
+                      />
+                      <span className="text-[15px] leading-snug text-fg">
+                        {row.t}
+                      </span>
+                    </motion.li>
+                  ))}
+                </ul>
+              </div>
+
+              <motion.div
+                className="mt-5 rounded-2xl border border-border bg-bg p-7"
+                variants={{
+                  hidden: { opacity: 0, y: 10 },
+                  show: {
+                    opacity: 1,
+                    y: 0,
+                    transition: { duration: 0.6, ease: easeOutExpo },
+                  },
+                }}
+              >
+                <h3 className="font-display text-[22px] tracking-tight">
+                  Intentionally later
+                </h3>
+                <ul className="mt-5 m-0 list-none space-y-3 p-0 text-[15px] leading-snug text-muted">
+                  {COMES_LATER.map((item) => (
+                    <li key={item} className="flex gap-3">
+                      <IconFileText
+                        size={18}
+                        stroke={1.5}
+                        className="mt-0.5 shrink-0 text-ink-muted"
+                        aria-hidden
+                      />
+                      <span>{item}</span>
+                    </li>
+                  ))}
+                </ul>
+              </motion.div>
+            </motion.div>
           </div>
         </section>
 
@@ -469,21 +426,24 @@ export function HomePage() {
           <div className="home-section">
             <Reveal y={16}>
               <div className="lift-md rounded-[28px] border border-border-strong bg-card px-8 py-12 text-center md:px-16 md:py-16">
-                <p className="eyebrow">Start here</p>
-                <h2 className="mx-auto mt-4 max-w-[640px] font-display text-[32px] leading-[1.12] font-medium tracking-tight text-balance md:text-[44px]">
-                  Learn with the guides,
+                <h2 className="mx-auto max-w-[640px] font-display text-[32px] leading-[1.12] font-medium tracking-tight text-balance md:text-[44px]">
+                  Start with a small program,
                   <span className="italic text-muted">
                     {' '}
-                    design with the RFCs.
+                    then inspect every design decision.
                   </span>
                 </h2>
+                <p className="mx-auto mt-5 max-w-[520px] text-[16px] leading-[1.6] text-muted">
+                  The guides teach the language. The RFCs explain the tradeoffs
+                  behind it.
+                </p>
                 <div className="mt-9 flex flex-wrap items-center justify-center gap-4">
                   <Link to="/docs" className="btn-primary">
-                    Open the docs
+                    Read the docs
                     <IconArrowRight size={16} stroke={1.75} aria-hidden />
                   </Link>
                   <Link to="/rfc" className="btn-ghost">
-                    RFC catalog
+                    Browse RFCs
                     <IconArrowRight size={15} stroke={1.75} aria-hidden />
                   </Link>
                   <a
@@ -508,7 +468,7 @@ export function HomePage() {
               Aura
             </p>
             <p className="text-[13px] text-muted">
-              MIT license · Spec-driven language & toolchain
+              MIT licensed. Designed and built in public.
             </p>
             <nav className="flex flex-wrap gap-5">
               <Link to="/docs" className="navlink">
