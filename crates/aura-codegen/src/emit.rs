@@ -10757,6 +10757,13 @@ fn spawn_parameter_locals(
 /// Sema already checked the initializer; this fallback keeps unannotated
 /// locals available to the frame layout pass instead of silently omitting them.
 fn infer_spawn_local_key(expr: &Expr, checked: &CheckedFile) -> Option<String> {
+    // Sema has already resolved every expression, including binary, field, and
+    // conditional initializers. Reuse that result so frame discovery does not
+    // silently drop unannotated locals whose initializer is not a simple call.
+    let span = expr.span();
+    if let Some(ty) = checked.expr_tys.get(&(span.start, span.end)) {
+        return Some(full_type_mono(&ty.mono_suffix(), checked));
+    }
     match expr {
         Expr::Int(_) => Some("Int".into()),
         Expr::Bool(_) => Some("Bool".into()),

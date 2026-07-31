@@ -1119,8 +1119,9 @@ TaskError>` locals release their payload at scope exit. Nested
   same fixture passes under ASAN/UBSAN. Cancellation and frame teardown are
   covered by the runtime matrix.
 - Spawn frame discovery now infers unannotated `Int`, `Bool`, `String`, lambda,
-  function-call, class-constructor, and `Array<T>` locals before laying out the
-  capture struct; native fixtures cover unannotated primitive and array captures.
+  function-call, class-constructor, `Array<T>`, and sema-resolved expression
+  locals before laying out the capture struct; native fixtures cover
+  unannotated primitive, array, and expression captures.
 - The remaining limits are deliberate contract boundaries rather than
   unresolved capture bugs: richer aggregate element types beyond supported
   arrays and broader scheduler policy remain tracked by ASYNC-003.
