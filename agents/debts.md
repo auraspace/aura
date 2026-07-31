@@ -1611,6 +1611,8 @@ TaskError>` ABI, plus cooperative `isCancelled()` inside generated async
 - Progress: generated enum monomorphs now expose clone/drop helpers for owned
   String fields; generic spawn and owned join use them, covered by repeated
   join plus forced-GC sanitizer execution.
+- Progress: the same enum clone/drop boundary now handles nested Array, class,
+  foreign-handle, and enum fields, including root/retain transitions.
 - Residual: generic bounded pollers still need dedicated clone/destroy paths for
-  enum fields containing nested arrays/classes/foreign handles and richer
-  aggregates beyond the shared Outcome case.
+  mixed aggregates whose elements require recursive ownership policies beyond
+  the generated enum boundary.

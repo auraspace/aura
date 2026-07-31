@@ -346,44 +346,109 @@ fn emit_enum_clone_drop(out: &mut String, checked: &CheckedFile, e: &EnumDecl, a
             }
             let key = type_ref_local_key_expand(&field.ty, &params, args, checked);
             let fnm = mangle_ident(&field.name.name);
+            let full_key = crate::expr::full_type_mono(&key, checked);
+            let nested_enum =
+                crate::expr::mono_split(&full_key, checked).is_some_and(|(base, _)| {
+                    checked
+                        .ast
+                        .enums
+                        .iter()
+                        .any(|nested| nested.name.name == base)
+                });
             if key == "String" {
                 let _ = writeln!(
                     out,
                     "      if (source->data.{vn}.{fnm} != NULL) {{ size_t len = strlen(source->data.{vn}.{fnm}); char *text = (char *)malloc(len + 1); if (text == NULL) abort(); memcpy(text, source->data.{vn}.{fnm}, len + 1); copy.data.{vn}.{fnm} = text; }}"
                 );
-                if variant_has_owned_field(e, &pkg, args, &variant.name.name, checked) {
-                    let _ = writeln!(out, "      copy.data.{vn}.owned = true;");
-                }
+            } else if crate::array_emit::is_array_type_key(&full_key) {
+                let clone = crate::names::c_method_name(&full_key, "clone");
+                let array_cty = crate::stmt::local_key_to_c(&full_key, checked);
+                let _ = writeln!(
+                    out,
+                    "      copy.data.{vn}.{fnm} = {clone}(({array_cty} *)&source->data.{vn}.{fnm});"
+                );
+            } else if is_heap_class_mono(&full_key, checked) {
+                let _ = writeln!(
+                    out,
+                    "      copy.data.{vn}.{fnm} = source->data.{vn}.{fnm}; if (copy.data.{vn}.{fnm} != NULL) aura_gc_add_root((void **)&copy.data.{vn}.{fnm});"
+                );
+            } else if full_key == "ForeignHandle" || full_key.starts_with("ForeignHandle_") {
+                let _ = writeln!(
+                    out,
+                    "      copy.data.{vn}.{fnm} = source->data.{vn}.{fnm}; if (copy.data.{vn}.{fnm} != NULL) (void)aura_ffi_handle_retain(copy.data.{vn}.{fnm});"
+                );
+            } else if nested_enum {
+                let nested_cty = c_enum_type(&full_key);
+                let _ = writeln!(
+                    out,
+                    "      copy.data.{vn}.{fnm} = {nested_cty}_clone(&source->data.{vn}.{fnm});"
+                );
             }
         }
-        out.push_str("      break;\n    }\n");
+        if variant_has_owned_field(e, &pkg, args, &variant.name.name, checked) {
+            let _ = writeln!(out, "      copy.data.{vn}.owned = true;");
+        }
+        let _ = writeln!(out, "      break;\n    }}");
     }
     out.push_str("    default: break;\n  }\n  return copy;\n}\n");
     let _ = writeln!(out, "void {cty}_drop({cty} *value) {{");
     out.push_str("  if (value == NULL) return;\n  switch (value->tag) {\n");
     for (tag, variant) in e.variants.iter().enumerate() {
         let vn = mangle_ident(&variant.name.name);
+        let has_owned = variant_has_owned_field(e, &pkg, args, &variant.name.name, checked);
         let _ = writeln!(out, "    case {tag}: {{");
+        if has_owned {
+            let _ = writeln!(out, "      if (value->data.{vn}.owned) {{");
+        }
         for field in &variant.fields {
             if enum_field_is_unit(field, &params, args, checked) {
                 continue;
             }
             let key = type_ref_local_key_expand(&field.ty, &params, args, checked);
+            let full_key = crate::expr::full_type_mono(&key, checked);
             let fnm = mangle_ident(&field.name.name);
+            let nested_enum =
+                crate::expr::mono_split(&full_key, checked).is_some_and(|(base, _)| {
+                    checked
+                        .ast
+                        .enums
+                        .iter()
+                        .any(|nested| nested.name.name == base)
+                });
             if key == "String" {
-                if variant_has_owned_field(e, &pkg, args, &variant.name.name, checked) {
-                    let _ = writeln!(
-                        out,
-                        "      if (value->data.{vn}.owned && value->data.{vn}.{fnm} != NULL) free((void *)value->data.{vn}.{fnm});"
-                    );
-                } else {
-                    let _ = writeln!(
-                        out,
-                        "      if (value->data.{vn}.{fnm} != NULL) free((void *)value->data.{vn}.{fnm});"
-                    );
+                let _ = writeln!(
+                    out,
+                    "        if (value->data.{vn}.{fnm} != NULL) free((void *)value->data.{vn}.{fnm}); value->data.{vn}.{fnm} = NULL;"
+                );
+            } else if crate::array_emit::is_array_type_key(&full_key) {
+                let mut free = String::new();
+                crate::array_emit::emit_array_contents_free(
+                    &mut free,
+                    0,
+                    &format!("value->data.{vn}.{fnm}"),
+                    &full_key,
+                );
+                for line in free.lines() {
+                    let _ = writeln!(out, "        {line}");
                 }
-                let _ = writeln!(out, "      value->data.{vn}.{fnm} = NULL;");
+            } else if is_heap_class_mono(&full_key, checked) {
+                let _ = writeln!(
+                    out,
+                    "        if (value->data.{vn}.{fnm} != NULL) aura_gc_remove_root((void **)&value->data.{vn}.{fnm});"
+                );
+            } else if full_key == "ForeignHandle" || full_key.starts_with("ForeignHandle_") {
+                let _ = writeln!(
+                    out,
+                    "        if (value->data.{vn}.{fnm} != NULL) (void)aura_ffi_handle_drop(&value->data.{vn}.{fnm});"
+                );
+            } else if nested_enum {
+                let nested_cty = c_enum_type(&full_key);
+                let _ = writeln!(out, "        {nested_cty}_drop(&value->data.{vn}.{fnm});");
             }
+        }
+        if has_owned {
+            let _ = writeln!(out, "        value->data.{vn}.owned = false;");
+            out.push_str("      }\n");
         }
         out.push_str("      break;\n    }\n");
     }
