@@ -16,7 +16,7 @@ the handle and repeated `close` is harmless. Operations are nonblocking and
 return `OK`, `PENDING`, `TIMEOUT`, `EOF`, `ERROR`, `CLOSED`, or
 `UNSUPPORTED`; positive timeout values bound one readiness wait in milliseconds.
 Buffers are borrowed only for the duration of a call and byte counts are
-returned explicitly. The current capability is localhost TCP on POSIX targets
+returned explicitly. The current capability is endpoint-aware TCP on POSIX targets
 (`__linux__`/`__APPLE__`); scheduler suspension, task cancellation wakeups, and
 filesystem async operations are not part of this slice yet.
 **Checklist:**
@@ -89,7 +89,7 @@ returns the transferred byte count. `std.net.readStream` and
 `std.net.writeStream` now provide the matching bounded compiler lowering for a
 typed `AuraTcpStream`: task-scoped pinning, readiness waits, EOF/error mapping,
 short-write continuation, and cancellation cleanup are emitted in the frame.
-`std.net.connect(port, timeout)` now lowers to an owned
+`std.net.connect(endpoint, timeout)` now lowers to an owned
 `ForeignHandle<Int>` around a connected `AuraTcpStream`; the compiler ABI
 fixture proves constructor wiring and destroy ownership, while native loopback
 execution remains host-gated.
@@ -107,7 +107,7 @@ portable regular-file async I/O and a general reactor abstraction remain open.
 **Objective:** Provide reliable TCP transport for client and server workloads.
 
 **Implementation status:** Partial. `runtime/aura_rt.c` now exposes an opaque,
-status-based localhost TCP listener/stream slice on POSIX targets. Bind creates
+status-based endpoint-aware TCP listener/stream slice on POSIX targets. Bind creates
 a listening socket (including ephemeral port selection), accept/connect use
 nonblocking descriptors with an explicit millisecond poll bound, and read/write
 report byte counts plus `OK`, `PENDING`, `TIMEOUT`, `EOF`, `CLOSED`, or `ERROR`.

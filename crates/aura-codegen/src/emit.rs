@@ -196,13 +196,13 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
     out.push_str("typedef struct AuraTcpListener AuraTcpListener;\n");
     out.push_str("typedef struct AuraTcpStream AuraTcpStream;\n");
     out.push_str("typedef enum { AURA_TCP_OK = 0, AURA_TCP_PENDING = 1, AURA_TCP_EOF = 2, AURA_TCP_TIMEOUT = 3, AURA_TCP_ERROR = -1, AURA_TCP_CLOSED = -2, AURA_TCP_UNSUPPORTED = -3 } AuraTcpStatus;\n");
-    out.push_str(
-        "AuraTcpStatus aura_tcp_listener_bind(uint16_t, uint16_t *, AuraTcpListener **);\n",
-    );
+    out.push_str("AuraTcpStatus aura_tcp_listener_bind_endpoint(const char *, uint16_t *, AuraTcpListener **);\n");
     out.push_str(
         "AuraTcpStatus aura_tcp_listener_accept(AuraTcpListener *, int, AuraTcpStream **);\n",
     );
-    out.push_str("AuraTcpStatus aura_tcp_stream_connect(uint16_t, int, AuraTcpStream **);\n");
+    out.push_str(
+        "AuraTcpStatus aura_tcp_stream_connect_endpoint(const char *, int, AuraTcpStream **);\n",
+    );
     out.push_str("int aura_tcp_listener_close(AuraTcpListener *);\n");
     out.push_str("int aura_tcp_stream_close(AuraTcpStream *);\n");
     out.push_str("void aura_tcp_listener_destroy(AuraTcpListener *);\n");
@@ -11731,27 +11731,27 @@ pub(crate) fn emit_fun(
             return;
         }
         if let ("listen", 1) = (f.name.name.as_str(), f.params.len()) {
-            let port = mangle_ident(&f.params[0].name.name);
+            let endpoint = mangle_ident(&f.params[0].name.name);
             out.push_str(
                 "  AuraTcpListener *__listener = NULL; AuraFfiOpaqueHandle *__handle = NULL; uint16_t __bound_port = 0;\n",
             );
             let _ = writeln!(
                 out,
-                "  if ({port} < 0 || {port} > UINT16_MAX || aura_tcp_listener_bind((uint16_t){port}, &__bound_port, &__listener) != AURA_TCP_OK || __listener == NULL) {{ aura_throw_string(\"std.net.listen failed\"); return NULL; }}"
+                "  if ({endpoint} == NULL || aura_tcp_listener_bind_endpoint({endpoint}, &__bound_port, &__listener) != AURA_TCP_OK || __listener == NULL) {{ aura_throw_string(\"std.net.listen failed\"); return NULL; }}"
             );
             out.push_str("  if (aura_ffi_handle_new((void *)__listener, aura_destroy_tcp_listener_resource, &__handle) != AURA_FFI_OK) { aura_tcp_listener_destroy(__listener); aura_throw_string(\"std.net.listen failed\"); return NULL; }\n");
             out.push_str("  return __handle;\n}\n");
             return;
         }
         if let ("connect", 2) = (f.name.name.as_str(), f.params.len()) {
-            let port = mangle_ident(&f.params[0].name.name);
+            let endpoint = mangle_ident(&f.params[0].name.name);
             let timeout = mangle_ident(&f.params[1].name.name);
             out.push_str(
                 "  AuraTcpStream *__stream = NULL; AuraFfiOpaqueHandle *__handle = NULL;\n",
             );
             let _ = writeln!(
                 out,
-                "  if (aura_tcp_stream_connect((uint16_t){port}, (int){timeout}, &__stream) != AURA_TCP_OK || __stream == NULL) {{ aura_throw_string(\"std.net.connect failed\"); return NULL; }}"
+                "  if ({endpoint} == NULL || aura_tcp_stream_connect_endpoint({endpoint}, (int){timeout}, &__stream) != AURA_TCP_OK || __stream == NULL) {{ aura_throw_string(\"std.net.connect failed\"); return NULL; }}"
             );
             out.push_str("  if (aura_ffi_handle_new((void *)__stream, aura_destroy_tcp_stream_resource, &__handle) != AURA_FFI_OK) { aura_tcp_stream_destroy(__stream); aura_throw_string(\"std.net.connect failed\"); return NULL; }\n");
             out.push_str("  return __handle;\n}\n");

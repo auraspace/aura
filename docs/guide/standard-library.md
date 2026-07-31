@@ -23,7 +23,7 @@ Aura’s **core** stdlib is intentionally small ([RFC-007](/rfc/007), [RFC-000](
 | `std.mime`        | `std/mime`        | Media-type validation and upload filename sanitization                                   |
 | `std.fs`          | `std/fs`          | Portable path and filesystem metadata helpers                                            |
 | `std.os`          | `std/os`          | Environment, process, platform, and working-directory helpers                            |
-| `std.net`         | `std/net`         | Nonblocking loopback TCP listeners, connections, streams, and typed failures             |
+| `std.net`         | `std/net`         | Nonblocking endpoint-aware TCP listeners, connections, streams, and typed failures       |
 | `std.dns`         | `std/dns`         | Bounded numeric host resolution                                                          |
 | `std.url`         | `std/url`         | Origin-form and absolute URI parsing plus component encoding                             |
 | `std.http`        | `std/http`        | Bounded HTTP/1.1 client/server request and response values                               |
@@ -280,19 +280,21 @@ index access yet.
 
 ## `std.net`
 
-`std.net` is loopback-only in the current bounded POSIX runtime surface. Handles
-are owned `ForeignHandle<Int>` resources and async operations preserve them
-across suspension.
+`std.net` accepts endpoint strings on POSIX targets. A numeric endpoint such as
+`"8080"` binds/connects to loopback; use `"0.0.0.0:8080"` for all IPv4
+interfaces or `"[::]:8080"` for IPv6. Handles are owned
+`ForeignHandle<Int>` resources and async operations preserve them across
+suspension.
 
-| API                                         | Contract                                             |
-| ------------------------------------------- | ---------------------------------------------------- |
-| `listen(port)` / `connect(port, timeoutMs)` | Create a listener or connect to a loopback stream    |
-| `accept(listener)`                          | Async accepted-stream operation                      |
-| `closeListener` / `closeStream`             | Idempotent terminal close operations                 |
-| `readStream(stream, capacity)`              | Async single-chunk read; empty string means EOF      |
-| `readAllStream(stream, capacity)`           | Async read-until-EOF bounded by aggregate capacity   |
-| `writeStream(stream, content)`              | Async complete write; returns transferred byte count |
-| `readStreamResult` / `writeStreamResult`    | Shared `std.error.Outcome` wrappers                  |
+| API                                                 | Contract                                                                                         |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `listen(endpoint)` / `connect(endpoint, timeoutMs)` | Create a listener or connect to an endpoint; `endpoint` is `PORT`, `HOST:PORT`, or `[IPv6]:PORT` |
+| `accept(listener)`                                  | Async accepted-stream operation                                                                  |
+| `closeListener` / `closeStream`                     | Idempotent terminal close operations                                                             |
+| `readStream(stream, capacity)`                      | Async single-chunk read; empty string means EOF                                                  |
+| `readAllStream(stream, capacity)`                   | Async read-until-EOF bounded by aggregate capacity                                               |
+| `writeStream(stream, content)`                      | Async complete write; returns transferred byte count                                             |
+| `readStreamResult` / `writeStreamResult`            | Shared `std.error.Outcome` wrappers                                                              |
 
 ## `std.dns`
 

@@ -34,25 +34,25 @@ pub async fun serve(listener: ForeignHandle<Int>,
   throw "http intrinsic"
 }
 
-/// Send one bounded HTTP/1.1 GET request to a loopback TCP server and return
+/// Send one bounded HTTP/1.1 GET request to an endpoint and return
 /// the raw response bytes. This initial client closes the connection after one
 /// response; response parsing and pooled/streaming transports remain separate
 /// APIs.
-pub async fun get(port: Int, target: String): String {
-  val stream = connect(port, 1000)
-  val request = "GET " + target + " HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n"
+pub async fun get(endpoint: String, target: String): String {
+  val stream = connect(endpoint, 1000)
+  val request = "GET " + target + " HTTP/1.1\r\nHost: " + endpoint + "\r\nConnection: close\r\n\r\n"
   await writeStream(stream, request)
   val response: String = await readAllStream(stream, 65536)
   closeStream(stream)
   return response
 }
 
-/// Send one bounded HTTP/1.1 POST request to a loopback TCP server and return
+/// Send one bounded HTTP/1.1 POST request to an endpoint and return
 /// the raw response bytes. `body` is sent with an exact Content-Length; this
 /// helper deliberately does not claim request streaming or custom headers.
-pub async fun post(port: Int, target: String, body: String): String {
-  val stream = connect(port, 1000)
-  val request = "POST " + target + " HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: " +
+pub async fun post(endpoint: String, target: String, body: String): String {
+  val stream = connect(endpoint, 1000)
+  val request = "POST " + target + " HTTP/1.1\r\nHost: " + endpoint + "\r\nContent-Length: " +
                 body.len.toString() + "\r\nConnection: close\r\n\r\n" + body
   await writeStream(stream, request)
   val response: String = await readAllStream(stream, 65536)
@@ -70,26 +70,26 @@ pub class ClientResponse(pub val status: Int, pub val body: String) {}
 /// Fetch one loopback HTTP/1.1 response and split its status line and body.
 /// Headers remain in the raw response API while the typed client grows its
 /// error and header model.
-pub async fun getResponse(port: Int, target: String): ClientResponse {
-  val raw: String = await get(port, target)
+pub async fun getResponse(endpoint: String, target: String): ClientResponse {
+  val raw: String = await get(endpoint, target)
   return parseResponse(raw)
 }
 
 /// Send a bounded loopback POST request and split its HTTP/1.1 response.
-pub async fun postResponse(port: Int, target: String, body: String): ClientResponse {
-  val raw: String = await post(port, target, body)
+pub async fun postResponse(endpoint: String, target: String, body: String): ClientResponse {
+  val raw: String = await post(endpoint, target, body)
   return parseResponse(raw)
 }
 
 /// Typed variant that preserves protocol failures instead of returning status 0.
-pub async fun getResponseResult(port: Int, target: String): Errs.Outcome<ClientResponse, Errs.Error> {
-  val raw: String = await get(port, target)
+pub async fun getResponseResult(endpoint: String, target: String): Errs.Outcome<ClientResponse, Errs.Error> {
+  val raw: String = await get(endpoint, target)
   return parseResponseResult(raw)
 }
 
 /// Typed variant of `postResponse` with shared std.error payloads.
-pub async fun postResponseResult(port: Int, target: String, body: String): Errs.Outcome<ClientResponse, Errs.Error> {
-  val raw: String = await post(port, target, body)
+pub async fun postResponseResult(endpoint: String, target: String, body: String): Errs.Outcome<ClientResponse, Errs.Error> {
+  val raw: String = await post(endpoint, target, body)
   return parseResponseResult(raw)
 }
 

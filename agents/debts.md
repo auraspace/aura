@@ -7,6 +7,18 @@ When you resolve debt, update or remove the matching entry.
 
 ## Open
 
+### NET-001 endpoint parsing is synchronous and string-based (2026-07-31)
+
+- Area: `std.net`, POSIX runtime TCP transport
+- Symptom: endpoint strings are parsed by the synchronous runtime bridge and
+  hostname resolution uses `getaddrinfo()` before the task is scheduled; there
+  is no typed endpoint value or asynchronous resolver contract yet.
+- Why deferred: the alpha transport needs a small usable bind/connect surface
+  first, while DNS caching, cancellation, and resolver error typing belong to a
+  broader networking design.
+- Next step: introduce a validated endpoint type and move potentially blocking
+  name resolution behind the planned async DNS/transport boundary.
+
 ### LSP-001 language-server MVP is intentionally phase-limited (2026-07-29)
 
 - Area: `crates/aura-lsp`, `auralsp` stdio server

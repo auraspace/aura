@@ -7,17 +7,18 @@ package std.net
 
 import std.error as NetErrs
 
-/// Bind a nonblocking loopback TCP listener. `port` may be zero to request an
-/// ephemeral port. The returned owned handle closes when it leaves scope.
+/// Bind a nonblocking TCP listener. A numeric endpoint such as `"8080"`
+/// defaults to loopback; use `"0.0.0.0:8080"` to expose all IPv4 interfaces.
+/// The returned owned handle closes when it leaves scope.
 /// A later async `accept` API will consume this listener without blocking a
 /// scheduler worker.
-pub fun listen(port: Int): ForeignHandle<Int> {
+pub fun listen(endpoint: String): ForeignHandle<Int> {
   throw "listen intrinsic"
 }
 
-/// Connect to a loopback TCP listener within `timeoutMs`. The returned stream
-/// is an owned resource and may be used by the async read/write operations.
-pub fun connect(port: Int, timeoutMs: Int): ForeignHandle<Int> {
+/// Connect to an endpoint such as `"127.0.0.1:8080"` within `timeoutMs`.
+/// The returned stream is an owned resource and may be used by async I/O.
+pub fun connect(endpoint: String, timeoutMs: Int): ForeignHandle<Int> {
   throw "connect intrinsic"
 }
 

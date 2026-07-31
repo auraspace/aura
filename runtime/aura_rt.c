@@ -502,8 +502,8 @@ AuraFileStatus aura_file_destroy(AuraFile **file) { if (file) *file = NULL; retu
  * closed state, so repeated close calls are harmless.  Sockets are
  * nonblocking.  Every operation that may wait accepts a timeout in
  * milliseconds (zero means do not wait, and a positive value is the maximum
- * poll interval for that operation).  The API is intentionally localhost
- * only until address parsing and the async scheduler contract are frozen.
+ * poll interval for that operation).  Port-only wrappers remain localhost
+ * compatible; endpoint-aware entry points accept host:port strings.
  */
 
 typedef struct AuraTcpListener AuraTcpListener;
@@ -634,8 +634,87 @@ static AuraTcpStream *aura_tcp_stream_from_fd(int fd)
   return stream;
 }
 
-AuraTcpStatus aura_tcp_listener_bind(uint16_t port, uint16_t *out_port,
-                                     AuraTcpListener **out_listener)
+static void aura_tcp_endpoint_error(const char *text)
+{
+  snprintf(aura_tcp_errbuf, sizeof(aura_tcp_errbuf), "tcp endpoint: %s", text);
+}
+
+static int aura_tcp_endpoint_parts(const char *endpoint, char *host,
+                                   size_t host_capacity, char *service,
+                                   size_t service_capacity)
+{
+  if (endpoint == NULL || endpoint[0] == '\0')
+  {
+    return 0;
+  }
+  size_t length = strlen(endpoint);
+  if (endpoint[0] == '[')
+  {
+    const char *closing = strchr(endpoint, ']');
+    if (closing == NULL || closing[1] != ':')
+    {
+      return 0;
+    }
+    size_t host_length = (size_t)(closing - endpoint - 1);
+    size_t service_length = strlen(closing + 2);
+    if (host_length == 0 || host_length >= host_capacity ||
+        service_length == 0 || service_length >= service_capacity)
+    {
+      return 0;
+    }
+    memcpy(host, endpoint + 1, host_length);
+    host[host_length] = '\0';
+    memcpy(service, closing + 2, service_length + 1);
+    return 1;
+  }
+  size_t digits = 0;
+  while (digits < length && endpoint[digits] >= '0' && endpoint[digits] <= '9')
+  {
+    digits++;
+  }
+  if (digits == length)
+  {
+    if (strlen("127.0.0.1") >= host_capacity || length >= service_capacity)
+    {
+      return 0;
+    }
+    strcpy(host, "127.0.0.1");
+    strcpy(service, endpoint);
+    return 1;
+  }
+  const char *separator = strrchr(endpoint, ':');
+  if (separator == NULL || separator == endpoint || separator[1] == '\0' ||
+      strchr(endpoint, ':') != separator)
+  {
+    return 0;
+  }
+  size_t host_length = (size_t)(separator - endpoint);
+  size_t service_length = strlen(separator + 1);
+  if (host_length >= host_capacity || service_length >= service_capacity)
+  {
+    return 0;
+  }
+  memcpy(host, endpoint, host_length);
+  host[host_length] = '\0';
+  memcpy(service, separator + 1, service_length + 1);
+  return 1;
+}
+
+static int aura_tcp_endpoint_valid_service(const char *service, int allow_zero)
+{
+  if (service == NULL || service[0] == '\0')
+  {
+    return 0;
+  }
+  char *end = NULL;
+  unsigned long value = strtoul(service, &end, 10);
+  return end != service && *end == '\0' && value <= UINT16_MAX &&
+         (allow_zero || value != 0);
+}
+
+AuraTcpStatus aura_tcp_listener_bind_endpoint(const char *endpoint,
+                                              uint16_t *out_port,
+                                              AuraTcpListener **out_listener)
 {
   aura_tcp_clear_error();
   if (out_port == NULL || out_listener == NULL)
@@ -646,43 +725,56 @@ AuraTcpStatus aura_tcp_listener_bind(uint16_t port, uint16_t *out_port,
   }
   *out_port = 0;
   *out_listener = NULL;
-  int fd = socket(AF_INET, SOCK_STREAM, 0);
+  char host[256];
+  char service[32];
+  if (!aura_tcp_endpoint_parts(endpoint, host, sizeof(host), service,
+                               sizeof(service)) ||
+      !aura_tcp_endpoint_valid_service(service, 1))
+  {
+    aura_tcp_endpoint_error("expected PORT, HOST:PORT, or [IPv6]:PORT");
+    return AURA_TCP_ERROR;
+  }
+  struct addrinfo hints;
+  memset(&hints, 0, sizeof(hints));
+  hints.ai_family = AF_UNSPEC;
+  hints.ai_socktype = SOCK_STREAM;
+  hints.ai_flags = AI_PASSIVE;
+  struct addrinfo *addresses = NULL;
+  int resolved = getaddrinfo(host, service, &hints, &addresses);
+  if (resolved != 0)
+  {
+    aura_tcp_endpoint_error(gai_strerror(resolved));
+    return AURA_TCP_ERROR;
+  }
+
+  int fd = -1;
+  for (struct addrinfo *candidate = addresses; candidate != NULL;
+       candidate = candidate->ai_next)
+  {
+    fd = socket(candidate->ai_family, candidate->ai_socktype,
+                candidate->ai_protocol);
+    if (fd < 0)
+    {
+      continue;
+    }
+    int reuse = 1;
+    if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) != 0 ||
+        bind(fd, candidate->ai_addr, candidate->ai_addrlen) != 0 ||
+        listen(fd, 16) != 0 || aura_tcp_set_nonblocking(fd) != 0)
+    {
+      close(fd);
+      fd = -1;
+      continue;
+    }
+    break;
+  }
+  freeaddrinfo(addresses);
   if (fd < 0)
   {
-    aura_tcp_error_errno("socket");
-    return AURA_TCP_ERROR;
-  }
-  int reuse = 1;
-  if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) != 0)
-  {
-    aura_tcp_error_errno("reuse address");
-    close(fd);
-    return AURA_TCP_ERROR;
-  }
-  struct sockaddr_in address;
-  memset(&address, 0, sizeof(address));
-  address.sin_family = AF_INET;
-  address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-  address.sin_port = htons(port);
-  if (bind(fd, (struct sockaddr *)&address, sizeof(address)) != 0)
-  {
-    aura_tcp_error_errno("bind");
-    close(fd);
-    return AURA_TCP_ERROR;
-  }
-  if (listen(fd, 16) != 0)
-  {
     aura_tcp_error_errno("listen");
-    close(fd);
     return AURA_TCP_ERROR;
   }
-  if (aura_tcp_set_nonblocking(fd) != 0)
-  {
-    aura_tcp_error_errno("nonblocking listener");
-    close(fd);
-    return AURA_TCP_ERROR;
-  }
-  struct sockaddr_in bound;
+  struct sockaddr_storage bound;
   socklen_t bound_size = (socklen_t)sizeof(bound);
   if (getsockname(fd, (struct sockaddr *)&bound, &bound_size) != 0)
   {
@@ -699,9 +791,31 @@ AuraTcpStatus aura_tcp_listener_bind(uint16_t port, uint16_t *out_port,
     return AURA_TCP_ERROR;
   }
   listener->fd = fd;
-  *out_port = ntohs(bound.sin_port);
+  if (bound.ss_family == AF_INET)
+  {
+    *out_port = ntohs(((struct sockaddr_in *)&bound)->sin_port);
+  }
+  else if (bound.ss_family == AF_INET6)
+  {
+    *out_port = ntohs(((struct sockaddr_in6 *)&bound)->sin6_port);
+  }
+  else
+  {
+    aura_tcp_error_text("unsupported bound address");
+    close(listener->fd);
+    free(listener);
+    return AURA_TCP_ERROR;
+  }
   *out_listener = listener;
   return AURA_TCP_OK;
+}
+
+AuraTcpStatus aura_tcp_listener_bind(uint16_t port, uint16_t *out_port,
+                                     AuraTcpListener **out_listener)
+{
+  char endpoint[32];
+  snprintf(endpoint, sizeof(endpoint), "127.0.0.1:%u", port);
+  return aura_tcp_listener_bind_endpoint(endpoint, out_port, out_listener);
 }
 
 AuraTcpStatus aura_tcp_listener_accept(AuraTcpListener *listener, int timeout_ms,
@@ -746,8 +860,9 @@ AuraTcpStatus aura_tcp_listener_accept(AuraTcpListener *listener, int timeout_ms
   return *out_stream == NULL ? AURA_TCP_ERROR : AURA_TCP_OK;
 }
 
-AuraTcpStatus aura_tcp_stream_connect(uint16_t port, int timeout_ms,
-                                      AuraTcpStream **out_stream)
+AuraTcpStatus aura_tcp_stream_connect_endpoint(const char *endpoint,
+                                               int timeout_ms,
+                                               AuraTcpStream **out_stream)
 {
   aura_tcp_clear_error();
   if (out_stream == NULL)
@@ -757,66 +872,89 @@ AuraTcpStatus aura_tcp_stream_connect(uint16_t port, int timeout_ms,
     return AURA_TCP_ERROR;
   }
   *out_stream = NULL;
-  if (port == 0 || timeout_ms < 0)
+  char host[256];
+  char service[32];
+  if (timeout_ms < 0 ||
+      !aura_tcp_endpoint_parts(endpoint, host, sizeof(host), service,
+                               sizeof(service)) ||
+      !aura_tcp_endpoint_valid_service(service, 0))
   {
-    errno = EINVAL;
-    aura_tcp_error_errno("connect");
+    aura_tcp_endpoint_error("expected PORT, HOST:PORT, or [IPv6]:PORT");
     return AURA_TCP_ERROR;
   }
-  int fd = socket(AF_INET, SOCK_STREAM, 0);
-  if (fd < 0)
+  struct addrinfo hints;
+  memset(&hints, 0, sizeof(hints));
+  hints.ai_family = AF_UNSPEC;
+  hints.ai_socktype = SOCK_STREAM;
+  struct addrinfo *addresses = NULL;
+  int resolved = getaddrinfo(host, service, &hints, &addresses);
+  if (resolved != 0)
   {
-    aura_tcp_error_errno("socket");
+    aura_tcp_endpoint_error(gai_strerror(resolved));
     return AURA_TCP_ERROR;
   }
-  if (aura_tcp_set_nonblocking(fd) != 0)
+
+  AuraTcpStatus result = AURA_TCP_ERROR;
+  for (struct addrinfo *candidate = addresses; candidate != NULL;
+       candidate = candidate->ai_next)
   {
-    aura_tcp_error_errno("nonblocking stream");
-    close(fd);
-    return AURA_TCP_ERROR;
-  }
-  aura_tcp_disable_sigpipe(fd);
-  struct sockaddr_in address;
-  memset(&address, 0, sizeof(address));
-  address.sin_family = AF_INET;
-  address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-  address.sin_port = htons(port);
-  if (connect(fd, (struct sockaddr *)&address, sizeof(address)) != 0)
-  {
-    if (errno != EINPROGRESS && errno != EALREADY)
+    int fd = socket(candidate->ai_family, candidate->ai_socktype,
+                    candidate->ai_protocol);
+    if (fd < 0 || aura_tcp_set_nonblocking(fd) != 0)
     {
-      aura_tcp_error_errno("connect");
-      close(fd);
-      return AURA_TCP_ERROR;
-    }
-    AuraTcpStatus waited = aura_tcp_wait(fd, POLLOUT, timeout_ms);
-    if (waited != AURA_TCP_OK)
-    {
-      if (waited == AURA_TCP_TIMEOUT)
+      if (fd >= 0)
       {
-        aura_tcp_error_text("connect timed out");
+        close(fd);
       }
-      close(fd);
-      return waited;
+      continue;
     }
-    int connect_error = 0;
-    socklen_t error_size = (socklen_t)sizeof(connect_error);
-    if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &connect_error, &error_size) != 0)
+    aura_tcp_disable_sigpipe(fd);
+    if (connect(fd, candidate->ai_addr, candidate->ai_addrlen) != 0)
     {
-      aura_tcp_error_errno("connect status");
-      close(fd);
-      return AURA_TCP_ERROR;
+      if (errno != EINPROGRESS && errno != EALREADY)
+      {
+        close(fd);
+        continue;
+      }
+      AuraTcpStatus waited = aura_tcp_wait(fd, POLLOUT, timeout_ms);
+      if (waited != AURA_TCP_OK)
+      {
+        result = waited;
+        close(fd);
+        continue;
+      }
+      int connect_error = 0;
+      socklen_t error_size = (socklen_t)sizeof(connect_error);
+      if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &connect_error, &error_size) !=
+              0 ||
+          connect_error != 0)
+      {
+        if (connect_error != 0)
+        {
+          errno = connect_error;
+        }
+        close(fd);
+        continue;
+      }
     }
-    if (connect_error != 0)
-    {
-      errno = connect_error;
-      aura_tcp_error_errno("connect");
-      close(fd);
-      return AURA_TCP_ERROR;
-    }
+    *out_stream = aura_tcp_stream_from_fd(fd);
+    result = *out_stream == NULL ? AURA_TCP_ERROR : AURA_TCP_OK;
+    break;
   }
-  *out_stream = aura_tcp_stream_from_fd(fd);
-  return *out_stream == NULL ? AURA_TCP_ERROR : AURA_TCP_OK;
+  freeaddrinfo(addresses);
+  if (result == AURA_TCP_TIMEOUT)
+  {
+    aura_tcp_error_text("connect timed out");
+  }
+  return result;
+}
+
+AuraTcpStatus aura_tcp_stream_connect(uint16_t port, int timeout_ms,
+                                      AuraTcpStream **out_stream)
+{
+  char endpoint[32];
+  snprintf(endpoint, sizeof(endpoint), "127.0.0.1:%u", port);
+  return aura_tcp_stream_connect_endpoint(endpoint, timeout_ms, out_stream);
 }
 
 AuraTcpStatus aura_tcp_stream_read(AuraTcpStream *stream, void *buffer, size_t capacity,
@@ -957,6 +1095,23 @@ void aura_tcp_stream_destroy(AuraTcpStream *stream)
 
 #else
 
+AuraTcpStatus aura_tcp_listener_bind_endpoint(const char *endpoint,
+                                              uint16_t *out_port,
+                                              AuraTcpListener **out_listener)
+{
+  (void)endpoint;
+  if (out_port != NULL)
+  {
+    *out_port = 0;
+  }
+  if (out_listener != NULL)
+  {
+    *out_listener = NULL;
+  }
+  snprintf(aura_tcp_errbuf, sizeof(aura_tcp_errbuf), "tcp unsupported on this target");
+  return AURA_TCP_UNSUPPORTED;
+}
+
 AuraTcpStatus aura_tcp_listener_bind(uint16_t port, uint16_t *out_port,
                                      AuraTcpListener **out_listener)
 {
@@ -999,6 +1154,20 @@ AuraTcpStatus aura_tcp_stream_connect(uint16_t port, int timeout_ms,
     *out_stream = NULL;
   }
   (void)out_stream;
+  snprintf(aura_tcp_errbuf, sizeof(aura_tcp_errbuf), "tcp unsupported on this target");
+  return AURA_TCP_UNSUPPORTED;
+}
+
+AuraTcpStatus aura_tcp_stream_connect_endpoint(const char *endpoint,
+                                               int timeout_ms,
+                                               AuraTcpStream **out_stream)
+{
+  (void)endpoint;
+  (void)timeout_ms;
+  if (out_stream != NULL)
+  {
+    *out_stream = NULL;
+  }
   snprintf(aura_tcp_errbuf, sizeof(aura_tcp_errbuf), "tcp unsupported on this target");
   return AURA_TCP_UNSUPPORTED;
 }

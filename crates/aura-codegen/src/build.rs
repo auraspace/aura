@@ -1019,11 +1019,11 @@ fun main() {
     fn compiles_std_net_connect_to_owned_tcp_foreign_handle() {
         let file = aura_parser::parse_file(
             r#"package std.net
-fun listen(port: Int): ForeignHandle<Int> { throw "intrinsic" }
+fun listen(endpoint: String): ForeignHandle<Int> { throw "intrinsic" }
 async fun accept(listener: ForeignHandle<Int>): ForeignHandle<Int> { throw "intrinsic" }
 fun closeListener(listener: ForeignHandle<Int>): Bool { throw "intrinsic" }
 fun closeStream(stream: ForeignHandle<Int>): Bool { throw "intrinsic" }
-fun connect(port: Int, timeout: Int): ForeignHandle<Int> { throw "intrinsic" }
+fun connect(endpoint: String, timeout: Int): ForeignHandle<Int> { throw "intrinsic" }
 async fun readStream(stream: ForeignHandle<Int>, capacity: Int): String { return "" }
 fun main() {}
 "#,

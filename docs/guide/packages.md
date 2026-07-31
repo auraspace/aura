@@ -117,7 +117,7 @@ In-tree std packages (alpha):
 | `std.json`                | Bounded JSON validation and root values                                  |
 | `std.mime`                | Media-type and filename sanitization                                     |
 | `std.fs` / `std.os`       | Paths, filesystem metadata, environment, and process helpers             |
-| `std.net` / `std.dns`     | Loopback TCP and numeric host resolution                                 |
+| `std.net` / `std.dns`     | Endpoint-aware TCP and numeric host resolution                           |
 | `std.url` / `std.http`    | URL helpers and bounded HTTP/1.1 client/server                           |
 | `std.stream`              | Async reader/writer adapters                                             |
 | `std.time` / `std.task`   | Monotonic timers and task lifecycle                                      |

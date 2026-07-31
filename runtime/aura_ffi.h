@@ -74,11 +74,17 @@ typedef enum AuraTcpStatus {
 
 AuraTcpStatus aura_tcp_listener_bind(uint16_t port, uint16_t *out_port,
                                      AuraTcpListener **out_listener);
+AuraTcpStatus aura_tcp_listener_bind_endpoint(const char *endpoint,
+                                              uint16_t *out_port,
+                                              AuraTcpListener **out_listener);
 AuraTcpStatus aura_tcp_listener_accept(AuraTcpListener *listener,
                                        int timeout_ms,
                                        AuraTcpStream **out_stream);
 AuraTcpStatus aura_tcp_stream_connect(uint16_t port, int timeout_ms,
                                       AuraTcpStream **out_stream);
+AuraTcpStatus aura_tcp_stream_connect_endpoint(const char *endpoint,
+                                               int timeout_ms,
+                                               AuraTcpStream **out_stream);
 AuraTcpStatus aura_tcp_stream_read(AuraTcpStream *stream, void *buffer,
                                    size_t capacity, size_t *out_bytes,
                                    int timeout_ms);

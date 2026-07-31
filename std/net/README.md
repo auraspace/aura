@@ -1,6 +1,6 @@
 # std.net (bounded alpha transport)
 
-`std.net` provides owned loopback TCP listener and stream handles for the
+`std.net` provides owned endpoint-aware TCP listener and stream handles for the
 supported POSIX targets. `listen`, `connect`, `accept`, `readStream`,
 `readAllStream`, and `writeStream` use the runtime's nonblocking readiness
 scheduler; `closeListener` and `closeStream` are idempotent terminal operations.
@@ -13,7 +13,8 @@ convenience for bounded protocols, not an unbounded body API.
 The implementation keeps native descriptors inside `ForeignHandle<Int>`
 resources. Read and write tasks pin the resource across suspension, preserve
 partial I/O offsets, and release the pin on completion, failure, cancellation,
-or executor shutdown. The current surface is intentionally loopback-only and
+or executor shutdown. Port-only endpoints default to loopback; explicit
+`HOST:PORT` and `[IPv6]:PORT` endpoints can bind or connect elsewhere.
 does not yet include DNS, TLS, UDP, Unix-domain sockets, or typed `Result`
 errors.
 

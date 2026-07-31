@@ -30,7 +30,8 @@ the [standard-library guide](../guide/standard-library.md): `std.io`,
 shared outcomes, loopback TCP/HTTP, monotonic timers, cooperative task
 cancellation, nonblocking synchronization, encoding and JSON validation, and
 structured logging/metrics. Some operations remain intentionally bounded or
-runtime-backed: strict file APIs may throw `String`, `std.net` is loopback-only,
+runtime-backed: strict file APIs may throw `String`, `std.net` uses endpoint
+strings with loopback as the port-only default,
 JSON exposes root classification rather than object traversal, and crypto/TLS,
 UDP, Unix sockets, and framework-level HTTP routing are not part of this core.
 
@@ -92,7 +93,7 @@ Compiler MVP needs types to lower; users need I/O and collections for non-toy pr
 | `std.mime`        | Media-type validation and filename sanitization                                                           |
 | `std.fs`          | Portable paths and bounded filesystem metadata snapshots                                                  |
 | `std.os`          | Environment, cwd, pid, and platform helpers                                                               |
-| `std.net`         | Loopback nonblocking TCP listeners, connections, and streams                                              |
+| `std.net`         | Endpoint-aware nonblocking TCP listeners, connections, and streams                                        |
 | `std.dns`         | Bounded numeric host resolution                                                                           |
 | `std.url`         | Origin-form and absolute URI component validation                                                         |
 | `std.http`        | Bounded HTTP/1.1 client/server request and response API; routing frameworks, HTTP/2+, TLS remain separate |
@@ -305,7 +306,7 @@ stored, sent, or retained by a task or channel.
 - The shipped bounded async surface includes `std.io.readFd`/`writeFd`,
   `std.net.accept`/`readStream`/`writeStream`, and the `std.http` client/server
   adapters. These operations preserve owned handles and inputs across await.
-- `std.net` remains loopback-only; UDP, Unix-domain sockets, TLS, and broad
+- `std.net` supports endpoint strings with loopback defaults; UDP, Unix-domain sockets, TLS, and broad
   blocking convenience APIs are separate follow-ons.
 
 ### 6.6 JSON

@@ -768,22 +768,22 @@ Recommended implementation order:
 
 ## Standard library acceptance criteria
 
-| Package                                 | Required evidence                                                                        |
-| --------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `std.os`                                | Environment, cwd, metadata, process status, and unsupported-target behavior              |
-| `std.net`                               | Loopback TCP, concurrent clients, partial I/O, timeout, close, cancellation, sanitizer   |
-| `std.dns`                               | Successful IPv4/IPv6 resolution, invalid host, timeout/cancel, deterministic errors      |
-| `std.json`                              | Parse/stringify round trips, typed structs/enums, limits, malformed input diagnostics    |
-| `std.http`                              | Typed request/response, routing, keep-alive, async handler await, 4xx/5xx mapping        |
-| `std.task` / `std.time`                 | Repeatable task outcomes, cancellation, monotonic deadlines, timers                      |
-| `std.stream` / `std.bytes`              | Owned buffers, partial I/O, async read/write, backpressure adapters                      |
-| `std.encoding` / `std.url` / `std.mime` | Boundary-safe encoding, URL/query parsing, MIME and multipart metadata                   |
-| `std.crypto` / `std.tls`                | Secure randomness, certificate/key handling, TLS, SNI, ALPN, cleanup                     |
-| `std.sync`                              | Async-safe locks/atomics with cancellation and contention tests                          |
-| `std.log` / `std.metrics`               | Structured request logs and non-blocking server telemetry                                |
-| `std.signal` / `std.fs`                 | Graceful shutdown, path/filesystem operations, typed platform errors                     |
-| `std.test`                              | Deterministic async, HTTP, timeout, cancellation, and sanitizer helpers                  |
-| Integration                             | Aura HTTP server uses only `std.*`, performs real async I/O, and runs from installed CLI |
+| Package                                 | Required evidence                                                                            |
+| --------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `std.os`                                | Environment, cwd, metadata, process status, and unsupported-target behavior                  |
+| `std.net`                               | Endpoint-aware TCP, concurrent clients, partial I/O, timeout, close, cancellation, sanitizer |
+| `std.dns`                               | Successful IPv4/IPv6 resolution, invalid host, timeout/cancel, deterministic errors          |
+| `std.json`                              | Parse/stringify round trips, typed structs/enums, limits, malformed input diagnostics        |
+| `std.http`                              | Typed request/response, routing, keep-alive, async handler await, 4xx/5xx mapping            |
+| `std.task` / `std.time`                 | Repeatable task outcomes, cancellation, monotonic deadlines, timers                          |
+| `std.stream` / `std.bytes`              | Owned buffers, partial I/O, async read/write, backpressure adapters                          |
+| `std.encoding` / `std.url` / `std.mime` | Boundary-safe encoding, URL/query parsing, MIME and multipart metadata                       |
+| `std.crypto` / `std.tls`                | Secure randomness, certificate/key handling, TLS, SNI, ALPN, cleanup                         |
+| `std.sync`                              | Async-safe locks/atomics with cancellation and contention tests                              |
+| `std.log` / `std.metrics`               | Structured request logs and non-blocking server telemetry                                    |
+| `std.signal` / `std.fs`                 | Graceful shutdown, path/filesystem operations, typed platform errors                         |
+| `std.test`                              | Deterministic async, HTTP, timeout, cancellation, and sanitizer helpers                      |
+| Integration                             | Aura HTTP server uses only `std.*`, performs real async I/O, and runs from installed CLI     |
 
 ## Extended protocol track
 
