@@ -1124,6 +1124,7 @@ pub(crate) fn bounded_spawn_await_shape<'a>(
             matches!(key.as_str(), "Int" | "Bool" | "String")
                 || is_array_type_key(&key)
                 || is_heap_class_mono(&key, checked)
+                || is_enum_mono(&key, checked)
         })
         .unwrap_or(false)
         && !spawn_body_contains_await(&Block {

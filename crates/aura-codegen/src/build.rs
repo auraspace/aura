@@ -2023,6 +2023,75 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_async_cfg_string_enum_payload() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+enum Payload { case Text(value: String) }
+async fun produce(): Payload {
+  return Text("cfg-enum")
+}
+async fun consume(): Payload {
+  val value: Payload = await produce()
+  return value
+}
+fun main() {
+  val task = spawn {
+    val value: Payload = await consume()
+    return value
+  }
+  val first: Result<Payload, TaskError> = join(task)
+  match (first) {
+    case Ok(value) => {
+      match (value) {
+        case Text(text) => { println(text) }
+      }
+    }
+    case Err(error) => { println("failed") }
+  }
+  gc_collect()
+  val second: Result<Payload, TaskError> = join(task)
+  match (second) {
+    case Ok(value) => {
+      match (value) {
+        case Text(text) => { println(text) }
+      }
+    }
+    case Err(error) => { println("failed") }
+  }
+}
+"#,
+        )
+        .expect("parse CFG String enum payload fixture");
+        let generated = emit_c_from_ast(&file).expect("emit CFG String enum payload fixture");
+        assert!(generated.contains("aura_enum_std_io_Payload_clone"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-cfg-string-enum-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile CFG String enum payload fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run CFG String enum payload fixture");
+        assert!(
+            output.status.success(),
+            "CFG String enum payload failed: {output:?}"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "cfg-enum\ncfg-enum\n"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_std_sync_atomic_int() {
         let file = aura_parser::parse_file(
             r#"package std.sync

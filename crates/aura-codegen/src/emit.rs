@@ -2152,6 +2152,14 @@ fn async_cfg_assignment_code(
             }
         }
     }
+    if crate::expr::is_enum_mono(key, checked) {
+        let cty = crate::stmt::local_key_to_c(key, checked);
+        let clone = format!("{cty}_clone");
+        let drop = format!("{cty}_drop");
+        return format!(
+            "{cty} __cfg_source = {value}; {cty} __cfg_next = {clone}(&__cfg_source); {drop}(&{name}); {name} = __cfg_next;"
+        );
+    }
     format!("{name} = {value};")
 }
 
@@ -2670,6 +2678,13 @@ fn emit_async_fun_cfg_int(
                 key,
                 checked,
             );
+        } else if crate::expr::is_enum_mono(key, checked) {
+            let cty = crate::stmt::local_key_to_c(key, checked);
+            let _ = writeln!(
+                out,
+                "  {cty}_drop(&data->{});",
+                mangle_ident(&var.name.name)
+            );
         }
     }
     for (name, key) in &match_bindings {
@@ -2694,6 +2709,9 @@ fn emit_async_fun_cfg_int(
                 key,
                 checked,
             );
+        } else if crate::expr::is_enum_mono(key, checked) {
+            let cty = crate::stmt::local_key_to_c(key, checked);
+            let _ = writeln!(out, "  {cty}_drop(&data->{});", mangle_ident(name));
         }
     }
     for (name, key) in &cfg_locals {
@@ -2719,6 +2737,9 @@ fn emit_async_fun_cfg_int(
                 key,
                 checked,
             );
+        } else if crate::expr::is_enum_mono(key, checked) {
+            let cty = crate::stmt::local_key_to_c(key, checked);
+            let _ = writeln!(out, "  {cty}_drop(&data->{});", mangle_ident(name));
         }
     }
     for (name, key) in &owned_class_catches {
@@ -2784,6 +2805,11 @@ fn emit_async_fun_cfg_int(
             let _ = writeln!(
                 out,
                 "  (void)size; if (data != NULL) {{ {result_cty} *result = ({result_cty} *)data; if (result->tag == 0 && result->data.OutcomeOk.owned && result->data.OutcomeOk.value != NULL) free((void *)result->data.OutcomeOk.value); if (result->tag == 1 && result->data.OutcomeErr.owned && result->data.OutcomeErr.error != NULL) aura_gc_remove_root((void **)&result->data.OutcomeErr.error); free(result); }}\n}}\n\n"
+            );
+        } else if crate::expr::is_enum_mono(&return_key, checked) {
+            let _ = writeln!(
+                out,
+                "  (void)size; if (data != NULL) {{ {result_cty} *result = ({result_cty} *)data; {result_cty}_drop(result); free(result); }}\n}}\n\n"
             );
         } else {
             out.push_str("  (void)size; free(data);\n}\n\n");
@@ -2979,6 +3005,12 @@ fn emit_async_fun_cfg_int(
                         out,
                         "        if (aura_task_frame_result(data->await_task).data != NULL) {{ {cty} __child = *(({cty} *)aura_task_frame_result(data->await_task).data); if (__child != NULL && aura_ffi_handle_retain(__child) != AURA_FFI_OK) return AURA_TASK_FAILED; if (data->{value} != NULL) (void)aura_ffi_handle_drop(&data->{value}); data->{value} = __child; {value} = __child; }} if (data->await_task_owned && __aura_task_executor != NULL) (void)aura_task_executor_release(__aura_task_executor, &data->await_task); data->await_task = NULL; data->await_task_owned = false; aura_task_frame_set_resume_state(frame, {next}); continue;"
                     );
+                } else if crate::expr::is_enum_mono(&value_key, checked) {
+                    let cty = crate::stmt::local_key_to_c(&value_key, checked);
+                    let _ = writeln!(
+                        out,
+                        "        if (aura_task_frame_result(data->await_task).data != NULL) {{ {cty} *__child = ({cty} *)aura_task_frame_result(data->await_task).data; {cty}_drop(&data->{value}); data->{value} = {cty}_clone(__child); {value} = data->{value}; }} if (data->await_task_owned && __aura_task_executor != NULL) (void)aura_task_executor_release(__aura_task_executor, &data->await_task); data->await_task = NULL; data->await_task_owned = false; aura_task_frame_set_resume_state(frame, {next}); continue;"
+                    );
                 } else {
                     let cty = crate::stmt::local_key_to_c(&value_key, checked);
                     let _ = writeln!(
@@ -3073,6 +3105,9 @@ fn emit_async_fun_cfg_int(
                         &value_key,
                     );
                     let _ = writeln!(out, "        if (aura_task_frame_result(data->await_task).data != NULL) {{ {cty} *__child = ({cty} *)aura_task_frame_result(data->await_task).data; {free_code} data->{value} = {clone}(__child); {value} = data->{value}; }}");
+                } else if crate::expr::is_enum_mono(&value_key, checked) {
+                    let cty = crate::stmt::local_key_to_c(&value_key, checked);
+                    let _ = writeln!(out, "        if (aura_task_frame_result(data->await_task).data != NULL) {{ {cty} *__child = ({cty} *)aura_task_frame_result(data->await_task).data; {cty}_drop(&data->{value}); data->{value} = {cty}_clone(__child); {value} = data->{value}; }}");
                 } else {
                     let cty = crate::stmt::local_key_to_c(&value_key, checked);
                     let _ = writeln!(out, "        if (aura_task_frame_result(data->await_task).data != NULL) {{ data->{value} = *(({cty} *)aura_task_frame_result(data->await_task).data); {value} = data->{value}; }}");
@@ -3209,11 +3244,21 @@ fn emit_async_fun_cfg_int(
                         out,
                         "        {result_cty} *__aura_result = ({result_cty} *)malloc(sizeof(*__aura_result)); if (__aura_result == NULL) return AURA_TASK_FAILED; *__aura_result = {value}; if (*__aura_result != NULL && aura_ffi_handle_retain(*__aura_result) != AURA_FFI_OK) {{ free(__aura_result); return AURA_TASK_FAILED; }} aura_task_frame_set_result(frame, __aura_result, sizeof(*__aura_result), {destroy_result}); return AURA_TASK_COMPLETE;"
                     );
-                } else if crate::stmt::is_shared_outcome_error_owner_key(&value_key) {
+                } else if crate::expr::is_enum_mono(&value_key, checked) {
                     let _ = writeln!(
                         out,
-                        "        {result_cty} *__aura_result = ({result_cty} *)malloc(sizeof(*__aura_result)); if (__aura_result == NULL) return AURA_TASK_FAILED; *__aura_result = {value}; if (__aura_result->tag == 1 && __aura_result->data.OutcomeErr.error != NULL) {{ aura_gc_add_root((void **)&__aura_result->data.OutcomeErr.error); __aura_result->data.OutcomeErr.owned = true; }} aura_task_frame_set_result(frame, __aura_result, sizeof(*__aura_result), {destroy_result}); return AURA_TASK_COMPLETE;"
+                        "        {result_cty} __returned = {value}; {result_cty} *__aura_result = ({result_cty} *)malloc(sizeof(*__aura_result)); if (__aura_result == NULL) return AURA_TASK_FAILED; *__aura_result = {result_cty}_clone(&__returned); aura_task_frame_set_result(frame, __aura_result, sizeof(*__aura_result), {destroy_result}); return AURA_TASK_COMPLETE;"
                     );
+                } else if crate::stmt::is_shared_outcome_error_owner_key(&value_key) {
+                    let _ = writeln!(
+                out,
+                "        {result_cty} *__aura_result = ({result_cty} *)malloc(sizeof(*__aura_result)); if (__aura_result == NULL) return AURA_TASK_FAILED; *__aura_result = {value}; if (__aura_result->tag == 1 && __aura_result->data.OutcomeErr.error != NULL) {{ aura_gc_add_root((void **)&__aura_result->data.OutcomeErr.error); __aura_result->data.OutcomeErr.owned = true; }} aura_task_frame_set_result(frame, __aura_result, sizeof(*__aura_result), {destroy_result}); return AURA_TASK_COMPLETE;"
+            );
+                } else if crate::expr::is_enum_mono(&value_key, checked) {
+                    let _ = writeln!(
+                out,
+                "        {result_cty} *__aura_result = ({result_cty} *)malloc(sizeof(*__aura_result)); if (__aura_result == NULL) return AURA_TASK_FAILED; *__aura_result = {result_cty}_clone(&{value}); aura_task_frame_set_result(frame, __aura_result, sizeof(*__aura_result), {destroy_result}); return AURA_TASK_COMPLETE;"
+            );
                 } else {
                     let _ = writeln!(out, "        {result_cty} *__aura_result = ({result_cty} *)malloc(sizeof(*__aura_result)); if (__aura_result == NULL) return AURA_TASK_FAILED; *__aura_result = {value}; aura_task_frame_set_result(frame, __aura_result, sizeof(*__aura_result), {destroy_result}); return AURA_TASK_COMPLETE;");
                 }
@@ -10666,7 +10711,8 @@ fn emit_bounded_spawn_await_poller(
         })) if id.name == await_var.name.name
     ) && (matches!(await_key.as_str(), "Int" | "Bool" | "String")
         || is_array_type_key(&await_key)
-        || is_heap_class_mono(&await_key, checked))
+        || is_heap_class_mono(&await_key, checked)
+        || crate::expr::is_enum_mono(&await_key, checked))
     {
         Some(await_key.as_str())
     } else {
@@ -10690,6 +10736,11 @@ fn emit_bounded_spawn_await_poller(
         let _ = writeln!(
             out,
             "      if (child_result.data != NULL) {{ {await_cty} *__child = ({await_cty} *)child_result.data; {free_old} data->await_value = {clone}(__child); }}"
+        );
+    } else if crate::expr::is_enum_mono(&await_key, checked) {
+        let _ = writeln!(
+            out,
+            "      if (child_result.data != NULL) {{ {await_cty} *__child = ({await_cty} *)child_result.data; {await_cty}_drop(&data->await_value); data->await_value = {await_cty}_clone(__child); }}"
         );
     } else {
         let _ = writeln!(
@@ -10768,6 +10819,13 @@ fn emit_bounded_spawn_await_poller(
                     crate::stmt::local_key_to_c(key, checked)
                 );
                 ctx.mark_fun_owner(name);
+            } else if crate::expr::is_enum_mono(key, checked) {
+                let cty = crate::stmt::local_key_to_c(key, checked);
+                let _ = writeln!(
+                    out,
+                    "      {} {n} = {cty}_clone(&data->{n});",
+                    crate::stmt::local_key_to_c(key, checked)
+                );
             } else {
                 let _ = writeln!(
                     out,
@@ -10812,6 +10870,11 @@ fn emit_bounded_spawn_await_poller(
                 out,
                 "      {await_cty} *result = ({await_cty} *)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; *result = data->await_value; aura_gc_add_root((void **)result); aura_task_frame_set_result(frame, result, sizeof(*result), {result_destroy}); return AURA_TASK_COMPLETE;"
             );
+        } else if crate::expr::is_enum_mono(key, checked) {
+            let _ = writeln!(
+                out,
+                "      {await_cty} *result = ({await_cty} *)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; *result = {await_cty}_clone(&data->await_value); {await_cty}_drop(&data->await_value); memset(&data->await_value, 0, sizeof(data->await_value)); aura_task_frame_set_result(frame, result, sizeof(*result), {result_destroy}); return AURA_TASK_COMPLETE;"
+            );
         } else {
             let _ = writeln!(
                 out,
@@ -10831,6 +10894,12 @@ fn emit_bounded_spawn_await_poller(
             let _ = writeln!(
                 out,
                 "static void {result_destroy}(void *data, size_t size) {{ (void)size; if (data != NULL) {{ aura_gc_remove_root((void **)data); free(data); }} }}\n\n"
+            );
+        } else if crate::expr::is_enum_mono(key, checked) {
+            let result_cty = crate::stmt::local_key_to_c(key, checked);
+            let _ = writeln!(
+                out,
+                "static void {result_destroy}(void *data, size_t size) {{ (void)size; if (data != NULL) {{ {result_cty} *result = ({result_cty} *)data; {result_cty}_drop(result); free(result); }} }}\n\n"
             );
         } else {
             let _ = writeln!(

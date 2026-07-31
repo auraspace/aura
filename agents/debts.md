@@ -1242,9 +1242,9 @@ TaskError>` locals release their payload at scope exit. Nested
   primitive/class catch continuation, and nested Array elements in `for-in`
   are cloned before suspension. Native fixtures cover success, failure,
   cancellation, forced GC, and an eight-await state machine. Remaining
-  ownership frontier: richer aggregate element types beyond supported arrays,
-  heap-owning class fields in caught payloads, nested finally cleanup, and
-  richer aggregate element types beyond supported arrays.
+  ownership frontier: enum aggregate values now clone/drop across general CFG
+  await/return boundaries; heap-owning class fields in caught payloads, nested
+  finally cleanup, and mixed aggregate element policies remain open.
 
 ### IO-002 compiler-generated descriptor I/O remains bounded (updated 2026-07-28)
 
