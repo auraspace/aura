@@ -46,6 +46,15 @@ fn task_result_class_ok(
         })
 }
 
+fn task_result_enum_ok(e: &EnumDecl, pkg: &str, args: &[Ty], variant: &str) -> bool {
+    pkg == "std.io"
+        && e.name.name == "Result"
+        && variant == "Ok"
+        && args
+            .first()
+            .is_some_and(|ty| matches!(ty, Ty::Enum(_) | Ty::EnumApp { .. }))
+}
+
 fn shared_outcome_string_ok(e: &EnumDecl, pkg: &str, args: &[Ty], variant: &str) -> bool {
     pkg == "std.error"
         && e.name.name == "Outcome"
@@ -119,6 +128,9 @@ pub(crate) fn emit_enum_typedef(
                 out.push_str("      bool owned;\n");
             }
             if task_result_class_ok(e, &pkg, args, &v.name.name, checked) {
+                out.push_str("      bool owned;\n");
+            }
+            if task_result_enum_ok(e, &pkg, args, &v.name.name) {
                 out.push_str("      bool owned;\n");
             }
             if shared_outcome_string_ok(e, &pkg, args, &v.name.name) {
@@ -223,6 +235,9 @@ pub(crate) fn emit_enum_defs(out: &mut String, checked: &CheckedFile, e: &EnumDe
                 let _ = writeln!(out, "  self.data.Ok.owned = false;");
             }
             if task_result_class_ok(e, &pkg, args, &v.name.name, checked) {
+                let _ = writeln!(out, "  self.data.Ok.owned = false;");
+            }
+            if task_result_enum_ok(e, &pkg, args, &v.name.name) {
                 let _ = writeln!(out, "  self.data.Ok.owned = false;");
             }
             if shared_outcome_string_ok(e, &pkg, args, &v.name.name) {

@@ -1973,7 +1973,7 @@ pub(crate) fn emit_join_owned(j: &JoinExpr, ctx: &mut EmitCtx<'_>) -> String {
 
 fn emit_join(j: &JoinExpr, ctx: &mut EmitCtx<'_>, owned_error: bool) -> String {
     let handle = emit_expr(&j.handle, ctx);
-    let inner = async_inner_key(&j.handle, ctx);
+    let inner = full_type_mono(&async_inner_key(&j.handle, ctx), ctx.checked);
     let cty = crate::stmt::local_key_to_c(&inner, ctx.checked);
     let task_error_mono = "std_io_TaskError";
     let result_mono = format!(
@@ -2034,6 +2034,10 @@ fn emit_join(j: &JoinExpr, ctx: &mut EmitCtx<'_>, owned_error: bool) -> String {
     } else if owned_error && is_heap_class_mono(&inner, ctx.checked) {
         out.push_str(&format!(
             "else {{ {cty} __join_class = __join_result.data != NULL ? *(({cty} *)__join_result.data) : NULL; __join_value = {result_ok_owned}(__join_class); }} "
+        ));
+    } else if owned_error && crate::stmt::is_shared_outcome_error_owner_key(&inner) {
+        out.push_str(&format!(
+            "else {{ {cty} __join_outcome = __join_result.data != NULL ? *(({cty} *)__join_result.data) : ({cty}){{0}}; if (__join_outcome.tag == 0) {{ const char *__src = __join_outcome.data.OutcomeOk.value; size_t __len = __src == NULL ? 0 : strlen(__src); char *__copy = (char *)malloc(__len + 1); if (__copy == NULL) abort(); if (__src != NULL) memcpy(__copy, __src, __len + 1); __join_outcome.data.OutcomeOk.value = __copy; __join_outcome.data.OutcomeOk.owned = true; }} __join_value = {result_ok}(__join_outcome); if (__join_value.data.Ok.value.tag == 1 && __join_value.data.Ok.value.data.OutcomeErr.error != NULL) {{ __join_value.data.Ok.value.data.OutcomeErr.owned = true; }} __join_value.data.Ok.owned = true; }} "
         ));
     } else if owned_error && (inner == "ForeignHandle" || inner.starts_with("ForeignHandle_")) {
         out.push_str(&format!(
@@ -2234,6 +2238,37 @@ pub(crate) fn full_type_mono(key: &str, checked: &CheckedFile) -> String {
     if key == "Array" {
         return key.to_string();
     }
+    // Recover package-qualified nested enum/class monomorphs from the short
+    // keys used by local inference (for example `Outcome_String_Error`).
+    for (name, args) in checked.mono_enums.iter().chain(checked.mono_classes.iter()) {
+        let short = if args.is_empty() {
+            name.clone()
+        } else {
+            format!(
+                "{}_{}",
+                name,
+                args.iter().map(ty_short_mono).collect::<Vec<_>>().join("_")
+            )
+        };
+        if short == key {
+            let package = checked
+                .ast
+                .enums
+                .iter()
+                .find(|e| e.name.name == *name)
+                .map(|e| enum_decl_package(e, checked))
+                .or_else(|| {
+                    checked
+                        .ast
+                        .classes
+                        .iter()
+                        .find(|c| c.name.name == *name)
+                        .map(|c| class_decl_package(c, checked))
+                })
+                .unwrap_or_default();
+            return type_mono(&package, name, args);
+        }
+    }
     // C4c/C6g: upgrade `Array_Box` / `Array_Color` / short generic keys → package mono.
     if let Some(elem) = key.strip_prefix("Array_") {
         if elem == "Int" || elem == "Bool" || elem == "String" {
@@ -2354,6 +2389,25 @@ pub(crate) fn full_type_mono(key: &str, checked: &CheckedFile) -> String {
         }
     }
     key.to_string()
+}
+
+fn ty_short_mono(ty: &Ty) -> String {
+    match ty {
+        Ty::Class(name) | Ty::Enum(name) => aura_sema::split_nominal(name).0.to_string(),
+        Ty::ClassApp { name, args } | Ty::EnumApp { name, args } => {
+            let base = aura_sema::split_nominal(name).0;
+            if args.is_empty() {
+                base.to_string()
+            } else {
+                format!(
+                    "{}_{}",
+                    base,
+                    args.iter().map(ty_short_mono).collect::<Vec<_>>().join("_")
+                )
+            }
+        }
+        other => other.mono_suffix(),
+    }
 }
 
 pub(crate) fn type_ref_to_ty(t: &TypeRef, ctx: &EmitCtx<'_>) -> Option<Ty> {

@@ -2164,7 +2164,7 @@ fn async_cfg_move_source(expr: &Expr) -> Option<&Ident> {
     }
 }
 
-fn emit_owned_value_cleanup(
+pub(crate) fn emit_owned_value_cleanup(
     out: &mut String,
     indent: usize,
     expr: &str,
@@ -9889,6 +9889,11 @@ fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile, detector:
             );
             continue;
         }
+        let result_destroy = format!("aura_spawn_result_destroy_{}", spawn.span.start);
+        let _ = writeln!(
+            out,
+            "static void {result_destroy}(void *data, size_t size);"
+        );
         let _ = writeln!(
             out,
             "static AuraTaskPollState {poll}(AuraTaskFrame *frame) {{"
@@ -9968,6 +9973,9 @@ fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile, detector:
             async_frame: None,
             task_poller: true,
         };
+        let spawn_return_key =
+            full_type_mono(&crate::expr::spawn_result_key(&spawn.body, &ctx), checked);
+        ctx.return_key = Some(spawn_return_key.clone());
         for capture in &captures {
             let name = &capture.name;
             let key = &capture.key;
@@ -9981,8 +9989,46 @@ fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile, detector:
                 ctx.mark_fun_owner(name);
             }
         }
-        for stmt in &spawn.body.stmts {
+        let defer_return = spawn_return_key != "Unit";
+        for (index, stmt) in spawn.body.stmts.iter().enumerate() {
             crate::stmt::emit_stmt(out, stmt, 1, &mut ctx);
+            if defer_return && index + 1 == spawn.body.stmts.len() {
+                // The generic poller publishes the captured __ret value below.
+                let suffix = "  return AURA_TASK_COMPLETE;\n";
+                if out.ends_with(suffix) {
+                    out.truncate(out.len() - suffix.len());
+                }
+            }
+        }
+        if spawn_return_key != "Unit" {
+            let Some(Stmt::Return(ReturnStmt {
+                span: return_span, ..
+            })) = spawn.body.stmts.last()
+            else {
+                unreachable!();
+            };
+            let result_cty = crate::stmt::local_key_to_c(&spawn_return_key, checked);
+            let result_destroy = format!("aura_spawn_result_destroy_{}", spawn.span.start);
+            let result_tmp = format!("__ret_{}", return_span.start);
+            let _ = writeln!(
+                out,
+                "  {result_cty} *result = ({result_cty} *)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; *result = {result_tmp}; aura_task_frame_set_result(frame, result, sizeof(*result), {result_destroy}); return AURA_TASK_COMPLETE;"
+            );
+            let _ = writeln!(out, "}}");
+            let _ = writeln!(
+                out,
+                "static void {result_destroy}(void *data, size_t size) {{"
+            );
+            if crate::stmt::is_shared_outcome_error_owner_key(&spawn_return_key) {
+                let _ = writeln!(
+                    out,
+                    "  (void)size; if (data != NULL) {{ {result_cty} *result = ({result_cty} *)data; if (result->tag == 0 && result->data.OutcomeOk.owned && result->data.OutcomeOk.value != NULL) free((void *)result->data.OutcomeOk.value); if (result->tag == 1 && result->data.OutcomeErr.owned && result->data.OutcomeErr.error != NULL) aura_gc_remove_root((void **)&result->data.OutcomeErr.error); free(result); }}"
+                );
+            } else {
+                out.push_str("  (void)size; free(data);\n");
+            }
+            out.push_str("}\n\n");
+            continue;
         }
         let array_owners = ctx.array_owners_all();
         crate::stmt::emit_free_array_owners(out, 1, &ctx, &array_owners);

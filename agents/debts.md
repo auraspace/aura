@@ -1599,3 +1599,11 @@ TaskError>` ABI, plus cooperative `isCancelled()` inside generated async
   `Outcome` wrappers over the bounded soft file primitives.
 - Residual: richer directory iteration and detailed platform-error mapping
   remain deferred.
+
+### ASYNC-004 generic spawn result ownership remains partial (2026-08-01)
+
+- Progress: bounded generic spawns now publish inferred non-Unit return values
+  through the task result ABI; nested Outcome<String, Error> returns transfer
+  payload ownership and survive repeated owning joins and forced GC.
+- Residual: generic bounded pollers still need dedicated clone/destroy paths for
+  arbitrary enum payloads and richer aggregates beyond the shared Outcome case.

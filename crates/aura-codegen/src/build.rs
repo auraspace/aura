@@ -1760,7 +1760,7 @@ fun main() {
         let file = aura_parser::parse_file(
             r#"package std.error
 enum ErrorKind { case Protocol }
-class Error(val kind: ErrorKind, val message: String, val code: Int) {}
+class Error(pub val kind: ErrorKind, pub val message: String, pub val code: Int) {}
 enum Outcome<T, E> {
   case OutcomeOk(value: T)
   case OutcomeErr(error: E)
@@ -1807,6 +1807,105 @@ fun main() {
             "Outcome class-error fixture failed: {output:?}"
         );
         assert_eq!(String::from_utf8_lossy(&output.stdout), "bad\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_join_of_shared_outcome_payload() {
+        let mut file = aura_parser::parse_file(
+            r#"package std.io
+import std.error as Errors
+enum ErrorKind { case Protocol }
+class Error(pub val kind: ErrorKind, pub val message: String, pub val code: Int) {}
+enum Outcome<T, E> {
+  case OutcomeOk(value: T)
+  case OutcomeErr(error: E)
+}
+fun protocol(message: String, code: Int): Error {
+  return Error(Protocol(), message, code)
+}
+fun failure<T, E>(error: E): Outcome<T, E> {
+  return OutcomeErr(error)
+}
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+fun main() {
+  val task = spawn {
+    val value: Errors.Outcome<String, Errors.Error> = Errors.failure(Errors.protocol("joined-bad", 402))
+    return value
+  }
+  val first: Result<Errors.Outcome<String, Errors.Error>, TaskError> = join(task)
+  match (first) {
+    case Ok(value) => {
+      match (value) {
+        case OutcomeOk(text) => { println(text) }
+        case OutcomeErr(error) => { println(error.message) }
+      }
+    }
+    case Err(error) => { println("task-failed") }
+  }
+  gc_collect()
+  val second: Result<Errors.Outcome<String, Errors.Error>, TaskError> = join(task)
+  match (second) {
+    case Ok(value) => {
+      match (value) {
+        case OutcomeOk(text) => { println(text) }
+        case OutcomeErr(error) => { println(error.message) }
+      }
+    }
+    case Err(error) => { println("task-failed") }
+  }
+}
+"#,
+        )
+        .expect("parse joined shared Outcome fixture");
+        for enum_decl in &mut file.enums {
+            if enum_decl.name.name == "TaskError" || enum_decl.name.name == "Result" {
+                enum_decl.origin_package = "std.io".into();
+                enum_decl.is_pub = true;
+            } else if enum_decl.name.name == "ErrorKind" || enum_decl.name.name == "Outcome" {
+                enum_decl.origin_package = "std.error".into();
+                enum_decl.is_pub = true;
+            }
+        }
+        for class_decl in &mut file.classes {
+            if class_decl.name.name == "Error" {
+                class_decl.origin_package = "std.error".into();
+                class_decl.is_pub = true;
+            }
+        }
+        for function in &mut file.functions {
+            if function.name.name == "protocol" || function.name.name == "failure" {
+                function.origin_package = "std.error".into();
+                function.is_pub = true;
+            }
+        }
+        let generated = emit_c_from_ast(&file).expect("emit joined shared Outcome fixture");
+        assert!(generated.contains("data.Ok.owned"));
+        assert!(generated.contains("OutcomeErr.error"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-joined-shared-outcome-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile joined shared Outcome fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run joined shared Outcome fixture");
+        assert!(
+            output.status.success(),
+            "joined Outcome fixture failed: {output:?}"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "joined-bad\njoined-bad\n"
+        );
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);
     }

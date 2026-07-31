@@ -145,10 +145,26 @@ pub(crate) fn emit_block(out: &mut String, block: &Block, indent: usize, ctx: &m
     emit_free_string_owners(out, indent, &ctx.string_owners_current());
     emit_destroy_channel_owners(out, indent, &ctx.channel_owners_current());
     emit_free_task_result_owners(out, indent, ctx, &ctx.task_result_owners_current());
+    emit_free_shared_outcome_owners(out, indent, ctx);
     emit_release_task_handle_owners(out, indent, ctx, &ctx.task_handle_owners_current());
     // C12m: release by-ref boxes owned by this block (after Fun envs drop their retains).
     emit_release_box_locals(out, indent, ctx, &ctx.box_owners_current());
     ctx.pop_scope();
+}
+
+fn emit_free_shared_outcome_owners(out: &mut String, indent: usize, ctx: &EmitCtx<'_>) {
+    let mut owners = Vec::new();
+    for scope in ctx.locals.iter().rev() {
+        for (name, key) in scope {
+            if is_shared_outcome_error_owner_key(key) {
+                owners.push((name.clone(), key.clone()));
+            }
+        }
+    }
+    owners.sort_by(|left, right| left.0.cmp(&right.0));
+    for (name, key) in owners {
+        crate::emit::emit_owned_value_cleanup(out, indent, &mangle_ident(&name), &key, ctx.checked);
+    }
 }
 
 /// Free heap buffer of a local `Array` (null-safe; zeros fields).
@@ -219,7 +235,13 @@ fn is_task_result_string_owner_key(key: &str) -> bool {
 }
 
 pub(crate) fn is_shared_outcome_error_owner_key(key: &str) -> bool {
-    key.starts_with("std_error_Outcome_") && key.ends_with("_std_error_Error")
+    (key.starts_with("std_error_Outcome_") && key.ends_with("_std_error_Error"))
+        || key == "Outcome_String_Error"
+}
+
+fn is_task_result_shared_outcome_error_owner_key(key: &str) -> bool {
+    key.starts_with("std_io_Result_std_error_Outcome_")
+        && key.ends_with("_std_error_Error_std_io_TaskError")
 }
 
 fn task_result_array_owner_key(key: &str) -> Option<&str> {
@@ -268,6 +290,10 @@ pub(crate) fn emit_free_task_result_owners(
         } else if task_result_class_owner_key(key, ctx).is_some() {
             format!(
                 "if ({n}.tag == 0 && {n}.data.Ok.owned && {n}.data.Ok.value != NULL) {{ aura_gc_remove_root((void **)&{n}.data.Ok.value); {n}.data.Ok.value = NULL; {n}.data.Ok.owned = false; }} "
+            )
+        } else if is_task_result_shared_outcome_error_owner_key(key) {
+            format!(
+                "if ({n}.tag == 0 && {n}.data.Ok.owned) {{ if ({n}.data.Ok.value.tag == 0 && {n}.data.Ok.value.data.OutcomeOk.owned && {n}.data.Ok.value.data.OutcomeOk.value != NULL) {{ free((void *){n}.data.Ok.value.data.OutcomeOk.value); {n}.data.Ok.value.data.OutcomeOk.value = NULL; {n}.data.Ok.value.data.OutcomeOk.owned = false; }} if ({n}.data.Ok.value.tag == 1 && {n}.data.Ok.value.data.OutcomeErr.owned && {n}.data.Ok.value.data.OutcomeErr.error != NULL) {{ aura_gc_remove_root((void **)&{n}.data.Ok.value.data.OutcomeErr.error); {n}.data.Ok.value.data.OutcomeErr.error = NULL; {n}.data.Ok.value.data.OutcomeErr.owned = false; }} {n}.data.Ok.owned = false; }} "
             )
         } else {
             String::new()
@@ -703,6 +729,12 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                 let _ = writeln!(
                     out,
                     "{p}if ({dst}.tag == 1 && {dst}.data.OutcomeErr.error != NULL) {{ aura_gc_add_root((void **)&{dst}.data.OutcomeErr.error); {dst}.data.OutcomeErr.owned = true; }}"
+                );
+            }
+            if is_task_result_shared_outcome_error_owner_key(&ty_name) {
+                let _ = writeln!(
+                    out,
+                    "{p}if ({dst}.tag == 0 && {dst}.data.Ok.value.tag == 1 && {dst}.data.Ok.value.data.OutcomeErr.error != NULL) {{ aura_gc_add_root((void **)&{dst}.data.Ok.value.data.OutcomeErr.error); {dst}.data.Ok.value.data.OutcomeErr.owned = true; {dst}.data.Ok.owned = true; }}"
                 );
             }
             if let Some(src) = string_move_src {
@@ -1215,6 +1247,21 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                             };
                         let val = coerce_expr(e, &expected, ctx);
                         let _ = writeln!(out, "{p}{c_ty} {tmp} = {val};");
+                        if is_shared_outcome_error_owner_key(&expected) {
+                            // Returning an Outcome transfers its payload ownership to the result.
+                            let _ = writeln!(
+                                out,
+                                "{p}if ({tmp}.tag == 0 && {tmp}.data.OutcomeOk.value != NULL) {tmp}.data.OutcomeOk.owned = true; if ({tmp}.tag == 1 && {tmp}.data.OutcomeErr.error != NULL) {{ aura_gc_add_root((void **)&{tmp}.data.OutcomeErr.error); {tmp}.data.OutcomeErr.owned = true; }}"
+                            );
+                            if let Expr::Ident(id) = e {
+                                let source = mangle_ident(&id.name);
+                                let _ = writeln!(
+                                    out,
+                                    "{p}if ({source}.tag == 0) {source}.data.OutcomeOk.owned = false; else if ({source}.tag == 1) {source}.data.OutcomeErr.owned = false;"
+                                );
+                            }
+                        }
+                        emit_free_shared_outcome_owners(out, indent, ctx);
                         // C7c: zero source field so object no longer shares the buffer.
                         if let Some(lv) = move_field {
                             let _ =
