@@ -22,6 +22,96 @@ pub enum TokenTree {
 }
 
 pub type MacroCaptures = BTreeMap<String, TokenTree>;
+pub type RepeatedMacroCaptures = BTreeMap<String, Vec<TokenTree>>;
+
+/// Match the common RFC-010 repetition form `$( $name:fragment ),*` when it
+/// occupies the complete rule pattern.
+pub fn match_repeated_pattern(
+    pattern: &[TokenTree],
+    input: &[TokenTree],
+) -> Option<RepeatedMacroCaptures> {
+    let (name, separator) = repetition_parts(pattern)?;
+    let mut values = Vec::new();
+    let mut index = 0;
+    let TokenTree::Group { children, .. } = pattern.get(1)? else {
+        return None;
+    };
+    while index < input.len() {
+        let single = match_pattern(children, &input[index..index + 1])?;
+        values.push(single.get(&name)?.clone());
+        index += 1;
+        if index < input.len() {
+            let Some(separator) = separator else {
+                continue;
+            };
+            if !same_tree(separator, input.get(index)?) {
+                return None;
+            }
+            index += 1;
+        }
+    }
+    Some(BTreeMap::from([(name, values)]))
+}
+
+/// Expand a template containing `$( $name ),*`, preserving its separator.
+pub fn substitute_repeated(
+    template: &[TokenTree],
+    captures: &RepeatedMacroCaptures,
+) -> Vec<TokenTree> {
+    substitute_repeated_sequence(template, captures)
+}
+
+fn substitute_repeated_sequence(
+    template: &[TokenTree],
+    captures: &RepeatedMacroCaptures,
+) -> Vec<TokenTree> {
+    let mut output = Vec::new();
+    let mut index = 0;
+    while index < template.len() {
+        if let Some((consumed, name, separator)) = repetition_at(template, index) {
+            let Some(values) = captures.get(&name) else {
+                output.extend_from_slice(&template[index..index + consumed]);
+                index += consumed;
+                continue;
+            };
+            let TokenTree::Group {
+                children: inner, ..
+            } = &template[index + 1]
+            else {
+                unreachable!("repetition_at only accepts grouped repetitions");
+            };
+            for (value_index, value) in values.iter().enumerate() {
+                if value_index > 0 {
+                    if let Some(separator) = separator {
+                        output.push(separator.clone());
+                    }
+                }
+                let one = BTreeMap::from([(name.clone(), value.clone())]);
+                output.extend(substitute(inner, &one));
+            }
+            index += consumed;
+            continue;
+        }
+        output.push(substitute_repeated_tree(&template[index], captures));
+        index += 1;
+    }
+    output
+}
+
+fn substitute_repeated_tree(tree: &TokenTree, captures: &RepeatedMacroCaptures) -> TokenTree {
+    match tree {
+        TokenTree::Leaf(_) => tree.clone(),
+        TokenTree::Group {
+            delimiter,
+            span,
+            children,
+        } => TokenTree::Group {
+            delimiter: delimiter.clone(),
+            span: *span,
+            children: substitute_repeated_sequence(children, captures),
+        },
+    }
+}
 
 /// Match one declarative macro rule against a token-tree sequence. Metavariables
 /// use `$name` or `$name:fragment`; the fragment label is retained for callers
@@ -276,6 +366,56 @@ fn metavariable(tokens: &[TokenTree]) -> Option<(String, usize)> {
     Some((name.clone(), consumed))
 }
 
+fn repetition_parts(tokens: &[TokenTree]) -> Option<(String, Option<&TokenTree>)> {
+    if tokens.len() < 3
+        || !matches!(
+            tokens.first(),
+            Some(TokenTree::Leaf(Token {
+                kind: TokenKind::Dollar,
+                ..
+            }))
+        )
+        || !matches!(tokens.get(1), Some(TokenTree::Group { .. }))
+        || !matches!(
+            tokens.last(),
+            Some(TokenTree::Leaf(Token {
+                kind: TokenKind::Star,
+                ..
+            }))
+        )
+    {
+        return None;
+    }
+    let TokenTree::Group { children, .. } = &tokens[1] else {
+        return None;
+    };
+    let Some((name, consumed)) = metavariable(children) else {
+        return None;
+    };
+    if consumed != children.len() {
+        return None;
+    }
+    let separator = match tokens.len() {
+        3 => None,
+        4 => tokens.get(2),
+        _ => return None,
+    };
+    Some((name, separator))
+}
+
+fn repetition_at(
+    tokens: &[TokenTree],
+    index: usize,
+) -> Option<(usize, String, Option<&TokenTree>)> {
+    let remaining = &tokens[index..];
+    for length in [3, 4] {
+        if let Some(parts) = remaining.get(..length).and_then(repetition_parts) {
+            return Some((length, parts.0, parts.1));
+        }
+    }
+    None
+}
+
 fn same_tree(left: &TokenTree, right: &TokenTree) -> bool {
     match (left, right) {
         (TokenTree::Leaf(left), TokenTree::Leaf(right)) => left.kind == right.kind,
@@ -359,5 +499,32 @@ mod tests {
         assert!(flattened
             .iter()
             .any(|token| token.kind == TokenKind::Int(42)));
+    }
+
+    #[test]
+    fn matches_and_substitutes_comma_repetition() {
+        let pattern = TokenTree::from_tokens(&lex("$($value:expr),*").expect("lex pattern"))
+            .expect("group pattern");
+        let input = TokenTree::from_tokens(&lex("1,2,3").expect("lex input")).expect("group input");
+        let captures = match_repeated_pattern(&pattern, &input).expect("match repetition");
+        assert_eq!(captures["value"].len(), 3);
+        let template = TokenTree::from_tokens(&lex("wrap($($value),*)").expect("lex template"))
+            .expect("group template");
+        let group = template
+            .get(1)
+            .and_then(TokenTree::children)
+            .expect("template group");
+        let expanded = substitute_repeated(group, &captures);
+        let mut flattened = Vec::new();
+        for item in &expanded {
+            item.flatten(&mut flattened);
+        }
+        assert_eq!(
+            flattened
+                .iter()
+                .filter(|token| matches!(token.kind, TokenKind::Int(_)))
+                .count(),
+            3
+        );
     }
 }

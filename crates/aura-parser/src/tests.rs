@@ -701,3 +701,11 @@ fn reports_declarative_macro_recursion_limit() {
             .expect_err("recursive macro must be bounded");
     assert!(error.message.contains("recursion limit"));
 }
+
+#[test]
+fn expands_declarative_macro_repetition_inside_group() {
+    parse_file(
+        "package demo\nmacro! list { ($($value:expr),*) => { make($($value),*) }; }\nfun main() { println(list!(1, 2, 3).toString()) }\n",
+    )
+    .expect("repeating macro should expand before AST parsing");
+}

@@ -69,9 +69,11 @@ When you resolve debt, update or remove the matching entry.
   Binary/Runtime metadata table. Built-in
   `Equals`, `HashCode`, `Debug`, and `ToString` derives are compiler-generated
   and ownership-checked.
-- Why the remaining macro boundary is deferred: repetition/hygiene rules,
-  package macro discovery, and plugin integration into the package build still
-  need to consume the new primitives. The runner refuses hosts without a
+- Why the remaining macro boundary is deferred: the current repetition support
+  is intentionally limited to a single expression capture with `*` and a
+  single separator; full repetition composition, hygiene rules, package macro
+  discovery, and plugin integration into the package build still need to
+  consume the new primitives. The runner refuses hosts without a
   supported OS sandbox instead of weakening RFC-010's supply-chain and
   capability contract. Concurrent tracing collection
   still needs write barriers and precise stack maps beyond the executor-safe
