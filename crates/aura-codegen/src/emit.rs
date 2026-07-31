@@ -11340,8 +11340,8 @@ fn emit_lambda_fns(out: &mut String, checked: &CheckedFile, detector: bool) {
             let _ = writeln!(out, "  {field_ty} {};", mangle_ident(&cap.name));
         }
         let _ = writeln!(out, "}} aura_lenv_{id};");
-        // Per-env drop: remove GC roots for heap-class captures, release by-ref boxes,
-        // release nested Fun envs, then free env only. C12l: never free Array view buffers.
+        // Per-env drop: release owned Array snapshots, remove GC roots for heap-class
+        // captures, release by-ref boxes and nested Fun envs, then free the env.
         let _ = writeln!(out, "static void aura_lenv_{id}_drop(void *env) {{");
         let _ = writeln!(out, "  aura_lenv_{id} *__e = (aura_lenv_{id} *)env;");
         for cap in captures {
@@ -11357,6 +11357,9 @@ fn emit_lambda_fns(out: &mut String, checked: &CheckedFile, detector: bool) {
             } else if is_fun_capture_ty(&cap.ty) {
                 // C13e: release retained nested env (no-op when env is NULL).
                 let _ = writeln!(out, "  aura_fun_env_free(__e->{m}.env);");
+            } else if is_array_capture_ty(&cap.ty) {
+                let key = cap.ty.mono_suffix();
+                crate::array_emit::emit_array_contents_free(out, 2, &format!("__e->{m}"), &key);
             } else if is_heap_class_capture_ty(&cap.ty, checked) {
                 let _ = writeln!(out, "  aura_gc_remove_root((void **)&__e->{m});");
             }
@@ -11431,8 +11434,8 @@ fn emit_lambda_fns(out: &mut String, checked: &CheckedFile, detector: bool) {
             async_frame: None,
             task_poller: false,
         };
-        // C12l: Array captures are non-owning views — do not mark array_owner
-        // (env/header copy only; outer scope frees the buffer).
+        // Immutable Array captures are owned by the environment. The lambda
+        // receives a shallow local view and must not free it per invocation.
         // C12m: by-ref captures are box pointers; mark so reads/writes use ->value.
         for cap in captures {
             ctx.define_local(&cap.name, cap.ty.mono_suffix());

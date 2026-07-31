@@ -1753,7 +1753,7 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
                 format!("(({fp}){{ .env = NULL, .fn = aura_lambda_{id} }})")
             } else {
                 // GNU statement-expr: allocate env, set drop+refs, fill captures, root GC slots.
-                // C12l: Array fields are header copies (view); outer scope still owns the buffer.
+                // Immutable Array captures are cloned so the closure owns its snapshot.
                 // C12m: by-ref slots store box pointers and retain.
                 // C13e: Fun slots copy fat pointer and retain nested env (shared RC).
                 let mut fill = String::new();
@@ -1762,7 +1762,13 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
                 for cap in captures {
                     let m = mangle_ident(&cap.name);
                     // Capture from enclosing scope local of the same name.
-                    let _ = writeln!(fill, "  __e->{m} = {m};");
+                    if !cap.by_ref && crate::names::is_array_capture_ty(&cap.ty) {
+                        let key = cap.ty.mono_suffix();
+                        let clone = crate::names::c_method_name(&key, "clone");
+                        let _ = writeln!(fill, "  __e->{m} = {clone}(&{m});");
+                    } else {
+                        let _ = writeln!(fill, "  __e->{m} = {m};");
+                    }
                     if cap.by_ref {
                         if crate::names::is_array_capture_ty(&cap.ty)
                             || crate::names::is_fun_capture_ty(&cap.ty)

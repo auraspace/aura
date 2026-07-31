@@ -8901,4 +8901,47 @@ fun main() {
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);
     }
+
+    #[test]
+    fn immutable_array_lambda_capture_owns_snapshot_after_outer_scope() {
+        let file = parse_file(
+            r#"package demo
+fun make(): () -> Int {
+  val values: Array<Int> = Array<Int>(1)
+  values.set(0, 73)
+  return () => values.get(0)
+}
+fun main() {
+  val read: () -> Int = make()
+  println(read().toString())
+}
+"#,
+        )
+        .expect("parse immutable Array lambda capture fixture");
+        let generated =
+            emit_c_from_ast(&file).expect("emit immutable Array lambda capture fixture");
+        assert!(generated.contains("aura_method_Array_Int_clone(&values)"));
+        assert!(generated.contains("aura_lenv_"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-array-lambda-snapshot-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile immutable Array lambda capture fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run immutable Array lambda capture fixture");
+        assert!(
+            output.status.success(),
+            "Array lambda fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "73\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
 }
