@@ -2405,7 +2405,7 @@ fun main() {
 
 #[test]
 fn lambda_allows_var_array_capture_by_ref() {
-    // C20a: mutable Array captures retain the view/reference contract.
+    // C20a: mutable Array captures use one shared owned cell, not a view.
     let src = r#"
 package t
 fun main() {

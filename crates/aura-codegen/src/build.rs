@@ -9031,4 +9031,48 @@ fun main() {
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);
     }
+
+    #[test]
+    fn mutable_array_lambda_capture_shares_one_owner_across_multiple_closures() {
+        let file = parse_file(
+            r#"package demo
+fun make(): Int {
+  var values: Array<Int> = Array<Int>(0)
+  val first = () => values.len
+  val second = () => values.len
+  values.push(1)
+  values.push(2)
+  return first() + second()
+}
+fun main() {
+  println(make().toString())
+}
+"#,
+        )
+        .expect("parse multiple escaping Array closures");
+        let generated = emit_c_from_ast(&file).expect("emit multiple Array closures");
+        assert!(generated.contains("aura_box_ptr_retain"));
+        assert!(generated.contains("aura_capture_drop_Array_Int"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-array-lambda-two-owners-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile multiple Array closures");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run multiple Array closures");
+        assert!(
+            output.status.success(),
+            "multiple closure fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "4\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
 }

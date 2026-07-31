@@ -487,7 +487,7 @@ val u = s!!   // assert non-null; panic/throw if null
 - Parameters are **references to GC objects** for class types; **by-value** for primitives and structs (details RFC-003).
 - `this` receiver for instance methods; `super` for parent.
 - First-class functions and lambdas: **`(x: Int) => x + 1`** or block body `(x: Int) => { ... }`.
-- Closures: capture `val` by value/shared immutability; capture `var` through shared mutable storage. C20c–e cover class, Array, and nested Fun MVP lowering; Array owner movement and live-view safety still require a borrow contract. Exact lowering is tracked in RFC-004/toolchain notes.
+- Closures: capture `val` by value/shared immutability; capture `var` through shared mutable storage. A mutable `Array<T>` capture is an owned, reference-counted shared cell: the outer binding and every escaping closure retain the same cell, mutations are visible to all aliases, and the payload is released after the last cell owner. It is not a borrowed Array view, so owner movement is cell retain/release and there is no live-view invalidation. C20c–e cover class, Array, and nested Fun lowering; scoped `ref T` remains a separate non-escaping borrow feature. Exact lowering is tracked in RFC-004/toolchain notes.
 - Generators/iterators: `Iterable` / `Iterator` protocols in stdlib; `yield` **not required v1**.
 
 ### 6.8 Modules & compilation units

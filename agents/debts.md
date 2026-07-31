@@ -734,14 +734,14 @@ request_timeout` response, then closes; runtime timeout and sanitizer
 ### Lambda capture limits (MVP)
 
 - Area: language / lambdas (C10h/C12k/C12l/C12m/C13e/C13f/C13g)
-- Symptom: `var` class/Array/Fun capture has only an MVP box/lowering contract; mutable Array captures do not have borrow-checked lifetime safety (immutable Array captures now own a cloned snapshot)
-- Why deferred: full Array ownership needs a borrow/lifetime contract; owner movement, escaping live views, and mutation invalidation are not yet specified
-- Progress: C20c–e add shared pointer boxes and codegen lowering for mutable class/Array/Fun captures; class payloads are GC-rooted, nested Fun environments retain/release, and corpus covers mutation, rebinding, escaping closures, and GC churn. Mutable Array captures now retain an owned `aura_box_ptr` payload whose drop callback releases the cloned Array storage; a native fixture verifies mutation remains visible after the outer scope exits. Existing env `__drop` still unregisters class roots / releases boxes / nested Fun envs then frees (never frees Array buffers)
-- Note (C12l): immutable Array capture clones `{data,len,cap}` into the closure environment; mutable `var` Array capture uses an owned shared box today, but its source-level borrow/mutation contract is still not formally specified
+- Symptom: richer aggregate captures and concurrent scheduler policy remain bounded; mutable Array capture itself is no longer a borrowed-view MVP (immutable Array captures own a cloned snapshot)
+- Why deferred: richer aggregate element types and scheduler policy need separate contracts; the Array capture ownership contract is now explicit and implemented
+- Progress: C20c–e add shared pointer boxes and codegen lowering for mutable class/Array/Fun captures; class payloads are GC-rooted, nested Fun environments retain/release, and corpus covers mutation, rebinding, escaping closures, and GC churn. Mutable Array captures use one owned `aura_box_ptr` shared by the outer binding and every closure; native fixtures verify mutation after outer-scope escape and shared visibility across two closures. Existing env `__drop` still unregisters class roots / releases boxes / nested Fun envs then frees (never frees Array buffers)
+- Note (C12l): immutable Array capture clones `{data,len,cap}` into the closure environment; mutable `var` Array capture uses an owned shared cell, not a borrowed view, so owner movement is cell retain/release and no mutation invalidation is exposed
 - Note (C12m/C13f): `var` Int/Bool/String uses `aura_box_*` (refcount); String box owns heap copy (`set` frees previous); outer + each capturing env retain; multiple lambdas share mutations; escaping Fun keeps the box alive
 - Note (C13g): Fun param transfer moves env (caller must not call after pass); nested retain via capture keeps both live — stress corpus documents both
-- Next step: define true borrow/lifetime rules for mutable Array capture, including owner movement and mutation invalidation
-- Note: C12 batch closed (C12t); C13e Fun + C13f var String + C13g stress audit shipped; C20c–e mutable class/Array/Fun MVP shipped — residual is the Array ownership contract
+- Next step: specify richer aggregate element captures and scheduler policy without changing the shared-cell Array contract
+- Note: C12 batch closed (C12t); C13e Fun + C13f var String + C13g stress audit shipped; C20c–e mutable class/Array/Fun shared ownership contract shipped — residual is richer aggregate/scheduler policy
 - Introduced: narrowed after C10h; env free 2026-07-20; class C12k 2026-07-21; Array view C12l 2026-07-21; var Int/Bool C12m 2026-07-21; Fun C13e 2026-07-21; var String C13f 2026-07-21; stress C13g 2026-07-21; mutable class/Array/Fun MVP C20c–e 2026-07-22
 
 ### Array field return still moves (no true borrow type)

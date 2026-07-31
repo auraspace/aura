@@ -129,7 +129,9 @@ returns and read-only collection views.
 The MVP has no mutable borrow, heap-stored reference, nullable/nested `ref`,
 closure/task escape, pinning, or concurrent sharing. Codegen may represent a
 valid borrow as a temporary pointer/view; no new runtime retain/release ABI is
-required. Async/tasks were outside the C21 implementation track; C22 now adds
+required. Mutable Array lambda captures are a separate owned shared-cell
+contract: the outer binding and each closure retain the cell, and the Array
+payload is released after the last cell owner. Async/tasks were outside the C21 implementation track; C22 now adds
 explicit single-threaded lifetime barriers without changing this ownership ABI.
 
 #### 6.2.2 C22 async borrow barriers
