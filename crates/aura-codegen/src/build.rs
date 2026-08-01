@@ -602,6 +602,55 @@ fun main() {
     }
 
     #[test]
+    fn gc_marks_nested_heap_class_fields_while_async_capture_is_live() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+class Child(var value: Int) {}
+class Parent(var child: Child) {}
+fun launch(): TaskHandle<Int> {
+  val parent: Parent = Parent(Child(41))
+  return spawn {
+    gc_collect()
+    return parent.child.value
+  }
+}
+fun main() {
+  val task = launch()
+  gc_collect()
+  val result: Result<Int, TaskError> = join(task)
+  match (result) {
+    case Ok(value) => { println(value.toString()) }
+    case Err(error) => { println("failed") }
+  }
+}
+"#,
+        )
+        .expect("parse nested class async capture GC fixture");
+        let generated = emit_c_from_ast(&file).expect("emit nested class async capture GC fixture");
+        assert!(generated.contains("aura_gc_alloc_full"));
+        assert!(generated.contains("aura_gc_mark_ptr((void *)self->child)"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-nested-class-async-capture-gc-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile nested class async capture GC fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run nested class async capture GC fixture");
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "41\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_compiler_generated_async_read_fd() {
         let file = aura_parser::parse_file(
             r#"package std.io

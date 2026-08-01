@@ -81,3 +81,5 @@ locals, including locals initialized by generic async calls. This keeps the
 static capture layout and ownership path aligned with sema's inferred `T`.
 Async frames also expose typed GC-mark callbacks; no-suspension frames retain
 heap-class parameters (including Array-of-class storage) until terminal cleanup.
+Heap-class mark-extras callbacks traverse direct nested class/enum fields and
+Array-of-enum fields as part of the same GC contract.

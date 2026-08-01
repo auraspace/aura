@@ -456,6 +456,22 @@ fn emit_class_gc_hooks(
     let string_fields = string_field_names(c, checked, params, args);
     let arr_cls_fields = array_of_class_field_names(c, checked, params, args);
     let arr_iface_fields = array_of_interface_field_specs(c, checked, params, args);
+    let marked_fields = ownership_fields(c, checked, params, args)
+        .into_iter()
+        .filter(|(_, key)| {
+            let mono = crate::expr::full_type_mono(key, checked);
+            crate::names::is_heap_class_mono(&mono, checked)
+                || crate::expr::is_enum_mono(&mono, checked)
+        })
+        .collect::<Vec<_>>();
+    let arr_enum_fields = ownership_fields(c, checked, params, args)
+        .into_iter()
+        .filter_map(|(name, key)| {
+            let elem = crate::array_emit::array_elem_key(&key)?;
+            let elem = crate::expr::full_type_mono(elem, checked);
+            crate::expr::is_enum_mono(&elem, checked).then_some((name, elem))
+        })
+        .collect::<Vec<_>>();
     {
         let _ = writeln!(out, "static void {}(void *p) {{", c_dtor_name(mono));
         let _ = writeln!(out, "  {cty} *self = ({cty} *)p;");
@@ -488,10 +504,24 @@ fn emit_class_gc_hooks(
             c_dtor_name(mono)
         );
     }
-    if !arr_cls_fields.is_empty() || !arr_iface_fields.is_empty() {
+    if !marked_fields.is_empty()
+        || !arr_cls_fields.is_empty()
+        || !arr_iface_fields.is_empty()
+        || !arr_enum_fields.is_empty()
+    {
         let _ = writeln!(out, "static void {}(void *p) {{", c_markex_name(mono));
         let _ = writeln!(out, "  {cty} *self = ({cty} *)p;");
         out.push_str("  if (self == NULL) { return; }\n");
+        for (name, key) in &marked_fields {
+            let f = mangle_ident(name);
+            let mono = crate::expr::full_type_mono(key, checked);
+            if crate::names::is_heap_class_mono(&mono, checked) {
+                let _ = writeln!(out, "  aura_gc_mark_ptr((void *)self->{f});");
+            } else {
+                let cty = crate::stmt::local_key_to_c(&mono, checked);
+                let _ = writeln!(out, "  {cty}_mark(&self->{f});");
+            }
+        }
         for name in &arr_cls_fields {
             let f = mangle_ident(name);
             let _ = writeln!(out, "  {{");
@@ -538,6 +568,16 @@ fn emit_class_gc_hooks(
             out.push_str("        }\n");
             out.push_str("      }\n");
             out.push_str("    }\n");
+            out.push_str("  }\n");
+        }
+        for (name, enum_key) in &arr_enum_fields {
+            let f = mangle_ident(name);
+            let cty = crate::stmt::local_key_to_c(enum_key, checked);
+            let _ = writeln!(out, "  if (self->{f}.data != NULL) {{");
+            let _ = writeln!(
+                out,
+                "    for (int64_t __i = 0; __i < self->{f}.len; __i++) {cty}_mark(&self->{f}.data[__i]);"
+            );
             out.push_str("  }\n");
         }
         out.push_str("}\n\n");
@@ -1343,8 +1383,23 @@ pub(crate) fn emit_ctor_mono(
         // C3y: allocate class instance on GC heap.
         // C7b: pass dtor / mark_extras when the class owns Array fields.
         let arr_cls = array_of_class_field_names(c, checked, params, args);
+        let has_marked_field =
+            ownership_fields(c, checked, params, args)
+                .into_iter()
+                .any(|(_, key)| {
+                    let mono = crate::expr::full_type_mono(&key, checked);
+                    crate::names::is_heap_class_mono(&mono, checked)
+                        || crate::expr::is_enum_mono(&mono, checked)
+                });
+        let has_enum_array = ownership_fields(c, checked, params, args)
+            .into_iter()
+            .filter_map(|(_, key)| crate::array_emit::array_elem_key(&key).map(str::to_string))
+            .map(|elem| crate::expr::full_type_mono(&elem, checked))
+            .any(|elem| crate::expr::is_enum_mono(&elem, checked));
         let dtor = c_dtor_name(mono);
-        let markex = if arr_cls.is_empty()
+        let markex = if !has_marked_field
+            && !has_enum_array
+            && arr_cls.is_empty()
             && array_of_interface_field_specs(c, checked, params, args).is_empty()
         {
             "NULL".to_string()

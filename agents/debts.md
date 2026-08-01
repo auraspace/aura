@@ -1631,6 +1631,9 @@ TaskError>` ABI, plus cooperative `isCancelled()` inside generated async
   hook and roots/drops every heap-class parameter, including Array-of-class
   storage, rather than special-casing only `this`. A scope-escape regression
   forces GC after the caller's local is gone and before the frame is polled.
+- Progress: class GC mark-extras now traverses direct heap-class and enum fields
+  as well as Array-of-enum fields, so an asynchronously captured parent object
+  keeps nested aggregate references alive across forced collection.
 - Residual: generic bounded pollers still need dedicated clone/destroy paths for
   mixed aggregates whose elements require recursive ownership policies beyond
   the generated enum boundary.
