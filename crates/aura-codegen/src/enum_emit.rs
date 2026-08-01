@@ -294,6 +294,18 @@ pub(crate) fn emit_enum_defs(out: &mut String, checked: &CheckedFile, e: &EnumDe
             c_enum_type(&mono)
         );
     }
+    if task_result_enum_ok(e, &pkg, args, "Ok") {
+        let ctor = c_variant_ctor_name(&mono, "OkOwned");
+        let payload = c_type_from_ty(&args[0], checked);
+        let _ = writeln!(
+            out,
+            "{} {}({} value) {{ {} self; self.tag = 0; self.data.Ok.value = value; self.data.Ok.owned = true; return self; }}",
+            c_enum_type(&mono),
+            ctor,
+            payload,
+            c_enum_type(&mono)
+        );
+    }
     if shared_outcome_string_ok(e, &pkg, args, "OutcomeOk") {
         let ctor = c_variant_ctor_name(&mono, "OutcomeOkOwned");
         let _ = writeln!(

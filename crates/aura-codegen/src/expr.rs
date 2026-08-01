@@ -2051,7 +2051,7 @@ fn emit_join(j: &JoinExpr, ctx: &mut EmitCtx<'_>, owned_error: bool) -> String {
     } else if owned_error && is_enum_mono(&inner, ctx.checked) {
         let clone_fn = format!("{cty}_clone");
         out.push_str(&format!(
-            "else {{ {cty} __join_payload = __join_result.data != NULL ? *(({cty} *)__join_result.data) : ({cty}){{0}}; __join_value = {result_ok}({clone_fn}(&__join_payload)); }} "
+            "else {{ {cty} __join_payload = __join_result.data != NULL ? *(({cty} *)__join_result.data) : ({cty}){{0}}; __join_value = {result_ok_owned}({clone_fn}(&__join_payload)); }} "
         ));
     } else if !owned_error || matches!(inner.as_str(), "Int" | "Bool") {
         out.push_str(&format!(

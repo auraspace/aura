@@ -2100,6 +2100,9 @@ fun main() {
         let generated = emit_c_from_ast(&file).expect("emit String enum task payload fixture");
         assert!(generated.contains("aura_enum_std_io_Payload_clone"));
         assert!(generated.contains("aura_enum_std_io_Payload_drop"));
+        assert!(
+            generated.contains("aura_var_std_io_Result_std_io_Payload_std_io_TaskError_OkOwned")
+        );
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .and_then(|path| path.parent())

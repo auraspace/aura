@@ -83,3 +83,5 @@ Async frames also expose typed GC-mark callbacks; no-suspension frames retain
 heap-class parameters (including Array-of-class storage) until terminal cleanup.
 Heap-class mark-extras callbacks traverse direct nested class/enum fields and
 Array-of-enum fields as part of the same GC contract.
+Owned task joins use `Result.OkOwned` for cloned enum payloads, making lexical
+drop of repeated joined aggregates explicit in the generated ABI.

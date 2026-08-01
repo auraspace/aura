@@ -1625,6 +1625,9 @@ TaskError>` ABI, plus cooperative `isCancelled()` inside generated async
   join plus forced-GC sanitizer execution.
 - Progress: the same enum clone/drop boundary now handles nested Array, class,
   foreign-handle, and enum fields, including root/retain transitions.
+- Progress: owned `join` now uses an explicit `Result.OkOwned` constructor for
+  enum payloads, so cloned enum aggregates are dropped by lexical result
+  cleanup instead of being left with the borrowed constructor bit.
 - Progress: generated enum mark helpers now let async frame GC traverse nested
   heap-class payloads without treating borrowed enum fields as owned.
 - Progress: the no-suspension async lowering now installs a typed frame mark
