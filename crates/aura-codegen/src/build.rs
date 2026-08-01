@@ -3,6 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use aura_ast::File;
+use aura_sema::CheckedFile;
 
 use crate::ctx::EmitOptions;
 use crate::driver::{Artifact, CBackend, Driver};
@@ -11,6 +12,10 @@ use crate::options::CompileOptions;
 
 pub fn emit_c_from_ast(file: &File) -> Result<String, CodegenError> {
     Driver::new(CBackend).emit(file, EmitOptions::default())
+}
+
+pub fn emit_c_from_checked(checked: &CheckedFile) -> String {
+    crate::emit::emit_c_with(checked, EmitOptions::default())
 }
 
 pub fn emit_c_tests_from_ast(file: &File) -> Result<String, CodegenError> {
@@ -38,6 +43,21 @@ pub fn build_from_file(
     )
 }
 
+pub fn build_from_checked(
+    checked: &CheckedFile,
+    out_bin: &Path,
+    runtime_c: &Path,
+) -> Result<PathBuf, CodegenError> {
+    crate::driver::build_artifact_from_checked(
+        checked,
+        out_bin,
+        runtime_c,
+        CompileOptions::default(),
+        EmitOptions::default(),
+    )
+    .map(Artifact::into_path)
+}
+
 pub fn build_tests_from_file(
     file: &File,
     out_bin: &Path,
@@ -53,6 +73,24 @@ pub fn build_tests_from_file(
             ..Default::default()
         },
     )
+}
+
+pub fn build_tests_from_checked(
+    checked: &CheckedFile,
+    out_bin: &Path,
+    runtime_c: &Path,
+) -> Result<PathBuf, CodegenError> {
+    crate::driver::build_artifact_from_checked(
+        checked,
+        out_bin,
+        runtime_c,
+        CompileOptions::default(),
+        EmitOptions {
+            test: true,
+            ..Default::default()
+        },
+    )
+    .map(Artifact::into_path)
 }
 
 pub(crate) fn build_from_file_with(
@@ -597,6 +635,55 @@ fun main() {
             .expect("run no-await class parameter frame fixture");
         assert!(output.status.success(), "{output:?}");
         assert_eq!(String::from_utf8_lossy(&output.stdout), "41\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_task_join_with_owned_struct_payload() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+struct Packet(val text: String, val code: Int) {}
+async fun produce(): Packet { return Packet("ready", 17) }
+fun main() {
+  val captured: Packet = Packet("captured", 23)
+  val task = spawn {
+    val value: Packet = await produce()
+    println(captured.text)
+    return value
+  }
+  val outcome: Result<Packet, TaskError> = join(task)
+  match (outcome) {
+    case Ok(value) => {
+      println(value.text)
+      println(value.code.toString())
+    }
+    case Err(error) => { println("failed") }
+  }
+}
+"#,
+        )
+        .expect("parse struct task outcome fixture");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-task-struct-outcome-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile struct task outcome fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run struct task outcome fixture");
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "captured\nready\n17\n"
+        );
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);
     }
@@ -4540,6 +4627,7 @@ async fun nested(flag: Bool): Array<Int> {
       gc_collect()
       return value
     }
+
   }
   return Array<Int>(0)
 }
@@ -4618,6 +4706,76 @@ fun main() {
         assert_eq!(
             String::from_utf8_lossy(&output.stdout),
             "3\n3\naggregate-failure\ncancelled\n"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_general_cfg_struct_across_branch_loop_await() {
+        let source = r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+struct Packet(val text: String, val code: Int) {}
+async fun worker(code: Int): Packet { return Packet("packet", code) }
+async fun choose(flag: Bool): Packet {
+  var result: Packet = Packet("initial", 0)
+  var index: Int = 0
+  while (index < 2) {
+    if (flag) {
+      val next: Packet = await worker(index + 1)
+      result = next
+    } else {
+      val alternate: Packet = await worker(9)
+      result = alternate
+    }
+    gc_collect()
+    index = index + 1
+  }
+  return result
+}
+fun main() {
+  val task = spawn { val value: Packet = await choose(true) return value }
+  val first: Result<Packet, TaskError> = join(task)
+  match (first) {
+    case Ok(value) => { println(value.text) println(value.code.toString()) }
+    case Err(error) => { println("struct-error") }
+  }
+  gc_collect()
+  val second: Result<Packet, TaskError> = join(task)
+  match (second) {
+    case Ok(value) => { println(value.text) println(value.code.toString()) }
+    case Err(error) => { println("struct-repeat-error") }
+  }
+}
+"#;
+        let file = aura_parser::parse_file(source).expect("parse general CFG struct fixture");
+        let generated = emit_c_from_ast(&file).expect("emit general CFG struct fixture");
+        assert!(generated.contains("aura async general CFG Struct lowering"));
+        assert!(generated.contains("aura_async_result_destroy_"));
+        assert!(generated.contains("_Packet_clone"));
+        assert!(generated.contains("_Packet_mark"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-general-cfg-struct-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile general CFG struct fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run general CFG struct fixture");
+        assert!(
+            output.status.success(),
+            "general CFG struct fixture failed: {output:?}"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "packet\n2\npacket\n2\n"
         );
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);

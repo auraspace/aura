@@ -6,7 +6,8 @@ use std::fmt;
 pub mod token_tree;
 
 pub use token_tree::{
-    match_pattern, match_repeated_pattern, substitute, substitute_repeated, Delimiter, TokenTree,
+    match_nested_repeated_pattern, match_pattern, match_repeated_pattern, substitute,
+    substitute_nested_repeated, substitute_repeated, Delimiter, TokenTree,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]

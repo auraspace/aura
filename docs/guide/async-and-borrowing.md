@@ -30,8 +30,9 @@ async fun readAnswer(): Int {
 
 `await` is only valid in an async function or spawned task body. Borrowed
 values cannot cross an await boundary. The implementation supports multiple
-bounded suspension points and typed task outcomes, while arbitrary async
-control-flow/capture combinations remain implementation-limited.
+suspension points, typed `Result<T, TaskError>` outcomes, generic inferred
+spawn captures, aggregate clone/drop, and typed frame GC hooks. Less-common
+method-aware handler CFG shapes remain bounded implementation territory.
 
 ## Spawn, join, and cancellation
 

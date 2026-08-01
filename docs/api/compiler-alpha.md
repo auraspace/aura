@@ -70,11 +70,14 @@ metavariable matcher, template substitution, and bounded multi-capture
 repetition primitives; top-level function-like rules now expand before AST
 construction with a bounded recursion limit. Package loading exports
 declarative macros from earlier source files to later files. Nested repetition
-composition, hygiene, dependency macro discovery, and package-build plugin
-invocation remain open. The sema API now exposes the versioned RFC-010 process
-protocol with bounded output/timeout handling and fail-closed OS sandbox
-selection for plugin hosts; package build integration still remains to be
-wired.
+composition is supported for one nested level; hygiene and dependency-provided
+macro discovery remain open. The
+sema API exposes the versioned RFC-010 process protocol with bounded
+output/timeout handling and fail-closed OS sandbox selection. Package manifests
+may declare root-owned executables under `[macro_plugins]`; the package checker
+resolves them relative to the package root, runs matching `@derive(Name)`
+expansions, and feeds the checked result to `aura check`, `aura emit-c`,
+`aura build`, and `aura test`.
 The compiler also exposes `check_file_with_sandboxed_macro` and
 `check_file_with_plugin_source`: generated source is parsed and merged before
 typecheck, package identity changes are rejected, and expansion metadata is

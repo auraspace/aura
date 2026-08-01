@@ -10,6 +10,7 @@ aura-analysis.workspace = true
 aura-ast.workspace = true
 aura-codegen.workspace = true
 aura-diagnostics.workspace = true
+aura-sema.workspace = true
 flate2 = "1"
 sha2 = "0.10"
 tar = "0.4"

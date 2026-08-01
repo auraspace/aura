@@ -2,8 +2,8 @@
 
 use aura_ast::*;
 use aura_lexer::{
-    match_pattern, match_repeated_pattern, substitute, substitute_repeated, Delimiter, Token,
-    TokenKind, TokenTree,
+    match_nested_repeated_pattern, match_pattern, match_repeated_pattern, substitute,
+    substitute_nested_repeated, substitute_repeated, Delimiter, Token, TokenKind, TokenTree,
 };
 
 use crate::error::ParseError;
@@ -606,6 +606,11 @@ fn expand_tree_list(tree: Vec<TokenTree>, macros: &[DeclarativeMacro]) -> (Vec<T
                 if let Some(definition) = macros.iter().find(|item| item.name == *name) {
                     let mut matched = None;
                     for rule in &definition.rules {
+                        if let Some(captures) = match_nested_repeated_pattern(&rule.pattern, input)
+                        {
+                            matched = Some(substitute_nested_repeated(&rule.template, &captures));
+                            break;
+                        }
                         if let Some(captures) = match_repeated_pattern(&rule.pattern, input) {
                             matched = Some(substitute_repeated(&rule.template, &captures));
                             break;

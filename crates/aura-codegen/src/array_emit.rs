@@ -69,6 +69,40 @@ fn enum_element_mono(elem: &Ty, checked: &CheckedFile) -> Option<String> {
     crate::expr::is_enum_mono(&full, checked).then_some(full)
 }
 
+fn struct_element_mono(elem: &Ty, checked: &CheckedFile) -> Option<String> {
+    let (name, args) = match elem {
+        Ty::Class(name) => (name, &[][..]),
+        Ty::ClassApp { name, args } => (name, args.as_slice()),
+        _ => return None,
+    };
+    let base = aura_sema::split_nominal(name).0;
+    let class = checked
+        .ast
+        .classes
+        .iter()
+        .find(|class| class.kind == aura_ast::NominalKind::Struct && class.name.name == base)?;
+    let local = mono_key(base, args);
+    Some(crate::expr::full_type_mono(
+        &format!(
+            "{}@{}",
+            local,
+            crate::names::class_decl_package(class, checked)
+        ),
+        checked,
+    ))
+}
+
+fn struct_element_mono_from_key(key: &str, checked: &CheckedFile) -> Option<String> {
+    let full = crate::expr::full_type_mono(key, checked);
+    let base = crate::expr::mono_base_name(&full, checked)?;
+    checked
+        .ast
+        .classes
+        .iter()
+        .find(|class| class.kind == aura_ast::NominalKind::Struct && class.name.name == base)
+        .map(|_| full)
+}
+
 /// Emit free of owned string pointers in `arr_expr.data[0..arr_expr.len)`.
 /// `arr_expr` is a C lvalue/expression with `.data` / `.len` (e.g. `parts` or `this->data[__i]`).
 pub(crate) fn emit_free_string_elems(out: &mut String, indent: &str, arr_expr: &str) {
@@ -158,6 +192,12 @@ fn emit_array_contents_free_inner(
                     out,
                     "{p}  for (int64_t __af = 0; __af < {name_c}.len; __af++) {{ {enum_cty}_drop(&{name_c}.data[__af]); }}"
                 );
+            } else if struct_element_mono_from_key(&elem_key, checked).is_some() {
+                let struct_cty = crate::stmt::local_key_to_c(&elem_key, checked);
+                let _ = writeln!(
+                    out,
+                    "{p}  for (int64_t __af = 0; __af < {name_c}.len; __af++) {{ {struct_cty}_drop(&{name_c}.data[__af]); }}"
+                );
             }
         }
     }
@@ -211,6 +251,7 @@ pub(crate) fn emit_array_mono(out: &mut String, elem: &Ty, checked: &CheckedFile
     let elem_is_array = elem_is_nested_array(elem);
     let nested_holds_string = nested_array_holds_string(elem);
     let enum_elem = enum_element_mono(elem, checked);
+    let struct_elem = struct_element_mono(elem, checked);
 
     // Array monomorphs are emitted before enum function forwards.  Declare
     // the element ownership hooks here so the generated C remains valid even
@@ -222,6 +263,14 @@ pub(crate) fn emit_array_mono(out: &mut String, elem: &Ty, checked: &CheckedFile
             "{enum_cty} {enum_cty}_clone(const {enum_cty} *source);"
         );
         let _ = writeln!(out, "void {enum_cty}_drop({enum_cty} *value);\n");
+    }
+    if let Some(struct_mono) = &struct_elem {
+        let struct_cty = c_class_type(struct_mono);
+        let _ = writeln!(
+            out,
+            "{struct_cty} {struct_cty}_clone(const {struct_cty} *source);"
+        );
+        let _ = writeln!(out, "void {struct_cty}_drop({struct_cty} *value);\n");
     }
 
     let _ = writeln!(out, "typedef struct {c_ty} {{");
@@ -352,6 +401,9 @@ pub(crate) fn emit_array_mono(out: &mut String, elem: &Ty, checked: &CheckedFile
         let _ = writeln!(out, "  if (this->data != NULL) {{");
         let _ = writeln!(out, "    for (int64_t __i = 0; __i < this->len; __i++) {{ {enum_cty}_drop(&this->data[__i]); }}");
         out.push_str("  }\n");
+    } else if let Some(struct_mono) = &struct_elem {
+        let struct_cty = c_class_type(struct_mono);
+        let _ = writeln!(out, "  if (this->data != NULL) {{ for (int64_t __i = 0; __i < this->len; __i++) {{ {struct_cty}_drop(&this->data[__i]); }} }}");
     }
     out.push_str("  this->len = 0;\n");
     out.push_str("}\n\n");
@@ -468,6 +520,9 @@ pub(crate) fn emit_array_mono(out: &mut String, elem: &Ty, checked: &CheckedFile
     } else if let Some(enum_mono) = &enum_elem {
         let enum_cty = c_enum_type(enum_mono);
         let _ = writeln!(out, "  for (int64_t __i = 0; __i < this->len; __i++) {{ out.data[__i] = {enum_cty}_clone(&this->data[__i]); }}");
+    } else if let Some(struct_mono) = &struct_elem {
+        let struct_cty = c_class_type(struct_mono);
+        let _ = writeln!(out, "  for (int64_t __i = 0; __i < this->len; __i++) {{ out.data[__i] = {struct_cty}_clone(&this->data[__i]); }}");
     } else {
         out.push_str("  memcpy(out.data, this->data, (size_t)this->len * sizeof(*out.data));\n");
     }

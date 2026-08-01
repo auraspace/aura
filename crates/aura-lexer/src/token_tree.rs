@@ -23,6 +23,95 @@ pub enum TokenTree {
 
 pub type MacroCaptures = BTreeMap<String, TokenTree>;
 pub type RepeatedMacroCaptures = BTreeMap<String, Vec<TokenTree>>;
+/// Captures for a repetition nested one level inside another repetition.
+/// Each outer item owns its own sequence of inner captures.
+pub type NestedMacroCaptures = BTreeMap<String, Vec<Vec<TokenTree>>>;
+
+pub fn match_nested_repeated_pattern(
+    pattern: &[TokenTree],
+    input: &[TokenTree],
+) -> Option<NestedMacroCaptures> {
+    let (names, separator, requires_one) = repetition_parts(pattern)?;
+    let TokenTree::Group { children, .. } = pattern.get(1)? else {
+        return None;
+    };
+    let items = split_repetition_input(input, separator);
+    if requires_one && items.is_empty() {
+        return None;
+    }
+    let mut captures = names
+        .iter()
+        .map(|name| (name.clone(), Vec::with_capacity(items.len())))
+        .collect::<NestedMacroCaptures>();
+    for item in items {
+        let matched = match_repeated_pattern(children, item)?;
+        for name in &names {
+            captures.get_mut(name)?.push(matched.get(name)?.clone());
+        }
+    }
+    Some(captures)
+}
+
+pub fn substitute_nested_repeated(
+    template: &[TokenTree],
+    captures: &NestedMacroCaptures,
+) -> Vec<TokenTree> {
+    substitute_nested_sequence(template, captures)
+}
+
+fn substitute_nested_sequence(
+    template: &[TokenTree],
+    captures: &NestedMacroCaptures,
+) -> Vec<TokenTree> {
+    let mut output = Vec::new();
+    let mut index = 0;
+    while index < template.len() {
+        let Some((consumed, names, separator)) = repetition_at(template, index) else {
+            output.push(match &template[index] {
+                TokenTree::Leaf(_) => template[index].clone(),
+                TokenTree::Group {
+                    delimiter,
+                    span,
+                    children,
+                } => TokenTree::Group {
+                    delimiter: delimiter.clone(),
+                    span: *span,
+                    children: substitute_nested_sequence(children, captures),
+                },
+            });
+            index += 1;
+            continue;
+        };
+        let Some(first) = captures.get(&names[0]) else {
+            output.extend_from_slice(&template[index..index + consumed]);
+            index += consumed;
+            continue;
+        };
+        let TokenTree::Group { children, .. } = &template[index + 1] else {
+            index += consumed;
+            continue;
+        };
+        for (outer_index, _) in first.iter().enumerate() {
+            if outer_index > 0 {
+                if let Some(separator) = separator {
+                    output.push(separator.clone());
+                }
+            }
+            let inner = names
+                .iter()
+                .filter_map(|name| {
+                    captures
+                        .get(name)
+                        .and_then(|items| items.get(outer_index))
+                        .map(|values| (name.clone(), values.clone()))
+                })
+                .collect::<RepeatedMacroCaptures>();
+            output.extend(substitute_repeated(children, &inner));
+        }
+        index += consumed;
+    }
+    output
+}
 
 /// Match the common RFC-010 repetition form `$( $name:fragment ),*` when it
 /// occupies the complete rule pattern.
@@ -621,6 +710,40 @@ mod tests {
                 .filter(|token| matches!(token.kind, TokenKind::Int(_)))
                 .count(),
             2
+        );
+    }
+
+    #[test]
+    fn matches_and_substitutes_nested_repetition() {
+        let pattern = TokenTree::from_tokens(&lex("$($($value:expr),*);*").expect("lex pattern"))
+            .expect("group pattern");
+        let input =
+            TokenTree::from_tokens(&lex("1,2;3,4").expect("lex input")).expect("group input");
+        let captures = match_nested_repeated_pattern(&pattern, &input).expect("nested match");
+        assert_eq!(captures["value"].len(), 2);
+        assert_eq!(captures["value"][0].len(), 2);
+        assert_eq!(captures["value"][1].len(), 2);
+        let template =
+            TokenTree::from_tokens(&lex("emit($($($value),*);*)").expect("lex template"))
+                .expect("group template");
+        let expanded = substitute_nested_repeated(&template, &captures);
+        let mut flattened = Vec::new();
+        for item in &expanded {
+            item.flatten(&mut flattened);
+        }
+        assert_eq!(
+            flattened
+                .iter()
+                .filter(|token| token.kind == TokenKind::Int(1))
+                .count(),
+            1
+        );
+        assert_eq!(
+            flattened
+                .iter()
+                .filter(|token| token.kind == TokenKind::Int(4))
+                .count(),
+            1
         );
     }
 }

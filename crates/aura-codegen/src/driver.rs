@@ -123,6 +123,20 @@ pub fn build_artifact(
     Driver::new(CBackend).build(file, out_bin, runtime_c, options, opts)
 }
 
+/// Compile a semantically checked file supplied by an external compiler host.
+/// This preserves host-side macro/plugin expansion instead of re-running the
+/// plain `check_file` path and discarding generated items.
+pub fn build_artifact_from_checked(
+    checked: &CheckedFile,
+    out_bin: &Path,
+    runtime_c: &Path,
+    options: CompileOptions,
+    opts: EmitOptions,
+) -> Result<Artifact, CodegenError> {
+    validate_build(&options, &compiler_command(), runtime_c)?;
+    CBackend.compile(checked, out_bin, runtime_c, &options, opts)
+}
+
 impl<B: Backend> Driver<B> {
     pub(crate) fn new(backend: B) -> Self {
         Self { backend }

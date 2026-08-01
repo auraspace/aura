@@ -59,6 +59,24 @@ values, and inheritance cycles. The current CLI always builds through the C
 backend; profile selection remains part of the backend/toolchain contract and
 is not yet exposed as a command-line switch.
 
+## Root procedural macro plugins
+
+A package may opt into a versioned, sandboxed executable for a derive by adding
+`[macro_plugins]`. Paths are relative to the package root and only the root
+package's declarations are executed:
+
+```toml
+[macro_plugins]
+Entity = "plugins/entity-macro"
+```
+
+When a class uses `@derive(Entity)`, `aura check`, `aura emit-c`, `aura build`,
+and `aura test` run that executable through the RFC-010 protocol. Generated
+source is parsed, package identity is checked, merged, and semantically checked
+before code generation. Plugin output and runtime are bounded by the sandbox's
+configured timeout and output limit; dependency-provided plugins are not
+implicitly executed.
+
 ## Multi-file same package
 
 Files in the same package share the package namespace. Point the CLI at the **directory**:

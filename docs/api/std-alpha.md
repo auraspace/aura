@@ -37,12 +37,14 @@ remain compatible.
 ## What is still required for a fully productive language
 
 The API surface is now broad enough for CLI, file, collection, service, and
-bounded HTTP applications. “Complete” still requires separate implementation
-work for general async lowering and aggregate ownership, non-empty spawn
-capture transfer, macro/derive expansion, a concurrent tracing collector,
-cryptographic/TLS backends, full JSON traversal/mapping, and release evidence
-on deferred targets. Those gaps are tracked as debt rather than hidden behind
-an unstable API.
+bounded HTTP applications. The compiler/runtime now cover typed task outcomes,
+aggregate ownership across the shipped async CFGs, non-empty generic spawn
+captures, owned Array closure captures, token-tree/derive expansion, and typed
+async frame GC hooks. Remaining limits are arbitrary method-aware HTTP handler
+CFGs, nested/hygienic macro expansion and dependency plugin provenance, a
+concurrent tracing collector, cryptographic/TLS backends, full JSON
+traversal/mapping, and release evidence on deferred targets. Those gaps remain
+tracked as debt rather than hidden behind an unstable API.
 
 See [`deferred-alpha.md`](deferred-alpha.md) for RFC-derived surfaces that are
 reserved as contracts but intentionally have no source placeholder yet because

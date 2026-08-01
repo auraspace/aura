@@ -34,6 +34,24 @@ path = "src"
 }
 
 #[test]
+fn parse_macro_plugin_manifest() {
+    let t = parse_aura_toml(
+        r#"
+[package]
+name = "demo.macros"
+
+[macro_plugins]
+Entity = "plugins/entity-macro"
+"#,
+    )
+    .unwrap();
+    assert_eq!(
+        t.macro_plugins.get("Entity").map(String::as_str),
+        Some("plugins/entity-macro")
+    );
+}
+
+#[test]
 fn profile_schema_normalizes_defaults_and_inheritance() {
     use aura_codegen::{Lto, OptimizationLevel, PanicStrategy, Profile};
 

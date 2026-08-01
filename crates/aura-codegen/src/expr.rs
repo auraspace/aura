@@ -595,6 +595,7 @@ fn spawn_capture_type_supported(key: &str, checked: &CheckedFile) -> bool {
         || is_fun_type_key(key)
         || is_heap_class_mono(key, checked)
         || is_enum_mono(key, checked)
+        || is_value_struct_mono(key, checked)
 }
 
 fn spawn_body_contains_await(block: &Block) -> bool {
@@ -1125,6 +1126,7 @@ pub(crate) fn bounded_spawn_await_shape<'a>(
                 || is_array_type_key(&key)
                 || is_heap_class_mono(&key, checked)
                 || is_enum_mono(&key, checked)
+                || is_value_struct_mono(&key, checked)
         })
         .unwrap_or(false)
         && !spawn_body_contains_await(&Block {
@@ -1933,6 +1935,9 @@ fn emit_async_expr(expr: &AsyncExpr, ctx: &mut EmitCtx<'_>) -> String {
                         } else if is_enum_mono(key, ctx.checked) {
                             let cty = crate::stmt::local_key_to_c(key, ctx.checked);
                             format!("__spawn_data->{n} = {cty}_clone(&{n});")
+                        } else if is_value_struct_mono(key, ctx.checked) {
+                            let cty = crate::stmt::local_key_to_c(key, ctx.checked);
+                            format!("__spawn_data->{n} = {cty}_clone(&{n});")
                         } else {
                             format!("__spawn_data->{n} = {n};")
                         }
@@ -2053,6 +2058,11 @@ fn emit_join(j: &JoinExpr, ctx: &mut EmitCtx<'_>, owned_error: bool) -> String {
         out.push_str(&format!(
             "else {{ {cty} __join_payload = __join_result.data != NULL ? *(({cty} *)__join_result.data) : ({cty}){{0}}; __join_value = {result_ok_owned}({clone_fn}(&__join_payload)); }} "
         ));
+    } else if owned_error && is_value_struct_mono(&inner, ctx.checked) {
+        let clone_fn = format!("{cty}_clone");
+        out.push_str(&format!(
+            "else {{ {cty} __join_payload = __join_result.data != NULL ? *(({cty} *)__join_result.data) : ({cty}){{0}}; __join_value = {result_ok_owned}({clone_fn}(&__join_payload)); }} "
+        ));
     } else if !owned_error || matches!(inner.as_str(), "Int" | "Bool") {
         out.push_str(&format!(
             "else {{ __join_value = {result_ok}(__join_result.data != NULL ? *(({cty} *)__join_result.data) : ({cty}){{0}}); }} "
@@ -2078,6 +2088,17 @@ pub(crate) fn is_enum_mono(key: &str, checked: &CheckedFile) -> bool {
                 .mono_enums
                 .iter()
                 .any(|(name, candidate)| name == base && candidate.as_slice() == args))
+}
+
+pub(crate) fn is_value_struct_mono(key: &str, checked: &CheckedFile) -> bool {
+    let Some(base) = mono_base_name(key, checked) else {
+        return false;
+    };
+    checked
+        .ast
+        .classes
+        .iter()
+        .any(|class| class.kind == NominalKind::Struct && class.name.name == base)
 }
 
 fn emit_await(a: &AwaitExpr, ctx: &mut EmitCtx<'_>) -> String {

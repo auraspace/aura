@@ -21,10 +21,13 @@ mod runtime_abi;
 mod stmt;
 mod validation;
 
-pub use build::{build_from_file, build_tests_from_file, emit_c_from_ast, emit_c_tests_from_ast};
+pub use build::{
+    build_from_checked, build_from_file, build_tests_from_checked, build_tests_from_file,
+    emit_c_from_ast, emit_c_from_checked, emit_c_tests_from_ast,
+};
 pub use cache::{ArtifactCache, ArtifactCacheKey, CacheError};
 pub use ctx::EmitOptions;
-pub use driver::{build_artifact, Artifact, BuildIdentity};
+pub use driver::{build_artifact, build_artifact_from_checked, Artifact, BuildIdentity};
 pub use emit::{emit_c, emit_c_with};
 pub use error::CodegenError;
 pub use options::{

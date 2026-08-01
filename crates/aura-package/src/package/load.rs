@@ -149,6 +149,7 @@ pub(crate) fn load_single_file(path: &Path) -> Result<LoadedPackage, String> {
         virtual_src: src,
         ast,
         macro_sources,
+        macro_plugins: std::collections::BTreeMap::new(),
     })
 }
 
@@ -194,6 +195,11 @@ pub(crate) fn load_from_manifest(
     };
 
     pkg.root = root.clone();
+    pkg.macro_plugins = toml
+        .macro_plugins
+        .iter()
+        .map(|(name, path)| (name.clone(), root.join(path)))
+        .collect();
     if let Some(ref name) = toml.package_name {
         if name != &pkg.package {
             return Err(format!(
@@ -1073,5 +1079,6 @@ pub(crate) fn load_directory(
         virtual_src,
         ast: merged,
         macro_sources,
+        macro_plugins: std::collections::BTreeMap::new(),
     })
 }

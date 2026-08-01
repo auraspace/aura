@@ -264,6 +264,12 @@ pub(crate) fn emit_class_forwards(
     let params: Vec<String> = c.type_params.iter().map(|p| p.name.name.clone()).collect();
     let pkg = class_decl_package(c, checked);
     let mono = type_mono(&pkg, &c.name.name, args);
+    if c.kind == NominalKind::Struct {
+        let cty = c_class_type(&mono);
+        let _ = writeln!(out, "{cty} {cty}_clone(const {cty} *source);");
+        let _ = writeln!(out, "void {cty}_drop({cty} *value);");
+        let _ = writeln!(out, "void {cty}_mark(const {cty} *value);");
+    }
     let _ = writeln!(
         out,
         "{};",
@@ -335,6 +341,147 @@ pub(crate) fn emit_class_forwards(
             }
         }
     }
+}
+
+fn is_value_struct_mono(key: &str, checked: &CheckedFile) -> bool {
+    let Some(base) = crate::expr::mono_base_name(key, checked) else {
+        return false;
+    };
+    checked
+        .ast
+        .classes
+        .iter()
+        .any(|class| class.kind == NominalKind::Struct && class.name.name == base)
+}
+
+fn emit_struct_field_clone(
+    out: &mut String,
+    checked: &CheckedFile,
+    field_expr: &str,
+    source_expr: &str,
+    key: &str,
+) {
+    let full = crate::expr::full_type_mono(key, checked);
+    if key == "String" {
+        let _ = writeln!(
+            out,
+            "  if ({source_expr} != NULL) {{ size_t __len = strlen({source_expr}); char *__copy = (char *)malloc(__len + 1); if (__copy == NULL) abort(); memcpy(__copy, {source_expr}, __len + 1); {field_expr} = __copy; }} else {{ {field_expr} = NULL; }}"
+        );
+    } else if crate::array_emit::is_array_type_key(&full) {
+        let clone = crate::names::c_method_name(&full, "clone");
+        let _ = writeln!(
+            out,
+            "  {field_expr} = {clone}(({crate} *)&({source_expr}));",
+            crate = crate::stmt::local_key_to_c(&full, checked)
+        );
+    } else if crate::expr::is_enum_mono(&full, checked) || is_value_struct_mono(&full, checked) {
+        let cty = crate::stmt::local_key_to_c(&full, checked);
+        let _ = writeln!(out, "  {field_expr} = {cty}_clone(&({source_expr}));");
+    } else if crate::names::is_heap_class_mono(&full, checked) {
+        let _ = writeln!(out, "  {field_expr} = {source_expr}; if ({field_expr} != NULL) aura_gc_add_root((void **)&{field_expr});");
+    } else if full == "ForeignHandle" || full.starts_with("ForeignHandle_") {
+        let _ = writeln!(out, "  {field_expr} = {source_expr}; if ({field_expr} != NULL) (void)aura_ffi_handle_retain({field_expr});");
+    } else if crate::names::is_fun_type_key(&full) {
+        let _ = writeln!(out, "  {field_expr} = {source_expr}; if ({field_expr}.env != NULL) aura_fun_env_retain({field_expr}.env);");
+    } else {
+        let _ = writeln!(out, "  {field_expr} = {source_expr};");
+    }
+}
+
+fn emit_struct_field_drop(out: &mut String, checked: &CheckedFile, field_expr: &str, key: &str) {
+    let full = crate::expr::full_type_mono(key, checked);
+    if key == "String" {
+        let _ = writeln!(
+            out,
+            "  if ({field_expr} != NULL) {{ free((void *){field_expr}); {field_expr} = NULL; }}"
+        );
+    } else if crate::array_emit::is_array_type_key(&full) {
+        crate::array_emit::emit_array_contents_free_checked(out, 1, field_expr, &full, checked);
+    } else if crate::expr::is_enum_mono(&full, checked) || is_value_struct_mono(&full, checked) {
+        let cty = crate::stmt::local_key_to_c(&full, checked);
+        let _ = writeln!(out, "  {cty}_drop(&({field_expr}));");
+    } else if crate::names::is_heap_class_mono(&full, checked) {
+        let _ = writeln!(
+            out,
+            "  if ({field_expr} != NULL) aura_gc_remove_root((void **)&{field_expr});"
+        );
+    } else if full == "ForeignHandle" || full.starts_with("ForeignHandle_") {
+        let _ = writeln!(
+            out,
+            "  if ({field_expr} != NULL) (void)aura_ffi_handle_drop(&{field_expr});"
+        );
+    } else if crate::names::is_fun_type_key(&full) {
+        let _ = writeln!(out, "  if ({field_expr}.env != NULL) {{ aura_fun_env_free({field_expr}.env); {field_expr}.env = NULL; }}");
+    }
+}
+
+/// Emit value-semantic ownership hooks for structs. Structs are stored inline,
+/// so a shallow memcpy is unsafe whenever a field owns a String, Array, enum,
+/// nested struct, foreign handle, closure environment, or GC class reference.
+pub(crate) fn emit_struct_value_hooks(
+    out: &mut String,
+    checked: &CheckedFile,
+    c: &ClassDecl,
+    args: &[Ty],
+) {
+    if c.kind != NominalKind::Struct {
+        return;
+    }
+    let params: Vec<String> = c.type_params.iter().map(|p| p.name.name.clone()).collect();
+    let pkg = class_decl_package(c, checked);
+    let mono = type_mono(&pkg, &c.name.name, args);
+    let cty = c_class_type(&mono);
+    let fields = ownership_fields(c, checked, &params, args);
+
+    let _ = writeln!(out, "{cty} {cty}_clone(const {cty} *source) {{");
+    let _ = writeln!(
+        out,
+        "  {cty} copy = source == NULL ? ({cty}){{0}} : *source;"
+    );
+    out.push_str("  if (source == NULL) return copy;\n");
+    for (name, key) in &fields {
+        let field = mangle_ident(name);
+        emit_struct_field_clone(
+            out,
+            checked,
+            &format!("copy.{field}"),
+            &format!("source->{field}"),
+            key,
+        );
+    }
+    out.push_str("  return copy;\n}\n\n");
+
+    let _ = writeln!(out, "void {cty}_drop({cty} *value) {{");
+    out.push_str("  if (value == NULL) return;\n");
+    for (name, key) in &fields {
+        emit_struct_field_drop(out, checked, &format!("value->{}", mangle_ident(name)), key);
+    }
+    out.push_str("}\n\n");
+
+    let _ = writeln!(out, "void {cty}_mark(const {cty} *value) {{");
+    out.push_str("  if (value == NULL) return;\n");
+    for (name, key) in &fields {
+        let full = crate::expr::full_type_mono(key, checked);
+        let field = mangle_ident(name);
+        if crate::names::is_heap_class_mono(&full, checked) {
+            let _ = writeln!(out, "  aura_gc_mark_ptr((void *)value->{field});");
+        } else if crate::expr::is_enum_mono(&full, checked) || is_value_struct_mono(&full, checked)
+        {
+            let cty = crate::stmt::local_key_to_c(&full, checked);
+            let _ = writeln!(out, "  {cty}_mark(&value->{field});");
+        } else if let Some(elem) = crate::array_emit::array_elem_key(&full) {
+            let elem = crate::expr::full_type_mono(elem, checked);
+            if crate::names::is_heap_class_mono(&elem, checked) {
+                let _ = writeln!(out, "  if (value->{field}.data != NULL) for (int64_t __i = 0; __i < value->{field}.len; __i++) aura_gc_mark_ptr((void *)value->{field}.data[__i]);");
+            } else if crate::expr::is_enum_mono(&elem, checked)
+                || is_value_struct_mono(&elem, checked)
+            {
+                let cty = crate::stmt::local_key_to_c(&elem, checked);
+                let _ = writeln!(out, "  if (value->{field}.data != NULL) for (int64_t __i = 0; __i < value->{field}.len; __i++) {cty}_mark(&value->{field}.data[__i]);");
+            }
+        }
+    }
+    out.push_str("}\n\n");
 }
 
 fn ownership_fields<'a>(
@@ -595,6 +742,7 @@ pub(crate) fn emit_class_defs(
     let params: Vec<String> = c.type_params.iter().map(|p| p.name.name.clone()).collect();
     let pkg = class_decl_package(c, checked);
     let mono = type_mono(&pkg, &c.name.name, args);
+    emit_struct_value_hooks(out, checked, c, args);
     emit_class_gc_hooks(out, c, checked, &params, args, &mono);
     emit_ctor_mono(out, c, checked, &params, args, &mono);
     out.push('\n');
@@ -1453,7 +1601,8 @@ pub(crate) fn emit_ctor_mono(
         let _ = writeln!(out, "  {cty} self;");
         for f in &c.fields {
             let n = mangle_ident(&f.name.name);
-            let _ = writeln!(out, "  self.{n} = {n};");
+            let key = type_ref_local_key(&f.ty, params, args);
+            emit_struct_field_clone(out, checked, &format!("self.{n}"), &n, &key);
         }
         out.push_str("  return self;\n}\n");
     }

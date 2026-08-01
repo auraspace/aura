@@ -272,6 +272,19 @@ fn task_result_enum_owner_key<'a>(key: &'a str, ctx: &EmitCtx<'_>) -> Option<&'a
         .then_some(payload)
 }
 
+fn task_result_struct_owner_key<'a>(key: &'a str, ctx: &EmitCtx<'_>) -> Option<&'a str> {
+    let payload = key
+        .strip_prefix("std_io_Result_")
+        .and_then(|rest| rest.strip_suffix("_std_io_TaskError"))?;
+    let base = crate::expr::mono_base_name(payload, ctx.checked)?;
+    ctx.checked
+        .ast
+        .classes
+        .iter()
+        .any(|class| class.kind == aura_ast::NominalKind::Struct && class.name.name == base)
+        .then_some(payload)
+}
+
 pub(crate) fn emit_free_task_result_owners(
     out: &mut String,
     indent: usize,
@@ -312,6 +325,12 @@ pub(crate) fn emit_free_task_result_owners(
             )
         } else if task_result_enum_owner_key(key, ctx).is_some() {
             let payload = task_result_enum_owner_key(key, ctx).unwrap();
+            let payload_cty = local_key_to_c(payload, ctx.checked);
+            format!(
+                "if ({n}.tag == 0 && {n}.data.Ok.owned) {{ {payload_cty}_drop(&{n}.data.Ok.value); {n}.data.Ok.owned = false; }} "
+            )
+        } else if task_result_struct_owner_key(key, ctx).is_some() {
+            let payload = task_result_struct_owner_key(key, ctx).unwrap();
             let payload_cty = local_key_to_c(payload, ctx.checked);
             format!(
                 "if ({n}.tag == 0 && {n}.data.Ok.owned) {{ {payload_cty}_drop(&{n}.data.Ok.value); {n}.data.Ok.owned = false; }} "

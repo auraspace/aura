@@ -68,6 +68,31 @@ fn task_result_array_ok(e: &EnumDecl, pkg: &str, args: &[Ty], variant: &str) -> 
         })
 }
 
+fn task_result_struct_ok(
+    e: &EnumDecl,
+    pkg: &str,
+    args: &[Ty],
+    variant: &str,
+    checked: &CheckedFile,
+) -> bool {
+    pkg == "std.io"
+        && e.name.name == "Result"
+        && variant == "Ok"
+        && args.first().is_some_and(|ty| {
+            let name = match ty {
+                Ty::Class(name) | Ty::Enum(name) => name,
+                Ty::ClassApp { name, .. } | Ty::EnumApp { name, .. } => name,
+                _ => return false,
+            };
+            let base = aura_sema::split_nominal(name).0;
+            checked
+                .ast
+                .classes
+                .iter()
+                .any(|class| class.kind == NominalKind::Struct && class.name.name == base)
+        })
+}
+
 fn shared_outcome_string_ok(e: &EnumDecl, pkg: &str, args: &[Ty], variant: &str) -> bool {
     pkg == "std.error"
         && e.name.name == "Outcome"
@@ -147,6 +172,9 @@ pub(crate) fn emit_enum_typedef(
                 out.push_str("      bool owned;\n");
             }
             if task_result_array_ok(e, &pkg, args, &v.name.name) {
+                out.push_str("      bool owned;\n");
+            }
+            if task_result_struct_ok(e, &pkg, args, &v.name.name, checked) {
                 out.push_str("      bool owned;\n");
             }
             if shared_outcome_string_ok(e, &pkg, args, &v.name.name) {
@@ -263,6 +291,9 @@ pub(crate) fn emit_enum_defs(out: &mut String, checked: &CheckedFile, e: &EnumDe
             if task_result_array_ok(e, &pkg, args, &v.name.name) {
                 let _ = writeln!(out, "  self.data.Ok.owned = false;");
             }
+            if task_result_struct_ok(e, &pkg, args, &v.name.name, checked) {
+                let _ = writeln!(out, "  self.data.Ok.owned = false;");
+            }
             if shared_outcome_string_ok(e, &pkg, args, &v.name.name) {
                 let _ = writeln!(out, "  self.data.OutcomeOk.owned = false;");
             }
@@ -337,6 +368,15 @@ pub(crate) fn emit_enum_defs(out: &mut String, checked: &CheckedFile, e: &EnumDe
             c_enum_type(&mono)
         );
     }
+    if task_result_struct_ok(e, &pkg, args, "Ok", checked) {
+        let ctor = c_variant_ctor_name(&mono, "OkOwned");
+        let payload = c_type_from_ty(&args[0], checked);
+        let _ = writeln!(
+            out,
+            "{} {}({} value) {{ {} self; self.tag = 0; self.data.Ok.value = value; self.data.Ok.owned = true; return self; }}",
+            c_enum_type(&mono), ctor, payload, c_enum_type(&mono)
+        );
+    }
     if shared_outcome_string_ok(e, &pkg, args, "OutcomeOk") {
         let ctor = c_variant_ctor_name(&mono, "OutcomeOkOwned");
         let _ = writeln!(
@@ -363,6 +403,7 @@ fn variant_has_owned_field(
         || task_result_class_ok(e, pkg, args, variant, checked)
         || task_result_enum_ok(e, pkg, args, variant)
         || task_result_array_ok(e, pkg, args, variant)
+        || task_result_struct_ok(e, pkg, args, variant, checked)
         || shared_outcome_string_ok(e, pkg, args, variant)
         || shared_outcome_error_class(e, pkg, args, variant, checked)
 }
@@ -400,6 +441,12 @@ fn emit_enum_clone_drop(out: &mut String, checked: &CheckedFile, e: &EnumDecl, a
                         .iter()
                         .any(|nested| nested.name.name == base)
                 });
+            let nested_struct =
+                crate::expr::mono_base_name(&full_key, checked).is_some_and(|base| {
+                    checked.ast.classes.iter().any(|nested| {
+                        nested.kind == NominalKind::Struct && nested.name.name == base
+                    })
+                });
             if key == "String" {
                 let _ = writeln!(
                     out,
@@ -424,6 +471,12 @@ fn emit_enum_clone_drop(out: &mut String, checked: &CheckedFile, e: &EnumDecl, a
                 );
             } else if nested_enum {
                 let nested_cty = c_enum_type(&full_key);
+                let _ = writeln!(
+                    out,
+                    "      copy.data.{vn}.{fnm} = {nested_cty}_clone(&source->data.{vn}.{fnm});"
+                );
+            } else if nested_struct {
+                let nested_cty = crate::stmt::local_key_to_c(&full_key, checked);
                 let _ = writeln!(
                     out,
                     "      copy.data.{vn}.{fnm} = {nested_cty}_clone(&source->data.{vn}.{fnm});"
@@ -460,6 +513,12 @@ fn emit_enum_clone_drop(out: &mut String, checked: &CheckedFile, e: &EnumDecl, a
                         .iter()
                         .any(|nested| nested.name.name == base)
                 });
+            let nested_struct =
+                crate::expr::mono_base_name(&full_key, checked).is_some_and(|base| {
+                    checked.ast.classes.iter().any(|nested| {
+                        nested.kind == NominalKind::Struct && nested.name.name == base
+                    })
+                });
             if key == "String" {
                 let _ = writeln!(
                     out,
@@ -489,6 +548,9 @@ fn emit_enum_clone_drop(out: &mut String, checked: &CheckedFile, e: &EnumDecl, a
                 );
             } else if nested_enum {
                 let nested_cty = c_enum_type(&full_key);
+                let _ = writeln!(out, "        {nested_cty}_drop(&value->data.{vn}.{fnm});");
+            } else if nested_struct {
+                let nested_cty = crate::stmt::local_key_to_c(&full_key, checked);
                 let _ = writeln!(out, "        {nested_cty}_drop(&value->data.{vn}.{fnm});");
             }
         }

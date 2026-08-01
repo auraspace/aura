@@ -202,6 +202,13 @@ version = "0.1.0"
 math = { path = "../math" }
 ```
 
+Root procedural derive plugin:
+
+```toml
+[macro_plugins]
+Entity = "plugins/entity-macro"
+```
+
 ## CLI one-liners
 
 ```bash

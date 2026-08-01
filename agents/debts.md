@@ -70,9 +70,11 @@ When you resolve debt, update or remove the matching entry.
   `Equals`, `HashCode`, `Debug`, and `ToString` derives are compiler-generated
   and ownership-checked.
 - Why the remaining macro boundary is deferred: token-tree repetition now
-  supports multiple captures per item and both `*`/`+` operators, but nested
-  repetition composition, hygiene rules, package macro discovery, and plugin
-  integration into the package build still need to consume the new primitives.
+  supports multiple captures per item, nested one-level repetition composition,
+  and both `*`/`+` operators, but hygiene rules and dependency-provided macro
+  discovery still need to consume the new primitives. Root package plugin
+  discovery and build invocation are now wired through `[macro_plugins]` and
+  the CLI's check/emit/build/test paths.
   The runner refuses hosts without a supported OS sandbox instead of weakening
   RFC-010's supply-chain and capability contract. Concurrent tracing collection
   still needs write barriers and precise stack maps beyond the executor-safe
@@ -83,9 +85,9 @@ When you resolve debt, update or remove the matching entry.
   rejected, and expansion metadata is retained. Plugin stdout/stderr are
   drained concurrently under the configured output cap, preventing a noisy
   process from deadlocking the host while it waits for termination.
-- Next step: implement RFC-010 token expansion and sandbox ABI as a dedicated
-  compiler/tooling workstream, then add package side tables and full runtime
-  reflection without changing the metadata ABI version.
+- Next step: finish hygienic expansion and define dependency plugin
+  provenance/lockfile rules before allowing plugins from dependency packages;
+  keep the ABI version unchanged while those rules stabilize.
 
 ### NET-001 endpoint parsing is synchronous and string-based (2026-07-31)
 
@@ -682,6 +684,7 @@ request_timeout` response, then closes; runtime timeout and sanitizer
   contract are not implemented; the shipped slice is limited to bounded
   straight-line async bodies.
 - Progress: frame captures, pending operations, results, and errors now have explicit ownership metadata, GC root registration, borrowed-value rejection, and exactly-once release. The compiler already rejects borrowed values crossing await/spawn/channel boundaries. The runtime exposes paired typed frame-data mark/drop hooks; the general CFG and the specialized loop/branch Array lowerer now register generated callbacks, with aggregate cleanup in the exactly-once drop callback and native regression coverage.
+- Progress: value-struct aggregates now use the same generated clone/drop/mark hooks in the general branch/loop CFG, including parameter capture, await transfer, result destruction, repeated owning joins, and forced-GC native coverage.
 - Next step: apply the callback contract to the remaining specialized async lowerers and richer nested aggregate layouts; the conservative frame scan remains the compatibility fallback until every generated layout has that metadata.
 
 ### Async lowering and task outcome gaps (C22t, 2026-07-22)
