@@ -9381,6 +9381,7 @@ pub(crate) fn emit_async_fun_no_await(
     let body_fn = format!("aura_async_body_{base}");
     let poll_fn = format!("aura_async_poll_{base}");
     let destroy_data = format!("aura_async_destroy_{base}");
+    let gc_mark = format!("aura_async_gc_mark_{base}");
     let destroy_result = format!("aura_async_result_destroy_{base}");
     let ret = c_type_from_opt(&f.return_type, checked, &params, &[]);
 
@@ -9420,12 +9421,42 @@ pub(crate) fn emit_async_fun_no_await(
                 "  if (data != NULL && data->{n} != NULL) (void)aura_ffi_handle_drop(&data->{n});"
             );
         }
-        if p.name.name == "this" && is_heap_class_mono(&full_type_mono(&key, checked), checked) {
+        if is_heap_class_mono(&full_type_mono(&key, checked), checked) {
             let n = mangle_ident(&p.name.name);
             let _ = writeln!(
                 out,
                 "  if (data != NULL && data->{n} != NULL) aura_gc_remove_root((void **)&data->{n});"
             );
+        }
+        if crate::array_emit::is_array_of_heap_class(&full_type_mono(&key, checked), checked) {
+            let n = mangle_ident(&p.name.name);
+            let _ = writeln!(
+                out,
+                "  if (data != NULL) aura_gc_remove_array_root((void **)&data->{n}.data);"
+            );
+        }
+    }
+    out.push_str("}\n\n");
+
+    let _ = writeln!(out, "static void {gc_mark}(AuraTaskFrame *frame) {{");
+    let _ = writeln!(
+        out,
+        "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame); if (data == NULL) return;"
+    );
+    for p in &f.params {
+        let key = type_ref_local_key_expand(&p.ty, &params, &[], checked);
+        let full_key = full_type_mono(&key, checked);
+        let n = mangle_ident(&p.name.name);
+        if is_heap_class_mono(&full_key, checked) {
+            let _ = writeln!(out, "  aura_gc_mark_ptr((void *)data->{n});");
+        } else if crate::array_emit::is_array_of_heap_class(&full_key, checked) {
+            let _ = writeln!(
+                out,
+                "  for (int64_t __gm = 0; __gm < data->{n}.len; __gm++) aura_gc_mark_ptr((void *)data->{n}.data[__gm]);"
+            );
+        } else if crate::expr::is_enum_mono(&full_key, checked) {
+            let cty = crate::stmt::local_key_to_c(&full_key, checked);
+            let _ = writeln!(out, "  {cty}_mark(&data->{n});");
         }
     }
     out.push_str("}\n\n");
@@ -9646,6 +9677,7 @@ pub(crate) fn emit_async_fun_no_await(
         "  AuraTaskFrame *frame = aura_task_frame_new(sizeof({data_ty}), {poll_fn}, {destroy_data});"
     );
     out.push_str("  if (frame == NULL) return NULL;\n");
+    let _ = writeln!(out, "  aura_task_frame_set_gc_mark(frame, {gc_mark});");
     let _ = writeln!(
         out,
         "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame);"
@@ -9660,8 +9692,14 @@ pub(crate) fn emit_async_fun_no_await(
                 "  if (data->{n} != NULL && aura_ffi_handle_retain(data->{n}) != AURA_FFI_OK) {{ aura_task_frame_destroy(frame); return NULL; }}"
             );
         }
-        if p.name.name == "this" && is_heap_class_mono(&full_type_mono(&key, checked), checked) {
+        if is_heap_class_mono(&full_type_mono(&key, checked), checked) {
             let _ = writeln!(out, "  aura_gc_add_root((void **)&data->{n});");
+        }
+        if crate::array_emit::is_array_of_heap_class(&full_type_mono(&key, checked), checked) {
+            let _ = writeln!(
+                out,
+                "  aura_gc_add_array_root((void **)&data->{n}.data, &data->{n}.len);"
+            );
         }
     }
     out.push_str("  if (__aura_task_executor != NULL && !aura_task_executor_submit(__aura_task_executor, frame)) { aura_task_frame_destroy(frame); return NULL; }\n");

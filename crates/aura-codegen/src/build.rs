@@ -548,6 +548,60 @@ fun main() {
     }
 
     #[test]
+    fn no_await_async_frame_roots_non_this_class_parameter_until_poll() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+class Box(var value: Int) {}
+async fun read(box: Box): Int {
+  gc_collect()
+  return box.value
+}
+fun launch(): TaskHandle<Int> {
+  val box: Box = Box(41)
+  return spawn {
+    val value: Int = await read(box)
+    return value
+  }
+}
+fun main() {
+  val task = launch()
+  gc_collect()
+  val result: Result<Int, TaskError> = join(task)
+  match (result) {
+    case Ok(value) => { println(value.toString()) }
+    case Err(error) => { println("failed") }
+  }
+}
+"#,
+        )
+        .expect("parse no-await class parameter frame fixture");
+        let generated =
+            emit_c_from_ast(&file).expect("emit no-await class parameter frame fixture");
+        assert!(generated.contains("aura_task_frame_set_gc_mark(frame"));
+        assert!(generated.contains("aura_gc_add_root((void **)&data->box)"));
+        assert!(generated.contains("aura_gc_remove_root((void **)&data->box)"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-no-await-class-frame-root-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile no-await class parameter frame fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run no-await class parameter frame fixture");
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "41\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_compiler_generated_async_read_fd() {
         let file = aura_parser::parse_file(
             r#"package std.io

@@ -1627,6 +1627,10 @@ TaskError>` ABI, plus cooperative `isCancelled()` inside generated async
   foreign-handle, and enum fields, including root/retain transitions.
 - Progress: generated enum mark helpers now let async frame GC traverse nested
   heap-class payloads without treating borrowed enum fields as owned.
+- Progress: the no-suspension async lowering now installs a typed frame mark
+  hook and roots/drops every heap-class parameter, including Array-of-class
+  storage, rather than special-casing only `this`. A scope-escape regression
+  forces GC after the caller's local is gone and before the frame is polled.
 - Residual: generic bounded pollers still need dedicated clone/destroy paths for
   mixed aggregates whose elements require recursive ownership policies beyond
   the generated enum boundary.
