@@ -66,10 +66,12 @@ Compiler hosts can register a `UserDerive` implementation through
 `check_file_with_macros`; both expand before typecheck and receive the same
 ownership, diagnostics, and expansion-origin treatment as built-ins. The
 lexer now provides a span-preserving, delimiter-aware token-tree model,
-metavariable matcher, template substitution, and bounded comma repetition
-primitives; top-level function-like rules now expand before AST construction
-with a bounded recursion limit. Full repetition composition, hygiene, and
-package-exported macro discovery remain open. The sema API now exposes the versioned RFC-010 process
+metavariable matcher, template substitution, and bounded multi-capture
+repetition primitives; top-level function-like rules now expand before AST
+construction with a bounded recursion limit. Package loading exports
+declarative macros from earlier source files to later files. Nested repetition
+composition, hygiene, dependency macro discovery, and package-build plugin
+invocation remain open. The sema API now exposes the versioned RFC-010 process
 protocol with bounded output/timeout handling and fail-closed OS sandbox
 selection for plugin hosts; package build integration still remains to be
 wired.

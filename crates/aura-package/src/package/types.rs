@@ -29,6 +29,8 @@ pub struct LoadedPackage {
     pub virtual_src: String,
     /// Merged AST with spans rewritten into `virtual_src`.
     pub ast: File,
+    /// Declarative macros exported by this package, kept separate from the AST.
+    pub(crate) macro_sources: Vec<String>,
 }
 impl LoadedPackage {
     /// Rebuild the package AST with in-memory editor contents substituted for
@@ -89,6 +91,7 @@ impl LoadedPackage {
             sources,
             virtual_src,
             ast,
+            macro_sources: self.macro_sources.clone(),
         })
     }
 

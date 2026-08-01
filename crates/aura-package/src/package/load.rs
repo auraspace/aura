@@ -1,6 +1,6 @@
 //! Package loading from files, directories, and manifests (C3e/C3f/C13l).
 
-use aura_analysis::parse_file;
+use aura_analysis::{declarative_macro_sources, parse_file, parse_file_with_macro_sources};
 use aura_ast::{shift_file_spans, File, ImportDecl, Path as AstPath, Span};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
@@ -132,6 +132,7 @@ pub(crate) fn load_single_file(path: &Path) -> Result<LoadedPackage, String> {
         .unwrap_or("a.out")
         .to_string();
     let end = src.len() as u32;
+    let macro_sources = declarative_macro_sources(&src).unwrap_or_default();
     Ok(LoadedPackage {
         root: path
             .parent()
@@ -147,6 +148,7 @@ pub(crate) fn load_single_file(path: &Path) -> Result<LoadedPackage, String> {
         }],
         virtual_src: src,
         ast,
+        macro_sources,
     })
 }
 
@@ -732,6 +734,7 @@ fn load_package_sources_only(root: &Path) -> Result<LoadedPackage, String> {
 }
 
 fn merge_package(into: &mut LoadedPackage, mut dep: LoadedPackage) -> Result<(), String> {
+    into.macro_sources.extend(dep.macro_sources.iter().cloned());
     // Append sources into virtual buffer with span shift.
     if !into.virtual_src.is_empty() && !into.virtual_src.ends_with('\n') {
         into.virtual_src.push('\n');
@@ -935,13 +938,15 @@ pub(crate) fn load_directory(
     let mut functions = Vec::new();
     let mut foreign_functions = Vec::new();
     let mut async_functions = Vec::new();
+    let mut macro_sources = Vec::new();
     let mut seen_types: Vec<(String, String, String)> = Vec::new(); // kind, name, path
     let mut seen_funs: Vec<(String, String)> = Vec::new(); // name, path
 
     for path in &paths {
         let src =
             fs::read_to_string(path).map_err(|e| format!("error: read {}: {e}", path.display()))?;
-        let mut ast = parse_file(&src).map_err(|e| format_parse(path, &src, e))?;
+        let mut ast = parse_file_with_macro_sources(&src, &macro_sources)
+            .map_err(|e| format_parse(path, &src, e))?;
         let pkg_name = ast.package.display();
         if let Some(ref p) = package {
             if *p != pkg_name {
@@ -1010,6 +1015,9 @@ pub(crate) fn load_directory(
         foreign_functions.extend(ast.foreign_functions);
         async_functions.extend(ast.async_functions);
 
+        macro_sources
+            .extend(declarative_macro_sources(&src).map_err(|e| format_parse(path, &src, e))?);
+
         sources.push(SourceEntry {
             path: path.clone(),
             src,
@@ -1064,5 +1072,6 @@ pub(crate) fn load_directory(
         sources,
         virtual_src,
         ast: merged,
+        macro_sources,
     })
 }

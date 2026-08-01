@@ -12,7 +12,9 @@ use aura_ast::{File, Span};
 pub mod formatter;
 
 pub use aura_diagnostics::Severity;
-pub use aura_parser::{parse_file, ParseError};
+pub use aura_parser::{
+    declarative_macro_sources, parse_file, parse_file_with_macro_sources, ParseError,
+};
 pub use aura_sema::{check_file, CheckedFile, SemaError, SemaErrors};
 
 /// Stable identity for a document within an analysis host.

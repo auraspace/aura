@@ -1158,6 +1158,41 @@ demo.cycle = { path = ".." }
 }
 
 #[test]
+fn package_loader_exports_declarative_macros_to_later_sources() {
+    let root = std::env::temp_dir().join(format!("aura-pkg-macro-test-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(root.join("src")).unwrap();
+    write_tree(
+        &root,
+        &[
+            (
+                "aura.toml",
+                "[package]\nname = \"demo.macros\"\n\n[[bin]]\nname = \"macros\"\npath = \"src\"\n",
+            ),
+            (
+                "src/a_macros.aura",
+                "package demo.macros\nmacro! inc { ($value:expr) => { $value + 1 }; }\n",
+            ),
+            (
+                "src/main.aura",
+                "package demo.macros\nfun main() { println(inc!(4).toString()) }\n",
+            ),
+        ],
+    );
+    let pkg = load_package(&root.join("aura.toml")).expect("load package macro fixture");
+    let main = pkg
+        .ast
+        .functions
+        .iter()
+        .find(|function| function.name.name == "main")
+        .expect("main function");
+    let body = format!("{:?}", main.body);
+    assert!(body.contains("Binary"), "macro expansion missing: {body}");
+    assert_eq!(pkg.macro_sources.len(), 1);
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn s22_rejects_missing_locked_nested_package() {
     let _guard = registry_env_lock();
     use super::{ENV_REGISTRY_CACHE, ENV_REGISTRY_INDEX};
