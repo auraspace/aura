@@ -75,7 +75,8 @@ ownership, cancellation, and exactly-once cleanup rules.
   error type, including a non-Unit awaited value declaration whose success
   value is copied before the catch continuation. Finally-on-failure remains
   bounded to one awaited child.
-  Multi-await catch regions and nested failure cleanup remain open; bounded
+  Multi-await catch regions now support primitive and array payload paths;
+  nested failure cleanup remains open; bounded
   non-generic class throws without array fields
   now clone typed payloads into the task-frame error slot. Catch-free
   `try/finally` success paths now lower through explicit continuation states.

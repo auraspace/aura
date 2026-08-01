@@ -1381,7 +1381,9 @@ TaskError>` ABI, plus cooperative `isCancelled()` inside generated async
   typed class catches now deep-copy String fields from the child error payload
   into an owned frame slot, release them with the generated exception dtor,
   and survive forced GC in a native regression. The bounded single-await
-  finally path runs before propagating child failure.
+  finally path runs before propagating child failure. Array payloads can now be
+  thrown and caught across an await through typed frame payload clone/destroy
+  hooks, with sanitizer coverage for the recovered array length.
 - Residual: class fields that themselves own heap objects still need explicit
   rooting/clone support; same-name catches whose types change and nested
   finally cleanup remain deferred to R01. Nested protected branch/loop catch

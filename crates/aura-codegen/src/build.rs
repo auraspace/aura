@@ -9472,4 +9472,61 @@ fun main() {
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);
     }
+
+    #[test]
+    fn builds_and_runs_async_array_throw_catch_across_await() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+async fun fail(): Array<Int> {
+  val marker: Int = await ready()
+  val values: Array<Int> = Array<Int>(2)
+  throw values
+}
+async fun ready(): Int { return 1 }
+async fun recover(): Int {
+  try {
+    val ignored: Array<Int> = await fail()
+    return 0
+  } catch (error: Array<Int>) {
+    return error.len
+  }
+}
+fun main() {
+  val task = spawn { val value: Int = await recover() return value }
+  val result: Result<Int, TaskError> = join(task)
+  match (result) {
+    case Ok(value) => { println(value.toString()) }
+    case Err(error) => { println("error") }
+  }
+}
+"#,
+        )
+        .expect("parse async array throw/catch fixture");
+        let generated = emit_c_from_ast(&file).expect("emit async array throw/catch fixture");
+        assert!(generated.contains("aura_async_cfg_array_error_clone"));
+        assert!(generated.contains("aura_task_frame_set_error_payload_with_clone"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-async-array-throw-catch-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile async array throw/catch fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run async array throw/catch fixture");
+        assert!(
+            output.status.success(),
+            "async array throw/catch fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "2\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
 }

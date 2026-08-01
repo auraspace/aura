@@ -1860,6 +1860,7 @@ impl<'a> AsyncCfgBuilder<'a> {
                 }
                 let value_key = infer_type_name(&throw_stmt.value, &self.ctx);
                 if (!matches!(value_key.as_str(), "Int" | "Bool" | "String")
+                    && !is_array_type_key(&value_key)
                     && !async_cfg_throw_class_supported(&value_key, self.ctx.checked))
                     || (value_key == "String"
                         && crate::expr::string_expr_is_owned_temp(&throw_stmt.value, &self.ctx))
@@ -2047,7 +2048,9 @@ fn async_cfg_value_supported(key: &str, checked: &CheckedFile) -> bool {
 }
 
 fn async_cfg_catch_supported(key: &str, checked: &CheckedFile) -> bool {
-    matches!(key, "String" | "Int" | "Bool") || async_cfg_throw_class_supported(key, checked)
+    matches!(key, "String" | "Int" | "Bool")
+        || is_array_type_key(key)
+        || async_cfg_throw_class_supported(key, checked)
 }
 
 fn async_cfg_class_catch_body(catch_key: &str, catch_name: &str, checked: &CheckedFile) -> String {
@@ -2491,6 +2494,16 @@ fn emit_async_fun_cfg_int(
             _ => None,
         })
         .collect();
+    let thrown_array_keys: BTreeSet<String> = builder
+        .nodes
+        .iter()
+        .filter_map(|node| match node.as_ref() {
+            Some(AsyncCfgNode::Throw { value_key, .. }) if is_array_type_key(value_key) => {
+                Some(full_type_mono(value_key, checked))
+            }
+            _ => None,
+        })
+        .collect();
     let cfg_locals = builder.cfg_locals.clone();
     let owned_class_catches = builder.owned_class_catches.clone();
     let match_bindings = builder.match_bindings.clone();
@@ -2859,6 +2872,23 @@ fn emit_async_fun_cfg_int(
         let _ = writeln!(out, "  *out_size = sizeof(*copy); return copy; }}");
         let _ = writeln!(out, "static void {destroy}(void *data, size_t size) {{ (void)size; aura_ex_dtor_{mono}(data); }}\n");
     }
+    for key in &thrown_array_keys {
+        let cty = crate::stmt::local_key_to_c(key, checked);
+        let clone = crate::names::c_method_name(key, "clone");
+        let suffix = mangle_ident(key);
+        let clone_error = format!("aura_async_cfg_array_error_clone_{suffix}");
+        let destroy_error = format!("aura_async_cfg_array_error_destroy_{suffix}");
+        let _ = writeln!(
+            out,
+            "static void *{clone_error}(const void *src, size_t size, size_t *out_size) {{ (void)size; if (src == NULL || out_size == NULL) return NULL; {cty} *copy = ({cty} *)malloc(sizeof(*copy)); if (copy == NULL) return NULL; *copy = {clone}(({cty} *)src); *out_size = sizeof(*copy); return copy; }}"
+        );
+        let mut free_code = String::new();
+        crate::array_emit::emit_array_contents_free(&mut free_code, 1, "(*value)", key);
+        let _ = writeln!(
+            out,
+            "static void {destroy_error}(void *data, size_t size) {{ (void)size; if (data != NULL) {{ {cty} *value = ({cty} *)data;{free_code} free(data); }} }}"
+        );
+    }
     let _ = writeln!(
         out,
         "static AuraTaskPollState {poll_fn}(AuraTaskFrame *frame) {{"
@@ -3053,6 +3083,18 @@ fn emit_async_fun_cfg_int(
                     "String" => format!("const char *__src = (const char *)__error.data; size_t __len = __src == NULL ? 0 : strlen(__src); if (data->{catch_name}__owned && data->{catch_name} != NULL) free((void *)data->{catch_name}); char *__copy = (char *)malloc(__len + 1); if (__copy == NULL) return AURA_TASK_FAILED; if (__src != NULL) memcpy(__copy, __src, __len + 1); else __copy[0] = '\\0'; data->{catch_name} = __copy; data->{catch_name}__owned = true; {catch_name} = data->{catch_name}; {catch_name}__owned = true;"),
                     "Int" => format!("const char *__src = (const char *)__error.data; char *__end = NULL; long long __parsed = __src == NULL ? 0 : strtoll(__src, &__end, 10); if (__src == NULL || __end == __src || *__end != '\\0') {{ (void)aura_task_frame_propagate_error(frame, data->await_task); if (data->await_task_owned && __aura_task_executor != NULL) (void)aura_task_executor_release(__aura_task_executor, &data->await_task); data->await_task = NULL; data->await_task_owned = false; return AURA_TASK_FAILED; }} {catch_name} = (int64_t)__parsed;"),
                     "Bool" => format!("const char *__src = (const char *)__error.data; if (__src == NULL || (strcmp(__src, \"true\") != 0 && strcmp(__src, \"false\") != 0)) {{ (void)aura_task_frame_propagate_error(frame, data->await_task); if (data->await_task_owned && __aura_task_executor != NULL) (void)aura_task_executor_release(__aura_task_executor, &data->await_task); data->await_task = NULL; data->await_task_owned = false; return AURA_TASK_FAILED; }} {catch_name} = strcmp(__src, \"true\") == 0;"),
+                    other if is_array_type_key(other) => {
+                        let cty = crate::stmt::local_key_to_c(other, checked);
+                        let clone = crate::names::c_method_name(&full_type_mono(other, checked), "clone");
+                        let mut free_code = String::new();
+                        crate::array_emit::emit_array_contents_free(
+                            &mut free_code,
+                            0,
+                            &format!("data->{catch_name}"),
+                            other,
+                        );
+                        format!("AuraTaskResult __payload = aura_task_frame_error_payload(data->await_task); {cty} *__source = ({cty} *)__payload.data; if (__source == NULL) return AURA_TASK_FAILED; {free_code} data->{catch_name} = {clone}(__source); {catch_name} = data->{catch_name};")
+                    }
                     other if async_cfg_throw_class_supported(other, checked) =>
                         async_cfg_class_catch_body(other, &catch_name, checked),
                     _ => unreachable!("validated async catch"),
@@ -3085,6 +3127,18 @@ fn emit_async_fun_cfg_int(
                     "String" => format!("const char *__src = (const char *)__error.data; size_t __len = __src == NULL ? 0 : strlen(__src); if (data->{catch_name}__owned && data->{catch_name} != NULL) free((void *)data->{catch_name}); char *__copy = (char *)malloc(__len + 1); if (__copy == NULL) return AURA_TASK_FAILED; if (__src != NULL) memcpy(__copy, __src, __len + 1); else __copy[0] = '\\0'; data->{catch_name} = __copy; data->{catch_name}__owned = true; {catch_name} = data->{catch_name}; {catch_name}__owned = true;"),
                     "Int" => format!("const char *__src = (const char *)__error.data; char *__end = NULL; long long __parsed = __src == NULL ? 0 : strtoll(__src, &__end, 10); if (__src == NULL || __end == __src || *__end != '\\0') {{ (void)aura_task_frame_propagate_error(frame, data->await_task); if (data->await_task_owned && __aura_task_executor != NULL) (void)aura_task_executor_release(__aura_task_executor, &data->await_task); data->await_task = NULL; data->await_task_owned = false; return AURA_TASK_FAILED; }} {catch_name} = (int64_t)__parsed;"),
                     "Bool" => format!("const char *__src = (const char *)__error.data; if (__src == NULL || (strcmp(__src, \"true\") != 0 && strcmp(__src, \"false\") != 0)) {{ (void)aura_task_frame_propagate_error(frame, data->await_task); if (data->await_task_owned && __aura_task_executor != NULL) (void)aura_task_executor_release(__aura_task_executor, &data->await_task); data->await_task = NULL; data->await_task_owned = false; return AURA_TASK_FAILED; }} {catch_name} = strcmp(__src, \"true\") == 0;"),
+                    other if is_array_type_key(other) => {
+                        let cty = crate::stmt::local_key_to_c(other, checked);
+                        let clone = crate::names::c_method_name(&full_type_mono(other, checked), "clone");
+                        let mut free_code = String::new();
+                        crate::array_emit::emit_array_contents_free(
+                            &mut free_code,
+                            0,
+                            &format!("data->{catch_name}"),
+                            other,
+                        );
+                        format!("AuraTaskResult __payload = aura_task_frame_error_payload(data->await_task); {cty} *__source = ({cty} *)__payload.data; if (__source == NULL) return AURA_TASK_FAILED; {free_code} data->{catch_name} = {clone}(__source); {catch_name} = data->{catch_name};")
+                    }
                     other if async_cfg_throw_class_supported(other, checked) =>
                         async_cfg_class_catch_body(other, &catch_name, checked),
                     _ => unreachable!("validated async catch"),
@@ -3162,6 +3216,18 @@ fn emit_async_fun_cfg_int(
                     let _ = writeln!(
                         out,
                         "        const char *__throw_source = ({value}) ? \"true\" : \"false\"; size_t __throw_length = strlen(__throw_source); char *__throw_error = (char *)malloc(__throw_length + 1); if (__throw_error == NULL) return AURA_TASK_FAILED; memcpy(__throw_error, __throw_source, __throw_length + 1); aura_task_frame_set_error_span_with_clone(frame, __throw_error, __throw_length + 1, {clone_error}, {destroy_error}, UINT32_C(0), UINT32_C({span_start}), UINT32_C({span_end})); aura_task_frame_set_error_type_name(frame, \"Bool\"); return AURA_TASK_FAILED;"
+                    );
+                }
+                other if is_array_type_key(other) => {
+                    let cty = crate::stmt::local_key_to_c(other, checked);
+                    let full_key = full_type_mono(other, checked);
+                    let clone = crate::names::c_method_name(&full_key, "clone");
+                    let suffix = mangle_ident(&full_key);
+                    let payload_clone = format!("aura_async_cfg_array_error_clone_{suffix}");
+                    let payload_destroy = format!("aura_async_cfg_array_error_destroy_{suffix}");
+                    let _ = writeln!(
+                        out,
+                        "        {cty} *__throw_payload = ({cty} *)malloc(sizeof(*__throw_payload)); if (__throw_payload == NULL) return AURA_TASK_FAILED; *__throw_payload = {clone}(({cty} *)&({value})); const char *__throw_text = \"{other}\"; size_t __throw_length = strlen(__throw_text); char *__throw_error = (char *)malloc(__throw_length + 1); if (__throw_error == NULL) {{ {payload_destroy}(__throw_payload, sizeof(*__throw_payload)); return AURA_TASK_FAILED; }} memcpy(__throw_error, __throw_text, __throw_length + 1); aura_task_frame_set_error_span_with_clone(frame, __throw_error, __throw_length + 1, {clone_error}, {destroy_error}, UINT32_C(0), UINT32_C({span_start}), UINT32_C({span_end})); aura_task_frame_set_error_payload_with_clone(frame, __throw_payload, sizeof(*__throw_payload), {payload_clone}, {payload_destroy}); aura_task_frame_set_error_type_name(frame, \"{other}\"); return AURA_TASK_FAILED;"
                     );
                 }
                 other if async_cfg_throw_class_supported(other, checked) => {
