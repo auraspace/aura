@@ -11029,15 +11029,46 @@ fn infer_spawn_local_key(expr: &Expr, checked: &CheckedFile) -> Option<String> {
                 }
                 return Some(type_mono(&inst.package, &inst.name, &args));
             }
-            let function = checked
+            if let Some(function) = checked
                 .ast
                 .functions
                 .iter()
+                .find(|function| function.name.name == inst.name)
+            {
+                let params = function
+                    .type_params
+                    .iter()
+                    .map(|param| param.name.name.clone())
+                    .collect::<Vec<_>>();
+                return function
+                    .return_type
+                    .as_ref()
+                    .map(|ty| type_ref_local_key_expand(ty, &params, &args, checked));
+            }
+            // Async function calls are represented by Task<T> at the source
+            // level. Keep the same generic substitution here so a local such
+            // as `val task = make<Int>()` remains visible to the spawn-frame
+            // discovery pass even when semantic expression types are absent
+            // from a host-provided CheckedFile.
+            let function = checked
+                .ast
+                .async_functions
+                .iter()
                 .find(|function| function.name.name == inst.name)?;
-            function
-                .return_type
-                .as_ref()
-                .map(|ty| type_ref_local_key_expand(ty, &[], &args, checked))
+            let params = function
+                .type_params
+                .iter()
+                .map(|param| param.name.name.clone())
+                .collect::<Vec<_>>();
+            function.return_type.as_ref().map(|ty| {
+                format!(
+                    "Task_{}",
+                    full_type_mono(
+                        &type_ref_local_key_expand(ty, &params, &args, checked),
+                        checked
+                    )
+                )
+            })
         }
         _ => None,
     }

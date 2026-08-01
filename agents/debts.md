@@ -1609,6 +1609,11 @@ TaskError>` ABI, plus cooperative `isCancelled()` inside generated async
 
 ### ASYNC-004 generic spawn result ownership remains partial (2026-08-01)
 
+- Progress: spawn-frame discovery now preserves generic return substitution for
+  unannotated local initializers (including async generic calls), so captures
+  are not dropped merely because the local type was inferred rather than
+  written. Native codegen coverage exercises a generic `identity(41)` local
+  captured by a spawned task.
 - Progress: bounded generic spawns now publish inferred non-Unit return values
   through the task result ABI; nested Outcome<String, Error> returns transfer
   payload ownership and survive repeated owning joins and forced GC.

@@ -75,3 +75,7 @@ invocation remain open. The sema API now exposes the versioned RFC-010 process
 protocol with bounded output/timeout handling and fail-closed OS sandbox
 selection for plugin hosts; package build integration still remains to be
 wired.
+
+Spawn frame discovery also reuses checked generic substitutions for unannotated
+locals, including locals initialized by generic async calls. This keeps the
+static capture layout and ownership path aligned with sema's inferred `T`.
