@@ -2129,6 +2129,46 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_owned_array_of_enum_clone_drop() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+enum Item { case Text(value: String) }
+fun main() {
+  val values: Array<Item> = Array<Item>(0)
+  values.push(Text("array-enum"))
+  val copy: Array<Item> = values.clone()
+  match (copy.get(0)) { case Text(text) => { println(text) } }
+}
+"#,
+        )
+        .expect("parse Array<enum> ownership fixture");
+        let generated = emit_c_from_ast(&file).expect("emit Array<enum> ownership fixture");
+        assert!(generated.contains("aura_enum_std_io_Item_clone(&this->data[__i])"));
+        assert!(generated.contains("aura_enum_std_io_Item_drop(&this->data[__i])"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-array-enum-ownership-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile Array<enum> ownership fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run Array<enum> ownership fixture");
+        assert!(
+            output.status.success(),
+            "Array<enum> ownership fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "array-enum\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_async_cfg_string_enum_payload() {
         let file = aura_parser::parse_file(
             r#"package std.io

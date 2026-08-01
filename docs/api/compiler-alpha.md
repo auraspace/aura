@@ -85,3 +85,5 @@ Heap-class mark-extras callbacks traverse direct nested class/enum fields and
 Array-of-enum fields as part of the same GC contract.
 Owned task joins use `Result.OkOwned` for cloned enum payloads, making lexical
 drop of repeated joined aggregates explicit in the generated ABI.
+`Array<Enum>` storage now also emits the enum's typed clone/drop hooks and
+stores enum elements by value, preventing shallow `memcpy` of owned payloads.

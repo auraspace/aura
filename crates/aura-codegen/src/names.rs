@@ -418,6 +418,8 @@ pub(crate) fn ty_to_c(t: &Ty) -> String {
 /// structs and enums by value.
 pub(crate) fn ty_to_c_array_elem(t: &Ty, checked: &CheckedFile) -> String {
     match t {
+        Ty::Enum(n) => c_enum_type(&nominal_mono_base(n)),
+        Ty::EnumApp { name, args } => c_enum_type(&mono_key(name, args)),
         Ty::Class(n) => {
             let mono = nominal_mono_base(n);
             c_class_local_type(&mono, checked)

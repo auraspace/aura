@@ -1640,3 +1640,6 @@ TaskError>` ABI, plus cooperative `isCancelled()` inside generated async
 - Residual: generic bounded pollers still need dedicated clone/destroy paths for
   mixed aggregates whose elements require recursive ownership policies beyond
   the generated enum boundary.
+- Progress: `Array<Enum>` now uses the enum's typed clone/drop hooks instead of
+  `memcpy`, and enum element types are emitted by value in C. Native coverage
+  exercises an enum carrying an owned String through array clone/clear/drop.
