@@ -55,6 +55,19 @@ fn task_result_enum_ok(e: &EnumDecl, pkg: &str, args: &[Ty], variant: &str) -> b
             .is_some_and(|ty| matches!(ty, Ty::Enum(_) | Ty::EnumApp { .. }))
 }
 
+fn task_result_array_ok(e: &EnumDecl, pkg: &str, args: &[Ty], variant: &str) -> bool {
+    pkg == "std.io"
+        && e.name.name == "Result"
+        && variant == "Ok"
+        && args.first().is_some_and(|ty| {
+            matches!(
+                ty,
+                Ty::Class(name) | Ty::ClassApp { name, .. }
+                    if aura_sema::split_nominal(name).0 == "Array"
+            )
+        })
+}
+
 fn shared_outcome_string_ok(e: &EnumDecl, pkg: &str, args: &[Ty], variant: &str) -> bool {
     pkg == "std.error"
         && e.name.name == "Outcome"
@@ -131,6 +144,9 @@ pub(crate) fn emit_enum_typedef(
                 out.push_str("      bool owned;\n");
             }
             if task_result_enum_ok(e, &pkg, args, &v.name.name) {
+                out.push_str("      bool owned;\n");
+            }
+            if task_result_array_ok(e, &pkg, args, &v.name.name) {
                 out.push_str("      bool owned;\n");
             }
             if shared_outcome_string_ok(e, &pkg, args, &v.name.name) {
@@ -244,6 +260,9 @@ pub(crate) fn emit_enum_defs(out: &mut String, checked: &CheckedFile, e: &EnumDe
             if task_result_enum_ok(e, &pkg, args, &v.name.name) {
                 let _ = writeln!(out, "  self.data.Ok.owned = false;");
             }
+            if task_result_array_ok(e, &pkg, args, &v.name.name) {
+                let _ = writeln!(out, "  self.data.Ok.owned = false;");
+            }
             if shared_outcome_string_ok(e, &pkg, args, &v.name.name) {
                 let _ = writeln!(out, "  self.data.OutcomeOk.owned = false;");
             }
@@ -306,6 +325,18 @@ pub(crate) fn emit_enum_defs(out: &mut String, checked: &CheckedFile, e: &EnumDe
             c_enum_type(&mono)
         );
     }
+    if task_result_array_ok(e, &pkg, args, "Ok") {
+        let ctor = c_variant_ctor_name(&mono, "OkOwned");
+        let payload = c_type_from_ty(&args[0], checked);
+        let _ = writeln!(
+            out,
+            "{} {}({} value) {{ {} self; self.tag = 0; self.data.Ok.value = value; self.data.Ok.owned = true; return self; }}",
+            c_enum_type(&mono),
+            ctor,
+            payload,
+            c_enum_type(&mono)
+        );
+    }
     if shared_outcome_string_ok(e, &pkg, args, "OutcomeOk") {
         let ctor = c_variant_ctor_name(&mono, "OutcomeOkOwned");
         let _ = writeln!(
@@ -331,6 +362,7 @@ fn variant_has_owned_field(
         || task_result_foreign_handle_ok(e, pkg, args, variant)
         || task_result_class_ok(e, pkg, args, variant, checked)
         || task_result_enum_ok(e, pkg, args, variant)
+        || task_result_array_ok(e, pkg, args, variant)
         || shared_outcome_string_ok(e, pkg, args, variant)
         || shared_outcome_error_class(e, pkg, args, variant, checked)
 }

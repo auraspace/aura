@@ -521,15 +521,28 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
 
     // C6g: enums + value structs must be complete before non-primitive Array
     // monomorphs (Array stores elements by value). Heap classes stay incomplete
-    // here so Array-of-class can use pointers only.
+    // here so Array-of-class can use pointers only. Enum typedefs whose payload
+    // itself contains an Array are delayed until that Array typedef exists;
+    // otherwise `Result<Array<E>, ...>` is emitted with an incomplete C type.
+    let enum_uses_array = |e: &EnumDecl, args: &[Ty]| {
+        let params: Vec<String> = e.type_params.iter().map(|p| p.name.name.clone()).collect();
+        e.variants.iter().any(|variant| {
+            variant.fields.iter().any(|field| {
+                let key = type_ref_local_key_expand(&field.ty, &params, args, checked);
+                is_array_type_key(&full_type_mono(&key, checked))
+            })
+        })
+    };
     for e in &checked.ast.enums {
-        if e.type_params.is_empty() {
+        if e.type_params.is_empty() && !enum_uses_array(e, &[]) {
             emit_enum_typedef(&mut out, checked, e, &[]);
         }
     }
     for (name, args) in &checked.mono_enums {
         if let Some(e) = checked.ast.enums.iter().find(|e| e.name.name == *name) {
-            emit_enum_typedef(&mut out, checked, e, args);
+            if !enum_uses_array(e, args) {
+                emit_enum_typedef(&mut out, checked, e, args);
+            }
         }
     }
     for c in &checked.ast.classes {
@@ -603,6 +616,22 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
                 continue;
             }
             emit_array_mono(&mut out, elem, checked);
+        }
+    }
+
+    // Complete the enum layouts that contain an Array only after all Array
+    // monomorphs are defined. This covers generic Result/Outcome payloads and
+    // user enums without requiring a special-case for Task<T>.
+    for e in &checked.ast.enums {
+        if e.type_params.is_empty() && enum_uses_array(e, &[]) {
+            emit_enum_typedef(&mut out, checked, e, &[]);
+        }
+    }
+    for (name, args) in &checked.mono_enums {
+        if let Some(e) = checked.ast.enums.iter().find(|e| e.name.name == *name) {
+            if enum_uses_array(e, args) {
+                emit_enum_typedef(&mut out, checked, e, args);
+            }
         }
     }
 
@@ -8330,14 +8359,15 @@ fn emit_async_fun_general_multi_await(
         if await_keys[index] == "String" {
             out.push_str(&format!("      if (data->{value_name} != NULL) free((void *)data->{value_name}); data->{value_name} = NULL; if (child_result_{index}.data != NULL) {{ const char *__s = *((const char **)child_result_{index}.data); if (__s != NULL) {{ size_t __len = strlen(__s); data->{value_name} = (char *)malloc(__len + 1); if (data->{value_name} == NULL) return AURA_TASK_FAILED; memcpy((void *)data->{value_name}, __s, __len + 1); }} }}\n"));
         } else if is_array_type_key(&await_keys[index]) {
-            let cty = crate::stmt::local_key_to_c(&await_keys[index], checked);
-            let clone = crate::names::c_method_name(&await_keys[index], "clone");
+            let full_key = full_type_mono(&await_keys[index], checked);
+            let cty = crate::stmt::local_key_to_c(&full_key, checked);
+            let clone = crate::names::c_method_name(&full_key, "clone");
             let mut free_code = String::new();
             crate::array_emit::emit_array_contents_free(
                 &mut free_code,
                 0,
                 &format!("data->{value_name}"),
-                &await_keys[index],
+                &full_key,
             );
             out.push_str(&format!(
                 "      {free_code} data->{value_name} = ({cty}){{0}}; if (child_result_{index}.data != NULL) data->{value_name} = {clone}(({cty} *)child_result_{index}.data);\n"
@@ -10808,6 +10838,7 @@ fn emit_bounded_spawn_await_poller(
         .ty
         .as_ref()
         .map(|ty| type_ref_local_key_expand(ty, &[], &[], checked))
+        .map(|key| full_type_mono(&key, checked))
         .unwrap_or_else(|| "Int".into());
     let await_cty = crate::stmt::local_key_to_c(&await_key, checked);
     let typed_return_key = if matches!(

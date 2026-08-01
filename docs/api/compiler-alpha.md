@@ -87,3 +87,5 @@ Owned task joins use `Result.OkOwned` for cloned enum payloads, making lexical
 drop of repeated joined aggregates explicit in the generated ABI.
 `Array<Enum>` storage now also emits the enum's typed clone/drop hooks and
 stores enum elements by value, preventing shallow `memcpy` of owned payloads.
+Typed joins now dependency-order generic Result layouts around aggregate Array
+types and use `Result.OkOwned` for repeated `Array<Enum>` observations.

@@ -2032,9 +2032,9 @@ fn emit_join(j: &JoinExpr, ctx: &mut EmitCtx<'_>, owned_error: bool) -> String {
             "else {{ size_t __join_success_len = __join_result.data != NULL ? strlen((const char *)__join_result.data) : 0; char *__join_success_owned = (char *)malloc(__join_success_len + 1); if (__join_success_owned == NULL) abort(); if (__join_success_len != 0) memcpy(__join_success_owned, __join_result.data, __join_success_len); __join_success_owned[__join_success_len] = '\\0'; __join_value = {result_ok}Owned(__join_success_owned); }} "
         ));
     } else if owned_error && is_array_type_key(&inner) {
-        let clone = crate::names::c_method_name(&inner, "clone");
+        let clone = crate::names::c_method_name(&full_type_mono(&inner, ctx.checked), "clone");
         out.push_str(&format!(
-            "else {{ {cty} __join_array = __join_result.data != NULL ? *(({cty} *)__join_result.data) : ({cty}){{0}}; __join_value = {result_ok}({clone}(&__join_array)); }} "
+            "else {{ {cty} __join_array = __join_result.data != NULL ? *(({cty} *)__join_result.data) : ({cty}){{0}}; __join_value = {result_ok_owned}({clone}(&__join_array)); }} "
         ));
     } else if owned_error && is_heap_class_mono(&inner, ctx.checked) {
         out.push_str(&format!(

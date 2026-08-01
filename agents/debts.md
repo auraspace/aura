@@ -1630,6 +1630,10 @@ TaskError>` ABI, plus cooperative `isCancelled()` inside generated async
   cleanup instead of being left with the borrowed constructor bit.
 - Progress: generated enum mark helpers now let async frame GC traverse nested
   heap-class payloads without treating borrowed enum fields as owned.
+- Progress: typed `join` now handles `Result<Array<Enum>, TaskError>` end to end:
+  C typedef emission is dependency-ordered, `Array<Enum>` clone/drop hooks are
+  available before generic Result layouts, and `OkOwned` transfers ownership
+  across repeated joins with forced GC coverage.
 - Progress: the no-suspension async lowering now installs a typed frame mark
   hook and roots/drops every heap-class parameter, including Array-of-class
   storage, rather than special-casing only `this`. A scope-escape regression

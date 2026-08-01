@@ -2129,15 +2129,30 @@ fun main() {
     }
 
     #[test]
-    fn builds_and_runs_owned_array_of_enum_clone_drop() {
+    fn builds_and_runs_typed_join_of_owned_array_enum_payload() {
         let file = aura_parser::parse_file(
             r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
 enum Item { case Text(value: String) }
-fun main() {
+async fun produce(): Array<Item> {
   val values: Array<Item> = Array<Item>(0)
   values.push(Text("array-enum"))
-  val copy: Array<Item> = values.clone()
-  match (copy.get(0)) { case Text(text) => { println(text) } }
+  return values
+}
+fun main() {
+  val task = spawn { val value: Array<Item> = await produce() return value }
+  val result: Result<Array<Item>, TaskError> = join(task)
+  match (result) {
+    case Ok(value) => { match (value.get(0)) { case Text(text) => { println(text) } } }
+    case Err(error) => { println("failed") }
+  }
+  gc_collect()
+  val repeated: Result<Array<Item>, TaskError> = join(task)
+  match (repeated) {
+    case Ok(value) => { match (value.get(0)) { case Text(text) => { println(text) } } }
+    case Err(error) => { println("failed-repeat") }
+  }
 }
 "#,
         )
@@ -2163,7 +2178,10 @@ fun main() {
             output.status.success(),
             "Array<enum> ownership fixture failed: {output:?}"
         );
-        assert_eq!(String::from_utf8_lossy(&output.stdout), "array-enum\n");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "array-enum\narray-enum\n"
+        );
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);
     }
