@@ -78,6 +78,11 @@ When you resolve debt, update or remove the matching entry.
   still needs write barriers and precise stack maps beyond the executor-safe
   STW collector; cross-target build/sysroot, self-update, and full LSP remain
   separate tooling/distribution work.
+- Progress: the compiler now owns the post-plugin expansion boundary: generated
+  source is parsed and merged before typecheck, package identity changes are
+  rejected, and expansion metadata is retained. Plugin stdout/stderr are
+  drained concurrently under the configured output cap, preventing a noisy
+  process from deadlocking the host while it waits for termination.
 - Next step: implement RFC-010 token expansion and sandbox ABI as a dedicated
   compiler/tooling workstream, then add package side tables and full runtime
   reflection without changing the metadata ABI version.

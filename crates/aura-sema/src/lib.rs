@@ -26,6 +26,102 @@ pub use util::{subst_ty, type_subst_map};
 use aura_ast::File;
 use checker::Checker;
 
+/// Expand one out-of-process macro response into the checked file.
+///
+/// The plugin returns a complete Aura source fragment so parsing, package
+/// identity, and normal semantic validation remain compiler-owned. This is
+/// the package/compiler integration point for the stable RFC-010 process ABI;
+/// callers do not need to merge generated AST nodes themselves.
+pub fn check_file_with_sandboxed_macro(
+    file: &File,
+    config: &MacroSandboxConfig,
+    request: &MacroPluginRequest,
+    derives: &[&dyn UserDerive],
+) -> Result<CheckedFile, SemaErrors> {
+    let response = run_sandboxed_macro(config, request).map_err(|error| {
+        SemaErrors::single(SemaError {
+            message: format!("[AURA-MACRO-PLUGIN] [phase=macro]: {}", error.message),
+            span: error.span,
+        })
+    })?;
+    let MacroPluginResponse::Expanded { source } = response else {
+        let MacroPluginResponse::Failed { message, span } = response else {
+            unreachable!("macro response matched above");
+        };
+        return Err(SemaErrors::single(SemaError {
+            message: format!("[AURA-MACRO-PLUGIN] [phase=macro]: {message}"),
+            span: if span == aura_ast::Span::new(0, 0) {
+                request.invocation_span
+            } else {
+                span
+            },
+        }));
+    };
+    check_file_with_plugin_source(
+        file,
+        &request.macro_name,
+        &source,
+        request.invocation_span,
+        derives,
+    )
+}
+
+/// Check a source fragment returned by a procedural macro plugin.
+///
+/// This lower-level entry point is also useful to compiler hosts that already
+/// own the sandbox process but want Aura to retain package and expansion
+/// invariants in one place.
+pub fn check_file_with_plugin_source(
+    file: &File,
+    macro_name: &str,
+    source: &str,
+    invocation_span: aura_ast::Span,
+    derives: &[&dyn UserDerive],
+) -> Result<CheckedFile, SemaErrors> {
+    let generated = aura_parser::parse_file(source).map_err(|error| {
+        SemaErrors::single(SemaError {
+            message: format!("[AURA-MACRO-PLUGIN] [phase=macro]: {error}"),
+            span: invocation_span,
+        })
+    })?;
+    if generated.package.display() != file.package.display() {
+        return Err(SemaErrors::single(SemaError {
+            message: format!(
+                "[AURA-MACRO-PLUGIN] [phase=macro]: generated package `{}` does not match `{}`",
+                generated.package.display(),
+                file.package.display()
+            ),
+            span: invocation_span,
+        }));
+    }
+    let mut expanded = file.clone();
+    append_plugin_items(&mut expanded, generated);
+    let mut checked = check_file_with_macros(&expanded, &[], derives)?;
+    checked.expansions.push(ExpansionMetadata {
+        phase: "macro".into(),
+        macro_name: macro_name.into(),
+        generated_item: source.into(),
+        invocation_span,
+        generated_span: invocation_span,
+    });
+    checked
+        .expansions
+        .sort_by_key(|item| (item.invocation_span.start, item.generated_item.clone()));
+    Ok(checked)
+}
+
+fn append_plugin_items(into: &mut File, generated: File) {
+    into.imports.extend(generated.imports);
+    into.interfaces.extend(generated.interfaces);
+    into.enums.extend(generated.enums);
+    into.classes.extend(generated.classes);
+    into.type_aliases.extend(generated.type_aliases);
+    into.consts.extend(generated.consts);
+    into.functions.extend(generated.functions);
+    into.foreign_functions.extend(generated.foreign_functions);
+    into.async_functions.extend(generated.async_functions);
+}
+
 /// Typecheck a parsed file.
 ///
 /// C6h/C7g: body- and declaration-level errors are collected so multiple

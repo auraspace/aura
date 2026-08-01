@@ -5,7 +5,7 @@
 //! RFC-010's out-of-process procedural macro ABI remains a separate boundary.
 
 use aura_ast::{ClassDecl, File, FunDecl, Span};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -106,62 +106,114 @@ pub fn run_sandboxed_macro(
         span: request.invocation_span,
     })?;
     let payload = encode_request(request);
-    child
-        .stdin
-        .take()
-        .ok_or_else(|| MacroError {
-            message: "macro plugin stdin was not available".into(),
-            span: request.invocation_span,
-        })?
-        .write_all(&payload)
-        .map_err(|error| MacroError {
-            message: format!("failed to send macro request: {error}"),
-            span: request.invocation_span,
-        })?;
+    let mut stdin = child.stdin.take().ok_or_else(|| MacroError {
+        message: "macro plugin stdin was not available".into(),
+        span: request.invocation_span,
+    })?;
+    let writer = std::thread::spawn(move || {
+        let result = stdin.write_all(&payload);
+        drop(stdin);
+        result
+    });
+    let stdout = child.stdout.take().ok_or_else(|| MacroError {
+        message: "macro plugin stdout was not available".into(),
+        span: request.invocation_span,
+    })?;
+    let stderr = child.stderr.take().ok_or_else(|| MacroError {
+        message: "macro plugin stderr was not available".into(),
+        span: request.invocation_span,
+    })?;
+    let max_output = config.max_output_bytes;
+    let stdout_reader = std::thread::spawn(move || read_capped(stdout, max_output));
+    let stderr_reader = std::thread::spawn(move || read_capped(stderr, 64 * 1024));
 
     let deadline = Instant::now() + config.timeout;
-    loop {
-        if child
-            .try_wait()
-            .map_err(|error| MacroError {
-                message: format!("failed to poll macro plugin: {error}"),
-                span: request.invocation_span,
-            })?
-            .is_some()
-        {
-            break;
+    let status = loop {
+        if let Some(status) = child.try_wait().map_err(|error| MacroError {
+            message: format!("failed to poll macro plugin: {error}"),
+            span: request.invocation_span,
+        })? {
+            break status;
         }
         if Instant::now() >= deadline {
             let _ = child.kill();
             let _ = child.wait();
+            let _ = writer.join();
+            let _ = stdout_reader.join();
+            let _ = stderr_reader.join();
             return Err(MacroError {
                 message: "macro plugin exceeded its sandbox timeout".into(),
                 span: request.invocation_span,
             });
         }
         std::thread::sleep(Duration::from_millis(5));
-    }
-    let output = child.wait_with_output().map_err(|error| MacroError {
-        message: format!("failed to collect macro plugin output: {error}"),
+    };
+    let write_result = writer.join().map_err(|_| MacroError {
+        message: "macro plugin request writer panicked".into(),
         span: request.invocation_span,
     })?;
-    if output.stdout.len() > config.max_output_bytes {
+    if let Err(error) = write_result {
+        return Err(MacroError {
+            message: format!("failed to send macro request: {error}"),
+            span: request.invocation_span,
+        });
+    }
+    let stdout = stdout_reader
+        .join()
+        .map_err(|_| MacroError {
+            message: "macro plugin stdout reader panicked".into(),
+            span: request.invocation_span,
+        })?
+        .map_err(|error| MacroError {
+            message: format!("failed to collect macro plugin output: {error}"),
+            span: request.invocation_span,
+        })?;
+    let stderr = stderr_reader
+        .join()
+        .map_err(|_| MacroError {
+            message: "macro plugin stderr reader panicked".into(),
+            span: request.invocation_span,
+        })?
+        .map_err(|error| MacroError {
+            message: format!("failed to collect macro plugin diagnostics: {error}"),
+            span: request.invocation_span,
+        })?;
+    if stdout.len() > config.max_output_bytes {
         return Err(MacroError {
             message: "macro plugin response exceeded the output limit".into(),
             span: request.invocation_span,
         });
     }
-    if !output.status.success() {
-        let detail = String::from_utf8_lossy(&output.stderr);
+    if !status.success() {
+        let detail = String::from_utf8_lossy(&stderr);
         return Err(MacroError {
             message: format!("macro plugin failed: {}", detail.trim()),
             span: request.invocation_span,
         });
     }
-    decode_response(&output.stdout).map_err(|message| MacroError {
+    decode_response(&stdout).map_err(|message| MacroError {
         message,
         span: request.invocation_span,
     })
+}
+
+/// Drain a plugin pipe even after the configured cap is reached. Keeping the
+/// reader alive prevents a malicious plugin from blocking forever on a full
+/// stdout/stderr pipe while the host waits for process termination.
+fn read_capped<R: Read>(mut reader: R, cap: usize) -> std::io::Result<Vec<u8>> {
+    let mut output = Vec::with_capacity(cap.saturating_add(1).min(64 * 1024));
+    let mut buffer = [0u8; 8192];
+    loop {
+        let count = reader.read(&mut buffer)?;
+        if count == 0 {
+            break;
+        }
+        let remaining = cap.saturating_add(1).saturating_sub(output.len());
+        if remaining != 0 {
+            output.extend_from_slice(&buffer[..count.min(remaining)]);
+        }
+    }
+    Ok(output)
 }
 
 fn sandbox_command(config: &MacroSandboxConfig) -> Result<Command, String> {

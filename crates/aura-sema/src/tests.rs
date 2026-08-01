@@ -1,7 +1,7 @@
 use crate::ty::Ty;
 use crate::{
-    check_file, check_file_with_derives, check_file_with_macros, MacroError, MacroExpansion,
-    UserDerive, UserMacro,
+    check_file, check_file_with_derives, check_file_with_macros, check_file_with_plugin_source,
+    MacroError, MacroExpansion, UserDerive, UserMacro,
 };
 use aura_ast::{
     AsyncExpr, AsyncFunDecl, Block, ChannelSendExpr, ClassDecl, Expr, File, FunDecl, Ident, Span,
@@ -144,6 +144,45 @@ fn registered_user_macro_expands_before_typecheck() {
         .expect("user macro expansion metadata");
     assert_eq!(expansion.phase, "macro");
     assert_eq!(expansion.macro_name, "CustomMarkerMacro");
+}
+
+#[test]
+fn sandboxed_plugin_source_is_merged_and_recorded_before_typecheck() {
+    let file = parse_file("package demo\nclass Value() {}\n").expect("plugin host source parses");
+    let checked = check_file_with_plugin_source(
+        &file,
+        "ExternalMacro",
+        "package demo\nfun generated(): Int { return 7 }\n",
+        Span::new(8, 15),
+        &[],
+    )
+    .expect("plugin source checks");
+    assert!(checked
+        .ast
+        .functions
+        .iter()
+        .any(|function| function.name.name == "generated"));
+    let expansion = checked
+        .expansions
+        .iter()
+        .find(|item| item.macro_name == "ExternalMacro")
+        .expect("plugin expansion metadata");
+    assert_eq!(expansion.phase, "macro");
+    assert_eq!(expansion.invocation_span, Span::new(8, 15));
+}
+
+#[test]
+fn sandboxed_plugin_source_cannot_change_package_identity() {
+    let file = parse_file("package demo\nclass Value() {}\n").expect("plugin host source parses");
+    let error = check_file_with_plugin_source(
+        &file,
+        "ExternalMacro",
+        "package other\nfun generated(): Int { return 7 }\n",
+        Span::new(8, 15),
+        &[],
+    )
+    .expect_err("plugin package mismatch must fail");
+    assert!(error.primary().message.contains("does not match"));
 }
 
 #[test]

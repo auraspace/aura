@@ -75,6 +75,11 @@ invocation remain open. The sema API now exposes the versioned RFC-010 process
 protocol with bounded output/timeout handling and fail-closed OS sandbox
 selection for plugin hosts; package build integration still remains to be
 wired.
+The compiler also exposes `check_file_with_sandboxed_macro` and
+`check_file_with_plugin_source`: generated source is parsed and merged before
+typecheck, package identity changes are rejected, and expansion metadata is
+retained. Plugin pipes are drained concurrently under the configured output
+limit so a noisy process cannot deadlock the compiler host.
 
 Spawn frame discovery also reuses checked generic substitutions for unannotated
 locals, including locals initialized by generic async calls. This keeps the
