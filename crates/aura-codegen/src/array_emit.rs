@@ -109,6 +109,29 @@ pub(crate) fn emit_array_contents_free(
     name_c: &str,
     ty_key: &str,
 ) {
+    emit_array_contents_free_inner(out, indent, name_c, ty_key, None);
+}
+
+/// Checked variant of Array cleanup. The legacy helper remains available for
+/// contexts that only have a C type key; compiler-owned cleanup should use
+/// this variant so `Array<Enum>` can call the enum's recursive drop hook.
+pub(crate) fn emit_array_contents_free_checked(
+    out: &mut String,
+    indent: usize,
+    name_c: &str,
+    ty_key: &str,
+    checked: &CheckedFile,
+) {
+    emit_array_contents_free_inner(out, indent, name_c, ty_key, Some(checked));
+}
+
+fn emit_array_contents_free_inner(
+    out: &mut String,
+    indent: usize,
+    name_c: &str,
+    ty_key: &str,
+    checked: Option<&CheckedFile>,
+) {
     let p = " ".repeat(indent);
     let _ = writeln!(out, "{p}if ({name_c}.data != NULL) {{");
     if let Some(elem) = array_elem_key(ty_key) {
@@ -127,6 +150,15 @@ pub(crate) fn emit_array_contents_free(
                 free_strings,
             );
             let _ = writeln!(out, "{p}  }}");
+        } else if let Some(checked) = checked {
+            let elem_key = crate::expr::full_type_mono(elem, checked);
+            if crate::expr::is_enum_mono(&elem_key, checked) {
+                let enum_cty = crate::names::c_enum_type(&elem_key);
+                let _ = writeln!(
+                    out,
+                    "{p}  for (int64_t __af = 0; __af < {name_c}.len; __af++) {{ {enum_cty}_drop(&{name_c}.data[__af]); }}"
+                );
+            }
         }
     }
     let _ = writeln!(out, "{p}  free({name_c}.data);");

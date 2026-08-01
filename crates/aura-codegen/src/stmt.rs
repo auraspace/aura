@@ -170,9 +170,15 @@ fn emit_free_shared_outcome_owners(out: &mut String, indent: usize, ctx: &EmitCt
 /// Free heap buffer of a local `Array` (null-safe; zeros fields).
 /// C8f: if elements are Array, free each element's buffer first.
 /// C13d: if elements are String, free each owned `const char *` first.
-pub(crate) fn emit_free_array_local(out: &mut String, indent: usize, name: &str, ty_key: &str) {
+pub(crate) fn emit_free_array_local(
+    out: &mut String,
+    indent: usize,
+    name: &str,
+    ty_key: &str,
+    checked: &CheckedFile,
+) {
     let n = mangle_ident(name);
-    crate::array_emit::emit_array_contents_free(out, indent, &n, ty_key);
+    crate::array_emit::emit_array_contents_free_checked(out, indent, &n, ty_key, checked);
 }
 
 pub(crate) fn emit_free_array_owners(
@@ -183,7 +189,7 @@ pub(crate) fn emit_free_array_owners(
 ) {
     for name in owners {
         let ty = ctx.lookup_local(name).unwrap_or("Array");
-        emit_free_array_local(out, indent, name, ty);
+        emit_free_array_local(out, indent, name, ty, ctx.checked);
     }
 }
 

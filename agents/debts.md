@@ -1639,6 +1639,9 @@ TaskError>` ABI, plus cooperative `isCancelled()` inside generated async
   C typedef emission is dependency-ordered, `Array<Enum>` clone/drop hooks are
   available before generic Result layouts, and `OkOwned` transfers ownership
   across repeated joins with forced GC coverage.
+- Progress: compiler-owned Array cleanup now receives `CheckedFile` where
+  available and recursively drops direct enum elements in lexical owners and
+  enum/Result payloads, closing the clone-without-drop leak for `Array<Enum>`.
 - Progress: the no-suspension async lowering now installs a typed frame mark
   hook and roots/drops every heap-class parameter, including Array-of-class
   storage, rather than special-casing only `this`. A scope-escape regression

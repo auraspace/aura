@@ -94,3 +94,6 @@ drop of repeated joined aggregates explicit in the generated ABI.
 stores enum elements by value, preventing shallow `memcpy` of owned payloads.
 Typed joins now dependency-order generic Result layouts around aggregate Array
 types and use `Result.OkOwned` for repeated `Array<Enum>` observations.
+Checked cleanup paths also invoke enum element drop hooks for direct
+`Array<Enum>` owners and enum payloads, so deep clones have a matching
+recursive teardown path.

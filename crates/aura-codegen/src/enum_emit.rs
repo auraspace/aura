@@ -467,11 +467,12 @@ fn emit_enum_clone_drop(out: &mut String, checked: &CheckedFile, e: &EnumDecl, a
                 );
             } else if crate::array_emit::is_array_type_key(&full_key) {
                 let mut free = String::new();
-                crate::array_emit::emit_array_contents_free(
+                crate::array_emit::emit_array_contents_free_checked(
                     &mut free,
                     0,
                     &format!("value->data.{vn}.{fnm}"),
                     &full_key,
+                    checked,
                 );
                 for line in free.lines() {
                     let _ = writeln!(out, "        {line}");

@@ -2224,7 +2224,7 @@ pub(crate) fn emit_owned_value_cleanup(
         return;
     }
     if is_array_type_key(key) {
-        crate::array_emit::emit_array_contents_free(out, indent, expr, key);
+        crate::array_emit::emit_array_contents_free_checked(out, indent, expr, key, checked);
         return;
     }
     let Some(base) = crate::expr::mono_base_name(key, checked) else {
