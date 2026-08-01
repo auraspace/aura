@@ -709,3 +709,15 @@ fn expands_declarative_macro_repetition_inside_group() {
     )
     .expect("repeating macro should expand before AST parsing");
 }
+
+#[test]
+fn expands_declarative_macro_with_multiple_repeated_captures() {
+    let file = parse_file(
+        "package demo\nmacro! values { ($($name:ident = $value:expr),+) => { choose($($value),*) }; }\nfun main() { println(values!(first = 1, second = 2).toString()) }\n",
+    )
+    .expect("multiple repeated captures should expand before AST parsing");
+    let source = format!("{:?}", file.functions[0].body);
+    assert!(source.contains("choose"));
+    assert!(source.contains("1"), "expanded AST: {source}");
+    assert!(source.contains("2"), "expanded AST: {source}");
+}

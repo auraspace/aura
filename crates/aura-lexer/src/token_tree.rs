@@ -30,27 +30,25 @@ pub fn match_repeated_pattern(
     pattern: &[TokenTree],
     input: &[TokenTree],
 ) -> Option<RepeatedMacroCaptures> {
-    let (name, separator) = repetition_parts(pattern)?;
-    let mut values = Vec::new();
-    let mut index = 0;
+    let (names, separator, requires_one) = repetition_parts(pattern)?;
     let TokenTree::Group { children, .. } = pattern.get(1)? else {
         return None;
     };
-    while index < input.len() {
-        let single = match_pattern(children, &input[index..index + 1])?;
-        values.push(single.get(&name)?.clone());
-        index += 1;
-        if index < input.len() {
-            let Some(separator) = separator else {
-                continue;
-            };
-            if !same_tree(separator, input.get(index)?) {
-                return None;
-            }
-            index += 1;
+    let items = split_repetition_input(input, separator);
+    if requires_one && items.is_empty() {
+        return None;
+    }
+    let mut captures = names
+        .iter()
+        .map(|name| (name.clone(), Vec::with_capacity(items.len())))
+        .collect::<RepeatedMacroCaptures>();
+    for item in items {
+        let matched = match_pattern(children, item)?;
+        for name in &names {
+            captures.get_mut(name)?.push(matched.get(name)?.clone());
         }
     }
-    Some(BTreeMap::from([(name, values)]))
+    Some(captures)
 }
 
 /// Expand a template containing `$( $name ),*`, preserving its separator.
@@ -68,8 +66,12 @@ fn substitute_repeated_sequence(
     let mut output = Vec::new();
     let mut index = 0;
     while index < template.len() {
-        if let Some((consumed, name, separator)) = repetition_at(template, index) {
-            let Some(values) = captures.get(&name) else {
+        if let Some((consumed, names, separator)) = repetition_at(template, index) {
+            let Some(first_name) = names.first() else {
+                index += consumed;
+                continue;
+            };
+            let Some(values) = captures.get(first_name) else {
                 output.extend_from_slice(&template[index..index + consumed]);
                 index += consumed;
                 continue;
@@ -80,13 +82,19 @@ fn substitute_repeated_sequence(
             else {
                 unreachable!("repetition_at only accepts grouped repetitions");
             };
-            for (value_index, value) in values.iter().enumerate() {
+            for (value_index, _) in values.iter().enumerate() {
                 if value_index > 0 {
                     if let Some(separator) = separator {
                         output.push(separator.clone());
                     }
                 }
-                let one = BTreeMap::from([(name.clone(), value.clone())]);
+                let mut one = BTreeMap::new();
+                for name in &names {
+                    if let Some(value) = captures.get(name).and_then(|items| items.get(value_index))
+                    {
+                        one.insert(name.clone(), value.clone());
+                    }
+                }
                 output.extend(substitute(inner, &one));
             }
             index += consumed;
@@ -366,7 +374,7 @@ fn metavariable(tokens: &[TokenTree]) -> Option<(String, usize)> {
     Some((name.clone(), consumed))
 }
 
-fn repetition_parts(tokens: &[TokenTree]) -> Option<(String, Option<&TokenTree>)> {
+fn repetition_parts(tokens: &[TokenTree]) -> Option<(Vec<String>, Option<&TokenTree>, bool)> {
     if tokens.len() < 3
         || !matches!(
             tokens.first(),
@@ -379,7 +387,7 @@ fn repetition_parts(tokens: &[TokenTree]) -> Option<(String, Option<&TokenTree>)
         || !matches!(
             tokens.last(),
             Some(TokenTree::Leaf(Token {
-                kind: TokenKind::Star,
+                kind: TokenKind::Star | TokenKind::Plus,
                 ..
             }))
         )
@@ -389,24 +397,25 @@ fn repetition_parts(tokens: &[TokenTree]) -> Option<(String, Option<&TokenTree>)
     let TokenTree::Group { children, .. } = &tokens[1] else {
         return None;
     };
-    let Some((name, consumed)) = metavariable(children) else {
-        return None;
-    };
-    if consumed != children.len() {
+    let names = metavariable_names(children);
+    if names.is_empty() {
         return None;
     }
-    let separator = match tokens.len() {
-        3 => None,
-        4 => tokens.get(2),
-        _ => return None,
-    };
-    Some((name, separator))
+    let separator = (tokens.len() == 4).then(|| &tokens[2]);
+    let requires_one = matches!(
+        tokens.last(),
+        Some(TokenTree::Leaf(Token {
+            kind: TokenKind::Plus,
+            ..
+        }))
+    );
+    Some((names, separator, requires_one))
 }
 
 fn repetition_at(
     tokens: &[TokenTree],
     index: usize,
-) -> Option<(usize, String, Option<&TokenTree>)> {
+) -> Option<(usize, Vec<String>, Option<&TokenTree>)> {
     let remaining = &tokens[index..];
     for length in [3, 4] {
         if let Some(parts) = remaining.get(..length).and_then(repetition_parts) {
@@ -414,6 +423,58 @@ fn repetition_at(
         }
     }
     None
+}
+
+fn metavariable_names(tokens: &[TokenTree]) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut index = 0;
+    while index < tokens.len() {
+        if let Some((name, consumed)) = metavariable(&tokens[index..]) {
+            if !names.contains(&name) {
+                names.push(name);
+            }
+            index += consumed;
+        } else {
+            if let TokenTree::Group { children, .. } = &tokens[index] {
+                for name in metavariable_names(children) {
+                    if !names.contains(&name) {
+                        names.push(name);
+                    }
+                }
+            }
+            index += 1;
+        }
+    }
+    names
+}
+
+fn split_repetition_input<'a>(
+    input: &'a [TokenTree],
+    separator: Option<&TokenTree>,
+) -> Vec<&'a [TokenTree]> {
+    let Some(separator) = separator else {
+        return if input.is_empty() {
+            Vec::new()
+        } else {
+            vec![input]
+        };
+    };
+    let mut items = Vec::new();
+    let mut start = 0;
+    for (index, token) in input.iter().enumerate() {
+        if same_tree(separator, token) {
+            if start == index {
+                return Vec::new();
+            }
+            items.push(&input[start..index]);
+            start = index + 1;
+        }
+    }
+    if start == input.len() {
+        return Vec::new();
+    }
+    items.push(&input[start..]);
+    items
 }
 
 fn same_tree(left: &TokenTree, right: &TokenTree) -> bool {
@@ -525,6 +586,41 @@ mod tests {
                 .filter(|token| matches!(token.kind, TokenKind::Int(_)))
                 .count(),
             3
+        );
+    }
+
+    #[test]
+    fn matches_multiple_captures_and_plus_repetition() {
+        let pattern =
+            TokenTree::from_tokens(&lex("$( $name:ident = $value:expr ),+").expect("lex pattern"))
+                .expect("group pattern");
+        let input = TokenTree::from_tokens(&lex("first = 1, second = 2").expect("lex input"))
+            .expect("group input");
+        let captures = match_repeated_pattern(&pattern, &input).expect("match repetition");
+        assert_eq!(captures["name"].len(), 2);
+        assert_eq!(captures["value"].len(), 2);
+
+        let template =
+            TokenTree::from_tokens(&lex("make($($name = $value),*)").expect("lex template"))
+                .expect("group template");
+        let expanded = substitute_repeated(&template, &captures);
+        let mut flattened = Vec::new();
+        for item in &expanded {
+            item.flatten(&mut flattened);
+        }
+        assert_eq!(
+            flattened
+                .iter()
+                .filter(|token| matches!(token.kind, TokenKind::Ident(_)))
+                .count(),
+            3
+        );
+        assert_eq!(
+            flattened
+                .iter()
+                .filter(|token| matches!(token.kind, TokenKind::Int(_)))
+                .count(),
+            2
         );
     }
 }
