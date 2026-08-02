@@ -1796,6 +1796,19 @@ pub(crate) fn emit_match(out: &mut String, m: &MatchStmt, indent: usize, ctx: &m
         for stmt in &arm.body.stmts {
             emit_stmt(out, stmt, indent + 2, ctx);
         }
+        // Match bindings live in the arm scope.  Clean up every owner/root
+        // registered there before the C block ends; otherwise a heap-class
+        // binding such as `value` leaves a GC root pointing at a dead stack
+        // slot and a later collection reads it after return from this poll.
+        emit_remove_array_gc_roots(out, indent + 2, &ctx.array_gc_roots_current());
+        emit_remove_gc_roots(out, indent + 2, &ctx.gc_roots_current());
+        emit_free_array_owners(out, indent + 2, ctx, &ctx.array_owners_current());
+        emit_free_fun_owners(out, indent + 2, ctx, &ctx.fun_owners_current());
+        emit_free_string_owners(out, indent + 2, &ctx.string_owners_current());
+        emit_destroy_channel_owners(out, indent + 2, &ctx.channel_owners_current());
+        emit_free_task_result_owners(out, indent + 2, ctx, &ctx.task_result_owners_current());
+        emit_release_task_handle_owners(out, indent + 2, ctx, &ctx.task_handle_owners_current());
+        emit_release_box_locals(out, indent + 2, ctx, &ctx.box_owners_current());
         ctx.pop_scope();
         let _ = writeln!(out, "{p}    break;\n{p}  }}");
     }
