@@ -1063,12 +1063,9 @@ fn emit_select_next_method(
         _ => unreachable!(),
     };
     let result_code = result_code
-        .replace("aura_select_next_std_task_Select_Int", &format!("{base}"))
-        .replace("aura_select_next_std_task_Select_Bool", &format!("{base}"))
-        .replace(
-            "aura_select_next_std_task_Select_String",
-            &format!("{base}"),
-        )
+        .replace("aura_select_next_std_task_Select_Int", &base.to_string())
+        .replace("aura_select_next_std_task_Select_Bool", &base.to_string())
+        .replace("aura_select_next_std_task_Select_String", &base.to_string())
         .replace(
             "aura_select_next_RESULT_CLASS",
             &format!("{base}_result_destroy"),
@@ -1221,7 +1218,7 @@ fn emit_async_class_method(
         },
         type_params: Vec::new(),
         params,
-        return_type: Some(subst_type_ref(result_ty, &class_params, class_args, c.span)),
+        return_type: Some(subst_type_ref(result_ty, class_params, class_args, c.span)),
         body,
         span: m.span,
     };

@@ -744,10 +744,7 @@ fn declarative_macro_nested_bindings_get_distinct_scopes() {
     )
     .expect("nested hygienic macro should parse");
     let debug = format!("{:?}", file.functions[0].body);
-    let first = debug
-        .match_indices("__aura_macro_scoped_")
-        .map(|(index, _)| index)
-        .count();
+    let first = debug.match_indices("__aura_macro_scoped_").count();
     assert!(
         first >= 4,
         "nested bindings and references missing: {debug}"

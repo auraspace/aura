@@ -2571,7 +2571,8 @@ impl<'a> AsyncCfgBuilder<'a> {
                     self.owned_class_catches
                         .push((catch_storage.clone(), catch_key.clone()));
                 }
-                let (catch_state_next, failure_state, finally_state) = if try_stmt.finally.is_some()
+                let (catch_state_next, failure_state, finally_state) = if let Some(finally) =
+                    &try_stmt.finally
                 {
                     let failure_state = self.alloc();
                     let fail_state = self.alloc();
@@ -2604,7 +2605,7 @@ impl<'a> AsyncCfgBuilder<'a> {
                         },
                     );
                     let finally_state = self.emit_finally_block(
-                        &try_stmt.finally.as_ref().expect("checked above").stmts,
+                        &finally.stmts,
                         after_finally,
                         break_state,
                         continue_state,
@@ -3225,9 +3226,7 @@ fn split_single_await_expr(expr: &Expr, replacement: &str) -> Option<(AwaitExpr,
                     }),
                 ))
             } else {
-                let Some(index) = call.args.iter().position(expr_contains_async) else {
-                    return None;
-                };
+                let index = call.args.iter().position(expr_contains_async)?;
                 let (await_expr, arg) = split_single_await_expr(&call.args[index], replacement)?;
                 let mut args = call.args.clone();
                 args[index] = arg;
@@ -5256,9 +5255,9 @@ fn emit_async_fun_cfg_int(
                     let cty = crate::stmt::local_key_to_c(&value_key, checked);
                     let is_channel = value_key == "Channel" || value_key.starts_with("Channel_");
                     let clone = if is_channel {
-                        format!("if (__child != NULL && !aura_task_channel_retain(__child)) return AURA_TASK_FAILED;")
+                        "if (__child != NULL && !aura_task_channel_retain(__child)) return AURA_TASK_FAILED;".to_string()
                     } else {
-                        format!("if (__child != NULL && (__aura_task_executor == NULL || !aura_task_executor_retain_payload(__aura_task_executor, __child))) return AURA_TASK_FAILED;")
+                        "if (__child != NULL && (__aura_task_executor == NULL || !aura_task_executor_retain_payload(__aura_task_executor, __child))) return AURA_TASK_FAILED;".to_string()
                     };
                     let old_drop = if is_channel {
                         format!(
@@ -13874,9 +13873,7 @@ fn spawn_type_ref_from_key(key: &str, checked: &CheckedFile, span: Span) -> Opti
     if key.starts_with("Fun_") {
         return None;
     }
-    let Some((base, args)) = crate::expr::mono_split(key, checked) else {
-        return None;
-    };
+    let (base, args) = crate::expr::mono_split(key, checked)?;
     if base == "Array" {
         return Some(spawn_type_ref_from_ty(
             &Ty::ClassApp {
@@ -14131,7 +14128,7 @@ fn emit_bounded_spawn_pollers(out: &mut String, checked: &CheckedFile, detector:
         else {
             let _ = emit_general_spawn_cfg(
                 out,
-                &spawn,
+                spawn,
                 &available,
                 checked,
                 &mutable_captures,

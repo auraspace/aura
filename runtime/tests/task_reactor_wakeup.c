@@ -2,7 +2,7 @@
 
 #include <assert.h>
 #include <pthread.h>
-#include <unistd.h>
+#include <time.h>
 
 #define AURA_RUNTIME_NO_MAIN
 #include "../runtime.c"
@@ -28,7 +28,8 @@ typedef struct
 static void *wake_from_foreign_thread(void *data)
 {
   WakeArgs *args = (WakeArgs *)data;
-  usleep(10000);
+  struct timespec delay = {.tv_sec = 0, .tv_nsec = 10 * 1000 * 1000};
+  nanosleep(&delay, NULL);
   assert(aura_task_executor_wake(args->executor, args->frame) == 1);
   return NULL;
 }

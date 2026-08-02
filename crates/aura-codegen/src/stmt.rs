@@ -564,7 +564,7 @@ pub(crate) fn string_call_owns_result(e: &Expr, ctx: &EmitCtx<'_>) -> bool {
                         let get_receiver = resolve_type_name(&get_field.object, ctx)
                             .or_else(|| Some(infer_type_name(&get_field.object, ctx)))
                             .unwrap_or_default();
-                        get_receiver.starts_with("Array_String")
+                        get_receiver == "Array_String" || get_receiver.ends_with("_Array_String")
                     }
                     _ => false,
                 },
@@ -574,7 +574,8 @@ pub(crate) fn string_call_owns_result(e: &Expr, ctx: &EmitCtx<'_>) -> bool {
                 .or_else(|| Some(infer_type_name(&field.object, ctx)))
                 .unwrap_or_default();
             (receiver_is_array_string_get
-                || (receiver.starts_with("Array_String") && field.field.name == "get"))
+                || ((receiver == "Array_String" || receiver.ends_with("_Array_String"))
+                    && field.field.name == "get"))
                 || (receiver == "Int" && field.field.name == "toString")
                 || (receiver == "String"
                     && matches!(

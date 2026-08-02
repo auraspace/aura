@@ -2,6 +2,11 @@
 //!
 //! Classes/structs → C structs; interfaces/enums → tagged unions.
 
+// The emitter keeps type-specific branches explicit because each branch
+// documents a distinct ownership/layout case, even when generated text is
+// currently identical.
+#![allow(clippy::if_same_then_else)]
+
 mod array_emit;
 mod async_model;
 mod build;

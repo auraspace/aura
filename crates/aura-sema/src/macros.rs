@@ -244,7 +244,7 @@ fn sandbox_command(config: &MacroSandboxConfig) -> Result<Command, String> {
         );
         let mut command = Command::new("sandbox-exec");
         command.arg("-p").arg(profile).arg(plugin);
-        return Ok(command);
+        Ok(command)
     }
     #[cfg(target_os = "linux")]
     {
@@ -291,7 +291,7 @@ fn sandbox_command(config: &MacroSandboxConfig) -> Result<Command, String> {
             .arg("/tmp")
             .arg("--");
         command.arg(plugin);
-        return Ok(command);
+        Ok(command)
     }
     #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     {
@@ -305,6 +305,7 @@ fn canonical(path: &Path) -> Result<PathBuf, String> {
         .map_err(|error| format!("cannot resolve sandbox path {}: {error}", path.display()))
 }
 
+#[cfg(target_os = "macos")]
 fn profile_path(path: &Path) -> String {
     path.to_string_lossy().replace('"', "\\\"")
 }
@@ -429,6 +430,15 @@ fn read_string(bytes: &[u8], cursor: &mut usize) -> Result<String, String> {
     String::from_utf8(raw.to_vec()).map_err(|_| "macro plugin response is not UTF-8".into())
 }
 
+/// A deterministic AST macro hook executed before derive expansion.
+///
+/// This is the compiler-host half of the macro boundary. Package-level token
+/// parsing and sandboxed process execution remain outside this trait.
+pub trait UserMacro {
+    fn name(&self) -> &str;
+    fn expand(&self, file: &mut File) -> Result<Vec<MacroExpansion>, MacroError>;
+}
+
 #[cfg(test)]
 mod protocol_tests {
     use super::*;
@@ -507,13 +517,4 @@ mod protocol_tests {
             "oversized encoding must not truncate length"
         );
     }
-}
-
-/// A deterministic AST macro hook executed before derive expansion.
-///
-/// This is the compiler-host half of the macro boundary. Package-level token
-/// parsing and sandboxed process execution remain outside this trait.
-pub trait UserMacro {
-    fn name(&self) -> &str;
-    fn expand(&self, file: &mut File) -> Result<Vec<MacroExpansion>, MacroError>;
 }
