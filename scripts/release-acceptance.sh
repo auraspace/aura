@@ -109,7 +109,10 @@ run_stage "native host scope" report_native_scope
 
 run_stage "release target and signing policy" bash scripts/tests/release-policy.sh
 run_stage "registry and cross-host acceptance fixture" bash scripts/registry-release-acceptance.sh
-run_stage "workspace tests" cargo test --workspace
+# Generated C integration fixtures run under ASan. Leak ownership is covered
+# by the dedicated sanitizer smoke stage below; keep this broad compiler test
+# focused on behavior, matching the Rust CI job's sanitizer policy.
+run_stage "workspace tests" env ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0}" cargo test --workspace
 run_stage "Clippy warnings gate" cargo clippy --workspace --all-targets -- -D warnings
 # Cross-target packaging may leave only a foreign binary under target/<triple>.
 # Build the host-native CLI before corpus/regression scripts select a binary.
