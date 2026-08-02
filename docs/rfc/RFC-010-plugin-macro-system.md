@@ -8,7 +8,7 @@
 | **Layer**    | Language                  |
 | **Authors**  |                           |
 | **Created**  | 2026-07-15                |
-| **Updated**  | 2026-07-16                |
+| **Updated**  | 2026-08-02                |
 | **Estimate** | 50–80 pages               |
 | **Depends**  | RFC-001, RFC-009          |
 | **Blocks**   | RFC-004, RFC-007, RFC-011 |
@@ -17,7 +17,10 @@
 
 ## 1. Abstract
 
-This RFC defines Aura’s **macro and compiler plugin** story: **declarative macros** and **attribute derives** for MVP; **procedural macros / sandboxed plugins** (Rust-hosted or out-of-process) as a later phase. Goals are hygiene, predictable expansion order, and supply-chain safety—without requiring plugins to ship a basic language.
+This RFC defines Aura’s **macro and compiler plugin** story: hygienic token-tree
+expansion, attribute derives, and an out-of-process procedural macro protocol
+with sandboxing, lockfile checksums, and a versioned plugin ABI. The compiler
+keeps unsupported or unsandboxed plugin execution fail-closed.
 
 ## 2. Motivation
 
@@ -84,8 +87,27 @@ macro! vec {
 - Hygienic identifiers by default; explicit `span`/`unhygienic` opt-in rare.
 - Invoked as `vec!(1, 2, 3)` or function-like form; exact grammar amended before implement (derives ship first).
 - **Packaging:** macros live in normal packages (no separate macro package kind); consumers depend like any library.
+- Exported declarative macro names are unique within a resolved package graph;
+  the loader rejects duplicate names before expansion so dependency order cannot
+  change which definition runs. Plugin executable provenance remains tied to the
+  root package manifest and is never inherited implicitly from dependencies.
+  A dependency manifest that declares `[macro_plugins]` is rejected during
+  graph loading rather than silently dropping that executable declaration;
+  root plugin paths must stay package-relative without parent traversal, and
+  root plugin executables are pinned by `macro_plugin.<Name>` lock entries with
+  SHA-256 checksums. Dependency plugins require a future provenance policy.
+- Template-introduced bindings and item names receive an invocation-local gensym
+  resolved through lexical token-tree scopes, including nested blocks and
+  function parameters; shadowed bindings therefore remain distinct.
+  Identifiers supplied through metavariables retain caller spelling. Explicit
+  unhygienic spans and expansion inspection remain future surface area.
 
 ### 6.3 Derive macros
+
+The alpha derive vocabulary is `Debug`, `Equals`, `Hash`, `ToString`, and
+`Json`, with generated-member and ownership rules recorded in
+[`docs/api/compiler-alpha.md`](../api/compiler-alpha.md). The names are locked
+before expansion is implemented.
 
 ```aura
 @derive(Debug, Equals)
@@ -106,10 +128,14 @@ class Point(val x: Int, val y: Int)
 
 ### 6.5 Procedural macros (phase 2)
 
-- Implemented as **separate process** or **WASM sandbox** receiving serialized AST and returning generated items.
+- Implemented as a **separate sandboxed process** receiving serialized AST and returning generated items. Unsupported hosts, malformed responses, timeouts, output-limit violations, and non-zero exits fail closed with diagnostics.
 - Host language for authoring plugins: **Rust** first (matches toolchain).
 - Capabilities: no network; FS limited to crate source root if needed; CPU/time limits.
 - Distributed as versioned packages (RFC-005) with checksums.
+
+The current ABI is versioned and validates request/response framing. Root
+plugins are checksum-pinned in the lockfile; dependency-owned plugin
+declarations are rejected until a provenance policy exists.
 
 ### 6.6 Error model
 
@@ -159,7 +185,7 @@ MVP without full proc macros reduces security and stability risk while covering 
 ## 10. Security & safety considerations
 
 - Treat proc macros as untrusted code execution at compile time.
-- Lockfile + checksums for plugin packages.
+- Lockfile + checksums for plugin packages and root procedural executables.
 - Capability denial by default (network/FS).
 - No ambient `unsafe` injection into user code without `unsafe` in expansion output still gated by user’s allowance—expanded `unsafe` should be visible (`macro expand` audit).
 
@@ -176,12 +202,32 @@ MVP without full proc macros reduces security and stability risk while covering 
 - Rust book: macros; rustc expand
 - RFC-004, RFC-009, RFC-005
 
+## 12.1 Implemented host derive boundary
+
+The Rust compiler exposes `aura_sema::UserDerive`/`aura_sema::UserMacro` and
+`check_file_with_derives`/`check_file_with_macros`. Registered implementations
+receive an AST class or file and expand before typecheck; duplicate members,
+ownership rules, diagnostic phase markers, and expansion-origin metadata are
+applied uniformly with built-in derives. These host APIs are deliberately not
+a package-level proc-macro ABI: source-level token macros and untrusted
+procedural derives still require the RFC-010 process sandbox and versioned
+plugin protocol.
+
+The process protocol is exposed as `encode_plugin_request`,
+`decode_plugin_request`, and `encode_plugin_response`. On Linux the host uses
+`bubblewrap` with network isolation, read-only source/plugin/runtime mounts,
+and a private temporary directory; hosts without a supported sandbox fail
+closed. Every UTF-8 field is capped at 16 MiB and oversized fields are
+rejected before plugin execution or decoder allocation.
+
 ---
 
 ## Changelog
 
 | Date       | Author | Change                                                                                         |
 | ---------- | ------ | ---------------------------------------------------------------------------------------------- |
+| 2026-08-02 |        | Add fail-closed 16 MiB field limits to the stable plugin protocol                            |
+| 2026-08-01 |        | Implement Linux bubblewrap sandbox and export the versioned request encoder                  |
 | 2026-07-16 |        | Lock derives-first + package-export macros; Status → **Accepted**                              |
 | 2026-07-16 |        | Status → **In Review** — Review: derives MVP + process sandbox locked; declarative syntax open |
 | 2026-07-15 |        | Initial skeleton                                                                               |

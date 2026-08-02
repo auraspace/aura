@@ -106,7 +106,12 @@ Or simpler v1: built-in set + user attributes as classes marked `@attribute`.
 
 Default for user attrs: **Binary** (available to tools/dependents without runtime bloat). Runtime requires explicit opt-in.
 
-### 6.5 Built-in attributes (non-exhaustive)
+### 6.5 Built-in attributes (alpha vocabulary)
+
+The alpha names and their implementation status are locked in
+[`docs/api/compiler-alpha.md`](../api/compiler-alpha.md). Reserved names are
+accepted only after their parser/sema phase is enabled; until then they must
+produce an explicit unsupported diagnostic rather than being silently ignored.
 
 | Attribute                       | Role                                    |
 | ------------------------------- | --------------------------------------- |
@@ -186,7 +191,8 @@ Pay-as-you-go metadata protects single-binary size and optimization. Attributes 
 
 ## 9. Unresolved / future work
 
-- Full `std.reflect` surface
+- Backend implementation for the locked `Type`, `Method`, `Field`, `TypeId`,
+  `typeOf<T>()`, and `typeIdOf<T>()` placeholder surface
 - Annotation processors beyond macros
 - Source generators pipeline
 
@@ -204,6 +210,20 @@ Pay-as-you-go metadata protects single-binary size and optimization. Attributes 
 | A1    | `@test` discovery        | `aura test`   |
 | A2    | Opt-in runtime Type      | Demo inspect  |
 
+## 11.1 Implemented compiler boundary
+
+The current compiler implements the normalized attribute metadata boundary.
+`CheckedFile.attribute_metadata` carries declaration, target, name, normalized
+arguments, retention, and source span. Built-in and registered host
+macro/derive expansion is recorded in `CheckedFile.expansions` with its phase,
+invocation span, and generated span.
+
+Generated C exposes Binary/Runtime entries through a versioned read-only table:
+`AURA_METADATA_ABI_VERSION` is `1`, with accessors
+`aura_generated_attribute_metadata` and `aura_generated_expansion_metadata`.
+Source-retained attributes remain compiler/tooling metadata and are deliberately
+not copied into the binary table.
+
 ## 12. References
 
 - RFC-001, RFC-002, RFC-004, RFC-010, RFC-011
@@ -220,3 +240,4 @@ Pay-as-you-go metadata protects single-binary size and optimization. Attributes 
 | 2026-07-15 |        | Initial skeleton                                                                            |
 | 2026-07-15 |        | Solid draft: retention, opt-in reflect                                                      |
 | 2026-07-15 |        | Lock Binary default retention; public-only reflect                                          |
+| 2026-07-31 |        | Implement typed retention/expansion metadata and versioned generated C table                |

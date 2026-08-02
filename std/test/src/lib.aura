@@ -5,6 +5,15 @@ package std.test
 /// Fail the current test when `condition` is false.
 pub fun assert(condition: Bool) { }
 
+/// RFC-011 canonical assertion names. The runner/backend remains bounded.
+pub fun assertTrue(condition: Bool) { }
+
+pub fun assertEqual<T>(left: T, right: T) { }
+
+pub fun assertNotNull<T>(value: T?) { }
+
+pub fun assertFails(body: () -> Unit) { }
+
 /// Fail the current test unless two integer values are equal.
 pub fun assertEqInt(left: Int, right: Int) { }
 
@@ -13,3 +22,21 @@ pub fun assertEqString(left: String, right: String) { }
 
 /// Fail the current test unless two boolean values are equal.
 pub fun assertEqBool(left: Bool, right: Bool) { }
+
+/// RFC-011 benchmark registration placeholder. The runner does not execute
+/// or report benchmark samples yet.
+pub fun benchmark(name: String, body: () -> Unit): Unit {
+  throw "std.test benchmark is a placeholder"
+}
+
+/// RFC-011 snapshot comparison placeholder. Snapshot storage and update
+/// policy are intentionally not implemented.
+pub fun snapshot(name: String, actual: String): Unit {
+  throw "std.test snapshot is a placeholder"
+}
+
+/// RFC-011 property-test placeholder. Generator/shrinker and deterministic
+/// case scheduling contracts remain deferred.
+pub fun property(name: String, cases: Int, body: () -> Bool): Unit {
+  throw "std.test property is a placeholder"
+}

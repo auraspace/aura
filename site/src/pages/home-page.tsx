@@ -206,7 +206,7 @@ const WORKFLOW_STEPS = [
     subtitle: 'High-performance C backend emits optimized native binaries.',
     terminalOutput: `[build] Compiling package service...
   ✔  Generating C code (aura_out.c)
-  ✔  Invoking native compiler: gcc -O3 aura_out.c aura_rt.c
+  ✔  Invoking native compiler: gcc -O3 aura_out.c runtime.c
   ✔  Linking runtime & garbage collector
 
 🚀  Created self-contained binary: ./service (4.1 MB)`,

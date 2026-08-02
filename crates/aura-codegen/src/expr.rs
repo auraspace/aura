@@ -18,6 +18,60 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
         Expr::Bool(_) => "Bool".into(),
         Expr::String(_) => "String".into(),
         Expr::Call(c) => {
+            // Method-call result types are resolved by the same path used for
+            // chained receivers. Keep free-function handling below separate.
+            if matches!(c.callee.as_ref(), Expr::Field(_))
+                && ctx
+                    .checked
+                    .call_instantiations
+                    .get(&c.span.start)
+                    .is_some_and(|inst| !inst.is_static && !inst.is_constructor)
+            {
+                if let Some(ty) = resolve_type_name(e, ctx) {
+                    return ty;
+                }
+            }
+            if let (Expr::Field(fe), Some(inst)) = (
+                c.callee.as_ref(),
+                ctx.checked.call_instantiations.get(&c.span.start),
+            ) {
+                if inst.is_static {
+                    let class_name = match fe.object.as_ref() {
+                        Expr::Ident(id) => id.name.as_str(),
+                        _ => "",
+                    };
+                    if let Some(class) = ctx
+                        .checked
+                        .ast
+                        .classes
+                        .iter()
+                        .find(|x| x.name.name == class_name)
+                    {
+                        if let Some(method) =
+                            class.methods.iter().find(|m| m.name.name == fe.field.name)
+                        {
+                            if let Some(rt) = &method.return_type {
+                                let params = class
+                                    .type_params
+                                    .iter()
+                                    .map(|p| p.name.name.clone())
+                                    .chain(method.type_params.iter().map(|p| p.name.name.clone()))
+                                    .collect::<Vec<_>>();
+                                let subst =
+                                    aura_sema::type_subst_map(&ctx.type_params, &ctx.type_args);
+                                let args = inst
+                                    .type_args
+                                    .iter()
+                                    .chain(inst.method_type_args.iter())
+                                    .map(|t| aura_sema::subst_ty(t, &subst))
+                                    .collect::<Vec<_>>();
+                                return type_ref_local_key(rt, &params, &args);
+                            }
+                            return "Unit".into();
+                        }
+                    }
+                }
+            }
             if let Expr::Ident(id) = c.callee.as_ref() {
                 match id.name.as_str() {
                     "exception_cause_count"
@@ -53,6 +107,20 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
                             return type_ref_local_key(rt, &params, &inst.type_args);
                         }
                         return "Unit".into();
+                    }
+                    if let Some(f) = ctx.checked.ast.async_functions.iter().find(|f| {
+                        f.name.name == inst.name
+                            && (inst.package.is_empty()
+                                || async_fun_decl_package(f, ctx.checked) == inst.package)
+                    }) {
+                        if let Some(rt) = &f.return_type {
+                            if let Some(result) = type_ref_to_ty(rt, ctx) {
+                                return format!("Task_{}", ty_full_mono(&result));
+                            }
+                            let result = type_ref_local_key(rt, &[], &inst.type_args);
+                            return format!("Task_{}", full_type_mono(&result, ctx.checked));
+                        }
+                        return "Task_Unit".into();
                     }
                     if let Some(f) = ctx.checked.ast.foreign_functions.iter().find(|f| {
                         f.name.name == inst.name
@@ -411,11 +479,12 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
         Expr::Async(AsyncExpr::ChannelReceive(r)) => {
             let channel = resolve_type_name(&r.channel, ctx)
                 .unwrap_or_else(|| infer_type_name(&r.channel, ctx));
-            let inner = channel_inner_key(&channel).unwrap_or("Unit");
-            if inner == "Int" {
-                "Opt_Int".into()
-            } else {
-                inner.to_string()
+            let raw_inner = channel_inner_key(&channel).unwrap_or("Unit");
+            let inner = task_payload_repr_key(raw_inner);
+            match inner.as_str() {
+                "Int" => "Opt_Int".into(),
+                "Bool" => "Opt_Bool".into(),
+                _ => inner,
             }
         }
         _ => "Int".into(),
@@ -442,6 +511,59 @@ pub(crate) struct BoundedSpawnCapture {
     pub(crate) boxed: bool,
 }
 
+/// Return the lexical names referenced by a spawn body. The emitter uses this
+/// for both the bounded lowering and the general CFG lowering; keeping the
+/// discovery in one place prevents inferred captures from diverging between
+/// the two frame layouts.
+pub(crate) fn spawn_capture_names(body: &Block) -> Vec<String> {
+    let mut names = BTreeSet::new();
+    spawn_body_capture_refs_scoped(body, &mut names);
+    names.into_iter().collect()
+}
+
+pub(crate) fn general_spawn_captures(
+    body: &Block,
+    available: &HashMap<String, String>,
+    checked: &CheckedFile,
+    mutable_captures: &HashSet<String>,
+) -> Option<Vec<BoundedSpawnCapture>> {
+    let names = spawn_capture_names(body);
+    if names.iter().any(|name| {
+        available.get(name).is_some_and(|key| {
+            !spawn_capture_type_supported(key, checked)
+                || (mutable_captures.contains(name) && !mutable_capture_box_supported(key, checked))
+        })
+    }) {
+        return None;
+    }
+    Some(
+        names
+            .into_iter()
+            .filter_map(|name| {
+                available.get(&name).map(|key| {
+                    let boxed = mutable_captures.contains(&name);
+                    BoundedSpawnCapture {
+                        name,
+                        key: key.clone(),
+                        boxed,
+                    }
+                })
+            })
+            .collect(),
+    )
+}
+
+fn mutable_capture_box_supported(key: &str, checked: &CheckedFile) -> bool {
+    matches!(key, "Int" | "Bool" | "String")
+        || is_array_type_key(key)
+        || is_fun_type_key(key)
+        || is_heap_class_mono(key, checked)
+}
+
+pub(crate) fn general_spawn_function_name(span: Span, package: &str) -> String {
+    c_fun_name(package, &format!("__spawn_cfg_{}", span.start), &[])
+}
+
 pub(crate) fn bounded_capture_box_kind(capture: &BoundedSpawnCapture) -> &'static str {
     if !capture.boxed {
         return "none";
@@ -461,19 +583,23 @@ pub(crate) fn bounded_spawn_captures(
     mutable_captures: &HashSet<String>,
 ) -> Option<Vec<BoundedSpawnCapture>> {
     let has_await = spawn_body_contains_await(body);
-    if has_await && bounded_spawn_await_shape(body, checked).is_none() {
+    if has_await
+        && bounded_spawn_await_shape(body, checked).is_none()
+        && !bounded_spawn_discard_await_shape(body)
+    {
         return None;
     }
     if !has_await {
         let mut names = BTreeSet::new();
-        spawn_body_capture_refs(body, &mut names);
+        spawn_body_capture_refs_scoped(body, &mut names);
         // A referenced outer value with an unsupported ownership shape must
         // reject the spawn lowering; silently dropping it would emit a poller
         // that reads an uninitialized or undeclared C value.
         if names.iter().any(|name| {
-            available
-                .get(name)
-                .is_some_and(|ty| !spawn_capture_type_supported(ty, checked))
+            available.get(name).is_some_and(|ty| {
+                !spawn_capture_type_supported(ty, checked)
+                    || (mutable_captures.contains(name) && scheduler_owned_key(ty))
+            })
         }) {
             return None;
         }
@@ -482,7 +608,9 @@ pub(crate) fn bounded_spawn_captures(
                 .into_iter()
                 .filter_map(|name| {
                     let ty = available.get(&name)?;
-                    if !spawn_capture_type_supported(ty, checked) {
+                    if !spawn_capture_type_supported(ty, checked)
+                        || (mutable_captures.contains(&name) && scheduler_owned_key(ty))
+                    {
                         return None;
                     }
                     Some(BoundedSpawnCapture {
@@ -495,11 +623,12 @@ pub(crate) fn bounded_spawn_captures(
         );
     }
     let mut captures = BTreeSet::new();
-    spawn_body_capture_refs(body, &mut captures);
+    spawn_body_capture_refs_scoped(body, &mut captures);
     if captures.iter().any(|name| {
-        available
-            .get(name)
-            .is_some_and(|ty| !spawn_capture_type_supported(ty, checked))
+        available.get(name).is_some_and(|ty| {
+            !spawn_capture_type_supported(ty, checked)
+                || (mutable_captures.contains(name) && scheduler_owned_key(ty))
+        })
     }) {
         return None;
     }
@@ -507,25 +636,65 @@ pub(crate) fn bounded_spawn_captures(
         captures
             .into_iter()
             .filter_map(|name| {
-                available.get(&name).map(|ty| BoundedSpawnCapture {
-                    boxed: mutable_captures.contains(&name),
-                    name,
-                    key: ty.clone(),
-                })
+                available
+                    .get(&name)
+                    .filter(|ty| !mutable_captures.contains(&name) || !scheduler_owned_key(ty))
+                    .map(|ty| BoundedSpawnCapture {
+                        boxed: mutable_captures.contains(&name),
+                        name,
+                        key: ty.clone(),
+                    })
             })
             .collect(),
     )
 }
 
+fn scheduler_owned_key(key: &str) -> bool {
+    key == "Task"
+        || key.starts_with("Task_")
+        || key == "TaskHandle"
+        || key.starts_with("TaskHandle_")
+        || key == "Channel"
+        || key.starts_with("Channel_")
+}
+
+/// A spawn may intentionally discard the result of an awaited `Unit` task.
+/// This is still a bounded shape: the generic spawn poller can execute the
+/// await expression synchronously, while preserving cancellation checks and
+/// the normal task outcome/result cleanup.  Previously this valid form was
+/// rejected before code generation, even though no suspended value needed a
+/// frame slot.
+pub(crate) fn bounded_spawn_discard_await_shape(body: &Block) -> bool {
+    let Some(Stmt::Expr(Expr::Async(AsyncExpr::Await(await_expr)))) = body.stmts.first() else {
+        return false;
+    };
+    let _ = await_expr;
+    !spawn_body_contains_await(&Block {
+        stmts: body.stmts[1..].to_vec(),
+        span: body.span,
+    })
+}
+
 fn spawn_capture_type_supported(key: &str, checked: &CheckedFile) -> bool {
     key == "Int"
         || key == "Bool"
+        || key == "Opt_Int"
+        || key == "Opt_Bool"
         || key == "String"
         || key == "ForeignHandle"
         || key.starts_with("ForeignHandle_")
+        || key == "Task"
+        || key.starts_with("Task_")
+        || key == "TaskHandle"
+        || key.starts_with("TaskHandle_")
+        || key == "Channel"
+        || key.starts_with("Channel_")
         || is_array_type_key(key)
         || is_fun_type_key(key)
         || is_heap_class_mono(key, checked)
+        || is_iface_type_key(key, checked)
+        || is_enum_mono(key, checked)
+        || is_value_struct_mono(key, checked)
 }
 
 fn spawn_body_contains_await(block: &Block) -> bool {
@@ -597,104 +766,132 @@ fn spawn_body_contains_await(block: &Block) -> bool {
     block_has_await(block)
 }
 
-fn spawn_body_capture_refs(block: &Block, captures: &mut BTreeSet<String>) {
-    fn expr_refs(expr: &Expr, captures: &mut BTreeSet<String>) {
+/// Collect captures with lexical scope awareness so inner bindings cannot
+/// accidentally capture an outer local with the same spelling.
+fn spawn_body_capture_refs_scoped(block: &Block, captures: &mut BTreeSet<String>) {
+    fn expr_refs(expr: &Expr, locals: &BTreeSet<String>, captures: &mut BTreeSet<String>) {
         match expr {
             Expr::Ident(id) => {
-                captures.insert(id.name.clone());
-            }
-            Expr::Call(c) => {
-                expr_refs(&c.callee, captures);
-                for arg in &c.args {
-                    expr_refs(arg, captures);
+                if !locals.contains(&id.name) {
+                    captures.insert(id.name.clone());
                 }
             }
-            Expr::Field(f) => expr_refs(&f.object, captures),
-            Expr::Assign(a) => {
-                captures.insert(a.name.name.clone());
-                expr_refs(&a.value, captures);
-            }
-            Expr::Binary(b) => {
-                expr_refs(&b.left, captures);
-                expr_refs(&b.right, captures);
-            }
-            Expr::Unary(u) => expr_refs(&u.expr, captures),
-            Expr::ForceUnwrap(f) => expr_refs(&f.expr, captures),
-            Expr::Is(i) => expr_refs(&i.expr, captures),
-            Expr::Group(e, _) => expr_refs(e, captures),
-            Expr::If(i) => {
-                expr_refs(&i.cond, captures);
-                spawn_body_capture_refs(&i.then_block, captures);
-                spawn_body_capture_refs(&i.else_block, captures);
-            }
-            Expr::Lambda(l) => match &l.body {
-                LambdaBody::Expr(e) => expr_refs(e, captures),
-                LambdaBody::Block(b) => spawn_body_capture_refs(b, captures),
-            },
-            Expr::Async(a) => match a {
-                AsyncExpr::Spawn(s) => spawn_body_capture_refs(&s.body, captures),
-                AsyncExpr::Await(a) => expr_refs(&a.operand, captures),
-                AsyncExpr::Join(j) => expr_refs(&j.handle, captures),
-                AsyncExpr::Cancel(c) => expr_refs(&c.handle, captures),
-                AsyncExpr::ChannelCreate(c) => expr_refs(&c.capacity, captures),
-                AsyncExpr::ChannelSend(c) => {
-                    expr_refs(&c.channel, captures);
-                    expr_refs(&c.value, captures);
+            Expr::Call(call) => {
+                expr_refs(&call.callee, locals, captures);
+                for arg in &call.args {
+                    expr_refs(arg, locals, captures);
                 }
-                AsyncExpr::ChannelReceive(c) => expr_refs(&c.channel, captures),
-                AsyncExpr::ChannelClose(c) => expr_refs(&c.channel, captures),
+            }
+            Expr::Field(field) => expr_refs(&field.object, locals, captures),
+            Expr::Assign(assign) => {
+                if !locals.contains(&assign.name.name) {
+                    captures.insert(assign.name.name.clone());
+                }
+                expr_refs(&assign.value, locals, captures);
+            }
+            Expr::Binary(binary) => {
+                expr_refs(&binary.left, locals, captures);
+                expr_refs(&binary.right, locals, captures);
+            }
+            Expr::Unary(unary) => expr_refs(&unary.expr, locals, captures),
+            Expr::ForceUnwrap(force) => expr_refs(&force.expr, locals, captures),
+            Expr::Is(is_expr) => expr_refs(&is_expr.expr, locals, captures),
+            Expr::Group(inner, _) => expr_refs(inner, locals, captures),
+            Expr::If(if_expr) => {
+                expr_refs(&if_expr.cond, locals, captures);
+                block_refs(&if_expr.then_block, locals, captures);
+                block_refs(&if_expr.else_block, locals, captures);
+            }
+            Expr::Lambda(lambda) => {
+                let mut lambda_locals = locals.clone();
+                lambda_locals.extend(lambda.params.iter().map(|param| param.name.name.clone()));
+                match &lambda.body {
+                    LambdaBody::Expr(body) => expr_refs(body, &lambda_locals, captures),
+                    LambdaBody::Block(body) => block_refs(body, &lambda_locals, captures),
+                }
+            }
+            Expr::Async(async_expr) => match async_expr {
+                AsyncExpr::Spawn(spawn) => block_refs(&spawn.body, locals, captures),
+                AsyncExpr::Await(await_expr) => expr_refs(&await_expr.operand, locals, captures),
+                AsyncExpr::Join(join) => expr_refs(&join.handle, locals, captures),
+                AsyncExpr::Cancel(cancel) => expr_refs(&cancel.handle, locals, captures),
+                AsyncExpr::ChannelCreate(create) => expr_refs(&create.capacity, locals, captures),
+                AsyncExpr::ChannelSend(send) => {
+                    expr_refs(&send.channel, locals, captures);
+                    expr_refs(&send.value, locals, captures);
+                }
+                AsyncExpr::ChannelReceive(receive) => expr_refs(&receive.channel, locals, captures),
+                AsyncExpr::ChannelClose(close) => expr_refs(&close.channel, locals, captures),
             },
             Expr::This(_) | Expr::Int(_) | Expr::Bool(_) | Expr::String(_) | Expr::Null(_) => {}
         }
     }
-    for stmt in &block.stmts {
-        match stmt {
-            Stmt::Var(v) => expr_refs(&v.init, captures),
-            Stmt::If(i) => {
-                expr_refs(&i.cond, captures);
-                spawn_body_capture_refs(&i.then_block, captures);
-                if let Some(b) = &i.else_block {
-                    spawn_body_capture_refs(b, captures);
+
+    fn block_refs(block: &Block, inherited: &BTreeSet<String>, captures: &mut BTreeSet<String>) {
+        let mut locals = inherited.clone();
+        for stmt in &block.stmts {
+            match stmt {
+                Stmt::Var(var) => {
+                    expr_refs(&var.init, &locals, captures);
+                    locals.insert(var.name.name.clone());
                 }
-            }
-            Stmt::While(w) => {
-                expr_refs(&w.cond, captures);
-                spawn_body_capture_refs(&w.body, captures);
-            }
-            Stmt::ForRange(f) => {
-                expr_refs(&f.start, captures);
-                expr_refs(&f.end, captures);
-                spawn_body_capture_refs(&f.body, captures);
-            }
-            Stmt::ForIn(f) => {
-                expr_refs(&f.iterable, captures);
-                spawn_body_capture_refs(&f.body, captures);
-            }
-            Stmt::Match(m) => {
-                expr_refs(&m.scrutinee, captures);
-                for arm in &m.arms {
-                    spawn_body_capture_refs(&arm.body, captures);
+                Stmt::If(if_stmt) => {
+                    expr_refs(&if_stmt.cond, &locals, captures);
+                    block_refs(&if_stmt.then_block, &locals, captures);
+                    if let Some(else_block) = &if_stmt.else_block {
+                        block_refs(else_block, &locals, captures);
+                    }
                 }
-            }
-            Stmt::Try(t) => {
-                spawn_body_capture_refs(&t.try_block, captures);
-                if let Some(c) = &t.catch {
-                    spawn_body_capture_refs(&c.body, captures);
+                Stmt::While(while_stmt) => {
+                    expr_refs(&while_stmt.cond, &locals, captures);
+                    block_refs(&while_stmt.body, &locals, captures);
                 }
-                if let Some(f) = &t.finally {
-                    spawn_body_capture_refs(f, captures);
+                Stmt::ForRange(range) => {
+                    expr_refs(&range.start, &locals, captures);
+                    expr_refs(&range.end, &locals, captures);
+                    let mut body_locals = locals.clone();
+                    body_locals.insert(range.name.name.clone());
+                    block_refs(&range.body, &body_locals, captures);
                 }
-            }
-            Stmt::Throw(t) => expr_refs(&t.value, captures),
-            Stmt::Return(r) => {
-                if let Some(e) = &r.value {
-                    expr_refs(e, captures);
+                Stmt::ForIn(for_in) => {
+                    expr_refs(&for_in.iterable, &locals, captures);
+                    let mut body_locals = locals.clone();
+                    body_locals.insert(for_in.name.name.clone());
+                    block_refs(&for_in.body, &body_locals, captures);
                 }
+                Stmt::Match(match_stmt) => {
+                    expr_refs(&match_stmt.scrutinee, &locals, captures);
+                    for arm in &match_stmt.arms {
+                        let mut arm_locals = locals.clone();
+                        let Pattern::Variant { bindings, .. } = &arm.pattern;
+                        arm_locals.extend(bindings.iter().map(|binding| binding.name.clone()));
+                        block_refs(&arm.body, &arm_locals, captures);
+                    }
+                }
+                Stmt::Try(try_stmt) => {
+                    block_refs(&try_stmt.try_block, &locals, captures);
+                    if let Some(catch) = &try_stmt.catch {
+                        let mut catch_locals = locals.clone();
+                        catch_locals.insert(catch.name.name.clone());
+                        block_refs(&catch.body, &catch_locals, captures);
+                    }
+                    if let Some(finally) = &try_stmt.finally {
+                        block_refs(finally, &locals, captures);
+                    }
+                }
+                Stmt::Throw(throw_stmt) => expr_refs(&throw_stmt.value, &locals, captures),
+                Stmt::Return(return_stmt) => {
+                    if let Some(value) = &return_stmt.value {
+                        expr_refs(value, &locals, captures);
+                    }
+                }
+                Stmt::Expr(expr) => expr_refs(expr, &locals, captures),
+                Stmt::Break(_) | Stmt::Continue(_) => {}
             }
-            Stmt::Expr(e) => expr_refs(e, captures),
-            Stmt::Break(_) | Stmt::Continue(_) => {}
         }
     }
+
+    block_refs(block, &BTreeSet::new(), captures);
 }
 
 /// Return mutable locals that are referenced from a spawn body. The sema
@@ -1052,9 +1249,13 @@ pub(crate) fn bounded_spawn_await_shape<'a>(
         .as_ref()
         .map(|ty| {
             let key = type_ref_local_key_expand(ty, &[], &[], checked);
-            matches!(key.as_str(), "Int" | "Bool" | "String")
-                || is_array_type_key(&key)
+            matches!(
+                key.as_str(),
+                "Int" | "Bool" | "String" | "Opt_Int" | "Opt_Bool"
+            ) || is_array_type_key(&key)
                 || is_heap_class_mono(&key, checked)
+                || is_enum_mono(&key, checked)
+                || is_value_struct_mono(&key, checked)
         })
         .unwrap_or(false)
         && !spawn_body_contains_await(&Block {
@@ -1068,12 +1269,33 @@ pub(crate) fn bounded_spawn_await_shape<'a>(
     }
 }
 
-pub(crate) fn bounded_spawn_poll_name(span: Span) -> String {
-    format!("aura_spawn_poll_{}", span.start)
+pub(crate) fn bounded_spawn_layout_suffix(captures: &[BoundedSpawnCapture]) -> String {
+    let suffix = captures
+        .iter()
+        .map(|capture| capture.key.as_str())
+        .collect::<Vec<_>>()
+        .join("_");
+    if suffix.is_empty() {
+        String::new()
+    } else {
+        format!("_{suffix}")
+    }
 }
 
-pub(crate) fn bounded_spawn_destroy_name(span: Span) -> String {
-    format!("aura_spawn_destroy_{}", span.start)
+pub(crate) fn bounded_spawn_data_name(span: Span, suffix: &str) -> String {
+    format!("aura_spawn_data_{}{}", span.start, suffix)
+}
+
+pub(crate) fn bounded_spawn_poll_name_with_suffix(span: Span, suffix: &str) -> String {
+    format!("aura_spawn_poll_{}{}", span.start, suffix)
+}
+
+pub(crate) fn bounded_spawn_destroy_name_with_suffix(span: Span, suffix: &str) -> String {
+    format!("aura_spawn_destroy_{}{}", span.start, suffix)
+}
+
+pub(crate) fn bounded_spawn_gc_mark_name(span: Span, suffix: &str) -> String {
+    format!("aura_spawn_gc_mark_{}{}", span.start, suffix)
 }
 
 fn race_read(value: String, lvalue: String, span: Span, ctx: &EmitCtx<'_>) -> String {
@@ -1173,7 +1395,7 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
                 }
                 return format!("({m})->value");
             }
-            let value = mangle_ident(&i.name);
+            let value = ctx.local_c_name(&i.name);
             let local_type = ctx.lookup_local(&i.name);
             if local_type.is_some_and(|key| !key.starts_with("Array_")) {
                 return race_read(value.clone(), value, i.span, ctx);
@@ -1699,7 +1921,7 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
                 format!("(({fp}){{ .env = NULL, .fn = aura_lambda_{id} }})")
             } else {
                 // GNU statement-expr: allocate env, set drop+refs, fill captures, root GC slots.
-                // C12l: Array fields are header copies (view); outer scope still owns the buffer.
+                // Immutable Array captures are cloned so the closure owns its snapshot.
                 // C12m: by-ref slots store box pointers and retain.
                 // C13e: Fun slots copy fat pointer and retain nested env (shared RC).
                 let mut fill = String::new();
@@ -1707,8 +1929,24 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
                 let _ = writeln!(fill, "  __e->__refs = 1;");
                 for cap in captures {
                     let m = mangle_ident(&cap.name);
+                    let source_m = ctx.local_c_name(&cap.name);
                     // Capture from enclosing scope local of the same name.
-                    let _ = writeln!(fill, "  __e->{m} = {m};");
+                    if !cap.by_ref && crate::names::is_array_capture_ty(&cap.ty) {
+                        let key = cap.ty.mono_suffix();
+                        let clone = crate::names::c_method_name(&key, "clone");
+                        let _ = writeln!(fill, "  __e->{m} = {clone}(&{source_m});");
+                        if crate::array_emit::is_array_of_heap_class(&key, ctx.checked) {
+                            let root = crate::array_emit::array_gc_root_add_call(
+                                &format!("__e->{m}.data"),
+                                &format!("__e->{m}.len"),
+                                &key,
+                                ctx.checked,
+                            );
+                            let _ = writeln!(fill, "  {root}");
+                        }
+                    } else {
+                        let _ = writeln!(fill, "  __e->{m} = {source_m};");
+                    }
                     if cap.by_ref {
                         if crate::names::is_array_capture_ty(&cap.ty)
                             || crate::names::is_fun_capture_ty(&cap.ty)
@@ -1760,6 +1998,9 @@ fn channel_inner_key(key: &str) -> Option<&str> {
 }
 
 fn async_inner_key_for_infer(expr: &Expr, ctx: &EmitCtx<'_>) -> String {
+    if let Some(key) = semantic_async_inner_key(expr, ctx) {
+        return key;
+    }
     let key = infer_type_name(expr, ctx);
     task_inner_key(&key).unwrap_or("Unit").to_string()
 }
@@ -1772,6 +2013,13 @@ pub(crate) fn spawn_result_key(body: &Block, ctx: &EmitCtx<'_>) -> String {
             Stmt::Return(ReturnStmt {
                 value: Some(value), ..
             }) => {
+                if let Some(ty) = ctx
+                    .checked
+                    .expr_tys
+                    .get(&(value.span().start, value.span().end))
+                {
+                    return Some(ty.mono_suffix());
+                }
                 if let Expr::Ident(id) = value {
                     if let Some(Stmt::Var(local)) = body
                         .stmts
@@ -1791,8 +2039,40 @@ pub(crate) fn spawn_result_key(body: &Block, ctx: &EmitCtx<'_>) -> String {
 }
 
 pub(crate) fn async_inner_key(expr: &Expr, ctx: &EmitCtx<'_>) -> String {
-    let key = infer_type_name(expr, ctx);
-    task_inner_key(&key).unwrap_or("Unit").to_string()
+    let key = if let Some(key) = semantic_async_inner_key(expr, ctx) {
+        key
+    } else {
+        let inferred = infer_type_name(expr, ctx);
+        task_inner_key(&inferred).unwrap_or("Unit").to_string()
+    };
+    key
+}
+
+/// Nullable reference-like payloads keep their semantic monomorph in generic
+/// result layouts but use the underlying C representation for cloning and
+/// runtime ownership operations.
+pub(crate) fn task_payload_repr_key(key: &str) -> String {
+    match key {
+        "Opt_Int" | "Opt_Bool" => key.to_string(),
+        _ => key.strip_prefix("Opt_").unwrap_or(key).to_string(),
+    }
+}
+
+fn semantic_async_inner_key(expr: &Expr, ctx: &EmitCtx<'_>) -> Option<String> {
+    let span = expr.span();
+    let ty = ctx.checked.expr_tys.get(&(span.start, span.end))?;
+    match ty {
+        Ty::Task(inner) | Ty::TaskHandle(inner) => Some(inner.mono_suffix()),
+        _ => None,
+    }
+}
+
+fn ty_full_mono(ty: &Ty) -> String {
+    match ty {
+        Ty::Class(name) | Ty::Enum(name) => mono_key(name, &[]),
+        Ty::ClassApp { name, args } | Ty::EnumApp { name, args } => mono_key(name, args),
+        other => other.mono_suffix(),
+    }
 }
 
 fn emit_async_expr(expr: &AsyncExpr, ctx: &mut EmitCtx<'_>) -> String {
@@ -1809,18 +2089,53 @@ fn emit_async_expr(expr: &AsyncExpr, ctx: &mut EmitCtx<'_>) -> String {
                 ctx.checked,
                 &ctx.mutable_spawn_captures,
             ) else {
+                if let Some(general_captures) = general_spawn_captures(
+                    &s.body,
+                    &available,
+                    ctx.checked,
+                    &ctx.mutable_spawn_captures,
+                ) {
+                    let function = general_spawn_function_name(s.span, &ctx.checked.package);
+                    let args = general_captures
+                        .iter()
+                        .map(|capture| {
+                            if capture.boxed {
+                                mangle_ident(&capture.name)
+                            } else {
+                                emit_expr(
+                                    &Expr::Ident(Ident {
+                                        name: capture.name.clone(),
+                                        span: s.span,
+                                    }),
+                                    ctx,
+                                )
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    return format!("{function}({args})");
+                }
                 return "({ fputs(\"aura: non-empty spawn body requires C22l state-machine lowering\\n\", stderr); abort(); (AuraTaskFrame *)NULL; })".to_string();
             };
-            let poll = bounded_spawn_poll_name(s.span);
+            let layout_suffix = bounded_spawn_layout_suffix(&captures);
+            let poll = bounded_spawn_poll_name_with_suffix(s.span, &layout_suffix);
             let source = s.span.start;
-            let has_await = bounded_spawn_await_shape(&s.body, ctx.checked).is_some();
+            let has_await = bounded_spawn_await_shape(&s.body, ctx.checked).is_some()
+                || bounded_spawn_discard_await_shape(&s.body);
             let data_size = if captures.is_empty() && !has_await {
                 "0".to_string()
             } else {
-                format!("sizeof(aura_spawn_data_{})", s.span.start)
+                format!(
+                    "sizeof({})",
+                    bounded_spawn_data_name(s.span, &layout_suffix)
+                )
             };
             let init = if captures.is_empty() {
-                String::new()
+                if has_await {
+                    format!("{} *__spawn_data = ({0} *)aura_task_frame_data(__spawn); __spawn_data->await_task = NULL; __spawn_data->await_task_owned = false;", bounded_spawn_data_name(s.span, &layout_suffix))
+                } else {
+                    String::new()
+                }
             } else {
                 let assignments = captures
                     .iter()
@@ -1840,12 +2155,38 @@ fn emit_async_expr(expr: &AsyncExpr, ctx: &mut EmitCtx<'_>) -> String {
                             format!("__spawn_data->{n} = aura_box_str_new({n});")
                         } else if key == "ForeignHandle" || key.starts_with("ForeignHandle_") {
                             format!("__spawn_data->{n} = {n}; (void)aura_ffi_handle_retain(__spawn_data->{n});")
+                        } else if scheduler_owned_key(key) {
+                            if key == "Channel" || key.starts_with("Channel_") {
+                                format!("__spawn_data->{n} = {n}; (void)aura_task_channel_retain(__spawn_data->{n});")
+                            } else {
+                                format!("__spawn_data->{n} = {n}; (void)aura_task_executor_retain_payload(__aura_task_executor, __spawn_data->{n});")
+                            }
                         } else if is_heap_class_mono(key, ctx.checked) {
                             format!("__spawn_data->{n} = {n}; aura_gc_add_root((void **)&__spawn_data->{n});")
+                        } else if is_iface_type_key(key, ctx.checked) {
+                            let cty = crate::stmt::local_key_to_c(key, ctx.checked);
+                            format!("__spawn_data->{n} = {cty}_clone(&{n});")
                         } else if is_array_type_key(key) {
-                            format!("__spawn_data->{n} = {}(&{n});", crate::names::c_method_name(key, "clone"))
+                            let clone = crate::names::c_method_name(key, "clone");
+                            let root = if crate::array_emit::is_array_of_heap_class(key, ctx.checked) {
+                                format!(" {}", crate::array_emit::array_gc_root_add_call(
+                                    &format!("__spawn_data->{n}.data"),
+                                    &format!("__spawn_data->{n}.len"),
+                                    key,
+                                    ctx.checked,
+                                ))
+                            } else {
+                                String::new()
+                            };
+                            format!("__spawn_data->{n} = {clone}(&{n});{root}")
                         } else if is_fun_type_key(key) {
                             format!("__spawn_data->{n} = {n}; if (__spawn_data->{n}.env != NULL) aura_fun_env_retain(__spawn_data->{n}.env);")
+                        } else if is_enum_mono(key, ctx.checked) {
+                            let cty = crate::stmt::local_key_to_c(key, ctx.checked);
+                            format!("__spawn_data->{n} = {cty}_clone(&{n});")
+                        } else if is_value_struct_mono(key, ctx.checked) {
+                            let cty = crate::stmt::local_key_to_c(key, ctx.checked);
+                            format!("__spawn_data->{n} = {cty}_clone(&{n});")
                         } else {
                             format!("__spawn_data->{n} = {n};")
                         }
@@ -1853,16 +2194,27 @@ fn emit_async_expr(expr: &AsyncExpr, ctx: &mut EmitCtx<'_>) -> String {
                     .collect::<Vec<_>>()
                     .join(" ");
                 format!(
-                    "aura_spawn_data_{} *__spawn_data = (aura_spawn_data_{0} *)aura_task_frame_data(__spawn); {assignments}",
-                    s.span.start
+                    "{data_ty} *__spawn_data = ({data_ty} *)aura_task_frame_data(__spawn); {assignments} {extra}",
+                    data_ty = bounded_spawn_data_name(s.span, &layout_suffix),
+                    extra = if has_await {
+                        "__spawn_data->await_task = NULL; __spawn_data->await_task_owned = false;"
+                    } else {
+                        ""
+                    },
                 )
             };
-            let destroy = if captures.is_empty() {
+            let destroy = if captures.is_empty() && !has_await {
                 "NULL".to_string()
             } else {
-                bounded_spawn_destroy_name(s.span)
+                bounded_spawn_destroy_name_with_suffix(s.span, &layout_suffix)
             };
-            format!("({{ AuraTaskFrame *__spawn = aura_task_frame_new({data_size}, {poll}, {destroy}); if (__spawn != NULL) {{ aura_task_frame_set_race_source_id(__spawn, UINT32_C({source})); {init} }} if (__spawn != NULL && (__aura_task_executor == NULL || !aura_task_executor_submit(__aura_task_executor, __spawn))) {{ aura_task_frame_destroy(__spawn); __spawn = NULL; }} __spawn; }})")
+            let gc_mark = bounded_spawn_gc_mark_name(s.span, &layout_suffix);
+            let mark = if captures.is_empty() && !has_await {
+                String::new()
+            } else {
+                format!("aura_task_frame_set_gc_mark(__spawn, {gc_mark}); ")
+            };
+            format!("({{ AuraTaskFrame *__spawn = aura_task_frame_new({data_size}, {poll}, {destroy}); if (__spawn != NULL) {{ aura_task_frame_set_race_source_id(__spawn, UINT32_C({source})); {mark}{init} }} if (__spawn != NULL && (__aura_task_executor == NULL || !aura_task_executor_submit(__aura_task_executor, __spawn))) {{ aura_task_frame_destroy(__spawn); __spawn = NULL; }} __spawn; }})")
         }
         AsyncExpr::Join(j) => emit_join(j, ctx, false),
         AsyncExpr::Cancel(c) => {
@@ -1889,25 +2241,19 @@ pub(crate) fn emit_join_owned(j: &JoinExpr, ctx: &mut EmitCtx<'_>) -> String {
     emit_join(j, ctx, true)
 }
 
-fn has_typed_task_error(ctx: &EmitCtx<'_>) -> bool {
-    ctx.checked
-        .ast
-        .enums
-        .iter()
-        .find(|e| e.name.name == "TaskError" && enum_decl_package(e, ctx.checked) == "std.io")
-        .is_some_and(|e| e.variants.iter().any(|v| v.name.name == "FailedTyped"))
-}
-
 fn emit_join(j: &JoinExpr, ctx: &mut EmitCtx<'_>, owned_error: bool) -> String {
     let handle = emit_expr(&j.handle, ctx);
-    let inner = async_inner_key(&j.handle, ctx);
+    let inner_key = async_inner_key(&j.handle, ctx);
+    let inner = full_type_mono(&task_payload_repr_key(&inner_key), ctx.checked);
     let cty = crate::stmt::local_key_to_c(&inner, ctx.checked);
     let task_error_mono = "std_io_TaskError";
-    let result_mono = format!(
-        "std_io_Result_{}_{}",
-        full_type_mono(&inner, ctx.checked),
-        task_error_mono
-    );
+    let semantic_inner = full_type_mono(&inner_key, ctx.checked);
+    let result_inner = if is_iface_type_key(&inner, ctx.checked) {
+        resolve_iface_mono_key(&inner, ctx.checked)
+    } else {
+        semantic_inner
+    };
+    let result_mono = format!("std_io_Result_{}_{}", result_inner, task_error_mono);
     let result_ty = format!("aura_enum_{result_mono}");
     let result_ok = format!("aura_var_{result_mono}_Ok");
     let result_ok_owned = format!("aura_var_{result_mono}_OkOwned");
@@ -1918,32 +2264,29 @@ fn emit_join(j: &JoinExpr, ctx: &mut EmitCtx<'_>, owned_error: bool) -> String {
         "aura_var_std_io_TaskError_Failed"
     };
     let task_cancelled = "aura_var_std_io_TaskError_Cancelled";
-    let typed_task_error = owned_error && has_typed_task_error(ctx);
     let mut out = String::new();
     out.push_str("({ ");
     out.push_str(&result_ty);
     out.push_str(" __join_value; AuraTaskFrame *__join = (");
     out.push_str(&handle);
     out.push_str(&format!(
-        "); aura_race_set_source_id(UINT32_C({})); AuraTaskOutcome __join_outcome = aura_task_executor_join_outcome(__aura_task_executor, __join); AuraTaskPollState __join_state = __join_outcome.state; AuraTaskResult __join_result = __join_outcome.result; const char *__join_error = (__join_outcome.error.data != NULL && __join_outcome.error.size != 0) ? (const char *)__join_outcome.error.data : \"joined task failed\"; const char *__join_type_name = aura_task_frame_error_type_name(__join); aura_race_set_source_id(0); ",
+        "); aura_race_set_source_id(UINT32_C({})); AuraTaskOutcome __join_outcome = aura_task_executor_join_outcome(__aura_task_executor, __join); AuraTaskPollState __join_state = __join_outcome.state; AuraTaskResult __join_result = __join_outcome.result; const char *__join_error = (__join_outcome.error.data != NULL && __join_outcome.error.size != 0) ? (const char *)__join_outcome.error.data : \"joined task failed\"; aura_race_set_source_id(0); ",
         j.span.start
     ));
     if owned_error {
         out.push_str("char *__join_error_owned = NULL; if (__join_state == AURA_TASK_FAILED) { size_t __join_error_len = strlen(__join_error); __join_error_owned = (char *)malloc(__join_error_len + 1); if (__join_error_owned == NULL) abort(); memcpy(__join_error_owned, __join_error, __join_error_len + 1); } ");
-        if typed_task_error {
-            out.push_str("char *__join_type_name_owned = NULL; if (__join_state == AURA_TASK_FAILED && __join_type_name != NULL && __join_type_name[0] != '\\0') { size_t __join_type_name_len = strlen(__join_type_name); __join_type_name_owned = (char *)malloc(__join_type_name_len + 1); if (__join_type_name_owned == NULL) abort(); memcpy(__join_type_name_owned, __join_type_name, __join_type_name_len + 1); } ");
-        }
     }
-    if typed_task_error {
-        out.push_str(&format!(
-            "if (__join_state == AURA_TASK_FAILED) {{ if (__join_type_name_owned != NULL) __join_value = {result_err}(aura_var_std_io_TaskError_FailedTypedOwned(__join_error_owned, __join_type_name_owned)); else __join_value = {result_err}({task_failed}(__join_error_owned)); }} "
-        ));
+    out.push_str(&format!(
+        "if (__join_state == AURA_TASK_FAILED) {{ __join_value = {result_err}({task_failed}({})); }} ",
+        if owned_error { "__join_error_owned" } else { "__join_error" }
+    ));
+    out.push_str("if (__join_state == AURA_TASK_FAILED) { const char *__join_type = aura_task_frame_error_type_name(__join); if (__join_type != NULL) { size_t __join_type_len = strlen(__join_type); ");
+    if owned_error {
+        out.push_str("char *__join_type_owned = (char *)malloc(__join_type_len + 1); if (__join_type_owned == NULL) abort(); memcpy(__join_type_owned, __join_type, __join_type_len + 1); __join_value.data.Err.error.data.Failed.type_name = __join_type_owned; __join_value.data.Err.error.data.Failed.type_name_owned = true; ");
     } else {
-        out.push_str(&format!(
-            "if (__join_state == AURA_TASK_FAILED) {{ __join_value = {result_err}({task_failed}({})); }} ",
-            if owned_error { "__join_error_owned" } else { "__join_error" }
-        ));
+        out.push_str("__join_value.data.Err.error.data.Failed.type_name = __join_type; __join_value.data.Err.error.data.Failed.type_name_owned = false; ");
     }
+    out.push_str("__join_value.data.Err.error.data.Failed.source_id = aura_task_frame_error_source_id(__join); __join_value.data.Err.error.data.Failed.span_start = aura_task_frame_error_span_start(__join); __join_value.data.Err.error.data.Failed.span_end = aura_task_frame_error_span_end(__join); } } ");
     out.push_str(&format!(
         "else if (__join_state == AURA_TASK_CANCELLED) {{ __join_value = {result_err}({task_cancelled}()); }} "
     ));
@@ -1964,30 +2307,100 @@ fn emit_join(j: &JoinExpr, ctx: &mut EmitCtx<'_>, owned_error: bool) -> String {
             "else {{ size_t __join_success_len = __join_result.data != NULL ? strlen((const char *)__join_result.data) : 0; char *__join_success_owned = (char *)malloc(__join_success_len + 1); if (__join_success_owned == NULL) abort(); if (__join_success_len != 0) memcpy(__join_success_owned, __join_result.data, __join_success_len); __join_success_owned[__join_success_len] = '\\0'; __join_value = {result_ok}Owned(__join_success_owned); }} "
         ));
     } else if owned_error && is_array_type_key(&inner) {
-        let clone = crate::names::c_method_name(&inner, "clone");
+        let clone = crate::names::c_method_name(&full_type_mono(&inner, ctx.checked), "clone");
         out.push_str(&format!(
-            "else {{ {cty} __join_array = __join_result.data != NULL ? *(({cty} *)__join_result.data) : ({cty}){{0}}; __join_value = {result_ok}({clone}(&__join_array)); }} "
+            "else {{ {cty} __join_array = __join_result.data != NULL ? *(({cty} *)__join_result.data) : ({cty}){{0}}; __join_value = {result_ok_owned}({clone}(&__join_array)); }} "
         ));
     } else if owned_error && is_heap_class_mono(&inner, ctx.checked) {
         out.push_str(&format!(
-            "else {{ {cty} __join_class = __join_result.data != NULL ? *(({cty} *)__join_result.data) : NULL; __join_value = {result_ok}(__join_class); }} "
+            "else {{ {cty} __join_class = __join_result.data != NULL ? *(({cty} *)__join_result.data) : NULL; __join_value = {result_ok_owned}(__join_class); }} "
+        ));
+    } else if owned_error && crate::stmt::is_shared_outcome_error_owner_key(&inner) {
+        out.push_str(&format!(
+            "else {{ {cty} __join_outcome = __join_result.data != NULL ? *(({cty} *)__join_result.data) : ({cty}){{0}}; if (__join_outcome.tag == 0) {{ const char *__src = __join_outcome.data.OutcomeOk.value; size_t __len = __src == NULL ? 0 : strlen(__src); char *__copy = (char *)malloc(__len + 1); if (__copy == NULL) abort(); if (__src != NULL) memcpy(__copy, __src, __len + 1); __join_outcome.data.OutcomeOk.value = __copy; __join_outcome.data.OutcomeOk.owned = true; }} __join_value = {result_ok}(__join_outcome); if (__join_value.data.Ok.value.tag == 1 && __join_value.data.Ok.value.data.OutcomeErr.error != NULL) {{ __join_value.data.Ok.value.data.OutcomeErr.owned = true; }} __join_value.data.Ok.owned = true; }} "
         ));
     } else if owned_error && (inner == "ForeignHandle" || inner.starts_with("ForeignHandle_")) {
         out.push_str(&format!(
-            "else {{ {cty} __join_handle = __join_result.data != NULL ? *(({cty} *)__join_result.data) : NULL; if (__join_handle != NULL && aura_ffi_handle_retain(__join_handle) != AURA_FFI_OK) __join_handle = NULL; __join_value = {result_ok_owned}(__join_handle); }} "
+            "else {{ {cty} __join_handle = __join_result.data != NULL ? *(({cty} *)__join_result.data) : NULL; if (__join_handle != NULL && aura_ffi_handle_retain(__join_handle) != AURA_FFI_OK) {{ const char *__msg = \"joined foreign handle could not be retained\"; size_t __len = strlen(__msg); char *__owned = (char *)malloc(__len + 1); if (__owned == NULL) abort(); memcpy(__owned, __msg, __len + 1); __join_value = {result_err}({task_failed}(__owned)); }} else {{ __join_value = {result_ok_owned}(__join_handle); }} }} "
         ));
-    } else {
+    } else if owned_error
+        && (inner == "Channel"
+            || inner.starts_with("Channel_")
+            || inner == "Task"
+            || inner.starts_with("Task_")
+            || inner == "TaskHandle"
+            || inner.starts_with("TaskHandle_"))
+    {
+        if inner == "Channel" || inner.starts_with("Channel_") {
+            out.push_str(&format!(
+                "else {{ {cty} __join_channel = __join_result.data != NULL ? *(({cty} *)__join_result.data) : NULL; if (__join_channel != NULL && !aura_task_channel_retain(__join_channel)) {{ const char *__msg = \"joined channel could not be retained\"; size_t __len = strlen(__msg); char *__owned = (char *)malloc(__len + 1); if (__owned == NULL) abort(); memcpy(__owned, __msg, __len + 1); __join_value = {result_err}({task_failed}(__owned)); }} else {{ __join_value = {result_ok_owned}(__join_channel); }} }} "
+            ));
+        } else {
+            out.push_str(&format!(
+                "else {{ {cty} __join_task = __join_result.data != NULL ? *(({cty} *)__join_result.data) : NULL; if (__join_task != NULL && (__aura_task_executor == NULL || !aura_task_executor_retain_payload(__aura_task_executor, __join_task))) {{ const char *__msg = \"joined task handle could not be retained\"; size_t __len = strlen(__msg); char *__owned = (char *)malloc(__len + 1); if (__owned == NULL) abort(); memcpy(__owned, __msg, __len + 1); __join_value = {result_err}({task_failed}(__owned)); }} else {{ __join_value = {result_ok_owned}(__join_task); }} }} "
+            ));
+        }
+    } else if owned_error && is_enum_mono(&inner, ctx.checked) {
+        let clone_fn = format!("{cty}_clone");
+        out.push_str(&format!(
+            "else {{ {cty} __join_payload = __join_result.data != NULL ? *(({cty} *)__join_result.data) : ({cty}){{0}}; __join_value = {result_ok_owned}({clone_fn}(&__join_payload)); }} "
+        ));
+    } else if owned_error && is_value_struct_mono(&inner, ctx.checked) {
+        let clone_fn = format!("{cty}_clone");
+        out.push_str(&format!(
+            "else {{ {cty} __join_payload = __join_result.data != NULL ? *(({cty} *)__join_result.data) : ({cty}){{0}}; __join_value = {result_ok_owned}({clone_fn}(&__join_payload)); }} "
+        ));
+    } else if owned_error && is_iface_type_key(&inner, ctx.checked) {
+        let clone_fn = format!("{cty}_clone");
+        out.push_str(&format!(
+            "else {{ {cty} __join_payload = __join_result.data != NULL ? *(({cty} *)__join_result.data) : ({cty}){{0}}; __join_value = {result_ok_owned}({clone_fn}(&__join_payload)); }} "
+        ));
+    } else if owned_error && is_fun_type_key(&inner) {
+        out.push_str(&format!(
+            "else {{ {cty} __join_payload = __join_result.data != NULL ? *(({cty} *)__join_result.data) : ({cty}){{0}}; if (__join_payload.env != NULL) aura_fun_env_retain(__join_payload.env); __join_value = {result_ok_owned}(__join_payload); }} "
+        ));
+    } else if !owned_error || matches!(inner.as_str(), "Int" | "Bool" | "Opt_Int" | "Opt_Bool") {
         out.push_str(&format!(
             "else {{ __join_value = {result_ok}(__join_result.data != NULL ? *(({cty} *)__join_result.data) : ({cty}){{0}}); }} "
         ));
+    } else {
+        panic!("unsupported owned task outcome payload type: {inner}");
     }
     out.push_str("__join_value; })");
     out
 }
 
+pub(crate) fn is_enum_mono(key: &str, checked: &CheckedFile) -> bool {
+    let Some((base, args)) = mono_split(key, checked) else {
+        return false;
+    };
+    checked
+        .ast
+        .enums
+        .iter()
+        .any(|enum_decl| enum_decl.name.name == base)
+        && (args.is_empty()
+            || checked
+                .mono_enums
+                .iter()
+                .any(|(name, candidate)| name == base && candidate.as_slice() == args))
+}
+
+pub(crate) fn is_value_struct_mono(key: &str, checked: &CheckedFile) -> bool {
+    let Some(base) = mono_base_name(key, checked) else {
+        return false;
+    };
+    checked
+        .ast
+        .classes
+        .iter()
+        .any(|class| class.kind == NominalKind::Struct && class.name.name == base)
+}
+
 fn emit_await(a: &AwaitExpr, ctx: &mut EmitCtx<'_>) -> String {
     let task = emit_expr(&a.operand, ctx);
-    let inner = async_inner_key(&a.operand, ctx);
+    let semantic_inner = async_inner_key(&a.operand, ctx);
+    let inner = full_type_mono(&task_payload_repr_key(&semantic_inner), ctx.checked);
     let cty = crate::stmt::local_key_to_c(&inner, ctx.checked);
     let mut out = String::new();
     out.push_str("({ AuraTaskFrame *__await = (");
@@ -2020,14 +2433,33 @@ fn emit_await(a: &AwaitExpr, ctx: &mut EmitCtx<'_>) -> String {
 }
 
 fn channel_payload_kind(key: &str, ctx: &EmitCtx<'_>) -> Option<&'static str> {
-    if key == "Int" {
+    if key == "Unit" {
+        Some("unit")
+    } else if key == "Int" {
         Some("int")
+    } else if key == "Bool" {
+        Some("bool")
     } else if key == "String" {
         Some("free")
     } else if is_heap_class_mono(key, ctx.checked) {
         Some("class")
     } else if key == "ForeignHandle" || key.starts_with("ForeignHandle_") {
         Some("foreign_handle")
+    } else if key == "Task"
+        || key.starts_with("Task_")
+        || key == "TaskHandle"
+        || key.starts_with("TaskHandle_")
+    {
+        Some("task")
+    } else if key == "Channel" || key.starts_with("Channel_") {
+        Some("channel")
+    } else if is_array_type_key(key)
+        || is_enum_mono(key, ctx.checked)
+        || is_value_struct_mono(key, ctx.checked)
+        || is_iface_type_key(key, ctx.checked)
+        || is_fun_type_key(key)
+    {
+        Some("typed")
     } else {
         None
     }
@@ -2038,42 +2470,111 @@ fn emit_channel_send(s: &ChannelSendExpr, ctx: &mut EmitCtx<'_>) -> String {
     let value = emit_expr(&s.value, ctx);
     let channel_key =
         resolve_type_name(&s.channel, ctx).unwrap_or_else(|| infer_type_name(&s.channel, ctx));
-    let inner = channel_inner_key(&channel_key).unwrap_or("Unit");
-    let Some(kind) = channel_payload_kind(inner, ctx) else {
+    let raw_inner = channel_inner_key(&channel_key).unwrap_or("Unit");
+    let inner = task_payload_repr_key(raw_inner);
+    let Some(kind) = channel_payload_kind(&inner, ctx) else {
         return "({ fputs(\"aura: Channel payload type is unsupported by C22o\\n\", stderr); abort(); (void)0; })".into();
     };
-    let (alloc, destroy) = match kind {
-        "int" => (format!("int64_t *__p = (int64_t *)malloc(sizeof(*__p)); if (__p == NULL) abort(); *__p = (int64_t)({value});"), "aura_task_channel_value_destroy_free"),
-        "free" => (format!("const char *__s = ({value}); size_t __n = __s == NULL ? 0 : strlen(__s); char *__p = (char *)malloc(__n + 1); if (__p == NULL) abort(); if (__n != 0) memcpy(__p, __s, __n); __p[__n] = '\\0';"), "aura_task_channel_value_destroy_free"),
-        "class" => (format!("void *__obj = (void *)({value}); void **__p = (void **)malloc(sizeof(*__p)); if (__p == NULL) abort(); *__p = __obj; aura_gc_add_root(__p);"), "aura_task_channel_value_destroy_class"),
-        "foreign_handle" => (format!("AuraFfiOpaqueHandle *__handle = (AuraFfiOpaqueHandle *)({value}); if (__handle != NULL && aura_ffi_handle_retain(__handle) != AURA_FFI_OK) abort(); AuraFfiOpaqueHandle **__p = (AuraFfiOpaqueHandle **)malloc(sizeof(*__p)); if (__p == NULL) abort(); *__p = __handle;"), "aura_task_channel_value_destroy_foreign_handle"),
+    if kind == "unit" {
+        return format!(
+            "({{ AuraTaskChannelValue __v = {{ NULL, 0, NULL }}; aura_race_set_source_id(UINT32_C({})); AuraTaskChannelStatus __status = aura_task_channel_send({}, NULL, __v); aura_race_set_source_id(0); (void)__status; (void)0; }})",
+            s.span.start, channel
+        );
+    }
+    let (alloc, destroy): (String, String) = match kind {
+        "int" => (format!("int64_t *__p = (int64_t *)malloc(sizeof(*__p)); if (__p == NULL) abort(); *__p = (int64_t)({value});"), "aura_task_channel_value_destroy_free".into()),
+        "bool" => (format!("bool *__p = (bool *)malloc(sizeof(*__p)); if (__p == NULL) abort(); *__p = (bool)({value});"), "aura_task_channel_value_destroy_free".into()),
+        "free" => (format!("const char *__text = ({value}); size_t __n = __text == NULL ? 0 : strlen(__text); char *__p = (char *)malloc(__n + 1); if (__p == NULL) abort(); if (__n != 0) memcpy(__p, __text, __n); __p[__n] = '\\0';"), "aura_task_channel_value_destroy_free".into()),
+        "class" => (format!("void *__obj = (void *)({value}); void **__p = (void **)malloc(sizeof(*__p)); if (__p == NULL) abort(); *__p = __obj; aura_gc_add_root(__p);"), "aura_task_channel_value_destroy_class".into()),
+        "foreign_handle" => (format!("AuraFfiOpaqueHandle *__handle = (AuraFfiOpaqueHandle *)({value}); if (__handle != NULL && aura_ffi_handle_retain(__handle) != AURA_FFI_OK) abort(); AuraFfiOpaqueHandle **__p = (AuraFfiOpaqueHandle **)malloc(sizeof(*__p)); if (__p == NULL) abort(); *__p = __handle;"), "aura_task_channel_value_destroy_foreign_handle".into()),
+        "task" => ("AuraTaskChannelValue __task_value = aura_task_channel_value_from_task(__aura_task_executor, (AuraTaskFrame *)".to_string() + &value + "); void *__p = __task_value.data;", "aura_task_channel_value_destroy_task".into()),
+        "channel" => ("AuraTaskChannelValue __channel_value = aura_task_channel_value_from_channel((AuraTaskChannel *)".to_string() + &value + "); void *__p = __channel_value.data;", "aura_task_channel_value_destroy_channel".into()),
+        "typed" => {
+            let full = full_type_mono(&inner, ctx.checked);
+            let cty = crate::stmt::local_key_to_c(&full, ctx.checked);
+            let clone = if is_array_type_key(&full) {
+                crate::names::c_method_name(&full, "clone")
+            } else {
+                format!("{cty}_clone")
+            };
+            let drop = crate::names::c_channel_drop_name(&full);
+            (
+                format!("{cty} __source = ({value}); {cty} *__p = ({cty} *)malloc(sizeof(*__p)); if (__p == NULL) abort(); *__p = {clone}(&__source);"),
+                drop,
+            )
+        }
         _ => unreachable!(),
     };
-    format!("({{ {alloc} AuraTaskChannelValue __v = {{ __p, sizeof(*__p), {destroy} }}; aura_race_set_source_id(UINT32_C({})); AuraTaskChannelStatus __s = aura_task_channel_send({channel}, NULL, __v); aura_race_set_source_id(0); if (__s == AURA_CHANNEL_PENDING || __s == AURA_CHANNEL_ERROR) {destroy}(__v.data, __v.size); (void)__s; (void)0; }})", s.span.start)
+    let transferred_value = if kind == "task" {
+        "__task_value"
+    } else if kind == "channel" {
+        "__channel_value"
+    } else {
+        "(AuraTaskChannelValue){ __p, sizeof(*__p), "
+    };
+    if kind == "task" || kind == "channel" {
+        format!("({{ {alloc} AuraTaskChannelValue __v = {transferred_value}; if (__v.data == NULL) abort(); aura_race_set_source_id(UINT32_C({})); AuraTaskChannelStatus __status = aura_task_channel_send({channel}, NULL, __v); aura_race_set_source_id(0); if (__status == AURA_CHANNEL_PENDING || __status == AURA_CHANNEL_ERROR) {destroy}(__v.data, __v.size); (void)__status; (void)0; }})", s.span.start)
+    } else {
+        format!("({{ {alloc} AuraTaskChannelValue __v = {{ __p, sizeof(*__p), {destroy} }}; aura_race_set_source_id(UINT32_C({})); AuraTaskChannelStatus __status = aura_task_channel_send({channel}, NULL, __v); aura_race_set_source_id(0); if (__status == AURA_CHANNEL_PENDING || __status == AURA_CHANNEL_ERROR) {destroy}(__v.data, __v.size); (void)__status; (void)0; }})", s.span.start)
+    }
 }
 
 fn emit_channel_receive(r: &ChannelReceiveExpr, ctx: &mut EmitCtx<'_>) -> String {
     let channel = emit_expr(&r.channel, ctx);
     let channel_key =
         resolve_type_name(&r.channel, ctx).unwrap_or_else(|| infer_type_name(&r.channel, ctx));
-    let inner = channel_inner_key(&channel_key).unwrap_or("Unit");
-    let Some(kind) = channel_payload_kind(inner, ctx) else {
+    let raw_inner = channel_inner_key(&channel_key).unwrap_or("Unit");
+    let inner = task_payload_repr_key(raw_inner);
+    let Some(kind) = channel_payload_kind(&inner, ctx) else {
         return "({ fputs(\"aura: Channel payload type is unsupported by C22o\\n\", stderr); abort(); (void *)0; })".into();
     };
+    if kind == "unit" {
+        return format!(
+            "({{ AuraTaskChannelValue __v = {{0}}; aura_race_set_source_id(UINT32_C({})); (void)aura_task_channel_receive({}, NULL, &__v); aura_race_set_source_id(0); (void)0; }})",
+            r.span.start, channel
+        );
+    }
     let destroy = if kind == "class" {
         "aura_task_channel_value_destroy_class"
     } else if kind == "foreign_handle" {
         "aura_task_channel_value_destroy_foreign_handle"
+    } else if kind == "typed" {
+        let full = full_type_mono(&inner, ctx.checked);
+        let callback = crate::names::c_channel_drop_name(&full);
+        // Keep the generated callback name in the expression; it is emitted
+        // once with the rest of the aggregate ownership hooks.
+        return emit_typed_channel_receive(r, ctx, channel, &full, &callback);
     } else {
         "aura_task_channel_value_destroy_free"
     };
+    if kind == "task" {
+        return format!("({{ AuraTaskFrame *__r = NULL; AuraTaskChannelValue __v = {{0}}; aura_race_set_source_id(UINT32_C({})); if (aura_task_channel_receive({channel}, NULL, &__v) == AURA_CHANNEL_OK) {{ __r = aura_task_channel_value_take_task(__v.data, __v.size); __v.data = NULL; }} aura_race_set_source_id(0); __r; }})", r.span.start);
+    }
+    if kind == "channel" {
+        return format!("({{ AuraTaskChannel *__r = NULL; AuraTaskChannelValue __v = {{0}}; aura_race_set_source_id(UINT32_C({})); if (aura_task_channel_receive({channel}, NULL, &__v) == AURA_CHANNEL_OK) {{ __r = aura_task_channel_value_take_channel(__v.data, __v.size); __v.data = NULL; }} aura_race_set_source_id(0); __r; }})", r.span.start);
+    }
     match kind {
         "int" => format!("({{ aura_opt_i64 __r = {{ false, 0 }}; AuraTaskChannelValue __v = {{0}}; aura_race_set_source_id(UINT32_C({})); if (aura_task_channel_receive({channel}, NULL, &__v) == AURA_CHANNEL_OK) {{ __r = (aura_opt_i64){{ true, *((int64_t *)__v.data) }}; {destroy}(__v.data, __v.size); }} aura_race_set_source_id(0); __r; }})", r.span.start),
+        "bool" => format!("({{ aura_opt_bool __r = {{ false, false }}; AuraTaskChannelValue __v = {{0}}; aura_race_set_source_id(UINT32_C({})); if (aura_task_channel_receive({channel}, NULL, &__v) == AURA_CHANNEL_OK) {{ __r = (aura_opt_bool){{ true, *((bool *)__v.data) }}; {destroy}(__v.data, __v.size); }} aura_race_set_source_id(0); __r; }})", r.span.start),
         "free" => format!("({{ const char *__r = NULL; AuraTaskChannelValue __v = {{0}}; aura_race_set_source_id(UINT32_C({})); if (aura_task_channel_receive({channel}, NULL, &__v) == AURA_CHANNEL_OK) {{ __r = (const char *)__v.data; __v.data = NULL; {destroy}(__v.data, __v.size); }} aura_race_set_source_id(0); __r; }})", r.span.start),
         "class" => format!("({{ void *__r = NULL; AuraTaskChannelValue __v = {{0}}; aura_race_set_source_id(UINT32_C({})); if (aura_task_channel_receive({channel}, NULL, &__v) == AURA_CHANNEL_OK) {{ __r = *((void **)__v.data); {destroy}(__v.data, __v.size); }} aura_race_set_source_id(0); __r; }})", r.span.start),
         "foreign_handle" => format!("({{ AuraFfiOpaqueHandle *__r = NULL; AuraTaskChannelValue __v = {{0}}; aura_race_set_source_id(UINT32_C({})); if (aura_task_channel_receive({channel}, NULL, &__v) == AURA_CHANNEL_OK) {{ AuraFfiOpaqueHandle **__payload = (AuraFfiOpaqueHandle **)__v.data; if (__payload != NULL) {{ __r = *__payload; *__payload = NULL; }} {destroy}(__v.data, __v.size); }} aura_race_set_source_id(0); __r; }})", r.span.start),
         _ => unreachable!(),
     }
+}
+
+fn emit_typed_channel_receive(
+    r: &ChannelReceiveExpr,
+    _ctx: &mut EmitCtx<'_>,
+    channel: String,
+    full: &str,
+    destroy: &str,
+) -> String {
+    let cty = crate::stmt::local_key_to_c(full, _ctx.checked);
+    format!(
+        "({{ {cty} __r = ({cty}){{0}}; AuraTaskChannelValue __v = {{0}}; aura_race_set_source_id(UINT32_C({})); if (aura_task_channel_receive({channel}, NULL, &__v) == AURA_CHANNEL_OK) {{ {cty} *__payload = ({cty} *)__v.data; if (__payload != NULL) {{ __r = *__payload; *__payload = ({cty}){{0}}; }} {destroy}(__v.data, __v.size); }} aura_race_set_source_id(0); __r; }})",
+        r.span.start
+    )
 }
 
 fn block_last_expr_code(block: &Block, ctx: &mut EmitCtx<'_>) -> String {
@@ -2168,6 +2669,37 @@ pub(crate) fn array_elem_local_key(array_mono: &str, checked: &CheckedFile) -> O
 pub(crate) fn full_type_mono(key: &str, checked: &CheckedFile) -> String {
     if key == "Array" {
         return key.to_string();
+    }
+    // Recover package-qualified nested enum/class monomorphs from the short
+    // keys used by local inference (for example `Outcome_String_Error`).
+    for (name, args) in checked.mono_enums.iter().chain(checked.mono_classes.iter()) {
+        let short = if args.is_empty() {
+            name.clone()
+        } else {
+            format!(
+                "{}_{}",
+                name,
+                args.iter().map(ty_short_mono).collect::<Vec<_>>().join("_")
+            )
+        };
+        if short == key {
+            let package = checked
+                .ast
+                .enums
+                .iter()
+                .find(|e| e.name.name == *name)
+                .map(|e| enum_decl_package(e, checked))
+                .or_else(|| {
+                    checked
+                        .ast
+                        .classes
+                        .iter()
+                        .find(|c| c.name.name == *name)
+                        .map(|c| class_decl_package(c, checked))
+                })
+                .unwrap_or_default();
+            return type_mono(&package, name, args);
+        }
     }
     // C4c/C6g: upgrade `Array_Box` / `Array_Color` / short generic keys → package mono.
     if let Some(elem) = key.strip_prefix("Array_") {
@@ -2289,6 +2821,25 @@ pub(crate) fn full_type_mono(key: &str, checked: &CheckedFile) -> String {
         }
     }
     key.to_string()
+}
+
+fn ty_short_mono(ty: &Ty) -> String {
+    match ty {
+        Ty::Class(name) | Ty::Enum(name) => aura_sema::split_nominal(name).0.to_string(),
+        Ty::ClassApp { name, args } | Ty::EnumApp { name, args } => {
+            let base = aura_sema::split_nominal(name).0;
+            if args.is_empty() {
+                base.to_string()
+            } else {
+                format!(
+                    "{}_{}",
+                    base,
+                    args.iter().map(ty_short_mono).collect::<Vec<_>>().join("_")
+                )
+            }
+        }
+        other => other.mono_suffix(),
+    }
 }
 
 pub(crate) fn type_ref_to_ty(t: &TypeRef, ctx: &EmitCtx<'_>) -> Option<Ty> {
@@ -2727,7 +3278,18 @@ pub(crate) fn resolve_type_name(expr: &Expr, ctx: &EmitCtx<'_>) -> Option<String
                                         } else {
                                             (Vec::new(), Vec::new())
                                         };
-                                    return Some(type_ref_local_key(rt, &ps, &as_));
+                                    let method_args = ctx
+                                        .checked
+                                        .call_instantiations
+                                        .get(&c.span.start)
+                                        .map(|i| i.method_type_args.clone())
+                                        .unwrap_or_default();
+                                    let mut all_ps = ps;
+                                    all_ps
+                                        .extend(m.type_params.iter().map(|p| p.name.name.clone()));
+                                    let mut all_as = as_;
+                                    all_as.extend(method_args);
+                                    return Some(type_ref_local_key(rt, &all_ps, &all_as));
                                 }
                             }
                         }

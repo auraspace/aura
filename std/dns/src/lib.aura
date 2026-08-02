@@ -17,10 +17,10 @@ pub fun resolveHostList(host: String, preferIpv6: Bool): String? {
 }
 
 /// Non-throwing resolver result with a shared network error on lookup failure.
-pub fun resolveHostResult(host: String, preferIpv6: Bool): DnsErrs.Outcome<String, DnsErrs.Error> {
+pub fun resolveHostResult(host: String, preferIpv6: Bool): DnsErrs.Outcome<String, DnsErrs.DnsError> {
   val address = resolveHost(host, preferIpv6)
   if (address == null) {
-    return DnsErrs.failure(DnsErrs.network("host resolution failed", 0))
+    return DnsErrs.failure(DnsErrs.asDnsError(DnsErrs.network("host resolution failed", 0)))
   }
   return DnsErrs.success(address!!)
 }

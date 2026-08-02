@@ -14,7 +14,7 @@
 #endif
 
 #define AURA_RUNTIME_NO_MAIN
-#include "../aura_rt.c"
+#include "../runtime.c"
 
 typedef struct
 {
@@ -23,6 +23,13 @@ typedef struct
   int polls;
   char value;
 } FileTask;
+
+typedef struct
+{
+  AuraIoOperationHandle *operation;
+  AuraFile file;
+  int polls;
+} FileEofTask;
 
 static void close_file(void *resource)
 {
@@ -72,6 +79,32 @@ static AuraTaskPollState poll_file(AuraTaskFrame *frame)
   assert(result != NULL);
   *result = task->value;
   aura_task_frame_set_result(frame, result, sizeof(*result), drop_int);
+  assert(aura_file_close(&task->file) == AURA_FILE_OK);
+  assert(aura_io_operation_handle_release(&task->operation) == 1);
+  return AURA_TASK_COMPLETE;
+}
+
+static AuraTaskPollState poll_file_eof(AuraTaskFrame *frame)
+{
+  FileEofTask *task = (FileEofTask *)aura_task_frame_data(frame);
+  if (task->polls++ == 0)
+  {
+    task->operation = aura_file_async_read_operation_new(
+        &task->file, NULL, 0, close_file);
+    assert(task->operation != NULL);
+    assert(aura_io_operation_handle_start(task->operation, frame->executor,
+                                          frame) == 1);
+    return AURA_TASK_PENDING;
+  }
+
+  AuraIoOperationResult io = {0};
+  assert(aura_io_operation_handle_state(task->operation) ==
+         AURA_IO_OPERATION_COMPLETE);
+  assert(aura_io_operation_handle_result(task->operation, &io) == 1);
+  assert(io.kind == AURA_IO_OPERATION_FILE_READ);
+  assert(io.outcome == AURA_IO_OUTCOME_EOF);
+  assert(io.native_status == AURA_FILE_EOF);
+  assert(io.bytes_transferred == 0);
   assert(aura_file_close(&task->file) == AURA_FILE_OK);
   assert(aura_io_operation_handle_release(&task->operation) == 1);
   return AURA_TASK_COMPLETE;
@@ -157,6 +190,29 @@ static void test_scheduler_completion_and_typed_boundary(void)
   assert(aura_task_executor_release(executor, &frame) == 1);
   aura_task_executor_shutdown(executor);
   assert(close(pipe_fds[1]) == 0);
+}
+
+static void test_typed_file_read_reports_eof(void)
+{
+  int pipe_fds[2];
+  assert(pipe(pipe_fds) == 0);
+  AuraTaskExecutor *executor = aura_task_executor_new();
+  assert(executor != NULL);
+  AuraTaskFrame *frame = aura_task_frame_new(sizeof(FileEofTask),
+                                             poll_file_eof, NULL);
+  assert(frame != NULL);
+  FileEofTask *task = (FileEofTask *)aura_task_frame_data(frame);
+  task->file.fd = pipe_fds[0];
+  task->file.closed = false;
+  assert(aura_task_executor_submit(executor, frame) == 1);
+  assert(aura_task_executor_run_one(executor) == 1);
+  assert(aura_task_frame_state(frame) == AURA_TASK_PENDING);
+  assert(close(pipe_fds[1]) == 0);
+  assert(aura_task_executor_poll_waiting(executor, 1000) == 1);
+  assert(aura_task_executor_run_one(executor) == 1);
+  assert(aura_task_frame_state(frame) == AURA_TASK_COMPLETE);
+  assert(aura_task_executor_release(executor, &frame) == 1);
+  aura_task_executor_shutdown(executor);
 }
 
 static void test_cancel_invalidates_boundary_and_cleans_once(void)
@@ -259,6 +315,13 @@ typedef struct
   size_t completed_bytes;
   int polls;
 } TcpWriteTask;
+
+typedef struct
+{
+  AuraIoOperationHandle *operation;
+  AuraTcpStream stream;
+  int polls;
+} TcpFailureTask;
 
 static void close_tcp_write_resource(void *resource)
 {
@@ -374,13 +437,64 @@ static void test_tcp_write_backpressure_resumes_to_completion(void)
   assert(close(sockets[1]) == 0);
 }
 
+static AuraTaskPollState poll_tcp_failure(AuraTaskFrame *frame)
+{
+  TcpFailureTask *task = (TcpFailureTask *)aura_task_frame_data(frame);
+  if (task->polls++ == 0)
+  {
+    task->operation = aura_tcp_async_write_operation_new(
+        &task->stream, "peer-failure", 12, close_tcp_write_resource);
+    assert(task->operation != NULL);
+    assert(aura_io_operation_handle_start(task->operation, frame->executor,
+                                          frame) == 1);
+    return AURA_TASK_PENDING;
+  }
+
+  AuraIoOperationResult io = {0};
+  assert(aura_io_operation_handle_state(task->operation) ==
+         AURA_IO_OPERATION_FAILED);
+  assert(aura_io_operation_handle_result(task->operation, &io) == 1);
+  assert(io.kind == AURA_IO_OPERATION_TCP_WRITE);
+  assert(io.outcome == AURA_IO_OUTCOME_ERROR);
+  assert(io.native_status == AURA_TCP_ERROR);
+  assert(io.bytes_transferred == 0);
+  assert(aura_io_operation_handle_release(&task->operation) == 1);
+  assert(aura_tcp_stream_close(&task->stream) == 1);
+  return AURA_TASK_COMPLETE;
+}
+
+static void test_typed_tcp_write_reports_peer_failure(void)
+{
+  int sockets[2];
+  assert(socketpair(AF_UNIX, SOCK_STREAM, 0, sockets) == 0);
+  assert(aura_tcp_set_nonblocking(sockets[0]) == 0);
+  AuraTaskExecutor *executor = aura_task_executor_new();
+  assert(executor != NULL);
+  AuraTaskFrame *frame = aura_task_frame_new(sizeof(TcpFailureTask),
+                                             poll_tcp_failure, NULL);
+  assert(frame != NULL);
+  TcpFailureTask *task = (TcpFailureTask *)aura_task_frame_data(frame);
+  task->stream.fd = sockets[0];
+  assert(aura_task_executor_submit(executor, frame) == 1);
+  assert(aura_task_executor_run_one(executor) == 1);
+  assert(aura_task_frame_state(frame) == AURA_TASK_PENDING);
+  assert(close(sockets[1]) == 0);
+  assert(aura_task_executor_poll_waiting(executor, 1000) == 1);
+  assert(aura_task_executor_run_one(executor) == 1);
+  assert(aura_task_frame_state(frame) == AURA_TASK_COMPLETE);
+  assert(aura_task_executor_release(executor, &frame) == 1);
+  aura_task_executor_shutdown(executor);
+}
+
 int main(void)
 {
   test_scheduler_completion_and_typed_boundary();
+  test_typed_file_read_reports_eof();
   test_cancel_invalidates_boundary_and_cleans_once();
   test_tcp_peer_eof_is_a_typed_completion();
   test_typed_file_write_completes_and_reports_bytes();
   test_tcp_write_backpressure_resumes_to_completion();
+  test_typed_tcp_write_reports_peer_failure();
   aura_gc_shutdown();
   puts("async io ffi handles: passed");
   return 0;

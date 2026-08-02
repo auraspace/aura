@@ -1,0 +1,20 @@
+package demo.stdtask.spawnblocking
+
+import std.task
+import std.io as Io
+import std.sync as Sync
+
+fun main() {
+  val lazyValue: Sync.Lazy<Int> = Sync.lazy(() => 7)
+  if (!lazyValue.isInitialized()) { println("lazy-cold") }
+  if (lazyValue.get() == 7 && lazyValue.isInitialized()) { println("lazy-ok") }
+  taskScope(() => {
+    val child: TaskHandle<Unit> = spawn { println("child-ok") }
+  })
+  val task: TaskHandle<Int> = spawnBlocking(() => 42)
+  val outcome: Io.Result<Int, Io.TaskError> = join(task)
+  match (outcome) {
+    case Ok(value) => { if (value == 42) { println("blocking-ok") } }
+    case Err(error) => { println("blocking-failed") }
+  }
+}

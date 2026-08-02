@@ -5,8 +5,8 @@ mod runtime_path;
 mod scaffold;
 mod test_report;
 
-use aura_analysis::{check_file, SemaError, SemaErrors};
-use aura_codegen::{build_from_file, build_tests_from_file, emit_c_from_ast};
+use aura_analysis::{CheckedFile, SemaError, SemaErrors};
+use aura_codegen::{build_from_checked, build_tests_from_checked, emit_c_from_checked};
 use aura_diagnostics::{
     classify_async, format_async_error, format_error_with, FormatOptions, JsonDiagnostic, Severity,
 };
@@ -493,8 +493,13 @@ fn parse_check_options(args: &[String]) -> Result<(bool, Vec<String>), String> {
 }
 
 fn check_package(pkg: LoadedPackage) -> Result<String, String> {
-    let checked = check_file(&pkg.ast).map_err(|e| diag_sema_errors(&pkg, e))?;
+    let checked = pkg
+        .check_with_plugins()
+        .map_err(|e| diag_sema_errors(&pkg, e))?;
+    render_checked_package(&pkg, checked)
+}
 
+fn render_checked_package(pkg: &LoadedPackage, checked: CheckedFile) -> Result<String, String> {
     let mut lines = Vec::new();
     if pkg.sources.len() == 1 {
         lines.push(format!("ok  {}", pkg.sources[0].path.display()));
@@ -587,8 +592,11 @@ fn check_package(pkg: LoadedPackage) -> Result<String, String> {
 }
 
 fn check_package_mode(pkg: LoadedPackage, json: bool) -> Result<String, String> {
-    match check_file(&pkg.ast) {
-        Ok(_) => check_package(pkg),
+    if !json {
+        return check_package(pkg);
+    }
+    match pkg.check_with_plugins() {
+        Ok(checked) => render_checked_package(&pkg, checked),
         Err(errors) if json => {
             let diagnostics = errors
                 .errors
@@ -603,10 +611,10 @@ fn check_package_mode(pkg: LoadedPackage, json: bool) -> Result<String, String> 
 
 fn cmd_emit_c(args: &[String]) -> ExitCode {
     match resolve_package(args).and_then(|pkg| {
-        emit_c_from_ast(&pkg.ast).map_err(|e| match e {
-            aura_codegen::CodegenError::Sema(se) => diag_sema_errors(&pkg, se),
-            other => format!("error: {other}"),
-        })
+        let checked = pkg
+            .check_with_plugins()
+            .map_err(|e| diag_sema_errors(&pkg, e))?;
+        Ok(emit_c_from_checked(&checked))
     }) {
         Ok(c) => {
             print!("{c}");
@@ -680,7 +688,10 @@ fn runtime_c_path() -> Result<PathBuf, String> {
 
 fn build_package(pkg: &LoadedPackage, out: &Path) -> Result<PathBuf, String> {
     let rt = runtime_c_path()?;
-    build_from_file(&pkg.ast, out, &rt).map_err(|e| match e {
+    let checked = pkg
+        .check_with_plugins()
+        .map_err(|e| diag_sema_errors(pkg, e))?;
+    build_from_checked(&checked, out, &rt).map_err(|e| match e {
         aura_codegen::CodegenError::Sema(se) => diag_sema_errors(pkg, se),
         other => format!("error: {other}"),
     })
@@ -896,7 +907,10 @@ impl TestOptions {
 
 fn build_test_package(pkg: &LoadedPackage, out: &Path) -> Result<PathBuf, String> {
     let rt = runtime_c_path()?;
-    build_tests_from_file(&pkg.ast, out, &rt).map_err(|e| match e {
+    let checked = pkg
+        .check_with_plugins()
+        .map_err(|e| diag_sema_errors(pkg, e))?;
+    build_tests_from_checked(&checked, out, &rt).map_err(|e| match e {
         aura_codegen::CodegenError::Sema(se) => diag_sema_errors(pkg, se),
         other => format!("error: {other}"),
     })

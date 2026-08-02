@@ -1,9 +1,10 @@
 #include <assert.h>
+#include <stdio.h>
 #include <stdint.h>
 #include <string.h>
 
 #define AURA_RUNTIME_NO_MAIN
-#include "../aura_rt.c"
+#include "../runtime.c"
 
 static void test_public_tcp_header_and_lifetime(void)
 {
@@ -31,9 +32,40 @@ static void test_public_tcp_header_and_lifetime(void)
   aura_tcp_listener_destroy(listener);
 }
 
+static void test_endpoint_tcp_bind_and_connect(void)
+{
+  AuraTcpListener *listener = NULL;
+  AuraTcpStream *client = NULL;
+  AuraTcpStream *peer = NULL;
+  uint16_t port = 0;
+  char endpoint[64];
+
+  assert(aura_tcp_listener_bind_endpoint("0", &port, &listener) ==
+         AURA_TCP_OK);
+  assert(port != 0 && listener != NULL);
+  snprintf(endpoint, sizeof(endpoint), "127.0.0.1:%u", port);
+  assert(aura_tcp_stream_connect_endpoint(endpoint, 1000, &client) ==
+         AURA_TCP_OK);
+  assert(aura_tcp_listener_accept(listener, 1000, &peer) == AURA_TCP_OK);
+  aura_tcp_stream_destroy(peer);
+  aura_tcp_stream_destroy(client);
+  aura_tcp_listener_destroy(listener);
+
+  listener = NULL;
+  port = 0;
+  assert(aura_tcp_listener_bind_endpoint("0.0.0.0:0", &port, &listener) ==
+         AURA_TCP_OK);
+  assert(port != 0 && listener != NULL);
+  aura_tcp_listener_destroy(listener);
+
+  assert(aura_tcp_listener_bind_endpoint("not-an-endpoint", &port, &listener) ==
+         AURA_TCP_ERROR);
+}
+
 int main(void)
 {
   test_public_tcp_header_and_lifetime();
+  test_endpoint_tcp_bind_and_connect();
   aura_gc_shutdown();
   return 0;
 }

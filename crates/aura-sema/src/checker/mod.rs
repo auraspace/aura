@@ -268,6 +268,9 @@ pub(crate) struct Checker {
     mono_classes: HashSet<(String, Vec<Ty>)>,
     mono_enums: HashSet<(String, Vec<Ty>)>,
     mono_funs: HashSet<(String, Vec<Ty>)>,
+    mono_async_funs: HashSet<(String, Vec<Ty>)>,
+    async_funs: HashSet<(String, String)>,
+    mono_methods: HashSet<(String, Vec<Ty>, String, Vec<Ty>)>,
     mono_interfaces: HashSet<(String, Vec<Ty>)>,
     call_instantiations: HashMap<u32, CallInstantiation>,
     /// C10d: LambdaExpr.span.start → Fun type.
@@ -382,6 +385,9 @@ impl Checker {
                 is_abstract: false,
                 is_override: false,
                 visibility: aura_ast::MemberVisibility::Public,
+                type_params: Vec::new(),
+                bounds: HashMap::new(),
+                is_static: false,
                 span: Span::new(0, 0),
             },
         );
@@ -396,6 +402,9 @@ impl Checker {
                 is_abstract: false,
                 is_override: false,
                 visibility: aura_ast::MemberVisibility::Public,
+                type_params: Vec::new(),
+                bounds: HashMap::new(),
+                is_static: false,
                 span: Span::new(0, 0),
             },
         );
@@ -410,6 +419,9 @@ impl Checker {
                 is_abstract: false,
                 is_override: false,
                 visibility: aura_ast::MemberVisibility::Public,
+                type_params: Vec::new(),
+                bounds: HashMap::new(),
+                is_static: false,
                 span: Span::new(0, 0),
             },
         );
@@ -425,6 +437,9 @@ impl Checker {
                 is_abstract: false,
                 is_override: false,
                 visibility: aura_ast::MemberVisibility::Public,
+                type_params: Vec::new(),
+                bounds: HashMap::new(),
+                is_static: false,
                 span: Span::new(0, 0),
             },
         );
@@ -440,6 +455,9 @@ impl Checker {
                 is_abstract: false,
                 is_override: false,
                 visibility: aura_ast::MemberVisibility::Public,
+                type_params: Vec::new(),
+                bounds: HashMap::new(),
+                is_static: false,
                 span: Span::new(0, 0),
             },
         );
@@ -455,6 +473,9 @@ impl Checker {
                 is_abstract: false,
                 is_override: false,
                 visibility: aura_ast::MemberVisibility::Public,
+                type_params: Vec::new(),
+                bounds: HashMap::new(),
+                is_static: false,
                 span: Span::new(0, 0),
             },
         );
@@ -470,6 +491,9 @@ impl Checker {
                 is_abstract: false,
                 is_override: false,
                 visibility: aura_ast::MemberVisibility::Public,
+                type_params: Vec::new(),
+                bounds: HashMap::new(),
+                is_static: false,
                 span: Span::new(0, 0),
             },
         );
@@ -488,6 +512,9 @@ impl Checker {
                 is_abstract: false,
                 is_override: false,
                 visibility: aura_ast::MemberVisibility::Public,
+                type_params: Vec::new(),
+                bounds: HashMap::new(),
+                is_static: false,
                 span: Span::new(0, 0),
             },
         );
@@ -534,6 +561,9 @@ impl Checker {
             mono_classes: HashSet::new(),
             mono_enums: HashSet::new(),
             mono_funs: HashSet::new(),
+            mono_async_funs: HashSet::new(),
+            async_funs: HashSet::new(),
+            mono_methods: HashSet::new(),
             mono_interfaces: HashSet::new(),
             call_instantiations: HashMap::new(),
             lambda_tys: HashMap::new(),
@@ -901,6 +931,7 @@ impl Checker {
         m: &FunDecl,
         expected_ret: &Ty,
     ) -> Result<(), SemaError> {
+        self.bind_nested_type_params(&m.type_params)?;
         self.locals.push(HashMap::new());
         let pkg = if class.origin_package.is_empty() {
             self.current_package.as_str()
@@ -1466,9 +1497,9 @@ impl Checker {
         }
     }
 
-    /// C10h/C12k/C12l/C13e: capturable outer `val` — Int/Bool/String, heap class (GC ptr),
-    /// Array (non-owning header view in env; outer scope owns the buffer), or Fun
-    /// (fat pointer copy with nested env retain/release).
+    /// C10h/C12k/C13e: capturable outer `val` — Int/Bool/String, heap class (GC ptr),
+    /// Array (copied into an owned closure snapshot), or Fun (fat pointer copy
+    /// with nested env retain/release). No Array borrow is stored in a closure.
     /// Rejects struct, enum, interface (later).
     pub(crate) fn is_lambda_capturable_ty(&self, ty: &Ty) -> bool {
         match ty {
@@ -1478,7 +1509,7 @@ impl Checker {
             Ty::Class(n) | Ty::ClassApp { name: n, .. } => {
                 let simple = crate::ty::split_nominal(n).0;
                 if simple == "Array" {
-                    // C12l: Array is capturable as a view (codegen copies header only).
+                    // C12l: Array capture is an owned snapshot; the closure may escape.
                     return true;
                 }
                 !self.is_struct_ty(ty)
@@ -1488,8 +1519,8 @@ impl Checker {
     }
 
     /// C12m/C20a: capturable outer `var` by shared mutable storage. Primitive
-    /// values use boxes; heap classes, Array views, and Fun values are carried
-    /// by reference so downstream codegen can preserve mutation/identity.
+    /// values use boxes; heap classes, Arrays, and Fun values use a retained
+    /// owned cell so mutation/identity remains valid after closure escape.
     pub(crate) fn is_lambda_var_capturable_ty(&self, ty: &Ty) -> bool {
         match ty {
             Ty::Int | Ty::Bool | Ty::String | Ty::Fun { .. } => true,
@@ -1503,7 +1534,7 @@ impl Checker {
 
     /// C13h/C13e/C13f/C20a: human-readable list of currently supported lambda captures.
     pub(crate) fn lambda_capture_supported_list() -> &'static str {
-        "`val` Int/Bool/String/class/Array (view)/Fun, `var` Int/Bool/String/class/Array/Fun (by ref)"
+        "`val` Int/Bool/String/class/Array(snapshot)/Fun, `var` Int/Bool/String/class/Array/Fun (owned shared cell)"
     }
 
     /// C10h/C12m/C13h: if `name` resolves to an outer local of the active lambda, record a capture.

@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use aura_ast::{Attribute, AttributeArg, AttributeValue, File, Span};
 
 use crate::error::SemaError;
+use crate::sigs::{AttributeMetadata, MetadataRetention};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Target {
@@ -156,9 +157,195 @@ fn spec(name: &str) -> Option<&'static AttributeSpec> {
     REGISTRY.iter().find(|spec| spec.name == name)
 }
 
+fn retention(value: &str) -> MetadataRetention {
+    match value {
+        "Binary" => MetadataRetention::Binary,
+        "Runtime" => MetadataRetention::Runtime,
+        _ => MetadataRetention::Source,
+    }
+}
+
+fn attribute_value_text(value: &AttributeValue) -> String {
+    match value {
+        AttributeValue::Ident(value) => value.name.clone(),
+        AttributeValue::String { value, .. } => format!("\"{value}\""),
+        AttributeValue::Int { value, .. } => value.to_string(),
+        AttributeValue::Bool { value, .. } => value.to_string(),
+        AttributeValue::Call { name, args, .. } => format!(
+            "{}({})",
+            name.name,
+            args.iter()
+                .map(|arg| match arg {
+                    AttributeArg::Positional(value) => attribute_value_text(value),
+                    AttributeArg::Named { name, value, .. } => {
+                        format!("{}={}", name.name, attribute_value_text(value))
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
+        AttributeValue::Array { values, .. } => format!(
+            "[{}]",
+            values
+                .iter()
+                .map(attribute_value_text)
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
+    }
+}
+
+fn attribute_args_text(attribute: &Attribute) -> Vec<String> {
+    attribute
+        .args
+        .iter()
+        .map(|arg| match arg {
+            AttributeArg::Positional(value) => attribute_value_text(value),
+            AttributeArg::Named { name, value, .. } => {
+                format!("{}={}", name.name, attribute_value_text(value))
+            }
+        })
+        .collect()
+}
+
+fn append_metadata(
+    out: &mut Vec<AttributeMetadata>,
+    declaration: &str,
+    target: &str,
+    attributes: &[Attribute],
+) {
+    for attribute in attributes {
+        let Some(spec) = spec(attribute.name.name.as_str()) else {
+            continue;
+        };
+        out.push(AttributeMetadata {
+            declaration: declaration.to_string(),
+            target: target.to_string(),
+            name: attribute.name.name.clone(),
+            retention: retention(spec.retention),
+            args: attribute_args_text(attribute),
+            span: attribute.span,
+        });
+    }
+}
+
+pub(crate) fn collect_metadata(file: &File) -> Vec<AttributeMetadata> {
+    let mut out = Vec::new();
+    for interface in &file.interfaces {
+        append_metadata(
+            &mut out,
+            &interface.name.name,
+            "type",
+            &interface.attributes,
+        );
+        for method in &interface.methods {
+            append_metadata(&mut out, &method.name.name, "method", &method.attributes);
+            for parameter in &method.params {
+                append_metadata(
+                    &mut out,
+                    &parameter.name.name,
+                    "parameter",
+                    &parameter.attributes,
+                );
+            }
+        }
+    }
+    for enumeration in &file.enums {
+        append_metadata(
+            &mut out,
+            &enumeration.name.name,
+            "type",
+            &enumeration.attributes,
+        );
+        for variant in &enumeration.variants {
+            append_metadata(
+                &mut out,
+                &variant.name.name,
+                "enum_variant",
+                &variant.attributes,
+            );
+            for field in &variant.fields {
+                append_metadata(&mut out, &field.name.name, "field", &field.attributes);
+            }
+        }
+    }
+    for class in &file.classes {
+        append_metadata(&mut out, &class.name.name, "type", &class.attributes);
+        for field in &class.fields {
+            append_metadata(&mut out, &field.name.name, "field", &field.attributes);
+        }
+        for method in &class.methods {
+            append_metadata(&mut out, &method.name.name, "method", &method.attributes);
+            for parameter in &method.params {
+                append_metadata(
+                    &mut out,
+                    &parameter.name.name,
+                    "parameter",
+                    &parameter.attributes,
+                );
+            }
+        }
+    }
+    for alias in &file.type_aliases {
+        append_metadata(&mut out, &alias.name.name, "type_alias", &alias.attributes);
+    }
+    for constant in &file.consts {
+        append_metadata(&mut out, &constant.name.name, "const", &constant.attributes);
+    }
+    for function in &file.functions {
+        append_metadata(
+            &mut out,
+            &function.name.name,
+            "function",
+            &function.attributes,
+        );
+        for parameter in &function.params {
+            append_metadata(
+                &mut out,
+                &parameter.name.name,
+                "parameter",
+                &parameter.attributes,
+            );
+        }
+    }
+    for function in &file.foreign_functions {
+        append_metadata(
+            &mut out,
+            &function.name.name,
+            "function",
+            &function.attributes,
+        );
+        for parameter in &function.params {
+            append_metadata(
+                &mut out,
+                &parameter.name.name,
+                "parameter",
+                &parameter.attributes,
+            );
+        }
+    }
+    for function in &file.async_functions {
+        append_metadata(
+            &mut out,
+            &function.name.name,
+            "function",
+            &function.attributes,
+        );
+        for parameter in &function.params {
+            append_metadata(
+                &mut out,
+                &parameter.name.name,
+                "parameter",
+                &parameter.attributes,
+            );
+        }
+    }
+    out
+}
+
 fn error(code: &'static str, message: String, span: Span) -> SemaError {
     SemaError {
-        message: format!("[{code}] {message}"),
+        message: format!("[{code}] [phase=attribute] {message}"),
         span,
     }
 }
@@ -208,6 +395,31 @@ fn validate_attributes(attributes: &[Attribute], target: Target, errors: &mut Ve
             }
         }
         validate_arguments(attribute, spec, errors);
+        validate_implementation(attribute, errors);
+    }
+}
+
+fn validate_implementation(attribute: &Attribute, errors: &mut Vec<SemaError>) {
+    let name = attribute.name.name.as_str();
+    if name == "derive" {
+        for arg in &attribute.args {
+            let AttributeArg::Positional(AttributeValue::Ident(derive)) = arg else {
+                continue;
+            };
+            if !matches!(
+                derive.name.as_str(),
+                "Equals" | "Eq" | "HashCode" | "Hash" | "Debug" | "DebugString" | "ToString"
+            ) {
+                errors.push(error(
+                    "AURA-M3-UNSUPPORTED",
+                    format!(
+                        "derive `{}` is reserved but not implemented in this compiler",
+                        derive.name
+                    ),
+                    arg.span(),
+                ));
+            }
+        }
     }
 }
 

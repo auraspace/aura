@@ -25,7 +25,7 @@ $AURA_HOME/
   versions/
     0.1.1-alpha/
       bin/aura
-      share/aura/aura_rt.c    # from the release archive (optional)
+      share/aura/runtime/runtime.c    # from the release archive (optional)
       meta/version, os, arch, installed_at
     0.2.0/
       bin/aura
@@ -108,15 +108,15 @@ cd hello && aura run .
 
 ### Runtime library
 
-The C runtime (`runtime/aura_rt.c`) is **embedded** in the CLI and written to a cache on first build if no on-disk copy is found:
+The C runtime (`runtime/runtime.c`) is **embedded** in the CLI and written to a cache on first build if no on-disk copy is found:
 
-| Location                                | When used                     |
-| --------------------------------------- | ----------------------------- |
-| `AURA_RUNTIME`                          | Explicit override (file path) |
-| Monorepo `runtime/aura_rt.c`            | Dev / `cargo run -p aura-cli` |
-| `$AURA_HOME/versions/*/share/aura/`     | From release tarball          |
-| Next to the binary                      | Optional layout               |
-| `~/.cache/aura/<cli-version>/aura_rt.c` | Materialized from the embed   |
+| Location                                    | When used                      |
+| ------------------------------------------- | ------------------------------ |
+| `AURA_RUNTIME`                              | Explicit override (file path)  |
+| Monorepo `runtime/runtime.c`                | Dev / `cargo run -p aura-cli`  |
+| `$AURA_HOME/versions/*/share/aura/runtime/` | From release tarball           |
+| Next to the binary                          | Optional layout                |
+| `~/.cache/aura/<cli-version>/runtime.c`     | Entry point; modules in `src/` |
 
 ### Standard library (`std.io`, …)
 
@@ -215,7 +215,7 @@ Source: [`scripts/install-smoke.sh`](https://github.com/auraspace/aura/blob/main
 | Symptom                  | Fix                                                                         |
 | ------------------------ | --------------------------------------------------------------------------- |
 | `cc` / `clang` not found | Install Xcode CLT (macOS) or `build-essential` (Debian/Ubuntu)              |
-| `cannot find runtime`    | Upgrade CLI (embed) or set `AURA_RUNTIME` to a valid `aura_rt.c`            |
+| `cannot find runtime`    | Upgrade CLI (embed) or set `AURA_RUNTIME` to a valid `runtime.c`            |
 | `std.io` / std not found | Upgrade CLI (embed + `share/aura/std`) or set `AURA_STD` to monorepo `std/` |
 | Wrong CLI                | `which aura` / `avm --show` — prefer `$AURA_HOME/bin`                       |
 | Old binary on PATH       | Ensure `$AURA_HOME/bin` or `~/.local/bin` precedes `~/.cargo/bin`           |

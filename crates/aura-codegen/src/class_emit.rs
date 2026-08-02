@@ -264,17 +264,46 @@ pub(crate) fn emit_class_forwards(
     let params: Vec<String> = c.type_params.iter().map(|p| p.name.name.clone()).collect();
     let pkg = class_decl_package(c, checked);
     let mono = type_mono(&pkg, &c.name.name, args);
+    if c.kind == NominalKind::Struct {
+        let cty = c_class_type(&mono);
+        let _ = writeln!(out, "{cty} {cty}_clone(const {cty} *source);");
+        let _ = writeln!(out, "void {cty}_drop({cty} *value);");
+        let _ = writeln!(out, "void {cty}_mark(const {cty} *value);");
+    }
     let _ = writeln!(
         out,
         "{};",
         c_ctor_signature_mono(c, checked, &params, args, &mono)
     );
     for m in &c.methods {
-        let _ = writeln!(
-            out,
-            "{};",
-            c_method_signature_mono(c, m, checked, &params, args, &mono)
-        );
+        let method_monos: Vec<Vec<Ty>> = if m.type_params.is_empty() {
+            vec![Vec::new()]
+        } else {
+            checked
+                .mono_methods
+                .iter()
+                .filter(|(name, class_args, method, _)| {
+                    name == &c.name.name && class_args == args && method == &m.name.name
+                })
+                .map(|(_, _, _, method_args)| method_args.clone())
+                .collect()
+        };
+        for method_args in method_monos {
+            let signature = if m.type_params.is_empty() {
+                c_method_signature_mono(c, m, checked, &params, args, &mono)
+            } else {
+                c_method_signature_with_method_args(
+                    c,
+                    m,
+                    checked,
+                    &params,
+                    args,
+                    &mono,
+                    &method_args,
+                )
+            };
+            let _ = writeln!(out, "{signature};");
+        }
     }
     // C9a: upcast forwards for non-generic and mono generic class implements.
     let mut emitted_upcasts = HashSet::new();
@@ -314,7 +343,146 @@ pub(crate) fn emit_class_forwards(
     }
 }
 
-fn ownership_fields<'a>(
+fn is_value_struct_mono(key: &str, checked: &CheckedFile) -> bool {
+    let Some(base) = crate::expr::mono_base_name(key, checked) else {
+        return false;
+    };
+    checked
+        .ast
+        .classes
+        .iter()
+        .any(|class| class.kind == NominalKind::Struct && class.name.name == base)
+}
+
+fn emit_struct_field_clone(
+    out: &mut String,
+    checked: &CheckedFile,
+    field_expr: &str,
+    source_expr: &str,
+    key: &str,
+) {
+    let full = crate::expr::full_type_mono(key, checked);
+    if key == "String" {
+        let _ = writeln!(
+            out,
+            "  if ({source_expr} != NULL) {{ size_t __len = strlen({source_expr}); char *__copy = (char *)malloc(__len + 1); if (__copy == NULL) abort(); memcpy(__copy, {source_expr}, __len + 1); {field_expr} = __copy; }} else {{ {field_expr} = NULL; }}"
+        );
+    } else if crate::array_emit::is_array_type_key(&full) {
+        let clone = crate::names::c_method_name(&full, "clone");
+        let _ = writeln!(
+            out,
+            "  {field_expr} = {clone}(({crate} *)&({source_expr}));",
+            crate = crate::stmt::local_key_to_c(&full, checked)
+        );
+    } else if crate::expr::is_enum_mono(&full, checked) || is_value_struct_mono(&full, checked) {
+        let cty = crate::stmt::local_key_to_c(&full, checked);
+        let _ = writeln!(out, "  {field_expr} = {cty}_clone(&({source_expr}));");
+    } else if crate::names::is_heap_class_mono(&full, checked) {
+        // The clone destination may be a stack temporary (`copy` in a value
+        // struct clone, or `self` in a value-struct constructor).  Registering
+        // that slot as a GC root would leave a stale stack address after this
+        // helper returns.  The owning frame/result/class mark hook owns the
+        // liveness edge for the copied field instead.
+        let _ = writeln!(out, "  {field_expr} = {source_expr};");
+    } else if full == "ForeignHandle" || full.starts_with("ForeignHandle_") {
+        let _ = writeln!(out, "  {field_expr} = {source_expr}; if ({field_expr} != NULL) (void)aura_ffi_handle_retain({field_expr});");
+    } else if crate::names::is_fun_type_key(&full) {
+        let _ = writeln!(out, "  {field_expr} = {source_expr}; if ({field_expr}.env != NULL) aura_fun_env_retain({field_expr}.env);");
+    } else {
+        let _ = writeln!(out, "  {field_expr} = {source_expr};");
+    }
+}
+
+fn emit_struct_field_drop(out: &mut String, checked: &CheckedFile, field_expr: &str, key: &str) {
+    let full = crate::expr::full_type_mono(key, checked);
+    if key == "String" {
+        let _ = writeln!(
+            out,
+            "  if ({field_expr} != NULL) {{ free((void *){field_expr}); {field_expr} = NULL; }}"
+        );
+    } else if crate::array_emit::is_array_type_key(&full) {
+        crate::array_emit::emit_array_contents_free_checked(out, 1, field_expr, &full, checked);
+    } else if crate::expr::is_enum_mono(&full, checked) || is_value_struct_mono(&full, checked) {
+        let cty = crate::stmt::local_key_to_c(&full, checked);
+        let _ = writeln!(out, "  {cty}_drop(&({field_expr}));");
+    } else if crate::names::is_heap_class_mono(&full, checked) {
+        // Heap-class fields are marked through their containing class/struct;
+        // they are not independently registered by the value clone helper.
+    } else if full == "ForeignHandle" || full.starts_with("ForeignHandle_") {
+        let _ = writeln!(
+            out,
+            "  if ({field_expr} != NULL) (void)aura_ffi_handle_drop(&{field_expr});"
+        );
+    } else if crate::names::is_fun_type_key(&full) {
+        let _ = writeln!(out, "  if ({field_expr}.env != NULL) {{ aura_fun_env_free({field_expr}.env); {field_expr}.env = NULL; }}");
+    }
+}
+
+/// Emit value-semantic ownership hooks for structs. Structs are stored inline,
+/// so a shallow memcpy is unsafe whenever a field owns a String, Array, enum,
+/// nested struct, foreign handle, closure environment, or GC class reference.
+pub(crate) fn emit_struct_value_hooks(
+    out: &mut String,
+    checked: &CheckedFile,
+    c: &ClassDecl,
+    args: &[Ty],
+) {
+    if c.kind != NominalKind::Struct {
+        return;
+    }
+    let params: Vec<String> = c.type_params.iter().map(|p| p.name.name.clone()).collect();
+    let pkg = class_decl_package(c, checked);
+    let mono = type_mono(&pkg, &c.name.name, args);
+    let cty = c_class_type(&mono);
+    let fields = ownership_fields(c, checked, &params, args);
+
+    let _ = writeln!(out, "{cty} {cty}_clone(const {cty} *source) {{");
+    let _ = writeln!(
+        out,
+        "  {cty} copy = source == NULL ? ({cty}){{0}} : *source;"
+    );
+    out.push_str("  if (source == NULL) return copy;\n");
+    for (name, key) in &fields {
+        let field = mangle_ident(name);
+        emit_struct_field_clone(
+            out,
+            checked,
+            &format!("copy.{field}"),
+            &format!("source->{field}"),
+            key,
+        );
+    }
+    out.push_str("  return copy;\n}\n\n");
+
+    let _ = writeln!(out, "void {cty}_drop({cty} *value) {{");
+    out.push_str("  if (value == NULL) return;\n");
+    for (name, key) in &fields {
+        emit_struct_field_drop(out, checked, &format!("value->{}", mangle_ident(name)), key);
+    }
+    out.push_str("}\n\n");
+
+    let _ = writeln!(out, "void {cty}_mark(const {cty} *value) {{");
+    out.push_str("  if (value == NULL) return;\n");
+    for (name, key) in &fields {
+        let full = crate::expr::full_type_mono(key, checked);
+        let field = mangle_ident(name);
+        if crate::names::is_heap_class_mono(&full, checked) {
+            let _ = writeln!(out, "  aura_gc_mark_ptr((void *)value->{field});");
+        } else if crate::expr::is_enum_mono(&full, checked) || is_value_struct_mono(&full, checked)
+        {
+            let cty = crate::stmt::local_key_to_c(&full, checked);
+            let _ = writeln!(out, "  {cty}_mark(&value->{field});");
+        } else if crate::array_emit::is_array_type_key(&full)
+            && crate::array_emit::is_array_of_heap_class(&full, checked)
+        {
+            let array_cty = crate::stmt::local_key_to_c(&full, checked);
+            let _ = writeln!(out, "  {array_cty}_mark(&value->{field});");
+        }
+    }
+    out.push_str("}\n\n");
+}
+
+pub(crate) fn ownership_fields<'a>(
     c: &'a ClassDecl,
     checked: &'a CheckedFile,
     params: &[String],
@@ -433,10 +601,32 @@ fn emit_class_gc_hooks(
     let string_fields = string_field_names(c, checked, params, args);
     let arr_cls_fields = array_of_class_field_names(c, checked, params, args);
     let arr_iface_fields = array_of_interface_field_specs(c, checked, params, args);
+    let marked_fields = ownership_fields(c, checked, params, args)
+        .into_iter()
+        .filter(|(_, key)| {
+            let mono = crate::expr::full_type_mono(key, checked);
+            crate::names::is_heap_class_mono(&mono, checked)
+                || crate::expr::is_enum_mono(&mono, checked)
+        })
+        .collect::<Vec<_>>();
+    let arr_enum_fields = ownership_fields(c, checked, params, args)
+        .into_iter()
+        .filter_map(|(name, key)| {
+            let elem = crate::array_emit::array_elem_key(&key)?;
+            let elem = crate::expr::full_type_mono(elem, checked);
+            crate::expr::is_enum_mono(&elem, checked).then_some((name, elem))
+        })
+        .collect::<Vec<_>>();
     {
         let _ = writeln!(out, "static void {}(void *p) {{", c_dtor_name(mono));
         let _ = writeln!(out, "  {cty} *self = ({cty} *)p;");
         out.push_str("  if (self == NULL) { return; }\n");
+        if class_decl_package(c, checked) == "std.sync" && c.name.name == "Lazy" {
+            out.push_str("  if (self->placeholder != 0) { aura_lazy_cell_destroy((AuraLazyCell *)(uintptr_t)self->placeholder); self->placeholder = 0; }\n");
+        }
+        if class_decl_package(c, checked) == "std.task" && c.name.name == "Select" {
+            out.push_str("  if (self->placeholder != 0) { aura_task_select_destroy((AuraTaskSelect *)(uintptr_t)self->placeholder); self->placeholder = 0; }\n");
+        }
         for name in &string_fields {
             let f = mangle_ident(name);
             let _ = writeln!(
@@ -446,10 +636,18 @@ fn emit_class_gc_hooks(
         }
         for name in &arr_fields {
             let f = mangle_ident(name);
-            let _ = writeln!(
-                out,
-                "  if (self->{f}.data != NULL) {{ free(self->{f}.data); self->{f}.data = NULL; self->{f}.len = 0; self->{f}.cap = 0; }}"
-            );
+            if let Some((_, key)) = ownership_fields(c, checked, params, args)
+                .into_iter()
+                .find(|(field, _)| field == name)
+            {
+                crate::array_emit::emit_array_contents_free_checked(
+                    out,
+                    1,
+                    &format!("self->{f}"),
+                    &key,
+                    checked,
+                );
+            }
         }
         out.push_str("}\n\n");
         let _ = writeln!(
@@ -459,10 +657,24 @@ fn emit_class_gc_hooks(
             c_dtor_name(mono)
         );
     }
-    if !arr_cls_fields.is_empty() || !arr_iface_fields.is_empty() {
+    if !marked_fields.is_empty()
+        || !arr_cls_fields.is_empty()
+        || !arr_iface_fields.is_empty()
+        || !arr_enum_fields.is_empty()
+    {
         let _ = writeln!(out, "static void {}(void *p) {{", c_markex_name(mono));
         let _ = writeln!(out, "  {cty} *self = ({cty} *)p;");
         out.push_str("  if (self == NULL) { return; }\n");
+        for (name, key) in &marked_fields {
+            let f = mangle_ident(name);
+            let mono = crate::expr::full_type_mono(key, checked);
+            if crate::names::is_heap_class_mono(&mono, checked) {
+                let _ = writeln!(out, "  aura_gc_mark_ptr((void *)self->{f});");
+            } else {
+                let cty = crate::stmt::local_key_to_c(&mono, checked);
+                let _ = writeln!(out, "  {cty}_mark(&self->{f});");
+            }
+        }
         for name in &arr_cls_fields {
             let f = mangle_ident(name);
             let _ = writeln!(out, "  {{");
@@ -511,6 +723,16 @@ fn emit_class_gc_hooks(
             out.push_str("    }\n");
             out.push_str("  }\n");
         }
+        for (name, enum_key) in &arr_enum_fields {
+            let f = mangle_ident(name);
+            let cty = crate::stmt::local_key_to_c(enum_key, checked);
+            let _ = writeln!(out, "  if (self->{f}.data != NULL) {{");
+            let _ = writeln!(
+                out,
+                "    for (int64_t __i = 0; __i < self->{f}.len; __i++) {cty}_mark(&self->{f}.data[__i]);"
+            );
+            out.push_str("  }\n");
+        }
         out.push_str("}\n\n");
     }
 }
@@ -526,51 +748,98 @@ pub(crate) fn emit_class_defs(
     let params: Vec<String> = c.type_params.iter().map(|p| p.name.name.clone()).collect();
     let pkg = class_decl_package(c, checked);
     let mono = type_mono(&pkg, &c.name.name, args);
+    emit_struct_value_hooks(out, checked, c, args);
     emit_class_gc_hooks(out, c, checked, &params, args, &mono);
     emit_ctor_mono(out, c, checked, &params, args, &mono);
     out.push('\n');
     for m in &c.methods {
-        if class_decl_package(c, checked) == "std.http"
-            && c.name.name == "RequestBody"
-            && m.name.name == "readChunk"
-        {
-            emit_http_request_body_read_chunk_method(out, c, m, checked, &params, args, &mono);
-        } else if class_decl_package(c, checked) == "std.http"
-            && c.name.name == "Response"
-            && m.name.name == "writeChunk"
-        {
-            emit_http_response_write_chunk_method(out, c, m, checked, &params, args, &mono);
-        } else if class_decl_package(c, checked) == "std.sync"
-            && c.name.name == "AtomicInt"
-            && emit_atomic_int_method(out, c, m, checked, &params, args, &mono)
-        {
-            // The AtomicInt methods use compiler atomics rather than ordinary
-            // field loads/stores; the fallback body remains only for unknown
-            // methods added to the class.
-        } else if class_decl_package(c, checked) == "std.sync"
-            && c.name.name == "Mutex"
-            && emit_mutex_method(out, c, m, checked, &params, args, &mono)
-        {
-        } else if class_decl_package(c, checked) == "std.sync"
-            && c.name.name == "RwLock"
-            && emit_rwlock_method(out, c, m, checked, &params, args, &mono)
-        {
-        } else if class_decl_package(c, checked) == "std.sync"
-            && c.name.name == "Once"
-            && emit_once_method(out, c, m, checked, &params, args, &mono)
-        {
-        } else if class_decl_package(c, checked) == "std.metrics"
-            && c.name.name == "Counter"
-            && emit_counter_method(out, c, m, checked, &params, args, &mono)
-        {
-        } else if is_async_class_method(m) {
-            if !emit_async_class_method(out, c, m, checked, detector, &mono, &params, args) {
-                emit_method_mono(out, c, m, checked, &params, args, &mono, detector);
-            }
+        let method_monos: Vec<Vec<Ty>> = if m.type_params.is_empty() {
+            vec![Vec::new()]
         } else {
-            emit_method_mono(out, c, m, checked, &params, args, &mono, detector);
+            checked
+                .mono_methods
+                .iter()
+                .filter(|(name, class_args, method, _)| {
+                    name == &c.name.name && class_args == args && method == &m.name.name
+                })
+                .map(|(_, _, _, method_args)| method_args.clone())
+                .collect()
+        };
+        for method_args in method_monos {
+            if class_decl_package(c, checked) == "std.http"
+                && c.name.name == "RequestBody"
+                && m.name.name == "readChunk"
+            {
+                emit_http_request_body_read_chunk_method(out, c, m, checked, &params, args, &mono);
+            } else if class_decl_package(c, checked) == "std.http"
+                && c.name.name == "Response"
+                && m.name.name == "writeChunk"
+            {
+                emit_http_response_write_chunk_method(out, c, m, checked, &params, args, &mono);
+            } else if class_decl_package(c, checked) == "std.sync"
+                && c.name.name == "AtomicInt"
+                && emit_atomic_int_method(out, c, m, checked, &params, args, &mono)
+            {
+                // The AtomicInt methods use compiler atomics rather than ordinary
+                // field loads/stores; the fallback body remains only for unknown
+                // methods added to the class.
+            } else if class_decl_package(c, checked) == "std.sync"
+                && c.name.name == "Mutex"
+                && emit_mutex_method(out, c, m, checked, &params, args, &mono)
+            {
+            } else if class_decl_package(c, checked) == "std.sync"
+                && c.name.name == "RwLock"
+                && emit_rwlock_method(out, c, m, checked, &params, args, &mono)
+            {
+            } else if class_decl_package(c, checked) == "std.sync"
+                && c.name.name == "Once"
+                && emit_once_method(out, c, m, checked, &params, args, &mono)
+            {
+            } else if class_decl_package(c, checked) == "std.sync"
+                && c.name.name == "Lazy"
+                && emit_lazy_method(out, c, m, checked, &params, args, &mono)
+            {
+            } else if class_decl_package(c, checked) == "std.task"
+                && c.name.name == "Select"
+                && emit_select_next_method(out, c, m, checked, &params, args, &mono)
+            {
+            } else if class_decl_package(c, checked) == "std.task"
+                && c.name.name == "Select"
+                && emit_select_method(out, c, m, checked, &params, args, &mono)
+            {
+            } else if class_decl_package(c, checked) == "std.metrics"
+                && c.name.name == "Counter"
+                && emit_counter_method(out, c, m, checked, &params, args, &mono)
+            {
+            } else if is_async_class_method(m) {
+                if !emit_async_class_method(out, c, m, checked, detector, &mono, &params, args) {
+                    emit_method_mono(
+                        out,
+                        c,
+                        m,
+                        checked,
+                        &params,
+                        args,
+                        &mono,
+                        detector,
+                        &method_args,
+                    );
+                }
+            } else {
+                emit_method_mono(
+                    out,
+                    c,
+                    m,
+                    checked,
+                    &params,
+                    args,
+                    &mono,
+                    detector,
+                    &method_args,
+                );
+            }
+            out.push('\n');
         }
-        out.push('\n');
     }
     // C9a: emit upcasts for this class monomorph's implements.
     let mut emitted_upcasts = HashSet::new();
@@ -685,6 +954,130 @@ fn emit_once_method(
         }
         _ => false,
     }
+}
+
+fn emit_lazy_method(
+    out: &mut String,
+    c: &ClassDecl,
+    m: &FunDecl,
+    checked: &CheckedFile,
+    params: &[String],
+    args: &[Ty],
+    mono: &str,
+) -> bool {
+    let signature = c_method_signature_mono(c, m, checked, params, args, mono);
+    let cell = "(AuraLazyCell *)(uintptr_t)this->placeholder";
+    match (m.name.name.as_str(), m.params.len()) {
+        ("isInitialized", 0) => {
+            let _ = writeln!(out, "{signature} {{ return this != NULL && this->placeholder != 0 && aura_lazy_cell_is_initialized({cell}); }}");
+            true
+        }
+        ("get", 0) if !args.is_empty() => {
+            let result = c_type_from_ty(&args[0], checked);
+            if args[0].mono_suffix() == "Unit" {
+                let _ = writeln!(out, "{signature} {{ if (this != NULL && this->placeholder != 0) (void)aura_lazy_cell_value({cell}); }}");
+            } else {
+                let _ = writeln!(out, "{signature} {{ {result} *__value = ({result} *)aura_lazy_cell_value({cell}); if (__value == NULL) return ({result}){{0}}; return *__value; }}");
+            }
+            true
+        }
+        _ => false,
+    }
+}
+
+fn emit_select_method(
+    out: &mut String,
+    c: &ClassDecl,
+    m: &FunDecl,
+    checked: &CheckedFile,
+    params: &[String],
+    args: &[Ty],
+    mono: &str,
+) -> bool {
+    let signature = c_method_signature_mono(c, m, checked, params, args, mono);
+    match (m.name.name.as_str(), m.params.len()) {
+        ("add", 1) => {
+            let channel = mangle_ident(&m.params[0].name.name);
+            let _ = writeln!(
+                out,
+                "{signature} {{ if (this == NULL || this->placeholder == 0 || {channel} == NULL || !aura_task_select_add((AuraTaskSelect *)(uintptr_t)this->placeholder, {channel})) return NULL; return this; }}"
+            );
+            true
+        }
+        _ => false,
+    }
+}
+
+fn emit_select_next_method(
+    out: &mut String,
+    c: &ClassDecl,
+    m: &FunDecl,
+    checked: &CheckedFile,
+    params: &[String],
+    args: &[Ty],
+    mono: &str,
+) -> bool {
+    let Some(element) = args.first() else {
+        return false;
+    };
+    let kind = match element.mono_suffix().as_str() {
+        "Int" => "int",
+        "Bool" => "bool",
+        "String" => "string",
+        key if is_heap_class_mono(key, checked) => "class",
+        key if key == "ForeignHandle" || key.starts_with("ForeignHandle_") => "foreign_handle",
+        _ => return false,
+    };
+    if m.name.name != "next" || !m.params.is_empty() {
+        return false;
+    }
+    let base = format!("aura_select_next_{mono}");
+    let data = format!("{base}_data");
+    let poll = format!("{base}_poll");
+    let signature = c_method_signature_mono(c, m, checked, params, args, mono);
+    let _ = writeln!(
+        out,
+        "typedef struct {{ AuraTaskSelect *select; void *owner; }} {data};"
+    );
+    let _ = writeln!(out, "static void {base}_destroy(AuraTaskFrame *frame) {{ {data} *data = ({data} *)aura_task_frame_data(frame); if (data != NULL && data->owner != NULL) aura_gc_remove_root(&data->owner); }}");
+    if kind == "string" {
+        let _ = writeln!(out, "static void {base}_result_destroy(void *raw, size_t size) {{ (void)size; const char **result = (const char **)raw; if (result != NULL) {{ free((void *)*result); free(result); }} }}");
+    } else if kind == "class" {
+        let _ = writeln!(out, "static void {base}_result_destroy(void *raw, size_t size) {{ (void)size; void **result = (void **)raw; if (result != NULL) {{ aura_gc_remove_root(result); free(result); }} }}");
+    } else if kind == "foreign_handle" {
+        let _ = writeln!(out, "static void {base}_result_destroy(void *raw, size_t size) {{ (void)size; AuraFfiOpaqueHandle **result = (AuraFfiOpaqueHandle **)raw; if (result != NULL) {{ if (*result != NULL) (void)aura_ffi_handle_drop(result); free(result); }} }}");
+    } else {
+        let _ = writeln!(out, "static void {base}_result_destroy(void *raw, size_t size) {{ (void)size; free(raw); }}");
+    }
+    let _ = writeln!(
+        out,
+        "static AuraTaskPollState {poll}(AuraTaskFrame *frame) {{"
+    );
+    let _ = writeln!(out, "  {data} *data = ({data} *)aura_task_frame_data(frame); AuraTaskChannelValue value = {{0}}; size_t index = 0; AuraTaskChannelStatus status = aura_task_select_next(data == NULL ? NULL : data->select, frame, &value, &index);");
+    let result_code = match kind {
+        "int" => "aura_opt_i64 *result = (aura_opt_i64 *)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; result->has = status == AURA_CHANNEL_OK; result->value = (status == AURA_CHANNEL_OK && value.data != NULL) ? *((int64_t *)value.data) : 0; if (value.data != NULL) aura_task_channel_value_destroy_free(value.data, value.size); aura_task_frame_set_result(frame, result, sizeof(*result), aura_select_next_std_task_Select_Int_result_destroy);",
+        "bool" => "aura_opt_bool *result = (aura_opt_bool *)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; result->has = status == AURA_CHANNEL_OK; result->value = (status == AURA_CHANNEL_OK && value.data != NULL) ? *((bool *)value.data) : false; if (value.data != NULL) aura_task_channel_value_destroy_free(value.data, value.size); aura_task_frame_set_result(frame, result, sizeof(*result), aura_select_next_std_task_Select_Bool_result_destroy);",
+        "string" => "const char **result = (const char **)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; *result = status == AURA_CHANNEL_OK ? (const char *)value.data : NULL; value.data = NULL; if (value.data != NULL) aura_task_channel_value_destroy_free(value.data, value.size); aura_task_frame_set_result(frame, result, sizeof(*result), aura_select_next_std_task_Select_String_result_destroy);",
+        "class" => "void **result = (void **)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; *result = (status == AURA_CHANNEL_OK && value.data != NULL) ? *((void **)value.data) : NULL; aura_gc_add_root(result); if (value.data != NULL) aura_task_channel_value_destroy_class(value.data, value.size); aura_task_frame_set_result(frame, result, sizeof(*result), aura_select_next_RESULT_CLASS);",
+        "foreign_handle" => "AuraFfiOpaqueHandle **result = (AuraFfiOpaqueHandle **)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; *result = (status == AURA_CHANNEL_OK && value.data != NULL) ? *((AuraFfiOpaqueHandle **)value.data) : NULL; if (value.data != NULL) { *((AuraFfiOpaqueHandle **)value.data) = NULL; aura_task_channel_value_destroy_foreign_handle(value.data, value.size); } aura_task_frame_set_result(frame, result, sizeof(*result), aura_select_next_RESULT_FOREIGN);",
+        _ => unreachable!(),
+    };
+    let result_code = result_code
+        .replace("aura_select_next_std_task_Select_Int", &base.to_string())
+        .replace("aura_select_next_std_task_Select_Bool", &base.to_string())
+        .replace("aura_select_next_std_task_Select_String", &base.to_string())
+        .replace(
+            "aura_select_next_RESULT_CLASS",
+            &format!("{base}_result_destroy"),
+        )
+        .replace(
+            "aura_select_next_RESULT_FOREIGN",
+            &format!("{base}_result_destroy"),
+        );
+    let _ = writeln!(out, "  (void)index; if (status == AURA_CHANNEL_PENDING) return AURA_TASK_PENDING; if (status == AURA_CHANNEL_ERROR) return AURA_TASK_FAILED; {result_code} return AURA_TASK_COMPLETE;");
+    out.push_str("}\n");
+    let _ = writeln!(out, "{signature} {{ if (this == NULL || this->placeholder == 0 || __aura_task_executor == NULL) return NULL; AuraTaskFrame *__frame = aura_task_frame_new(sizeof({data}), {poll}, {base}_destroy); if (__frame == NULL) return NULL; {data} *__data = ({data} *)aura_task_frame_data(__frame); __data->select = (AuraTaskSelect *)(uintptr_t)this->placeholder; __data->owner = this; aura_gc_add_root(&__data->owner); if (!aura_task_executor_submit(__aura_task_executor, __frame)) {{ aura_task_frame_destroy(__frame); return NULL; }} return __frame; }}");
+    true
 }
 
 fn emit_rwlock_method(
@@ -812,6 +1205,8 @@ fn emit_async_class_method(
     };
     let mut params = vec![this_param];
     params.extend(m.params.clone());
+    let mut body = m.body.clone();
+    crate::emit::substitute_async_body(&mut body, class_params, class_args);
     let synthetic = AsyncFunDecl {
         is_pub: m.is_pub,
         origin_package: class_decl_package(c, checked),
@@ -824,7 +1219,7 @@ fn emit_async_class_method(
         type_params: Vec::new(),
         params,
         return_type: Some(subst_type_ref(result_ty, class_params, class_args, c.span)),
-        body: m.body.clone(),
+        body,
         span: m.span,
     };
     crate::emit::emit_async_fun_decl(out, &synthetic, checked, detector);
@@ -1049,7 +1444,11 @@ pub(crate) fn c_method_signature_mono(
 ) -> String {
     let _ = c;
     let ret = c_type_from_opt(&m.return_type, checked, params, args);
-    let mut ps = vec![format!("{} *this", c_class_type(mono))];
+    let mut ps = if m.modifiers.contains(&Modifier::Static) {
+        Vec::new()
+    } else {
+        vec![format!("{} *this", c_class_type(mono))]
+    };
     for p in &m.params {
         ps.push(format!(
             "{} {}",
@@ -1060,6 +1459,39 @@ pub(crate) fn c_method_signature_mono(
     format!(
         "{ret} {}({})",
         c_method_name(mono, &m.name.name),
+        ps.join(", ")
+    )
+}
+
+fn c_method_signature_with_method_args(
+    _c: &ClassDecl,
+    m: &FunDecl,
+    checked: &CheckedFile,
+    params: &[String],
+    args: &[Ty],
+    mono: &str,
+    method_args: &[Ty],
+) -> String {
+    let mut all_params = params.to_vec();
+    all_params.extend(m.type_params.iter().map(|p| p.name.name.clone()));
+    let mut all_args = args.to_vec();
+    all_args.extend_from_slice(method_args);
+    let ret = c_type_from_opt(&m.return_type, checked, &all_params, &all_args);
+    let mut ps = if m.modifiers.contains(&Modifier::Static) {
+        Vec::new()
+    } else {
+        vec![format!("{} *this", c_class_type(mono))]
+    };
+    for p in &m.params {
+        ps.push(format!(
+            "{} {}",
+            c_type_ref_subst(&p.ty, checked, &all_params, &all_args),
+            mangle_ident(&p.name.name)
+        ));
+    }
+    format!(
+        "{ret} {}({})",
+        c_generic_method_name(mono, &m.name.name, method_args),
         ps.join(", ")
     )
 }
@@ -1104,8 +1536,23 @@ pub(crate) fn emit_ctor_mono(
         // C3y: allocate class instance on GC heap.
         // C7b: pass dtor / mark_extras when the class owns Array fields.
         let arr_cls = array_of_class_field_names(c, checked, params, args);
+        let has_marked_field =
+            ownership_fields(c, checked, params, args)
+                .into_iter()
+                .any(|(_, key)| {
+                    let mono = crate::expr::full_type_mono(&key, checked);
+                    crate::names::is_heap_class_mono(&mono, checked)
+                        || crate::expr::is_enum_mono(&mono, checked)
+                });
+        let has_enum_array = ownership_fields(c, checked, params, args)
+            .into_iter()
+            .filter_map(|(_, key)| crate::array_emit::array_elem_key(&key).map(str::to_string))
+            .map(|elem| crate::expr::full_type_mono(&elem, checked))
+            .any(|elem| crate::expr::is_enum_mono(&elem, checked));
         let dtor = c_dtor_name(mono);
-        let markex = if arr_cls.is_empty()
+        let markex = if !has_marked_field
+            && !has_enum_array
+            && arr_cls.is_empty()
             && array_of_interface_field_specs(c, checked, params, args).is_empty()
         {
             "NULL".to_string()
@@ -1159,7 +1606,8 @@ pub(crate) fn emit_ctor_mono(
         let _ = writeln!(out, "  {cty} self;");
         for f in &c.fields {
             let n = mangle_ident(&f.name.name);
-            let _ = writeln!(out, "  self.{n} = {n};");
+            let key = type_ref_local_key(&f.ty, params, args);
+            emit_struct_field_clone(out, checked, &format!("self.{n}"), &n, &key);
         }
         out.push_str("  return self;\n}\n");
     }
@@ -1175,23 +1623,29 @@ pub(crate) fn emit_method_mono(
     args: &[Ty],
     mono: &str,
     detector: bool,
+    method_args: &[Ty],
 ) {
     let _ = writeln!(
         out,
         "{} {{",
-        c_method_signature_mono(c, m, checked, params, args, mono)
+        c_method_signature_with_method_args(c, m, checked, params, args, mono, method_args)
     );
+    let mut all_params = params.to_vec();
+    all_params.extend(m.type_params.iter().map(|p| p.name.name.clone()));
+    let mut all_args = args.to_vec();
+    all_args.extend_from_slice(method_args);
     let ret_key = m
         .return_type
         .as_ref()
-        .map(|t| type_ref_local_key_expand(t, params, args, checked));
+        .map(|t| type_ref_local_key_expand(t, &all_params, &all_args, checked));
     let mut ctx = EmitCtx {
         checked,
         detector,
         method_class: Some(mono),
-        type_params: params.to_vec(),
-        type_args: args.to_vec(),
+        type_params: all_params.clone(),
+        type_args: all_args.clone(),
         locals: vec![HashMap::new()],
+        local_c_names: HashMap::new(),
         array_owners: vec![std::collections::HashSet::new()],
         fun_owners: vec![std::collections::HashSet::new()],
         string_owners: vec![std::collections::HashSet::new()],
@@ -1210,12 +1664,12 @@ pub(crate) fn emit_method_mono(
         task_poller: false,
     };
     for f in &c.fields {
-        let key = type_ref_local_key_expand(&f.ty, params, args, checked);
+        let key = type_ref_local_key_expand(&f.ty, &all_params, &all_args, checked);
         let mono_key = crate::expr::full_type_mono(&key, checked);
         ctx.define_local(&f.name.name, mono_key);
     }
     for p in &m.params {
-        let key = type_ref_local_key_expand(&p.ty, params, args, checked);
+        let key = type_ref_local_key_expand(&p.ty, &all_params, &all_args, checked);
         let mono_key = crate::expr::full_type_mono(&key, checked);
         ctx.define_local(&p.name.name, mono_key.clone());
         // C6b/C21d: owning Array params own the buffer; `ref Array<T>` params
@@ -1236,14 +1690,17 @@ pub(crate) fn emit_method_mono(
         if crate::array_emit::is_array_of_heap_class(&mono_key, checked) {
             ctx.mark_array_gc_root(&p.name.name);
             let n = mangle_ident(&p.name.name);
-            let _ = writeln!(
-                out,
-                "  aura_gc_add_array_root((void **)&{n}.data, &{n}.len);"
+            let root = crate::array_emit::array_gc_root_add_call(
+                &format!("{n}.data"),
+                &format!("{n}.len"),
+                &mono_key,
+                checked,
             );
+            let _ = writeln!(out, "  {root}");
         }
     }
     // `this` is a heap pointer for classes — root it for the method body.
-    if is_heap_class_mono(mono, checked) {
+    if !m.modifiers.contains(&Modifier::Static) && is_heap_class_mono(mono, checked) {
         ctx.mark_gc_root("this");
         out.push_str("  aura_gc_add_root((void **)&this);\n");
     }
@@ -1263,6 +1720,6 @@ pub(crate) fn emit_method_mono(
     }
     crate::stmt::emit_free_fun_owners(out, 1, &ctx, &ctx.fun_owners_all());
     crate::stmt::emit_release_box_locals(out, 1, &ctx, &ctx.box_owners_all());
-    emit_return_fallback(out, &m.return_type, checked, params, args);
+    emit_return_fallback(out, &m.return_type, checked, &all_params, &all_args);
     out.push_str("}\n");
 }

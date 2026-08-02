@@ -9,7 +9,7 @@ async fun handler(request: Request, response: Response): Unit {
 }
 
 fun main() {
-  val listener = listen(0)
+  val listener = listen("0")
   serve(listener, (request: Request, response: Response) => handler(request, response))
   // Closing the listener is the documented graceful shutdown signal.
   closeListener(listener)

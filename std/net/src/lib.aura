@@ -7,18 +7,39 @@ package std.net
 
 import std.error as NetErrs
 
-/// Bind a nonblocking loopback TCP listener. `port` may be zero to request an
-/// ephemeral port. The returned owned handle closes when it leaves scope.
+/// Bind a nonblocking TCP listener. A numeric endpoint such as `"8080"`
+/// defaults to loopback; use `"0.0.0.0:8080"` to expose all IPv4 interfaces.
+/// The returned owned handle closes when it leaves scope.
 /// A later async `accept` API will consume this listener without blocking a
 /// scheduler worker.
-pub fun listen(port: Int): ForeignHandle<Int> {
+pub fun listen(endpoint: String): ForeignHandle<Int> {
   throw "listen intrinsic"
 }
 
-/// Connect to a loopback TCP listener within `timeoutMs`. The returned stream
-/// is an owned resource and may be used by the async read/write operations.
-pub fun connect(port: Int, timeoutMs: Int): ForeignHandle<Int> {
+/// Connect to an endpoint such as `"127.0.0.1:8080"` within `timeoutMs`.
+/// The returned stream is an owned resource and may be used by async I/O.
+pub fun connect(endpoint: String, timeoutMs: Int): ForeignHandle<Int> {
   throw "connect intrinsic"
+}
+
+/// Typed replacement for `listen`; recoverable bind failures are returned as
+/// `NetError` instead of escaping through a thrown string.
+pub fun listenResult(endpoint: String): NetErrs.Outcome<ForeignHandle<Int>, NetErrs.NetError> {
+  try {
+    return NetErrs.success(listen(endpoint))
+  } catch (error: String) {
+    return NetErrs.failure(NetErrs.asNetError(NetErrs.transport(error, 0)))
+  }
+}
+
+/// Typed replacement for `connect`; recoverable connection failures are
+/// returned as `NetError` instead of escaping through a thrown string.
+pub fun connectResult(endpoint: String, timeoutMs: Int): NetErrs.Outcome<ForeignHandle<Int>, NetErrs.NetError> {
+  try {
+    return NetErrs.success(connect(endpoint, timeoutMs))
+  } catch (error: String) {
+    return NetErrs.failure(NetErrs.asNetError(NetErrs.transport(error, 0)))
+  }
 }
 
 /// Suspend until an incoming stream is available on `listener`. The returned
@@ -37,6 +58,24 @@ pub fun closeListener(listener: ForeignHandle<Int>): Bool {
 /// the scheduler removes their readiness registration.
 pub fun closeStream(stream: ForeignHandle<Int>): Bool {
   throw "closeStream intrinsic"
+}
+
+/// Typed replacement for `closeListener`.
+pub fun closeListenerResult(listener: ForeignHandle<Int>): NetErrs.Outcome<Bool, NetErrs.NetError> {
+  try {
+    return NetErrs.success(closeListener(listener))
+  } catch (error: String) {
+    return NetErrs.failure(NetErrs.asNetError(NetErrs.transport(error, 0)))
+  }
+}
+
+/// Typed replacement for `closeStream`.
+pub fun closeStreamResult(stream: ForeignHandle<Int>): NetErrs.Outcome<Bool, NetErrs.NetError> {
+  try {
+    return NetErrs.success(closeStream(stream))
+  } catch (error: String) {
+    return NetErrs.failure(NetErrs.asNetError(NetErrs.transport(error, 0)))
+  }
 }
 
 /// Read up to `capacity` bytes from a typed TCP stream and suspend until it
@@ -73,22 +112,22 @@ pub async fun writeStream(stream: ForeignHandle<Int>, content: String): Int {
 
 /// Non-throwing read wrapper. `OutcomeOk` contains the owned chunk (or the
 /// empty string at EOF); transport failures are classified as network errors.
-pub async fun readStreamResult(stream: ForeignHandle<Int>, capacity: Int): NetErrs.Outcome<String, NetErrs.Error> {
+pub async fun readStreamResult(stream: ForeignHandle<Int>, capacity: Int): NetErrs.Outcome<String, NetErrs.NetError> {
   try {
     val chunk: String = await readStream(stream, capacity)
     return NetErrs.success(chunk)
   } catch (error: String) {
-    return NetErrs.failure(NetErrs.network(error, 0))
+    return NetErrs.failure(NetErrs.asNetError(NetErrs.transport(error, 0)))
   }
 }
 
 /// Non-throwing write wrapper. The success value is the number of bytes sent;
 /// transport failures are classified as network errors.
-pub async fun writeStreamResult(stream: ForeignHandle<Int>, content: String): NetErrs.Outcome<Int, NetErrs.Error> {
+pub async fun writeStreamResult(stream: ForeignHandle<Int>, content: String): NetErrs.Outcome<Int, NetErrs.NetError> {
   try {
     val transferred: Int = await writeStream(stream, content)
     return NetErrs.success(transferred)
   } catch (error: String) {
-    return NetErrs.failure(NetErrs.network(error, 0))
+    return NetErrs.failure(NetErrs.asNetError(NetErrs.transport(error, 0)))
   }
 }

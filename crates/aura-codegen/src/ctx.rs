@@ -14,6 +14,8 @@ pub(crate) struct EmitCtx<'a> {
     pub(crate) type_args: Vec<Ty>,
     /// Local name → type key (`Int`, `Box_String`, `Named`, …)
     pub(crate) locals: Vec<HashMap<String, String>>,
+    /// Source-local name to generated C storage name for scoped bindings.
+    pub(crate) local_c_names: HashMap<String, String>,
     /// Per-scope locals that own an `Array` heap buffer (C3t).
     pub(crate) array_owners: Vec<HashSet<String>>,
     /// Per-scope locals that own a Fun capture env (`malloc`'d, C11).
@@ -84,6 +86,13 @@ impl<'a> EmitCtx<'a> {
         if let Some(scope) = self.locals.last_mut() {
             scope.insert(name.to_string(), ty);
         }
+    }
+
+    pub(crate) fn local_c_name(&self, name: &str) -> String {
+        self.local_c_names
+            .get(name)
+            .cloned()
+            .unwrap_or_else(|| crate::names::mangle_ident(name))
     }
 
     pub(crate) fn spawn_capture_types(&self) -> HashMap<String, String> {

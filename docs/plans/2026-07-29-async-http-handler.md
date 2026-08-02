@@ -64,8 +64,20 @@ ownership, cancellation, and exactly-once cleanup rules.
 
 ### Compiler and runtime
 
-- [ ] R01 Complete general async state-machine lowering for handler control
+- [x] R01 Complete general async state-machine lowering for handler control
       flow, multiple awaits, errors, cancellation, and cleanup.
+
+  Completed (2026-08-01): handler lowering now uses the general CFG state
+  machine for branches, loops, repeated awaits, typed errors, cancellation,
+  nested `finally`, async class methods, and scheduler-owned `Task`,
+  `TaskHandle`, and `Channel` locals. Discarded `Unit` awaits in spawned
+  handlers use a dedicated resumable poller with the same typed failure and
+  cancellation cleanup contract. Handle-backed HTTP polling arms its cleanup
+  hook immediately after pin acquisition, and the foreign pin is released by
+  terminal frame cleanup. Codegen (259 tests) and the complete sanitizer
+  manifest cover nested failure, suspension, cancellation, forced GC, and
+  response backpressure. Generic open type declarations, unsupported spawn
+  body shapes, and non-HTTP/1.1 protocols remain explicit separate limits.
 
   Progress: the general CFG now converts primitive `throw` statements reached
   after an `await` into owned task-frame errors rather than longjmping through
@@ -75,7 +87,8 @@ ownership, cancellation, and exactly-once cleanup rules.
   error type, including a non-Unit awaited value declaration whose success
   value is copied before the catch continuation. Finally-on-failure remains
   bounded to one awaited child.
-  Multi-await catch regions and nested failure cleanup remain open; bounded
+  Multi-await catch regions now support primitive and array payload paths;
+  nested failure cleanup remains open; bounded
   non-generic class throws without array fields
   now clone typed payloads into the task-frame error slot. Catch-free
   `try/finally` success paths now lower through explicit continuation states.
@@ -366,8 +379,9 @@ ownership, cancellation, and exactly-once cleanup rules.
   suspends twice. The runtime also decodes bounded inbound chunked request
   bodies into owned snapshots; the Aura `/stream` example verifies that payload
   survives handler suspension. Content-Length and chunked request streaming,
-  plus chunked response streaming, are available; trailer fields remain
-  unexposed.
+  plus chunked response streaming, are available. Full request snapshots retain
+  validated chunked trailer fields; streaming readers validate and consume
+  trailers before publishing EOF.
 
   Streaming contract (2026-07-29, implemented for Content-Length and chunked):
   `Request` exposes one `RequestBody` reader for a Content-Length- or
@@ -379,8 +393,10 @@ ownership, cancellation, and exactly-once cleanup rules.
   handler that returns/cancels before EOF forces `Connection: close`, avoiding
   request-boundary desynchronization. Disconnection, cancellation, and a body
   read timeout terminate the reader and close the connection; buffered
-  response output is discarded. Chunked trailers are validated as an empty
-  trailer section but are not exposed as public fields yet.
+  response output is discarded. Chunked trailer fields are validated and
+  consumed; full request snapshots expose them through the existing header
+  lookup API, while streaming readers keep them internal to the framing
+  boundary.
 
   Foundation progress: the native parser now has an internal header-first mode
   that validates and owns request metadata while reporting the exact header
@@ -406,8 +422,8 @@ ownership, cancellation, and exactly-once cleanup rules.
   owned chunk, and appends the terminal chunk after handler completion.
   `runtime/tests/http_response.c` covers framing and post-commit mutation;
   `/stream-response` smoke validates two awaited chunks as `onetwo`.
-  Trailer fields remain unexposed; non-empty trailers are rejected by the
-  streaming reader to preserve the bounded public contract.
+  The streaming reader validates trailer field names/values, rejects framing
+  fields, consumes the complete trailer section, and only then returns EOF.
 
 - [ ] H03 Implement TLS termination, certificate loading, SNI, ALPN, reload,
       key cleanup, and handshake errors.
@@ -768,22 +784,22 @@ Recommended implementation order:
 
 ## Standard library acceptance criteria
 
-| Package                                 | Required evidence                                                                        |
-| --------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `std.os`                                | Environment, cwd, metadata, process status, and unsupported-target behavior              |
-| `std.net`                               | Loopback TCP, concurrent clients, partial I/O, timeout, close, cancellation, sanitizer   |
-| `std.dns`                               | Successful IPv4/IPv6 resolution, invalid host, timeout/cancel, deterministic errors      |
-| `std.json`                              | Parse/stringify round trips, typed structs/enums, limits, malformed input diagnostics    |
-| `std.http`                              | Typed request/response, routing, keep-alive, async handler await, 4xx/5xx mapping        |
-| `std.task` / `std.time`                 | Repeatable task outcomes, cancellation, monotonic deadlines, timers                      |
-| `std.stream` / `std.bytes`              | Owned buffers, partial I/O, async read/write, backpressure adapters                      |
-| `std.encoding` / `std.url` / `std.mime` | Boundary-safe encoding, URL/query parsing, MIME and multipart metadata                   |
-| `std.crypto` / `std.tls`                | Secure randomness, certificate/key handling, TLS, SNI, ALPN, cleanup                     |
-| `std.sync`                              | Async-safe locks/atomics with cancellation and contention tests                          |
-| `std.log` / `std.metrics`               | Structured request logs and non-blocking server telemetry                                |
-| `std.signal` / `std.fs`                 | Graceful shutdown, path/filesystem operations, typed platform errors                     |
-| `std.test`                              | Deterministic async, HTTP, timeout, cancellation, and sanitizer helpers                  |
-| Integration                             | Aura HTTP server uses only `std.*`, performs real async I/O, and runs from installed CLI |
+| Package                                 | Required evidence                                                                            |
+| --------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `std.os`                                | Environment, cwd, metadata, process status, and unsupported-target behavior                  |
+| `std.net`                               | Endpoint-aware TCP, concurrent clients, partial I/O, timeout, close, cancellation, sanitizer |
+| `std.dns`                               | Successful IPv4/IPv6 resolution, invalid host, timeout/cancel, deterministic errors          |
+| `std.json`                              | Parse/stringify round trips, typed structs/enums, limits, malformed input diagnostics        |
+| `std.http`                              | Typed request/response, routing, keep-alive, async handler await, 4xx/5xx mapping            |
+| `std.task` / `std.time`                 | Repeatable task outcomes, cancellation, monotonic deadlines, timers                          |
+| `std.stream` / `std.bytes`              | Owned buffers, partial I/O, async read/write, backpressure adapters                          |
+| `std.encoding` / `std.url` / `std.mime` | Boundary-safe encoding, URL/query parsing, MIME and multipart metadata                       |
+| `std.crypto` / `std.tls`                | Secure randomness, certificate/key handling, TLS, SNI, ALPN, cleanup                         |
+| `std.sync`                              | Async-safe locks/atomics with cancellation and contention tests                              |
+| `std.log` / `std.metrics`               | Structured request logs and non-blocking server telemetry                                    |
+| `std.signal` / `std.fs`                 | Graceful shutdown, path/filesystem operations, typed platform errors                         |
+| `std.test`                              | Deterministic async, HTTP, timeout, cancellation, and sanitizer helpers                      |
+| Integration                             | Aura HTTP server uses only `std.*`, performs real async I/O, and runs from installed CLI     |
 
 ## Extended protocol track
 

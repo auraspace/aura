@@ -51,6 +51,72 @@ AuraFileStatus aura_file_destroy(AuraFile **file);
 const char *aura_file_last_error(void);
 #endif
 
+/* Stable scheduler/task/channel ABI.  A task handle is an executor-owned
+ * reference; a channel value transfers exactly one retained payload and its
+ * destructor. These declarations make TaskHandle<T> and Channel<T> crossings
+ * explicit for foreign callers instead of requiring internal runtime symbols. */
+typedef struct AuraTaskExecutor AuraTaskExecutor;
+typedef struct AuraTaskFrame AuraTaskFrame;
+typedef struct AuraTaskChannel AuraTaskChannel;
+#ifndef AURA_TASK_POLL_STATE_DEFINED
+#define AURA_TASK_POLL_STATE_DEFINED 1
+typedef enum AuraTaskPollState {
+  AURA_TASK_READY = 0,
+  AURA_TASK_PENDING = 1,
+  AURA_TASK_COMPLETE = 2,
+  AURA_TASK_FAILED = 3,
+  AURA_TASK_CANCELLED = 4
+} AuraTaskPollState;
+#endif
+typedef AuraTaskPollState (*AuraTaskPollFn)(AuraTaskFrame *frame);
+typedef void (*AuraTaskFrameDestroyFn)(AuraTaskFrame *frame);
+typedef void (*AuraTaskChannelValueDestroyFn)(void *data, size_t size);
+typedef struct {
+  void *data;
+  size_t size;
+  AuraTaskChannelValueDestroyFn destroy;
+} AuraTaskChannelValue;
+typedef enum AuraTaskChannelStatus {
+  AURA_CHANNEL_OK = 0,
+  AURA_CHANNEL_PENDING = 1,
+  AURA_CHANNEL_CLOSED = 2,
+  AURA_CHANNEL_ERROR = 3
+} AuraTaskChannelStatus;
+#define AURA_TASK_CHANNEL_ABI_DEFINED 1
+
+AuraTaskExecutor *aura_task_executor_new(void);
+AuraTaskFrame *aura_task_frame_new(size_t data_size, AuraTaskPollFn poll,
+                                   AuraTaskFrameDestroyFn destroy);
+AuraTaskPollState aura_task_poll_unit(AuraTaskFrame *frame);
+int aura_task_executor_submit(AuraTaskExecutor *executor, AuraTaskFrame *frame);
+size_t aura_task_executor_run(AuraTaskExecutor *executor);
+int aura_task_executor_release(AuraTaskExecutor *executor,
+                               AuraTaskFrame **handle);
+void aura_task_executor_shutdown(AuraTaskExecutor *executor);
+
+int aura_task_executor_retain_payload(AuraTaskExecutor *executor,
+                                       AuraTaskFrame *frame);
+int aura_task_executor_release_payload(AuraTaskExecutor *executor,
+                                       AuraTaskFrame **payload);
+AuraTaskChannel *aura_task_channel_new(size_t capacity);
+int aura_task_channel_retain(AuraTaskChannel *channel);
+AuraTaskChannelStatus aura_task_channel_send(AuraTaskChannel *channel,
+                                             AuraTaskFrame *sender,
+                                             AuraTaskChannelValue value);
+AuraTaskChannelStatus aura_task_channel_receive(AuraTaskChannel *channel,
+                                                AuraTaskFrame *receiver,
+                                                AuraTaskChannelValue *out);
+int aura_task_channel_close(AuraTaskChannel *channel);
+void aura_task_channel_destroy(AuraTaskChannel *channel);
+AuraTaskChannelValue aura_task_channel_value_from_task(AuraTaskExecutor *executor,
+                                                        AuraTaskFrame *frame);
+AuraTaskFrame *aura_task_channel_value_take_task(void *data, size_t size);
+AuraTaskChannelValue aura_task_channel_value_from_channel(AuraTaskChannel *channel);
+AuraTaskChannel *aura_task_channel_value_take_channel(void *data, size_t size);
+void aura_task_channel_value_destroy_free(void *data, size_t size);
+void aura_task_channel_value_destroy_task(void *data, size_t size);
+void aura_task_channel_value_destroy_channel(void *data, size_t size);
+
 /* Bounded std.net transport ABI.  Handles are opaque and own their socket
  * until close/destroy.  The current Aura FFI primitive contract cannot pass
  * these handles (only Int, Bool, String, and Unit are legal), so these
@@ -74,11 +140,17 @@ typedef enum AuraTcpStatus {
 
 AuraTcpStatus aura_tcp_listener_bind(uint16_t port, uint16_t *out_port,
                                      AuraTcpListener **out_listener);
+AuraTcpStatus aura_tcp_listener_bind_endpoint(const char *endpoint,
+                                              uint16_t *out_port,
+                                              AuraTcpListener **out_listener);
 AuraTcpStatus aura_tcp_listener_accept(AuraTcpListener *listener,
                                        int timeout_ms,
                                        AuraTcpStream **out_stream);
 AuraTcpStatus aura_tcp_stream_connect(uint16_t port, int timeout_ms,
                                       AuraTcpStream **out_stream);
+AuraTcpStatus aura_tcp_stream_connect_endpoint(const char *endpoint,
+                                               int timeout_ms,
+                                               AuraTcpStream **out_stream);
 AuraTcpStatus aura_tcp_stream_read(AuraTcpStream *stream, void *buffer,
                                    size_t capacity, size_t *out_bytes,
                                    int timeout_ms);
@@ -117,6 +189,38 @@ typedef enum AuraFfiStatus {
   AURA_FFI_INVALID = 1,
   AURA_FFI_OOM = 2
 } AuraFfiStatus;
+
+/* Stable type-erased ownership contract for genuinely open generic payloads.
+ * Concrete compiler monomorphs continue to use their typed ABI; this shape
+ * is reserved for values that must cross a runtime/plugin boundary without
+ * pretending that an unknown T is an integer. */
+typedef void *(*AuraTypeErasedCloneFn)(const void *data, size_t size,
+                                       size_t *cloned_size);
+typedef void (*AuraTypeErasedDropFn)(void *data, size_t size);
+typedef void (*AuraTypeErasedMarkFn)(const void *data, size_t size);
+typedef struct AuraTypeErasedOps {
+  uint32_t abi_version;
+  AuraTypeErasedCloneFn clone;
+  AuraTypeErasedDropFn drop;
+  AuraTypeErasedMarkFn mark;
+} AuraTypeErasedOps;
+typedef struct AuraTypeErasedValue {
+  void *data;
+  size_t size;
+  const AuraTypeErasedOps *ops;
+} AuraTypeErasedValue;
+
+#define AURA_TYPE_ERASED_ABI_VERSION 1u
+AuraFfiStatus aura_type_erased_clone(const AuraTypeErasedValue *source,
+                                     AuraTypeErasedValue *out);
+void aura_type_erased_drop(AuraTypeErasedValue *value);
+void aura_type_erased_mark(const AuraTypeErasedValue *value);
+AuraFfiStatus aura_task_frame_set_erased_result(
+    AuraTaskFrame *frame, const AuraTypeErasedValue *value);
+/* Clone the terminal erased result; `out` owns its payload independently of
+ * the frame and remains valid after the frame is released. */
+AuraFfiStatus aura_task_frame_result_erased(
+    const AuraTaskFrame *frame, AuraTypeErasedValue *out);
 
 typedef struct AuraFfiStringView {
   const char *data;
@@ -222,13 +326,49 @@ typedef enum AuraFfiBoundary {
  * cancellation remains idempotent and releases the resource at most once. */
 typedef struct AuraTaskExecutor AuraTaskExecutor;
 typedef struct AuraTaskFrame AuraTaskFrame;
+typedef struct AuraTaskScope AuraTaskScope;
+typedef struct AuraReactor AuraReactor;
+typedef int (*AuraReactorPollFn)(void *data, AuraTaskExecutor *executor,
+                                 int timeout_ms);
+typedef void (*AuraReactorDestroyFn)(void *data);
+
+#define AURA_REACTOR_ABI_VERSION 1u
+
+/* A reactor owns only readiness policy. Task frames remain executor-owned;
+ * poll implementations must wake them through aura_task_executor_wake_waiting
+ * and must not destroy or retain a frame after the poll call returns. */
+AuraReactor *aura_reactor_new(AuraReactorPollFn poll, void *data,
+                              AuraReactorDestroyFn data_destroy);
+AuraReactor *aura_reactor_posix_new(void);
+void aura_reactor_destroy(AuraReactor *reactor);
+int aura_task_executor_set_reactor(AuraTaskExecutor *executor,
+                                   AuraReactor *reactor);
+void aura_gc_collect_executor(AuraTaskExecutor *executor);
+typedef struct AuraTaskChannel AuraTaskChannel;
+typedef struct AuraTaskSelect AuraTaskSelect;
 typedef void (*AuraTaskFrameGcMarkFn)(AuraTaskFrame *frame);
+typedef void (*AuraTaskFrameDataDropFn)(AuraTaskFrame *frame, void *data,
+                                        size_t size);
+typedef void (*AuraTaskBlockingFn)(AuraTaskFrame *frame, void *environment);
+typedef void (*AuraTaskBlockingEnvDestroyFn)(void *environment);
+AuraTaskFrame *aura_task_frame_new_blocking(
+    AuraTaskExecutor *executor, AuraTaskBlockingFn function, void *environment,
+    AuraTaskBlockingEnvDestroyFn environment_destroy);
+AuraTaskScope *aura_task_scope_begin(AuraTaskExecutor *executor);
+int aura_task_scope_end(AuraTaskScope *scope);
+AuraTaskSelect *aura_task_select_new(void);
+int aura_task_select_add(AuraTaskSelect *select, AuraTaskChannel *channel);
+void aura_task_select_destroy(AuraTaskSelect *select);
 int64_t aura_time_monotonic_millis(void);
 int aura_task_frame_set_cancel_deadline(AuraTaskFrame *frame, int timeout_ms);
 int aura_task_frame_link_cancellation(AuraTaskFrame *parent,
                                       AuraTaskFrame *child);
 int aura_task_executor_set_max_live_tasks(AuraTaskExecutor *executor,
                                           size_t max_live_tasks);
+int aura_task_executor_start_workers(AuraTaskExecutor *executor,
+                                     size_t worker_count);
+void aura_task_executor_stop_workers(AuraTaskExecutor *executor);
+#ifndef AURA_TASK_POLL_STATE_DEFINED
 #define AURA_TASK_POLL_STATE_DEFINED 1
 typedef enum AuraTaskPollState {
   AURA_TASK_READY = 0,
@@ -237,6 +377,7 @@ typedef enum AuraTaskPollState {
   AURA_TASK_FAILED = 3,
   AURA_TASK_CANCELLED = 4
 } AuraTaskPollState;
+#endif
 typedef struct AuraTcpListener AuraTcpListener;
 typedef struct AuraTcpStream AuraTcpStream;
 typedef struct AuraIoOperationHandle AuraIoOperationHandle;
@@ -346,6 +487,10 @@ int64_t aura_io_write_fd(int fd, const void *buffer, uint64_t length);
  * for every GC object reachable from that frame's live state. */
 void aura_task_frame_set_gc_mark(AuraTaskFrame *frame,
                                  AuraTaskFrameGcMarkFn mark);
+/* Drop typed references stored in frame data exactly once, after the
+ * poll-specific destroy callback and before the frame data is released. */
+void aura_task_frame_set_data_drop(AuraTaskFrame *frame,
+                                   AuraTaskFrameDataDropFn drop);
 
 /* Retain a foreign handle pin in the task frame until frame destruction.  This
  * is the ownership bridge for compiler-generated TASK/AWAIT state; callers do
@@ -410,6 +555,9 @@ AuraFfiStatus aura_ffi_handle_pin(AuraFfiOpaqueHandle *handle,
 /* Retain one independent owner for a task/frame capture.  The retained
  * owner keeps the resource live until its matching drop call. */
 AuraFfiStatus aura_ffi_handle_retain(AuraFfiOpaqueHandle *handle);
+/* Destructor for compiler-created exception payload wrappers containing one
+ * retained opaque handle pointer. */
+void aura_destroy_foreign_handle_payload(void *payload);
 /* Pin a handle for a specific ownership boundary.  SYNC, TASK, and AWAIT
  * pins are valid while the caller retains the token; CHANNEL and CALLBACK
  * crossings remain rejected until those ownership contracts are defined. */
@@ -445,6 +593,19 @@ typedef struct AuraFfiCallback AuraFfiCallback;
 typedef int32_t (*AuraFfiCallbackFn)(void *environment, const void *payload,
                                      uint64_t payload_len);
 typedef void (*AuraFfiCallbackEnvDestroyFn)(void *environment);
+typedef void *(*AuraFfiPayloadCloneFn)(const void *payload, uint64_t payload_len,
+                                       uint64_t *cloned_len);
+typedef void (*AuraFfiPayloadDestroyFn)(void *payload, uint64_t payload_len);
+
+#define AURA_FFI_MAX_OWNED_CALLBACK_PAYLOAD (UINT64_C(16) * UINT64_C(1024) * UINT64_C(1024))
+
+/* An owned callback snapshot. The destroy hook is part of the value so an
+ * allocator-specific payload never crosses the ABI without its destructor. */
+typedef struct AuraFfiOwnedPayload {
+  void *data;
+  uint64_t len;
+  AuraFfiPayloadDestroyFn destroy;
+} AuraFfiOwnedPayload;
 
 typedef enum AuraFfiOutcome {
   AURA_FFI_OUTCOME_OK = 0,
@@ -475,6 +636,15 @@ AuraFfiStatus aura_ffi_callback_invoke(AuraFfiCallback *callback,
                                        const void *payload,
                                        uint64_t payload_len,
                                        AuraFfiOutcome *outcome);
+/* Clone the borrowed input before synchronous delivery and return that clone
+ * to the caller only for a successful foreign outcome. The callback never
+ * receives a pointer whose lifetime ends before its invocation returns. */
+AuraFfiStatus aura_ffi_callback_invoke_owned(
+    AuraFfiCallback *callback, uint64_t current_task, AuraFfiBoundary boundary,
+    const void *payload, uint64_t payload_len, AuraFfiPayloadCloneFn clone,
+    AuraFfiPayloadDestroyFn destroy, AuraFfiOwnedPayload *owned_payload,
+    AuraFfiOutcome *outcome);
+AuraFfiStatus aura_ffi_owned_payload_destroy(AuraFfiOwnedPayload *payload);
 AuraFfiStatus aura_ffi_callback_deregister(AuraFfiCallback *callback);
 AuraFfiStatus aura_ffi_callback_shutdown(AuraFfiCallback *callback);
 AuraFfiStatus aura_ffi_callback_destroy(AuraFfiCallback **callback);

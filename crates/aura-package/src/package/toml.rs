@@ -38,6 +38,8 @@ pub(crate) struct AuraToml {
     pub(crate) bin_path: Option<String>,
     /// Dependencies: path and/or registry version requirements.
     pub(crate) dependencies: HashMap<String, DepSpec>,
+    /// RFC-010 procedural macro plugins: derive/macro name → executable path.
+    pub(crate) macro_plugins: BTreeMap<String, String>,
     /// Fully normalized build settings for each built-in profile.
     pub(crate) profiles: BTreeMap<Profile, ProfileSettings>,
 }
@@ -50,6 +52,7 @@ impl Default for AuraToml {
             bin_name: None,
             bin_path: None,
             dependencies: HashMap::new(),
+            macro_plugins: BTreeMap::new(),
             profiles: normalized_default_profiles(),
         }
     }
@@ -102,6 +105,10 @@ pub(crate) fn parse_aura_toml(text: &str) -> Result<AuraToml, String> {
                 profile = None;
             } else if line == "[dependencies]" {
                 section = "dependencies".into();
+                in_bin = false;
+                profile = None;
+            } else if line == "[macro_plugins]" {
+                section = "macro_plugins".into();
                 in_bin = false;
                 profile = None;
             } else if let Some(name) = line
@@ -244,6 +251,16 @@ pub(crate) fn parse_aura_toml(text: &str) -> Result<AuraToml, String> {
                 let dep =
                     parse_dep_spec(val_raw).map_err(|e| format!("line {}: {e}", lineno + 1))?;
                 out.dependencies.insert(key.to_string(), dep);
+            }
+            "macro_plugins" => {
+                let plugin =
+                    parse_toml_string(val_raw).map_err(|e| format!("line {}: {e}", lineno + 1))?;
+                if out.macro_plugins.insert(key.to_string(), plugin).is_some() {
+                    return Err(format!(
+                        "line {}: duplicate macro plugin `{key}`",
+                        lineno + 1
+                    ));
+                }
             }
             _ => {}
         }

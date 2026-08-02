@@ -306,8 +306,19 @@ impl Parser {
         let mut methods = Vec::new();
         while !matches!(self.peek().kind, TokenKind::RBrace | TokenKind::Eof) {
             let attributes = self.parse_attributes()?;
-            let modifiers = self.parse_modifiers()?;
+            let mut modifiers = self.parse_modifiers()?;
             let visibility = self.parse_member_visibility();
+            // Allow the conventional `pub static fun` ordering as well as
+            // the existing modifier-before-visibility form.
+            for modifier in self.parse_modifiers()? {
+                if modifiers.contains(&modifier) {
+                    return Err(ParseError {
+                        message: "duplicate declaration modifier".into(),
+                        span: self.peek().span,
+                    });
+                }
+                modifiers.push(modifier);
+            }
             let mut method = if matches!(self.peek().kind, TokenKind::Async) {
                 let async_method = self.parse_async_fun()?;
                 let task_name = Ident {

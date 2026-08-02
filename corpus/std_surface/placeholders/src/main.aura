@@ -1,0 +1,13 @@
+// Alpha API smoke: planned std packages are source-compatible before backends.
+
+package std_surface_placeholders
+
+import std.crypto as Crypto
+import std.reflect as Reflect
+
+fun main() {
+  val digest: Crypto.Digest = Crypto.sha256("alpha")
+  val info: Reflect.TypeInfo = Reflect.typeInfo("Example")
+  println(digest.algorithm)
+  println(info.name)
+}

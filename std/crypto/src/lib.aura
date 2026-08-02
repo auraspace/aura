@@ -1,0 +1,54 @@
+// std.crypto -- alpha API shell for cryptographic primitives.
+//
+// The names and value shapes are locked in the alpha contract. Operations
+// intentionally fail until a verified platform backend is selected.
+
+package std.crypto
+
+pub enum CryptoError {
+  case InvalidInput
+  case Unsupported
+  case EntropyUnavailable
+}
+
+pub class Digest(pub val algorithm: String, pub val hex: String) {}
+
+pub class TlsConfig(pub val serverName: String, pub val verifyPeer: Bool) {}
+
+pub class TlsConnection(pub val endpoint: String) {
+  pub async fun read(capacity: Int): String {
+    throw "std.crypto TLS is a placeholder"
+  }
+
+  pub async fun write(content: String): Int {
+    throw "std.crypto TLS is a placeholder"
+  }
+
+  pub fun close(): Unit {
+    throw "std.crypto TLS is a placeholder"
+  }
+}
+
+pub fun randomBytes(length: Int): String {
+  throw "std.crypto randomBytes is a placeholder"
+}
+
+pub fun sha256(value: String): Digest {
+  throw "std.crypto sha256 is a placeholder"
+}
+
+pub fun hmacSha256(key: String, value: String): Digest {
+  throw "std.crypto hmacSha256 is a placeholder"
+}
+
+pub fun constantTimeEquals(left: String, right: String): Bool {
+  throw "std.crypto constantTimeEquals is a placeholder"
+}
+
+pub fun tlsConfig(serverName: String, verifyPeer: Bool): TlsConfig {
+  return TlsConfig(serverName, verifyPeer)
+}
+
+pub async fun connectTls(endpoint: String, config: TlsConfig): TlsConnection {
+  throw "std.crypto connectTls is a placeholder"
+}

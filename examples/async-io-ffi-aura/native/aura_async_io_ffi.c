@@ -5,7 +5,7 @@
 #include <unistd.h>
 
 #define AURA_RUNTIME_NO_MAIN
-#include "../../../runtime/aura_rt.c"
+#include "../../../runtime/runtime.c"
 
 typedef struct {
   AuraIoOperationHandle *operation;

@@ -16,25 +16,144 @@ fn enum_field_is_unit(
     type_ref_local_key(&field.ty, params, args) == "Unit"
 }
 
+fn task_payload_ty(ty: &Ty) -> &Ty {
+    match ty {
+        Ty::Nullable(inner) => task_payload_ty(inner),
+        other => other,
+    }
+}
+
 fn task_result_string_ok(e: &EnumDecl, pkg: &str, args: &[Ty], variant: &str) -> bool {
     pkg == "std.io"
         && e.name.name == "Result"
         && variant == "Ok"
-        && matches!(args, [Ty::String, Ty::Enum(name)] if name == "TaskError@std.io")
+        && matches!(args, [payload, Ty::Enum(name)] if matches!(task_payload_ty(payload), Ty::String) && name == "TaskError@std.io")
 }
 
 fn task_result_foreign_handle_ok(e: &EnumDecl, pkg: &str, args: &[Ty], variant: &str) -> bool {
     pkg == "std.io"
         && e.name.name == "Result"
         && variant == "Ok"
-        && matches!(args, [Ty::ForeignHandle(_), Ty::Enum(name)] if name == "TaskError@std.io")
+        && matches!(args, [payload, Ty::Enum(name)] if matches!(task_payload_ty(payload), Ty::ForeignHandle(_)) && name == "TaskError@std.io")
+}
+
+fn task_result_class_ok(
+    e: &EnumDecl,
+    pkg: &str,
+    args: &[Ty],
+    variant: &str,
+    checked: &CheckedFile,
+) -> bool {
+    pkg == "std.io"
+        && e.name.name == "Result"
+        && variant == "Ok"
+        && args.first().is_some_and(|ty| {
+            matches!(task_payload_ty(ty), Ty::Class(_) | Ty::ClassApp { .. })
+                && c_type_from_ty(task_payload_ty(ty), checked)
+                    .trim_end()
+                    .ends_with('*')
+        })
+}
+
+fn task_result_enum_ok(e: &EnumDecl, pkg: &str, args: &[Ty], variant: &str) -> bool {
+    pkg == "std.io"
+        && e.name.name == "Result"
+        && variant == "Ok"
+        && args
+            .first()
+            .is_some_and(|ty| matches!(task_payload_ty(ty), Ty::Enum(_) | Ty::EnumApp { .. }))
+}
+
+fn task_result_array_ok(e: &EnumDecl, pkg: &str, args: &[Ty], variant: &str) -> bool {
+    pkg == "std.io"
+        && e.name.name == "Result"
+        && variant == "Ok"
+        && args.first().is_some_and(|ty| {
+            matches!(
+                task_payload_ty(ty),
+                Ty::Class(name) | Ty::ClassApp { name, .. }
+                    if aura_sema::split_nominal(name).0 == "Array"
+            )
+        })
+}
+
+fn task_result_struct_ok(
+    e: &EnumDecl,
+    pkg: &str,
+    args: &[Ty],
+    variant: &str,
+    checked: &CheckedFile,
+) -> bool {
+    pkg == "std.io"
+        && e.name.name == "Result"
+        && variant == "Ok"
+        && args.first().is_some_and(|ty| {
+            let name = match task_payload_ty(ty) {
+                Ty::Class(name) | Ty::Enum(name) => name,
+                Ty::ClassApp { name, .. } | Ty::EnumApp { name, .. } => name,
+                _ => return false,
+            };
+            let base = aura_sema::split_nominal(name).0;
+            checked
+                .ast
+                .classes
+                .iter()
+                .any(|class| class.kind == NominalKind::Struct && class.name.name == base)
+        })
+}
+
+fn task_result_iface_ok(
+    e: &EnumDecl,
+    pkg: &str,
+    args: &[Ty],
+    variant: &str,
+    checked: &CheckedFile,
+) -> bool {
+    pkg == "std.io"
+        && e.name.name == "Result"
+        && variant == "Ok"
+        && args.first().is_some_and(|ty| {
+            let key = match task_payload_ty(ty) {
+                Ty::Interface(name) => aura_sema::split_nominal(name).0.to_string(),
+                Ty::InterfaceApp { name, args } => mono_key(name, args),
+                _ => return false,
+            };
+            is_iface_type_key(&key, checked)
+        })
+}
+
+fn task_result_scheduler_ok(e: &EnumDecl, pkg: &str, args: &[Ty], variant: &str) -> bool {
+    pkg == "std.io"
+        && e.name.name == "Result"
+        && variant == "Ok"
+        && matches!(args, [payload, Ty::Enum(name)] if matches!(task_payload_ty(payload), Ty::Task(_) | Ty::TaskHandle(_) | Ty::Channel(_)) && name == "TaskError@std.io")
 }
 
 fn shared_outcome_string_ok(e: &EnumDecl, pkg: &str, args: &[Ty], variant: &str) -> bool {
     pkg == "std.error"
         && e.name.name == "Outcome"
         && variant == "OutcomeOk"
-        && matches!(args.first(), Some(Ty::String))
+        && args
+            .first()
+            .is_some_and(|ty| matches!(task_payload_ty(ty), Ty::String))
+}
+
+fn shared_outcome_error_class(
+    e: &EnumDecl,
+    pkg: &str,
+    args: &[Ty],
+    variant: &str,
+    checked: &CheckedFile,
+) -> bool {
+    pkg == "std.error"
+        && e.name.name == "Outcome"
+        && variant == "OutcomeErr"
+        && args.get(1).is_some_and(|ty| {
+            matches!(task_payload_ty(ty), Ty::Class(_) | Ty::ClassApp { .. })
+                && c_type_from_ty(task_payload_ty(ty), checked)
+                    .trim_end()
+                    .ends_with('*')
+        })
 }
 
 fn enum_field_c_type(
@@ -79,9 +198,8 @@ pub(crate) fn emit_enum_typedef(
             }
             if task_error && v.name.name == "Failed" {
                 out.push_str("      bool owned;\n");
-            }
-            if task_error && v.name.name == "FailedTyped" {
-                out.push_str("      bool owned;\n");
+                out.push_str("      const char *type_name;\n      bool type_name_owned;\n");
+                out.push_str("      uint32_t source_id;\n      uint32_t span_start;\n      uint32_t span_end;\n");
             }
             if task_result_string_ok(e, &pkg, args, &v.name.name) {
                 out.push_str("      bool owned;\n");
@@ -89,7 +207,28 @@ pub(crate) fn emit_enum_typedef(
             if task_result_foreign_handle_ok(e, &pkg, args, &v.name.name) {
                 out.push_str("      bool owned;\n");
             }
+            if task_result_class_ok(e, &pkg, args, &v.name.name, checked) {
+                out.push_str("      bool owned;\n");
+            }
+            if task_result_enum_ok(e, &pkg, args, &v.name.name) {
+                out.push_str("      bool owned;\n");
+            }
+            if task_result_array_ok(e, &pkg, args, &v.name.name) {
+                out.push_str("      bool owned;\n");
+            }
+            if task_result_struct_ok(e, &pkg, args, &v.name.name, checked) {
+                out.push_str("      bool owned;\n");
+            }
+            if task_result_iface_ok(e, &pkg, args, &v.name.name, checked) {
+                out.push_str("      bool owned;\n");
+            }
+            if task_result_scheduler_ok(e, &pkg, args, &v.name.name) {
+                out.push_str("      bool owned;\n");
+            }
             if shared_outcome_string_ok(e, &pkg, args, &v.name.name) {
+                out.push_str("      bool owned;\n");
+            }
+            if shared_outcome_error_class(e, &pkg, args, &v.name.name, checked) {
                 out.push_str("      bool owned;\n");
             }
             let _ = writeln!(out, "    }} {};", mangle_ident(&v.name.name));
@@ -114,6 +253,10 @@ pub(crate) fn emit_enum_forwards(
             c_variant_signature(e, v, checked, &params, args, &mono)
         );
     }
+    let cty = c_enum_type(&mono);
+    let _ = writeln!(out, "{cty} {cty}_clone(const {cty} *source);");
+    let _ = writeln!(out, "void {cty}_drop({cty} *value);");
+    let _ = writeln!(out, "void {cty}_mark(const {cty} *value);");
 }
 
 pub(crate) fn c_variant_signature(
@@ -174,10 +317,23 @@ pub(crate) fn emit_enum_defs(out: &mut String, checked: &CheckedFile, e: &EnumDe
                 n,
                 n
             );
-            if task_error && (v.name.name == "Failed" || v.name.name == "FailedTyped") {
+            if task_error && v.name.name == "Failed" {
                 let _ = writeln!(
                     out,
                     "  self.data.{}.owned = false;",
+                    mangle_ident(&v.name.name)
+                );
+                let _ = writeln!(
+                    out,
+                    "  self.data.{}.type_name = NULL; self.data.{}.type_name_owned = false;",
+                    mangle_ident(&v.name.name),
+                    mangle_ident(&v.name.name)
+                );
+                let _ = writeln!(
+                    out,
+                    "  self.data.{}.source_id = 0; self.data.{}.span_start = 0; self.data.{}.span_end = 0;",
+                    mangle_ident(&v.name.name),
+                    mangle_ident(&v.name.name),
                     mangle_ident(&v.name.name)
                 );
             }
@@ -187,8 +343,29 @@ pub(crate) fn emit_enum_defs(out: &mut String, checked: &CheckedFile, e: &EnumDe
             if task_result_foreign_handle_ok(e, &pkg, args, &v.name.name) {
                 let _ = writeln!(out, "  self.data.Ok.owned = false;");
             }
+            if task_result_class_ok(e, &pkg, args, &v.name.name, checked) {
+                let _ = writeln!(out, "  self.data.Ok.owned = false;");
+            }
+            if task_result_enum_ok(e, &pkg, args, &v.name.name) {
+                let _ = writeln!(out, "  self.data.Ok.owned = false;");
+            }
+            if task_result_array_ok(e, &pkg, args, &v.name.name) {
+                let _ = writeln!(out, "  self.data.Ok.owned = false;");
+            }
+            if task_result_struct_ok(e, &pkg, args, &v.name.name, checked) {
+                let _ = writeln!(out, "  self.data.Ok.owned = false;");
+            }
+            if task_result_iface_ok(e, &pkg, args, &v.name.name, checked) {
+                let _ = writeln!(out, "  self.data.Ok.owned = false;");
+            }
+            if task_result_scheduler_ok(e, &pkg, args, &v.name.name) {
+                let _ = writeln!(out, "  self.data.Ok.owned = false;");
+            }
             if shared_outcome_string_ok(e, &pkg, args, &v.name.name) {
                 let _ = writeln!(out, "  self.data.OutcomeOk.owned = false;");
+            }
+            if shared_outcome_error_class(e, &pkg, args, &v.name.name, checked) {
+                let _ = writeln!(out, "  self.data.OutcomeErr.owned = false;");
             }
         }
         out.push_str("  return self;\n}\n");
@@ -197,21 +374,11 @@ pub(crate) fn emit_enum_defs(out: &mut String, checked: &CheckedFile, e: &EnumDe
         let ctor = c_variant_ctor_name(&mono, "FailedOwned");
         let _ = writeln!(
             out,
-            "{} {}(const char *error) {{ {} self; self.tag = 0; self.data.Failed.error = error; self.data.Failed.owned = true; return self; }}",
+            "{} {}(const char *error) {{ {} self; self.tag = 0; self.data.Failed.error = error; self.data.Failed.owned = true; self.data.Failed.type_name = NULL; self.data.Failed.type_name_owned = false; self.data.Failed.source_id = 0; self.data.Failed.span_start = 0; self.data.Failed.span_end = 0; return self; }}",
             c_enum_type(&mono),
             ctor,
             c_enum_type(&mono)
         );
-        if let Some(typed_tag) = e.variants.iter().position(|v| v.name.name == "FailedTyped") {
-            let ctor = c_variant_ctor_name(&mono, "FailedTypedOwned");
-            let _ = writeln!(
-                out,
-                "{} {}(const char *error, const char *typeName) {{ {} self; self.tag = {typed_tag}; self.data.FailedTyped.error = error; self.data.FailedTyped.typeName = typeName; self.data.FailedTyped.owned = true; return self; }}",
-                c_enum_type(&mono),
-                ctor,
-                c_enum_type(&mono)
-            );
-        }
     }
     if task_result_string_ok(e, &pkg, args, "Ok") {
         let ctor = c_variant_ctor_name(&mono, "OkOwned");
@@ -233,6 +400,68 @@ pub(crate) fn emit_enum_defs(out: &mut String, checked: &CheckedFile, e: &EnumDe
             c_enum_type(&mono)
         );
     }
+    if task_result_class_ok(e, &pkg, args, "Ok", checked) {
+        let ctor = c_variant_ctor_name(&mono, "OkOwned");
+        let _ = writeln!(
+            out,
+            "{} {}({} value) {{ {} self; self.tag = 0; self.data.Ok.value = value; self.data.Ok.owned = true; return self; }}",
+            c_enum_type(&mono),
+            ctor,
+            c_type_from_ty(&args[0], checked),
+            c_enum_type(&mono)
+        );
+    }
+    if task_result_enum_ok(e, &pkg, args, "Ok") {
+        let ctor = c_variant_ctor_name(&mono, "OkOwned");
+        let payload = c_type_from_ty(&args[0], checked);
+        let _ = writeln!(
+            out,
+            "{} {}({} value) {{ {} self; self.tag = 0; self.data.Ok.value = value; self.data.Ok.owned = true; return self; }}",
+            c_enum_type(&mono),
+            ctor,
+            payload,
+            c_enum_type(&mono)
+        );
+    }
+    if task_result_array_ok(e, &pkg, args, "Ok") {
+        let ctor = c_variant_ctor_name(&mono, "OkOwned");
+        let payload = c_type_from_ty(&args[0], checked);
+        let _ = writeln!(
+            out,
+            "{} {}({} value) {{ {} self; self.tag = 0; self.data.Ok.value = value; self.data.Ok.owned = true; return self; }}",
+            c_enum_type(&mono),
+            ctor,
+            payload,
+            c_enum_type(&mono)
+        );
+    }
+    if task_result_struct_ok(e, &pkg, args, "Ok", checked) {
+        let ctor = c_variant_ctor_name(&mono, "OkOwned");
+        let payload = c_type_from_ty(&args[0], checked);
+        let _ = writeln!(
+            out,
+            "{} {}({} value) {{ {} self; self.tag = 0; self.data.Ok.value = value; self.data.Ok.owned = true; return self; }}",
+            c_enum_type(&mono), ctor, payload, c_enum_type(&mono)
+        );
+    }
+    if task_result_iface_ok(e, &pkg, args, "Ok", checked) {
+        let ctor = c_variant_ctor_name(&mono, "OkOwned");
+        let payload = c_type_from_ty(&args[0], checked);
+        let _ = writeln!(
+            out,
+            "{} {}({} value) {{ {} self; self.tag = 0; self.data.Ok.value = value; self.data.Ok.owned = true; return self; }}",
+            c_enum_type(&mono), ctor, payload, c_enum_type(&mono)
+        );
+    }
+    if task_result_scheduler_ok(e, &pkg, args, "Ok") {
+        let ctor = c_variant_ctor_name(&mono, "OkOwned");
+        let payload = c_type_from_ty(&args[0], checked);
+        let _ = writeln!(
+            out,
+            "{} {}({} value) {{ {} self; self.tag = 0; self.data.Ok.value = value; self.data.Ok.owned = true; return self; }}",
+            c_enum_type(&mono), ctor, payload, c_enum_type(&mono)
+        );
+    }
     if shared_outcome_string_ok(e, &pkg, args, "OutcomeOk") {
         let ctor = c_variant_ctor_name(&mono, "OutcomeOkOwned");
         let _ = writeln!(
@@ -243,4 +472,263 @@ pub(crate) fn emit_enum_defs(out: &mut String, checked: &CheckedFile, e: &EnumDe
             c_enum_type(&mono)
         );
     }
+    emit_enum_clone_drop(out, checked, e, args);
+}
+
+fn variant_has_owned_field(
+    e: &EnumDecl,
+    pkg: &str,
+    args: &[Ty],
+    variant: &str,
+    checked: &CheckedFile,
+) -> bool {
+    task_error_variant(e, pkg, variant)
+        || task_result_string_ok(e, pkg, args, variant)
+        || task_result_foreign_handle_ok(e, pkg, args, variant)
+        || task_result_class_ok(e, pkg, args, variant, checked)
+        || task_result_enum_ok(e, pkg, args, variant)
+        || task_result_array_ok(e, pkg, args, variant)
+        || task_result_struct_ok(e, pkg, args, variant, checked)
+        || task_result_iface_ok(e, pkg, args, variant, checked)
+        || task_result_scheduler_ok(e, pkg, args, variant)
+        || shared_outcome_string_ok(e, pkg, args, variant)
+        || shared_outcome_error_class(e, pkg, args, variant, checked)
+}
+
+fn task_error_variant(e: &EnumDecl, pkg: &str, variant: &str) -> bool {
+    pkg == "std.io" && e.name.name == "TaskError" && variant == "Failed"
+}
+
+fn emit_enum_clone_drop(out: &mut String, checked: &CheckedFile, e: &EnumDecl, args: &[Ty]) {
+    let params: Vec<String> = e.type_params.iter().map(|p| p.name.name.clone()).collect();
+    let pkg = enum_decl_package(e, checked);
+    let mono = type_mono(&pkg, &e.name.name, args);
+    let cty = c_enum_type(&mono);
+    let _ = writeln!(out, "{cty} {cty}_clone(const {cty} *source) {{");
+    let _ = writeln!(
+        out,
+        "  {cty} copy = source == NULL ? ({cty}){{0}} : *source;"
+    );
+    out.push_str("  if (source == NULL) return copy;\n  switch (source->tag) {\n");
+    for (tag, variant) in e.variants.iter().enumerate() {
+        let vn = mangle_ident(&variant.name.name);
+        let _ = writeln!(out, "    case {tag}: {{");
+        for field in &variant.fields {
+            if enum_field_is_unit(field, &params, args, checked) {
+                continue;
+            }
+            let key = type_ref_local_key_expand(&field.ty, &params, args, checked);
+            let fnm = mangle_ident(&field.name.name);
+            let full_key = crate::expr::full_type_mono(&key, checked);
+            let nested_enum =
+                crate::expr::mono_split(&full_key, checked).is_some_and(|(base, _)| {
+                    checked
+                        .ast
+                        .enums
+                        .iter()
+                        .any(|nested| nested.name.name == base)
+                });
+            let nested_struct =
+                crate::expr::mono_base_name(&full_key, checked).is_some_and(|base| {
+                    checked.ast.classes.iter().any(|nested| {
+                        nested.kind == NominalKind::Struct && nested.name.name == base
+                    })
+                });
+            if key == "String" {
+                let _ = writeln!(
+                    out,
+                    "      if (source->data.{vn}.{fnm} != NULL) {{ size_t len = strlen(source->data.{vn}.{fnm}); char *text = (char *)malloc(len + 1); if (text == NULL) abort(); memcpy(text, source->data.{vn}.{fnm}, len + 1); copy.data.{vn}.{fnm} = text; }}"
+                );
+            } else if crate::array_emit::is_array_type_key(&full_key) {
+                let clone = crate::names::c_method_name(&full_key, "clone");
+                let array_cty = crate::stmt::local_key_to_c(&full_key, checked);
+                let _ = writeln!(
+                    out,
+                    "      copy.data.{vn}.{fnm} = {clone}(({array_cty} *)&source->data.{vn}.{fnm});"
+                );
+            } else if is_heap_class_mono(&full_key, checked) {
+                let _ = writeln!(out, "      copy.data.{vn}.{fnm} = source->data.{vn}.{fnm};");
+            } else if full_key == "ForeignHandle" || full_key.starts_with("ForeignHandle_") {
+                let _ = writeln!(
+                    out,
+                    "      copy.data.{vn}.{fnm} = source->data.{vn}.{fnm}; if (copy.data.{vn}.{fnm} != NULL) (void)aura_ffi_handle_retain(copy.data.{vn}.{fnm});"
+                );
+            } else if full_key == "Channel" || full_key.starts_with("Channel_") {
+                let _ = writeln!(
+                    out,
+                    "      copy.data.{vn}.{fnm} = source->data.{vn}.{fnm}; if (copy.data.{vn}.{fnm} != NULL && !aura_task_channel_retain(copy.data.{vn}.{fnm})) copy.data.{vn}.{fnm} = NULL;"
+                );
+            } else if full_key == "Task"
+                || full_key.starts_with("Task_")
+                || full_key == "TaskHandle"
+                || full_key.starts_with("TaskHandle_")
+            {
+                let _ = writeln!(
+                    out,
+                    "      copy.data.{vn}.{fnm} = source->data.{vn}.{fnm}; if (copy.data.{vn}.{fnm} != NULL && (__aura_task_executor == NULL || !aura_task_executor_retain_payload(__aura_task_executor, copy.data.{vn}.{fnm}))) copy.data.{vn}.{fnm} = NULL;"
+                );
+            } else if nested_enum {
+                let nested_cty = c_enum_type(&full_key);
+                let _ = writeln!(
+                    out,
+                    "      copy.data.{vn}.{fnm} = {nested_cty}_clone(&source->data.{vn}.{fnm});"
+                );
+            } else if nested_struct {
+                let nested_cty = crate::stmt::local_key_to_c(&full_key, checked);
+                let _ = writeln!(
+                    out,
+                    "      copy.data.{vn}.{fnm} = {nested_cty}_clone(&source->data.{vn}.{fnm});"
+                );
+            } else if is_iface_type_key(&full_key, checked) {
+                let iface_cty = crate::stmt::local_key_to_c(&full_key, checked);
+                let _ = writeln!(
+                    out,
+                    "      copy.data.{vn}.{fnm} = {iface_cty}_clone(&source->data.{vn}.{fnm});"
+                );
+            }
+        }
+        if variant_has_owned_field(e, &pkg, args, &variant.name.name, checked) {
+            let _ = writeln!(out, "      copy.data.{vn}.owned = true;");
+        }
+        let _ = writeln!(out, "      break;\n    }}");
+    }
+    out.push_str("    default: break;\n  }\n  return copy;\n}\n");
+    let _ = writeln!(out, "void {cty}_drop({cty} *value) {{");
+    out.push_str("  if (value == NULL) return;\n  switch (value->tag) {\n");
+    for (tag, variant) in e.variants.iter().enumerate() {
+        let vn = mangle_ident(&variant.name.name);
+        let has_owned = variant_has_owned_field(e, &pkg, args, &variant.name.name, checked);
+        let _ = writeln!(out, "    case {tag}: {{");
+        if has_owned {
+            let _ = writeln!(out, "      if (value->data.{vn}.owned) {{");
+        }
+        for field in &variant.fields {
+            if enum_field_is_unit(field, &params, args, checked) {
+                continue;
+            }
+            let key = type_ref_local_key_expand(&field.ty, &params, args, checked);
+            let full_key = crate::expr::full_type_mono(&key, checked);
+            let fnm = mangle_ident(&field.name.name);
+            let nested_enum =
+                crate::expr::mono_split(&full_key, checked).is_some_and(|(base, _)| {
+                    checked
+                        .ast
+                        .enums
+                        .iter()
+                        .any(|nested| nested.name.name == base)
+                });
+            let nested_struct =
+                crate::expr::mono_base_name(&full_key, checked).is_some_and(|base| {
+                    checked.ast.classes.iter().any(|nested| {
+                        nested.kind == NominalKind::Struct && nested.name.name == base
+                    })
+                });
+            if key == "String" {
+                let _ = writeln!(
+                    out,
+                    "        if (value->data.{vn}.{fnm} != NULL) free((void *)value->data.{vn}.{fnm}); value->data.{vn}.{fnm} = NULL;"
+                );
+            } else if crate::array_emit::is_array_type_key(&full_key) {
+                let mut free = String::new();
+                crate::array_emit::emit_array_contents_free_checked(
+                    &mut free,
+                    0,
+                    &format!("value->data.{vn}.{fnm}"),
+                    &full_key,
+                    checked,
+                );
+                for line in free.lines() {
+                    let _ = writeln!(out, "        {line}");
+                }
+            } else if is_heap_class_mono(&full_key, checked) {
+                // Heap-class fields are marked through the containing enum.
+                // The enum value is the owner edge; this drop hook must not
+                // remove a root belonging to the task frame or another owner.
+            } else if full_key == "ForeignHandle" || full_key.starts_with("ForeignHandle_") {
+                let _ = writeln!(
+                    out,
+                    "        if (value->data.{vn}.{fnm} != NULL) (void)aura_ffi_handle_drop(&value->data.{vn}.{fnm});"
+                );
+            } else if full_key == "Channel" || full_key.starts_with("Channel_") {
+                let _ = writeln!(
+                    out,
+                    "        if (value->data.{vn}.{fnm} != NULL) aura_task_channel_destroy(value->data.{vn}.{fnm}); value->data.{vn}.{fnm} = NULL;"
+                );
+            } else if full_key == "Task"
+                || full_key.starts_with("Task_")
+                || full_key == "TaskHandle"
+                || full_key.starts_with("TaskHandle_")
+            {
+                let _ = writeln!(
+                    out,
+                    "        if (value->data.{vn}.{fnm} != NULL && __aura_task_executor != NULL) (void)aura_task_executor_release_payload(__aura_task_executor, &value->data.{vn}.{fnm});"
+                );
+            } else if nested_enum {
+                let nested_cty = c_enum_type(&full_key);
+                let _ = writeln!(out, "        {nested_cty}_drop(&value->data.{vn}.{fnm});");
+            } else if nested_struct {
+                let nested_cty = crate::stmt::local_key_to_c(&full_key, checked);
+                let _ = writeln!(out, "        {nested_cty}_drop(&value->data.{vn}.{fnm});");
+            } else if is_iface_type_key(&full_key, checked) {
+                let iface_cty = crate::stmt::local_key_to_c(&full_key, checked);
+                let _ = writeln!(out, "        {iface_cty}_drop(&value->data.{vn}.{fnm});");
+            }
+        }
+        if has_owned {
+            let _ = writeln!(out, "        value->data.{vn}.owned = false;");
+            out.push_str("      }\n");
+        }
+        out.push_str("      break;\n    }\n");
+    }
+    out.push_str("    default: break;\n  }\n}\n");
+
+    let _ = writeln!(out, "void {cty}_mark(const {cty} *value) {{");
+    out.push_str("  if (value == NULL) return;\n  switch (value->tag) {\n");
+    for (tag, variant) in e.variants.iter().enumerate() {
+        let vn = mangle_ident(&variant.name.name);
+        let _ = writeln!(out, "    case {tag}: {{");
+        for field in &variant.fields {
+            if enum_field_is_unit(field, &params, args, checked) {
+                continue;
+            }
+            let key = type_ref_local_key_expand(&field.ty, &params, args, checked);
+            let full_key = crate::expr::full_type_mono(&key, checked);
+            let fnm = mangle_ident(&field.name.name);
+            if is_heap_class_mono(&full_key, checked) {
+                let _ = writeln!(
+                    out,
+                    "      aura_gc_mark_ptr((void *)value->data.{vn}.{fnm});"
+                );
+            } else if crate::array_emit::is_array_of_heap_class(&full_key, checked) {
+                let array_cty = crate::stmt::local_key_to_c(&full_key, checked);
+                let _ = writeln!(out, "      {array_cty}_mark(&value->data.{vn}.{fnm});");
+            } else if let Some(elem_key) = crate::array_emit::array_elem_key(&full_key) {
+                let elem_key = crate::expr::full_type_mono(elem_key, checked);
+                if crate::expr::is_enum_mono(&elem_key, checked) {
+                    let elem_cty = c_enum_type(&elem_key);
+                    let _ = writeln!(
+                        out,
+                        "      if (value->data.{vn}.{fnm}.data != NULL) for (int64_t __gm = 0; __gm < value->data.{vn}.{fnm}.len; __gm++) {elem_cty}_mark(&value->data.{vn}.{fnm}.data[__gm]);"
+                    );
+                } else if crate::expr::is_value_struct_mono(&elem_key, checked) {
+                    let elem_cty = crate::stmt::local_key_to_c(&elem_key, checked);
+                    let _ = writeln!(
+                        out,
+                        "      if (value->data.{vn}.{fnm}.data != NULL) for (int64_t __gm = 0; __gm < value->data.{vn}.{fnm}.len; __gm++) {elem_cty}_mark(&value->data.{vn}.{fnm}.data[__gm]);"
+                    );
+                }
+            } else if crate::expr::is_enum_mono(&full_key, checked) {
+                let nested_cty = c_enum_type(&full_key);
+                let _ = writeln!(out, "      {nested_cty}_mark(&value->data.{vn}.{fnm});");
+            } else if crate::expr::is_value_struct_mono(&full_key, checked) {
+                let nested_cty = crate::stmt::local_key_to_c(&full_key, checked);
+                let _ = writeln!(out, "      {nested_cty}_mark(&value->data.{vn}.{fnm});");
+            } else if is_iface_type_key(&full_key, checked) {
+                let iface_cty = crate::stmt::local_key_to_c(&full_key, checked);
+                let _ = writeln!(out, "      {iface_cty}_mark(&value->data.{vn}.{fnm});");
+            }
+        }
+        out.push_str("      break;\n    }\n");
+    }
+    out.push_str("    default: break;\n  }\n}\n");
 }

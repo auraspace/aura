@@ -1,0 +1,6 @@
+[package]
+name = "std.tls"
+
+[[bin]]
+name = "tls"
+path = "src"

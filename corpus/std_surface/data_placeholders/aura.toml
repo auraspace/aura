@@ -1,0 +1,6 @@
+[package]
+name = "std_surface_data_placeholders"
+
+[[bin]]
+name = "data_placeholders"
+path = "src"

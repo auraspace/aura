@@ -81,11 +81,23 @@ impl Checker {
         Ok(subst_ty(&get.ret, &subst))
     }
 
-    /// Types that may be thrown/caught (C3c primitives + C3g class/struct values).
+    /// Types that may be thrown/caught when the backend has a typed clone/drop
+    /// boundary for the value. Aggregate exceptions use the same ownership
+    /// contract as task results and frame locals.
     pub(crate) fn is_throwable(ty: &Ty) -> bool {
         matches!(
             ty,
-            Ty::String | Ty::Int | Ty::Bool | Ty::Class(_) | Ty::ClassApp { .. }
+            Ty::String
+                | Ty::Int
+                | Ty::Bool
+                | Ty::Class(_)
+                | Ty::ClassApp { .. }
+                | Ty::Enum(_)
+                | Ty::EnumApp { .. }
+                | Ty::Interface(_)
+                | Ty::InterfaceApp { .. }
+                | Ty::Fun { .. }
+                | Ty::ForeignHandle(_)
         )
     }
 
@@ -257,7 +269,7 @@ impl Checker {
                 } else {
                     Err(SemaError {
                         message: format!(
-                            "cannot throw {}; only String, Int, Bool, class, or struct",
+                            "cannot throw {}; only owned scalar or cloneable aggregate values",
                             ty.display()
                         ),
                         span: t.value.span(),
@@ -271,7 +283,7 @@ impl Checker {
                     if !Self::is_throwable(&catch_ty) {
                         return Err(SemaError {
                             message: format!(
-                                "catch type must be String, Int, Bool, class, or struct (got {})",
+                                "catch type must be an owned scalar or cloneable aggregate (got {})",
                                 catch_ty.display()
                             ),
                             span: c.ty.span,

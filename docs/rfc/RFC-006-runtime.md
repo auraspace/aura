@@ -8,7 +8,7 @@
 | **Layer**    | Runtime                   |
 | **Authors**  |                           |
 | **Created**  | 2026-07-15                |
-| **Updated**  | 2026-07-28                |
+| **Updated**  | 2026-08-02                |
 | **Estimate** | 40–60 pages               |
 | **Depends**  | RFC-000, RFC-001, RFC-003 |
 | **Blocks**   | RFC-007, RFC-008, RFC-013 |
@@ -19,7 +19,7 @@
 
 This RFC specifies the **Aura runtime** linked into application binaries: tracing **GC**, **M:N task scheduler**, async I/O reactor, exception personality support, panic/abort paths, timers, and **C ABI FFI** bridges. The runtime is shipped as libraries produced by the Rust toolchain and linked by `aura build`, not installed as a separate end-user package.
 
-**Toolchain today (2026-07-28, C22t + alpha follow-up):** embedded C runtime [`runtime/aura_rt.c`](../../runtime/aura_rt.c) linked by the C backend — console/file/process I/O, exception frames with typed causes, Array/String ownership helpers, stop-the-world mark/sweep GC with registered roots and task storage scans, task-frame ABI, deterministic FIFO executor, bounded channels, and bounded FFI pin retention. The full RFC scheduler remains incomplete: arbitrary await lowering, non-empty capture transfer, complete task failure propagation, scheduler-integrated async I/O, concurrent GC, and typed HTTP handles remain deferred.
+**Toolchain today (2026-08-02):** embedded C runtime [`runtime/runtime.c`](../../runtime/runtime.c) linked by the C backend — console/file/process I/O, exception frames with typed causes, recursive aggregate ownership helpers, executor-coordinated stop-the-world mark/sweep GC, opt-in POSIX M:N workers, a versioned `AuraReactor` poll/timer boundary with POSIX default implementation, task-frame ABI, typed frame mark/drop hooks, bounded channels/select, structured scopes, blocking jobs, task-safe lazy cells, bounded FFI pin retention, and a versioned `AuraTypeErasedOps` clone/drop/mark boundary for open payload transfer. General handler CFG lowering, inferred spawn captures, aggregate ownership, procedural macro sandboxing, and HTTP/1.1 async streaming are implemented. Remaining compiler boundaries are descriptor-aware operations in genuinely open generic bodies, unsupported spawn-body shapes, non-POSIX reactor backends, and a concurrent tracing collector.
 
 ## 2. Motivation
 
@@ -90,28 +90,49 @@ Runtime components may be implemented in **Rust** (and/or C for tiny stubs), exp
 
 ### 6.2 GC
 
-| Topic        | Direction                                                            |
-| ------------ | -------------------------------------------------------------------- |
-| Model        | Tracing GC, precise preferred                                        |
-| Concurrency  | Phased: free-all MVP → precise **STW mark-sweep** → concurrent later |
-| Roots        | Stack maps / statepoints from LLVM; global roots registry            |
-| Finalization | Weak; prefer explicit resource management                            |
-| Tuning       | Env/`AURA_GC_*` or runtime flags: heap size, pacing                  |
+| Topic        | Direction                                                                   |
+| ------------ | --------------------------------------------------------------------------- |
+| Model        | Tracing GC, precise preferred                                               |
+| Concurrency  | Current: executor-safe precise **STW mark-sweep**; concurrent tracing later |
+| Roots        | Generated frame mark/drop hooks; typed Array roots; global roots registry   |
+| Finalization | Weak; prefer explicit resource management                                   |
+| Tuning       | Env/`AURA_GC_*` or runtime flags: heap size, pacing                         |
 
 **Safepoints:** compiler inserts polls at back-edges and calls (policy with RFC-004).
 
+Generated aggregate frames may register `aura_task_frame_set_gc_mark` and
+`aura_task_frame_set_data_drop` callbacks. Array buffers containing tagged or
+by-value aggregate elements use `aura_gc_add_array_root_typed`; its callback
+scans the generated element layout rather than interpreting every element as a
+raw pointer. Registration is owner-scoped and must be removed before stack
+storage or frame data is destroyed.
+
+The open-generic `AuraTypeErasedValue` result accessor is clone-out: a caller
+receives an independently owned descriptor payload and may release the child
+frame immediately. It must not expose the terminal frame's borrowed result
+storage across a forwarding or suspension boundary.
+
 ### 6.3 Scheduler
 
-- **M:N** tasks on a worker pool (default: CPU count).
-- Work-stealing queues.
+- **M:N** tasks on an opt-in POSIX worker pool (shared ready queue).
+- Worker pool and reactor coordination use mutex/condition safepoints.
 - **Cooperative** yield at await points; optional preemption via safepoint time slices (open).
-- `spawn`, `join`, cancellation propagation for scopes.
+- `spawn`, `join`, cancellation propagation for scopes. Async CFG frames with
+  synchronous `finally` blocks install a typed cancel hook; direct frame
+  cancellation re-enters the CFG so nested cleanup runs before the runtime
+  publishes `AURA_TASK_CANCELLED`.
 - `spawn_blocking` for sync OS calls that would stall workers.
 
 ### 6.4 Async I/O
 
-- Reactor integrates with OS primitives (epoll/kqueue/IOCP).
-- Stdlib net/fs async APIs park tasks rather than blocking workers.
+- `AuraReactor` is a versioned policy boundary (`AURA_REACTOR_ABI_VERSION`)
+  owned by the executor. `aura_reactor_posix_new()` supplies the default
+  implementation; `aura_task_executor_set_reactor()` can replace it before
+  tasks or workers are active. Reactor polling never owns task frames and must
+  return after waking or leaving registrations pending.
+- The POSIX reactor uses `poll` plus a wake pipe and monotonic timers.
+- Stdlib net/fs async APIs can park tasks rather than blocking workers; epoll,
+  kqueue, and IOCP backends remain platform follow-ups.
 - Timers: min-heap / time wheel wheel in runtime.
 
 ### 6.5 Exceptions & panics
@@ -220,6 +241,69 @@ Linking the runtime into each binary matches single-file deploy and avoids “in
 | R2    | Scheduler + channels   | Concurrent tests | **Partial** — C22 single-threaded FIFO executor/channels landed; parallel scheduling deferred |
 | R3    | Async net + exceptions | Echo server      | Exceptions partial (C3c/C3g/C3s); await state machines and async net deferred                 |
 
+### Task result and channel ownership invariant
+
+`AuraTaskFrame` owns result and failure storage until the frame is released.
+Each storage slot is rooted while live and is cleared before its optional
+destructor runs. A null destructor denotes externally managed storage: frame
+release still removes the GC root and clears the slot, but does not guess how
+to free the payload. `AuraTaskOutcome` is borrowed; callers that need a result
+after frame release must use `aura_task_outcome_clone` with matching clone and
+destroy callbacks.
+
+The FFI callback ABI follows the same rule for payloads. The ordinary callback
+entry point receives a synchronous borrow. `aura_ffi_callback_invoke_owned`
+creates an explicit owned snapshot using caller-supplied clone/destroy hooks,
+returns it only on `OK`, caps it at 16 MiB, and releases it through the paired
+idempotent destroy helper. No callback payload ownership is inferred from a
+raw pointer or allocator convention.
+
+`AuraTaskChannelValue` is transferred to the channel on `AURA_CHANNEL_OK` or
+`AURA_CHANNEL_PENDING`. On `AURA_CHANNEL_CLOSED` the channel destroys it. On
+`AURA_CHANNEL_ERROR` ownership stays with the caller, which must destroy the
+value. This distinction is required for allocation-failure paths and prevents
+double destruction in generated send code. Runtime-owned `Task<T>`,
+`TaskHandle<T>`, and `Channel<T>` values use explicit scheduler references:
+task payloads retain the executor-owned frame, while channel payloads retain
+the channel. The wrapper transfers that reference on receive and releases it
+exactly once on close, failed send, or lexical cleanup.
+
+Async exception payloads use the same generated ownership ABI as task results:
+scalar values, Arrays, classes, enums, value structs, interfaces, function
+values, and tagged foreign handles are cloned into the frame error payload when
+their typed hooks exist.
+The error type name and source span travel with that clone, allowing nested
+await propagation and typed catch extraction without borrowing child-frame
+storage. Each async catch binding is assigned a distinct generated frame slot;
+source-level names are aliases scoped to the handler, so sequential catches may
+reuse a name across different payload types without ABI or C-layout collisions.
+Owning `join` materializes the failure's type name and source span into the
+public `TaskError` value; raw typed payload bytes remain frame-owned and are
+never exposed as an untracked borrowed pointer.
+
+Executor shutdown invalidates the scheduler before freeing it. Frames that
+still have scheduler-owned payload references are detached from the executor
+and remain alive until the final payload destructor releases them; payload
+destruction after shutdown never dereferences the freed executor. A shutdown
+also invalidates lexical task handles, so applications must not resume or
+release a handle after its executor has been shut down.
+
+The generated channel ABI currently covers `Int`, `Bool`, `String`, typed
+foreign handles, heap classes, functions, interfaces, enums, value structs,
+recursively typed Arrays, and scheduler-owned task/channel wrappers. Primitive
+`Int` and `Bool` receives lower to
+`Opt_Int` and `Opt_Bool`, so closed-channel state cannot be confused with a
+zero value. `Unit` and nested nullable primitives remain compile-time
+unsupported because their value representation is still ambiguous.
+
+The public `runtime/aura_ffi.h` scheduler ABI exposes executor/frame creation,
+submission, run/release/shutdown, and the same retained task payload and
+channel-value transfer operations to foreign callers. A foreign
+`TaskHandle<T>` crossing must retain/release through the executor payload API;
+a foreign `Channel<T>` crossing must use the typed `AuraTaskChannelValue`
+constructors/take functions so ownership transfers exactly once. Raw
+frame/channel pointers remain opaque.
+
 ## 12. References
 
 - Go runtime design talks/docs
@@ -230,11 +314,13 @@ Linking the runtime into each binary matches single-file deploy and avoids “in
 
 ## Changelog
 
-| Date       | Author | Change                                                                                |
-| ---------- | ------ | ------------------------------------------------------------------------------------- |
-| 2026-07-16 |        | Lock GC/preemption; Status → **Accepted**                                             |
-| 2026-07-16 |        | Status → **In Review** — Review: solid runtime design; GC algo + scheduler still open |
-| 2026-07-16 |        | Note C runtime MVP status vs full RFC                                                 |
-| 2026-07-15 |        | Initial skeleton                                                                      |
-| 2026-07-15 |        | Solid draft: GC, M:N, FFI, ABI sketch                                                 |
-| 2026-07-15 |        | Lock static link default, OOM abort MVP                                               |
+| Date       | Author | Change                                                                                                |
+| ---------- | ------ | ----------------------------------------------------------------------------------------------------- |
+| 2026-07-16 |        | Lock GC/preemption; Status → **Accepted**                                                             |
+| 2026-07-16 |        | Status → **In Review** — Review: solid runtime design; GC algo + scheduler still open                 |
+| 2026-07-16 |        | Note C runtime MVP status vs full RFC                                                                 |
+| 2026-07-15 |        | Initial skeleton                                                                                      |
+| 2026-07-15 |        | Solid draft: GC, M:N, FFI, ABI sketch                                                                 |
+| 2026-07-15 |        | Lock static link default, OOM abort MVP                                                               |
+| 2026-08-01 |        | Generated inferred-return wrappers use typed terminal fallbacks; HTTP smoke is warning-free           |
+| 2026-08-02 |        | Chunked request trailers are validated, retained in full snapshots, and consumed before streaming EOF |

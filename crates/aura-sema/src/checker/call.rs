@@ -5,7 +5,7 @@ use aura_ast::{CallExpr, Expr, Span};
 use super::{is_array_primitive_elem, Checker};
 use crate::error::SemaError;
 use crate::sigs::{CallInstantiation, ClassSig, EnumSig, EnumVariantSig, FunSig};
-use crate::ty::{nominal_key, Ty};
+use crate::ty::{nominal_key, split_nominal, Ty};
 use crate::util::{subst_ty, type_subst_map, unify_ty};
 
 impl Checker {
@@ -15,6 +15,85 @@ impl Checker {
         expected: Option<&Ty>,
     ) -> Result<Ty, SemaError> {
         if let Expr::Field(fe) = c.callee.as_ref() {
+            // Static class member: `Type.member(...)`.
+            if let Expr::Ident(id) = fe.object.as_ref() {
+                if self.classes.contains_key(&id.name) {
+                    let class = self.resolve_class(&id.name, id.span)?;
+                    let method =
+                        class
+                            .methods
+                            .get(&fe.field.name)
+                            .cloned()
+                            .ok_or_else(|| SemaError {
+                                message: format!(
+                                    "unknown static member `{}` on `{}`",
+                                    fe.field.name, id.name
+                                ),
+                                span: fe.field.span,
+                            })?;
+                    if !method.is_static {
+                        return Err(SemaError {
+                            message: format!("`{}` is not a static member", fe.field.name),
+                            span: fe.field.span,
+                        });
+                    }
+                    let arg_tys: Vec<Ty> = c
+                        .args
+                        .iter()
+                        .map(|a| self.check_expr(a))
+                        .collect::<Result<_, _>>()?;
+                    let class_patterns: Vec<&Ty> = method.params.iter().collect();
+                    let class_args = self.infer_type_args_from_patterns(
+                        &class.type_params,
+                        &class_patterns,
+                        &arg_tys,
+                        c.span,
+                        &format!("static method `{}`", method.name),
+                    )?;
+                    let class_subst = type_subst_map(&class.type_params, &class_args);
+                    let method_params: Vec<Ty> = method
+                        .params
+                        .iter()
+                        .map(|p| subst_ty(p, &class_subst))
+                        .collect();
+                    let method_args = self.resolve_method_type_args(&method, c, expected)?;
+                    let method_subst = type_subst_map(&method.type_params, &method_args);
+                    let params: Vec<Ty> = method_params
+                        .iter()
+                        .map(|p| subst_ty(p, &method_subst))
+                        .collect();
+                    let ret = subst_ty(&method.ret, &class_subst);
+                    let ret = subst_ty(&ret, &method_subst);
+                    self.check_args(&params, &c.args, &method.name, c.span)?;
+                    self.call_instantiations.insert(
+                        c.span.start,
+                        CallInstantiation {
+                            is_constructor: false,
+                            name: method.name.clone(),
+                            package: class.package.clone(),
+                            type_args: class_args.clone(),
+                            method_type_args: method_args.clone(),
+                            is_static: true,
+                            variant: None,
+                        },
+                    );
+                    if !class_args.iter().any(Ty::is_open) {
+                        self.note_mono_ty(&Ty::ClassApp {
+                            name: nominal_key(&class.package, &class.name),
+                            args: class_args.clone(),
+                        });
+                    }
+                    if !method_args.iter().any(Ty::is_open) {
+                        self.mono_methods.insert((
+                            class.name.clone(),
+                            class_args,
+                            method.name.clone(),
+                            method_args,
+                        ));
+                    }
+                    return Ok(ret);
+                }
+            }
             // C3n/C3u: `Alias.fun(...)` or `Alias.Type(...)` where Alias is `import path as Alias`.
             if let Expr::Ident(id) = fe.object.as_ref() {
                 if let Some(pkg) = self.import_aliases.get(&id.name).cloned() {
@@ -42,12 +121,6 @@ impl Checker {
                 }
             }
 
-            if !c.type_args.is_empty() {
-                return Err(SemaError {
-                    message: "type arguments not allowed on method calls in C2b".into(),
-                    span: c.span,
-                });
-            }
             let raw_obj_ty = self.check_expr(&fe.object)?;
             // C4s: `?.` method call on nullable receiver → nullable result.
             let (obj_ty, safe_wrap) = if fe.safe {
@@ -75,8 +148,21 @@ impl Checker {
                         span: fe.field.span,
                     })?;
                 self.check_member_visible(&owner, method.visibility, &method.name, fe.field.span)?;
-                let params = method.params;
-                let ret = method.ret;
+                let method_type_args = self.resolve_method_type_args(&method, c, expected)?;
+                self.check_type_args_bounds(
+                    &method.type_params,
+                    &method.bounds,
+                    &method_type_args,
+                    c.span,
+                    &format!("method `{}`", method.name),
+                )?;
+                let method_subst = type_subst_map(&method.type_params, &method_type_args);
+                let params: Vec<Ty> = method
+                    .params
+                    .iter()
+                    .map(|p| subst_ty(p, &method_subst))
+                    .collect();
+                let ret = subst_ty(&method.ret, &method_subst);
                 self.check_args(
                     &params,
                     &c.args,
@@ -84,6 +170,27 @@ impl Checker {
                     c.span,
                 )?;
                 self.note_mono_ty(&obj_ty);
+                self.call_instantiations.insert(
+                    c.span.start,
+                    CallInstantiation {
+                        is_constructor: false,
+                        name: method.name.clone(),
+                        package: String::new(),
+                        type_args: obj_ty.class_args().to_vec(),
+                        method_type_args: method_type_args.clone(),
+                        is_static: false,
+                        variant: None,
+                    },
+                );
+                if !method_type_args.iter().any(Ty::is_open) {
+                    let class_args = obj_ty.class_args().to_vec();
+                    self.mono_methods.insert((
+                        method.class.clone(),
+                        class_args,
+                        method.name.clone(),
+                        method_type_args,
+                    ));
+                }
                 return Ok(if safe_wrap {
                     Ty::Nullable(Box::new(ret))
                 } else {
@@ -471,6 +578,28 @@ impl Checker {
             return self.check_class_ctor(&class, c, expected);
         }
 
+        // Resolve a duplicate variant name from the expected enum first. This
+        // keeps enum variants package/type-scoped while preserving the legacy
+        // global fallback for untyped constructors.
+        if let Some(expected) = expected {
+            let enum_key = match expected {
+                Ty::Enum(name) | Ty::EnumApp { name, .. } => Some(name.as_str()),
+                _ => None,
+            };
+            if let Some(enum_key) = enum_key {
+                let (enum_name, _) = split_nominal(enum_key);
+                if self
+                    .enums
+                    .get(enum_name)
+                    .into_iter()
+                    .flatten()
+                    .any(|sig| sig.variants.iter().any(|v| v.name == name))
+                {
+                    return self.check_variant_ctor(enum_name, &name, c, Some(expected));
+                }
+            }
+        }
+
         // Enum variant constructor: Ok(...), Red()
         if let Some(enum_name) = self.variant_to_enum.get(&name).cloned() {
             return self.check_variant_ctor(&enum_name, &name, c, expected);
@@ -578,6 +707,8 @@ impl Checker {
                 name: name.clone(),
                 package: class.package.clone(),
                 type_args: type_args.clone(),
+                method_type_args: Vec::new(),
+                is_static: false,
                 variant: None,
             },
         );
@@ -629,14 +760,67 @@ impl Checker {
                 name: name.clone(),
                 package: sig.package.clone(),
                 type_args: type_args.clone(),
+                method_type_args: Vec::new(),
+                is_static: false,
                 variant: None,
             },
         );
         // C4u: only concrete free-function monomorphs.
         if !type_args.is_empty() && !type_args.iter().any(|a| a.is_open()) {
-            self.mono_funs.insert((name, type_args));
+            if self
+                .async_funs
+                .contains(&(sig.package.clone(), sig.name.clone()))
+            {
+                self.mono_async_funs.insert((name, type_args));
+            } else {
+                self.mono_funs.insert((name, type_args));
+            }
         }
         Ok(ret)
+    }
+
+    pub(crate) fn resolve_method_type_args(
+        &mut self,
+        sig: &crate::sigs::ClassMethodSig,
+        c: &CallExpr,
+        _expected: Option<&Ty>,
+    ) -> Result<Vec<Ty>, SemaError> {
+        if sig.type_params.is_empty() {
+            if !c.type_args.is_empty() {
+                return Err(SemaError {
+                    message: format!("method `{}` does not take type arguments", sig.name),
+                    span: c.span,
+                });
+            }
+            return Ok(Vec::new());
+        }
+        if !c.type_args.is_empty() {
+            if c.type_args.len() != sig.type_params.len() {
+                return Err(SemaError {
+                    message: format!(
+                        "method `{}` expects {} type argument(s), got {}",
+                        sig.name,
+                        sig.type_params.len(),
+                        c.type_args.len()
+                    ),
+                    span: c.span,
+                });
+            }
+            return c.type_args.iter().map(|t| self.type_from_ref(t)).collect();
+        }
+        let arg_tys: Vec<Ty> = c
+            .args
+            .iter()
+            .map(|a| self.check_expr(a))
+            .collect::<Result<_, _>>()?;
+        let patterns = sig.params.iter().collect::<Vec<_>>();
+        self.infer_type_args_from_patterns(
+            &sig.type_params,
+            &patterns,
+            &arg_tys,
+            c.span,
+            &format!("method `{}`", sig.name),
+        )
     }
 
     pub(crate) fn check_variant_ctor(
@@ -731,6 +915,8 @@ impl Checker {
                 name: enum_name.to_string(),
                 package: enum_sig.package.clone(),
                 type_args,
+                method_type_args: Vec::new(),
+                is_static: false,
                 variant: Some(variant_name.to_string()),
             },
         );

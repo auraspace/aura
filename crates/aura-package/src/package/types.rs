@@ -1,7 +1,8 @@
 //! Loaded package types.
 
-use aura_analysis::parse_file;
-use aura_ast::{shift_file_spans, File, Span};
+use aura_analysis::{check_file, check_file_with_sandboxed_macro};
+use aura_ast::{shift_file_spans, AttributeArg, AttributeValue, File, Span};
+use aura_sema::{CheckedFile, MacroPluginRequest, MacroSandboxConfig, SemaErrors};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -29,8 +30,68 @@ pub struct LoadedPackage {
     pub virtual_src: String,
     /// Merged AST with spans rewritten into `virtual_src`.
     pub ast: File,
+    /// Declarative macros exported by this package, kept separate from the AST.
+    pub(crate) macro_sources: Vec<String>,
+    /// Root-package procedural macro executables declared in `[macro_plugins]`.
+    pub macro_plugins: std::collections::BTreeMap<String, PathBuf>,
 }
 impl LoadedPackage {
+    /// Check the package and run root-declared RFC-010 plugins for matching
+    /// `@derive(Name)` attributes. Dependencies cannot silently execute their
+    /// own plugins; only the package being built opts into executable paths.
+    pub fn check_with_plugins(&self) -> Result<CheckedFile, SemaErrors> {
+        let mut current = self.ast.clone();
+        let invocations = current
+            .classes
+            .iter()
+            .flat_map(|class| {
+                class.attributes.iter().flat_map(|attribute| {
+                    if attribute.name.name != "derive" {
+                        return Vec::new();
+                    }
+                    attribute
+                        .args
+                        .iter()
+                        .filter_map(|arg| match arg {
+                            AttributeArg::Positional(AttributeValue::Ident(name)) => {
+                                Some((name.name.clone(), attribute.span))
+                            }
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect::<Vec<_>>();
+        let has_plugin = invocations
+            .iter()
+            .any(|(name, _)| self.macro_plugins.contains_key(name));
+        if !has_plugin {
+            return check_file(&current);
+        }
+
+        let mut checked = None;
+        for (name, invocation_span) in invocations {
+            let Some(plugin) = self.macro_plugins.get(&name) else {
+                continue;
+            };
+            let request = MacroPluginRequest {
+                macro_name: name,
+                package: self.package.clone(),
+                source: self.virtual_src.clone(),
+                invocation_span,
+            };
+            let config = MacroSandboxConfig {
+                plugin: plugin.clone(),
+                source_root: self.root.clone(),
+                ..Default::default()
+            };
+            let result = check_file_with_sandboxed_macro(&current, &config, &request, &[])?;
+            current = result.ast.clone();
+            checked = Some(result);
+        }
+        checked.ok_or_else(|| unreachable!("plugin invocation disappeared during expansion"))
+    }
+
     /// Rebuild the package AST with in-memory editor contents substituted for
     /// matching source paths. Dependency resolution remains identical to the
     /// on-disk package graph.
@@ -44,7 +105,7 @@ impl LoadedPackage {
                 .get(&entry.path)
                 .cloned()
                 .unwrap_or_else(|| entry.src.clone());
-            let mut ast = parse_file(&text)
+            let mut ast = aura_analysis::parse_file(&text)
                 .map_err(|error| format!("error: {}: {}", entry.path.display(), error.message))?;
             let package = ast.package.display();
             stamp_origin(&mut ast, &package);
@@ -89,6 +150,8 @@ impl LoadedPackage {
             sources,
             virtual_src,
             ast,
+            macro_sources: self.macro_sources.clone(),
+            macro_plugins: self.macro_plugins.clone(),
         })
     }
 

@@ -230,10 +230,17 @@ Rust toolchain maximizes delivery speed and memory safety of the compiler itself
 
 Long-term backend remains **LLVM**. The living milestone table is [docs/roadmap.md](../roadmap.md).
 
+The interim C backend's resumable async path exposes a deterministic internal
+state model in generated-C comments. The model records frame fields, CFG state
+kinds, resume transitions, task ownership, and catch/finally edges. This is a
+debugging artifact, not a source-level ABI; the runtime continues to consume
+only the opaque task-frame resume-state contract. The model version is bumped
+when its dump format changes.
+
 | Phase | Scope                                                                  | Status (2026-07-20)                                                                                  |
 | ----- | ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
 | C0    | Parse + typecheck subset → `aura check`                                | **Done**                                                                                             |
-| C1    | Native hello + runtime link                                            | **Done** via interim **C backend** (`emit-c` + system `cc` + `runtime/aura_rt.c`); LLVM still target |
+| C1    | Native hello + runtime link                                            | **Done** via interim **C backend** (`emit-c` + system `cc` + `runtime/runtime.c`); LLVM still target |
 | C2    | Generics mono + classes/interfaces                                     | **Done** (C2a–C2e)                                                                                   |
 | C3    | Packages, Array, exceptions, GC MVP (not full async)                   | **Done** as C3a–C3z slices; async/incremental deferred                                               |
 | C4–C5 | Equality, std, Array/String APIs, GC refinements                       | **Done**                                                                                             |

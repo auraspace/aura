@@ -33,3 +33,31 @@ pub fun linkCancellation<P, C>(parent: TaskHandle<P>, child: TaskHandle<C>): Boo
 pub fun isCancelled(): Bool {
   return false
 }
+
+/// Run the body inside a structured child-task scope. The compiler supplies
+/// the runtime supervision boundary for this declaration.
+pub fun taskScope(body: () -> Unit): Unit {
+  throw "std.task taskScope requires the runtime intrinsic"
+}
+
+/// Selection over channels. The compiler supplies scheduler-backed readiness
+/// and fair round-robin probing for this declaration.
+pub class Select<T>(private val placeholder: Int) {
+  pub fun add(channel: Channel<T>): Select<T> {
+    throw "std.task Select.add requires the runtime intrinsic"
+  }
+
+  pub async fun next(): T? {
+    throw "std.task Select.next requires the runtime intrinsic"
+  }
+}
+
+pub fun select<T>(): Select<T> {
+  throw "std.task select requires the runtime intrinsic"
+}
+
+/// Run blocking work on the runtime worker pool instead of the cooperative
+/// executor. Cancellation is cooperative at the worker boundary.
+pub fun spawnBlocking<T>(body: () -> T): TaskHandle<T> {
+  throw "std.task spawnBlocking requires the runtime intrinsic"
+}

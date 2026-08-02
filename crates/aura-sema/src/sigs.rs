@@ -27,6 +27,9 @@ pub struct ClassMethodSig {
     pub name: String,
     pub params: Vec<Ty>,
     pub ret: Ty,
+    pub type_params: Vec<String>,
+    pub bounds: HashMap<String, Vec<String>>,
+    pub is_static: bool,
     pub is_open: bool,
     pub is_abstract: bool,
     pub is_override: bool,
@@ -110,6 +113,9 @@ pub struct CallInstantiation {
     /// Declaring package for free-function calls (C3o mangling); empty for builtins/ctors.
     pub package: String,
     pub type_args: Vec<Ty>,
+    /// Generic type arguments declared by a class method.
+    pub method_type_args: Vec<Ty>,
+    pub is_static: bool,
     /// Set for enum variant constructors (`Ok`, `Err`, …).
     pub variant: Option<String>,
 }
@@ -127,6 +133,10 @@ pub struct CheckedFile {
     pub mono_enums: Vec<(String, Vec<Ty>)>,
     /// Concrete generic function instantiations used.
     pub mono_funs: Vec<(String, Vec<Ty>)>,
+    /// Concrete generic async-function instantiations used.
+    pub mono_async_funs: Vec<(String, Vec<Ty>)>,
+    /// Concrete generic class-method instantiations used in this file.
+    pub mono_methods: Vec<(String, Vec<Ty>, String, Vec<Ty>)>,
     /// Concrete generic interface instantiations used (C8c).
     pub mono_interfaces: Vec<(String, Vec<Ty>)>,
     /// CallExpr.span.start → resolved type arguments (for codegen).
@@ -137,7 +147,47 @@ pub struct CheckedFile {
     pub expr_tys: HashMap<(u32, u32), Ty>,
     /// C10h/C12m: LambdaExpr.span.start → outer captures in stable name order.
     pub lambda_captures: HashMap<u32, Vec<LambdaCapture>>,
+    /// Attribute metadata retained by the compiler boundary.
+    pub attribute_metadata: Vec<AttributeMetadata>,
+    /// Synthetic items and their expansion origins.
+    pub expansions: Vec<ExpansionMetadata>,
     pub ast: File,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AttributeMetadata {
+    pub declaration: String,
+    pub target: String,
+    pub name: String,
+    pub retention: MetadataRetention,
+    pub args: Vec<String>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MetadataRetention {
+    Source,
+    Binary,
+    Runtime,
+}
+
+impl MetadataRetention {
+    pub fn abi_code(self) -> u32 {
+        match self {
+            Self::Source => 0,
+            Self::Binary => 1,
+            Self::Runtime => 2,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExpansionMetadata {
+    pub phase: String,
+    pub macro_name: String,
+    pub generated_item: String,
+    pub invocation_span: Span,
+    pub generated_span: Span,
 }
 
 /// One free-variable capture of a lambda (C10h/C12m).

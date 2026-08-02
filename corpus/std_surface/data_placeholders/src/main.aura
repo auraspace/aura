@@ -1,0 +1,47 @@
+// Alpha API smoke: JSON traversal and growable-list contracts are shells.
+
+package std_surface_data_placeholders
+
+import std.json as Json
+import std.collections as Collections
+import std.error as Errors
+import std.sync as Sync
+import std.task as Tasks
+import std.test as Tests
+
+fun main() {
+  val value: Json.Value? = Json.parse("{\"name\":\"aura\"}")
+  if (value != null) {
+    val child: Json.Value? = value!!.get("name")
+    val keys: Array<String> = value!!.keys()
+    val text: String? = value!!.asString()
+    if (child != null) { println("child") }
+    println(keys.len.toString())
+    if (text != null) { println("text") }
+  }
+  val items: Collections.List<String> = Collections.list()
+  if (items.isEmpty()) { println("empty") }
+  val policy: Json.DuplicateKeyPolicy = Json.rejectDuplicateKeys()
+  val options: Json.ParseOptions = Json.parseOptions(4096, 16, policy)
+  println(options.maxDepth.toString())
+  if (false && value != null) {
+    val bounded: Json.Value? = Json.parseWithOptions("{}", options)
+    val parsed: Errors.Outcome<Json.Value, Json.ParseError> = Json.parseResult("{}", options)
+    val copy: Json.Value = value!!.clone()
+    val bytes: Int = copy.byteLength()
+    val depth: Int = copy.depth()
+    if (bounded != null && Errors.isSuccess(parsed) && bytes + depth > 0) {
+      println("typed-json")
+    }
+  }
+  if (false) {
+    val selection: Tasks.Select<Int> = Tasks.select()
+    val lazyValue: Sync.Lazy<Int> = Sync.lazy(() => 1)
+    val handle: TaskHandle<Int> = Tasks.spawnBlocking(() => 1)
+    val initialized: Bool = lazyValue.isInitialized()
+    if (initialized) { println("deferred") }
+    Tests.benchmark("bench", () => { })
+    Tests.snapshot("snapshot", "value")
+    Tests.property("property", 10, () => true)
+  }
+}

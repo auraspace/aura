@@ -82,6 +82,7 @@ dependencies = [
  "aura-ast",
  "aura-codegen",
  "aura-diagnostics",
+ "aura-sema",
  "flate2",
  "sha2",
  "tar",

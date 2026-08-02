@@ -40,6 +40,7 @@ pub enum Modifier {
     Final,
     Abstract,
     Override,
+    Static,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

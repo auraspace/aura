@@ -48,7 +48,7 @@ fun main() {
     if (values.len > 1 && values.get(1).toInt() != null) {
         port = values.get(1).toInt()!!
     }
-    val listener = listen(port)
+    val listener = listen(port.toString())
     println("listening on http://127.0.0.1:" + port.toString() + "/health")
     serve(listener, (request: Request, response: Response) => health(request, response))
 }

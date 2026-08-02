@@ -99,13 +99,15 @@ STAGE="$DIST/$NAME"
 echo "packaging $NAME"
 
 rm -rf "$STAGE"
-mkdir -p "$STAGE/bin" "$STAGE/share/aura/std"
+mkdir -p "$STAGE/bin" "$STAGE/share/aura/runtime" "$STAGE/share/aura/std"
 
 [[ -x "$BIN" ]] || die "missing executable $BIN"
 
 cp "$BIN" "$STAGE/bin/aura"
-cp "$ROOT/runtime/aura_rt.c" "$STAGE/share/aura/aura_rt.c"
-[[ -s "$ROOT/runtime/aura_rt.c" ]] || die "runtime source is missing or empty"
+cp "$ROOT/runtime/runtime.c" "$STAGE/share/aura/runtime/runtime.c"
+cp "$ROOT/runtime/aura_ffi.h" "$STAGE/share/aura/runtime/aura_ffi.h"
+cp -R "$ROOT/runtime/src" "$STAGE/share/aura/runtime/src"
+[[ -s "$ROOT/runtime/runtime.c" ]] || die "runtime source is missing or empty"
 # Std packages for import / auto-prelude outside the monorepo.
 for pkg in io assert collections; do
   [[ -d "$ROOT/std/$pkg" ]] || die "required std package is missing: std/$pkg"
@@ -131,8 +133,8 @@ Install:
   aura new hello && aura run hello
 
 Runtime:
-  share/aura/aura_rt.c is included; the CLI also embeds a copy.
-  Optional: export AURA_RUNTIME="\$PWD/share/aura/aura_rt.c"
+  share/aura/runtime/ is included; the CLI also embeds a copy.
+  Optional: export AURA_RUNTIME="\$PWD/share/aura/runtime/runtime.c"
 
 Standard library:
   share/aura/std/{io,assert,collections} — used by auto-prelude and \`import std.*\`.
@@ -195,7 +197,7 @@ archive_has_path() {
 
 for required in \
   "$NAME/bin/aura" \
-  "$NAME/share/aura/aura_rt.c" \
+  "$NAME/share/aura/runtime/runtime.c" \
   "$NAME/share/aura/std/io" \
   "$NAME/share/aura/std/assert" \
   "$NAME/share/aura/std/collections" \

@@ -5,7 +5,7 @@
 #include "../aura_ffi.h"
 
 #define AURA_RUNTIME_NO_MAIN
-#include "../aura_rt.c"
+#include "../runtime.c"
 
 static void test_string_borrow_copy_transfer(void)
 {

@@ -7,7 +7,7 @@
 
 #define AURA_RUNTIME_NO_MAIN
 #include "../aura_ffi.h"
-#include "../aura_rt.c"
+#include "../runtime.c"
 
 static void make_path(char *path, size_t size)
 {

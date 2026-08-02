@@ -107,6 +107,29 @@ fn coerce_owner_arg_expr(expr: &Expr, expected_ty: &str, ctx: &mut EmitCtx<'_>) 
     coerce_expr(expr, expected_ty, ctx)
 }
 
+/// Return an lvalue for a nested `Array.get`/`pop` receiver. Array accessors
+/// return aggregate values by ABI, but a subsequent Array method still needs
+/// the original element storage as its mutable receiver.
+fn array_element_lvalue(expr: &Expr, ctx: &mut EmitCtx<'_>) -> Option<String> {
+    let Expr::Call(call) = expr else {
+        return None;
+    };
+    let Expr::Field(field) = call.callee.as_ref() else {
+        return None;
+    };
+    if field.field.name != "get" && field.field.name != "pop" {
+        return None;
+    }
+    let receiver_ty = resolve_type_name(&field.object, ctx)?;
+    if !is_array_type_key(&receiver_ty) || call.args.len() != 1 {
+        return None;
+    }
+    let receiver = array_field_move_out_lvalue(&field.object, ctx)
+        .unwrap_or_else(|| emit_expr(&field.object, ctx));
+    let index = emit_expr(&call.args[0], ctx);
+    Some(format!("({receiver}).data[{index}]"))
+}
+
 /// Move Array + Fun owner args into params (zero sources after call).
 fn wrap_owner_arg_moves(
     call: String,
@@ -126,6 +149,35 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
     if let Expr::Field(fe) = c.callee.as_ref() {
         // C3n: package alias qualified free function `Math.square(...)`.
         if let Expr::Ident(id) = fe.object.as_ref() {
+            if let Some(inst) = ctx
+                .checked
+                .call_instantiations
+                .get(&c.span.start)
+                .filter(|i| i.is_static)
+            {
+                let subst = aura_sema::type_subst_map(&ctx.type_params, &ctx.type_args);
+                let class_args = inst
+                    .type_args
+                    .iter()
+                    .map(|t| aura_sema::subst_ty(t, &subst))
+                    .collect::<Vec<_>>();
+                let method_args = inst
+                    .method_type_args
+                    .iter()
+                    .map(|t| aura_sema::subst_ty(t, &subst))
+                    .collect::<Vec<_>>();
+                let mono = type_mono(&inst.package, &id.name, &class_args);
+                let args = c
+                    .args
+                    .iter()
+                    .map(|a| emit_expr(a, ctx))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                return format!(
+                    "{}({args})",
+                    c_generic_method_name(&mono, &fe.field.name, &method_args)
+                );
+            }
             let is_alias = ctx.checked.ast.imports.iter().any(|imp| {
                 imp.alias
                     .as_ref()
@@ -211,8 +263,19 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
         // Array fields are mutable receivers; keep the direct lvalue so the
         // generated `&receiver` is valid instead of taking the address of a
         // race-instrumented rvalue expression.
-        let obj = array_field_move_out_lvalue(&fe.object, ctx)
-            .unwrap_or_else(|| emit_expr(&fe.object, ctx));
+        let obj =
+            if let (Expr::Ident(id), Some(array_key)) = (fe.object.as_ref(), obj_ty.as_deref()) {
+                if ctx.is_box_local(&id.name) && is_array_type_key(array_key) {
+                    let cty = crate::stmt::local_key_to_c(array_key, ctx.checked);
+                    format!("(*({cty} *)aura_box_ptr_get({}))", mangle_ident(&id.name))
+                } else {
+                    array_field_move_out_lvalue(&fe.object, ctx)
+                        .unwrap_or_else(|| emit_expr(&fe.object, ctx))
+                }
+            } else {
+                array_field_move_out_lvalue(&fe.object, ctx)
+                    .unwrap_or_else(|| emit_expr(&fe.object, ctx))
+            };
 
         // Interface method (C4d package mono; C8c mono args e.g. Boxable_Int)
         if let Some(iface_key) = obj_ty
@@ -567,7 +630,23 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
 
         // Builtin Array methods
         if base == "Array" || mono.starts_with("Array_") {
-            let mut args = vec![format!("&({obj})")];
+            let force_array = match fe.object.as_ref() {
+                Expr::ForceUnwrap(force) => {
+                    let key = resolve_type_name(&fe.object, ctx)
+                        .unwrap_or_else(|| infer_type_name(&fe.object, ctx));
+                    is_array_type_key(&key).then(|| {
+                        let name = format!("__aura_force_array_{}", fe.object.span().start);
+                        let cty = crate::stmt::local_key_to_c(&key, ctx.checked);
+                        (name, cty, emit_expr(&force.expr, ctx))
+                    })
+                }
+                _ => None,
+            };
+            let receiver = array_element_lvalue(&fe.object, ctx)
+                .map(|lvalue| format!("&({lvalue})"))
+                .or_else(|| force_array.as_ref().map(|(name, _, _)| format!("&{name}")))
+                .unwrap_or_else(|| format!("&({obj})"));
+            let mut args = vec![receiver];
             let mut owned_string_temps: Vec<(usize, String)> = Vec::new();
             // C8e: push/set of Array-valued elems move from owner args (nested Array).
             let elem_key = mono.strip_prefix("Array_").unwrap_or("");
@@ -606,6 +685,35 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                 c_method_name(&mono, &fe.field.name),
                 args.join(", ")
             );
+            let wrap_force_array = |call: String| {
+                let Some((name, cty, value)) = force_array.as_ref() else {
+                    return call;
+                };
+                let ret_c = match fe.field.name.as_str() {
+                    "get" | "pop" => crate::stmt::local_key_to_c(elem_key, ctx.checked),
+                    "clone" => crate::stmt::local_key_to_c(&mono, ctx.checked),
+                    "isEmpty" => "bool".into(),
+                    _ => "void".into(),
+                };
+                if ret_c == "void" {
+                    format!(
+                        "({{ {cty} {name} = ({value}); {call}; (void)0; }})",
+                        cty = cty,
+                        name = name,
+                        value = value,
+                        call = call
+                    )
+                } else {
+                    format!(
+                        "({{ {cty} {name} = ({value}); {ret_c} __aura_force_result = ({call}); __aura_force_result; }})",
+                        cty = cty,
+                        name = name,
+                        value = value,
+                        ret_c = ret_c,
+                        call = call
+                    )
+                }
+            };
             if (fe.field.name == "push" || fe.field.name == "set")
                 && elem_key == "String"
                 && !owned_string_temps.is_empty()
@@ -619,13 +727,13 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                     suffix.push_str(&format!("free((void *){temp}); "));
                 }
                 let wrapped = format!("({{ {prefix}{call}; {suffix}}})");
-                return wrapped;
+                return wrap_force_array(wrapped);
             }
             if (fe.field.name == "push" || fe.field.name == "set") && is_array_type_key(elem_key) {
                 let move_srcs = array_move_srcs_from_args(&c.args, &param_keys, ctx);
-                return wrap_array_arg_moves(call, &move_srcs, "void", ctx);
+                return wrap_force_array(wrap_array_arg_moves(call, &move_srcs, "void", ctx));
             }
-            return call;
+            return wrap_force_array(call);
         }
 
         let current_class = ctx.checked.ast.classes.iter().find(|c| {
@@ -691,7 +799,15 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                 let ret_c = c_type_from_opt(&m.return_type, ctx.checked, &params, &targs);
                 let call = format!(
                     "{}({})",
-                    c_method_name(&owner_mono, &fe.field.name),
+                    c_generic_method_name(
+                        &owner_mono,
+                        &fe.field.name,
+                        &ctx.checked
+                            .call_instantiations
+                            .get(&c.span.start)
+                            .map(|i| i.method_type_args.clone())
+                            .unwrap_or_default()
+                    ),
                     args.join(", ")
                 );
                 let call = if let Some(static_class) = current_class {
@@ -773,7 +889,15 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
         }
         let call = format!(
             "{}({})",
-            c_method_name(&mono, &fe.field.name),
+            c_generic_method_name(
+                &mono,
+                &fe.field.name,
+                &ctx.checked
+                    .call_instantiations
+                    .get(&c.span.start)
+                    .map(|i| i.method_type_args.clone())
+                    .unwrap_or_default()
+            ),
             args.join(", ")
         );
         // C4s: `?.` short-circuit to NULL when receiver is null (pointer-like results).
@@ -1028,7 +1152,7 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
             }
             // C5m: builtin STW GC collect.
             if id.name == "gc_collect" && c.args.is_empty() {
-                return "aura_gc_collect()".into();
+                return "aura_gc_collect_executor(__aura_task_executor)".into();
             }
             // RUNTIME-003: expose the active cause chain without leaking the
             // runtime's borrowed type-name storage into Aura String values.
@@ -1071,13 +1195,19 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                 _ => {}
             }
             // Free function
-            let targs: Vec<Ty> = if let Some(inst) = inst {
-                inst.type_args.clone()
-            } else {
+            let targs: Vec<Ty> = if !c.type_args.is_empty() {
                 c.type_args
                     .iter()
                     .filter_map(|t| type_ref_to_ty(t, ctx))
                     .collect()
+            } else if let Some(inst) = inst {
+                let subst = aura_sema::type_subst_map(&ctx.type_params, &ctx.type_args);
+                inst.type_args
+                    .iter()
+                    .map(|t| aura_sema::subst_ty(t, &subst))
+                    .collect()
+            } else {
+                Vec::new()
             };
             let pkg = inst.map(|i| i.package.as_str()).unwrap_or("");
             if pkg == "std.task" && id.name == "isCancelled" && c.args.is_empty() {
@@ -1154,7 +1284,13 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                 for (index, (a, p)) in c.args.iter().zip(f.params.iter()).enumerate() {
                     let expected = type_ref_local_key(&p.ty, &params, &targs);
                     let value = coerce_owner_arg_expr(a, &expected, ctx);
-                    if (expected == "ForeignHandle" || expected.starts_with("ForeignHandle_"))
+                    if expected == "String" && string_expr_is_owned_temp(a, ctx) {
+                        let name = format!("__aura_async_string_{}_{}", c.span.start, index);
+                        prelude.push_str(&format!("const char *{name} = ({value}); "));
+                        cleanup.push_str(&format!("free((void *){name}); "));
+                        args.push(name);
+                    } else if (expected == "ForeignHandle"
+                        || expected.starts_with("ForeignHandle_"))
                         && matches!(a, Expr::Call(_))
                     {
                         let name = format!("__aura_async_handle_{}_{}", c.span.start, index);

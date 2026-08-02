@@ -25,7 +25,7 @@ Details: [Install](./install.md). Current release notes: [0.1.1-alpha](../releas
 
 ### Why is a C compiler required?
 
-`build` / `run` use a **C backend**: Aura → C → system `cc`, linked with `aura_rt.c`. LLVM is the longer-term backend ([RFC-004](/rfc/004)).
+`build` / `run` use a **C backend**: Aura → C → system `cc`, linked with `runtime.c`. LLVM is the longer-term backend ([RFC-004](/rfc/004)).
 
 ### Where are examples?
 
@@ -50,7 +50,7 @@ No — **identity** (reference). Compare fields explicitly if you need structura
 
 ### Are tasks / async ready?
 
-Vision and RFCs are Accepted, but the task runtime is intentionally bounded: task frames, channels, and selected await/control-flow shapes work, while arbitrary async lowering and full async I/O remain partial. Check the [roadmap map](./roadmap.md#rfc-accepted-vs-implemented).
+Vision and RFCs are Accepted. The task runtime now includes OS workers, a POSIX reactor, channel selection, scoped tasks, blocking jobs, and task-safe lazy cells; arbitrary async lowering and non-POSIX reactor backends remain separate compiler/platform work. Check the [roadmap map](./roadmap.md#rfc-accepted-vs-implemented).
 
 ## Toolchain
 

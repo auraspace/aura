@@ -23,26 +23,26 @@ pub fun pid(): Int { throw "os intrinsic" }
 pub fun platform(): String { throw "os intrinsic" }
 
 /// Return an environment value as a shared success/not-found outcome.
-pub fun getEnvResult(name: String): OsErrs.Outcome<String, OsErrs.Error> {
+pub fun getEnvResult(name: String): OsErrs.Outcome<String, OsErrs.OsError> {
   val value = getEnv(name)
   if (value == null) {
-    return OsErrs.failure(OsErrs.notFound("environment variable not found", 0))
+    return OsErrs.failure(OsErrs.asOsError(OsErrs.notFound("environment variable not found", 0)))
   }
   return OsErrs.success(value!!)
 }
 
 /// Set an environment value without throwing on a native update failure.
-pub fun setEnvResult(name: String, value: String): OsErrs.Outcome<Bool, OsErrs.Error> {
+pub fun setEnvResult(name: String, value: String): OsErrs.Outcome<Bool, OsErrs.OsError> {
   if (!setEnv(name, value)) {
-    return OsErrs.failure(OsErrs.invalidInput("environment update failed", 0))
+    return OsErrs.failure(OsErrs.asOsError(OsErrs.invalidInput("environment update failed", 0)))
   }
   return OsErrs.success(true)
 }
 
 /// Remove an environment value without throwing on a native update failure.
-pub fun unsetEnvResult(name: String): OsErrs.Outcome<Bool, OsErrs.Error> {
+pub fun unsetEnvResult(name: String): OsErrs.Outcome<Bool, OsErrs.OsError> {
   if (!unsetEnv(name)) {
-    return OsErrs.failure(OsErrs.invalidInput("environment removal failed", 0))
+    return OsErrs.failure(OsErrs.asOsError(OsErrs.invalidInput("environment removal failed", 0)))
   }
   return OsErrs.success(true)
 }

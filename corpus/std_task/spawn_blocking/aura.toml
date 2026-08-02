@@ -1,0 +1,6 @@
+[package]
+name = "demo.stdtask.spawnblocking"
+
+[[bin]]
+name = "spawn_blocking"
+path = "src"

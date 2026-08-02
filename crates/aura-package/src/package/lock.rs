@@ -33,6 +33,7 @@ impl LockEntry {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct AuraLock {
     pub(crate) packages: BTreeMap<String, LockEntry>,
+    pub(crate) macro_plugins: BTreeMap<String, LockEntry>,
 }
 
 impl AuraLock {
@@ -55,6 +56,10 @@ pub(crate) enum LockWriteEntry {
         transitive: bool,
     },
     Registry(RegistryLockPin),
+    MacroPlugin {
+        path: String,
+        checksum: String,
+    },
 }
 
 pub(crate) fn lock_path(root: &Path) -> std::path::PathBuf {
@@ -75,6 +80,7 @@ pub(crate) fn read_lock(root: &Path) -> Result<Option<AuraLock>, String> {
 
 pub(crate) fn parse_lock(text: &str) -> Result<AuraLock, String> {
     let mut packages = BTreeMap::new();
+    let mut macro_plugins = BTreeMap::new();
     for (lineno, raw) in text.lines().enumerate() {
         let line = raw.split('#').next().unwrap_or("").trim();
         if line.is_empty() {
@@ -88,11 +94,27 @@ pub(crate) fn parse_lock(text: &str) -> Result<AuraLock, String> {
         };
         let name = k.trim().to_string();
         let entry = parse_lock_value(v.trim()).map_err(|e| format!("line {}: {e}", lineno + 1))?;
-        if packages.insert(name.clone(), entry).is_some() {
+        if let Some(plugin_name) = name.strip_prefix("macro_plugin.") {
+            if plugin_name.is_empty() {
+                return Err(format!("line {}: empty macro plugin name", lineno + 1));
+            }
+            if macro_plugins
+                .insert(plugin_name.to_string(), entry)
+                .is_some()
+            {
+                return Err(format!(
+                    "line {}: duplicate macro plugin `{plugin_name}`",
+                    lineno + 1
+                ));
+            }
+        } else if packages.insert(name.clone(), entry).is_some() {
             return Err(format!("line {}: duplicate package `{name}`", lineno + 1));
         }
     }
-    Ok(AuraLock { packages })
+    Ok(AuraLock {
+        packages,
+        macro_plugins,
+    })
 }
 
 fn parse_lock_value(v: &str) -> Result<LockEntry, String> {
@@ -145,7 +167,8 @@ fn parse_inline_table(v: &str) -> Result<LockEntry, String> {
             }
         }
     }
-    // Registry entries need version+checksum; path entries need path.
+    // Registry entries need version+checksum; plugin entries need path+checksum;
+    // path entries need path.
     let source = entry.source.as_deref().unwrap_or("path");
     if source == "registry" {
         if entry.version.is_none() {
@@ -153,6 +176,13 @@ fn parse_inline_table(v: &str) -> Result<LockEntry, String> {
         }
         if entry.checksum.is_none() {
             return Err("registry lock entry requires checksum".into());
+        }
+    } else if source == "plugin" {
+        if entry.path.is_none() {
+            return Err("macro plugin lock entry requires path".into());
+        }
+        if entry.checksum.is_none() {
+            return Err("macro plugin lock entry requires checksum".into());
         }
     } else if entry.path.is_none() {
         return Err("path lock entry requires path".into());
@@ -305,7 +335,8 @@ pub(crate) fn write_lock_entries(
     let mut body = String::from(
         "# aura.lock — path dependencies (C3p/C4j); registry pins (C8k/C13l)\n\
          # Direct deps match aura.toml; extra path entries are transitive.\n\
-         # Registry pins: name = { version = \"…\", checksum = \"…\", source = \"registry\" }\n",
+         # Registry pins: name = { version = \"…\", checksum = \"…\", source = \"registry\" }\n\
+         # Macro pins: macro_plugin.Name = { path = \"…\", checksum = \"…\", source = \"plugin\" }\n",
     );
     for (name, entry) in entries {
         match entry {
@@ -322,6 +353,11 @@ pub(crate) fn write_lock_entries(
             LockWriteEntry::Registry(pin) => {
                 body.push_str(&pin.format_lock_line(name));
                 body.push('\n');
+            }
+            LockWriteEntry::MacroPlugin { path: p, checksum } => {
+                body.push_str(&format!(
+                    "macro_plugin.{name} = {{ path = \"{p}\", checksum = \"{checksum}\", source = \"plugin\" }}\n"
+                ));
             }
         }
     }

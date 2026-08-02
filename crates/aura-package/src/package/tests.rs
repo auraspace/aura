@@ -1,5 +1,5 @@
-use crate::package::load_package;
 use crate::package::toml::parse_aura_toml;
+use crate::package::{load_package, load_package_read_only};
 use std::fs;
 use std::io::Write;
 use std::path::Path;
@@ -31,6 +31,82 @@ path = "src"
     assert_eq!(t.package_name.as_deref(), Some("demo.multi"));
     assert_eq!(t.bin_name.as_deref(), Some("multi"));
     assert_eq!(t.bin_path.as_deref(), Some("src"));
+}
+
+#[test]
+fn parse_macro_plugin_manifest() {
+    let t = parse_aura_toml(
+        r#"
+[package]
+name = "demo.macros"
+
+[macro_plugins]
+Entity = "plugins/entity-macro"
+"#,
+    )
+    .unwrap();
+    assert_eq!(
+        t.macro_plugins.get("Entity").map(String::as_str),
+        Some("plugins/entity-macro")
+    );
+}
+
+#[test]
+fn package_loader_rejects_root_macro_plugin_escape_path() {
+    let root = std::env::temp_dir().join(format!(
+        "aura-pkg-root-plugin-escape-{}",
+        std::process::id()
+    ));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(root.join("src")).unwrap();
+    write_tree(
+        &root,
+        &[
+            (
+                "aura.toml",
+                "[package]\nname = \"demo.plugin\"\n[macro_plugins]\nEntity = \"../outside/entity\"\n",
+            ),
+            ("src/main.aura", "package demo.plugin\nfun main() {}\n"),
+        ],
+    );
+    let error = load_package(&root.join("aura.toml"))
+        .expect_err("root plugin path must not escape package root");
+    assert!(
+        error.contains("must use a package-relative path"),
+        "{error}"
+    );
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn package_loader_pins_and_verifies_root_macro_plugin_checksum() {
+    let root = std::env::temp_dir().join(format!(
+        "aura-pkg-root-plugin-checksum-{}",
+        std::process::id()
+    ));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(root.join("src")).unwrap();
+    write_tree(
+        &root,
+        &[
+            (
+                "aura.toml",
+                "[package]\nname = \"demo.plugin\"\n[macro_plugins]\nEntity = \"plugins/entity\"\n",
+            ),
+            ("src/main.aura", "package demo.plugin\nfun main() {}\n"),
+            ("plugins/entity", "plugin-v1"),
+        ],
+    );
+    load_package(&root.join("aura.toml")).expect("initial plugin load writes pin");
+    let lock = fs::read_to_string(root.join("aura.lock")).unwrap();
+    assert!(lock.contains("macro_plugin.Entity"), "{lock}");
+    assert!(lock.contains("source = \"plugin\""), "{lock}");
+    load_package_read_only(&root.join("aura.toml")).expect("matching plugin pin loads");
+    fs::write(root.join("plugins/entity"), "plugin-v2").unwrap();
+    let error = load_package(&root.join("aura.toml"))
+        .expect_err("changed plugin must fail checksum verification");
+    assert!(error.contains("checksum mismatch"), "{error}");
+    let _ = fs::remove_dir_all(root);
 }
 
 #[test]
@@ -1154,6 +1230,112 @@ demo.cycle = { path = ".." }
     );
     let err = load_package(&root.join("aura.toml")).unwrap_err();
     assert!(err.contains("dependency cycle detected"), "{err}");
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn package_loader_exports_declarative_macros_to_later_sources() {
+    let root = std::env::temp_dir().join(format!("aura-pkg-macro-test-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(root.join("src")).unwrap();
+    write_tree(
+        &root,
+        &[
+            (
+                "aura.toml",
+                "[package]\nname = \"demo.macros\"\n\n[[bin]]\nname = \"macros\"\npath = \"src\"\n",
+            ),
+            (
+                "src/a_macros.aura",
+                "package demo.macros\nmacro! inc { ($value:expr) => { $value + 1 }; }\n",
+            ),
+            (
+                "src/main.aura",
+                "package demo.macros\nfun main() { println(inc!(4).toString()) }\n",
+            ),
+        ],
+    );
+    let pkg = load_package(&root.join("aura.toml")).expect("load package macro fixture");
+    let main = pkg
+        .ast
+        .functions
+        .iter()
+        .find(|function| function.name.name == "main")
+        .expect("main function");
+    let body = format!("{:?}", main.body);
+    assert!(body.contains("Binary"), "macro expansion missing: {body}");
+    assert_eq!(pkg.macro_sources.len(), 1);
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn package_loader_rejects_ambiguous_declarative_macro_names() {
+    let root =
+        std::env::temp_dir().join(format!("aura-pkg-macro-duplicate-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(root.join("src")).unwrap();
+    write_tree(
+        &root,
+        &[
+            (
+                "aura.toml",
+                "[package]\nname = \"demo.macros\"\n\n[[bin]]\nname = \"macros\"\npath = \"src\"\n",
+            ),
+            (
+                "src/a.aura",
+                "package demo.macros\nmacro! same { () => { 1 }; }\n",
+            ),
+            (
+                "src/b.aura",
+                "package demo.macros\nmacro! same { () => { 2 }; }\n",
+            ),
+            (
+                "src/main.aura",
+                "package demo.macros\nfun main() { println(same!().toString()) }\n",
+            ),
+        ],
+    );
+    let error = load_package(&root.join("aura.toml")).expect_err("duplicate macro must fail");
+    assert!(
+        error.contains("duplicate declarative macro `same`"),
+        "{error}"
+    );
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn package_loader_rejects_dependency_procedural_plugins() {
+    let root = std::env::temp_dir().join(format!(
+        "aura-pkg-dependency-plugin-provenance-{}",
+        std::process::id()
+    ));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(root.join("app/src")).unwrap();
+    fs::create_dir_all(root.join("dep/src")).unwrap();
+    write_tree(
+        &root,
+        &[
+            (
+                "app/aura.toml",
+                "[package]\nname = \"demo.app\"\n[dependencies]\ndep = { path = \"../dep\" }\n",
+            ),
+            (
+                "app/src/main.aura",
+                "package demo.app\nimport dep\nfun main() {}\n",
+            ),
+            (
+                "dep/aura.toml",
+                "[package]\nname = \"dep\"\n[macro_plugins]\nEvil = \"plugins/evil\"\n",
+            ),
+            ("dep/src/lib.aura", "package dep\nclass Value() {}\n"),
+        ],
+    );
+    let error = load_package(&root.join("app/aura.toml"))
+        .expect_err("dependency plugin must not be silently executable");
+    assert!(
+        error.contains("dependency package `dep` declares procedural macro plugin"),
+        "{error}"
+    );
     let _ = fs::remove_dir_all(root);
 }
 

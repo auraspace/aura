@@ -17,13 +17,19 @@
 
 ## 1. Abstract
 
-This RFC defines Aura’s **memory and concurrency model**: tracing GC, reference vs value semantics, lightweight **tasks**, bounded channels, `async`/`await`, shared-memory synchronization, happens-before rules, and the policy that **data races are bugs**—detected in development, not licensed as silent undefined behavior. C22 freezes a deterministic single-threaded task/event-loop MVP; the broader multi-worker model remains future work.
+This RFC defines Aura’s **memory and concurrency model**: tracing GC, reference vs value semantics, lightweight **tasks**, bounded channels, `async`/`await`, shared-memory synchronization, happens-before rules, and the policy that **data races are bugs**—detected in development, not licensed as silent undefined behavior. The current runtime adds an opt-in POSIX M:N worker pool and reactor around the cooperative task model.
 
 Runtime implementation details (scheduler, collector algorithm) are expanded in **RFC-006**; this document is the language-level contract.
 
-**Toolchain today (2026-07-28, C22t + alpha follow-up):** class instances are GC heap references, `struct` values remain by-value, and execution is single-threaded. The runtime has stop-the-world mark/sweep with registered roots and task-frame storage scans, plus ownership handling for Array/String values, captured environments, typed exception causes, and bounded FFI pins. C20c–e add MVP shared pointer boxes for mutable class, Array, and nested Fun captures; C20g adds read-only collection snapshots. C21b–e add sema-checked scoped refs and borrow-safe Array field returns. C22a–i land async/task syntax and barriers; C22j–k task frames/executor; C22n–o bounded channels and typed payloads. C22l–m and the v0.1.1-alpha follow-up remain partial: bounded await/control-flow shapes are executable, while arbitrary lowering, richer captures, full outcome propagation, async I/O, and typed HTTP handles remain open.
+**Toolchain today (2026-08-02):** class instances are GC heap references and `struct` values remain by-value. The runtime has registered-root stop-the-world mark/sweep coordinated with concurrent worker activity, an opt-in POSIX M:N worker pool, a POSIX poll reactor, bounded channels/select, task scopes, blocking jobs, and task-safe lazy cells. C20c–e add MVP shared pointer boxes for mutable class, Array, and nested Fun captures; C20g adds read-only collection snapshots. C21b–e add sema-checked scoped refs and borrow-safe Array field returns. C22a–i land async/task syntax and barriers; C22j–k task frames/executor; C22n–o bounded channels and typed payloads. General CFG now also supports awaited return expressions with typed frame slots; scheduler-owned task payload transfer and nested spawn pollers are covered, while richer open-generic captures, non-POSIX backends, and a concurrent tracing collector remain open.
 
 ## 2. Motivation
+
+The current scheduler boundary also supports explicit reference wrappers for
+`Task`/`TaskHandle` frame payloads and `Channel` payloads. These references are
+released independently from lexical handles; only richer open-generic
+captures, non-POSIX backends, and a concurrent tracing collector remain open
+in this area.
 
 ### 2.1 Problem statement
 
@@ -94,12 +100,19 @@ reactor, and concurrent GC. Those facilities may be added by a later RFC or
 milestone without changing the source vocabulary below. Release packaging,
 signing, notarization, and publication are also outside C22.
 
-The landed C22 implementation is intentionally narrower than this contract:
-bounded straight-line, branch-join, multi-await, and one top-level integer
-loop/await shapes lower to task-frame suspension states; bounded non-empty
-`spawn {}` bodies and typed channel operations are executable. General control
-flow, mutable capture transfer, and complete task failure propagation remain
-implementation follow-ups, not changes to the source contract.
+The landed implementation now lowers general async branch/loop/repeated-await
+CFGs and reuses that typed frame contract for inferred immutable captures in
+`spawn {}` bodies. Mutable captures use the shared-box ownership contract;
+opaque aggregates without generated clone/drop/mark hooks remain explicit
+compiler boundaries. The runtime also exposes a versioned
+`AuraTypeErasedOps`/`AuraTypeErasedValue` clone/drop/mark contract for values
+that must cross an open generic or plugin boundary; concrete compiler
+monomorphs continue to use typed layouts. Typed channel operations,
+failure propagation, cancellation, and frame GC hooks are part of the shipped
+contract rather than fallback behavior. Capture discovery is lexical: bindings
+introduced inside a spawn body, loop, or match/catch shadow an outer name and
+never become accidental frame fields; lambda bodies retain their separate
+closure-environment lowering.
 
 ### 6.2 Memory management strategy
 
@@ -111,7 +124,7 @@ implementation follow-ups, not changes to the source contract.
 | Hybrid arenas            | Optional later for buffers    |
 | Regions                  | Future                        |
 
-**Decision:** Tracing GC. Phased algorithm (RFC-006): free-all MVP (shipped) → precise **stop-the-world mark-sweep** next → concurrent collector later.
+**Decision:** Tracing GC. The current phase is precise **stop-the-world mark-sweep** with executor safepoints; a concurrent tracing collector remains a later phase.
 
 Safe Aura guarantees:
 
@@ -129,7 +142,9 @@ returns and read-only collection views.
 The MVP has no mutable borrow, heap-stored reference, nullable/nested `ref`,
 closure/task escape, pinning, or concurrent sharing. Codegen may represent a
 valid borrow as a temporary pointer/view; no new runtime retain/release ABI is
-required. Async/tasks were outside the C21 implementation track; C22 now adds
+required. Mutable Array lambda captures are a separate owned shared-cell
+contract: the outer binding and each closure retain the cell, and the Array
+payload is released after the last cell owner. Async/tasks were outside the C21 implementation track; C22 now adds
 explicit single-threaded lifetime barriers without changing this ownership ABI.
 
 #### 6.2.2 C22 async borrow barriers
@@ -213,24 +228,50 @@ than once; every join after completion observes the cached outcome.
 | task failure     | Captured by the task and surfaced by `join`; it does not terminate the executor or implicitly close unrelated channels.                              |
 | completed handle | Retains only the result/error state required for future joins; destruction is exactly once and may be triggered by GC after handles are unreachable. |
 
+General async CFG lowering treats `return await expression` as a suspension
+edge rather than re-evaluating the expression after resume. The awaited value is
+stored in a typed frame slot, and the normal cancellation, failure propagation,
+and aggregate drop hooks apply before the terminal `Task<T>` result is
+published. If the operand contains another async operation, the compiler lifts
+the innermost await into the same continuation graph (for example
+`return await await makeTask()`), preserving each child handle's ownership and
+avoiding duplicate evaluation after resume.
+
+Expression-form `if` values use the same rule: when either branch awaits, the
+compiler emits a branch state and assigns the selected value into the typed
+continuation slot. The branch is selected exactly once, and the unselected
+child task is never created, so suspension cannot re-evaluate the expression.
+
 `Task<T>` and `TaskHandle<T>` are distinct: the former is a computation, the
 latter is the scheduled identity used by `join` and `cancel`. C22 has no
 preemptive cancellation, OS-thread affinity, or implicit auto-restart.
+
+The alpha std surface reserves `std.task.taskScope(() -> Unit)`,
+`std.task.Select<T>`, `std.task.select<T>()`, and
+`std.task.spawnBlocking<T>(() -> T)` as placeholders for structured
+concurrency, channel selection, and worker-pool execution. They fail explicitly
+until async closure lowering, child supervision, readiness fairness, and worker
+runtime support are available; the conceptual block form remains the RFC
+language target.
 
 ### 6.6 Shared-state concurrency
 
 **Primitives (stdlib):**
 
-| API                      | Role                     |
-| ------------------------ | ------------------------ |
-| `Mutex<T>` / `RwLock<T>` | Critical sections        |
-| `Channel<T>` / `Select`  | Message passing          |
-| `Atomic*`                | Lock-free counters/flags |
-| `Once` / `Lazy`          | Init                     |
+| API                     | Role                     |
+| ----------------------- | ------------------------ |
+| `Mutex` / `RwLock`      | Critical sections        |
+| `Channel<T>` / `Select` | Message passing          |
+| `Atomic*`               | Lock-free counters/flags |
+| `Once` / `Lazy`         | Init                     |
 
 **Default style:** share-memory-by-communicating when practical; locks when needed.
 
 There is **no** borrow-based `Send`/`Sync` enforcement. Documentation and optional attributes may mark thread-hostile types. Race detector covers misuse.
+
+The alpha `Mutex` and `RwLock` are non-generic state gates; protected data is
+owned by the caller and is not stored in the lock. A future generic guard API
+must first define guard lifetime, async cancellation, and ownership behavior.
 
 #### 6.6.1 Bounded channel contract (C22)
 
@@ -247,6 +288,25 @@ released according to normal GC/value rules. Cancellation removes a waiting
 operation without reordering other waiters. A channel owns or retains queued
 payloads until delivery, drain, or close cleanup; a C21 `ref T` is never a
 legal payload across this boundary.
+
+#### 6.6.2 Alpha placeholder contracts
+
+`std.task.select<T>()` constructs a selector and
+`Select<T>.add(Channel<T>) -> Select<T>` registers a channel. The eventual
+`await selector.next() -> T?` operation returns one ready value or the closed
+sentinel after all registered channels close. The alpha source declarations
+throw placeholders; readiness fairness, registration mutation, and a richer
+closed-channel outcome remain runtime work.
+
+`std.sync.lazy<T>(() -> T) -> Lazy<T>` reserves exactly-once initialization;
+`Lazy<T>.get() -> T` and `isInitialized() -> Bool` must be safe across the
+future worker scheduler. The alpha calls throw placeholders until task-safe
+retention and initialization races are defined.
+
+`std.task.spawnBlocking<T>(() -> T) -> TaskHandle<T>` reserves execution of a
+blocking closure on a worker pool. It must not run blocking work on the
+cooperative executor, and cancellation must define whether queued/running work
+is abandoned or joined. The alpha call throws a placeholder.
 
 ### 6.7 Memory consistency model
 

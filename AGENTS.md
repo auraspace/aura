@@ -10,7 +10,7 @@ Custom agents for the Aura compiler and ecosystem.
 | **Language Spec Expert**  | RFC-000 principles, RFC-001 language, RFC-002 types, RFC-003 memory/concurrency            | New features, type-system design, spec ambiguities, RFCs     |
 | **Test & Corpus Manager** | `/corpus`, categories, e2e compile tests, examples                                         | New tests, corpus layout, docs examples, integration tests   |
 | **Docs & RFC Specialist** | RFCs 000–013, architecture docs, roadmap                                                   | Writing RFCs/docs, design decisions, planning                |
-| **Runtime & Integration** | `aura_rt.c`, RFC-006 runtime, RFC-008 build                                                | Runtime features, C/codegen glue, performance, runtime lib   |
+| **Runtime & Integration** | `runtime.c`, RFC-006 runtime, RFC-008 build                                                | Runtime features, C/codegen glue, performance, runtime lib   |
 | **Website & Tooling**     | React/TypeScript site, Vite, tooling                                                       | Site updates, dev tools, interactive examples                |
 
 ## Quick Select

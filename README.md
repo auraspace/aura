@@ -15,7 +15,7 @@ This repository currently holds:
 | [`corpus/`](corpus/)                 | Sample `.aura` programs for the compiler                             |
 | [`examples/`](examples/)             | Dogfood apps (`notes`, `wc` CLI packages)                            |
 | [`std/`](std/)                       | Minimal std packages (`io`, `assert`, `collections`)                 |
-| [`runtime/`](runtime/)               | Linked C runtime (`aura_rt.c`)                                       |
+| [`runtime/`](runtime/)               | Linked C runtime (`runtime.c`)                                       |
 
 **License:** [MIT](LICENSE)
 
@@ -84,7 +84,7 @@ cargo run -p aura-cli -- run corpus/std_collections/hashmap_int # generic HashMa
 cargo run -p aura-cli -- run corpus/std_collections/hashset_int # generic HashSet<Int> (C15)
 ```
 
-Native builds use a **C backend** (`aura emit-c` + system `cc`) linked with `runtime/aura_rt.c`. LLVM IR is the longer-term path (RFC-004).
+Native builds use a **C backend** (`aura emit-c` + system `cc`) linked with `runtime/runtime.c`. LLVM IR is the longer-term path (RFC-004).
 
 ## Supported release targets
 
@@ -222,7 +222,7 @@ when their Rust and C toolchains are available.
 - **Compiler C11b** Fun capture-env ownership free (scope/move/return/param/for)
 - **CLI C11c** `aura new` / `init` / `version`
 - **Lang C11d** `String.substring` + `examples/notes` dogfood; fix heap `this.method()` recv
-- **Dist C11e** Embedded `aura_rt.c`, [install guide](docs/guide/install.md), [0.1.0-alpha freeze](docs/releases/0.1.0-alpha.md)
+- **Dist C11e** Embedded `runtime.c`, [install guide](docs/guide/install.md), [0.1.0-alpha freeze](docs/releases/0.1.0-alpha.md)
 - **Release** Tag `v0.1.0-alpha` + multi-OS tarballs on GitHub Releases (install via [install.sh](docs/guide/install.md))
 - **Runtime C12b** `std.io.args(): Array<String>` process argv
 - **CLI C12c** `aura run` / `test` pass args after `--`

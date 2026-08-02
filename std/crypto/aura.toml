@@ -1,0 +1,6 @@
+[package]
+name = "std.crypto"
+
+[[bin]]
+name = "crypto"
+path = "src"

@@ -1,0 +1,43 @@
+// std.websocket -- alpha API shell for WebSocket message transport.
+
+package std.websocket
+
+pub enum MessageKind {
+  case Text
+  case Binary
+  case Ping
+  case Pong
+  case Close
+}
+
+pub class Message(pub val kind: MessageKind, pub val payload: String) {}
+
+pub class Connection(pub val endpoint: String) {
+  pub async fun receive(): Message {
+    throw "std.websocket receive is a placeholder"
+  }
+
+  pub async fun send(message: Message): Unit {
+    throw "std.websocket send is a placeholder"
+  }
+
+  pub async fun ping(payload: String): Unit {
+    throw "std.websocket ping is a placeholder"
+  }
+
+  pub fun close(): Unit {
+    throw "std.websocket close is a placeholder"
+  }
+}
+
+pub fun text(payload: String): Message {
+  return Message(Text(), payload)
+}
+
+pub fun binary(payload: String): Message {
+  return Message(Binary(), payload)
+}
+
+pub async fun connect(endpoint: String): Connection {
+  throw "std.websocket connect is a placeholder"
+}

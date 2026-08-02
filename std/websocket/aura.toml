@@ -1,0 +1,6 @@
+[package]
+name = "std.websocket"
+
+[[bin]]
+name = "websocket"
+path = "src"

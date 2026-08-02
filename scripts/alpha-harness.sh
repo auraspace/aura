@@ -95,7 +95,7 @@ run_stage() {
       else
         run_command backend 'bash scripts/compiler-regression.sh' 'scripts/alpha-harness.sh --stage backend --fixture compiler-regression'
       fi ;;
-    runtime) run_command runtime 'cc -std=c11 -Wall -Wextra -Werror -c runtime/aura_rt.c -o "$TEMP_RUNTIME_OBJECT"' 'scripts/alpha-harness.sh --stage runtime' ;;
+    runtime) run_command runtime 'cc -std=c11 -Wall -Wextra -Werror -c runtime/runtime.c -o "$TEMP_RUNTIME_OBJECT"' 'scripts/alpha-harness.sh --stage runtime' ;;
     async) run_command async 'cargo test -p aura-cli async' 'cargo test -p aura-cli async' ;;
     io) run_command io 'bash scripts/compiler-regression.sh && bash scripts/async-io-ffi-smoke.sh' 'scripts/alpha-harness.sh --stage io' ;;
     http) run_command http 'bash scripts/http-aura-smoke.sh' 'scripts/alpha-harness.sh --stage http' ;;

@@ -1,12 +1,16 @@
 //! Package loading from files, directories, and manifests (C3e/C3f/C13l).
 
-use aura_analysis::parse_file;
+use aura_analysis::{
+    declarative_macro_names, declarative_macro_sources, parse_file, parse_file_with_macro_sources,
+};
 use aura_ast::{shift_file_spans, File, ImportDecl, Path as AstPath, Span};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
-use super::fetch::{cache_root_from_env, crate_source_for_meta, ensure_installed, package_src_dir};
+use super::fetch::{
+    cache_root_from_env, crate_source_for_meta, ensure_installed, package_src_dir, sha256_hex,
+};
 use super::lock::{
     read_lock, verify_lock_against_toml, write_lock_entries, AuraLock, LockEntry, LockWriteEntry,
 };
@@ -132,6 +136,7 @@ pub(crate) fn load_single_file(path: &Path) -> Result<LoadedPackage, String> {
         .unwrap_or("a.out")
         .to_string();
     let end = src.len() as u32;
+    let macro_sources = declarative_macro_sources(&src).unwrap_or_default();
     Ok(LoadedPackage {
         root: path
             .parent()
@@ -147,6 +152,8 @@ pub(crate) fn load_single_file(path: &Path) -> Result<LoadedPackage, String> {
         }],
         virtual_src: src,
         ast,
+        macro_sources,
+        macro_plugins: std::collections::BTreeMap::new(),
     })
 }
 
@@ -192,6 +199,23 @@ pub(crate) fn load_from_manifest(
     };
 
     pkg.root = root.clone();
+    for (name, path) in &toml.macro_plugins {
+        let plugin_path = Path::new(path);
+        if plugin_path.is_absolute()
+            || plugin_path
+                .components()
+                .any(|component| matches!(component, Component::ParentDir))
+        {
+            return Err(format!(
+                "error: root macro plugin `{name}` must use a package-relative path without `..`: {path}"
+            ));
+        }
+    }
+    pkg.macro_plugins = toml
+        .macro_plugins
+        .iter()
+        .map(|(name, path)| (name.clone(), root.join(path)))
+        .collect();
     if let Some(ref name) = toml.package_name {
         if name != &pkg.package {
             return Err(format!(
@@ -208,6 +232,8 @@ pub(crate) fn load_from_manifest(
 
     // C3p/C13l: if aura.lock exists, direct deps must match it (paths + registry reqs).
     verify_lock_against_toml(&root, &toml.dependencies)?;
+    let macro_plugin_entries = macro_plugin_lock_entries(&root, &toml.macro_plugins)?;
+    verify_macro_plugin_lock(&root, &toml.macro_plugins, write_lock)?;
 
     // C4g: auto-prelude — make std.io available and import it for app packages.
     let mut effective = toml.clone();
@@ -254,6 +280,9 @@ pub(crate) fn load_from_manifest(
             );
         }
     }
+    for (name, entry) in &macro_plugin_entries {
+        lock_entries.insert(name.clone(), entry.clone());
+    }
     if write_lock {
         write_lock_entries(&root, &lock_entries)?;
     }
@@ -295,6 +324,90 @@ struct RegistryResolver {
     cache: PathBuf,
     index: Option<RegistryIndex>,
     pins: BTreeMap<String, RegistryLockPin>,
+}
+
+fn macro_plugin_lock_entries(
+    root: &Path,
+    plugins: &BTreeMap<String, String>,
+) -> Result<BTreeMap<String, LockWriteEntry>, String> {
+    let canonical_root = fs::canonicalize(root)
+        .map_err(|e| format!("error: canonicalize package root {}: {e}", root.display()))?;
+    let mut entries = BTreeMap::new();
+    for (name, relative) in plugins {
+        let path = root.join(relative);
+        let canonical = fs::canonicalize(&path).map_err(|e| {
+            format!("error: root macro plugin `{name}` is unavailable at `{relative}`: {e}")
+        })?;
+        if !canonical.starts_with(&canonical_root) {
+            return Err(format!(
+                "error: root macro plugin `{name}` resolves outside the package root: {relative}"
+            ));
+        }
+        let bytes = fs::read(&canonical)
+            .map_err(|e| format!("error: read root macro plugin `{name}` at `{relative}`: {e}"))?;
+        entries.insert(
+            name.clone(),
+            LockWriteEntry::MacroPlugin {
+                path: relative.clone(),
+                checksum: sha256_hex(&bytes),
+            },
+        );
+    }
+    Ok(entries)
+}
+
+fn verify_macro_plugin_lock(
+    root: &Path,
+    plugins: &BTreeMap<String, String>,
+    write_lock: bool,
+) -> Result<(), String> {
+    if plugins.is_empty() {
+        return Ok(());
+    }
+    let Some(lock) = read_lock(root)? else {
+        if write_lock {
+            return Ok(());
+        }
+        return Err(
+            "error: aura.lock is required for root procedural macro plugins\n  hint: run `aura check` or `aura build` once to create plugin checksum pins"
+                .into(),
+        );
+    };
+    for (name, relative) in plugins {
+        let Some(entry) = lock.macro_plugins.get(name) else {
+            if write_lock {
+                continue;
+            }
+            return Err(format!(
+                "error: aura.lock missing checksum pin for root macro plugin `{name}`\n  hint: run `aura check` or `aura build` to refresh the lockfile"
+            ));
+        };
+        if entry.source.as_deref() != Some("plugin") || entry.path.as_deref() != Some(relative) {
+            return Err(format!(
+                "error: aura.lock pin for root macro plugin `{name}` does not match path `{relative}`\n  hint: refresh aura.lock after changing the plugin manifest"
+            ));
+        }
+        let expected = entry.checksum.as_deref().unwrap_or("").to_ascii_lowercase();
+        if expected.len() != 64 || !expected.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err(format!(
+                "error: aura.lock checksum for root macro plugin `{name}` is invalid"
+            ));
+        }
+        let current =
+            macro_plugin_lock_entries(root, &BTreeMap::from([(name.clone(), relative.clone())]))?;
+        let LockWriteEntry::MacroPlugin { checksum, .. } = current
+            .get(name)
+            .expect("current macro plugin entry must exist")
+        else {
+            unreachable!();
+        };
+        if expected != checksum.to_ascii_lowercase() {
+            return Err(format!(
+                "error: root macro plugin `{name}` checksum mismatch\n  expected {expected}\n  got {checksum}\n  hint: inspect the executable, then refresh aura.lock intentionally"
+            ));
+        }
+    }
+    Ok(())
 }
 
 impl RegistryResolver {
@@ -691,6 +804,18 @@ fn load_package_sources_only(root: &Path) -> Result<LoadedPackage, String> {
             .map_err(|e| format!("error: read {}: {e}", manifest.display()))?;
         let toml =
             parse_aura_toml(&text).map_err(|e| format!("error: {}: {e}", manifest.display()))?;
+        if !toml.macro_plugins.is_empty() {
+            let names = toml
+                .macro_plugins
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Err(format!(
+                "error: dependency package `{}` declares procedural macro plugin(s) `{names}`; dependency plugins are not executable implicitly\n  hint: declare and pin plugins in the root package `[macro_plugins]` table",
+                toml.package_name.as_deref().unwrap_or("<unnamed>")
+            ));
+        }
         let source_root = match &toml.bin_path {
             Some(p) => root.join(p),
             None => {
@@ -732,6 +857,25 @@ fn load_package_sources_only(root: &Path) -> Result<LoadedPackage, String> {
 }
 
 fn merge_package(into: &mut LoadedPackage, mut dep: LoadedPackage) -> Result<(), String> {
+    let mut existing = HashSet::new();
+    for source in &into.macro_sources {
+        existing.extend(
+            declarative_macro_names(source)
+                .map_err(|error| format!("error: invalid exported macro: {}", error.message))?,
+        );
+    }
+    for source in &dep.macro_sources {
+        for name in declarative_macro_names(source)
+            .map_err(|error| format!("error: invalid exported macro: {}", error.message))?
+        {
+            if !existing.insert(name.clone()) {
+                return Err(format!(
+                    "error: duplicate declarative macro `{name}` in resolved package graph; macro names must be unique"
+                ));
+            }
+        }
+    }
+    into.macro_sources.extend(dep.macro_sources.iter().cloned());
     // Append sources into virtual buffer with span shift.
     if !into.virtual_src.is_empty() && !into.virtual_src.ends_with('\n') {
         into.virtual_src.push('\n');
@@ -935,13 +1079,16 @@ pub(crate) fn load_directory(
     let mut functions = Vec::new();
     let mut foreign_functions = Vec::new();
     let mut async_functions = Vec::new();
+    let mut macro_sources = Vec::new();
+    let mut seen_macros: HashSet<String> = HashSet::new();
     let mut seen_types: Vec<(String, String, String)> = Vec::new(); // kind, name, path
     let mut seen_funs: Vec<(String, String)> = Vec::new(); // name, path
 
     for path in &paths {
         let src =
             fs::read_to_string(path).map_err(|e| format!("error: read {}: {e}", path.display()))?;
-        let mut ast = parse_file(&src).map_err(|e| format_parse(path, &src, e))?;
+        let mut ast = parse_file_with_macro_sources(&src, &macro_sources)
+            .map_err(|e| format_parse(path, &src, e))?;
         let pkg_name = ast.package.display();
         if let Some(ref p) = package {
             if *p != pkg_name {
@@ -1010,6 +1157,21 @@ pub(crate) fn load_directory(
         foreign_functions.extend(ast.foreign_functions);
         async_functions.extend(ast.async_functions);
 
+        let exported = declarative_macro_sources(&src).map_err(|e| format_parse(path, &src, e))?;
+        for name in exported {
+            for macro_name in
+                declarative_macro_names(&name).map_err(|e| format_parse(path, &src, e))?
+            {
+                if !seen_macros.insert(macro_name.clone()) {
+                    return Err(format!(
+                        "error: duplicate declarative macro `{macro_name}` in package source `{}`; macro names must be unique",
+                        path.display()
+                    ));
+                }
+            }
+            macro_sources.push(name);
+        }
+
         sources.push(SourceEntry {
             path: path.clone(),
             src,
@@ -1064,5 +1226,7 @@ pub(crate) fn load_directory(
         sources,
         virtual_src,
         ast: merged,
+        macro_sources,
+        macro_plugins: std::collections::BTreeMap::new(),
     })
 }

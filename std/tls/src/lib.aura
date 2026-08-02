@@ -1,0 +1,44 @@
+// std.tls -- alpha API shell for TLS transport.
+
+package std.tls
+
+pub enum TlsError {
+  case InvalidInput
+  case HandshakeFailed
+  case CertificateRejected
+  case Unsupported
+}
+
+pub class Certificate(pub val subject: String, pub val issuer: String) {}
+
+pub class Config(pub val serverName: String, pub val verifyPeer: Bool) {
+  pub fun withServerName(name: String): Config {
+    return Config(name, this.verifyPeer)
+  }
+}
+
+pub class Connection(pub val endpoint: String) {
+  pub async fun read(capacity: Int): String {
+    throw "std.tls read is a placeholder"
+  }
+
+  pub async fun write(content: String): Int {
+    throw "std.tls write is a placeholder"
+  }
+
+  pub fun close(): Unit {
+    throw "std.tls close is a placeholder"
+  }
+}
+
+pub fun config(serverName: String, verifyPeer: Bool): Config {
+  return Config(serverName, verifyPeer)
+}
+
+pub async fun connect(endpoint: String, options: Config): Connection {
+  throw "std.tls connect is a placeholder"
+}
+
+pub fun loadCertificate(path: String): Certificate {
+  throw "std.tls loadCertificate is a placeholder"
+}

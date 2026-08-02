@@ -4,12 +4,32 @@ package std.io
 
 /// Terminal outcome for an asynchronous task join.
 pub enum TaskError {
-  /// The task failed with an untyped error message.
+  /// The task failed with a normalized owned error message.
   case Failed(error: String)
-  /// The task failed with a typed error and its runtime type name.
-  case FailedTyped(error: String, typeName: String)
   /// The task was cooperatively cancelled before producing a value.
   case Cancelled
+}
+
+/// Return the concrete exception type retained by a failed task, when the
+/// failure crossed an async boundary with typed payload metadata.
+/// The returned String is an owned copy; `null` means no typed exception tag.
+pub fun taskErrorTypeName(error: TaskError): String? {
+  return null
+}
+
+/// Source identity attached to a failed task, or zero when unavailable.
+pub fun taskErrorSourceId(error: TaskError): Int {
+  return 0
+}
+
+/// Start byte offset of the failed task's source span, or zero when absent.
+pub fun taskErrorSpanStart(error: TaskError): Int {
+  return 0
+}
+
+/// End byte offset of the failed task's source span, or zero when absent.
+pub fun taskErrorSpanEnd(error: TaskError): Int {
+  return 0
 }
 
 /// Non-throwing result used by task joins and structured file wrappers below.

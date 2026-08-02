@@ -1,0 +1,69 @@
+// std.reflect -- alpha API shell for opt-in reflection metadata.
+//
+// Metadata production is not implemented yet. These types establish the
+// source-compatible contract without exposing compiler/runtime internals.
+
+package std.reflect
+
+pub enum TypeKind {
+  case Primitive
+  case Class
+  case Struct
+  case Enum
+  case Interface
+  case Function
+  case Unknown
+}
+
+/// Stable identity for a type whose runtime metadata was retained.
+pub class TypeId(pub val value: String) {}
+
+/// Runtime metadata for an opt-in reflected type.
+pub class Type(private val placeholder: Int, pub val nameValue: String) {
+  pub fun name(): String {
+    return this.nameValue
+  }
+
+  pub fun methods(): Array<Method> {
+    throw "std.reflect Type.methods is a placeholder"
+  }
+
+  pub fun fields(): Array<Field> {
+    throw "std.reflect Type.fields is a placeholder"
+  }
+}
+
+/// Public method metadata. Invocation is intentionally outside RFC-009 v1.
+pub class Method(pub val name: String, pub val returnType: String) {}
+
+/// Public field metadata.
+pub class Field(pub val name: String, pub val typeName: String) {}
+
+pub class TypeInfo(pub val name: String, pub val kind: TypeKind) {}
+
+pub class MemberInfo(pub val name: String, pub val typeName: String) {}
+
+/// RFC-009 generic reflection entry points. Metadata production is deferred.
+pub fun typeOf<T>(): Type {
+  throw "std.reflect typeOf is a placeholder"
+}
+
+pub fun typeIdOf<T>(): TypeId {
+  throw "std.reflect typeIdOf is a placeholder"
+}
+
+pub fun typeInfo(typeName: String): TypeInfo {
+  throw "std.reflect typeInfo is a placeholder"
+}
+
+pub fun fields(typeName: String): Array<String> {
+  throw "std.reflect fields is a placeholder"
+}
+
+pub fun methods(typeName: String): Array<String> {
+  throw "std.reflect methods is a placeholder"
+}
+
+pub fun isReflectable(typeName: String): Bool {
+  throw "std.reflect isReflectable is a placeholder"
+}

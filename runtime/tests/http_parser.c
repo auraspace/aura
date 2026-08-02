@@ -6,7 +6,7 @@
 #include <unistd.h>
 
 #define AURA_RUNTIME_NO_MAIN
-#include "../../runtime/aura_rt.c"
+#include "../../runtime/runtime.c"
 
 static void assert_empty_request(const AuraHttpRequest *request, size_t consumed)
 {
@@ -211,6 +211,33 @@ static void test_content_length_reader_allows_one_active_read_task(void)
   aura_http_request_body_read_end(&request);
 }
 
+static void test_chunked_reader_consumes_trailers(void)
+{
+  int fds[2] = {-1, -1};
+  AuraTcpStream stream;
+  AuraHttpContentLengthReader reader;
+  unsigned char body[8] = {0};
+  size_t used = 0;
+  size_t read = 0;
+
+  assert(socketpair(AF_UNIX, SOCK_STREAM, 0, fds) == 0);
+  stream.fd = fds[0];
+  {
+    const char input[] = "4\r\nWiki\r\n0\r\nX-Trace: done\r\n\r\nNEXT";
+    assert(write(fds[1], input, sizeof(input) - 1) == (ssize_t)(sizeof(input) - 1));
+  }
+  assert(aura_http_chunked_reader_init(&reader, &stream, NULL, &used, 1000));
+  assert(aura_http_chunked_reader_read(&reader, body, sizeof(body), &read) ==
+         AURA_TCP_OK);
+  assert(read == 4 && memcmp(body, "Wiki", 4) == 0);
+  assert(aura_http_chunked_reader_read(&reader, body, sizeof(body), &read) ==
+         AURA_TCP_EOF);
+  assert(recv(fds[0], body, sizeof(body), 0) == 4);
+  assert(memcmp(body, "NEXT", 4) == 0);
+  assert(close(fds[0]) == 0);
+  assert(close(fds[1]) == 0);
+}
+
 static void test_chunked_body_and_keep_alive_boundary(void)
 {
   const char partial[] =
@@ -232,6 +259,31 @@ static void test_chunked_body_and_keep_alive_boundary(void)
                             "4\r\nWiki\r\n5\r\npedia\r\n0\r\n\r\n"));
   assert(parsed.body_length == 9);
   assert(memcmp(parsed.body, "Wikipedia", 9) == 0);
+  aura_http_request_destroy(&parsed);
+}
+
+static void test_chunked_trailers_are_preserved(void)
+{
+  const char request[] =
+      "POST /submit HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n"
+      "4\r\nWiki\r\n0\r\nX-Checksum: abc123\r\nX-Trace: done\r\n\r\n"
+      "GET /next HTTP/1.1\r\n\r\n";
+  AuraHttpRequest parsed = {0};
+  size_t consumed = 0;
+  const AuraHttpHeader *checksum;
+  const AuraHttpHeader *trace;
+
+  assert(aura_http_request_parse(request, sizeof(request) - 1, &parsed, &consumed) ==
+         AURA_HTTP_PARSE_OK);
+  assert(parsed.body_length == 4);
+  assert(memcmp(parsed.body, "Wiki", 4) == 0);
+  assert(parsed.header_count == 3);
+  checksum = aura_http_request_find_header(&parsed, "x-checksum");
+  trace = aura_http_request_find_header(&parsed, "X-TRACE");
+  assert(checksum != NULL && strcmp(checksum->value, "abc123") == 0);
+  assert(trace != NULL && strcmp(trace->value, "done") == 0);
+  assert(consumed == strlen("POST /submit HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n"
+                            "4\r\nWiki\r\n0\r\nX-Checksum: abc123\r\nX-Trace: done\r\n\r\n"));
   aura_http_request_destroy(&parsed);
 }
 
@@ -361,7 +413,9 @@ int main(void)
   test_content_length_reader_preserves_buffered_boundary();
   test_content_length_reader_reads_socket_without_overread();
   test_content_length_reader_allows_one_active_read_task();
+  test_chunked_reader_consumes_trailers();
   test_chunked_body_and_keep_alive_boundary();
+  test_chunked_trailers_are_preserved();
   test_malformed_and_rejected_framing();
   test_oversized_request_line_and_headers();
   test_oversized_body_and_ownership();

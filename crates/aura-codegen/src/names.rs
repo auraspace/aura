@@ -309,6 +309,21 @@ pub(crate) fn c_method_name(mono: &str, method: &str) -> String {
     format!("aura_method_{mono}_{method}")
 }
 
+pub(crate) fn c_generic_method_name(mono: &str, method: &str, args: &[Ty]) -> String {
+    if args.is_empty() {
+        c_method_name(mono, method)
+    } else {
+        format!(
+            "{}_{}",
+            c_method_name(mono, method),
+            args.iter()
+                .map(Ty::mono_suffix)
+                .collect::<Vec<_>>()
+                .join("_")
+        )
+    }
+}
+
 pub(crate) fn is_primitive_name(n: &str) -> bool {
     matches!(n, "Int" | "Bool" | "String" | "Unit")
 }
@@ -390,7 +405,10 @@ pub(crate) fn ty_to_c(t: &Ty) -> String {
         Ty::EnumApp { name, args } => c_enum_type(&mono_key(name, args)),
         Ty::Interface(n) => c_iface_type(&nominal_mono_base(n)),
         Ty::InterfaceApp { name, args } => c_iface_type(&mono_key(name, args)),
-        Ty::TypeParam(_) => "/* unbound T */ int64_t".into(),
+        // Open generic declarations are not monomorphized at this boundary.
+        // Keep their ABI opaque instead of silently treating T as an integer;
+        // concrete call sites are still substituted before code generation.
+        Ty::TypeParam(_) => "AuraTypeErasedValue".into(),
         Ty::Fun { .. } => c_fun_typedef(&t.mono_suffix()),
         // C22: task frames and channels are opaque runtime-owned pointers.
         Ty::Task(_) | Ty::TaskHandle(_) => "AuraTaskFrame *".into(),
@@ -403,6 +421,8 @@ pub(crate) fn ty_to_c(t: &Ty) -> String {
 /// structs and enums by value.
 pub(crate) fn ty_to_c_array_elem(t: &Ty, checked: &CheckedFile) -> String {
     match t {
+        Ty::Enum(n) => c_enum_type(&nominal_mono_base(n)),
+        Ty::EnumApp { name, args } => c_enum_type(&mono_key(name, args)),
         Ty::Class(n) => {
             let mono = nominal_mono_base(n);
             c_class_local_type(&mono, checked)
@@ -453,7 +473,12 @@ pub(crate) fn ty_to_c_local(t: &Ty, checked: &CheckedFile) -> String {
 /// This must recurse through type arguments: a direct substitution handles `T`,
 /// but a type such as `Array<Pair<K, V>>` needs both `K` and `V` replaced before
 /// its monomorph key is used by C emission.
-fn type_ref_to_ty_subst(ty: &TypeRef, checked: &CheckedFile, params: &[String], args: &[Ty]) -> Ty {
+pub(crate) fn type_ref_to_ty_subst(
+    ty: &TypeRef,
+    checked: &CheckedFile,
+    params: &[String],
+    args: &[Ty],
+) -> Ty {
     if let Some(fun) = &ty.fun {
         let fun_ty = Ty::Fun {
             params: fun
@@ -611,6 +636,7 @@ pub(crate) fn c_type_ref_subst(
                 // C4k: monomorphized type params that are heap classes must be pointers.
                 return ty_to_c_local(t, checked);
             }
+            return "AuraTypeErasedValue".into();
         }
         match ty.name.name.as_str() {
             "Int" => "int64_t".into(),
@@ -766,6 +792,14 @@ pub(crate) fn c_fun_typedef(key: &str) -> String {
     format!("aura_fp_{key}")
 }
 
+pub(crate) fn c_channel_drop_name(key: &str) -> String {
+    let suffix: String = key
+        .chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
+        .collect();
+    format!("aura_task_channel_value_destroy_typed_{suffix}")
+}
+
 /// C type for a semantic `Ty` (primitives, fun pointers; classes as mono struct pointers).
 /// C12k: capture type is a GC heap class pointer (not struct/Array/prim).
 pub(crate) fn is_heap_class_capture_ty(ty: &Ty, checked: &CheckedFile) -> bool {
@@ -844,7 +878,7 @@ pub(crate) fn c_type_from_ty(ty: &Ty, checked: &CheckedFile) -> String {
         Ty::Task(_) | Ty::TaskHandle(_) => "AuraTaskFrame *".into(),
         Ty::Channel(_) => "AuraTaskChannel *".into(),
         Ty::ForeignHandle(_) => "AuraFfiOpaqueHandle *".into(),
-        Ty::TypeParam(n) => n.clone(),
+        Ty::TypeParam(_) => "AuraTypeErasedValue".into(),
     }
 }
 

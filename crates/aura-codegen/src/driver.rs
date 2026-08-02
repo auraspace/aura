@@ -123,6 +123,20 @@ pub fn build_artifact(
     Driver::new(CBackend).build(file, out_bin, runtime_c, options, opts)
 }
 
+/// Compile a semantically checked file supplied by an external compiler host.
+/// This preserves host-side macro/plugin expansion instead of re-running the
+/// plain `check_file` path and discarding generated items.
+pub fn build_artifact_from_checked(
+    checked: &CheckedFile,
+    out_bin: &Path,
+    runtime_c: &Path,
+    options: CompileOptions,
+    opts: EmitOptions,
+) -> Result<Artifact, CodegenError> {
+    validate_build(&options, &compiler_command(), runtime_c)?;
+    CBackend.compile(checked, out_bin, runtime_c, &options, opts)
+}
+
 impl<B: Backend> Driver<B> {
     pub(crate) fn new(backend: B) -> Self {
         Self { backend }
@@ -295,7 +309,7 @@ mod tests {
     }
 
     fn runtime_path() -> std::path::PathBuf {
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../runtime/aura_rt.c")
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../runtime/runtime.c")
     }
 
     struct FailingBackend {
@@ -400,7 +414,7 @@ mod tests {
         assert_eq!(first.runtime_abi_identity, Some(crate::runtime_abi::ID));
         assert_eq!(
             first.to_string(),
-            "backend=C, target=Native, profile=Debug, settings=ProfileSettings { optimization: O0, debug: true, lto: Off, detector: true, panic: Unwind, backend: C, linker: None }, runtime_abi=Some(AuraRtC)/Some(1)/Some(\"aura-c-abi/1.0;task=1;value=1;exception=1;channel=1;gc=1;io=1;ffi=1\"), output=Executable, features=[alpha,zeta]"
+            "backend=C, target=Native, profile=Debug, settings=ProfileSettings { optimization: O0, debug: true, lto: Off, detector: true, panic: Unwind, backend: C, linker: None }, runtime_abi=Some(AuraRtC)/Some(1)/Some(\"aura-c-abi/1.0;task=1;value=1;exception=1;channel=1;gc=1;io=1;ffi=1;type=1\"), output=Executable, features=[alpha,zeta]"
         );
     }
 

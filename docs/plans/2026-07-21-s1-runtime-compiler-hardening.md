@@ -36,7 +36,7 @@ Move the compiler/runtime from alpha dogfood quality toward a stronger release g
 
 **Dependencies:** None
 
-**Likely files:** `runtime/aura_rt.c`, `std/io/src/lib.aura`, `crates/aura-codegen/`, `crates/aura-cli/`, `agents/debts.md`
+**Likely files:** `runtime/runtime.c`, `std/io/src/lib.aura`, `crates/aura-codegen/`, `crates/aura-cli/`, `agents/debts.md`
 
 ### S1.2 — Make Clippy a required quality gate
 
@@ -77,7 +77,7 @@ Move the compiler/runtime from alpha dogfood quality toward a stronger release g
 
 **Dependencies:** S1.1 should be completed before adding argv-based `Array<String>` tests.
 
-**Likely files:** `corpus/`, `crates/aura-sema/src/tests.rs`, `crates/aura-cli/src/package/tests.rs`, `runtime/aura_rt.c`
+**Likely files:** `corpus/`, `crates/aura-sema/src/tests.rs`, `crates/aura-cli/src/package/tests.rs`, `runtime/runtime.c`
 
 ### S1.4 — Run sanitizer smoke tests
 

@@ -2,17 +2,16 @@ package demo.stdhttp.client
 
 import std.http
 
-async fun fetch(port: Int): Unit {
-  val response: ClientResponse = await getResponse(port, "/health")
+async fun fetch(endpoint: String): Unit {
+  val response: ClientResponse = await getResponse(endpoint, "/health")
   println(response.status.toString())
   println(response.body)
 }
 
 fun main() {
   val values = args()
-  if (values.len < 2 || values.get(1).toInt() == null) {
+  if (values.len < 2) {
     exit(2)
   }
-  val port: Int = values.get(1).toInt()!!
-  fetch(port)
+  fetch(values.get(1))
 }

@@ -4,6 +4,20 @@ package std.error
 
 /// Stable category for errors crossing a standard-library boundary.
 pub enum ErrorKind {
+  // RFC-007 canonical names.
+  case InvalidInput
+  case Unsupported
+  case NotFound
+  case PermissionDenied
+  case WouldBlock
+  case TimedOut
+  case Cancelled
+  case Disconnected
+  case LimitExceeded
+  case Protocol
+  case System
+
+  // Legacy alpha spellings retained while callers migrate.
   /// The caller supplied an invalid value or combination of values.
   case ErrorInvalidInput
   /// The requested resource does not exist.
@@ -50,6 +64,17 @@ pub class Error(pub val kind: ErrorKind, pub val message: String, pub val code: 
       case ErrorClosed => { return false }
       case ErrorUnsupported => { return false }
       case ErrorUnknown => { return false }
+      case InvalidInput => { return false }
+      case Unsupported => { return false }
+      case NotFound => { return false }
+      case PermissionDenied => { return false }
+      case WouldBlock => { return false }
+      case TimedOut => { return true }
+      case Cancelled => { return false }
+      case Disconnected => { return true }
+      case LimitExceeded => { return false }
+      case Protocol => { return false }
+      case System => { return false }
     }
   }
 }
@@ -65,6 +90,23 @@ pub fun network(message: String, code: Int): Error {
   return Error(ErrorNetwork(), message, code)
 }
 
+/// Classify a bounded runtime transport diagnostic without exposing native
+/// status storage through the public ABI. Runtime bridges use stable phrases
+/// for timeout, cancellation, and peer-close paths; unknown text remains a
+/// generic network failure.
+pub fun transport(message: String, code: Int): Error {
+  if (message.contains("timeout") || message.contains("timed out")) {
+    return timedOut(message, code)
+  }
+  if (message.contains("cancel")) {
+    return Error(Cancelled(), message, code)
+  }
+  if (message.contains("closed") || message.contains("disconnect") || message.contains("EOF")) {
+    return disconnected(message, code)
+  }
+  return network(message, code)
+}
+
 /// Construct an invalid-input error.
 pub fun invalidInput(message: String, code: Int): Error {
   return Error(ErrorInvalidInput(), message, code)
@@ -73,6 +115,61 @@ pub fun invalidInput(message: String, code: Int): Error {
 /// Construct a not-found error.
 pub fun notFound(message: String, code: Int): Error {
   return Error(ErrorNotFound(), message, code)
+}
+
+pub fun invalidInputError(message: String, code: Int): Error {
+  return Error(InvalidInput(), message, code)
+}
+
+pub fun unsupported(message: String, code: Int): Error {
+  return Error(Unsupported(), message, code)
+}
+
+pub fun permissionDenied(message: String, code: Int): Error {
+  return Error(PermissionDenied(), message, code)
+}
+
+pub fun wouldBlock(message: String, code: Int): Error {
+  return Error(WouldBlock(), message, code)
+}
+
+pub fun timedOut(message: String, code: Int): Error {
+  return Error(TimedOut(), message, code)
+}
+
+pub fun disconnected(message: String, code: Int): Error {
+  return Error(Disconnected(), message, code)
+}
+
+pub fun limitExceeded(message: String, code: Int): Error {
+  return Error(LimitExceeded(), message, code)
+}
+
+pub fun system(message: String, code: Int): Error {
+  return Error(System(), message, code)
+}
+
+/// Package-owned error payloads reserved by RFC-007. Backend-specific enum
+/// variants can be added without changing the common kind contract.
+pub class OsError(pub val kind: ErrorKind, pub val message: String, pub val code: Int) {}
+pub class NetError(pub val kind: ErrorKind, pub val message: String, pub val code: Int) {}
+pub class DnsError(pub val kind: ErrorKind, pub val message: String, pub val code: Int) {}
+pub class HttpError(pub val kind: ErrorKind, pub val message: String, pub val code: Int) {}
+
+pub fun asOsError(error: Error): OsError {
+  return OsError(error.kind, error.message, error.code)
+}
+
+pub fun asNetError(error: Error): NetError {
+  return NetError(error.kind, error.message, error.code)
+}
+
+pub fun asDnsError(error: Error): DnsError {
+  return DnsError(error.kind, error.message, error.code)
+}
+
+pub fun asHttpError(error: Error): HttpError {
+  return HttpError(error.kind, error.message, error.code)
 }
 
 /// Map a native errno/status code to the stable ErrorKind category code:

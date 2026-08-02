@@ -27,6 +27,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: cargo test --workspace
+        # aura-codegen integration tests execute many generated C fixtures
+        # under ASan. Leak ownership is covered by the dedicated sanitizer
+        # smoke job; disable LSan here so the Rust test suite can validate
+        # compiler behavior without duplicating that matrix's policy.
+        env:
+          ASAN_OPTIONS: detect_leaks=0
         run: cargo test --workspace
 
       - name: cargo clippy --workspace --all-targets -- -D warnings

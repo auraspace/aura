@@ -1,7 +1,10 @@
 //! Recursive-descent parser core.
 
 use aura_ast::*;
-use aura_lexer::{Token, TokenKind};
+use aura_lexer::{
+    match_nested_repeated_pattern, match_pattern, match_repeated_pattern, substitute,
+    substitute_nested_repeated, substitute_repeated, Delimiter, Token, TokenKind, TokenTree,
+};
 
 use crate::error::ParseError;
 
@@ -283,6 +286,7 @@ impl Parser {
                 TokenKind::Final => Modifier::Final,
                 TokenKind::Abstract => Modifier::Abstract,
                 TokenKind::Override => Modifier::Override,
+                TokenKind::Static => Modifier::Static,
                 _ => break,
             };
             self.bump();
@@ -440,4 +444,426 @@ impl Parser {
             }),
         }
     }
+}
+
+#[derive(Debug, Clone)]
+struct DeclarativeMacroRule {
+    pattern: Vec<TokenTree>,
+    template: Vec<TokenTree>,
+}
+
+#[derive(Debug, Clone)]
+struct DeclarativeMacro {
+    name: String,
+    rules: Vec<DeclarativeMacroRule>,
+}
+
+/// Expand the RFC-010 declarative macro subset before the ordinary AST parser.
+/// Macro definitions are top-level; invocations can occur in any token group.
+pub(crate) fn expand_declarative_macros(tokens: Vec<Token>) -> Result<Vec<Token>, String> {
+    let eof = tokens
+        .last()
+        .filter(|token| token.kind == TokenKind::Eof)
+        .cloned()
+        .ok_or_else(|| "lexer did not produce EOF".to_string())?;
+    let tree = TokenTree::from_tokens(&tokens)?;
+    let (mut body, macros) = collect_macro_definitions(tree)?;
+    if macros.is_empty() {
+        return Ok(tokens);
+    }
+    let mut hygiene_mark = 0u64;
+    for _ in 0..64 {
+        let (expanded, changed) = expand_tree_list(body, &macros, &mut hygiene_mark);
+        body = expanded;
+        if !changed {
+            let mut output = Vec::new();
+            for item in &body {
+                item.flatten(&mut output);
+            }
+            output.push(eof);
+            return Ok(output);
+        }
+    }
+    Err("declarative macro expansion exceeded the recursion limit (64)".into())
+}
+
+fn collect_macro_definitions(
+    tree: Vec<TokenTree>,
+) -> Result<(Vec<TokenTree>, Vec<DeclarativeMacro>), String> {
+    let mut body = Vec::new();
+    let mut macros = Vec::new();
+    let mut index = 0;
+    while index < tree.len() {
+        let is_macro = matches!(
+            tree.get(index),
+            Some(TokenTree::Leaf(Token {
+                kind: TokenKind::Macro,
+                ..
+            }))
+        );
+        if !is_macro {
+            body.push(tree[index].clone());
+            index += 1;
+            continue;
+        }
+        let Some(TokenTree::Leaf(Token {
+            kind: TokenKind::Bang,
+            ..
+        })) = tree.get(index + 1)
+        else {
+            return Err("expected `!` after `macro`".into());
+        };
+        let Some(TokenTree::Leaf(Token {
+            kind: TokenKind::Ident(name),
+            ..
+        })) = tree.get(index + 2)
+        else {
+            return Err("expected macro name after `macro!`".into());
+        };
+        let Some(TokenTree::Group {
+            delimiter: Delimiter::Brace,
+            children,
+            ..
+        }) = tree.get(index + 3)
+        else {
+            return Err("expected `{ ... }` after macro name".into());
+        };
+        macros.push(DeclarativeMacro {
+            name: name.clone(),
+            rules: parse_macro_rules(children)?,
+        });
+        index += 4;
+    }
+    Ok((body, macros))
+}
+
+fn parse_macro_rules(children: &[TokenTree]) -> Result<Vec<DeclarativeMacroRule>, String> {
+    let mut rules = Vec::new();
+    let mut index = 0;
+    while index < children.len() {
+        if matches!(
+            children[index],
+            TokenTree::Leaf(Token {
+                kind: TokenKind::Semi,
+                ..
+            })
+        ) {
+            index += 1;
+            continue;
+        }
+        let Some(TokenTree::Group {
+            children: pattern, ..
+        }) = children.get(index)
+        else {
+            return Err("expected macro rule pattern group".into());
+        };
+        if !matches!(
+            children.get(index + 1),
+            Some(TokenTree::Leaf(Token {
+                kind: TokenKind::FatArrow,
+                ..
+            }))
+        ) {
+            return Err("expected `=>` after macro rule pattern".into());
+        }
+        let Some(TokenTree::Group {
+            children: template, ..
+        }) = children.get(index + 2)
+        else {
+            return Err("expected macro rule template group".into());
+        };
+        rules.push(DeclarativeMacroRule {
+            pattern: pattern.clone(),
+            template: template.clone(),
+        });
+        index += 3;
+    }
+    if rules.is_empty() {
+        return Err("macro declaration must contain at least one rule".into());
+    }
+    Ok(rules)
+}
+
+fn expand_tree_list(
+    tree: Vec<TokenTree>,
+    macros: &[DeclarativeMacro],
+    hygiene_mark: &mut u64,
+) -> (Vec<TokenTree>, bool) {
+    let mut output = Vec::new();
+    let mut changed = false;
+    let mut index = 0;
+    while index < tree.len() {
+        if index + 2 < tree.len() {
+            if let (
+                TokenTree::Leaf(Token {
+                    kind: TokenKind::Ident(name),
+                    ..
+                }),
+                TokenTree::Leaf(Token {
+                    kind: TokenKind::Bang,
+                    ..
+                }),
+                TokenTree::Group {
+                    children: input, ..
+                },
+            ) = (&tree[index], &tree[index + 1], &tree[index + 2])
+            {
+                if let Some(definition) = macros.iter().find(|item| item.name == *name) {
+                    let mut matched = None;
+                    for rule in &definition.rules {
+                        let hygienic_template =
+                            hygienize_template(&rule.template, &definition.name, hygiene_mark);
+                        if let Some(captures) = match_nested_repeated_pattern(&rule.pattern, input)
+                        {
+                            matched =
+                                Some(substitute_nested_repeated(&hygienic_template, &captures));
+                            break;
+                        }
+                        if let Some(captures) = match_repeated_pattern(&rule.pattern, input) {
+                            matched = Some(substitute_repeated(&hygienic_template, &captures));
+                            break;
+                        }
+                        if let Some(captures) = match_pattern(&rule.pattern, input) {
+                            matched = Some(substitute(&hygienic_template, &captures));
+                            break;
+                        }
+                    }
+                    if let Some(expansion) = matched {
+                        output.extend(expansion);
+                        changed = true;
+                        index += 3;
+                        continue;
+                    }
+                }
+            }
+        }
+        match &tree[index] {
+            TokenTree::Group {
+                delimiter,
+                span,
+                children,
+            } => {
+                let (children, child_changed) =
+                    expand_tree_list(children.clone(), macros, hygiene_mark);
+                changed |= child_changed;
+                output.push(TokenTree::Group {
+                    delimiter: delimiter.clone(),
+                    span: *span,
+                    children,
+                });
+            }
+            item => output.push(item.clone()),
+        }
+        index += 1;
+    }
+    (output, changed)
+}
+
+/// Rename identifiers introduced by a declarative macro template while leaving
+/// metavariable captures untouched. The template's declaration sites are
+/// identified before substitution, then every matching reference in that
+/// template receives an invocation-unique spelling. This provides the local
+/// binding hygiene guarantee without changing the public token ABI.
+fn hygienize_template(template: &[TokenTree], macro_name: &str, mark: &mut u64) -> Vec<TokenTree> {
+    let scope = std::collections::BTreeMap::new();
+    rename_template_scope(template, &scope, macro_name, mark)
+}
+
+fn is_hygienic_declaration_keyword(kind: &TokenKind) -> bool {
+    matches!(
+        kind,
+        TokenKind::Val
+            | TokenKind::Var
+            | TokenKind::Fun
+            | TokenKind::Class
+            | TokenKind::Struct
+            | TokenKind::Enum
+            | TokenKind::Interface
+            | TokenKind::Type
+            | TokenKind::Const
+    )
+}
+
+/// Rename declaration-site identifiers while carrying lexical bindings through
+/// nested token groups. Captured metavariables remain call-site identifiers.
+fn rename_template_scope(
+    trees: &[TokenTree],
+    inherited: &std::collections::BTreeMap<String, String>,
+    macro_name: &str,
+    mark: &mut u64,
+) -> Vec<TokenTree> {
+    let mut scope = inherited.clone();
+    let mut output = Vec::with_capacity(trees.len());
+    let mut index = 0;
+    while index < trees.len() {
+        // Function parameters live in the function body scope, not in the
+        // enclosing declaration scope.
+        if matches!(
+            trees.get(index),
+            Some(TokenTree::Leaf(Token {
+                kind: TokenKind::Fun,
+                ..
+            }))
+        ) {
+            output.push(trees[index].clone());
+            index += 1;
+            if let Some(TokenTree::Leaf(Token {
+                kind: TokenKind::Ident(name),
+                span,
+            })) = trees.get(index)
+            {
+                let generated = hygienic_name(mark, macro_name, name);
+                scope.insert(name.clone(), generated.clone());
+                output.push(TokenTree::Leaf(Token {
+                    kind: TokenKind::Ident(generated),
+                    span: *span,
+                }));
+                index += 1;
+            }
+            let mut function_scope = scope.clone();
+            if let Some(TokenTree::Group {
+                delimiter,
+                span,
+                children,
+            }) = trees.get(index)
+            {
+                let params =
+                    rename_parameter_scope(children, &mut function_scope, macro_name, mark);
+                output.push(TokenTree::Group {
+                    delimiter: delimiter.clone(),
+                    span: *span,
+                    children: params,
+                });
+                index += 1;
+                if let Some(TokenTree::Group {
+                    delimiter: body_delimiter,
+                    span: body_span,
+                    children: body,
+                }) = trees.get(index)
+                {
+                    output.push(TokenTree::Group {
+                        delimiter: body_delimiter.clone(),
+                        span: *body_span,
+                        children: rename_template_scope(body, &function_scope, macro_name, mark),
+                    });
+                    index += 1;
+                    continue;
+                }
+                continue;
+            }
+            continue;
+        }
+
+        match &trees[index] {
+            TokenTree::Leaf(Token { kind, .. })
+                if is_hygienic_declaration_keyword(kind)
+                    && trees.get(index + 1).is_some_and(|tree| {
+                        matches!(
+                            tree,
+                            TokenTree::Leaf(Token {
+                                kind: TokenKind::Ident(_),
+                                ..
+                            })
+                        )
+                    }) =>
+            {
+                output.push(trees[index].clone());
+                if let TokenTree::Leaf(Token {
+                    kind: TokenKind::Ident(name),
+                    span: name_span,
+                }) = &trees[index + 1]
+                {
+                    let generated = hygienic_name(mark, macro_name, name);
+                    scope.insert(name.clone(), generated.clone());
+                    output.push(TokenTree::Leaf(Token {
+                        kind: TokenKind::Ident(generated),
+                        span: *name_span,
+                    }));
+                    index += 2;
+                    continue;
+                }
+            }
+            TokenTree::Group {
+                delimiter,
+                span,
+                children,
+            } => {
+                output.push(TokenTree::Group {
+                    delimiter: delimiter.clone(),
+                    span: *span,
+                    children: rename_template_scope(children, &scope, macro_name, mark),
+                });
+                index += 1;
+                continue;
+            }
+            TokenTree::Leaf(Token {
+                kind: TokenKind::Ident(name),
+                span,
+            }) => {
+                let captured = index > 0
+                    && matches!(
+                        trees[index - 1],
+                        TokenTree::Leaf(Token {
+                            kind: TokenKind::Dollar,
+                            ..
+                        })
+                    );
+                if !captured {
+                    if let Some(generated) = scope.get(name) {
+                        output.push(TokenTree::Leaf(Token {
+                            kind: TokenKind::Ident(generated.clone()),
+                            span: *span,
+                        }));
+                        index += 1;
+                        continue;
+                    }
+                }
+            }
+            _ => {}
+        }
+        output.push(trees[index].clone());
+        index += 1;
+    }
+    output
+}
+
+fn rename_parameter_scope(
+    trees: &[TokenTree],
+    scope: &mut std::collections::BTreeMap<String, String>,
+    macro_name: &str,
+    mark: &mut u64,
+) -> Vec<TokenTree> {
+    let mut output = Vec::with_capacity(trees.len());
+    let mut index = 0;
+    while index < trees.len() {
+        if let (
+            Some(TokenTree::Leaf(Token {
+                kind: TokenKind::Ident(name),
+                span,
+            })),
+            Some(TokenTree::Leaf(Token {
+                kind: TokenKind::Colon,
+                ..
+            })),
+        ) = (trees.get(index), trees.get(index + 1))
+        {
+            let generated = hygienic_name(mark, macro_name, name);
+            scope.insert(name.clone(), generated.clone());
+            output.push(TokenTree::Leaf(Token {
+                kind: TokenKind::Ident(generated),
+                span: *span,
+            }));
+            output.push(trees[index + 1].clone());
+            index += 2;
+        } else {
+            output.push(trees[index].clone());
+            index += 1;
+        }
+    }
+    output
+}
+
+fn hygienic_name(mark: &mut u64, macro_name: &str, name: &str) -> String {
+    *mark = mark.saturating_add(1);
+    format!("__aura_macro_{}_{}_{}", macro_name, *mark, name)
 }

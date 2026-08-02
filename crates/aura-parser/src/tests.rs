@@ -680,3 +680,86 @@ fn rejects_malformed_task_and_channel_operations() {
         assert!(err.message.contains(expected), "{src}: {}", err.message);
     }
 }
+
+#[test]
+fn expands_declarative_macro_before_ast_parsing() {
+    let file = parse_file(
+        "package demo\nmacro! identity { ($value:expr) => { $value }; }\nfun main() { println(identity!(42).toString()) }\n",
+    )
+    .expect("declarative macro should expand before parsing");
+    assert_eq!(file.functions.len(), 1);
+    assert!(matches!(
+        file.functions[0].body.stmts.first(),
+        Some(Stmt::Expr(Expr::Call(_)))
+    ));
+}
+
+#[test]
+fn reports_declarative_macro_recursion_limit() {
+    let error =
+        parse_file("package demo\nmacro! loop { () => { loop!() }; }\nfun main() { loop!() }\n")
+            .expect_err("recursive macro must be bounded");
+    assert!(error.message.contains("recursion limit"));
+}
+
+#[test]
+fn expands_declarative_macro_repetition_inside_group() {
+    parse_file(
+        "package demo\nmacro! list { ($($value:expr),*) => { make($($value),*) }; }\nfun main() { println(list!(1, 2, 3).toString()) }\n",
+    )
+    .expect("repeating macro should expand before AST parsing");
+}
+
+#[test]
+fn expands_declarative_macro_with_multiple_repeated_captures() {
+    let file = parse_file(
+        "package demo\nmacro! values { ($($name:ident = $value:expr),+) => { choose($($value),*) }; }\nfun main() { println(values!(first = 1, second = 2).toString()) }\n",
+    )
+    .expect("multiple repeated captures should expand before AST parsing");
+    let source = format!("{:?}", file.functions[0].body);
+    assert!(source.contains("choose"));
+    assert!(source.contains("1"), "expanded AST: {source}");
+    assert!(source.contains("2"), "expanded AST: {source}");
+}
+
+#[test]
+fn declarative_macro_bindings_are_hygienic() {
+    let file = parse_file(
+        "package demo\nmacro! make { () => { val value: Int = 1 } }\nfun main() { val value: Int = 9 make!() }\n",
+    )
+    .expect("hygienic macro should parse");
+    let body = &file.functions[0].body.stmts;
+    let debug = format!("{body:?}");
+    assert!(debug.contains("__aura_macro_make_"), "{debug}");
+    assert!(
+        debug.contains("name: Ident { name: \"value\""),
+        "caller binding missing: {debug}"
+    );
+}
+
+#[test]
+fn declarative_macro_nested_bindings_get_distinct_scopes() {
+    let file = parse_file(
+        "package demo\nmacro! scoped { () => { val value: Int = 1 if (true) { val value: Int = 2 println(value.toString()) } println(value.toString()) } }\nfun main() { scoped!() }\n",
+    )
+    .expect("nested hygienic macro should parse");
+    let debug = format!("{:?}", file.functions[0].body);
+    let first = debug.match_indices("__aura_macro_scoped_").count();
+    assert!(
+        first >= 4,
+        "nested bindings and references missing: {debug}"
+    );
+    assert!(debug.contains("__aura_macro_scoped_1_value"), "{debug}");
+    assert!(debug.contains("__aura_macro_scoped_2_value"), "{debug}");
+}
+
+#[test]
+fn declarative_macro_function_parameters_use_body_scope() {
+    let file = parse_file(
+        "package demo\nmacro! make { () => { fun inner(value: Int): Int { if (true) { val value: Int = 2 println(value.toString()) } return value } } }\nmake!()\nfun main() { inner(1) }\n",
+    )
+    .expect("function parameter hygiene should parse");
+    let debug = format!("{:?}", file.functions);
+    assert!(debug.contains("__aura_macro_make_2_value"), "{debug}");
+    assert!(debug.contains("__aura_macro_make_3_value"), "{debug}");
+}
