@@ -703,7 +703,8 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
             }
             // C3t: locals from `Array(...)` own the heap buffer.
             // C6d: call/return results that are Array also transfer ownership to the binding.
-            // C8e: `arr.get(i)` of nested Array is a shallow view — do not own (avoids double-free).
+            // Array get is non-owning for pointer-like elements, but nested
+            // arrays are deep-cloned by the generated get method.
             let from_array_get = if let Expr::Call(c) = &v.init {
                 if let Expr::Field(fe) = c.callee.as_ref() {
                     if fe.field.name == "get" {
@@ -719,11 +720,27 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
             } else {
                 false
             };
+            let array_get_owns_value = if from_array_get {
+                if let Expr::Call(c) = &v.init {
+                    if let Expr::Field(fe) = c.callee.as_ref() {
+                        let obj_key = resolve_type_name(&fe.object, ctx)
+                            .unwrap_or_else(|| infer_type_name(&fe.object, ctx));
+                        obj_key.contains("Array_Array_")
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
             if !needs_ptr_box
                 && !borrow_binding
                 && is_array_type_key(&ty_name)
                 && (is_array_ctor_expr(&v.init)
-                    || (matches!(&v.init, Expr::Call(_)) && !from_array_get))
+                    || (matches!(&v.init, Expr::Call(_))
+                        && (!from_array_get || array_get_owns_value)))
             {
                 ctx.mark_array_owner(&v.name.name);
             }
