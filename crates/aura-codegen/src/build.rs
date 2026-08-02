@@ -332,7 +332,7 @@ mod tests {
         let source = fs::read_to_string(root.join("runtime/aura_rt.c")).expect("read runtime");
         let mismatched = source.replace(
             "aura-c-abi/1.0;task=1;value=1;exception=1;channel=1;gc=1;io=1;ffi=1",
-            "aura-c-abi/1.0;task=1;value=1;exception=1;channel=1;gc=1;io=1;ffi=2",
+            "aura-c-abi/1.0;task=1;value=1;exception=1;channel=1;gc=1;io=1;ffi=2;type=1",
         );
         assert_ne!(source, mismatched, "test must change the FFI ABI identity");
         fs::write(&runtime, mismatched).expect("write mismatched runtime");
@@ -586,6 +586,97 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_no_await_scheduler_payload_results() {
+        let file = parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+async fun relay(input: TaskHandle<Int>): TaskHandle<Int> { return input }
+async fun make_channel(channel: Channel<Int>): Channel<Int> { return channel }
+fun main() {
+  val source: TaskHandle<Int> = spawn { return 23 }
+  relay(source)
+  val source_channel: Channel<Int> = Channel<Int>(1)
+  make_channel(source_channel)
+  gc_collect()
+}
+"#,
+        )
+        .expect("parse no-await scheduler payload fixture");
+        let generated = emit_c_from_ast(&file).expect("emit no-await scheduler payload fixture");
+        assert!(generated.contains("aura_task_executor_retain_payload"));
+        assert!(generated.contains("aura_task_channel_retain"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-no-await-scheduler-payload-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile no-await scheduler payload fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run no-await scheduler payload fixture");
+        assert!(
+            output.status.success(),
+            "no-await scheduler payload failed: {output:?}"
+        );
+        assert!(output.stdout.is_empty());
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_general_cfg_scheduler_payload_result() {
+        let file = parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+async fun ready(): Int { return 1 }
+async fun relay(input: TaskHandle<Int>): TaskHandle<Int> {
+  var saved: TaskHandle<Int> = input
+  if (true) {
+    val value: Int = await ready()
+    println(value.toString())
+  }
+  return saved
+}
+fun main() {
+  val source: TaskHandle<Int> = spawn { return 29 }
+  relay(source)
+  gc_collect()
+}
+"#,
+        )
+        .expect("parse general CFG scheduler payload fixture");
+        let generated = emit_c_from_ast(&file).expect("emit general CFG scheduler payload fixture");
+        assert!(generated.contains("aura async general CFG"));
+        assert!(generated.contains("aura_task_executor_retain_payload"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-general-cfg-scheduler-payload-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile general CFG scheduler payload fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run general CFG scheduler payload fixture");
+        assert!(
+            output.status.success(),
+            "general CFG scheduler payload failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "1\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn no_await_async_frame_roots_non_this_class_parameter_until_poll() {
         let file = aura_parser::parse_file(
             r#"package std.io
@@ -689,6 +780,305 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_task_join_with_struct_heap_class_payload() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+class Child(var value: Int) {}
+struct Packet(val child: Child, val text: String) {}
+async fun produce(): Packet { return Packet(Child(41), "ready") }
+fun main() {
+  val task = spawn { val value: Packet = await produce() return value }
+  gc_collect()
+  val first: Result<Packet, TaskError> = join(task)
+  match (first) {
+    case Ok(value) => { println(value.child.value.toString()) println(value.text) }
+    case Err(error) => { println("failed") }
+  }
+  gc_collect()
+  val second: Result<Packet, TaskError> = join(task)
+  match (second) {
+    case Ok(value) => { println(value.child.value.toString()) println(value.text) }
+    case Err(error) => { println("failed-repeat") }
+  }
+}
+"#,
+        )
+        .expect("parse struct heap-class task outcome fixture");
+        let generated =
+            emit_c_from_ast(&file).expect("emit struct heap-class task outcome fixture");
+        assert!(generated.contains("aura_gc_mark_ptr((void *)value->child)"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-task-struct-class-outcome-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile struct heap-class task outcome fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run struct heap-class task outcome fixture");
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "41\nready\n41\nready\n"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_task_join_with_nested_enum_struct_class_payload() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+class Child(var value: Int) {}
+struct Payload(val child: Child) {}
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+enum Envelope { case Wrapped(value: Payload) }
+async fun produce(): Envelope { return Wrapped(Payload(Child(73))) }
+fun main() {
+  val task = spawn { val value: Envelope = await produce() return value }
+  gc_collect()
+  val first: Result<Envelope, TaskError> = join(task)
+  match (first) {
+    case Ok(value) => { match (value) { case Wrapped(packet) => { println(packet.child.value.toString()) } } }
+    case Err(error) => { println("failed") }
+  }
+  gc_collect()
+  val second: Result<Envelope, TaskError> = join(task)
+  match (second) {
+    case Ok(value) => { match (value) { case Wrapped(packet) => { println(packet.child.value.toString()) } } }
+    case Err(error) => { println("failed-repeat") }
+  }
+}
+"#,
+        )
+        .expect("parse nested enum-struct-class task outcome fixture");
+        let generated =
+            emit_c_from_ast(&file).expect("emit nested enum-struct-class task outcome fixture");
+        assert!(generated.contains("_Payload_mark(&value->data.Wrapped.value)"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-task-nested-enum-struct-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile nested enum-struct-class task outcome fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run nested enum-struct-class task outcome fixture");
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "73\n73\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_join_with_mixed_generic_enum_payload() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+class Child(var value: Int) {}
+enum Box<T> { case Text(value: String) case Item(value: T) }
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+async fun produce(): Box<Child> { return Item(Child(91)) }
+fun printBox(value: Box<Child>) {
+  match (value) {
+    case Text(text) => { println(text) }
+    case Item(child) => { println(child.value.toString()) }
+  }
+}
+fun main() {
+  val task = spawn { val value: Box<Child> = await produce() return value }
+  val first: Result<Box<Child>, TaskError> = join(task)
+  match (first) {
+    case Ok(value) => { printBox(value) }
+    case Err(error) => { println("failed") }
+  }
+  gc_collect()
+  val second: Result<Box<Child>, TaskError> = join(task)
+  match (second) {
+    case Ok(value) => { printBox(value) }
+    case Err(error) => { println("failed-repeat") }
+  }
+}
+"#,
+        )
+        .expect("parse mixed generic enum task outcome fixture");
+        emit_c_from_ast(&file).expect("emit mixed generic enum task outcome fixture");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-task-mixed-generic-enum-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile mixed generic enum task outcome fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run mixed generic enum task outcome fixture");
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "91\n91\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_join_with_optional_primitive_payload() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+async fun produce(value: Int?): Int? { return value }
+fun printResult(result: Result<Int?, TaskError>) {
+  match (result) {
+    case Ok(value) => {
+      if (value == null) { println("none") } else { println(value!!.toString()) }
+    }
+    case Err(error) => { println("failed") }
+  }
+}
+fun main() {
+  val task = spawn { val value: Int? = await produce(73) return value }
+  val first: Result<Int?, TaskError> = join(task)
+  printResult(first)
+  gc_collect()
+  val second: Result<Int?, TaskError> = join(task)
+  printResult(second)
+}
+"#,
+        )
+        .expect("parse optional primitive task outcome fixture");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-task-optional-outcome-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile optional primitive task outcome fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run optional primitive task outcome fixture");
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "73\n73\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_join_with_nullable_class_payload() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+class Box(val value: Int) {}
+async fun tick(): Unit { }
+async fun produce(value: Box?): Box? { await tick() return value }
+fun printResult(result: Result<Box?, TaskError>) {
+  match (result) {
+    case Ok(value) => {
+      if (value == null) { println("none") } else { println(value!!.value.toString()) }
+    }
+    case Err(error) => { println("failed") }
+  }
+}
+fun main() {
+  val task = spawn { val value: Box? = await produce(Box(73)) return value }
+  val first: Result<Box?, TaskError> = join(task)
+  printResult(first)
+  gc_collect()
+  val second: Result<Box?, TaskError> = join(task)
+  printResult(second)
+}
+"#,
+        )
+        .expect("parse nullable class task outcome fixture");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-task-nullable-class-outcome-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile nullable class task outcome fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run nullable class task outcome fixture");
+        assert!(
+            output.status.success(),
+            "nullable class outcome failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "73\n73\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_join_with_nullable_array_payload() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+async fun produce(): Array<Int>? {
+  val values: Array<Int> = Array<Int>(0)
+  values.push(73)
+  return values
+}
+fun main() {
+  val task = spawn { val value: Array<Int>? = await produce() return value }
+  val first: Result<Array<Int>?, TaskError> = join(task)
+  match (first) {
+    case Ok(value) => { println(value!!.get(0).toString()) }
+    case Err(error) => { println("first-error") }
+  }
+  gc_collect()
+  val second: Result<Array<Int>?, TaskError> = join(task)
+  match (second) {
+    case Ok(value) => { println(value!!.get(0).toString()) }
+    case Err(error) => { println("second-error") }
+  }
+}
+"#,
+        )
+        .expect("parse nullable array task outcome fixture");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-task-nullable-array-outcome-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile nullable array task outcome fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run nullable array task outcome fixture");
+        assert!(
+            output.status.success(),
+            "nullable array outcome failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "73\n73\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn gc_marks_nested_heap_class_fields_while_async_capture_is_live() {
         let file = aura_parser::parse_file(
             r#"package std.io
@@ -752,7 +1142,7 @@ fun main() {
   gc_collect()
   val outcome: Result<String, TaskError> = join(task)
   match (outcome) {
-    case Ok(value) => { println(value) }
+    case Ok(value) => { println(value!!) }
     case Err(error) => { println("failed") }
   }
   val cancelled = spawn {
@@ -1206,6 +1596,51 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_async_cfg_with_incompatible_nested_shadowing() {
+        let file = aura_parser::parse_file(
+            r#"package demo
+async fun text(): String { return "inner" }
+async fun choose(flag: Bool): Int {
+  val value: Int = 7
+  if (flag) {
+    val value: String = await text()
+    println(value)
+    return value.len
+  }
+  return value
+}
+fun main() {
+  val first = spawn { val ignored: Int = await choose(true) return }
+  val second = spawn { val ignored: Int = await choose(false) return }
+  join(first)
+  join(second)
+}
+"#,
+        )
+        .expect("parse async incompatible shadowing fixture");
+        let generated = emit_c_from_ast(&file).expect("emit async incompatible shadowing fixture");
+        assert!(generated.contains("__aura_shadow_"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-async-shadowing-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile async incompatible shadowing fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run async incompatible shadowing fixture");
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "inner\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn compiles_std_net_connect_to_owned_tcp_foreign_handle() {
         let file = aura_parser::parse_file(
             r#"package std.net
@@ -1308,6 +1743,8 @@ fun main() {}
         assert!(generated.contains("std.http.RequestBody.readChunk"));
         assert!(generated.contains("aura_http_request_read_body"));
         assert!(generated.contains("aura_http_request_wait_body"));
+        assert!(generated.contains("aura_http_request_body_read_begin"));
+        assert!(generated.contains("aura_http_request_body_read_end"));
 
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
@@ -1435,6 +1872,230 @@ fun main() {
             output.status.success(),
             "generic async method failed: {output:?}"
         );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_generic_free_async_function_mono() {
+        let file = aura_parser::parse_file(
+            r#"package demo
+async fun accept<T>(value: T): T {
+  await one()
+  return value
+}
+async fun one(): Unit { }
+async fun read(): Unit {
+  val value: Int = await accept(41)
+  println(value.toString())
+}
+async fun readArray(): Unit {
+  val value: Array<String> = await accept(Array<String>(2))
+  println(value.len.toString())
+}
+fun main() {
+  read()
+  readArray()
+}
+"#,
+        )
+        .expect("parse generic free async fixture");
+        let generated = emit_c_from_ast(&file).expect("emit generic free async fixture");
+        assert!(generated.contains("aura_fn_demo_accept_Int"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-generic-free-async-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile generic free async fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run generic free async fixture");
+        assert!(
+            output.status.success(),
+            "generic free async failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "41\n2");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_open_generic_async_identity_with_erased_payload_abi() {
+        let file = aura_parser::parse_file(
+            r#"package demo
+async fun tick(): Unit { }
+async fun identity<T>(value: T): T { await tick() await tick() return value }
+fun main() { }
+"#,
+        )
+        .expect("parse open generic async identity fixture");
+        let generated = emit_c_from_ast(&file).expect("emit open generic async identity fixture");
+        assert!(generated.contains("aura_fn_demo_identity(AuraTypeErasedValue value)"));
+        assert!(generated.contains("aura_open_erased_poll_demo_identity(AuraTaskFrame *frame) {\n  if (aura_task_frame_cancel_requested(frame)) return AURA_TASK_CANCELLED;"));
+        assert!(generated.contains("aura_task_frame_set_erased_result"));
+        assert!(generated.contains("aura_type_erased_clone(&value"));
+        assert!(generated.contains("aura_task_frame_wait_on(frame, data->await_task_0)"));
+        assert!(generated.contains("data->await_task_1"));
+        assert!(generated.contains("aura_task_frame_set_gc_mark(frame, aura_open_erased_mark"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-open-generic-identity-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile open generic async identity fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run open generic async identity fixture");
+        assert!(
+            output.status.success(),
+            "open generic identity failed: {output:?}"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_open_generic_async_identity_without_suspension() {
+        let file = aura_parser::parse_file(
+            r#"package demo
+async fun identity<T>(value: T): T { return value }
+fun main() { }
+"#,
+        )
+        .expect("parse no-await open generic identity fixture");
+        let generated =
+            emit_c_from_ast(&file).expect("emit no-await open generic identity fixture");
+        assert!(generated.contains("aura_open_erased_data_demo_identity_state *data"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-open-generic-identity-no-await-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile no-await open generic identity fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run no-await open generic identity fixture");
+        assert!(
+            output.status.success(),
+            "no-await open generic identity failed: {output:?}"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_open_generic_async_result_from_awaited_erased_value() {
+        let file = aura_parser::parse_file(
+            r#"package demo
+async fun identity<T>(value: T): T { return value }
+async fun relay<T>(value: T): T { val result: T = await identity(value) return result }
+fun main() { }
+"#,
+        )
+        .expect("parse open generic async result fixture");
+        let generated = emit_c_from_ast(&file).expect("emit open generic async result fixture");
+        assert!(generated.contains("aura_fn_demo_relay(AuraTypeErasedValue value)"));
+        assert!(generated.contains("aura_task_frame_result_erased(data->await_task_0"));
+        assert!(generated.contains("aura_type_erased_drop(&data->value)"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-open-generic-result-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile open generic async result fixture");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_open_generic_async_descriptor_forwarding() {
+        let file = aura_parser::parse_file(
+            r#"package demo
+async fun tick(): Unit { }
+async fun identity<T>(value: T): T { await tick() return value }
+async fun forward<T>(value: T): T { return await identity(value) }
+fun main() { }
+"#,
+        )
+        .expect("parse open generic async forwarding fixture");
+        let generated = emit_c_from_ast(&file).expect("emit open generic async forwarding fixture");
+        assert!(generated.contains("aura_fn_demo_forward(AuraTypeErasedValue value)"));
+        assert!(generated.contains("aura_task_frame_result_erased(data->await_task"));
+        assert!(generated.contains("aura_open_erased_forward_mark_demo_forward"));
+        assert!(generated.contains("aura_open_erased_forward_poll_demo_forward(AuraTaskFrame *frame) {\n  if (aura_task_frame_cancel_requested(frame)) return AURA_TASK_CANCELLED;"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-open-generic-forward-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile open generic async forwarding fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run open generic async forwarding fixture");
+        assert!(output.status.success(), "{output:?}");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_async_function_returning_fun_payload() {
+        let file = aura_parser::parse_file(
+            r#"package demo
+async fun tick(): Unit { }
+async fun produce(): (Int) -> Int {
+  await tick()
+  return (x: Int) => x + 1
+}
+async fun read(): Unit {
+  val f: (Int) -> Int = await produce()
+  println(f(4).toString())
+}
+fun main() {
+  read()
+}
+"#,
+        )
+        .expect("parse async fun payload fixture");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-async-fun-payload-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile async fun payload fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run async fun payload fixture");
+        assert!(
+            output.status.success(),
+            "async fun payload failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "5");
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);
     }
@@ -1570,6 +2231,98 @@ fun main() {
             "async class method branch-loop fixture failed: {output:?}"
         );
         assert_eq!(String::from_utf8_lossy(&output.stdout), "14\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_async_class_method_await_in_condition() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+class Handler(val label: String) {
+  async fun dispatch(): Unit {
+    if (await ready()) {
+      println(this.label)
+    } else {
+      println("not-ready")
+    }
+  }
+}
+async fun ready(): Bool { return true }
+fun main() { Handler("ready").dispatch() }
+"#,
+        )
+        .expect("parse async class await-condition fixture");
+        let generated = emit_c_from_ast(&file).expect("emit async class await-condition fixture");
+        assert!(generated.contains("aura async general CFG Unit lowering"));
+        assert!(generated.contains("__aura_async_cond_"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-async-class-await-condition-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile async class await-condition fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run async class await-condition fixture");
+        assert!(
+            output.status.success(),
+            "async class await-condition fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "ready\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_async_class_method_await_while_condition() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+class Handler() {
+  async fun drain(limit: Int): Unit {
+    var index: Int = 0
+    while (await ready(index < limit)) {
+      index = index + 1
+    }
+    println(index.toString())
+  }
+}
+async fun ready(value: Bool): Bool { return value }
+fun main() { Handler().drain(2) }
+"#,
+        )
+        .expect("parse async class await-while-condition fixture");
+        let generated =
+            emit_c_from_ast(&file).expect("emit async class await-while-condition fixture");
+        assert!(generated.contains("aura async general CFG Unit lowering"));
+        assert!(generated.contains("__aura_async_cond_"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!(
+            "aura-async-class-await-while-condition-{}",
+            std::process::id()
+        );
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile async class await-while-condition fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run async class await-while-condition fixture");
+        assert!(
+            output.status.success(),
+            "async class await-while-condition fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "2\n");
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);
     }
@@ -1946,6 +2699,72 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_std_error_transport_classification() {
+        let file = aura_parser::parse_file(
+            r#"package std.error
+enum ErrorKind {
+  case TimedOut
+  case Cancelled
+  case Disconnected
+  case ErrorNetwork
+}
+class Error(pub val kind: ErrorKind, pub val message: String, pub val code: Int) {
+  pub fun isRetryable(): Bool {
+    match (kind) {
+      case TimedOut => { return true }
+      case Cancelled => { return false }
+      case Disconnected => { return true }
+      case ErrorNetwork => { return true }
+    }
+  }
+}
+pub fun timedOut(message: String, code: Int): Error { return Error(TimedOut(), message, code) }
+pub fun disconnected(message: String, code: Int): Error { return Error(Disconnected(), message, code) }
+pub fun network(message: String, code: Int): Error { return Error(ErrorNetwork(), message, code) }
+pub fun transport(message: String, code: Int): Error {
+  if (message.contains("timeout") || message.contains("timed out")) { return timedOut(message, code) }
+  if (message.contains("cancel")) { return Error(Cancelled(), message, code) }
+  if (message.contains("closed") || message.contains("disconnect") || message.contains("EOF")) {
+    return disconnected(message, code)
+  }
+  return network(message, code)
+}
+fun main() {
+  if (transport("connection timed out", 1).isRetryable()) { println("timeout") }
+  if (!transport("operation cancelled", 2).isRetryable()) { println("cancel") }
+  if (transport("peer disconnected", 3).isRetryable()) { println("disconnect") }
+  if (transport("unclassified network failure", 4).isRetryable()) { println("network") }
+}
+"#,
+        )
+        .expect("parse std.error transport classification fixture");
+        emit_c_from_ast(&file).expect("emit std.error transport classification fixture");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-std-error-transport-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile std.error transport classification fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run std.error transport classification fixture");
+        assert!(
+            output.status.success(),
+            "std.error transport classification failed: {output:?}"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "timeout\ncancel\ndisconnect\nnetwork\n"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_shared_outcome_class_error_cleanup() {
         let file = aura_parser::parse_file(
             r#"package std.error
@@ -2216,6 +3035,186 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_repeated_join_of_scheduler_owned_payload() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+fun main() {
+  val outer = spawn { return spawn { return 7 } }
+  val first: Result<TaskHandle<Int>, TaskError> = join(outer)
+  match (first) {
+    case Ok(inner) => {
+      val nested: Result<Int, TaskError> = join(inner)
+      match (nested) {
+        case Ok(value) => { println(value.toString()) }
+        case Err(error) => { println("nested-failed") }
+      }
+    }
+    case Err(error) => { println("failed") }
+  }
+  gc_collect()
+  val second: Result<TaskHandle<Int>, TaskError> = join(outer)
+  match (second) {
+    case Ok(inner) => {
+      val nested: Result<Int, TaskError> = join(inner)
+      match (nested) {
+        case Ok(value) => { println(value.toString()) }
+        case Err(error) => { println("nested-failed") }
+      }
+    }
+    case Err(error) => { println("failed") }
+  }
+}
+"#,
+        )
+        .expect("parse scheduler-owned task payload fixture");
+        let generated = emit_c_from_ast(&file).expect("emit scheduler-owned task payload fixture");
+        assert!(generated.contains("aura_task_executor_retain_payload"));
+        assert!(generated.contains("aura_task_executor_release_payload"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-joined-scheduler-payload-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile scheduler-owned task payload fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run scheduler-owned task payload fixture");
+        assert!(
+            output.status.success(),
+            "scheduler-owned task payload failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "7\n7\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_repeated_join_of_channel_payload() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+fun main() {
+  val outer = spawn { return Channel<Int>(1) }
+  val first: Result<Channel<Int>, TaskError> = join(outer)
+  match (first) {
+    case Ok(channel) => { channel.close() }
+    case Err(error) => { println("failed") }
+  }
+  gc_collect()
+  val second: Result<Channel<Int>, TaskError> = join(outer)
+  match (second) {
+    case Ok(channel) => { channel.close() }
+    case Err(error) => { println("failed") }
+  }
+}
+"#,
+        )
+        .expect("parse channel task payload fixture");
+        let generated = emit_c_from_ast(&file).expect("emit channel task payload fixture");
+        assert!(generated.contains("aura_task_channel_retain"));
+        assert!(generated.contains("aura_task_channel_destroy"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-joined-channel-payload-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile channel task payload fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run channel task payload fixture");
+        assert!(
+            output.status.success(),
+            "channel task payload failed: {output:?}"
+        );
+        assert!(output.stdout.is_empty());
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_unit_channel_send_receive() {
+        let file = aura_parser::parse_file(
+            r#"package demo
+fun unit(): Unit { }
+fun main() {
+  val channel: Channel<Unit> = Channel<Unit>(1)
+  channel.send(unit())
+  channel.receive()
+  channel.close()
+}
+"#,
+        )
+        .expect("parse Unit channel fixture");
+        let generated = emit_c_from_ast(&file).expect("emit Unit channel fixture");
+        assert!(generated.contains("AuraTaskChannelValue __v = { NULL, 0, NULL }"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-unit-channel-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile Unit channel fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run Unit channel fixture");
+        assert!(output.status.success(), "Unit channel failed: {output:?}");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_nullable_class_channel_ownership() {
+        let file = aura_parser::parse_file(
+            r#"package demo
+class Box(val value: Int) {}
+fun main() {
+  val channel: Channel<Box?> = Channel<Box?>(1)
+  channel.send(Box(7))
+  val received = channel.receive()
+  channel.close()
+}
+"#,
+        )
+        .expect("parse nullable class channel fixture");
+        let generated = emit_c_from_ast(&file).expect("emit nullable class channel fixture");
+        assert!(generated.contains("aura_task_channel_value_destroy_class"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-nullable-class-channel-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile nullable class channel fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run nullable class channel fixture");
+        assert!(
+            output.status.success(),
+            "nullable class channel failed: {output:?}"
+        );
+        assert!(output.stdout.is_empty());
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_typed_join_of_owned_array_enum_payload() {
         let file = aura_parser::parse_file(
             r#"package std.io
@@ -2268,6 +3267,221 @@ fun main() {
         assert_eq!(
             String::from_utf8_lossy(&output.stdout),
             "array-enum\narray-enum\n"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn emits_generic_enum_foreign_handle_join_ownership_hooks() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+enum Boxed<T> { case Value(value: T) }
+fun makeHandle(): ForeignHandle<Int> { throw "intrinsic" }
+async fun produce(): Boxed<ForeignHandle<Int>> { return Value(makeHandle()) }
+fun main() {
+  val task = spawn { val value: Boxed<ForeignHandle<Int>> = await produce() return value }
+  val first: Result<Boxed<ForeignHandle<Int>>, TaskError> = join(task)
+  val second: Result<Boxed<ForeignHandle<Int>>, TaskError> = join(task)
+}
+"#,
+        )
+        .expect("parse generic foreign-handle enum fixture");
+        let generated = emit_c_from_ast(&file).expect("emit generic foreign-handle enum fixture");
+        assert!(generated.contains("aura_enum_std_io_Boxed_ForeignHandle_Int_clone"));
+        assert!(generated.contains("aura_ffi_handle_retain"));
+        assert!(generated.contains("aura_ffi_handle_drop"));
+        assert!(generated.contains(
+            "aura_var_std_io_Result_std_io_Boxed_ForeignHandle_Int_std_io_TaskError_OkOwned"
+        ));
+    }
+
+    #[test]
+    fn builds_and_runs_nested_array_enum_payload_without_shallow_copy() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+enum Item { case Text(value: String) }
+async fun produce(): Array<Array<Item>> {
+  val inner: Array<Item> = Array<Item>(0)
+  inner.push(Text("nested-array-enum"))
+  val values: Array<Array<Item>> = Array<Array<Item>>(0)
+  values.push(inner)
+  return values
+}
+fun main() {
+  val task = spawn { val value: Array<Array<Item>> = await produce() return value }
+  val result: Result<Array<Array<Item>>, TaskError> = join(task)
+  match (result) {
+    case Ok(value) => { val inner = value.get(0)
+      match (inner.get(0)) { case Text(text) => { println(text) } } }
+    case Err(error) => { println("failed") }
+  }
+  gc_collect()
+  val repeated: Result<Array<Array<Item>>, TaskError> = join(task)
+  match (repeated) {
+    case Ok(value) => { val inner = value.get(0)
+      match (inner.get(0)) { case Text(text) => { println(text) } } }
+    case Err(error) => { println("failed-repeat") }
+  }
+}
+"#,
+        )
+        .expect("parse nested Array<enum> ownership fixture");
+        let generated = emit_c_from_ast(&file).expect("emit nested Array<enum> ownership fixture");
+        assert!(generated.contains("_clone(&this->data[__i])"));
+        assert!(generated.contains("_drop(&this->data[__i])"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-nested-array-enum-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile nested Array<enum> ownership fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run nested Array<enum> ownership fixture");
+        assert!(
+            output.status.success(),
+            "nested Array<enum> ownership fixture failed: {output:?}"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "nested-array-enum\nnested-array-enum\n"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn async_cfg_marks_array_enum_across_await_and_gc() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+enum Item { case Text(value: String) }
+async fun produce(): Array<Item> {
+  val values: Array<Item> = Array<Item>(0)
+  values.push(Text("array-enum-await"))
+  return values
+}
+async fun hold(): String {
+  val values: Array<Item> = await produce()
+  gc_collect()
+  match (values.get(0)) {
+    case Text(text) => { return text }
+  }
+}
+fun main() {
+  val task = spawn { val value: String = await hold() return value }
+  val result: Result<String, TaskError> = join(task)
+  match (result) {
+    case Ok(value) => { println(value!!) }
+    case Err(error) => { println("failed") }
+  }
+}
+"#,
+        )
+        .expect("parse async Array<enum> GC fixture");
+        let _generated = emit_c_from_ast(&file).expect("emit async Array<enum> GC fixture");
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-array-enum-await-gc-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile async Array<enum> GC fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run async Array<enum> GC fixture");
+        assert!(
+            output.status.success(),
+            "async Array<enum> GC fixture failed: {output:?}"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "array-enum-await\n"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn joins_nested_typed_class_failure_metadata() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+class Failure(val message: String) {}
+pub fun taskErrorTypeName(error: TaskError): String? { return null }
+pub fun taskErrorSourceId(error: TaskError): Int { return 0 }
+pub fun taskErrorSpanStart(error: TaskError): Int { return 0 }
+pub fun taskErrorSpanEnd(error: TaskError): Int { return 0 }
+async fun leaf(): Unit { throw Failure("nested-class-failure") }
+async fun middle(): Unit { await leaf() }
+fun main() {
+  val task = spawn { await middle() return "done" }
+  val first: Result<String, TaskError> = join(task)
+  match (first) {
+    case Ok(value) => { println("unexpected-success") }
+    case Err(error) => {
+      val name: String? = taskErrorTypeName(error)
+      if (name != null) { println(name) } else { println("missing-type") }
+      if (taskErrorSourceId(error) > 0) { println("source") } else { println("missing-source") }
+      if (taskErrorSpanEnd(error) > taskErrorSpanStart(error)) { println("span") } else { println("missing-span") }
+    }
+  }
+  gc_collect()
+  val second: Result<String, TaskError> = join(task)
+  match (second) {
+    case Ok(value) => { println("unexpected-success") }
+    case Err(error) => {
+      val name: String? = taskErrorTypeName(error)
+      if (name != null) { println(name) } else { println("missing-type") }
+      if (taskErrorSourceId(error) > 0) { println("source") } else { println("missing-source") }
+      if (taskErrorSpanEnd(error) > taskErrorSpanStart(error)) { println("span") } else { println("missing-span") }
+    }
+  }
+}
+"#,
+        )
+        .expect("parse nested typed class failure join fixture");
+        let generated =
+            emit_c_from_ast(&file).expect("emit nested typed class failure join fixture");
+        assert!(generated.contains("aura_task_frame_error_type_name"));
+        assert!(generated.contains("type_name_owned"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-nested-typed-failure-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile nested typed class failure join fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run nested typed class failure join fixture");
+        assert!(
+            output.status.success(),
+            "nested typed failure failed: {output:?}"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "Failure\nsource\nspan\nFailure\nsource\nspan\n"
         );
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);
@@ -2698,6 +3912,97 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_async_catch_that_suspends_again() {
+        let file = aura_parser::parse_file(
+            r#"package demo
+async fun fail(): String { throw "boom" }
+async fun recover(): String { return "recovered" }
+async fun worker(): String {
+  try {
+    val value: String = await fail()
+    return value
+  } catch (error: String) {
+    gc_collect()
+    val retry: String = await recover()
+    return error + ":" + retry
+  }
+}
+async fun driver(): Unit {
+  val task = worker()
+  val first: String = await task
+  println(first)
+  gc_collect()
+  val second: String = await task
+  println(second)
+}
+fun main() { driver() }
+"#,
+        )
+        .expect("parse async catch-resuspend fixture");
+        let generated = emit_c_from_ast(&file).expect("emit async catch-resuspend fixture");
+        assert!(generated.contains("kind=await-catch"));
+        assert!(generated.matches("kind=await").count() >= 2);
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-async-catch-resuspend-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile async catch-resuspend fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run async catch-resuspend fixture");
+        assert!(
+            output.status.success(),
+            "async catch-resuspend failed: {output:?}"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "boom:recovered\nboom:recovered\n"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_async_statement_with_awaited_argument() {
+        let file = aura_parser::parse_file(
+            r#"package demo
+async fun value(): String { return "ready" }
+async fun consume(text: String): Unit { println(text) }
+async fun worker(): Unit { consume(await value()) }
+fun main() { worker() }
+"#,
+        )
+        .expect("parse async awaited-argument statement fixture");
+        let generated = emit_c_from_ast(&file).expect("emit async awaited-argument fixture");
+        assert!(generated.contains("aura async general CFG Unit lowering"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-async-awaited-argument-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile async awaited-argument fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run async awaited-argument fixture");
+        assert!(
+            output.status.success(),
+            "async awaited-argument failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "ready\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_async_class_catch_after_await() {
         let file = aura_parser::parse_file(
             r#"package std.io
@@ -2740,6 +4045,138 @@ fun main() { worker() }
     }
 
     #[test]
+    fn builds_and_runs_async_class_catch_with_nested_heap_field_after_gc() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+class Child(var value: Int) {}
+class Failure(var message: String, var child: Child) {}
+async fun fail(): Unit { throw Failure("class-boom", Child(97)) }
+async fun worker(): Unit {
+  try {
+    await fail()
+  } catch (error: Failure) {
+    gc_collect()
+    println(error.message)
+    println(error.child.value.toString())
+  }
+}
+fun main() { worker() }
+"#,
+        )
+        .expect("parse nested-field async class catch fixture");
+        let generated =
+            emit_c_from_ast(&file).expect("emit nested-field async class catch fixture");
+        assert!(generated.contains("aura_gc_add_root((void **)&copy->child)"));
+        assert!(generated.contains("aura_gc_remove_root((void **)&copy->child)"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-async-class-catch-nested-field-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile nested-field async class catch fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run nested-field async class catch fixture");
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "class-boom\n97\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_async_class_catch_with_array_field_after_gc() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+class Failure(var message: String, var values: Array<String>) {}
+async fun fail(): Unit { throw Failure("array-boom", Array<String>(2)) }
+async fun worker(): Unit {
+  try {
+    await fail()
+  } catch (error: Failure) {
+    gc_collect()
+    println(error.message)
+    println(error.values.len.toString())
+  }
+}
+fun main() { worker() }
+"#,
+        )
+        .expect("parse array-field async class catch fixture");
+        let generated = emit_c_from_ast(&file).expect("emit array-field async class catch fixture");
+        assert!(generated.contains("aura_async_class_error_clone_"));
+        assert!(generated.contains("aura_method_Array_String_clone"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-async-class-catch-array-field-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile array-field async class catch fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run array-field async class catch fixture");
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "array-boom\n2\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_async_class_catch_with_class_array_field_after_gc() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+class Child(var value: Int) {}
+class Failure(var message: String, var values: Array<Child>) {}
+async fun fail(): Unit {
+  val values: Array<Child> = Array<Child>(0)
+  values.push(Child(113))
+  throw Failure("class-array-boom", values)
+}
+async fun worker(): Unit {
+  try {
+    await fail()
+  } catch (error: Failure) {
+    gc_collect()
+    println(error.message)
+    println(error.values.get(0).value.toString())
+  }
+}
+fun main() { worker() }
+"#,
+        )
+        .expect("parse class-array async catch fixture");
+        let generated = emit_c_from_ast(&file).expect("emit class-array async catch fixture");
+        assert!(generated.contains("aura_gc_add_array_root"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-async-class-catch-class-array-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile class-array async catch fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run class-array async catch fixture");
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "class-array-boom\n113\n"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_async_primitive_catches_after_await() {
         let file = aura_parser::parse_file(
             r#"package std.io
@@ -2773,6 +4210,119 @@ fun main() { worker() }
             "primitive catch failed: {output:?}"
         );
         assert_eq!(String::from_utf8_lossy(&output.stdout), "7\nbool\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_same_name_async_catches_with_different_types() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+async fun failInt(): Unit { await tick() throw 17 }
+async fun failText(): Unit { await tick() throw "text-boom" }
+async fun tick(): Unit {}
+async fun worker(): Unit {
+  try { await failInt() } catch (error: Int) { println(error.toString()) }
+  try { await failText() } catch (error: String) { println(error) }
+}
+fun main() { worker() }
+"#,
+        )
+        .expect("parse same-name async catch fixture");
+        let generated = emit_c_from_ast(&file).expect("emit same-name async catch fixture");
+        assert!(generated.contains("__aura_async_catch_"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-async-same-name-catch-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile same-name async catch fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run same-name async catch fixture");
+        assert!(
+            output.status.success(),
+            "same-name catch failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "17\ntext-boom\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_async_enum_catch_after_await_with_forced_gc() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+enum Failure { case Bad(message: String) }
+struct Record(val message: String) {}
+async fun tick(): Unit {}
+async fun fail(): Unit {
+  await tick()
+  throw Bad("enum-boom")
+}
+async fun failRecord(): Unit {
+  await tick()
+  throw Record("struct-boom")
+}
+async fun worker(): Unit {
+  try {
+    await fail()
+  } catch (enumError: Failure) {
+    println("enum-caught")
+  }
+  try {
+    await failRecord()
+  } catch (recordError: Record) {
+    println(recordError.message)
+  }
+}
+fun main() {
+  val task = spawn { await worker() }
+  val first: Result<Unit, TaskError> = join(task)
+  match (first) {
+    case Ok(value) => { println("done") }
+    case Err(error) => { println("failed") }
+  }
+  gc_collect()
+  val second: Result<Unit, TaskError> = join(task)
+  match (second) {
+    case Ok(value) => { println("done") }
+    case Err(error) => { println("failed-repeat") }
+  }
+}
+"#,
+        )
+        .expect("parse async enum catch fixture");
+        let generated = emit_c_from_ast(&file).expect("emit async enum catch fixture");
+        assert!(generated.contains("aura_async_cfg_aggregate_error_clone"));
+        assert!(generated.contains("aura_task_frame_error_payload"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-async-enum-catch-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile async enum catch fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run async enum catch fixture");
+        assert!(
+            output.status.success(),
+            "async enum catch failed: {output:?}"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "enum-caught\nstruct-boom\ndone\ndone\n"
+        );
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);
     }
@@ -2820,6 +4370,59 @@ fun main() { Worker().run() }
     }
 
     #[test]
+    fn builds_and_runs_async_catch_and_finally_after_await_failure() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+async fun fail(): Int { throw 9 }
+async fun worker(): Int {
+  var result: Int = 0
+  try {
+    await fail()
+  } catch (error: Int) {
+    result = error
+  } finally {
+    result = result + 1
+  }
+  return result
+}
+fun main() {
+  val task = spawn { val value: Int = await worker() return value }
+  val outcome: Result<Int, TaskError> = join(task)
+  match (outcome) {
+    case Ok(value) => { println(value.toString()) }
+    case Err(error) => { println("failed") }
+  }
+}
+"#,
+        )
+        .expect("parse async catch-finally fixture");
+        let generated = emit_c_from_ast(&file).expect("emit async catch-finally fixture");
+        assert!(!generated.contains("await lowering is deferred"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-async-catch-finally-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile async catch-finally fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run async catch-finally fixture");
+        assert!(
+            output.status.success(),
+            "catch-finally fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "10\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_async_finally_after_await_failure() {
         let file = aura_parser::parse_file(
             r#"package std.io
@@ -2859,6 +4462,184 @@ fun main() {
             "async finally failure failed: {output:?}"
         );
         assert_eq!(String::from_utf8_lossy(&output.stdout), "finally\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_nested_async_finally_cleanup() {
+        let file = aura_parser::parse_file(
+            r#"package demo
+async fun tick(): Unit {}
+async fun worker(): Unit {
+  try {
+    try {
+      await tick()
+    } finally {
+      println("inner")
+    }
+    await tick()
+  } finally {
+    println("outer")
+  }
+}
+fun main() { worker() }
+"#,
+        )
+        .expect("parse nested async finally fixture");
+        let generated = emit_c_from_ast(&file).expect("emit nested async finally fixture");
+        assert!(generated.contains("aura async general CFG Unit lowering"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-nested-async-finally-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile nested async finally fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run nested async finally fixture");
+        assert!(output.status.success(), "nested finally failed: {output:?}");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "inner\nouter\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_nested_async_finally_cleanup_on_cancellation() {
+        let file = aura_parser::parse_file(
+            r#"package std.time
+async fun sleep(milliseconds: Int): Unit { throw "time intrinsic" }
+async fun worker(): Unit {
+  try {
+    try {
+      await sleep(100)
+    } finally {
+      println("inner")
+    }
+    await sleep(100)
+  } finally {
+    println("outer")
+  }
+}
+fun main() {
+  val victim = spawn { await worker() }
+  val canceller = spawn { await sleep(1) cancel(victim) }
+  join(victim)
+  join(canceller)
+}
+"#,
+        )
+        .expect("parse nested cancellation finally fixture");
+        let generated = emit_c_from_ast(&file).expect("emit nested cancellation finally fixture");
+        assert!(generated.contains("data->await_cancelled"));
+        assert!(generated.contains("aura_task_frame_set_cancel_handler"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-nested-async-finally-cancel-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile nested cancellation finally fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run nested cancellation finally fixture");
+        assert!(
+            output.status.success(),
+            "nested cancellation finally failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "inner\nouter\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_task_handle_local_across_async_cfg_await() {
+        let file = aura_parser::parse_file(
+            r#"package std.time
+async fun sleep(milliseconds: Int): Unit { throw "time intrinsic" }
+async fun child(): Unit { await sleep(100) }
+async fun parent(): Unit {
+  val handle = spawn { await child() }
+  await sleep(1)
+  cancel(handle)
+}
+fun main() {
+  val task = spawn { await parent() }
+  join(task)
+}
+"#,
+        )
+        .expect("parse task handle live-across-await fixture");
+        let generated = emit_c_from_ast(&file).expect("emit task handle live-across-await fixture");
+        assert!(generated.contains("handle:TaskHandle_Unit"));
+        assert!(generated
+            .contains("aura_task_executor_release_payload(__aura_task_executor, &data->handle)"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-task-handle-live-await-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile task handle live-across-await fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run task handle live-across-await fixture");
+        assert!(
+            output.status.success(),
+            "task handle live-await failed: {output:?}"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_channel_local_across_async_cfg_await() {
+        let file = aura_parser::parse_file(
+            r#"package std.time
+async fun sleep(milliseconds: Int): Unit { throw "time intrinsic" }
+async fun parent(): Unit {
+  val channel = Channel<Int>(1)
+  channel.send(7)
+  await sleep(1)
+  channel.close()
+}
+fun main() {
+  val task = spawn { await parent() }
+  join(task)
+}
+"#,
+        )
+        .expect("parse channel live-across-await fixture");
+        let generated = emit_c_from_ast(&file).expect("emit channel live-across-await fixture");
+        assert!(generated.contains("channel:Channel_Int"));
+        assert!(generated.contains("aura_task_channel_destroy(data->channel)"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-channel-live-await-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile channel live-across-await fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run channel live-across-await fixture");
+        assert!(
+            output.status.success(),
+            "channel live-await failed: {output:?}"
+        );
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);
     }
@@ -2912,8 +4693,28 @@ async fun serveConnection(stream: ForeignHandle<Int>, handler: (Request, Respons
 async fun serve(listener: ForeignHandle<Int>, handler: (Request, Response) -> Task<Unit>): Unit { throw "intrinsic" }
 async fun tick(): Unit {}
 async fun health(request: Request, response: Response): Unit {
-  await tick()
-  if (true) { await tick() }
+  var attempts = 0
+  while (attempts < 2) {
+    if (attempts == 0) {
+      await tick()
+    } else {
+      await tick()
+    }
+    attempts = attempts + 1
+  }
+  try {
+    if (attempts > 1) {
+      await tick()
+    } else {
+      await tick()
+    }
+  } catch (error: String) {
+    if (attempts > 0) {
+      await tick()
+    } else {
+      await tick()
+    }
+  }
 }
 fun makeHandler(): (Request, Response) -> Task<Unit> {
   return (request: Request, response: Response) => health(request, response)
@@ -3651,6 +5452,289 @@ fun main() {}
     }
 
     #[test]
+    fn builds_scalar_await_inside_expression_with_continuation() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+async fun one(): Int { return 7 }
+async fun wrapper(): Int {
+  val value: Int = (await one()) + 1
+  return value
+}
+fun main() {
+  val task = spawn { val value: Int = await wrapper() return value }
+  val result: Result<Int, TaskError> = join(task)
+  match (result) {
+    case Ok(value) => { println(value.toString()) }
+    case Err(error) => { println("failed") }
+  }
+}
+"#,
+        )
+        .expect("parse scalar await-expression fixture");
+        let generated = emit_c_from_ast(&file).expect("emit scalar await-expression fixture");
+        assert!(!generated.contains("await lowering is deferred"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-await-expression-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile scalar await-expression fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run scalar await-expression fixture");
+        assert!(
+            output.status.success(),
+            "await-expression fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "8\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_await_in_expression_if_condition() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+async fun flag(): Bool { return true }
+async fun wrapper(): Int {
+  val value: Int = if (await flag()) { 11 } else { 22 }
+  return value
+}
+fun main() {
+  val task = spawn { val value: Int = await wrapper() return value }
+  val result: Result<Int, TaskError> = join(task)
+  match (result) {
+    case Ok(value) => { println(value.toString()) }
+    case Err(error) => { println("failed") }
+  }
+}
+"#,
+        )
+        .expect("parse expression-if await fixture");
+        let generated = emit_c_from_ast(&file).expect("emit expression-if await fixture");
+        assert!(generated.contains("aura async general CFG Int lowering"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-await-expression-if-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile expression-if await fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run expression-if await fixture");
+        assert!(
+            output.status.success(),
+            "expression-if await failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "11\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_await_in_expression_if_branches() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+async fun left(): Int { return 11 }
+async fun right(): Int { return 22 }
+async fun wrapper(flag: Bool): Int {
+  val value: Int = if (flag) { await left() } else { await right() }
+  return value
+}
+fun main() {
+  val first = spawn { val value: Int = await wrapper(true) return value }
+  val second = spawn { val value: Int = await wrapper(false) return value }
+  val a: Result<Int, TaskError> = join(first)
+  val b: Result<Int, TaskError> = join(second)
+  match (a) { case Ok(firstValue) => { println(firstValue.toString()) } case Err(firstError) => { println("failed") } }
+  match (b) { case Ok(secondValue) => { println(secondValue.toString()) } case Err(secondError) => { println("failed") } }
+}
+"#,
+        )
+        .expect("parse expression-if branch await fixture");
+        let generated = emit_c_from_ast(&file).expect("emit expression-if branch await fixture");
+        assert!(generated.contains("aura async general CFG Int lowering"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-await-expression-if-branches-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile expression-if branch await fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run expression-if branch await fixture");
+        assert!(
+            output.status.success(),
+            "expression-if branch await failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "11\n22\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_aggregate_await_inside_call_argument_with_continuation() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+async fun produce(): String { return "aggregate-await" }
+fun identity<T>(value: T): T { return value }
+async fun wrapper(): String {
+  val value: String = identity(await produce())
+  return value
+}
+fun main() {
+  val task = spawn { val value: String = await wrapper() return value }
+  val result: Result<String, TaskError> = join(task)
+  match (result) {
+    case Ok(value) => { println(value) }
+    case Err(error) => { println("failed") }
+  }
+}
+"#,
+        )
+        .expect("parse aggregate await-expression fixture");
+        let generated = emit_c_from_ast(&file).expect("emit aggregate await-expression fixture");
+        assert!(!generated.contains("await lowering is deferred"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-aggregate-await-expression-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile aggregate await-expression fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run aggregate await-expression fixture");
+        assert!(
+            output.status.success(),
+            "aggregate await-expression fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "aggregate-await\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_nested_await_operand_with_continuation() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+async fun leaf(): Int { return 9 }
+async fun make(): Task<Int> { return leaf() }
+async fun wrapper(): Int {
+  return await await make()
+}
+fun main() {
+  val task = spawn { val value: Int = await wrapper() return value }
+  val result: Result<Int, TaskError> = join(task)
+  match (result) {
+    case Ok(value) => { println(value.toString()) }
+    case Err(error) => { println("failed") }
+  }
+}
+"#,
+        )
+        .expect("parse nested await operand fixture");
+        let generated = emit_c_from_ast(&file).expect("emit nested await operand fixture");
+        assert!(!generated.contains("await lowering is deferred"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-nested-await-operand-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile nested await operand fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run nested await operand fixture");
+        assert!(
+            output.status.success(),
+            "nested await operand fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "9\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_multiple_awaits_inside_one_expression_with_continuations() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+async fun one(): Int { return 3 }
+async fun two(): Int { return 5 }
+fun identity<T>(value: T): T { return value }
+async fun wrapper(): Int {
+  val value: Int = identity(await one()) + await two()
+  return value
+}
+fun main() {
+  val task = spawn { val value: Int = await wrapper() return value }
+  val result: Result<Int, TaskError> = join(task)
+  match (result) {
+    case Ok(value) => { println(value.toString()) }
+    case Err(error) => { println("failed") }
+  }
+}
+"#,
+        )
+        .expect("parse multiple-await expression fixture");
+        let generated = emit_c_from_ast(&file).expect("emit multiple-await expression fixture");
+        assert!(!generated.contains("await lowering is deferred"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-multiple-await-expression-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile multiple-await expression fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run multiple-await expression fixture");
+        assert!(
+            output.status.success(),
+            "multiple-await fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "8\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_control_flow_await_with_false_path() {
         let file = aura_parser::parse_file(
             r#"package demo
@@ -4158,6 +6242,54 @@ fun main() { request() }
             output.status.success(),
             "owned async String fixture failed: {output:?}"
         );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn general_cfg_supports_awaited_return_expression() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+async fun worker(): String { return "returned" }
+async fun wrapper(flag: Bool): String {
+  if (flag) {
+    return await worker()
+  }
+  return "fallback"
+}
+fun main() {
+  val task = spawn { val value: String = await wrapper(true) return value }
+  val result = join(task)
+  match (result) {
+    case Ok(value) => { println(value) }
+    case Err(error) => { println("failed") }
+  }
+}
+"#,
+        )
+        .expect("parse awaited return expression fixture");
+        let generated = emit_c_from_ast(&file).expect("emit awaited return expression fixture");
+        assert!(generated.contains("__aura_async_return_"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-general-cfg-return-await-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile awaited return expression fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run awaited return expression fixture");
+        assert!(
+            output.status.success(),
+            "awaited return expression fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "returned\n");
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);
     }
@@ -5087,6 +7219,101 @@ fun main() {{
     }
 
     #[test]
+    fn builds_and_runs_async_foreign_handle_throw_catch_with_ownership() {
+        let path = format!("/tmp/aura-async-handle-catch-{}-data", std::process::id());
+        let source = format!(
+            r#"package std.io
+enum TaskError {{ case Failed(error: String) case Cancelled }}
+enum Result<T, E> {{ case Ok(value: T) case Err(error: E) }}
+fun openFile(path: String, mode: Int): ForeignHandle<Int> {{ throw "intrinsic" }}
+async fun tick(): Unit {{ }}
+async fun fail(file: ForeignHandle<Int>): Int {{ await tick() throw file }}
+async fun recover(file: ForeignHandle<Int>): Int {{
+  try {{
+    val ignored: Int = await fail(file)
+    return 0
+  }} catch (error: ForeignHandle<Int>) {{
+    return 1
+  }}
+}}
+fun main() {{
+  val file: ForeignHandle<Int> = openFile("{path}", 1)
+  val task = spawn {{ val result: Int = await recover(file) return result }}
+  val outcome: Result<Int, TaskError> = join(task)
+  match (outcome) {{
+    case Ok(value) => {{ println(value.toString()) }}
+    case Err(error) => {{ println("failed") }}
+  }}
+}}
+"#
+        );
+        let file = parse_file(&source).expect("parse foreign handle throw/catch fixture");
+        let generated = emit_c_from_ast(&file).expect("emit foreign handle throw/catch fixture");
+        assert!(generated.contains("aura_async_cfg_foreign_error_clone"));
+        assert!(generated.contains("aura_ffi_handle_retain(__throw_handle)"));
+        assert!(generated.contains("aura_task_frame_error_payload(data->await_task)"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-async-handle-catch-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile foreign handle throw/catch fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run foreign handle throw/catch fixture");
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "1\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn builds_and_runs_sync_foreign_handle_throw_catch_with_ownership() {
+        let path = format!("/tmp/aura-sync-handle-catch-{}-data", std::process::id());
+        let source = format!(
+            r#"package std.io
+fun openFile(path: String, mode: Int): ForeignHandle<Int> {{ throw "intrinsic" }}
+fun recover(file: ForeignHandle<Int>): Int {{
+  try {{ throw file }} catch (error: ForeignHandle<Int>) {{ return 1 }}
+}}
+fun main() {{
+  val file: ForeignHandle<Int> = openFile("{path}", 1)
+  println(recover(file).toString())
+}}
+"#
+        );
+        let file = parse_file(&source).expect("parse sync foreign handle throw/catch fixture");
+        let generated =
+            emit_c_from_ast(&file).expect("emit sync foreign handle throw/catch fixture");
+        assert!(generated.contains("aura_destroy_foreign_handle_payload"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-sync-handle-catch-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile sync foreign handle throw/catch fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run sync foreign handle throw/catch fixture");
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "1\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
     fn builds_and_runs_general_cfg_caller_owned_foreign_handle_task_outcomes() {
         let path = format!(
             "/tmp/aura-general-cfg-owned-task-handle-{}-data",
@@ -5580,6 +7807,78 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_loop_branch_array_enum_payload_with_gc() {
+        let file = parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+enum Item { case Text(value: String) }
+async fun left(size: Int): Array<Item> {
+  val values: Array<Item> = Array<Item>(size)
+  if (size > 0) { values.set(0, Text("left")) }
+  return values
+}
+async fun right(size: Int): Array<Item> {
+  val values: Array<Item> = Array<Item>(size + 1)
+  if (size > 0) { values.set(0, Text("right")) }
+  return values
+}
+async fun collect(flag: Bool, limit: Int): Array<Item> {
+  var i: Int = 0
+  var value: Array<Item> = Array<Item>(0)
+  while (i < limit) {
+    if (flag) { value = await left(i + 1) }
+    else { value = await right(i + 1) }
+    gc_collect()
+    i = i + 1
+  }
+  return value
+}
+fun main() {
+  val task = spawn { val value: Array<Item> = await collect(true, 3) return value }
+  val first: Result<Array<Item>, TaskError> = join(task)
+  match (first) {
+    case Ok(value) => { println(value.len.toString()) }
+    case Err(error) => { println("unexpected-error") }
+  }
+  gc_collect()
+  val second: Result<Array<Item>, TaskError> = join(task)
+  match (second) {
+    case Ok(value) => { println(value.len.toString()) }
+    case Err(error) => { println("unexpected-error") }
+  }
+}
+"#,
+        )
+        .expect("parse loop Array<enum> payload fixture");
+        let generated = emit_c_from_ast(&file).expect("emit loop Array<enum> payload fixture");
+        assert!(generated.contains("aura_async_gc_mark_std_io_collect"));
+        assert!(generated.contains("aura_cls_Array_std_io_Item_mark"));
+        assert!(generated.contains("aura_enum_std_io_Item_mark"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-loop-array-enum-branch-await-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile loop Array<enum> payload fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run loop Array<enum> payload fixture");
+        assert!(
+            output.status.success(),
+            "loop Array<enum> fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "3\n3\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_loop_with_two_conditional_await_states() {
         let file = parse_file(
             r#"package std.io
@@ -6004,6 +8303,58 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_owned_interface_task_result_across_repeated_join_and_gc() {
+        let file = parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+interface Named { fun value(): Int }
+class Box(val n: Int) : Named { fun value(): Int { return this.n } }
+async fun produce(): Named { return Box(41) }
+fun main() {
+  val task = spawn { val item: Named = Box(41) return item }
+  val first: Result<Named, TaskError> = join(task)
+  match (first) {
+    case Ok(value) => { println(value.value().toString()) }
+    case Err(error) => { println("failed") }
+  }
+  gc_collect()
+  val second: Result<Named, TaskError> = join(task)
+  match (second) {
+    case Ok(value) => { println(value.value().toString()) }
+    case Err(error) => { println("failed-repeat") }
+  }
+}
+"#,
+        )
+        .expect("parse owned interface task result fixture");
+        let generated = emit_c_from_ast(&file).expect("emit owned interface task result fixture");
+        assert!(generated.contains("aura_iface_std_io_Named_clone"));
+        assert!(generated.contains("aura_var_std_io_Result_std_io_Named_std_io_TaskError_OkOwned"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-owned-interface-task-result-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile owned interface task result fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run owned interface task result fixture");
+        assert!(
+            output.status.success(),
+            "owned interface task result failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "41\n41\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_general_cfg_for_in_string_array_await_with_repeated_join_and_cancel() {
         let file = parse_file(
             r#"package std.io
@@ -6075,6 +8426,71 @@ fun main() {
             "general CFG String array for-in await fixture failed: {output:?}"
         );
         assert_eq!(String::from_utf8_lossy(&output.stdout), "6\n6\ncancelled\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_general_cfg_for_in_enum_array_await_with_gc() {
+        let file = parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+enum Item { case Text(value: String) }
+async fun size(item: Item): Int {
+  match (item) {
+    case Text(text) => { return text.len }
+  }
+}
+async fun sum(values: Array<Item>): Int {
+  var total: Int = 0
+  for (item in values) {
+    val value: Int = await size(item)
+    total = total + value
+    gc_collect()
+  }
+  return total
+}
+fun main() {
+  val values: Array<Item> = Array<Item>(0)
+  values.push(Text("a"))
+  values.push(Text("bb"))
+  val task = spawn { val value: Int = await sum(values) return value }
+  val first: Result<Int, TaskError> = join(task)
+  match (first) {
+    case Ok(value) => { println(value.toString()) }
+    case Err(error) => { println("failed") }
+  }
+  gc_collect()
+  val second: Result<Int, TaskError> = join(task)
+  match (second) {
+    case Ok(value) => { println(value.toString()) }
+    case Err(error) => { println("failed-repeat") }
+  }
+}
+"#,
+        )
+        .expect("parse enum-array for-in await fixture");
+        let generated = emit_c_from_ast(&file).expect("emit enum-array for-in await fixture");
+        assert!(generated.contains("Item_clone"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-enum-array-for-in-await-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile enum-array for-in await fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run enum-array for-in await fixture");
+        assert!(
+            output.status.success(),
+            "enum-array for-in await failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "3\n3\n");
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);
     }
@@ -6918,6 +9334,121 @@ fun main() {
             "string array match-await binding fixture failed: {output:?}"
         );
         assert_eq!(String::from_utf8_lossy(&output.stdout), "seed\nseed\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_match_await_state_machine_with_struct_bindings() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+struct Packet(val code: Int, val text: String) {}
+enum Choice { case First(value: Packet) case Second(value: Packet) }
+async fun leaf(value: Packet): Packet { return value }
+async fun choose(choice: Choice, task: Task<Packet>): Packet {
+  match (choice) {
+    case First(seed) => { val next: Packet = await task gc_collect() return seed }
+    case Second(seed) => { val next: Packet = await task gc_collect() return seed }
+  }
+  return Packet(0, "")
+}
+fun main() {
+  val task = spawn { val value: Packet = await choose(First(Packet(37, "packet")), leaf(Packet(11, "child"))) return value }
+  val first: Result<Packet, TaskError> = join(task)
+  match (first) {
+    case Ok(value) => { println(value.code.toString()) }
+    case Err(error) => { println("failed") }
+  }
+  val second: Result<Packet, TaskError> = join(task)
+  match (second) {
+    case Ok(value) => { println(value.code.toString()) }
+    case Err(error) => { println("failed-repeat") }
+  }
+  join(task)
+}
+"#,
+        )
+        .expect("parse struct match-await binding fixture");
+        let generated = emit_c_from_ast(&file).expect("emit struct match-await binding fixture");
+        assert!(generated.contains("aura_cls_std_io_Packet"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-match-await-struct-bindings-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile struct match-await binding fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run struct match-await binding fixture");
+        assert!(
+            output.status.success(),
+            "struct match-await binding fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "37\n37\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_general_cfg_with_same_typed_branch_locals() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+struct Packet(val code: Int, val text: String) {}
+async fun pick(flag: Bool, left: Task<Packet>, right: Task<Packet>): Packet {
+  if (flag) {
+    val value: Packet = await left
+    return value
+  } else {
+    val value: Packet = await right
+    return value
+  }
+  return Packet(0, "")
+}
+async fun leaf(value: Packet): Packet { return value }
+fun main() {
+  val left: Task<Packet> = leaf(Packet(41, "left"))
+  val right: Task<Packet> = leaf(Packet(42, "right"))
+  val task = spawn { val value: Packet = await pick(true, left, right) return value }
+  val result: Result<Packet, TaskError> = join(task)
+  match (result) {
+    case Ok(value) => { println(value.code.toString()) }
+    case Err(error) => { println("failed") }
+  }
+}
+"#,
+        )
+        .expect("parse merged branch-local CFG fixture");
+        let generated = emit_c_from_ast(&file).expect("emit merged branch-local CFG fixture");
+        assert!(generated.contains("aura async general CFG Struct lowering"));
+        assert!(generated.contains("value"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-general-cfg-merged-locals-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile merged branch-local CFG fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run merged branch-local CFG fixture");
+        assert!(
+            output.status.success(),
+            "merged branch-local CFG fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "41\n");
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);
     }
@@ -7966,7 +10497,7 @@ fun main() {
         let generated = emit_c_from_ast(&file).expect("emit CFG throw-after-await fixture");
         assert!(generated.contains("aura async general CFG Int lowering"));
         assert!(generated.contains("aura_task_frame_set_error_span_with_clone"));
-        assert!(generated.contains("UINT32_C(0)"));
+        assert!(generated.contains("aura_task_frame_set_race_source_id"));
 
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
@@ -8254,6 +10785,47 @@ fun main() {
         assert_eq!(String::from_utf8_lossy(&output.stdout), "2\n2\n");
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_typed_spawn_local_aggregate_success_with_repeated_join() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+fun main() {
+  val words: Array<String> = Array<String>(1)
+  words.set(0, "local")
+  val task = spawn { return words }
+  val first: Result<Array<String>, TaskError> = join(task)
+  val second: Result<Array<String>, TaskError> = join(task)
+  gc_collect()
+  match (first) { case Ok(value) => { println(value.get(0)) } case Err(error) => { println("first-error") } }
+  match (second) { case Ok(value) => { println(value.get(0)) } case Err(error) => { println("second-error") } }
+  gc_collect()
+}
+"#,
+        )
+        .expect("parse local aggregate spawn fixture");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-spawn-local-aggregate-{}", std::process::id());
+        let bin = dir.join(&stem);
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile local aggregate spawn fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run local aggregate spawn fixture");
+        assert!(
+            output.status.success(),
+            "local aggregate spawn fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "local\nlocal\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(dir.join(format!("{stem}.aura.c")));
     }
 
     #[test]
@@ -8603,6 +11175,166 @@ fun main() {
         assert_eq!(
             String::from_utf8_lossy(&output.stdout),
             "generic captured\n"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_generic_spawn_capture_from_parameter() {
+        let file = aura_parser::parse_file(
+            r#"package demo
+fun launch<T>(value: T) { val task = spawn { val copied = value println("generic spawn capture") } join(task) }
+fun main() { launch(41) launch("payload") }
+"#,
+        )
+        .expect("parse generic spawn parameter capture");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!(
+            "aura-generic-spawn-parameter-capture-{}",
+            std::process::id()
+        );
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile generic spawn parameter capture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run generic spawn parameter capture");
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "generic spawn capture\ngeneric spawn capture\n"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_generic_call_inside_spawn_capture() {
+        let file = aura_parser::parse_file(
+            r#"package demo
+fun consume<T>(value: T) { println("generic call") }
+fun launch<T>(value: T) { val task = spawn { consume(value) } join(task) }
+fun main() { launch(41) launch("payload") }
+"#,
+        )
+        .expect("parse generic call inside spawn capture");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-generic-call-spawn-capture-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile generic call inside spawn capture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run generic call inside spawn capture");
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "generic call\ngeneric call\n"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_bounded_generic_aggregate_capture_without_annotation() {
+        let file = aura_parser::parse_file(
+            r#"package demo
+class Box(val value: Int) {}
+fun identity<T>(value: T): T { return value }
+fun report(values: Array<Box>) {
+  if (values.get(0).value == 73) { println("generic aggregate captured") }
+}
+fun main() {
+  val values = identity(Array<Box>(1))
+  values.set(0, Box(73))
+  val task = spawn { report(values) }
+  join(task)
+}
+"#,
+        )
+        .expect("parse generic aggregate capture spawn");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!(
+            "aura-bounded-generic-aggregate-capture-{}",
+            std::process::id()
+        );
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile generic aggregate capture spawn");
+        let generated = fs::read_to_string(&generated_c).expect("read generic aggregate capture C");
+        assert!(generated.contains("aura_method_Array_demo_Box_clone(&values)"));
+        let output = Command::new(&bin)
+            .output()
+            .expect("run generic aggregate capture spawn");
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "generic aggregate captured\n"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_bounded_generic_nested_aggregate_capture_without_annotation() {
+        let file = aura_parser::parse_file(
+            r#"package demo
+class Box(val value: Int) {}
+fun identity<T>(value: T): T { return value }
+fun report(values: Array<Array<Box>>) {
+  if (values.get(0).get(0).value == 91) { println("nested generic aggregate captured") }
+}
+fun main() {
+  val inner = Array<Box>(1)
+  inner.set(0, Box(91))
+  val values = identity(Array<Array<Box>>(1))
+  values.set(0, inner)
+  gc_collect()
+  val task = spawn { report(values) }
+  join(task)
+}
+"#,
+        )
+        .expect("parse nested generic aggregate capture spawn");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!(
+            "aura-bounded-generic-nested-aggregate-capture-{}",
+            std::process::id()
+        );
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile nested generic aggregate capture spawn");
+        let generated =
+            fs::read_to_string(&generated_c).expect("read nested generic aggregate capture C");
+        assert!(generated.contains("aura_method_Array_Array_demo_Box_clone(&values)"));
+        let output = Command::new(&bin)
+            .output()
+            .expect("run nested generic aggregate capture spawn");
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "nested generic aggregate captured\n"
         );
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);
@@ -9133,6 +11865,88 @@ fun main() {
     }
 
     #[test]
+    fn spawn_capture_respects_inner_local_shadowing() {
+        let file = aura_parser::parse_file(
+            r#"package demo
+fun main() {
+  val captured = 41
+  val task = spawn {
+    val captured = 7
+    println(captured.toString())
+    return
+  }
+  join(task)
+}
+"#,
+        )
+        .expect("parse shadowed spawn capture");
+        let generated = emit_c_from_ast(&file).expect("emit shadowed spawn capture");
+        assert!(!generated.contains("__spawn_data->captured"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-spawn-shadowed-capture-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile shadowed spawn capture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run shadowed spawn capture");
+        assert!(output.status.success(), "shadowed spawn failed: {output:?}");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "7\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_bounded_optional_local_capture() {
+        let file = aura_parser::parse_file(
+            r#"package demo
+fun report(value: Int?): Unit {
+  if (value != null) { println("captured optional") }
+}
+fun main() {
+  val captured: Int? = 73
+  val task = spawn { report(captured) }
+  join(task)
+}
+"#,
+        )
+        .expect("parse optional spawn capture");
+        let generated = emit_c_from_ast(&file).expect("emit optional spawn capture");
+        assert!(generated.contains("aura_spawn_data_"));
+        assert!(generated.contains("captured"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-bounded-optional-capture-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile optional spawn capture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run optional spawn capture");
+        assert!(
+            output.status.success(),
+            "optional spawn capture failed: {output:?}"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "captured optional\n"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_bounded_string_array_parameter_capture() {
         let file = aura_parser::parse_file(
             "package demo\nfun report(values: Array<String>) { if (values.len == 1) { println(\"captured string array\") } }\nfun launch(values: Array<String>) { val task = spawn { report(values) } join(task) }\nfun main() { launch(Array<String>(1)) }\n",
@@ -9159,6 +11973,34 @@ fun main() {
             String::from_utf8_lossy(&output.stdout),
             "captured string array\n"
         );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_bounded_class_array_capture_through_gc_and_await() {
+        let file = aura_parser::parse_file(
+            "package demo\nclass Box(var value: Int) {}\nasync fun pause(): Int { gc_collect() return 0 }\nfun main() { var task = spawn { return } if (true) { val values: Array<Box> = Array(1) values.set(0, Box(73)) task = spawn { val ignored: Int = await pause() gc_collect() println(values.get(0).value.toString()) return } } gc_collect() join(task) }\n",
+        )
+        .expect("parse Array<class> spawn capture");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-bounded-class-array-capture-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile Array<class> spawn capture");
+        let generated = fs::read_to_string(&generated_c).expect("read Array<class> capture C");
+        assert!(generated.contains("aura_gc_add_array_root((void **)&__spawn_data->values.data"));
+        assert!(generated.contains("aura_gc_remove_array_root((void **)&data->values.data"));
+        let output = Command::new(&bin)
+            .output()
+            .expect("run Array<class> spawn capture");
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "73\n");
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);
     }
@@ -9319,6 +12161,619 @@ fun main() {
         let generated = emit_c_from_ast(&file).expect("emit bounded spawn path");
         assert!(!generated.contains("non-empty spawn body requires C22l state-machine lowering"));
         assert!(generated.contains("AURA_TASK_COMPLETE"));
+    }
+
+    #[test]
+    fn builds_and_runs_general_cfg_spawn_with_branch_and_loop_awaits() {
+        let file = parse_file(
+            r#"package demo
+async fun ready(): Int { return 2 }
+fun main() {
+  val increment: Int = 2
+  val task = spawn {
+    var total: Int = 0
+    var i: Int = 0
+    while (i < 2) {
+      if (i == 0) {
+        val value: Int = await ready()
+        total = total + increment
+      } else {
+        val value: Int = await ready()
+        total = total + increment
+      }
+      i = i + 1
+    }
+    println(total.toString())
+    return
+  }
+  join(task)
+}
+"#,
+        )
+        .expect("parse general CFG spawn fixture");
+        let generated = emit_c_from_ast(&file).expect("emit general CFG spawn fixture");
+        assert!(generated.contains("aura_fn_demo___spawn_cfg_"));
+        assert!(generated.contains("aura async general CFG Unit lowering"));
+        assert!(!generated.contains("non-empty spawn body requires C22l state-machine lowering"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-general-cfg-spawn-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile general CFG spawn fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run general CFG spawn fixture");
+        assert!(
+            output.status.success(),
+            "general CFG spawn failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "4\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_general_cfg_spawn_with_aggregate_capture_and_try() {
+        let file = parse_file(
+            r#"package demo
+async fun ready(value: Int): Int {
+  await tick()
+  return value
+}
+async fun tick(): Unit { }
+fun main() {
+  val values = Array<Int>(2)
+  values.push(2)
+  values.push(3)
+  val use_first: Bool = true
+  val task = spawn {
+    var total: Int = 0
+    var index: Int = 0
+    while (index < values.len) {
+      if (use_first) {
+        try {
+          val value: Int = await ready(values.get(index)!!)
+          total = total + value
+        } catch (error: String) {
+          total = total + 100
+        }
+      } else {
+        val value: Int = await ready(1)
+        total = total + value
+      }
+      index = index + 1
+    }
+    println(total.toString())
+    return
+  }
+  gc_collect()
+  join(task)
+}
+"#,
+        )
+        .expect("parse aggregate general CFG spawn fixture");
+        let generated = emit_c_from_ast(&file).expect("emit aggregate general CFG spawn fixture");
+        assert!(generated.contains("aura_fn_demo___spawn_cfg_"));
+        assert!(generated.contains("aura_method_Array_Int_clone"));
+        assert!(generated.contains("aura async general CFG Unit lowering"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-general-cfg-spawn-aggregate-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile aggregate general CFG spawn fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run aggregate general CFG spawn fixture");
+        assert!(
+            output.status.success(),
+            "aggregate general CFG spawn failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "5\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_general_cfg_spawn_with_owned_array_result() {
+        let file = parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+async fun ready(): Unit { }
+fun main() {
+  val values = Array<Int>(2)
+  values.push(4)
+  values.push(5)
+  val task = spawn {
+    var index: Int = 0
+    while (index < values.len) {
+      await ready()
+      index = index + 1
+    }
+    return values
+  }
+  gc_collect()
+  val outcome: Result<Array<Int>, TaskError> = join(task)
+  match (outcome) {
+    case Ok(value) => { println(value.len.toString()) }
+    case Err(error) => { println("failed") }
+  }
+}
+"#,
+        )
+        .expect("parse general CFG spawn owned array result fixture");
+        let generated =
+            emit_c_from_ast(&file).expect("emit general CFG spawn owned array result fixture");
+        assert!(generated.contains("aura_fn_std_io___spawn_cfg_"));
+        assert!(generated.contains("aura_method_Array_Int_clone"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-general-cfg-spawn-owned-array-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile general CFG spawn owned array result fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run general CFG spawn owned array result fixture");
+        assert!(
+            output.status.success(),
+            "general CFG spawn owned array result failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "4\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_general_cfg_spawn_with_inferred_array_capture() {
+        let file = parse_file(
+            r#"package demo
+async fun ready(): Int { return 1 }
+fun main() {
+  val values = Array<Int>(3)
+  val task = spawn {
+    var index: Int = 0
+    while (index < values.len) {
+      val tick: Int = await ready()
+      index = index + tick
+    }
+    println(values.len.toString())
+    return
+  }
+  gc_collect()
+  join(task)
+}
+"#,
+        )
+        .expect("parse inferred Array capture CFG spawn fixture");
+        let generated =
+            emit_c_from_ast(&file).expect("emit inferred Array capture CFG spawn fixture");
+        assert!(generated.contains("aura_fn_demo___spawn_cfg_"));
+        assert!(generated.contains("aura_method_Array_Int_clone"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!(
+            "aura-general-cfg-spawn-array-capture-{}",
+            std::process::id()
+        );
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile inferred Array capture CFG spawn fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run inferred Array capture CFG spawn fixture");
+        assert!(
+            output.status.success(),
+            "inferred Array capture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "3\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_general_cfg_spawn_with_inferred_class_capture_after_gc() {
+        let file = parse_file(
+            r#"package demo
+class Box(val value: Int) {}
+async fun ready(): Int { return 1 }
+fun main() {
+  val box = Box(73)
+  val task = spawn {
+    if (true) {
+      val step: Int = await ready()
+      println(step.toString())
+    } else {
+      val step: Int = await ready()
+      println(step.toString())
+    }
+    println(box.value.toString())
+    return
+  }
+  gc_collect()
+  join(task)
+}
+"#,
+        )
+        .expect("parse inferred class capture CFG spawn fixture");
+        let generated =
+            emit_c_from_ast(&file).expect("emit inferred class capture CFG spawn fixture");
+        assert!(generated.contains("aura_fn_demo___spawn_cfg_"));
+        assert!(
+            generated.contains("aura_gc_mark_ptr"),
+            "general CFG class capture must emit a typed GC mark hook"
+        );
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!(
+            "aura-general-cfg-spawn-class-capture-{}",
+            std::process::id()
+        );
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile inferred class capture CFG spawn fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run inferred class capture CFG spawn fixture");
+        assert!(
+            output.status.success(),
+            "inferred class capture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "1\n73\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_general_cfg_spawn_with_mutable_box_capture() {
+        let file = parse_file(
+            r#"package demo
+async fun ready(): Int { return 2 }
+fun main() {
+  var total: Int = 1
+  val task = spawn {
+    if (true) {
+      val step: Int = await ready()
+      total = total + step
+    } else {
+      val step: Int = await ready()
+      total = total + step
+    }
+    println(total.toString())
+    return
+  }
+  join(task)
+}
+"#,
+        )
+        .expect("parse mutable general CFG spawn fixture");
+        let generated = emit_c_from_ast(&file).expect("emit mutable general CFG spawn fixture");
+        assert!(generated.contains("aura_fn_demo___spawn_cfg_"));
+        assert!(generated.contains("aura_box_i64_retain"));
+        assert!(generated.contains("aura_box_i64_release"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!(
+            "aura-general-cfg-spawn-mutable-capture-{}",
+            std::process::id()
+        );
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile mutable general CFG spawn fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run mutable general CFG spawn fixture");
+        assert!(
+            output.status.success(),
+            "mutable capture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "3\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_general_cfg_spawn_with_mutable_string_capture() {
+        let file = parse_file(
+            r#"package demo
+async fun ready(): Int { return 1 }
+fun main() {
+  var text: String = "before"
+  val task = spawn {
+    if (true) {
+      val step: Int = await ready()
+      text = "after"
+      println(step.toString())
+    } else {
+      val step: Int = await ready()
+      text = "after"
+      println(step.toString())
+    }
+    println(text)
+    return
+  }
+  join(task)
+}
+"#,
+        )
+        .expect("parse mutable String general CFG spawn fixture");
+        let generated =
+            emit_c_from_ast(&file).expect("emit mutable String general CFG spawn fixture");
+        assert!(generated.contains("aura_fn_demo___spawn_cfg_"));
+        assert!(generated.contains("aura_box_str_retain"));
+        assert!(generated.contains("aura_box_str_release"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!(
+            "aura-general-cfg-spawn-mutable-string-{}",
+            std::process::id()
+        );
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile mutable String general CFG spawn fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run mutable String general CFG spawn fixture");
+        assert!(
+            output.status.success(),
+            "mutable String capture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "1\nafter\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_general_cfg_spawn_with_mutable_array_capture() {
+        let file = parse_file(
+            r#"package demo
+async fun ready(): Int { return 2 }
+fun main() {
+  var values: Array<Int> = Array<Int>(1)
+  values.set(0, 1)
+  val task = spawn {
+    if (true) {
+      val step: Int = await ready()
+      values.set(0, values.get(0) + step)
+    } else {
+      val step: Int = await ready()
+      values.set(0, values.get(0) + step)
+    }
+    println(values.get(0).toString())
+    return
+  }
+  join(task)
+}
+"#,
+        )
+        .expect("parse mutable Array general CFG spawn fixture");
+        let generated =
+            emit_c_from_ast(&file).expect("emit mutable Array general CFG spawn fixture");
+        assert!(generated.contains("aura_fn_demo___spawn_cfg_"));
+        assert!(generated.contains("aura_box_ptr_retain"));
+        assert!(generated.contains("aura_box_ptr_release"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!(
+            "aura-general-cfg-spawn-mutable-array-{}",
+            std::process::id()
+        );
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile mutable Array general CFG spawn fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run mutable Array general CFG spawn fixture");
+        assert!(
+            output.status.success(),
+            "mutable Array capture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "3\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_general_cfg_spawn_with_mutable_class_capture() {
+        let file = parse_file(
+            r#"package demo
+class Box(var value: Int) {
+  fun add(amount: Int): Unit { value = value + amount }
+}
+async fun ready(): Int { return 2 }
+fun main() {
+  var box: Box = Box(1)
+  val task = spawn {
+    if (true) {
+      val step: Int = await ready()
+      box.add(step)
+    } else {
+      val step: Int = await ready()
+      box.add(step)
+    }
+
+    println(box.value.toString())
+    return
+  }
+  join(task)
+}
+"#,
+        )
+        .expect("parse mutable class general CFG spawn fixture");
+        let generated =
+            emit_c_from_ast(&file).expect("emit mutable class general CFG spawn fixture");
+        assert!(generated.contains("aura_fn_demo___spawn_cfg_"));
+        assert!(generated.contains("aura_box_ptr_retain"));
+        assert!(generated.contains("aura_box_ptr_release"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!(
+            "aura-general-cfg-spawn-mutable-class-{}",
+            std::process::id()
+        );
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile mutable class general CFG spawn fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run mutable class general CFG spawn fixture");
+        assert!(
+            output.status.success(),
+            "mutable class capture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "3\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_nullable_class_task_payload_with_repeated_owned_join() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+class Box(val value: Int) {}
+async fun produce(): Box? { return Box(9) }
+fun main() {
+  val task = spawn { val value: Box? = await produce() return value }
+  val first: Result<Box?, TaskError> = join(task)
+  match (first) {
+    case Ok(value) => { if (value != null) { println("ok") } }
+    case Err(error) => { println("first-error") }
+  }
+  gc_collect()
+  val second: Result<Box?, TaskError> = join(task)
+  match (second) {
+    case Ok(value) => { if (value != null) { println("ok") } }
+    case Err(error) => { println("second-error") }
+  }
+  val cancelled = spawn { val value: Box? = await produce() return value }
+  cancel(cancelled)
+  val cancelledResult: Result<Box?, TaskError> = join(cancelled)
+  match (cancelledResult) {
+    case Ok(value) => { println("cancelled-unexpected-success") }
+    case Err(error) => { match (error) { case Cancelled => { println("cancelled") } case Failed(message) => { println("cancelled-failed") } } }
+  }
+}
+"#,
+        )
+        .expect("parse nullable class task payload fixture");
+        let generated = emit_c_from_ast(&file).expect("emit nullable class task payload fixture");
+        assert!(
+            generated.contains("aura_var_std_io_Result_Opt_std_io_Box_std_io_TaskError_OkOwned")
+        );
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-nullable-class-task-payload-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile nullable class task payload fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run nullable class task payload fixture");
+        assert!(
+            output.status.success(),
+            "nullable class task payload failed: {output:?}"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "ok\nok\ncancelled\n"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_nullable_string_task_payload_with_repeated_owned_join() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+async fun produce(): String? { return "nullable-string" }
+fun main() {
+  val task = spawn { val value: String? = await produce() return value }
+  val first: Result<String?, TaskError> = join(task)
+  match (first) {
+    case Ok(value) => { println(value!!) }
+    case Err(error) => { println("first-error") }
+  }
+  gc_collect()
+  val second: Result<String?, TaskError> = join(task)
+  match (second) {
+    case Ok(value) => { println(value!!) }
+    case Err(error) => { println("second-error") }
+  }
+}
+"#,
+        )
+        .expect("parse nullable String task payload fixture");
+        let generated = emit_c_from_ast(&file).expect("emit nullable String task payload fixture");
+        assert!(generated.contains("aura_var_std_io_Result_Opt_String_std_io_TaskError_OkOwned"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-nullable-string-task-payload-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile nullable String task payload fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run nullable String task payload fixture");
+        assert!(
+            output.status.success(),
+            "nullable String task payload failed: {output:?}"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "nullable-string\nnullable-string\n"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
     }
 
     #[test]
@@ -9533,6 +12988,249 @@ fun main() {{
     }
 
     #[test]
+    fn builds_and_runs_typed_enum_channel_payload_transfer() {
+        let file = parse_file(
+            r#"package std.io
+enum Message { case Text(value: String) }
+fun main() {
+  val channel: Channel<Message> = Channel<Message>(1)
+  channel.send(Text("channel"))
+  val received: Message? = channel.receive()
+  gc_collect()
+  channel.close()
+  gc_collect()
+}
+"#,
+        )
+        .expect("parse enum channel fixture");
+        let generated = emit_c_from_ast(&file).expect("emit enum channel fixture");
+        assert!(generated.contains("aura_task_channel_value_destroy_typed_"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-channel-enum-{}", std::process::id());
+        let bin = dir.join(&stem);
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile enum channel fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run enum channel fixture");
+        assert!(
+            output.status.success(),
+            "enum channel fixture failed: {output:?}"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(dir.join(format!("{stem}.aura.c")));
+    }
+
+    #[test]
+    fn builds_and_runs_typed_array_channel_payload_transfer() {
+        let file = parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+fun main() {
+  val channel: Channel<Array<String>> = Channel<Array<String>>(1)
+  val values: Array<String> = Array<String>(1)
+  values.set(0, "array-channel")
+  channel.send(values)
+  val received: Array<String>? = channel.receive()
+  gc_collect()
+  channel.close()
+  gc_collect()
+}
+"#,
+        )
+        .expect("parse array channel fixture");
+        let generated = emit_c_from_ast(&file).expect("emit array channel fixture");
+        assert!(generated.contains("aura_task_channel_value_destroy_typed_"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-channel-array-{}", std::process::id());
+        let bin = dir.join(&stem);
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile array channel fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run array channel fixture");
+        assert!(
+            output.status.success(),
+            "array channel fixture failed: {output:?}"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(dir.join(format!("{stem}.aura.c")));
+    }
+
+    #[test]
+    fn builds_and_runs_bool_channel_payload_transfer() {
+        let file = parse_file(
+            r#"package std.io
+fun main() {
+  val channel: Channel<Bool> = Channel<Bool>(1)
+  channel.send(true)
+  val received: Bool? = channel.receive()
+  if (received != null && received!!) { println("bool-channel") }
+  channel.close()
+  gc_collect()
+}
+"#,
+        )
+        .expect("parse bool channel fixture");
+        let generated = emit_c_from_ast(&file).expect("emit bool channel fixture");
+        assert!(generated.contains("aura_opt_bool"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-channel-bool-{}", std::process::id());
+        let bin = dir.join(&stem);
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile bool channel fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run bool channel fixture");
+        assert!(
+            output.status.success(),
+            "bool channel fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "bool-channel\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(dir.join(format!("{stem}.aura.c")));
+    }
+
+    #[test]
+    fn builds_and_runs_task_handle_channel_payload_transfer() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+fun main() {
+  val task: TaskHandle<Int> = spawn { return 9 }
+  val channel: Channel<TaskHandle<Int>> = Channel<TaskHandle<Int>>(1)
+  channel.send(task)
+  val received: TaskHandle<Int>? = channel.receive()
+  val outcome: Result<Int, TaskError> = join(received!!)
+  channel.close()
+  gc_collect()
+}
+"#,
+        )
+        .expect("parse task-handle channel fixture");
+        let generated = emit_c_from_ast(&file).expect("emit task-handle channel fixture");
+        assert!(generated.contains("aura_task_channel_value_from_task"));
+        assert!(generated.contains("aura_task_executor_retain_payload"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-channel-task-handle-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile task-handle channel fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run task-handle channel fixture");
+        assert!(
+            output.status.success(),
+            "task-handle channel fixture failed: {output:?}"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_channel_capture_with_spawn_ownership() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+fun main() {
+  val channel: Channel<Int> = Channel<Int>(1)
+  val task = spawn { channel.send(3) return }
+  val outcome: Result<Unit, TaskError> = join(task)
+  channel.close()
+  gc_collect()
+}
+"#,
+        )
+        .expect("parse channel capture fixture");
+        let generated = emit_c_from_ast(&file).expect("emit channel capture fixture");
+        assert!(generated.contains("aura_task_channel_retain"));
+        assert!(generated.contains("aura_task_channel_destroy(data->channel)"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-spawn-channel-capture-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile channel capture fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run channel capture fixture");
+        assert!(
+            output.status.success(),
+            "channel capture fixture failed: {output:?}"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_channel_channel_payload_transfer() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+fun main() {
+  val inner: Channel<Int> = Channel<Int>(1)
+  val outer: Channel<Channel<Int>> = Channel<Channel<Int>>(1)
+  outer.send(inner)
+  val received: Channel<Int>? = outer.receive()
+  val receivedChannel: Channel<Int> = received!!
+  receivedChannel.send(7)
+  val value: Int? = receivedChannel.receive()
+  outer.close()
+  inner.close()
+  receivedChannel.close()
+  gc_collect()
+}
+"#,
+        )
+        .expect("parse nested channel fixture");
+        let generated = emit_c_from_ast(&file).expect("emit nested channel fixture");
+        assert!(generated.contains("aura_task_channel_value_from_channel"));
+        assert!(generated.contains("aura_task_channel_value_take_channel"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-channel-channel-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile nested channel fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run nested channel fixture");
+        assert!(
+            output.status.success(),
+            "nested channel fixture failed: {output:?}"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_std_task_select_constructor_and_add() {
         let file = parse_file(
             r#"package std.task
@@ -9676,6 +13374,134 @@ fun main() {
     }
 
     #[test]
+    fn immutable_class_array_lambda_capture_roots_snapshot_after_gc() {
+        let file = parse_file(
+            r#"package demo
+class Box(var value: Int) {}
+fun make(): () -> Int {
+  val values: Array<Box> = Array<Box>(1)
+  values.set(0, Box(73))
+  return () => values.get(0).value
+}
+fun main() {
+  val read: () -> Int = make()
+  gc_collect()
+  println(read().toString())
+}
+"#,
+        )
+        .expect("parse immutable class Array lambda capture fixture");
+        let generated =
+            emit_c_from_ast(&file).expect("emit immutable class Array lambda capture fixture");
+        assert!(generated.contains("aura_gc_add_array_root"));
+        assert!(generated.contains("aura_gc_remove_array_root"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-array-class-lambda-snapshot-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile immutable class Array lambda capture fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run immutable class Array lambda capture fixture");
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "73\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn immutable_interface_array_lambda_capture_roots_snapshot_after_gc() {
+        let file = parse_file(
+            r#"package demo
+interface Named { fun value(): Int }
+class Box(var n: Int) : Named { fun value(): Int { return this.n } }
+fun make(): () -> Int {
+  val values: Array<Named> = Array<Named>(1)
+  values.set(0, Box(73))
+  return () => values.get(0).value()
+}
+fun main() {
+  val read: () -> Int = make()
+  gc_collect()
+  println(read().toString())
+}
+"#,
+        )
+        .expect("parse immutable interface Array lambda capture fixture");
+        let generated =
+            emit_c_from_ast(&file).expect("emit immutable interface Array lambda capture fixture");
+        assert!(generated.contains("aura_iface_demo_Named_clone"));
+        assert!(generated.contains("aura_gc_add_array_root"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!(
+            "aura-array-interface-lambda-snapshot-{}",
+            std::process::id()
+        );
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile immutable interface Array lambda capture fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run immutable interface Array lambda capture fixture");
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "73\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn nested_interface_array_lambda_capture_roots_snapshot_after_gc() {
+        let file = parse_file(
+            r#"package demo
+interface Named { fun value(): Int }
+class Box(var n: Int) : Named { fun value(): Int { return this.n } }
+fun make(): () -> Int {
+  val inner: Array<Named> = Array<Named>(1)
+  inner.set(0, Box(91))
+  val values: Array<Array<Named>> = Array<Array<Named>>(1)
+  values.set(0, inner)
+  return () => values.get(0).get(0).value()
+}
+fun main() {
+  val read: () -> Int = make()
+  gc_collect()
+  println(read().toString())
+}
+"#,
+        )
+        .expect("parse nested interface Array lambda capture fixture");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-nested-array-interface-lambda-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile nested interface Array lambda capture fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run nested interface Array lambda capture fixture");
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "91\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn mutable_array_lambda_capture_shares_owned_box_after_outer_scope() {
         let file = parse_file(
             r#"package demo
@@ -9760,6 +13586,52 @@ fun main() {
             "multiple closure fixture failed: {output:?}"
         );
         assert_eq!(String::from_utf8_lossy(&output.stdout), "4\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn mutable_array_lambda_capture_survives_owner_rebinding_and_gc() {
+        let file = parse_file(
+            r#"package demo
+fun make(): Int {
+  var values: Array<Int> = Array<Int>(0)
+  values.push(10)
+  val append = (value: Int) => {
+    values.push(value)
+    return values.len
+  }
+  val before = append(20)
+  values = Array<Int>(0)
+  values.push(30)
+  gc_collect()
+  val after = append(40)
+  return before + after + values.get(0)
+}
+fun main() { println(make().toString()) }
+"#,
+        )
+        .expect("parse rebinding Array lambda capture fixture");
+        let generated =
+            emit_c_from_ast(&file).expect("emit rebinding Array lambda capture fixture");
+        assert!(generated.contains("aura_box_ptr_retain"));
+        assert!(generated.contains("aura_box_ptr_release"));
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-array-lambda-rebinding-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+            .expect("compile rebinding Array lambda capture fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run rebinding Array lambda capture fixture");
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "34\n");
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);
     }

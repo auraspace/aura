@@ -14,9 +14,11 @@ The implementation keeps native descriptors inside `ForeignHandle<Int>`
 resources. Read and write tasks pin the resource across suspension, preserve
 partial I/O offsets, and release the pin on completion, failure, cancellation,
 or executor shutdown. Port-only endpoints default to loopback; explicit
-`HOST:PORT` and `[IPv6]:PORT` endpoints can bind or connect elsewhere.
-does not yet include DNS, TLS, UDP, Unix-domain sockets, or typed `Result`
-errors.
+`HOST:PORT` and `[IPv6]:PORT` endpoints can bind or connect elsewhere. The
+additive `listenResult`, `connectResult`, `closeListenerResult`, and
+`closeStreamResult` APIs return shared `std.error.Outcome` values with
+`NetError`; the older throwing/Bool forms remain compatibility shims. DNS,
+TLS, UDP, and Unix-domain sockets are outside this bounded surface.
 
 `native/aura_net_ffi.c` remains a focused legacy FFI smoke fixture; it is not
 linked automatically by the Aura CLI or used by the public runtime-backed API.

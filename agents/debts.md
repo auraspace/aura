@@ -71,8 +71,8 @@ When you resolve debt, update or remove the matching entry.
   and ownership-checked.
 - Why the remaining macro boundary is deferred: token-tree repetition now
   supports multiple captures per item, nested one-level repetition composition,
-  and both `*`/`+` operators, but hygiene rules and dependency-provided macro
-  discovery still need to consume the new primitives. Root package plugin
+  and both `*`/`+` operators. Binding/item gensym, lexical nested-scope
+  hygiene, and duplicate export checks are implemented. Root package plugin
   discovery and build invocation are now wired through `[macro_plugins]` and
   the CLI's check/emit/build/test paths.
   The runner refuses hosts without a supported OS sandbox instead of weakening
@@ -85,9 +85,44 @@ When you resolve debt, update or remove the matching entry.
   rejected, and expansion metadata is retained. Plugin stdout/stderr are
   drained concurrently under the configured output cap, preventing a noisy
   process from deadlocking the host while it waits for termination.
-- Next step: finish hygienic expansion and define dependency plugin
-  provenance/lockfile rules before allowing plugins from dependency packages;
-  keep the ABI version unchanged while those rules stabilize.
+- Progress (2026-08-01): declarative macro exports are now indexed by name while
+  loading package sources and dependency graphs. Duplicate names fail closed
+  with a deterministic diagnostic instead of silently selecting the first
+  definition by filesystem/dependency load order.
+- Progress (2026-08-01): declarative macro templates now gensym identifiers at
+  declaration sites (`val`, `var`, and item declarations) per invocation while
+  preserving metavariable capture spellings. Parser coverage proves a macro
+  local cannot capture or overwrite a caller local with the same source name.
+- Progress (2026-08-02): hygiene expansion now carries a lexical token-tree
+  scope through nested groups and function parameters. Shadowed declaration
+  sites receive distinct invocation-local names while metavariable captures
+  remain call-site identifiers; parser coverage verifies nested shadowing.
+- Progress (2026-08-01): dependency manifests that declare procedural plugins
+  now fail closed during graph loading instead of silently dropping executable
+  provenance. Only root `[macro_plugins]` entries can be selected, and the
+  loader regression verifies the deterministic diagnostic.
+- Progress (2026-08-01): root plugin paths are restricted to package-relative
+  paths without parent traversal, preventing a manifest from selecting an
+  executable outside its declared package root; loader coverage verifies the
+  escape-path rejection.
+- Progress (2026-08-01): Linux procedural plugins now execute through
+  `bubblewrap` with a private network namespace, read-only source/plugin and
+  runtime-library binds, a private `/tmp`, and cleared environment. The stable
+  request encoder is also exported through `aura-analysis` for plugin hosts.
+- Progress (2026-08-02): the stable request/response protocol now caps every
+  UTF-8 field at 16 MiB, rejects oversized fields before plugin execution or
+  decoder allocation, and uses checked `u32` framing instead of truncating
+  lengths. Protocol regressions cover both malformed oversized input and the
+  encoder boundary.
+- Progress (2026-08-01): `aura.lock` now records root plugin pins as
+  `macro_plugin.<Name>` entries with package-relative paths and SHA-256 checksums.
+  Writable CLI loads create pins; read-only loads require them, and every load
+  re-hashes the executable so replacement binaries fail closed. A package test
+  covers pin creation, matching verification, and post-pin mutation.
+- Next step: define explicit unhygienic spans and expansion inspection while
+  keeping the ABI version unchanged; dependency plugin provenance is now
+  represented by verified root lock pins and remains fail-closed for
+  dependency-owned executables.
 
 ### NET-001 endpoint parsing is synchronous and string-based (2026-07-31)
 
@@ -201,6 +236,13 @@ When you resolve debt, update or remove the matching entry.
   returned `String` payloads into owned frame/result storage, with native
   success, repeated-join, failure-detail, queued-cancellation, and forced-GC
   coverage.
+  Async frame GC marking now dispatches through generated `Array<T>` mark
+  hooks, covering enum/struct elements and nested arrays across suspension; a
+  native `Array<enum>` + await + forced-GC regression passes. The remaining
+  open surface is the public raw typed failure payload at `join` (the join ABI
+  exposes normalized `TaskError.Failed(String)` plus typed name and source-span
+  metadata, while nested propagation retains the raw clone internally), plus
+  richer unbounded CFG aggregate ownership.
 - Progress: the general four-await state machine now accepts `Array<String>`
   suspension and return payloads, deep-clones each suspended array including
   owned String elements, survives forced GC between awaits, and passes repeated
@@ -216,6 +258,22 @@ When you resolve debt, update or remove the matching entry.
   each action. Native coverage exercises repeated awaits of caller-owned
   `Task<String>` and `Task<Array<String>>` through a loop, forced GC, failure,
   cancellation, and repeated owning joins under ASAN.
+- Progress (2026-08-01): scalar awaits nested in binary/unary expressions and
+  call/field evaluation are split into a typed frame local plus a post-resume
+  continuation; native coverage executes `(await one()) + 1` through spawn and
+  owning join.
+- Progress (2026-08-01): expression lowering now recursively chains multiple
+  awaits in one initializer or assignment. Each operand receives its own typed
+  frame slot and failure/cancellation route, and the continuation evaluates
+  only after prior awaits complete; native coverage executes
+  `identity(await one()) + await two()` through a spawned task and owned join.
+- Progress (2026-08-02): general CFG return statements can now suspend through
+  an awaited expression, including branch-local `return await task()` and
+  aggregate/String results. The compiler allocates a typed synthetic return
+  slot, routes failure/cancellation through the normal await edge, and emits
+  the terminal result from that slot; a native repeated-join fixture covers the
+  branch path. Spawn bodies still require their own bounded state-machine shape
+  when the await is directly inside `return`.
 - Next step: connect remaining richer aggregate payload ownership and
   suspended await failure propagation to the clone/destroy boundary.
 
@@ -536,12 +594,12 @@ When you resolve debt, update or remove the matching entry.
 ### HTTP async handler and Aura typed-handle gaps remain (H5, updated 2026-07-31)
 
 - Area: async HTTP connection integration
-- Symptom: the bounded compiler-generated handler path is shipped, but
-  arbitrary async handler CFG shapes and cross-target evidence are not yet
-  general.
-- Why deferred: the remaining CFG cases need method-aware state-machine
-  lowering and ownership proofs; a fallback would weaken cancellation and
-  backpressure guarantees.
+- Symptom: the supported HTTP/1.1 handler path is complete on the covered
+  native targets; extended protocol coverage and cross-target evidence remain
+  outside the current acceptance matrix.
+- Why deferred: TLS/HTTP2/HTTP3/WebSocket/multipart support and additional
+  hosts require separate protocol and platform contracts; a fallback would
+  weaken cancellation and backpressure guarantees.
 - Progress: `runtime/tests/http_async.c` now proves a task handler can retain
   request/response state across a readiness suspension and cancellation, in
   addition to independent pending
@@ -555,6 +613,16 @@ When you resolve debt, update or remove the matching entry.
   releases the pin only after terminal response/cancellation cleanup. The HTTP
   async fixture covers dropping the lexical handle owner while the task is
   pending; the connection remains live through the pin.
+- Progress (2026-08-01): the handle-backed poll path arms its connection
+  cleanup hook immediately after acquiring the task pin, so an early buffer
+  allocation or initialization failure cannot strand the pin before normal
+  async initialization installs cleanup.
+- Resolved (2026-08-01): general handler CFG lowering now covers branch/loop
+  joins, repeated awaits, typed failure, nested cancellation/finally, async
+  class methods, and scheduler-owned locals. Native regressions cover nested
+  cancellation cleanup, `TaskHandle` and `Channel` locals across suspension,
+  plus the full sanitizer matrix. Unsupported spawn-body shapes remain an
+  explicit compiler rejection, not a runtime fallback.
 - Progress: runtime typed borrowed accessors now expose request method, target,
   version, bounded headers/body, and response status/headers/body/keep-alive.
   Strict parser/response fixtures verify bounds, binary body bytes, and that
@@ -608,13 +676,15 @@ When you resolve debt, update or remove the matching entry.
   HTTP read/idle timeout wakes the frame, serializes one bounded `408
 request_timeout` response, then closes; runtime timeout and sanitizer
   regressions cover the scheduler and HTTP path.
-- Progress (2026-07-29): the parser now accepts bounded inbound HTTP/1.1
+- Resolved (2026-08-02): the parser now accepts bounded inbound HTTP/1.1
   chunked bodies, decodes them into the request-owned snapshot, preserves the
-  next keep-alive request boundary, and rejects oversized decoded/raw framing,
-  extensions, and non-empty trailers. `runtime/tests/http_parser.c` runs under
-  the sanitizer manifest; `examples/http-health-aura` streams a chunked body
-  after two handler awaits. Streaming task readers/writers now use a distinct
-  cross-await ownership contract; trailer exposure remains deferred.
+  next keep-alive request boundary, and retains validated trailer fields.
+  Streaming readers validate and consume trailer fields before EOF while
+  rejecting framing fields. `runtime/tests/http_parser.c` covers both full
+  snapshots and streaming readers under the sanitizer manifest; the
+  `examples/http-health-aura` route streams a chunked body after two handler
+  awaits. Streaming task readers/writers use a distinct cross-await ownership
+  contract.
 - Progress (2026-07-29): an internal header-first parser now validates and
   owns request metadata without waiting for the body, preserving the exact
   header boundary and Content-Length/chunked framing. Native parser coverage
@@ -635,26 +705,71 @@ request_timeout` response, then closes; runtime timeout and sanitizer
   chunks. Async class methods now route through the bounded async lowering
   dispatch, retain a synthetic `this` slot, and rebind it in the covered CFG
   resume path; less-common specialized await shapes and arbitrary class-method
-  CFGs still need the general method-aware state-machine path. Chunked request trailers are still not exposed as
-  public fields; the bounded reader accepts only an empty trailer section.
+  CFGs still need the general method-aware state-machine path. Chunked request
+  trailers are now validated and retained in full snapshots; streaming readers
+  consume them before EOF while keeping them internal to the body-reader API.
   `Request.body()` remains a snapshot accessor for paths that materialize one;
   header-first task handlers must use `bodyReader()` for non-empty bodies.
 - Progress (2026-07-31): compiler coverage now includes an HTTP handler whose
   async child uses the general CFG lowering across multiple awaits and a
   branch; the connection bridge continues to propagate child failure and
   cancellation through the existing waiter contract.
-- Remaining: general async lowering supports the bounded caller-owned task and
-  handle families used by the server, but does not yet lower arbitrary
-  suspending handler control flow. The bounded `std.time.sleep` intrinsic is
-  intentionally separate from that unresolved generic path. The Aura example's
-  loopback curl smoke and a fresh offline installed-CLI release smoke now pass;
-  cross-target sanitizer evidence and the less-common method-aware CFG shapes
-  remain required before marking HTTP-001 complete.
-- Remaining: public `std.net` and `std.http` bridge APIs still expose the
-  pre-contract `Bool`/raw-handle outcome shapes. RFC-007 now freezes the
-  replacement `Result<T, PackageError>` mapping, but implementing those
-  package-owned error enums and migrating compatibility shims belongs to S01
-  and S06 rather than the current HTTP/1.1 bridge.
+- Progress (2026-08-01): generated `RequestBody.readChunk` and
+  `Response.writeChunk` frame destructors now have verified cleanup for
+  buffers, read claims, and FFI pins across cancellation/failure paths; the
+  codegen suite covers both streaming methods and the server cancellation
+  bridge.
+- Progress (2026-08-01): handle-backed HTTP polling now detects an already
+  armed frame cleanup callback instead of executing it a second time during
+  initialization. Terminal handle pins are released by frame cleanup after
+  polling returns, preventing a re-entrant connection destroy/reset loop.
+  The standalone `runtime/tests/http_async.c` fixture and the full sanitizer
+  gate pass on the native host.
+- Progress (2026-08-01): the general async CFG now lowers `if (await BoolTask)`
+  and `while (await BoolTask)` in async class methods. The awaited condition is
+  stored in a typed frame slot, participates in cancellation/failure cleanup,
+  and resumes into the branch/loop edge without re-evaluating the task. Native
+  method-aware branch and loop fixtures pass; arbitrary expression-level await
+  composition and cross-target evidence remain open.
+- Progress (2026-08-02): expression-form `if (await condition())` now splits
+  the awaited condition into the same typed frame slot and resumes through the
+  value continuation. A native `Task<Int>` join fixture covers the handler-safe
+  expression path.
+- Progress (2026-08-02): expression-form `if` branches containing awaited
+  values now lower to explicit branch states and typed target assignments. Both
+  selected and unselected branches are covered by a native `Task<Int>` fixture;
+- Progress (2026-08-02): the compiler HTTP handler fixture now exercises nested
+  branch-awaits inside a loop and inside both the protected and catch arms of a
+  try/catch. The generated handler still uses the same cancellation bridge and
+  typed frame state machine, so this combination is compile-checked rather than
+  treated as a handler-specific synchronous shortcut.
+  nested expression-if composition remains subject to the same general CFG
+  operand-shape checks.
+- Progress (2026-08-02): nested awaits inside async operation operands (for
+  example `await await makeTask()` and awaited task/channel handles) now lift
+  the innermost await into the general CFG continuation instead of being
+  re-evaluated or rejected as an unsupported expression shape. A native nested
+  await regression covers the resumed value and repeated outer join.
+- Progress (2026-08-02): compiler-generated `RequestBody.readChunk` now enters
+  the runtime's exclusive body-reader claim after pinning and holds it across
+  pending readiness. Success, failure, cancellation, allocation failure, and
+  frame destruction all release the claim before unpinning, so escaped or
+  overlapping readers cannot advance one connection-owned parser concurrently.
+- Resolved: general async lowering now handles the supported suspending handler
+  control-flow contract, including branch/loop joins, repeated awaits, typed
+  failure, cancellation/finally, async class methods, and scheduler-owned
+  locals. The Aura example's loopback curl smoke and the sanitizer matrix pass;
+  cross-target evidence and extended protocols remain separate acceptance work.
+- Progress (2026-08-01): additive `std.net` typed wrappers now cover listener
+  bind, stream connect, and idempotent close as
+  `Outcome<..., NetError>`, while the legacy Bool/raw-handle functions remain
+  documented compatibility shims. `std.http.getResponseResult` and
+  `postResponseResult` now classify transport exceptions as `HttpError` as
+  well as malformed-response framing; corpus builds cover the generated
+  aggregate Outcome/ForeignHandle ABI.
+- Remaining: the legacy `std.net`/`std.http` entry points still exist for alpha
+  compatibility, and full RFC-007 naming (`Result<T, PackageError>`) awaits
+  the merged-package generic enum resolver and S01/S06 error migration.
 - Progress (2026-07-29): `std.http.get` now provides a bounded loopback
   HTTP/1.1 GET path over `std.net`; `corpus/std_http/client` and
   `scripts/http-aura-smoke.sh` compile it as a standalone `std.http` consumer
@@ -673,8 +788,19 @@ request_timeout` response, then closes; runtime timeout and sanitizer
   zero until the typed error model exists. Generic `spawn` capture lowering
   still needs initializer inference for richer expressions and open generic
   local types.
-- Next step: add typed request/response client values and error outcomes, then
-  extend transport capability-gated support with parser and cancellation tests.
+- Progress (2026-08-01): bounded spawn capture now accepts `Opt_Int` and
+  `Opt_Bool` locals by value; a native capture regression verifies an inferred
+  optional local remains available in the spawned frame.
+- Progress (2026-08-01): unannotated locals whose initializer is a generic
+  aggregate expression now reuse semantic expression types during static frame
+  discovery; `identity(Array<Box>(1))` is captured by value with the generated
+  Array clone/root contract and runs natively.
+- Progress (2026-08-01): owning `join` now copies `Opt_Int` and `Opt_Bool`
+  task results as scalar tagged values, with repeated-join/forced-GC native
+  coverage; optional payloads do not enter aggregate cleanup.
+- Next step: extend typed client outcomes with timeout/cancellation-specific
+  classification and add runtime execution coverage for failed connect and
+  malformed-response paths when loopback socket tests are available.
 
 ### Async suspension GC roots and ownership (C22s, 2026-07-22)
 
@@ -685,22 +811,43 @@ request_timeout` response, then closes; runtime timeout and sanitizer
   straight-line async bodies.
 - Progress: frame captures, pending operations, results, and errors now have explicit ownership metadata, GC root registration, borrowed-value rejection, and exactly-once release. The compiler already rejects borrowed values crossing await/spawn/channel boundaries. The runtime exposes paired typed frame-data mark/drop hooks; the general CFG and the specialized loop/branch Array lowerer now register generated callbacks, with aggregate cleanup in the exactly-once drop callback and native regression coverage.
 - Progress: value-struct aggregates now use the same generated clone/drop/mark hooks in the general branch/loop CFG, including parameter capture, await transfer, result destruction, repeated owning joins, and forced-GC native coverage.
+- Progress (2026-08-01): bounded `spawn` frames now register cloned
+  `Array<HeapClass>` captures as GC array roots and unregister them before
+  releasing the buffer. A scoped-capture regression drops the outer array,
+  forces GC across an await, and still reads the class element successfully.
+- Progress (2026-08-01): async CFG caught-class frames now mark aggregate
+  fields through their typed Array/enum/struct/class hooks. Exception lowering
+  also unregisters lexical Array roots before `longjmp`, preventing stale stack
+  slots from entering the runtime root table; forced-GC class-array catch
+  coverage passes under the native sanitizer build.
+- Progress (2026-08-01): the bounded first-await state machine now stores and
+  republishes `Opt_Int`/`Opt_Bool` values without treating their tagged scalar
+  storage as an aggregate root; native repeated-join coverage exercises the
+  suspended path.
+- Progress (2026-08-01): discarded `Unit` awaits in bounded spawned tasks now
+  use a static frame task slot and propagate child failure/cancellation through
+  the same cleanup contract as value awaits; nested typed class failure and
+  native sanitizer coverage pass.
+- Progress (2026-08-01): the specialized loop/branch `Array<T>` lowerer now
+  uses the generated recursive Array mark hook and checked enum/struct drop
+  helper. A repeated-join forced-GC fixture with `Array<enum>` payloads passes,
+  closing the prior specialized-path gap for those aggregate elements.
 - Next step: apply the callback contract to the remaining specialized async lowerers and richer nested aggregate layouts; the conservative frame scan remains the compatibility fallback until every generated layout has that metadata.
 
-### Async lowering and task outcome gaps (C22t, 2026-07-22)
+### Async lowering and task outcome gaps (C22t, historical, superseded 2026-08-01)
 
 - Area: async/task codegen and runtime outcomes
-- Symptom: await lowering is still bounded to straight-line one- through
-  three-await shapes with typed Int child results; branches, richer ownership,
-  and full task outcome propagation are not complete.
+- Superseded: general CFG lowering now covers branches, loops, richer aggregate
+  values, typed failure/cancellation propagation, and repeated owning joins;
+  the remaining narrower ownership cases are tracked by ASYNC-002, C22s, and
+  ERROR-002 below.
 - Progress: the compiler emits explicit entry/resume states for one through
   three awaits, hoists live Int/String locals into frame data, and uses a runtime
   parent-child waiter list to wake the parent exactly once.
   runtime/tests/task_dependency.c covers delayed child completion under
   ASAN/UBSAN.
-- Next step: extend state partitioning to control flow and richer than
-  three-await bodies, then add typed failure/cancellation propagation before
-  advertising the full C22 contract as executable.
+- Next step: keep the specialized lowerers aligned with the generated frame
+  mark/drop callback contract as their remaining aggregate cases are migrated.
 
 ### S4 source locations and nested failures remain bounded (2026-07-22)
 
@@ -744,6 +891,28 @@ request_timeout` response, then closes; runtime timeout and sanitizer
 - Symptom: richer aggregate captures and concurrent scheduler policy remain bounded; mutable Array capture itself is no longer a borrowed-view MVP (immutable Array captures own a cloned snapshot)
 - Why deferred: richer aggregate element types and scheduler policy need separate contracts; the Array capture ownership contract is now explicit and implemented
 - Progress: C20c–e add shared pointer boxes and codegen lowering for mutable class/Array/Fun captures; class payloads are GC-rooted, nested Fun environments retain/release, and corpus covers mutation, rebinding, escaping closures, and GC churn. Mutable Array captures use one owned `aura_box_ptr` shared by the outer binding and every closure; native fixtures verify mutation after outer-scope escape and shared visibility across two closures. Existing env `__drop` still unregisters class roots / releases boxes / nested Fun envs then frees (never frees Array buffers)
+- Progress (2026-08-01): immutable `Array<HeapClass>` captures in bounded
+  spawned tasks now register the cloned element buffer as an explicit GC array
+  root for the full task lifetime; a forced-GC/await regression covers the
+  scope-escape case.
+- Progress (2026-08-01): escaping immutable lambda captures now apply the same
+  array-root contract for cloned `Array<HeapClass>` snapshots; env drop removes
+  the root before recursive element cleanup. Native closure-escape/forced-GC
+  coverage reads a captured class element after the outer scope ends.
+- Progress (2026-08-01): immutable `Array<Interface>` captures now use a typed
+  array-root callback that scans each tagged union element through its generated
+  interface mark hook. The cloned snapshot remains valid after owner scope exit,
+  mutation, and forced GC; native ASan coverage dispatches through a heap-class
+  implementor after closure escape.
+- Progress (2026-08-01): the typed root registration is now shared by compiler
+  generated locals, parameters, async frames, caught aggregate copies, spawn
+  captures, and mutable capture boxes. Nested arrays delegate to recursive mark
+  hooks; native coverage also exercises an escaping `Array<Array<Interface>>`
+  snapshot after forced GC.
+- Progress (2026-08-01): lambdas nested directly in async function bodies are
+  now included in the static lambda emitter; function-valued async results
+  retain/release their closure environment across suspension and terminal
+  cleanup, covered by a native `Task<(Int) -> Int>` regression.
 - Note (C12l): immutable Array capture clones `{data,len,cap}` into the closure environment; mutable `var` Array capture uses an owned shared cell, not a borrowed view, so owner movement is cell retain/release and no mutation invalidation is exposed
 - Note (C12m/C13f): `var` Int/Bool/String uses `aura_box_*` (refcount); String box owns heap copy (`set` frees previous); outer + each capturing env retain; multiple lambdas share mutations; escaping Fun keeps the box alive
 - Note (C13g): Fun param transfer moves env (caller must not call after pass); nested retain via capture keeps both live — stress corpus documents both
@@ -751,14 +920,18 @@ request_timeout` response, then closes; runtime timeout and sanitizer
 - Note: C12 batch closed (C12t); C13e Fun + C13f var String + C13g stress audit shipped; C20c–e mutable class/Array/Fun shared ownership contract shipped — residual is richer aggregate/scheduler policy
 - Introduced: narrowed after C10h; env free 2026-07-20; class C12k 2026-07-21; Array view C12l 2026-07-21; var Int/Bool C12m 2026-07-21; Fun C13e 2026-07-21; var String C13f 2026-07-21; stress C13g 2026-07-21; mutable class/Array/Fun MVP C20c–e 2026-07-22
 
-### Array field return still moves (no true borrow type)
+### Array field ownership contract (resolved 2026-08-01)
 
 - Area: builtin Array (C7c/C8j)
-- Symptom: `return this.items` still moves buffer out of the object; bind/assign from field is non-owning view (C8j)
-- Why deferred: no `ref`/`borrow` type in the language; shallow view is enough for field reads
-- Progress: C9c `Array.clone()` owning copy as escape hatch for field returns
-- Next step: true borrow type if needed
-- Introduced: narrowed after C8j; clone C9c
+- Resolution: Array field reads are lexical borrows. Assigning a field to
+  `ref Array<T>` is allowed only while the receiver is live; returning,
+  storing, capturing, awaiting, spawning, or channeling that view is rejected.
+  `Array.clone()` is the explicit owning escape hatch.
+- Evidence: sema coverage proves valid scoped field views, rejects
+  `return this.items`, rejects closure escape, and native lambda/GC fixtures
+  prove owned immutable snapshots and shared mutable cells do not use a stale
+  non-owning view.
+- Introduced: narrowed after C8j; clone C9c; lexical borrow enforcement C22i.
 
 ### Registry publishing and alternate dependency sources
 
@@ -796,12 +969,13 @@ request_timeout` response, then closes; runtime timeout and sanitizer
 - Evidence: `corpus/std_collections/live_iterator` covers value replacement,
   map insertion invalidation, set removal invalidation, and terminal `next()`.
 
-### Array of interface elements (C20h, 2026-07-29)
+### Array of interface elements (C20h, 2026-08-01)
 
 - Resolved: `Array<I>` uses the runtime tagged-interface representation with
-  element copy/drop helpers, interface dispatch, and GC marking. The native
-  corpus fixture `corpus/iface/array_interface.aura` covers storage, dispatch,
-  and collection after GC.
+  element copy/drop helpers, interface dispatch, and typed GC marking. Lambda
+  snapshots register their backing buffers with the typed root ABI, so the
+  collector scans tags before marking heap implementors. Native fixtures cover
+  storage, dispatch, collection after GC, and escaping immutable captures.
 - Historical design alternatives remain documented in
   `docs/plans/2026-07-22-c20h-array-interface-spike.md`; they are not the
   shipped ABI.
@@ -1047,8 +1221,11 @@ request_timeout` response, then closes; runtime timeout and sanitizer
 
 - F4 provides a tombstoned opaque-handle ABI with deferred destruction while
   pinned. `aura_ffi_handle_pin_for_boundary` now validates and retains a live
-  handle through bounded TASK and AWAIT ownership windows; foreign ABI CHANNEL
-  and CALLBACK crossings remain rejected. Aura `Channel<ForeignHandle<T>>`
+  handle through bounded TASK and AWAIT ownership windows. The public
+  `aura_ffi.h` scheduler ABI now exposes exact-once TaskHandle payload and
+  ChannelValue transfer helpers; Aura-level foreign declarations still reject
+  arbitrary Task/Channel signatures until their source-level generic ABI is
+  specified. Aura `Channel<ForeignHandle<T>>`
   payloads now retain on enqueue, transfer on receive, and drop queued refs
   exactly once. The compiler now fail-closes foreign declarations
   that expose `Task`, `TaskHandle`, or `Channel` (including nullable forms),
@@ -1070,10 +1247,11 @@ TaskError>` locals release their payload at scope exit. Nested
 
 - F5 provides a single-threaded synchronous callback ABI with explicit
   environment ownership, frame retention, affinity checks, and bounded integer
-  error mapping. Concurrent foreign-thread delivery, host-specific callback
-  trampolines, cancellation resumption, and exception-object translation remain
-  deferred to cross-host acceptance work; next step is to extend the ABI only
-  after scheduler and target descriptors define those semantics.
+  error mapping. It now also provides an explicit 16 MiB owned callback
+  snapshot API with caller-supplied clone/destroy hooks and idempotent release;
+  raw callback payloads remain borrowed by default. Concurrent foreign-thread
+  delivery, host-specific callback trampolines, cancellation resumption, and
+  exception-object translation remain deferred to cross-host acceptance work.
 
 ### F6 cross-host native acceptance (resolved 2026-07-23)
 
@@ -1212,6 +1390,11 @@ TaskError>` locals release their payload at scope exit. Nested
   forced GC, repeated owning joins, and lexical result cleanup. The raw class
   object remains internal to the frame ABI; `TaskError` intentionally exposes
   the canonical message-only failure contract.
+- Progress (2026-08-02): nested async class failures now preserve a non-zero
+  source identity derived from the throw span, in addition to the existing
+  type name and span bounds. Async CFG and open-erased frames stamp their task
+  source at construction, and the native metadata regression verifies both
+  repeated joins after forced GC.
 - The general CFG path now accepts caller-owned `Task<Int>` and `Task<String>`
   parameters, records `await_task_owned = false`, clones the String success
   payload across a branch/loop suspension, and preserves child failure and
@@ -1240,6 +1423,13 @@ TaskError>` locals release their payload at scope exit. Nested
 - Enum `match` statements, including supported pattern bindings, now lower to
   explicit tag branches in the same graph; native coverage proves branch
   selection, repeated joins, typed failure/cancellation, and forced GC.
+  Aggregate pattern bindings now resolve generic enum arguments and clone/drop
+  enum, value-struct, interface, function, foreign-handle, and heap-class
+  payloads across the suspension frame. A native Packet binding fixture covers
+  repeated joins; opaque aggregates without generated hooks remain rejected.
+- Discarded `join(task)` statements now materialize an owned Result temporary
+  and invoke its typed drop hook, covering nested aggregate success/error
+  payloads instead of leaking or leaving a borrowed temporary.
   Pattern bindings,
   general CFG range loops now persist their iterator and bound across each
   await, including loop comparisons, loop back-edges, GC, and
@@ -1252,9 +1442,37 @@ TaskError>` locals release their payload at scope exit. Nested
   ownership frontier: owned enum aggregate values now clone/drop across general
   CFG await/return boundaries, and async frame GC marking now traverses enum
   fields containing heap classes, arrays of heap classes, or nested enums.
-  Ordinary enum payloads remain borrowed unless their ABI marks ownership;
-  heap-owning class fields in caught payloads, nested finally cleanup, and mixed
-  aggregate element policies remain open.
+  Ordinary enum payloads remain borrowed unless their ABI marks ownership; the
+  remaining boundary is the explicit rejection of opaque aggregates without
+  generated clone/drop hooks.
+- Progress (2026-08-01): interface values now have typed clone/drop/mark hooks;
+  `Task<Interface>` owned joins use the canonical interface mono in
+  `Result<T, TaskError>`, and interface payloads are cloned, dropped, and GC
+  marked through nested enum/frame boundaries. Native repeated-join plus forced
+  GC coverage exercises a heap-class implementation held behind an interface.
+- Progress (2026-08-01): scheduler-owned `Task`/`TaskHandle`/`Channel` locals
+  are now admitted to the general async CFG frame layout. Their frame drop
+  hooks release the executor/channel ownership after suspension, and `cancel`
+  actions can use the rematerialized handle after an awaited operation. Native
+  coverage exercises a spawned handle kept live across `await`, cancellation,
+  and terminal frame cleanup.
+- Progress (2026-08-02): no-suspension async functions now apply the same
+  scheduler ownership contract to `Task`, `TaskHandle`, and `Channel`
+  parameters and results. They retain incoming payloads when the frame is
+  created, release them in typed frame/result destructors, and retain returned
+  scheduler values before publication. Native codegen coverage exercises both
+  no-await and general-CFG result paths.
+- Progress (2026-08-02): the general CFG fallback now retries with same-typed
+  branch-local names merged into one frame slot after shape-specific lowerers
+  decline. This permits aggregate locals in both arms without accepting
+  incompatible type shadowing; a repeated-join `Packet` fixture covers it.
+- Progress (2026-08-02): async CFG preprocessing now alpha-renames nested
+  lexical bindings that shadow an outer name across branch, loop, match,
+  try/catch, and nested spawn scopes. Distinct frame storage preserves the
+  shadowing semantics through suspension; a native fixture covers an `Int`
+  binding shadowed by `String` across an awaited branch. Lambda definitions
+  remain on their existing whole-file capture path until their lexical
+  environment is represented in the same scoped-name table.
 
 ### IO-002 compiler-generated descriptor I/O remains bounded (updated 2026-07-28)
 
@@ -1373,10 +1591,63 @@ TaskError>` ABI, plus cooperative `isCancelled()` inside generated async
   to package-qualified symbols and retain the nested class result through GC.
 - Progress: nested `Box<Array<Node>>` results now recursively normalize short
   array/class keys and clone aggregate payloads across async boundaries.
-- Residual: richer nested generic aggregates and open generic async declarations
-  still need full type substitution through the async frame emitter.
+- Progress (2026-08-01): closed generic async class-method bodies now undergo
+  the same recursive type substitution before bounded/general CFG lowering,
+  including local, catch, channel, lambda, and nested await annotations; the
+  synthetic `this` wrapper keeps the concrete class mono in its frame layout.
+- Progress (2026-08-01): generic free async declarations with no suspension
+  points now record a separate async monomorph set, emit type-substituted task
+  frame signatures, and compile/run through inferred `Task<T>` call sites. The
+  sema body pass also restores the generic type-parameter scope before checking
+  async bodies. Generic free async functions that suspend still require the
+  general CFG emitter to carry mono arguments through every continuation.
+- Progress (2026-08-01): generic free async functions are now closed before
+  lowering, including parameter/return annotations, nested local/catch/channel
+  types, lambda types, and all supported await CFG shapes. Int and
+  `Array<String>` return payloads are covered by repeated native execution.
+- Progress (2026-08-02): the runtime now exposes `AuraTypeErasedOps` and
+  `AuraTypeErasedValue` clone/drop/mark callbacks plus frame-result transfer
+  helpers. Codegen no longer represents an unresolved `TypeParam` as
+  `int64_t`; it uses the explicit opaque shape, and an ASAN/UBSan ABI fixture
+  verifies clone, mark, and exactly-once drop. Compiler lowering still needs
+  descriptor-aware lowering for richer open bodies; the direct async identity
+  shape now emits a frame with typed clone/drop/mark and erased result transfer
+  across a `tick()` suspension, covered by a native codegen regression.
+- Progress (2026-08-02): open generic async forwarding now passes the erased
+  descriptor into a child open-generic task, retrieves the child's erased
+  result before releasing it, and publishes the recovered descriptor with the
+  same typed frame mark/drop hooks. Native compile/run coverage covers
+  `forward<T>(value) -> identity<T>(value)` across suspension.
+- Progress (2026-08-02): the descriptor-backed identity emitter now also
+  handles the straight-line no-suspension form with the correct typed frame
+  state cast; compile/run regression coverage prevents the generated C from
+  referring to a nonexistent un-suffixed state typedef.
+- Progress (2026-08-02): open generic async functions may now assign an awaited
+  erased result to a `T` local and return that local. Operand lowering routes
+  generic child calls through the erased symbol with the frame-owned descriptor
+  value, then clone-extracts and drops the child result before publication.
+  Native compile coverage verifies the frame uses no `T`-suffixed symbol or
+  stack-only parameter after suspension.
+- Progress (2026-08-02): erased task-result retrieval is now clone-out rather
+  than a borrowed struct copy. Open-generic forwarding drops its previous
+  descriptor before installing the cloned child value; the sanitizer fixture
+  verifies the retrieved payload remains valid after child-frame destruction.
+- Progress (2026-08-02): descriptor-backed and forwarding open-generic pollers
+  now check the parent cancellation bit on every resume before creating or
+  polling the next erased child. Cancellation stops multi-await generic chains
+  at the frame boundary; the typed destroy hook releases any owned child handle.
+- Residual: value-inspecting operations and richer nested generic aggregate
+  construction still require either a closed monomorph or an explicit
+  descriptor operation; the erased representation itself is complete for
+  clone/drop/mark/forward transfer.
 
-### ASYNC-006 async catch lowering remains bounded (updated 2026-07-30)
+### ASYNC-006 async catch lowering remains bounded (updated 2026-08-01)
+
+- Progress (2026-08-01): general CFG local initializers now lower one nested
+  await in a supported call/binary/unary expression for aggregate result keys,
+  using the same ownership-aware assignment helper as direct awaits. A native
+  `String` call-argument continuation regression covers frame suspension,
+  repeated join, and owned result cleanup.
 
 - Progress: a single awaited task inside `try` can catch its owned `String`,
   `Int`, or `Bool` failure in top-level and class async methods; tagged child
@@ -1392,10 +1663,63 @@ TaskError>` ABI, plus cooperative `isCancelled()` inside generated async
   finally path runs before propagating child failure. Array payloads can now be
   thrown and caught across an await through typed frame payload clone/destroy
   hooks, with sanitizer coverage for the recovered array length.
-- Residual: class fields that themselves own heap objects still need explicit
-  rooting/clone support; same-name catches whose types change and nested
-  finally cleanup remain deferred to R01. Nested protected branch/loop catch
-  control flow is now covered by the general CFG path.
+- Progress (2026-08-01): async class-error payload clones now retain nested
+  heap-class fields in stable payload-owned GC root slots and remove those roots
+  before the exception destructor frees the copy. A native catch-after-await
+  regression forces GC and reads `Failure.child.value` successfully. Array-valued
+  class fields now remain eligible for the general async CFG path, are cloned at
+  throw/catch boundaries, and survive forced GC in a native regression.
+- Progress (2026-08-01): class-error payloads containing `Array<HeapClass>` now
+  register cloned buffers as explicit GC array roots; throw lowering removes
+  local array roots before `longjmp`, and catch-frame cleanup unregisters copied
+  roots before destruction. Native forced-GC coverage reads a child class from
+  `Failure.values` after an awaited throw.
+- Progress (2026-08-01): async typed failure now accepts enum, value-struct,
+  interface, and function payloads in addition to scalar, Array, and class
+  exceptions. Sema admission and CFG throw/catch lowering use generated
+  clone/drop hooks; aggregate error payloads retain their type tag and survive
+  nested await, forced GC, repeated join, and catch extraction. The native
+  `async_enum_catch_after_await_with_forced_gc` fixture covers the enum path.
+- Progress (2026-08-01): a protected awaited task may now combine a typed catch
+  with a synchronous `finally`; success and matching failure both run the
+  finally continuation, while an unmatched failure is retained and propagated
+  after cleanup. Native coverage verifies `Int` catch plus finally after await.
+- Progress (2026-08-01): parent cancellation is now routed through the active
+  synchronous `finally` state for every protected CFG action/branch, not only
+  for await nodes; generated states retain the cancellation bit and publish it
+  after cleanup.
+- Progress (2026-08-02): nested protected async blocks now compose their
+  success/failure finally continuations; native coverage verifies inner cleanup
+  runs before outer cleanup across two suspension points.
+- Progress (2026-08-02): catch continuations may now suspend again after a
+  typed failure. The CFG keeps the caught payload in its own owned frame slot,
+  resumes through a second await, and releases the child task payload without
+  borrowing a terminal frame; repeated execution plus forced GC is covered by
+  `builds_and_runs_async_catch_that_suspends_again`.
+- Progress (2026-08-02): general CFG expression statements may now contain
+  awaits in nested call arguments and other supported expression positions;
+  discarded values still receive typed frame slots and ownership cleanup.
+  `builds_and_runs_async_statement_with_awaited_argument` covers the handler-
+  style `consume(await value())` path.
+- Progress (2026-08-02): `for-in` bindings now clone enum, value-struct,
+  interface, and function elements before a suspension, and retain foreign
+  handles before replacing the previous binding. Array `push`/`set` now use
+  generated clone/drop hooks for aggregate elements; an `Array<Item>` enum
+  binding regression runs through repeated joins and forced GC under ASAN.
+- Progress (2026-08-02): aggregate `Array.get` now returns an owned clone for
+  nested arrays, enums, value structs, interfaces, and foreign handles instead
+  of exposing a shallow alias. This closes the direct read/closure-escape path
+  that previously bypassed the `for-in` ownership fix.
+- Progress (2026-08-01): each catch binding now receives a unique internal
+  frame slot and a scoped source-name alias. Sequential catches may therefore
+  reuse a source name with different payload types without C-field collisions;
+  native coverage exercises `Int` then `String` catches named `error`.
+- Resolved (2026-08-01): nested async `finally` cancellation now installs a
+  typed frame cancel hook. The hook re-enters the CFG cancellation path so
+  inner-to-outer synchronous finally blocks run before the runtime publishes
+  `AURA_TASK_CANCELLED`; native coverage verifies the order and task cleanup.
+  Nested protected branch/loop catch control flow remains covered by the
+  general CFG path.
 
 ### ENCODING-001 bounded std.encoding contract (resolved 2026-07-30)
 
@@ -1479,6 +1803,10 @@ TaskError>` ABI, plus cooperative `isCancelled()` inside generated async
   stable category IDs and is exercised by the shared error corpus fixture.
 - Progress: `std.error.Error.isRetryable` provides a conservative transient
   retry policy for I/O, network, and timeout categories.
+- Progress (2026-08-01): `std.error.transport` maps bounded runtime phrases to
+  canonical `TimedOut`, `Cancelled`, and `Disconnected` errors while retaining
+  generic network fallback; native execution covers timeout/cancel/close and
+  unknown diagnostics.
 - Residual: transport-specific payloads and
   unifying the nominal name with `std.io.Result` remain open. The backend's
   merged-package resolver currently misbinds duplicate generic enum names, so
@@ -1512,6 +1840,13 @@ TaskError>` ABI, plus cooperative `isCancelled()` inside generated async
 - Progress: `std.net` exposes non-throwing async read/write wrappers using
   shared `std.error.Outcome` values; the typed corpus fixture covers package
   resolution and the native build path.
+- Progress (2026-08-01): listener bind, stream connect, and idempotent close
+  now have additive `Outcome<..., NetError>` wrappers; the legacy throwing and
+  Bool forms remain compatibility shims.
+- Progress (2026-08-01): typed net/http wrappers now pass runtime diagnostics
+  through `std.error.transport`, preserving canonical timeout, cancellation,
+  and disconnected categories; a native codegen regression covers all four
+  classification branches and retry behavior.
 - Residual: address-list iteration, richer timeout/cancellation payloads, and
   cross-platform transport error mapping remain deferred.
 
@@ -1528,10 +1863,40 @@ TaskError>` ABI, plus cooperative `isCancelled()` inside generated async
   general CFG async frames register the same cleanup contract. Native coverage
   forces GC before observing the class error and compiles an awaited Outcome
   producer with the generated frame drop hook.
-- Residual: generic enum class-payload rooting/clone/drop beyond the canonical
-  `Outcome<String, Error>` shape, and task joins whose payload is itself a
-  generic enum, still need a generalized ownership ABI before all Outcome
-  variants can claim leak-free payload cleanup.
+- Progress (2026-08-01): aggregate `Outcome` returns no longer register GC roots
+  on stack temporaries. Enum clone paths defer nested class rooting to the
+  receiving owner, and moved source roots are removed before the source local
+  leaves scope. ASAN coverage now passes both direct class-error cleanup and
+  repeated owning joins of `Outcome<String, Error>` with forced GC.
+- Progress (2026-08-01): value-struct clone/constructor paths now also avoid
+  registering nested heap-class fields as roots on stack destinations. The
+  native repeated-join regression for `Result<Packet, TaskError>` where
+  `Packet` contains a `Child` class passes with forced GC; the struct mark hook
+  keeps the nested object live while the result/frame owns the aggregate.
+- Progress (2026-08-01): enum fields can now reference value structs because
+  class/struct headers are registered before enum payload resolution. Generic
+  result layout ordering also defers `Result<Envelope, TaskError>` until an
+  `Envelope` whose payload is a value struct is complete. Enum mark hooks
+  recurse through nested structs and `Array<Struct>` elements; native repeated
+  joins of `Result<Envelope, TaskError>` with `Envelope -> Payload -> Child`
+  survive forced GC.
+- Progress (2026-08-01): generic enum joins now cover a mixed
+  `Box<Child>` payload with both String and generic-class variants. Enum clone
+  and mark hooks recurse through the monomorph, while heap-class drop no longer
+  removes a root owned by the task frame or receiving aggregate. Repeated joins
+  after forced GC pass natively.
+- Progress (2026-08-01): nested arrays of generic enum payloads now use
+  recursive generated Array clone/drop/mark hooks and repeated owning-join
+  coverage; they no longer belong to this residual.
+- Progress (2026-08-01): semantic task-payload validation now permits
+  `ForeignHandle` nested in recursively owned arrays, structs, and generic enum
+  variants. The generated enum clone/drop hooks retain/release the opaque
+  handle, and a codegen ABI regression covers repeated owning `join` layouts.
+- Residual: opaque or unresolved user-defined error payloads that have no
+  generated clone/drop hooks still need a generalized ownership ABI; concrete
+  scalar, Array, class, enum, value-struct, interface, and function payloads
+  now use the typed frame contract. Same-name catches are covered by the
+  scoped CFG binding contract in ASYNC-006.
 
 ### LOG-001 logging surface remains bounded (2026-07-30)
 
@@ -1617,11 +1982,137 @@ TaskError>` ABI, plus cooperative `isCancelled()` inside generated async
 
 ### ASYNC-004 generic spawn result ownership remains partial (2026-08-01)
 
+- Progress (2026-08-01): the runtime result release primitive now removes a
+  GC root and clears the ownership record even when an externally managed
+  payload has no destroy callback. This closes a frame teardown leak without
+  inventing a destructor for opaque storage; a sanitizer regression covers a
+  rooted result released with a null callback. Channel `ERROR` remains
+  caller-owned, while `OK`/`PENDING` transfer ownership.
+
+- Progress (2026-08-02): `Channel<Bool>` now has a complete generated C ABI,
+  including owned boxed transfer, `Opt_Bool` receive inference, close, and
+  GC-safe cleanup. Native codegen coverage verifies a true value survives
+  send/receive and is observed after the nullable boundary. The remaining
+  primitive channel gap is now limited to nested nullable shapes; `Channel<Unit>`
+  uses an explicit zero-sized runtime token and has native send/receive/close
+  coverage.
+- Progress (2026-08-02): nullable aggregate channel elements now normalize to
+  their underlying C representation for clone/drop/GC transfer. `Channel<Box?>`
+  receives the additional nullable boundary as `Box??` without falling into
+  the unsupported payload path; native ownership coverage forces the inferred
+  value through channel close.
+- Progress (2026-08-02): force-unwrapped nullable Array method receivers are
+  materialized into owned expression temporaries before C lowering takes the
+  receiver address. Read and mutating methods share this safe path, with
+  repeated nullable Array task joins covered after forced GC.
+- Progress (2026-08-02): scheduler-owned `Task`/`TaskHandle` payloads now use
+  an executor-bound payload reference, and `Channel` values use a channel
+  reference count. Generated send/receive and bounded spawn capture paths use
+  these wrappers; the ASAN/UBSan `task_payload_refs` fixture covers lexical
+  handle drop, channel transfer, and final payload release.
+- Progress (2026-08-02): `runtime/aura_ffi.h` now declares the complete public
+  executor/frame lifecycle needed by an external translation unit, including
+  poll-state and task construction types. A separately compiled header ABI
+  fixture links against `aura_rt.c` and verifies task transfer through a
+  channel without including runtime implementation internals.
+- Progress (2026-08-01): executor shutdown now detaches frames that still have
+  scheduler-owned payload references before freeing the executor. Their final
+  payload destructor releases the detached frame without dereferencing the
+  invalidated scheduler; `task_payload_refs` covers a queued task payload
+  destroyed after shutdown under ASAN/UBSan.
+- Progress (2026-08-02): `Channel<String>` receive bindings now record the
+  transferred payload as a String owner, so lexical cleanup releases the
+  channel-owned allocation exactly once instead of treating it as a borrowed
+  pointer.
+- Progress (2026-08-02): general spawn bodies now reuse the async CFG lowering
+  for branch/loop/repeated-await shapes. Static capture discovery keeps inferred
+  immutable locals, including `Array<T>`, in the generated signature and frame;
+  aggregate parameters are cloned/marked/dropped symmetrically across the
+  suspension boundary. Same-typed branch-local bindings share one frame slot.
+  Async CFG preprocessing now alpha-renames incompatible nested lexical
+  shadowing across branch, loop, match, try/catch, and nested spawn scopes;
+  lambda bodies remain on the separate whole-file closure emitter so capture
+  metadata stays synchronized. Native regressions cover inferred Array capture,
+  repeated await execution, and an Int/String shadow across suspension.
+- Progress (2026-08-02): synthetic general-spawn nominal captures now preserve
+  Aura's `Name@package` nominal order when rebuilding TypeRefs. Previously a
+  captured class could be silently rejected during CFG emission while its
+  call-site still referenced the missing synthetic function. A regression now
+  captures an inferred class through a branch/await CFG, forces GC, and verifies
+  the class remains readable after suspension.
+- Progress (2026-08-02): general CFG spawns now carry mutable primitive and
+  mutable Array captures as retained shared-box references. Poller assignments
+  write through the shared cell, Array method receivers address the boxed
+  payload, and frame teardown releases the box exactly once. Native regressions
+  cover branch/await mutation for `Int` and `Array<Int>`.
+- Progress (2026-08-02): mutable Array lambda capture now has an end-to-end
+  rebinding regression: an escaping closure mutates the replacement owner after
+  forced GC, and the original cell remains independently released through the
+  shared retain/release contract.
+- Progress (2026-08-02): inferred spawn capture discovery is now lexical-scope
+  aware. Locals declared inside the spawn, loop bindings, match/catch bindings,
+  and lambda parameters shadow outer names during capture analysis, preventing
+  accidental frame fields or ownership edges for an unrelated outer variable.
+  A native shadowing regression verifies the generated frame does not capture
+  the outer binding.
+- Progress (2026-08-02): the same shared-cell lowering now covers mutable
+  `String` and heap-class captures in general CFG spawns. Native regressions
+  cover mutation after suspension, forced GC, and terminal frame cleanup; the
+  full codegen suite (271 tests) and sanitizer smoke matrix pass with these
+  paths enabled.
+- Progress (2026-08-02): general CFG spawn coverage now includes an inferred
+  `Array<Int>` capture through a loop, nested branch, try/catch, and repeated
+  awaits, plus an owned `Array<Int>` result observed through
+  `Result<Array<Int>, TaskError>`. Native execution verifies the frame clone,
+  suspension state, forced-GC retention, and owning join cleanup for this
+  previously untested combination.
+- Progress (2026-08-02): unannotated generic capture now also covers a nested
+  `Array<Array<Box>>` aggregate returned from `identity<T>`, with recursive
+  clone/root/drop behavior after forced GC and spawn join. The remaining
+  generic-capture residual is limited to opaque values without generated hooks.
+- Progress (2026-08-02): nullable reference-like task payloads now preserve
+  their `Opt_*` semantic monomorph through `spawn`, `await`, `join`, Result
+  layout, and match context while using the underlying C representation for
+  clone/drop/mark operations. A repeated owning `join` plus forced-GC
+  `Box?` regression passes, including queued cancellation; nullable `String?`
+  repeated joins also pass. A nullable heap-class task result now has native
+  repeated-join coverage through `Result<Box?, TaskError>` after a suspension.
+  Nullable `Array<Int>` task results also clone/drop through repeated owning
+  joins after suspension; inferred nullable await locals use the same
+  representation normalization.
+
+- Progress (2026-08-02): owning `join` now maps post-completion retain failures
+  for direct `ForeignHandle`, `Channel`, and task-handle payloads to an owned
+  `TaskError.Failed` result instead of silently returning `Ok(null)`. This
+  preserves typed failure semantics when a scheduler/handle reference has
+  become invalid between observation and ownership transfer.
+- Progress (2026-08-02): `ForeignHandle<T>` is now accepted as an async
+  throw/catch payload. General CFG lowering retains the handle into a typed raw
+  error payload, clones it into the catch binding, and releases both the child
+  payload and catch owner exactly once; native coverage crosses an await and
+  forced frame cleanup.
+
+- Progress (2026-08-01): general async CFG await nodes now preserve awaited
+  child cancellation through synchronous `finally` blocks before publishing
+  the cancellation outcome; unmatched typed failures use the same finally
+  edge. Direct cancellation of the parent frame still follows the runtime's
+  cooperative terminal-boundary contract; CFG frames with finally blocks now
+  register a cancel hook so direct parent cancellation also runs every
+  synchronous enclosing finally block before terminal publication.
+
 - Progress: spawn-frame discovery now preserves generic return substitution for
   unannotated local initializers (including async generic calls), so captures
   are not dropped merely because the local type was inferred rather than
   written. Native codegen coverage exercises a generic `identity(41)` local
   captured by a spawned task.
+- Progress (2026-08-02): closed generic monomorphs now participate in spawn
+  frame discovery after substitution of parameter and call types. Capture
+  frame, poller, destroy, and mark symbols include the concrete capture-key
+  tuple, so distinct `Int` and `String` instantiations cannot alias storage.
+  Transitive generic callees referenced from those closed bodies are discovered
+  and emitted as well, including calls made inside a spawned capture body.
+  Open value-dependent operations without generated ownership descriptors
+  remain rejected rather than using an unsafe layout fallback.
 - Progress: bounded generic spawns now publish inferred non-Unit return values
   through the task result ABI; nested Outcome<String, Error> returns transfer
   payload ownership and survive repeated owning joins and forced GC.
@@ -1636,8 +2127,16 @@ TaskError>` ABI, plus cooperative `isCancelled()` inside generated async
 - Progress: owned `join` now uses an explicit `Result.OkOwned` constructor for
   enum payloads, so cloned enum aggregates are dropped by lexical result
   cleanup instead of being left with the borrowed constructor bit.
+- Progress (2026-08-01): generic result layout and mark traversal now cover an
+  enum payload containing a value struct with a nested heap class, including
+  repeated owning joins and forced GC. Enum payload resolution now sees local
+  structs before the enum field pass.
 - Progress: generated enum mark helpers now let async frame GC traverse nested
   heap-class payloads without treating borrowed enum fields as owned.
+- Progress: value-struct clone paths no longer leave stale roots for nested
+  heap-class fields copied through stack temporaries; struct mark hooks and
+  result/frame ownership provide the liveness edge, covered by a repeated
+  `Result<Packet, TaskError>` join regression with forced GC.
 - Progress: typed `join` now handles `Result<Array<Enum>, TaskError>` end to end:
   C typedef emission is dependency-ordered, `Array<Enum>` clone/drop hooks are
   available before generic Result layouts, and `OkOwned` transfers ownership
@@ -1649,12 +2148,59 @@ TaskError>` ABI, plus cooperative `isCancelled()` inside generated async
   hook and roots/drops every heap-class parameter, including Array-of-class
   storage, rather than special-casing only `this`. A scope-escape regression
   forces GC after the caller's local is gone and before the frame is polled.
+- Progress (2026-08-01): nullable primitive task results now use the same typed
+  `Task<T>`/`join` ABI through bounded spawn suspension and repeated owning
+  joins; `Opt_Int` and `Opt_Bool` remain scalar, non-rooted payloads.
 - Progress: class GC mark-extras now traverses direct heap-class and enum fields
   as well as Array-of-enum fields, so an asynchronously captured parent object
   keeps nested aggregate references alive across forced collection.
-- Residual: generic bounded pollers still need dedicated clone/destroy paths for
-  mixed aggregates whose elements require recursive ownership policies beyond
-  the generated enum boundary.
+- Progress (2026-08-01): the conservative async-frame GC scan now also traverses
+  the separately stored raw `error_payload` used by nested typed failures.
+  A sanitizer regression keeps a GC child reachable through that payload across
+  collection and verifies exactly-once cleanup after frame destruction.
+- Progress (2026-08-01): generic enum payloads containing nested
+  `ForeignHandle` values now pass the same semantic transfer contract as direct
+  handles; generated monomorph clone/drop hooks are emitted and verified.
+- Progress (2026-08-01): bounded generic spawn pollers now register a typed
+  frame GC mark hook for captured heap classes, arrays, interfaces, enums, and
+  value structs; interface captures/results also use generated clone/drop
+  hooks instead of the scalar fallback.
+- Progress (2026-08-02): generic spawn result publication now deep-clones
+  String and Array values returned through locals, and their terminal
+  destructors dispatch to the typed ownership hooks. Repeated owning joins
+  with forced GC cover an `Array<String>` local result.
+- Progress (2026-08-02): async frame mark hooks now also traverse the typed
+  terminal `Task<T>` result for heap classes, arrays, enums, value structs, and
+  interfaces. This complements the runtime's conservative payload scan and
+  keeps captured references alive after completion until the owning result is
+  released; native struct/class and owned-array spawn regressions cover the
+  contract.
+- Progress (2026-08-02): Channel payloads now use generated typed clone/drop
+  callbacks for enum, struct, interface, nested Array, and function-shaped
+  aggregates. Native codegen regressions cover enum and `Array<String>`
+  send/receive/close with forced GC; borrowed references remain rejected.
+- Residual: future opaque runtime aggregates without a generated clone/drop or
+  explicit scheduler reference ABI remain rejected.
 - Progress: `Array<Enum>` now uses the enum's typed clone/drop hooks instead of
   `memcpy`, and enum element types are emitted by value in C. Native coverage
   exercises an enum carrying an owned String through array clone/clear/drop.
+- Progress (2026-08-01): nested `Array<Array<T>>` now delegates clone/drop/mark
+  to the inner generated Array hooks instead of shallow-copying the inner
+  buffer. This covers nested arrays of enums/structs and preserves recursive
+  ownership across repeated joins; a native regression exercises
+  `Array<Array<Enum>>` with GC and repeated owning joins.
+- Progress (2026-08-01): general multi-await result destructors now dispatch
+  through generated class, enum, struct, interface, function, and Array
+  ownership hooks instead of falling back to `free(data)`.
+- Progress (2026-08-01): function-valued async results retain and release
+  closure environments across frame results and owning `join`; a native
+  `Task<(Int) -> Int>` regression covers the terminal cleanup path.
+- Progress (2026-08-01): no-await and bounded multi-await enum/struct/interface
+  results now clone borrowed constructor/field payloads before publishing the
+  terminal frame result. This prevents typed drop hooks from freeing borrowed
+  string fields or stack aliases; the existing repeated String-enum regression
+  now passes under ASAN.
+- Resolved (2026-08-01): generated synchronous try/catch wrappers now emit a
+  typed C fallback for inferred non-Unit return types. This removes the
+  `-Wreturn-type` warnings from the HTTP health/client generated programs
+  without changing their terminal success or rethrow paths.

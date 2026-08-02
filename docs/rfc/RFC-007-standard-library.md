@@ -21,7 +21,7 @@ This RFC outlines the **Aura standard library** for servers and CLIs: prelude, c
 
 Implementation is primarily **Aura**, with thin runtime/FFI bridges where required.
 
-**Toolchain today (2026-07-31):** the repository ships the package set listed in
+**Toolchain today (2026-08-01):** the repository ships the package set listed in
 the [standard-library guide](../guide/standard-library.md): `std.io`,
 `std.assert`, `std.collections`, `std.error`, `std.bytes`, `std.encoding`,
 `std.json`, `std.mime`, `std.fs`, `std.os`, `std.net`, `std.dns`, `std.url`,
@@ -161,6 +161,14 @@ Synchronous `try*` APIs added before this contract may retain their legacy
 boolean/null form until their typed replacement ships, but must be documented
 as compatibility shims and may not be copied into new APIs. Existing runtime
 status enums remain private adapter input, not the Aura public ABI.
+
+The alpha `std.net` surface now provides additive `listenResult`,
+`connectResult`, `closeListenerResult`, and `closeStreamResult` wrappers using
+`std.error.Outcome<..., NetError>`. The legacy handle/Bool forms remain only as
+documented compatibility shims. `std.http.getResponseResult` and
+`postResponseResult` preserve both protocol-framing and transport failures as
+`HttpError`; they do not let a failed underlying request escape as an
+uncategorized string exception.
 
 The C backend also supports a bounded async exception bridge: a single
 `await` inside a `try` may catch a child task's owned `String`, `Int`, or
@@ -304,7 +312,8 @@ surface also reserves `Select<T>`, `select<T>()`, and
 `spawnBlocking<T>(() -> T)`; these fail explicitly until the scheduler and
 worker runtime contracts are implemented. `async fun f(...): T`
 produces `Task<T>`; `spawn` returns `TaskHandle<T>`. `join` is repeatable and
-returns a typed task outcome. `cancel` is cooperative and has no preemptive
+returns a typed task outcome for primitive, nullable primitive, and aggregate
+payloads. `cancel` is cooperative and has no preemptive
 or OS-thread behavior. `isCancelled()` reports the current task's cancellation
 request at cooperative checkpoints and returns `false` outside an async frame.
 

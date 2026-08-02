@@ -72,9 +72,9 @@ val add = (x: Int) => base + x
 | ----------------------------------------------- | ---------------------------------------------------------------------------------------- |
 | `val` Int / Bool / String                       | Copy into env (C10h)                                                                     |
 | `val` class                                     | GC ptr in env; env mark walks roots (C12k)                                               |
-| `val` Array                                     | Non-owning `{data,len,cap}` view (C12l)                                                  |
+| `val` Array                                     | Owned snapshot when captured; field borrows remain lexical (C12l)                         |
 | `var` Int / Bool / String / class / Array / Fun | Shared mutable box; lambdas share writes (C12m, C20c-e)                                  |
-| Captured Array ownership / live view            | Shared storage is covered; escaping live views and mutation invalidation remain deferred |
+| Captured Array ownership / live view            | Immutable captures own snapshots; mutable captures use retained shared cells             |
 
 ## Async and tasks
 

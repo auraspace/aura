@@ -15,9 +15,9 @@ mod tests;
 
 pub use error::{SemaError, SemaErrors};
 pub use macros::{
-    decode_plugin_request, encode_plugin_response, run_sandboxed_macro, MacroError, MacroExpansion,
-    MacroPluginRequest, MacroPluginResponse, MacroSandboxConfig, UserDerive, UserMacro,
-    MACRO_PLUGIN_ABI_VERSION,
+    decode_plugin_request, encode_plugin_request, encode_plugin_response, run_sandboxed_macro,
+    MacroError, MacroExpansion, MacroPluginRequest, MacroPluginResponse, MacroSandboxConfig,
+    UserDerive, UserMacro, MACRO_PLUGIN_ABI_VERSION,
 };
 pub use sigs::*;
 pub use ty::{nominal_key, nominal_mono_base, split_nominal, Ty};

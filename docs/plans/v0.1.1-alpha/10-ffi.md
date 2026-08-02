@@ -148,12 +148,22 @@ registration still retains it, preventing a destroyed callback frame from
 being observed. Foreign return codes 0–6 map to documented Aura outcomes;
 unknown codes map to `FOREIGN_ERROR`.
 
+The ABI also exposes `aura_ffi_callback_invoke_owned`. It clones a borrowed
+input through caller-supplied `AuraFfiPayloadCloneFn` and retains the matching
+`AuraFfiPayloadDestroyFn` in an `AuraFfiOwnedPayload` returned only for a
+successful callback outcome. The snapshot is capped at 16 MiB, and
+`aura_ffi_owned_payload_destroy` is idempotent. Invalid affinity, re-entry,
+missing hooks, and oversized clone reports fail closed without invoking the
+foreign callback.
+
 **Verification:** `runtime/tests/ffi_callbacks.c` is compiled with strict C11
 warnings and exercises environment lifetime, task/await affinity rejection,
 re-entry, frame invalidation/destruction prevention, idempotent shutdown, and
-foreign timeout/unknown-error mapping. This is a single-threaded bounded
-runtime fixture; cross-host callback acceptance, concurrent callback delivery,
-and exception-object translation remain outside F5.
+foreign timeout/unknown-error mapping. It also proves owned callback snapshots,
+allocator-specific destruction, idempotent release, and the size limit. This
+is a single-threaded bounded runtime fixture; cross-host callback acceptance,
+concurrent callback delivery, and exception-object translation remain outside
+F5.
 
 ## F6. FFI acceptance and sanitizers
 

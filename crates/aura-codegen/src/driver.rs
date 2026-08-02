@@ -414,7 +414,7 @@ mod tests {
         assert_eq!(first.runtime_abi_identity, Some(crate::runtime_abi::ID));
         assert_eq!(
             first.to_string(),
-            "backend=C, target=Native, profile=Debug, settings=ProfileSettings { optimization: O0, debug: true, lto: Off, detector: true, panic: Unwind, backend: C, linker: None }, runtime_abi=Some(AuraRtC)/Some(1)/Some(\"aura-c-abi/1.0;task=1;value=1;exception=1;channel=1;gc=1;io=1;ffi=1\"), output=Executable, features=[alpha,zeta]"
+            "backend=C, target=Native, profile=Debug, settings=ProfileSettings { optimization: O0, debug: true, lto: Off, detector: true, panic: Unwind, backend: C, linker: None }, runtime_abi=Some(AuraRtC)/Some(1)/Some(\"aura-c-abi/1.0;task=1;value=1;exception=1;channel=1;gc=1;io=1;ffi=1;type=1\"), output=Executable, features=[alpha,zeta]"
         );
     }
 

@@ -13,4 +13,10 @@ async fun inspect(stream: ForeignHandle<Int>): Unit {
   }
 }
 
+fun inspectSetup(endpoint: String): Unit {
+  val listener: Errs.Outcome<ForeignHandle<Int>, Errs.NetError> =
+    listenResult(endpoint)
+  if (!Errs.isSuccess(listener)) { println("listen-error") }
+}
+
 fun main() {}

@@ -1,4 +1,5 @@
 # aura.lock — path dependencies (C3p/C4j); registry pins (C8k/C13l)
 # Direct deps match aura.toml; extra path entries are transitive.
 # Registry pins: name = { version = "…", checksum = "…", source = "registry" }
+# Macro pins: macro_plugin.Name = { path = "…", checksum = "…", source = "plugin" }
 demo.nested_leaf = "../nested_leaf"

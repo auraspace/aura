@@ -5,8 +5,8 @@ use std::fmt::Write as _;
 use aura_sema::{CheckedFile, Ty};
 
 use crate::names::{
-    c_class_type, c_ctor_name, c_enum_type, c_method_name, is_heap_class_mono, is_primitive_name,
-    mono_key, ty_to_c_array_elem,
+    c_class_type, c_ctor_name, c_enum_type, c_method_name, is_heap_class_mono, is_iface_type_key,
+    is_primitive_name, mono_key, ty_to_c_array_elem,
 };
 
 /// Local/type key is an Array monomorph (`Array`, `Array_Int`, …).
@@ -27,8 +27,41 @@ pub(crate) fn is_array_of_heap_class(key: &str, checked: &CheckedFile) -> bool {
     if elem.is_empty() || is_primitive_name(elem) {
         return false;
     }
-    // `Array_Int` etc. already filtered; structs/enums are not heap classes.
-    is_heap_class_mono(elem, checked)
+    // Interface elements are tagged unions whose heap implementors are stored
+    // as pointers, so their backing buffer needs the same explicit root.
+    is_heap_class_mono(elem, checked) || array_needs_typed_gc_root(key, checked)
+}
+
+/// Arrays whose elements are tagged/value aggregates need a typed GC scan;
+/// the legacy runtime root treats every element as a raw pointer.
+pub(crate) fn array_needs_typed_gc_root(key: &str, checked: &CheckedFile) -> bool {
+    let Some(elem) = array_elem_key(key) else {
+        return false;
+    };
+    if is_iface_type_key(elem, checked) {
+        return true;
+    }
+    if elem.starts_with("Array_") {
+        return is_array_of_heap_class(elem, checked);
+    }
+    let full = crate::expr::full_type_mono(elem, checked);
+    crate::expr::is_enum_mono(&full, checked)
+        || struct_element_mono_from_key(&full, checked).is_some()
+}
+
+/// Emit the runtime registration call matching the element representation.
+pub(crate) fn array_gc_root_add_call(
+    data_slot: &str,
+    len_slot: &str,
+    key: &str,
+    checked: &CheckedFile,
+) -> String {
+    if array_needs_typed_gc_root(key, checked) {
+        let cty = c_class_type(key);
+        format!("aura_gc_add_array_root_typed((void **)&{data_slot}, &{len_slot}, {cty}_mark_elements);")
+    } else {
+        format!("aura_gc_add_array_root((void **)&{data_slot}, &{len_slot});")
+    }
 }
 
 /// C13d: element key is owned `String` (`const char *` heap copies).
@@ -54,6 +87,19 @@ fn nested_array_holds_string(elem: &Ty) -> bool {
     }
 }
 
+fn nested_array_mono(elem: &Ty) -> Option<String> {
+    match elem {
+        Ty::ClassApp { name, args } if aura_sema::split_nominal(name).0 == "Array" => {
+            Some(mono_key("Array", args))
+        }
+        _ => None,
+    }
+}
+
+fn foreign_handle_element(elem: &Ty) -> bool {
+    matches!(elem, Ty::ForeignHandle(_))
+}
+
 /// Enum elements carry their own ownership bit.  Array's generic `memcpy`
 /// path is therefore not a valid clone for them: an enum may contain String,
 /// Array, or another owned enum payload.
@@ -64,8 +110,8 @@ fn enum_element_mono(elem: &Ty, checked: &CheckedFile) -> Option<String> {
         _ => return None,
     };
     let base = aura_sema::split_nominal(name).0;
-    let local = mono_key(base, args);
-    let full = crate::expr::full_type_mono(&local, checked);
+    let e = checked.ast.enums.iter().find(|e| e.name.name == base)?;
+    let full = crate::names::type_mono(&crate::names::enum_decl_package(e, checked), base, args);
     crate::expr::is_enum_mono(&full, checked).then_some(full)
 }
 
@@ -90,6 +136,22 @@ fn struct_element_mono(elem: &Ty, checked: &CheckedFile) -> Option<String> {
         ),
         checked,
     ))
+}
+
+fn interface_element_mono(elem: &Ty, checked: &CheckedFile) -> Option<String> {
+    let (name, args) = match elem {
+        Ty::Interface(name) => (name, &[][..]),
+        Ty::InterfaceApp { name, args } => (name, args.as_slice()),
+        _ => return None,
+    };
+    let base = aura_sema::split_nominal(name).0;
+    let interface = checked
+        .ast
+        .interfaces
+        .iter()
+        .find(|interface| interface.name.name == base)?;
+    let full = crate::names::iface_mono_args(interface, checked, args);
+    is_iface_type_key(&full, checked).then_some(full)
 }
 
 fn struct_element_mono_from_key(key: &str, checked: &CheckedFile) -> Option<String> {
@@ -172,17 +234,19 @@ fn emit_array_contents_free_inner(
         if is_string_array_elem_key(elem) {
             emit_free_string_elems(out, &format!("{p}  "), name_c);
         } else if is_array_type_key(elem) {
-            let free_strings = array_elem_key(elem).is_some_and(is_string_array_elem_key);
             let _ = writeln!(
                 out,
                 "{p}  for (int64_t __af = 0; __af < {name_c}.len; __af++) {{"
             );
-            emit_free_one_nested_array(
-                out,
-                &format!("{p}    "),
-                &format!("{name_c}.data[__af]"),
-                free_strings,
-            );
+            let nested_expr = format!("{name_c}.data[__af]");
+            if let Some(checked) = checked {
+                let nested_key = crate::expr::full_type_mono(elem, checked);
+                let nested_cty = c_class_type(&nested_key);
+                let _ = writeln!(out, "{p}    {nested_cty}_drop(&{nested_expr});");
+            } else {
+                let free_strings = array_elem_key(elem).is_some_and(is_string_array_elem_key);
+                emit_free_one_nested_array(out, &format!("{p}    "), &nested_expr, free_strings);
+            }
             let _ = writeln!(out, "{p}  }}");
         } else if let Some(checked) = checked {
             let elem_key = crate::expr::full_type_mono(elem, checked);
@@ -197,6 +261,17 @@ fn emit_array_contents_free_inner(
                 let _ = writeln!(
                     out,
                     "{p}  for (int64_t __af = 0; __af < {name_c}.len; __af++) {{ {struct_cty}_drop(&{name_c}.data[__af]); }}"
+                );
+            } else if is_iface_type_key(&elem_key, checked) {
+                let iface_cty = crate::stmt::local_key_to_c(&elem_key, checked);
+                let _ = writeln!(
+                    out,
+                    "{p}  for (int64_t __af = 0; __af < {name_c}.len; __af++) {{ {iface_cty}_drop(&{name_c}.data[__af]); }}"
+                );
+            } else if elem_key == "ForeignHandle" || elem_key.starts_with("ForeignHandle_") {
+                let _ = writeln!(
+                    out,
+                    "{p}  for (int64_t __af = 0; __af < {name_c}.len; __af++) {{ if ({name_c}.data[__af] != NULL) (void)aura_ffi_handle_drop(&{name_c}.data[__af]); }}"
                 );
             }
         }
@@ -250,8 +325,11 @@ pub(crate) fn emit_array_mono(out: &mut String, elem: &Ty, checked: &CheckedFile
     let elem_is_string = matches!(elem, Ty::String);
     let elem_is_array = elem_is_nested_array(elem);
     let nested_holds_string = nested_array_holds_string(elem);
+    let nested_mono = nested_array_mono(elem);
     let enum_elem = enum_element_mono(elem, checked);
     let struct_elem = struct_element_mono(elem, checked);
+    let interface_elem = interface_element_mono(elem, checked);
+    let foreign_elem = foreign_handle_element(elem);
 
     // Array monomorphs are emitted before enum function forwards.  Declare
     // the element ownership hooks here so the generated C remains valid even
@@ -263,6 +341,7 @@ pub(crate) fn emit_array_mono(out: &mut String, elem: &Ty, checked: &CheckedFile
             "{enum_cty} {enum_cty}_clone(const {enum_cty} *source);"
         );
         let _ = writeln!(out, "void {enum_cty}_drop({enum_cty} *value);\n");
+        let _ = writeln!(out, "void {enum_cty}_mark(const {enum_cty} *value);\n");
     }
     if let Some(struct_mono) = &struct_elem {
         let struct_cty = c_class_type(struct_mono);
@@ -271,6 +350,23 @@ pub(crate) fn emit_array_mono(out: &mut String, elem: &Ty, checked: &CheckedFile
             "{struct_cty} {struct_cty}_clone(const {struct_cty} *source);"
         );
         let _ = writeln!(out, "void {struct_cty}_drop({struct_cty} *value);\n");
+        let _ = writeln!(out, "void {struct_cty}_mark(const {struct_cty} *value);\n");
+    }
+    if let Some(interface_mono) = &interface_elem {
+        let iface_cty = crate::names::c_iface_type(interface_mono);
+        let _ = writeln!(
+            out,
+            "{iface_cty} {iface_cty}_clone(const {iface_cty} *source);"
+        );
+        let _ = writeln!(out, "void {iface_cty}_drop({iface_cty} *value);");
+        let _ = writeln!(out, "void {iface_cty}_mark(const {iface_cty} *value);\n");
+    }
+    if let Some(nested_mono) = &nested_mono {
+        let nested_cty = c_class_type(nested_mono);
+        let nested_clone = c_method_name(nested_mono, "clone");
+        let _ = writeln!(out, "{nested_cty} {nested_clone}({nested_cty} *this);");
+        let _ = writeln!(out, "void {nested_cty}_drop({nested_cty} *value);");
+        let _ = writeln!(out, "void {nested_cty}_mark(const {nested_cty} *value);\n");
     }
 
     let _ = writeln!(out, "typedef struct {c_ty} {{");
@@ -278,6 +374,48 @@ pub(crate) fn emit_array_mono(out: &mut String, elem: &Ty, checked: &CheckedFile
     out.push_str("  int64_t cap;\n");
     let _ = writeln!(out, "  {elem_c} *data;");
     let _ = writeln!(out, "}} {c_ty};\n");
+
+    // Async frames may retain an Array across a suspension.  Keep the
+    // element graph visible to the collector for every owned element shape,
+    // not only Array<HeapClass>.  Enum/struct elements recurse through their
+    // generated hooks; nested arrays recurse through this same hook.
+    let array_mark = format!("{c_ty}_mark");
+    let elem_key = array_elem_key(&mono).map(|key| crate::expr::full_type_mono(key, checked));
+    let elem_is_heap = elem_key
+        .as_deref()
+        .is_some_and(|key| is_heap_class_mono(key, checked));
+    let nested_mark = nested_mono
+        .as_deref()
+        .map(|key| format!("{}_mark", c_class_type(key)));
+    let _ = writeln!(out, "void {array_mark}(const {c_ty} *value) {{");
+    out.push_str("  if (value == NULL || value->data == NULL) return;\n");
+    out.push_str("  for (int64_t __gm = 0; __gm < value->len; __gm++) {\n");
+    if elem_is_heap {
+        out.push_str("    aura_gc_mark_ptr((void *)value->data[__gm]);\n");
+    } else if let Some(enum_mono) = &enum_elem {
+        let elem_cty = c_enum_type(enum_mono);
+        let _ = writeln!(out, "    {elem_cty}_mark(&value->data[__gm]);");
+    } else if let Some(struct_mono) = &struct_elem {
+        let elem_cty = c_class_type(struct_mono);
+        let _ = writeln!(out, "    {elem_cty}_mark(&value->data[__gm]);");
+    } else if let Some(interface_mono) = &interface_elem {
+        let elem_cty = crate::names::c_iface_type(interface_mono);
+        let _ = writeln!(out, "    {elem_cty}_mark(&value->data[__gm]);");
+    } else if let Some(nested_mark) = nested_mark {
+        let _ = writeln!(out, "    {nested_mark}(&value->data[__gm]);");
+    }
+    out.push_str("  }\n}\n\n");
+    let _ = writeln!(
+        out,
+        "static void {c_ty}_mark_elements(const void *data, int64_t len) {{"
+    );
+    out.push_str("  if (data == NULL || len <= 0) return;\n");
+    let _ = writeln!(
+        out,
+        "  {c_ty} view = {{ .len = len, .cap = len, .data = ({elem_c} *)data }};"
+    );
+    let _ = writeln!(out, "  {array_mark}(&view);");
+    out.push_str("}\n\n");
 
     // Constructor: Array(len) — zero-initialized buffer; cap == len.
     let _ = writeln!(out, "{c_ty} {ctor}(int64_t len) {{");
@@ -316,6 +454,25 @@ pub(crate) fn emit_array_mono(out: &mut String, elem: &Ty, checked: &CheckedFile
         out.push_str("    __sm[__sn] = '\\0';\n");
         out.push_str("    return (const char *)__sm;\n");
         out.push_str("  }\n");
+    } else if elem_is_array {
+        if let Some(nested_mono) = &nested_mono {
+            let nested_clone = c_method_name(nested_mono, "clone");
+            let _ = writeln!(out, "  return {nested_clone}(&this->data[i]);");
+        } else {
+            out.push_str("  return this->data[i];\n");
+        }
+    } else if let Some(enum_mono) = &enum_elem {
+        let enum_cty = c_enum_type(enum_mono);
+        let _ = writeln!(out, "  return {enum_cty}_clone(&this->data[i]);");
+    } else if let Some(struct_mono) = &struct_elem {
+        let struct_cty = c_class_type(struct_mono);
+        let _ = writeln!(out, "  return {struct_cty}_clone(&this->data[i]);");
+    } else if let Some(interface_mono) = &interface_elem {
+        let iface_cty = crate::names::c_iface_type(interface_mono);
+        let _ = writeln!(out, "  return {iface_cty}_clone(&this->data[i]);");
+    } else if foreign_elem {
+        out.push_str("  if (this->data[i] != NULL && aura_ffi_handle_retain(this->data[i]) != AURA_FFI_OK) return NULL;\n");
+        out.push_str("  return this->data[i];\n");
     } else {
         out.push_str("  return this->data[i];\n");
     }
@@ -334,7 +491,34 @@ pub(crate) fn emit_array_mono(out: &mut String, elem: &Ty, checked: &CheckedFile
         out.push_str("  this->data[i] = __sc;\n");
     } else if elem_is_array {
         // C8f/C13d: free previous nested Array buffer (and String elems if Array_String).
-        emit_free_one_nested_array(out, "  ", "this->data[i]", nested_holds_string);
+        if let Some(nested_mono) = &nested_mono {
+            let nested_cty = c_class_type(nested_mono);
+            let _ = writeln!(out, "  {nested_cty}_drop(&this->data[i]);");
+        } else {
+            emit_free_one_nested_array(out, "  ", "this->data[i]", nested_holds_string);
+        }
+        out.push_str("  this->data[i] = v;\n");
+    } else if let Some(enum_mono) = &enum_elem {
+        let enum_cty = c_enum_type(enum_mono);
+        let _ = writeln!(
+            out,
+            "  {enum_cty} __copy = {enum_cty}_clone(&v); {enum_cty}_drop(&this->data[i]); this->data[i] = __copy;"
+        );
+    } else if let Some(struct_mono) = &struct_elem {
+        let struct_cty = c_class_type(struct_mono);
+        let _ = writeln!(
+            out,
+            "  {struct_cty} __copy = {struct_cty}_clone(&v); {struct_cty}_drop(&this->data[i]); this->data[i] = __copy;"
+        );
+    } else if let Some(interface_mono) = &interface_elem {
+        let iface_cty = crate::names::c_iface_type(interface_mono);
+        let _ = writeln!(
+            out,
+            "  {iface_cty} __copy = {iface_cty}_clone(&v); {iface_cty}_drop(&this->data[i]); this->data[i] = __copy;"
+        );
+    } else if foreign_elem {
+        out.push_str("  if (v != NULL && aura_ffi_handle_retain(v) != AURA_FFI_OK) return;\n");
+        out.push_str("  if (this->data[i] != NULL) (void)aura_ffi_handle_drop(&this->data[i]);\n");
         out.push_str("  this->data[i] = v;\n");
     } else {
         out.push_str("  this->data[i] = v;\n");
@@ -363,6 +547,18 @@ pub(crate) fn emit_array_mono(out: &mut String, elem: &Ty, checked: &CheckedFile
         // C13d: heap-copy so drop/clear free is safe for string literals.
         emit_string_heap_copy(out, "v", "__sc");
         out.push_str("  this->data[this->len] = __sc;\n");
+    } else if let Some(enum_mono) = &enum_elem {
+        let enum_cty = c_enum_type(enum_mono);
+        let _ = writeln!(out, "  this->data[this->len] = {enum_cty}_clone(&v);");
+    } else if let Some(struct_mono) = &struct_elem {
+        let struct_cty = c_class_type(struct_mono);
+        let _ = writeln!(out, "  this->data[this->len] = {struct_cty}_clone(&v);");
+    } else if let Some(interface_mono) = &interface_elem {
+        let iface_cty = crate::names::c_iface_type(interface_mono);
+        let _ = writeln!(out, "  this->data[this->len] = {iface_cty}_clone(&v);");
+    } else if foreign_elem {
+        out.push_str("  if (v != NULL && aura_ffi_handle_retain(v) != AURA_FFI_OK) return;\n");
+        out.push_str("  this->data[this->len] = v;\n");
     } else {
         out.push_str("  this->data[this->len] = v;\n");
     }
@@ -393,7 +589,12 @@ pub(crate) fn emit_array_mono(out: &mut String, elem: &Ty, checked: &CheckedFile
     } else if elem_is_array {
         out.push_str("  if (this->data != NULL) {\n");
         out.push_str("    for (int64_t __i = 0; __i < this->len; __i++) {\n");
-        emit_free_one_nested_array(out, "      ", "this->data[__i]", nested_holds_string);
+        if let Some(nested_mono) = &nested_mono {
+            let nested_cty = c_class_type(nested_mono);
+            let _ = writeln!(out, "      {nested_cty}_drop(&this->data[__i]);");
+        } else {
+            emit_free_one_nested_array(out, "      ", "this->data[__i]", nested_holds_string);
+        }
         out.push_str("    }\n");
         out.push_str("  }\n");
     } else if let Some(enum_mono) = &enum_elem {
@@ -404,6 +605,14 @@ pub(crate) fn emit_array_mono(out: &mut String, elem: &Ty, checked: &CheckedFile
     } else if let Some(struct_mono) = &struct_elem {
         let struct_cty = c_class_type(struct_mono);
         let _ = writeln!(out, "  if (this->data != NULL) {{ for (int64_t __i = 0; __i < this->len; __i++) {{ {struct_cty}_drop(&this->data[__i]); }} }}");
+    } else if foreign_elem {
+        out.push_str("  if (this->data != NULL) {\n");
+        out.push_str("    for (int64_t __i = 0; __i < this->len; __i++) {\n");
+        out.push_str(
+            "      if (this->data[__i] != NULL) (void)aura_ffi_handle_drop(&this->data[__i]);\n",
+        );
+        out.push_str("    }\n");
+        out.push_str("  }\n");
     }
     out.push_str("  this->len = 0;\n");
     out.push_str("}\n\n");
@@ -476,56 +685,82 @@ pub(crate) fn emit_array_mono(out: &mut String, elem: &Ty, checked: &CheckedFile
     } else if elem_is_array {
         // Deep-copy nested Array element buffers.
         out.push_str("  for (int64_t __i = 0; __i < this->len; __i++) {\n");
-        out.push_str("    out.data[__i].len = this->data[__i].len;\n");
-        out.push_str("    out.data[__i].cap = this->data[__i].len;\n");
-        out.push_str("    if (this->data[__i].len > 0 && this->data[__i].data != NULL) {\n");
-        out.push_str("      size_t __esz = sizeof(*this->data[__i].data);\n");
-        out.push_str("      out.data[__i].data = malloc((size_t)this->data[__i].len * __esz);\n");
-        out.push_str("      if (out.data[__i].data == NULL) {\n");
-        out.push_str("        fputs(\"aura: Array nested clone failed\\n\", stderr);\n");
-        out.push_str("        abort();\n");
-        out.push_str("      }\n");
-        if nested_holds_string {
-            // C13d: deep-copy each String pointer in nested Array_String.
-            out.push_str("      for (int64_t __j = 0; __j < this->data[__i].len; __j++) {\n");
-            out.push_str("        if (this->data[__i].data[__j] != NULL) {\n");
-            out.push_str("          size_t __sn = strlen(this->data[__i].data[__j]);\n");
-            out.push_str("          char *__sm = (char *)malloc(__sn + 1);\n");
-            out.push_str("          if (__sm == NULL) {\n");
-            out.push_str(
-                "            fputs(\"aura: Array nested string clone failed\\n\", stderr);\n",
-            );
-            out.push_str("            abort();\n");
-            out.push_str("          }\n");
-            out.push_str(
-                "          if (__sn > 0) memcpy(__sm, this->data[__i].data[__j], __sn);\n",
-            );
-            out.push_str("          __sm[__sn] = '\\0';\n");
-            out.push_str("          out.data[__i].data[__j] = (const char *)__sm;\n");
-            out.push_str("        } else {\n");
-            out.push_str("          out.data[__i].data[__j] = NULL;\n");
-            out.push_str("        }\n");
-            out.push_str("      }\n");
+        if let Some(nested_mono) = &nested_mono {
+            let nested_clone = c_method_name(nested_mono, "clone");
+            let _ = writeln!(out, "    out.data[__i] = {nested_clone}(&this->data[__i]);");
+            out.push_str("  }\n");
         } else {
+            out.push_str("    out.data[__i].len = this->data[__i].len;\n");
+            out.push_str("    out.data[__i].cap = this->data[__i].len;\n");
+            out.push_str("    if (this->data[__i].len > 0 && this->data[__i].data != NULL) {\n");
+            out.push_str("      size_t __esz = sizeof(*this->data[__i].data);\n");
             out.push_str(
+                "      out.data[__i].data = malloc((size_t)this->data[__i].len * __esz);\n",
+            );
+            out.push_str("      if (out.data[__i].data == NULL) {\n");
+            out.push_str("        fputs(\"aura: Array nested clone failed\\n\", stderr);\n");
+            out.push_str("        abort();\n");
+            out.push_str("      }\n");
+            if nested_holds_string {
+                // C13d: deep-copy each String pointer in nested Array_String.
+                out.push_str("      for (int64_t __j = 0; __j < this->data[__i].len; __j++) {\n");
+                out.push_str("        if (this->data[__i].data[__j] != NULL) {\n");
+                out.push_str("          size_t __sn = strlen(this->data[__i].data[__j]);\n");
+                out.push_str("          char *__sm = (char *)malloc(__sn + 1);\n");
+                out.push_str("          if (__sm == NULL) {\n");
+                out.push_str(
+                    "            fputs(\"aura: Array nested string clone failed\\n\", stderr);\n",
+                );
+                out.push_str("            abort();\n");
+                out.push_str("          }\n");
+                out.push_str(
+                    "          if (__sn > 0) memcpy(__sm, this->data[__i].data[__j], __sn);\n",
+                );
+                out.push_str("          __sm[__sn] = '\\0';\n");
+                out.push_str("          out.data[__i].data[__j] = (const char *)__sm;\n");
+                out.push_str("        } else {\n");
+                out.push_str("          out.data[__i].data[__j] = NULL;\n");
+                out.push_str("        }\n");
+                out.push_str("      }\n");
+            } else {
+                out.push_str(
                 "      memcpy(out.data[__i].data, this->data[__i].data, (size_t)this->data[__i].len * __esz);\n",
             );
+            }
+            out.push_str("    } else {\n");
+            out.push_str("      out.data[__i].data = NULL;\n");
+            out.push_str("      out.data[__i].len = 0;\n");
+            out.push_str("      out.data[__i].cap = 0;\n");
+            out.push_str("    }\n");
+            out.push_str("  }\n");
         }
-        out.push_str("    } else {\n");
-        out.push_str("      out.data[__i].data = NULL;\n");
-        out.push_str("      out.data[__i].len = 0;\n");
-        out.push_str("      out.data[__i].cap = 0;\n");
-        out.push_str("    }\n");
-        out.push_str("  }\n");
     } else if let Some(enum_mono) = &enum_elem {
         let enum_cty = c_enum_type(enum_mono);
         let _ = writeln!(out, "  for (int64_t __i = 0; __i < this->len; __i++) {{ out.data[__i] = {enum_cty}_clone(&this->data[__i]); }}");
     } else if let Some(struct_mono) = &struct_elem {
         let struct_cty = c_class_type(struct_mono);
         let _ = writeln!(out, "  for (int64_t __i = 0; __i < this->len; __i++) {{ out.data[__i] = {struct_cty}_clone(&this->data[__i]); }}");
+    } else if let Some(interface_mono) = &interface_elem {
+        let interface_cty = crate::names::c_iface_type(interface_mono);
+        let _ = writeln!(out, "  for (int64_t __i = 0; __i < this->len; __i++) {{ out.data[__i] = {interface_cty}_clone(&this->data[__i]); }}");
+    } else if foreign_elem {
+        out.push_str("  for (int64_t __i = 0; __i < this->len; __i++) {\n");
+        out.push_str("    out.data[__i] = this->data[__i];\n");
+        out.push_str(
+            "    if (out.data[__i] != NULL) (void)aura_ffi_handle_retain(out.data[__i]);\n",
+        );
+        out.push_str("  }\n");
     } else {
         out.push_str("  memcpy(out.data, this->data, (size_t)this->len * sizeof(*out.data));\n");
     }
     out.push_str("  return out;\n");
+    out.push_str("}\n\n");
+
+    // Typed destructor used by nested arrays and aggregate enum fields.
+    let _ = writeln!(out, "void {c_ty}_drop({c_ty} *value) {{");
+    out.push_str("  if (value == NULL) return;\n");
+    let mut cleanup = String::new();
+    emit_array_contents_free_checked(&mut cleanup, 2, "(*value)", &mono, checked);
+    out.push_str(&cleanup);
     out.push_str("}\n\n");
 }

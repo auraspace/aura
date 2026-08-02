@@ -405,7 +405,10 @@ pub(crate) fn ty_to_c(t: &Ty) -> String {
         Ty::EnumApp { name, args } => c_enum_type(&mono_key(name, args)),
         Ty::Interface(n) => c_iface_type(&nominal_mono_base(n)),
         Ty::InterfaceApp { name, args } => c_iface_type(&mono_key(name, args)),
-        Ty::TypeParam(_) => "/* unbound T */ int64_t".into(),
+        // Open generic declarations are not monomorphized at this boundary.
+        // Keep their ABI opaque instead of silently treating T as an integer;
+        // concrete call sites are still substituted before code generation.
+        Ty::TypeParam(_) => "AuraTypeErasedValue".into(),
         Ty::Fun { .. } => c_fun_typedef(&t.mono_suffix()),
         // C22: task frames and channels are opaque runtime-owned pointers.
         Ty::Task(_) | Ty::TaskHandle(_) => "AuraTaskFrame *".into(),
@@ -633,6 +636,7 @@ pub(crate) fn c_type_ref_subst(
                 // C4k: monomorphized type params that are heap classes must be pointers.
                 return ty_to_c_local(t, checked);
             }
+            return "AuraTypeErasedValue".into();
         }
         match ty.name.name.as_str() {
             "Int" => "int64_t".into(),
@@ -788,6 +792,14 @@ pub(crate) fn c_fun_typedef(key: &str) -> String {
     format!("aura_fp_{key}")
 }
 
+pub(crate) fn c_channel_drop_name(key: &str) -> String {
+    let suffix: String = key
+        .chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
+        .collect();
+    format!("aura_task_channel_value_destroy_typed_{suffix}")
+}
+
 /// C type for a semantic `Ty` (primitives, fun pointers; classes as mono struct pointers).
 /// C12k: capture type is a GC heap class pointer (not struct/Array/prim).
 pub(crate) fn is_heap_class_capture_ty(ty: &Ty, checked: &CheckedFile) -> bool {
@@ -866,7 +878,7 @@ pub(crate) fn c_type_from_ty(ty: &Ty, checked: &CheckedFile) -> String {
         Ty::Task(_) | Ty::TaskHandle(_) => "AuraTaskFrame *".into(),
         Ty::Channel(_) => "AuraTaskChannel *".into(),
         Ty::ForeignHandle(_) => "AuraFfiOpaqueHandle *".into(),
-        Ty::TypeParam(n) => n.clone(),
+        Ty::TypeParam(_) => "AuraTypeErasedValue".into(),
     }
 }
 

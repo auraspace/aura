@@ -336,6 +336,17 @@ async fun produce(): ForeignHandle<ForeignHandle<Int>> { return native_open() }\
 }
 
 #[test]
+fn async_function_accepts_foreign_handle_inside_generic_enum_payload() {
+    let file = parse_file(
+        "package demo\n\
+enum Boxed<T> { case Value(value: T) }\n\
+async fun produce(): Boxed<ForeignHandle<Int>> { throw \"not-run\" }\n",
+    )
+    .expect("parse generic enum handle task fixture");
+    check_file(&file).expect("generated enum hooks own nested foreign handles");
+}
+
+#[test]
 fn foreign_declaration_keeps_unproven_async_handles_fail_closed() {
     for ty in ["ForeignHandle<Task<Int>>", "ForeignHandle<TaskHandle<Int>>"] {
         let source = format!(
@@ -834,6 +845,16 @@ fn scoped_ref_allows_array_field_view_without_return_escape() {
     )
     .expect("parse");
     check_file(&file).expect("Array field borrow view");
+}
+
+#[test]
+fn array_field_escape_requires_explicit_borrow_or_clone() {
+    let file = parse_file(
+        "package t\nclass Holder(val items: Array<Int>) {\n  fun leak(): Array<Int> { return this.items }\n}\nfun main() {}\n",
+    )
+    .expect("parse Array field escape");
+    let err = check_file(&file).expect_err("Array field must not move out implicitly");
+    assert!(err.primary().message.contains("borrow"));
 }
 
 #[test]

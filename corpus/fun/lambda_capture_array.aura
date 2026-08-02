@@ -1,9 +1,8 @@
-// C12l: capture outer val Array as non-owning header view in Fun env
+// C12l: capture outer val Array as an owned snapshot in the Fun env
 package demo.lambda_cap_array
 
-// Array capture is a {data,len,cap} header copy. Outer binding owns the buffer.
-// Freeing or moving that owner while Fun is still live is undefined
-// (same spirit as field-bind views). Env drop must not free captured buffers.
+// The closure owns its snapshot and remains valid after owner movement or
+// lexical escape. Mutable captures use the retained shared-cell contract.
 
 fun sumWith(xs: Array<Int>, f: (Int) -> Int): Int {
     var s = 0
@@ -24,12 +23,12 @@ fun main(): Int {
     val getF = (i: Int) => xs.get(i)
     val r1 = lenF() + getF(0) + getF(2)
 
-    // HOF: lambda captures outer Array view; call finishes before xs is dropped.
+    // HOF: the lambda captures an owned immutable snapshot of `xs`.
     val base = 1
     val r2 = sumWith(xs.clone(), (x: Int) => x + base + xs.get(0))
 
-    // After short-lived Fun drops, outer Array buffer must still be intact
-    // (env free does not free the view's data pointer).
+    // After short-lived Fun drops, the outer Array buffer remains independently
+    // owned; the closure environment releases only its snapshot.
     val r3 = xs.len + xs.get(1)
 
     // r1 = 3+10+30 = 43

@@ -12,6 +12,7 @@ task_outcome_api	0	runtime/tests/task_outcome_api.c	cc -std=c11 -Wall -Wextra -W
 task_join	0	runtime/tests/task_join.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined runtime/tests/task_join.c
 task_churn	0	runtime/tests/task_churn.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined runtime/tests/task_churn.c
 task_channel	0	runtime/tests/task_channel.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined runtime/tests/task_channel.c
+task_payload_refs	0	runtime/tests/task_payload_refs.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined runtime/tests/task_payload_refs.c
 task_select	0	runtime/tests/task_select.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -pthread runtime/tests/task_select.c
 task_channel_concurrent	0	runtime/tests/task_channel_concurrent.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -pthread runtime/tests/task_channel_concurrent.c
 task_workers	0	runtime/tests/task_workers.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -pthread runtime/tests/task_workers.c
@@ -35,3 +36,4 @@ ffi_callbacks	0	runtime/tests/ffi_callbacks.c	cc -std=c11 -Wall -Wextra -Werror 
 ffi_net	0	runtime/tests/ffi_net.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined runtime/tests/ffi_net.c
 signal_shutdown	0	runtime/tests/signal_shutdown.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined runtime/tests/signal_shutdown.c
 stdlib_parser_fuzz	0	runtime/tests/stdlib_parser_fuzz.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined runtime/tests/stdlib_parser_fuzz.c
+type_erased_payload	0	runtime/tests/type_erased_payload.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined runtime/tests/type_erased_payload.c

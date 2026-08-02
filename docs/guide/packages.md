@@ -77,6 +77,11 @@ before code generation. Plugin output and runtime are bounded by the sandbox's
 configured timeout and output limit; dependency-provided plugins are not
 implicitly executed.
 
+Root plugin executables are pinned in `aura.lock` as
+`macro_plugin.<Name>` entries with their package-relative path and SHA-256
+checksum. Read-only tooling requires an existing matching pin, and a changed
+executable is rejected until the lock is intentionally refreshed.
+
 ## Multi-file same package
 
 Files in the same package share the package namespace. Point the CLI at the **directory**:

@@ -133,6 +133,8 @@ pub struct CheckedFile {
     pub mono_enums: Vec<(String, Vec<Ty>)>,
     /// Concrete generic function instantiations used.
     pub mono_funs: Vec<(String, Vec<Ty>)>,
+    /// Concrete generic async-function instantiations used.
+    pub mono_async_funs: Vec<(String, Vec<Ty>)>,
     /// Concrete generic class-method instantiations used in this file.
     pub mono_methods: Vec<(String, Vec<Ty>, String, Vec<Ty>)>,
     /// Concrete generic interface instantiations used (C8c).

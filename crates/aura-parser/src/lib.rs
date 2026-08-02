@@ -87,3 +87,46 @@ pub fn declarative_macro_sources(src: &str) -> Result<Vec<String>, ParseError> {
     }
     Ok(sources)
 }
+
+/// Return the exported declarative macro names in a source unit. Package
+/// resolution uses this before concatenating dependency macro definitions so
+/// an ambiguous name fails deterministically instead of depending on load
+/// order.
+pub fn declarative_macro_names(src: &str) -> Result<Vec<String>, ParseError> {
+    let tokens = lex(src)?;
+    let tree = TokenTree::from_tokens(&tokens).map_err(|message| ParseError {
+        message,
+        span: aura_ast::Span::new(0, 0),
+    })?;
+    let mut names = Vec::new();
+    let mut index = 0;
+    while index + 2 < tree.len() {
+        let is_macro = matches!(
+            tree.get(index),
+            Some(TokenTree::Leaf(aura_lexer::Token {
+                kind: aura_lexer::TokenKind::Macro,
+                ..
+            }))
+        );
+        let is_bang = matches!(
+            tree.get(index + 1),
+            Some(TokenTree::Leaf(aura_lexer::Token {
+                kind: aura_lexer::TokenKind::Bang,
+                ..
+            }))
+        );
+        if is_macro && is_bang {
+            if let Some(TokenTree::Leaf(aura_lexer::Token {
+                kind: aura_lexer::TokenKind::Ident(name),
+                ..
+            })) = tree.get(index + 2)
+            {
+                names.push(name.clone());
+            }
+            index += 4;
+        } else {
+            index += 1;
+        }
+    }
+    Ok(names)
+}

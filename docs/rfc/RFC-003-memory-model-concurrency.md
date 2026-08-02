@@ -21,9 +21,15 @@ This RFC defines Aura’s **memory and concurrency model**: tracing GC, referenc
 
 Runtime implementation details (scheduler, collector algorithm) are expanded in **RFC-006**; this document is the language-level contract.
 
-**Toolchain today (2026-07-31):** class instances are GC heap references and `struct` values remain by-value. The runtime has registered-root stop-the-world mark/sweep coordinated with concurrent worker activity, an opt-in POSIX M:N worker pool, a POSIX poll reactor, bounded channels/select, task scopes, blocking jobs, and task-safe lazy cells. C20c–e add MVP shared pointer boxes for mutable class, Array, and nested Fun captures; C20g adds read-only collection snapshots. C21b–e add sema-checked scoped refs and borrow-safe Array field returns. C22a–i land async/task syntax and barriers; C22j–k task frames/executor; C22n–o bounded channels and typed payloads. Arbitrary async CFG lowering, richer captures, full cancellation/outcome propagation, non-POSIX backends, and a concurrent tracing collector remain open.
+**Toolchain today (2026-08-02):** class instances are GC heap references and `struct` values remain by-value. The runtime has registered-root stop-the-world mark/sweep coordinated with concurrent worker activity, an opt-in POSIX M:N worker pool, a POSIX poll reactor, bounded channels/select, task scopes, blocking jobs, and task-safe lazy cells. C20c–e add MVP shared pointer boxes for mutable class, Array, and nested Fun captures; C20g adds read-only collection snapshots. C21b–e add sema-checked scoped refs and borrow-safe Array field returns. C22a–i land async/task syntax and barriers; C22j–k task frames/executor; C22n–o bounded channels and typed payloads. General CFG now also supports awaited return expressions with typed frame slots; scheduler-owned task payload transfer and nested spawn pollers are covered, while richer open-generic captures, non-POSIX backends, and a concurrent tracing collector remain open.
 
 ## 2. Motivation
+
+The current scheduler boundary also supports explicit reference wrappers for
+`Task`/`TaskHandle` frame payloads and `Channel` payloads. These references are
+released independently from lexical handles; only richer open-generic
+captures, non-POSIX backends, and a concurrent tracing collector remain open
+in this area.
 
 ### 2.1 Problem statement
 
@@ -94,12 +100,19 @@ reactor, and concurrent GC. Those facilities may be added by a later RFC or
 milestone without changing the source vocabulary below. Release packaging,
 signing, notarization, and publication are also outside C22.
 
-The landed C22 implementation is intentionally narrower than this contract:
-bounded straight-line, branch-join, multi-await, and one top-level integer
-loop/await shapes lower to task-frame suspension states; bounded non-empty
-`spawn {}` bodies and typed channel operations are executable. General control
-flow, mutable capture transfer, and complete task failure propagation remain
-implementation follow-ups, not changes to the source contract.
+The landed implementation now lowers general async branch/loop/repeated-await
+CFGs and reuses that typed frame contract for inferred immutable captures in
+`spawn {}` bodies. Mutable captures use the shared-box ownership contract;
+opaque aggregates without generated clone/drop/mark hooks remain explicit
+compiler boundaries. The runtime also exposes a versioned
+`AuraTypeErasedOps`/`AuraTypeErasedValue` clone/drop/mark contract for values
+that must cross an open generic or plugin boundary; concrete compiler
+monomorphs continue to use typed layouts. Typed channel operations,
+failure propagation, cancellation, and frame GC hooks are part of the shipped
+contract rather than fallback behavior. Capture discovery is lexical: bindings
+introduced inside a spawn body, loop, or match/catch shadow an outer name and
+never become accidental frame fields; lambda bodies retain their separate
+closure-environment lowering.
 
 ### 6.2 Memory management strategy
 
@@ -214,6 +227,20 @@ than once; every join after completion observes the cached outcome.
 | `cancel(handle)` | Idempotently request cancellation; the task observes it at an await/check point. It does not forcibly interrupt synchronous code.                    |
 | task failure     | Captured by the task and surfaced by `join`; it does not terminate the executor or implicitly close unrelated channels.                              |
 | completed handle | Retains only the result/error state required for future joins; destruction is exactly once and may be triggered by GC after handles are unreachable. |
+
+General async CFG lowering treats `return await expression` as a suspension
+edge rather than re-evaluating the expression after resume. The awaited value is
+stored in a typed frame slot, and the normal cancellation, failure propagation,
+and aggregate drop hooks apply before the terminal `Task<T>` result is
+published. If the operand contains another async operation, the compiler lifts
+the innermost await into the same continuation graph (for example
+`return await await makeTask()`), preserving each child handle's ownership and
+avoiding duplicate evaluation after resume.
+
+Expression-form `if` values use the same rule: when either branch awaits, the
+compiler emits a branch state and assigns the selected value into the typed
+continuation slot. The branch is selected exactly once, and the unselected
+child task is never created, so suspension cannot re-evaluate the expression.
 
 `Task<T>` and `TaskHandle<T>` are distinct: the former is a computation, the
 latter is the scheduled identity used by `join` and `cancel`. C22 has no

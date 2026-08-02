@@ -74,7 +74,7 @@ pid, and platform helpers.
 | `fun/lambda_block.aura`                        | Lambda block body `(x) => { … }` (C10g)                                |
 | `fun/lambda_capture.aura`                      | Capture outer `val` Int (C10h MVP; Bool/String also OK)                |
 | `fun/lambda_capture_class.aura`                | Capture outer `val` class (GC ptr + env roots; C12k)                   |
-| `fun/lambda_capture_array.aura`                | Capture outer `val` Array (non-owning header view; C12l)               |
+| `fun/lambda_capture_array.aura`                | Capture outer `val` Array (owned snapshot; C12l)                      |
 | `fun/lambda_capture_var.aura`                  | Capture outer `var` Int/Bool by shared mutable box (C12m)              |
 | `fun/lambda_capture_var_class.aura`            | Mutable class capture: field mutation, rebinding, and escape (C20)     |
 | `fun/lambda_capture_var_array.aura`            | Mutable Array capture: push, rebinding, and escape (C20)               |
@@ -199,7 +199,7 @@ Shipped corpus under `fun/lambda_*.aura` and `std_collections/hof` / `hof_str`:
 | Call through fun value; generic HOF over `Array<Int>` and `Array<String>`                               | User-defined element types (generic codegen debt)  |
 | Capture outer `val` of `Int` / `Bool` / `String` / class / Array                                        |                                                    |
 | Capture outer `var` of scalar, String, class, Array, or Fun via shared mutable boxes (C12m/C13f/C20c–e) |                                                    |
-| Fun env free on drop (C11b); Array capture is non-owning view (C12l)                                    | Live view owner movement and mutation invalidation |
+| Fun env free on drop (C11b); Array capture uses owned snapshot/shared cell (C12l/C20d)                  | General live collection views are separately contract-bound |
 
 ## Scoped borrows (C21)
 

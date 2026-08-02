@@ -11,6 +11,10 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 pub const MACRO_PLUGIN_ABI_VERSION: u32 = 1;
+/// Maximum UTF-8 field size accepted by the stable plugin wire protocol.
+/// This bounds both hostile decoder allocations and accidental oversized
+/// expansion payloads without changing the framing ABI.
+pub const MACRO_PLUGIN_MAX_FIELD_BYTES: usize = 16 * 1024 * 1024;
 const MACRO_PLUGIN_MAGIC: &[u8] = b"AURA-MACRO\0";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -87,6 +91,18 @@ pub fn run_sandboxed_macro(
             message: "macro sandbox source root does not exist".into(),
             span: request.invocation_span,
         });
+    }
+    for (field, value) in [
+        ("macro name", request.macro_name.as_str()),
+        ("package", request.package.as_str()),
+        ("source", request.source.as_str()),
+    ] {
+        if value.len() > MACRO_PLUGIN_MAX_FIELD_BYTES || value.len() > u32::MAX as usize {
+            return Err(MacroError {
+                message: format!("macro plugin {field} exceeds the protocol field limit"),
+                span: request.invocation_span,
+            });
+        }
     }
     let mut command = sandbox_command(config).map_err(|message| MacroError {
         message,
@@ -232,8 +248,50 @@ fn sandbox_command(config: &MacroSandboxConfig) -> Result<Command, String> {
     }
     #[cfg(target_os = "linux")]
     {
-        let _ = (plugin, source_root);
-        return Err("macro sandbox requires bubblewrap on Linux".into());
+        let plugin_parent = plugin.parent().unwrap_or(Path::new("/"));
+        let mut command = Command::new("bwrap");
+        command
+            .arg("--die-with-parent")
+            .arg("--unshare-network")
+            .arg("--new-session")
+            .arg("--proc")
+            .arg("/proc")
+            .arg("--dev")
+            .arg("/dev")
+            .arg("--tmpfs")
+            .arg("/tmp")
+            .arg("--ro-bind")
+            .arg(&source_root)
+            .arg(&source_root)
+            .arg("--ro-bind")
+            .arg(plugin_parent)
+            .arg(plugin_parent)
+            .arg("--ro-bind")
+            .arg("/usr")
+            .arg("/usr")
+            .arg("--ro-bind")
+            .arg("/bin")
+            .arg("/bin")
+            .arg("--ro-bind")
+            .arg("/lib")
+            .arg("/lib");
+        // Minimal Linux images may not provide the optional /lib64 path.
+        if Path::new("/lib64").is_dir() {
+            command.arg("--ro-bind").arg("/lib64").arg("/lib64");
+        }
+        command
+            .arg("--ro-bind")
+            .arg("/etc")
+            .arg("/etc")
+            .arg("--chdir")
+            .arg(&source_root)
+            .arg("--clearenv")
+            .arg("--setenv")
+            .arg("HOME")
+            .arg("/tmp")
+            .arg("--");
+        command.arg(plugin);
+        return Ok(command);
     }
     #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     {
@@ -251,7 +309,8 @@ fn profile_path(path: &Path) -> String {
     path.to_string_lossy().replace('"', "\\\"")
 }
 
-fn encode_request(request: &MacroPluginRequest) -> Vec<u8> {
+/// Encode a request using the stable plugin wire format.
+pub fn encode_plugin_request(request: &MacroPluginRequest) -> Vec<u8> {
     let mut out = Vec::new();
     out.extend_from_slice(MACRO_PLUGIN_MAGIC);
     out.extend_from_slice(&MACRO_PLUGIN_ABI_VERSION.to_le_bytes());
@@ -261,6 +320,10 @@ fn encode_request(request: &MacroPluginRequest) -> Vec<u8> {
     out.extend_from_slice(&request.invocation_span.start.to_le_bytes());
     out.extend_from_slice(&request.invocation_span.end.to_le_bytes());
     out
+}
+
+fn encode_request(request: &MacroPluginRequest) -> Vec<u8> {
+    encode_plugin_request(request)
 }
 
 /// Decode the host request from the stable plugin wire format.
@@ -333,7 +396,12 @@ fn decode_response(bytes: &[u8]) -> Result<MacroPluginResponse, String> {
 }
 
 fn write_string(out: &mut Vec<u8>, value: &str) {
-    out.extend_from_slice(&(value.len() as u32).to_le_bytes());
+    assert!(
+        value.len() <= MACRO_PLUGIN_MAX_FIELD_BYTES,
+        "macro plugin field exceeds protocol limit"
+    );
+    let length = u32::try_from(value.len()).expect("macro plugin field exceeds u32 framing");
+    out.extend_from_slice(&length.to_le_bytes());
     out.extend_from_slice(value.as_bytes());
 }
 
@@ -348,6 +416,9 @@ fn read_u32(bytes: &[u8], cursor: &mut usize) -> Result<u32, String> {
 
 fn read_string(bytes: &[u8], cursor: &mut usize) -> Result<String, String> {
     let length = read_u32(bytes, cursor)? as usize;
+    if length > MACRO_PLUGIN_MAX_FIELD_BYTES {
+        return Err("macro plugin field exceeds the protocol limit".into());
+    }
     let end = cursor
         .checked_add(length)
         .ok_or_else(|| "macro plugin response length overflow".to_string())?;
@@ -370,7 +441,8 @@ mod protocol_tests {
             source: "class Value() {}".into(),
             invocation_span: Span::new(4, 12),
         };
-        let decoded = decode_plugin_request(&encode_request(&request)).expect("decode request");
+        let decoded =
+            decode_plugin_request(&encode_plugin_request(&request)).expect("decode request");
         assert_eq!(decoded, request);
 
         let response = MacroPluginResponse::Failed {
@@ -391,6 +463,49 @@ mod protocol_tests {
         assert!(decode_response(&bytes)
             .expect_err("wrong ABI version must fail")
             .contains("version"));
+    }
+
+    #[test]
+    fn exported_request_encoder_has_canonical_wire_shape() {
+        let request = MacroPluginRequest {
+            macro_name: "m".into(),
+            package: "p".into(),
+            source: "x".into(),
+            invocation_span: Span::new(1, 2),
+        };
+        let bytes = encode_plugin_request(&request);
+        assert_eq!(&bytes[..MACRO_PLUGIN_MAGIC.len()], MACRO_PLUGIN_MAGIC);
+        assert_eq!(
+            decode_plugin_request(&bytes).expect("decode request"),
+            request
+        );
+    }
+
+    #[test]
+    fn plugin_protocol_rejects_oversized_fields_before_allocation() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(MACRO_PLUGIN_MAGIC);
+        bytes.extend_from_slice(&MACRO_PLUGIN_ABI_VERSION.to_le_bytes());
+        bytes.extend_from_slice(&((MACRO_PLUGIN_MAX_FIELD_BYTES as u32) + 1).to_le_bytes());
+        assert!(decode_plugin_request(&bytes)
+            .expect_err("oversized field must fail closed")
+            .contains("protocol limit"));
+    }
+
+    #[test]
+    fn plugin_protocol_encoder_rejects_u32_overflow_without_truncation() {
+        let value = "x".repeat(MACRO_PLUGIN_MAX_FIELD_BYTES + 1);
+        let request = MacroPluginRequest {
+            macro_name: "macro".into(),
+            package: "demo".into(),
+            source: value,
+            invocation_span: Span::new(0, 1),
+        };
+        let result = std::panic::catch_unwind(|| encode_plugin_request(&request));
+        assert!(
+            result.is_err(),
+            "oversized encoding must not truncate length"
+        );
     }
 }
 

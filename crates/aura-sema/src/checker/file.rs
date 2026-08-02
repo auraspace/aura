@@ -36,6 +36,116 @@ fn is_valid_foreign_handle_tree(ty: &Ty) -> bool {
     }
 }
 
+/// Check the recursive ownership shapes that the generated task ABI can copy
+/// and release. Foreign handles inside arrays, structs, and enum payloads are
+/// valid because their generated hooks retain/drop the opaque handle. Open
+/// task/channel/function values are deliberately excluded: they are scheduler
+/// objects, not aggregate payloads.
+fn task_payload_foreign_handles_supported(checker: &Checker, ty: &Ty, depth: usize) -> bool {
+    if depth > 64 {
+        return false;
+    }
+    match ty {
+        Ty::ForeignHandle(_) => true,
+        Ty::Unit | Ty::Int | Ty::Bool | Ty::String | Ty::Null => true,
+        Ty::Nullable(inner) => task_payload_foreign_handles_supported(checker, inner, depth + 1),
+        Ty::Class(name) | Ty::Enum(name) => {
+            let (simple, package) = crate::ty::split_nominal(name);
+            if simple == "Array" {
+                return true;
+            }
+            let fields = checker
+                .classes
+                .get(simple)
+                .and_then(|items| items.iter().find(|item| item.package == package))
+                .map(|item| {
+                    item.fields
+                        .iter()
+                        .map(|field| &field.ty)
+                        .collect::<Vec<_>>()
+                })
+                .or_else(|| {
+                    checker.enums.get(simple).and_then(|items| {
+                        items
+                            .iter()
+                            .find(|item| item.package == package)
+                            .map(|item| {
+                                item.variants
+                                    .iter()
+                                    .flat_map(|variant| variant.fields.iter().map(|(_, ty)| ty))
+                                    .collect::<Vec<_>>()
+                            })
+                    })
+                });
+            fields.is_some_and(|fields| {
+                fields
+                    .into_iter()
+                    .all(|field| task_payload_foreign_handles_supported(checker, field, depth + 1))
+            })
+        }
+        Ty::ClassApp { name, args } | Ty::EnumApp { name, args } => {
+            let (simple, package) = crate::ty::split_nominal(name);
+            if !args
+                .iter()
+                .all(|arg| task_payload_foreign_handles_supported(checker, arg, depth + 1))
+            {
+                return false;
+            }
+            if simple == "Array" {
+                return true;
+            }
+            let subst = type_subst_map(
+                checker
+                    .classes
+                    .get(simple)
+                    .and_then(|items| items.iter().find(|item| item.package == package))
+                    .map(|item| item.type_params.as_slice())
+                    .or_else(|| {
+                        checker
+                            .enums
+                            .get(simple)
+                            .and_then(|items| items.iter().find(|item| item.package == package))
+                            .map(|item| item.type_params.as_slice())
+                    })
+                    .unwrap_or(&[]),
+                args,
+            );
+            let fields = checker
+                .classes
+                .get(simple)
+                .and_then(|items| items.iter().find(|item| item.package == package))
+                .map(|item| {
+                    item.fields
+                        .iter()
+                        .map(|field| subst_ty(&field.ty, &subst))
+                        .collect::<Vec<_>>()
+                })
+                .or_else(|| {
+                    checker.enums.get(simple).and_then(|items| {
+                        items
+                            .iter()
+                            .find(|item| item.package == package)
+                            .map(|item| {
+                                item.variants
+                                    .iter()
+                                    .flat_map(|variant| {
+                                        variant.fields.iter().map(|(_, ty)| subst_ty(ty, &subst))
+                                    })
+                                    .collect::<Vec<_>>()
+                            })
+                    })
+                });
+            fields.is_some_and(|fields| {
+                fields
+                    .into_iter()
+                    .all(|field| task_payload_foreign_handles_supported(checker, &field, depth + 1))
+            })
+        }
+        Ty::TypeParam(_) | Ty::Interface(_) | Ty::InterfaceApp { .. } => false,
+        Ty::Fun { .. } | Ty::Task(_) | Ty::TaskHandle(_) | Ty::Channel(_) => false,
+    }
+}
+
 impl Checker {
     fn validate_foreign_decl(&mut self, foreign: &ForeignDecl) {
         if !matches!(foreign.convention, ForeignCallingConvention::C) {
@@ -245,6 +355,87 @@ impl Checker {
                 .entry(decl_package(&i.origin_package, &file_pkg).to_string())
                 .or_default();
         }
+        // Register class/struct headers before resolving enum fields. Enum
+        // payloads may contain value structs or heap classes, and type
+        // resolution must see both nominal tables in the same declaration
+        // pass.
+        for c in &file.classes {
+            let pkg = decl_package(&c.origin_package, &file_pkg).to_string();
+            if self
+                .interfaces
+                .get(&c.name.name)
+                .map(|v| v.iter().any(|i| i.package == pkg))
+                .unwrap_or(false)
+                || self
+                    .functions
+                    .get(&c.name.name)
+                    .map(|v| v.iter().any(|f| f.package == pkg))
+                    .unwrap_or(false)
+            {
+                self.errors.push(SemaError {
+                    message: format!(
+                        "duplicate type/function name `{}` in package `{pkg}`",
+                        c.name.name
+                    ),
+                    span: c.name.span,
+                });
+                continue;
+            }
+            if let Some(existing) = self.classes.get(&c.name.name) {
+                if existing.iter().any(|s| s.package == pkg) {
+                    self.errors.push(SemaError {
+                        message: format!(
+                            "duplicate type/function name `{}` in package `{pkg}`",
+                            c.name.name
+                        ),
+                        span: c.name.span,
+                    });
+                    continue;
+                }
+            }
+            if c.kind == NominalKind::Struct && !c.implements.is_empty() {
+                self.errors.push(SemaError {
+                    message: "structs cannot implement interfaces".into(),
+                    span: c.name.span,
+                });
+                continue;
+            }
+            let has_open = c.modifiers.contains(&aura_ast::Modifier::Open);
+            let has_final = c.modifiers.contains(&aura_ast::Modifier::Final);
+            let has_abstract = c.modifiers.contains(&aura_ast::Modifier::Abstract);
+            if has_open && has_final {
+                self.errors.push(SemaError {
+                    message: "class cannot be both `open` and `final`".into(),
+                    span: c.name.span,
+                });
+            }
+            if has_abstract && has_final {
+                self.errors.push(SemaError {
+                    message: "abstract class cannot be `final`".into(),
+                    span: c.name.span,
+                });
+            }
+            self.classes
+                .entry(c.name.name.clone())
+                .or_default()
+                .push(ClassSig {
+                    name: c.name.name.clone(),
+                    is_pub: c.is_pub,
+                    package: pkg,
+                    is_struct: c.kind == NominalKind::Struct,
+                    is_open: c.modifiers.contains(&aura_ast::Modifier::Open)
+                        || c.modifiers.contains(&aura_ast::Modifier::Abstract),
+                    is_abstract: c.modifiers.contains(&aura_ast::Modifier::Abstract),
+                    type_params: c.type_params.iter().map(|p| p.name.name.clone()).collect(),
+                    bounds: Self::bounds_map_from_params(&c.type_params),
+                    superclass: None,
+                    implements: Vec::new(),
+                    fields: Vec::new(),
+                    methods: HashMap::new(),
+                    span: c.span,
+                });
+        }
+
         for e in &file.enums {
             self.package_imports
                 .entry(decl_package(&e.origin_package, &file_pkg).to_string())
@@ -592,85 +783,6 @@ impl Checker {
                 });
         }
 
-        // Register class headers before async signatures are resolved. Async
-        // return types may legitimately carry a class payload.
-        for c in &file.classes {
-            let pkg = decl_package(&c.origin_package, &file_pkg).to_string();
-            if self
-                .interfaces
-                .get(&c.name.name)
-                .map(|v| v.iter().any(|i| i.package == pkg))
-                .unwrap_or(false)
-                || self
-                    .functions
-                    .get(&c.name.name)
-                    .map(|v| v.iter().any(|f| f.package == pkg))
-                    .unwrap_or(false)
-            {
-                self.errors.push(SemaError {
-                    message: format!(
-                        "duplicate type/function name `{}` in package `{pkg}`",
-                        c.name.name
-                    ),
-                    span: c.name.span,
-                });
-                continue;
-            }
-            if let Some(existing) = self.classes.get(&c.name.name) {
-                if existing.iter().any(|s| s.package == pkg) {
-                    self.errors.push(SemaError {
-                        message: format!(
-                            "duplicate type/function name `{}` in package `{pkg}`",
-                            c.name.name
-                        ),
-                        span: c.name.span,
-                    });
-                    continue;
-                }
-            }
-            if c.kind == NominalKind::Struct && !c.implements.is_empty() {
-                self.errors.push(SemaError {
-                    message: "structs cannot implement interfaces".into(),
-                    span: c.name.span,
-                });
-                continue;
-            }
-            let has_open = c.modifiers.contains(&aura_ast::Modifier::Open);
-            let has_final = c.modifiers.contains(&aura_ast::Modifier::Final);
-            let has_abstract = c.modifiers.contains(&aura_ast::Modifier::Abstract);
-            if has_open && has_final {
-                self.errors.push(SemaError {
-                    message: "class cannot be both `open` and `final`".into(),
-                    span: c.name.span,
-                });
-            }
-            if has_abstract && has_final {
-                self.errors.push(SemaError {
-                    message: "abstract class cannot be `final`".into(),
-                    span: c.name.span,
-                });
-            }
-            self.classes
-                .entry(c.name.name.clone())
-                .or_default()
-                .push(ClassSig {
-                    name: c.name.name.clone(),
-                    is_pub: c.is_pub,
-                    package: pkg,
-                    is_struct: c.kind == NominalKind::Struct,
-                    is_open: c.modifiers.contains(&aura_ast::Modifier::Open)
-                        || c.modifiers.contains(&aura_ast::Modifier::Abstract),
-                    is_abstract: c.modifiers.contains(&aura_ast::Modifier::Abstract),
-                    type_params: c.type_params.iter().map(|p| p.name.name.clone()).collect(),
-                    bounds: Self::bounds_map_from_params(&c.type_params),
-                    superclass: None,
-                    implements: Vec::new(),
-                    fields: Vec::new(),
-                    methods: HashMap::new(),
-                    span: c.span,
-                });
-        }
-
         for f in &file.async_functions {
             let pkg = decl_package(&f.origin_package, &file_pkg).to_string();
             self.current_package = pkg.clone();
@@ -722,13 +834,11 @@ impl Checker {
                 },
                 None => Ty::Unit,
             };
-            // A nested ForeignHandle is still one opaque pointer at the C
-            // boundary; retain/drop applies to the outer handle exactly once.
-            // Other containers remain rejected until their transfer contract
-            // is defined.
-            if contains_foreign_handle(&result_ty) && !is_valid_foreign_handle_tree(&result_ty) {
+            if contains_foreign_handle(&result_ty)
+                && !task_payload_foreign_handles_supported(self, &result_ty, 0)
+            {
                 self.errors.push(SemaError {
-                    message: "[AURA-F4-BOUNDARY] ForeignHandle values cannot be nested in Task<T> until compiler-generated TASK/AWAIT transfer lifetime is implemented".into(),
+                    message: "[AURA-F4-BOUNDARY] this Task<T> payload contains a ForeignHandle in an unsupported scheduler or open generic shape".into(),
                     span: f.span,
                 });
                 self.type_params.clear();
@@ -736,6 +846,7 @@ impl Checker {
             }
             let task_ty = Ty::Task(Box::new(result_ty.clone()));
             self.note_mono_ty(&task_ty);
+            self.async_funs.insert((pkg.clone(), f.name.name.clone()));
             self.functions
                 .entry(f.name.name.clone())
                 .or_default()
@@ -1443,6 +1554,11 @@ impl Checker {
                 continue;
             };
             self.current_package = pkg;
+            if let Err(err) = self.bind_type_params(&f.type_params) {
+                self.errors.push(err);
+                self.type_params.clear();
+                continue;
+            }
             if let Ty::Task(result_ty) = sig.ret {
                 if let Err(err) = self.check_async_fun(f, &result_ty) {
                     self.errors.push(err);
@@ -1570,6 +1686,26 @@ impl Checker {
             );
             sa.cmp(&sb)
         });
+        let mut mono_async_funs: Vec<_> = self.mono_async_funs.iter().cloned().collect();
+        mono_async_funs.sort_by(|a, b| {
+            let sa = format!(
+                "{}_{}",
+                a.0,
+                a.1.iter()
+                    .map(|t| t.display())
+                    .collect::<Vec<_>>()
+                    .join("_")
+            );
+            let sb = format!(
+                "{}_{}",
+                b.0,
+                b.1.iter()
+                    .map(|t| t.display())
+                    .collect::<Vec<_>>()
+                    .join("_")
+            );
+            sa.cmp(&sb)
+        });
         let mut mono_methods: Vec<_> = self.mono_methods.iter().cloned().collect();
         mono_methods.sort_by_key(|(class, class_args, method, method_args)| {
             format!("{class}_{class_args:?}_{method}_{method_args:?}")
@@ -1604,6 +1740,7 @@ impl Checker {
             mono_classes,
             mono_enums,
             mono_funs,
+            mono_async_funs,
             mono_methods,
             mono_interfaces,
             call_instantiations: self.call_instantiations.clone(),

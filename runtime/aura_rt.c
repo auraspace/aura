@@ -100,6 +100,24 @@ typedef enum AuraFfiStatus
   AURA_FFI_INVALID = 1,
   AURA_FFI_OOM = 2
 } AuraFfiStatus;
+typedef void *(*AuraTypeErasedCloneFn)(const void *data, size_t size,
+                                       size_t *cloned_size);
+typedef void (*AuraTypeErasedDropFn)(void *data, size_t size);
+typedef void (*AuraTypeErasedMarkFn)(const void *data, size_t size);
+typedef struct AuraTypeErasedOps
+{
+  uint32_t abi_version;
+  AuraTypeErasedCloneFn clone;
+  AuraTypeErasedDropFn drop;
+  AuraTypeErasedMarkFn mark;
+} AuraTypeErasedOps;
+typedef struct AuraTypeErasedValue
+{
+  void *data;
+  size_t size;
+  const AuraTypeErasedOps *ops;
+} AuraTypeErasedValue;
+#define AURA_TYPE_ERASED_ABI_VERSION 1u
 typedef struct AuraFfiStringView { const char *data; uint64_t len; } AuraFfiStringView;
 typedef struct AuraFfiString { char *data; uint64_t len; } AuraFfiString;
 typedef enum AuraFfiArrayKind
@@ -196,6 +214,20 @@ typedef struct AuraFfiCallback AuraFfiCallback;
 typedef int32_t (*AuraFfiCallbackFn)(void *environment, const void *payload,
                                      uint64_t payload_len);
 typedef void (*AuraFfiCallbackEnvDestroyFn)(void *environment);
+typedef void *(*AuraFfiPayloadCloneFn)(const void *payload, uint64_t payload_len,
+                                       uint64_t *cloned_len);
+typedef void (*AuraFfiPayloadDestroyFn)(void *payload, uint64_t payload_len);
+typedef struct AuraFfiOwnedPayload
+{
+  void *data;
+  uint64_t len;
+  AuraFfiPayloadDestroyFn destroy;
+} AuraFfiOwnedPayload;
+
+#ifndef AURA_FFI_MAX_OWNED_CALLBACK_PAYLOAD
+#define AURA_FFI_MAX_OWNED_CALLBACK_PAYLOAD \
+  (UINT64_C(16) * UINT64_C(1024) * UINT64_C(1024))
+#endif
 typedef enum AuraFfiOutcome
 {
   AURA_FFI_OUTCOME_OK = 0,
@@ -1574,12 +1606,15 @@ static int aura_http_parse_content_length(const unsigned char *value, size_t len
   return 1;
 }
 
+static int aura_http_header_value_valid(const unsigned char *value,
+                                        size_t length);
+
 /* Decode a bounded chunked body into the request-owned snapshot. Trailers are
- * intentionally not exposed by the first HTTP/1.1 body API, so only an empty
- * trailer section is accepted. */
+ * retained as request headers after validation. */
 static AuraHttpParseStatus aura_http_decode_chunked_body(
     const unsigned char *data, size_t input_length, size_t start,
-    unsigned char **out_body, size_t *out_length, size_t *out_consumed)
+    unsigned char **out_body, size_t *out_length, size_t *out_consumed,
+    AuraHttpHeader *headers, size_t *header_count)
 {
   unsigned char *body = NULL;
   size_t body_length = 0;
@@ -1649,28 +1684,117 @@ static AuraHttpParseStatus aura_http_decode_chunked_body(
     cursor = line_end;
     if (chunk_length == 0)
     {
-      size_t trailer_end = 0;
-      line_result = aura_http_find_line(data, input_length, cursor,
-                                        AURA_HTTP_MAX_HEADER_BYTES, &trailer_end);
-      if (line_result != AURA_HTTP_LINE_FOUND)
-      {
-        free(body);
-        return aura_http_line_status(line_result);
+      size_t trailer_bytes = 0;
+      for (;;) {
+        size_t trailer_end = 0;
+        size_t line_content_end;
+        size_t colon = SIZE_MAX;
+        size_t name_length;
+        size_t value_start;
+        size_t value_end;
+        size_t value_length;
+
+        line_result = aura_http_find_line(data, input_length, cursor,
+                                          AURA_HTTP_MAX_HEADER_BYTES,
+                                          &trailer_end);
+        if (line_result != AURA_HTTP_LINE_FOUND)
+        {
+          free(body);
+          return aura_http_line_status(line_result);
+        }
+        if (trailer_end < cursor + 2 ||
+            trailer_end - cursor > AURA_HTTP_MAX_HEADER_BYTES - trailer_bytes)
+        {
+          free(body);
+          return AURA_HTTP_PARSE_PAYLOAD_TOO_LARGE;
+        }
+        trailer_bytes += trailer_end - cursor;
+        if (trailer_end > AURA_HTTP_MAX_TOTAL_BYTES)
+        {
+          free(body);
+          return AURA_HTTP_PARSE_PAYLOAD_TOO_LARGE;
+        }
+        line_content_end = trailer_end - 2;
+        if (line_content_end == cursor)
+        {
+          *out_body = body;
+          *out_length = body_length;
+          *out_consumed = trailer_end;
+          return AURA_HTTP_PARSE_OK;
+        }
+        if (headers == NULL || header_count == NULL ||
+            *header_count >= AURA_HTTP_MAX_HEADERS)
+        {
+          free(body);
+          return AURA_HTTP_PARSE_PAYLOAD_TOO_LARGE;
+        }
+        for (i = cursor; i < line_content_end; i++)
+        {
+          if (data[i] == (unsigned char)':')
+          {
+            colon = i;
+            break;
+          }
+        }
+        if (colon == SIZE_MAX || colon == cursor)
+        {
+          free(body);
+          return AURA_HTTP_PARSE_BAD_REQUEST;
+        }
+        name_length = colon - cursor;
+        for (i = cursor; i < colon; i++)
+        {
+          if (!aura_http_is_token(data[i]))
+          {
+            free(body);
+            return AURA_HTTP_PARSE_BAD_REQUEST;
+          }
+        }
+        /* Framing fields are never valid trailers. */
+        if (aura_http_header_name_equal(data + cursor, name_length,
+                                        "Content-Length") ||
+            aura_http_header_name_equal(data + cursor, name_length,
+                                        "Transfer-Encoding") ||
+            aura_http_header_name_equal(data + cursor, name_length,
+                                        "Trailer"))
+        {
+          free(body);
+          return AURA_HTTP_PARSE_BAD_REQUEST;
+        }
+        value_start = colon + 1;
+        value_end = line_content_end;
+        while (value_start < value_end &&
+               (data[value_start] == (unsigned char)' ' ||
+                data[value_start] == (unsigned char)'\t'))
+        {
+          value_start++;
+        }
+        while (value_end > value_start &&
+               (data[value_end - 1] == (unsigned char)' ' ||
+                data[value_end - 1] == (unsigned char)'\t'))
+        {
+          value_end--;
+        }
+        value_length = value_end - value_start;
+        if (!aura_http_header_value_valid(data + value_start, value_length))
+        {
+          free(body);
+          return AURA_HTTP_PARSE_BAD_REQUEST;
+        }
+        headers[*header_count].name =
+            aura_http_copy_string(data + cursor, name_length);
+        headers[*header_count].value =
+            aura_http_copy_string(data + value_start, value_length);
+        if (headers[*header_count].name == NULL ||
+            headers[*header_count].value == NULL)
+        {
+          (*header_count)++;
+          free(body);
+          return AURA_HTTP_PARSE_ERROR;
+        }
+        (*header_count)++;
+        cursor = trailer_end;
       }
-      if (trailer_end != cursor + 2)
-      {
-        free(body);
-        return AURA_HTTP_PARSE_BAD_REQUEST;
-      }
-      if (trailer_end > AURA_HTTP_MAX_TOTAL_BYTES)
-      {
-        free(body);
-        return AURA_HTTP_PARSE_PAYLOAD_TOO_LARGE;
-      }
-      *out_body = body;
-      *out_length = body_length;
-      *out_consumed = trailer_end;
-      return AURA_HTTP_PARSE_OK;
     }
     if (chunk_length > AURA_HTTP_MAX_BODY_BYTES - body_length)
     {
@@ -2038,7 +2162,7 @@ static AuraHttpParseStatus aura_http_request_parse_impl(
   {
     AuraHttpParseStatus chunk_status = aura_http_decode_chunked_body(
         data, input_length, header_end, &parsed.body, &parsed.body_length,
-        &parsed.total_length);
+        &parsed.total_length, parsed.headers, &parsed.header_count);
     if (chunk_status != AURA_HTTP_PARSE_OK)
     {
       aura_http_request_destroy(&parsed);
@@ -2122,7 +2246,7 @@ struct AuraHttpContentLengthReader
   int read_active;
   int chunked;
   int chunk_state;
-  unsigned char line[64];
+  unsigned char line[AURA_HTTP_MAX_HEADER_BYTES];
   size_t line_length;
 };
 
@@ -2309,19 +2433,81 @@ static AuraTcpStatus aura_http_chunked_reader_read(
       reader->chunk_state = 0;
       continue;
     }
-    /* The alpha streaming reader consumes only an empty trailer section. */
+    /* Consume and validate trailers before publishing EOF. Trailer fields
+     * are not exposed by the streaming reader, but framing fields must still
+     * be rejected instead of being silently accepted. */
     status = aura_http_body_reader_byte(reader, &byte);
-    if (status != AURA_TCP_OK || byte != (unsigned char)'\r')
+    if (status != AURA_TCP_OK)
+    {
+      return status;
+    }
+    if (reader->line_length >= sizeof(reader->line))
     {
       return AURA_TCP_ERROR;
     }
-    status = aura_http_body_reader_byte(reader, &byte);
-    if (status != AURA_TCP_OK || byte != (unsigned char)'\n')
+    reader->line[reader->line_length++] = byte;
+    if (reader->line_length >= 2 &&
+        reader->line[reader->line_length - 2] == (unsigned char)'\r' &&
+        reader->line[reader->line_length - 1] == (unsigned char)'\n')
     {
-      return AURA_TCP_ERROR;
+      size_t line_end = reader->line_length - 2;
+      size_t colon = SIZE_MAX;
+      size_t value_start;
+      size_t value_end = line_end;
+      size_t i;
+      if (line_end == 0)
+      {
+        reader->line_length = 0;
+        reader->chunk_state = 4;
+        return AURA_TCP_EOF;
+      }
+      for (i = 0; i < line_end; i++)
+      {
+        if (reader->line[i] == (unsigned char)':')
+        {
+          colon = i;
+          break;
+        }
+      }
+      if (colon == SIZE_MAX || colon == 0)
+      {
+        return AURA_TCP_ERROR;
+      }
+      for (i = 0; i < colon; i++)
+      {
+        if (!aura_http_is_token(reader->line[i]))
+        {
+          return AURA_TCP_ERROR;
+        }
+      }
+      if (aura_http_header_name_equal(reader->line, colon,
+                                      "Content-Length") ||
+          aura_http_header_name_equal(reader->line, colon,
+                                      "Transfer-Encoding") ||
+          aura_http_header_name_equal(reader->line, colon, "Trailer"))
+      {
+        return AURA_TCP_ERROR;
+      }
+      value_start = colon + 1;
+      while (value_start < value_end &&
+             (reader->line[value_start] == (unsigned char)' ' ||
+              reader->line[value_start] == (unsigned char)'\t'))
+      {
+        value_start++;
+      }
+      while (value_end > value_start &&
+             (reader->line[value_end - 1] == (unsigned char)' ' ||
+              reader->line[value_end - 1] == (unsigned char)'\t'))
+      {
+        value_end--;
+      }
+      if (!aura_http_header_value_valid(reader->line + value_start,
+                                        value_end - value_start))
+      {
+        return AURA_TCP_ERROR;
+      }
+      reader->line_length = 0;
     }
-    reader->chunk_state = 4;
-    return AURA_TCP_EOF;
   }
 }
 
@@ -5007,6 +5193,7 @@ typedef struct
 {
   void **data_slot;
   int64_t *len_slot;
+  void (*mark)(const void *data, int64_t len);
 } AuraGcArrayRoot;
 
 #define AURA_GC_MAX_ARRAY_ROOTS 256
@@ -5065,7 +5252,16 @@ void aura_gc_remove_root(void **slot)
 }
 
 /* C6e: register Array.data / Array.len so collect marks element GC pointers. */
+void aura_gc_add_array_root_typed(void **data_slot, int64_t *len_slot,
+                                  void (*mark)(const void *, int64_t));
+
 void aura_gc_add_array_root(void **data_slot, int64_t *len_slot)
+{
+  aura_gc_add_array_root_typed(data_slot, len_slot, NULL);
+}
+
+void aura_gc_add_array_root_typed(void **data_slot, int64_t *len_slot,
+                                  void (*mark)(const void *, int64_t))
 {
   aura_gc_lock_enter();
   if (data_slot == NULL || len_slot == NULL)
@@ -5078,6 +5274,7 @@ void aura_gc_add_array_root(void **data_slot, int64_t *len_slot)
     if (aura_gc_array_roots[i].data_slot == data_slot)
     {
       aura_gc_array_roots[i].len_slot = len_slot;
+      aura_gc_array_roots[i].mark = mark;
       aura_gc_lock_leave();
       return;
     }
@@ -5089,6 +5286,7 @@ void aura_gc_add_array_root(void **data_slot, int64_t *len_slot)
   }
   aura_gc_array_roots[aura_gc_array_root_n].data_slot = data_slot;
   aura_gc_array_roots[aura_gc_array_root_n].len_slot = len_slot;
+  aura_gc_array_roots[aura_gc_array_root_n].mark = mark;
   aura_gc_array_root_n++;
   aura_gc_lock_leave();
 }
@@ -5249,6 +5447,55 @@ void aura_gc_mark_ptr(void *obj)
   aura_gc_lock_leave();
 }
 
+AuraFfiStatus aura_type_erased_clone(const AuraTypeErasedValue *source,
+                                     AuraTypeErasedValue *out)
+{
+  size_t cloned_size = 0;
+  void *copy;
+  if (source == NULL || out == NULL || source->ops == NULL ||
+      source->ops->abi_version != AURA_TYPE_ERASED_ABI_VERSION ||
+      source->ops->clone == NULL)
+  {
+    return AURA_FFI_INVALID;
+  }
+  copy = source->ops->clone(source->data, source->size, &cloned_size);
+  if (copy == NULL && cloned_size != 0)
+  {
+    return AURA_FFI_OOM;
+  }
+  out->data = copy;
+  out->size = cloned_size;
+  out->ops = source->ops;
+  return AURA_FFI_OK;
+}
+
+void aura_type_erased_drop(AuraTypeErasedValue *value)
+{
+  if (value == NULL)
+  {
+    return;
+  }
+  if (value->data != NULL && value->ops != NULL &&
+      value->ops->abi_version == AURA_TYPE_ERASED_ABI_VERSION &&
+      value->ops->drop != NULL)
+  {
+    value->ops->drop(value->data, value->size);
+  }
+  value->data = NULL;
+  value->size = 0;
+  value->ops = NULL;
+}
+
+void aura_type_erased_mark(const AuraTypeErasedValue *value)
+{
+  if (value != NULL && value->data != NULL && value->ops != NULL &&
+      value->ops->abi_version == AURA_TYPE_ERASED_ABI_VERSION &&
+      value->ops->mark != NULL)
+  {
+    value->ops->mark(value->data, value->size);
+  }
+}
+
 /* Frames are malloc-owned, so their opaque data is not visible to the
  * collector unless the frame supplies an explicit mark contract. */
 static void aura_gc_mark_task_frames(void);
@@ -5258,7 +5505,9 @@ static void aura_gc_mark_task_frames(void);
  *   void (*__drop)(void *);
  *   int32_t __refs;
  *   … capture slots (class GC roots, boxes, nested Fun fat pointers, …)
- * Array capture slots are non-owning header views — drop must not free buffers.
+ * Array capture slots are owned snapshots for immutable captures; mutable
+ * captures use retained shared cells. Drop releases the matching ownership
+ * contract emitted by the compiler.
  * C12m: by-ref Int/Bool captures release their shared boxes in drop.
  * C13e: Fun slots retain nested env; drop releases nested env once via RC. */
 typedef struct
@@ -6779,12 +7028,18 @@ void aura_gc_collect(void)
     {
       continue;
     }
-    void **elems = (void **)*data_slot;
     int64_t len = *len_slot;
-    if (elems == NULL || len <= 0)
+    void *data = *data_slot;
+    if (data == NULL || len <= 0)
     {
       continue;
     }
+    if (aura_gc_array_roots[i].mark != NULL)
+    {
+      aura_gc_array_roots[i].mark(data, len);
+      continue;
+    }
+    void **elems = (void **)data;
     for (int64_t j = 0; j < len; j++)
     {
       void *obj = elems[j];
@@ -7154,6 +7409,8 @@ AuraFfiStatus aura_ffi_handle_pin_for_boundary(AuraFfiOpaqueHandle *handle,
   return aura_ffi_handle_pin(handle, out);
 }
 
+AuraFfiStatus aura_ffi_handle_drop(AuraFfiOpaqueHandle **handle);
+
 AuraFfiStatus aura_ffi_handle_retain(AuraFfiOpaqueHandle *handle)
 {
   if (handle == NULL || handle->released || handle->destroyed ||
@@ -7163,6 +7420,19 @@ AuraFfiStatus aura_ffi_handle_retain(AuraFfiOpaqueHandle *handle)
   }
   handle->owners++;
   return AURA_FFI_OK;
+}
+
+void aura_destroy_foreign_handle_payload(void *payload)
+{
+  AuraFfiOpaqueHandle **handle = (AuraFfiOpaqueHandle **)payload;
+  if (handle != NULL)
+  {
+    if (*handle != NULL)
+    {
+      (void)aura_ffi_handle_drop(handle);
+    }
+    free(handle);
+  }
 }
 
 AuraFfiStatus aura_ffi_handle_pin_resource(const AuraFfiHandlePin *pin,
@@ -7462,6 +7732,85 @@ AuraFfiStatus aura_ffi_callback_invoke(AuraFfiCallback *registration,
   return AURA_FFI_OK;
 }
 
+AuraFfiStatus aura_ffi_callback_invoke_owned(
+    AuraFfiCallback *registration, uint64_t current_task,
+    AuraFfiBoundary boundary, const void *payload, uint64_t payload_len,
+    AuraFfiPayloadCloneFn clone, AuraFfiPayloadDestroyFn destroy,
+    AuraFfiOwnedPayload *owned_payload, AuraFfiOutcome *outcome)
+{
+  if (owned_payload == NULL || outcome == NULL || clone == NULL ||
+      destroy == NULL)
+  {
+    return AURA_FFI_INVALID;
+  }
+  owned_payload->data = NULL;
+  owned_payload->len = 0;
+  owned_payload->destroy = NULL;
+  *outcome = AURA_FFI_OUTCOME_FOREIGN_ERROR;
+  if (registration == NULL || !registration->registered ||
+      registration->frame == NULL || !registration->frame->valid ||
+      registration->callback == NULL ||
+      (payload == NULL && payload_len != 0))
+  {
+    return AURA_FFI_INVALID;
+  }
+  if (boundary != AURA_FFI_BOUNDARY_SYNC ||
+      current_task != registration->frame->owner_task)
+  {
+    return AURA_FFI_BOUNDARY_REJECTED;
+  }
+  if (registration->dispatching)
+  {
+    return AURA_FFI_BUSY;
+  }
+
+  uint64_t cloned_len = 0;
+  void *copy = clone(payload, payload_len, &cloned_len);
+  if (copy == NULL && cloned_len != 0)
+  {
+    return AURA_FFI_OOM;
+  }
+  if (cloned_len > AURA_FFI_MAX_OWNED_CALLBACK_PAYLOAD)
+  {
+    destroy(copy, cloned_len);
+    return AURA_FFI_INVALID;
+  }
+  registration->dispatching = 1;
+  int32_t foreign_code =
+      registration->callback(registration->environment, copy, cloned_len);
+  registration->dispatching = 0;
+  *outcome = aura_ffi_map_error(foreign_code);
+  if (*outcome != AURA_FFI_OUTCOME_OK)
+  {
+    destroy(copy, cloned_len);
+    return AURA_FFI_OK;
+  }
+  owned_payload->data = copy;
+  owned_payload->len = cloned_len;
+  owned_payload->destroy = destroy;
+  return AURA_FFI_OK;
+}
+
+AuraFfiStatus aura_ffi_owned_payload_destroy(AuraFfiOwnedPayload *payload)
+{
+  if (payload == NULL)
+  {
+    return AURA_FFI_INVALID;
+  }
+  if (payload->data != NULL)
+  {
+    if (payload->destroy == NULL)
+    {
+      return AURA_FFI_INVALID;
+    }
+    payload->destroy(payload->data, payload->len);
+  }
+  payload->data = NULL;
+  payload->len = 0;
+  payload->destroy = NULL;
+  return AURA_FFI_OK;
+}
+
 AuraFfiStatus aura_ffi_callback_deregister(AuraFfiCallback *registration)
 {
   if (registration == NULL || !registration->registered)
@@ -7524,7 +7873,7 @@ AuraFfiStatus aura_ffi_callback_destroy(AuraFfiCallback **registration)
  */
 
 #define AURA_RT_ABI_VERSION 1u
-#define AURA_RT_ABI_ID "aura-c-abi/1.0;task=1;value=1;exception=1;channel=1;gc=1;io=1;ffi=1"
+#define AURA_RT_ABI_ID "aura-c-abi/1.0;task=1;value=1;exception=1;channel=1;gc=1;io=1;ffi=1;type=1"
 
 uint32_t aura_runtime_abi_version(void)
 {
@@ -8126,6 +8475,8 @@ struct AuraTaskFrame
   AuraTaskFrame *scope_next;
   int scope_owned;
   int handle_owned;
+  /* Scheduler-bound payloads hold independent references to the frame. */
+  size_t payload_refs;
 #if defined(AURA_TCP_POSIX)
   pthread_t blocking_thread;
   pthread_mutex_t blocking_lock;
@@ -8229,7 +8580,8 @@ static void aura_gc_mark_task_frames(void)
     /* Terminal outcomes are allocator-owned payloads too.  Scan their
      * pointer-sized words so a class/array payload remains live until the
      * owning task frame is released. */
-    const AuraTaskResult *outcomes[] = {&frame->result, &frame->error};
+    const AuraTaskResult *outcomes[] = {&frame->result, &frame->error,
+                                        &frame->error_payload};
     for (size_t o = 0; o < sizeof(outcomes) / sizeof(outcomes[0]); o++)
     {
       const unsigned char *bytes =
@@ -9022,8 +9374,12 @@ AuraTaskPollState aura_http_connection_poll_async(AuraTaskFrame *frame,
     }
     connection->async_active = 1;
     connection->async_phase = AURA_HTTP_ASYNC_READ;
-    aura_task_frame_set_cleanup(frame, connection,
-                                aura_http_connection_async_cleanup);
+    if (frame->cleanup.data != connection ||
+        frame->cleanup.cleanup != aura_http_connection_async_cleanup)
+    {
+      aura_task_frame_set_cleanup(frame, connection,
+                                  aura_http_connection_async_cleanup);
+    }
   }
   if (aura_task_frame_take_fd_wait_timeout(frame))
   {
@@ -9280,10 +9636,17 @@ AuraTaskPollState aura_http_connection_poll_async(AuraTaskFrame *frame,
       connection->async_handler_started = 0;
       if (connection->async_close_after_write)
       {
-        aura_task_frame_clear_cleanup(frame);
+        int defer_handle_release = connection->async_handle_pin_active;
+        if (!defer_handle_release)
+        {
+          aura_task_frame_clear_cleanup(frame);
+        }
         (void)aura_http_connection_close(connection);
         aura_http_connection_async_reset(connection);
-        aura_http_connection_async_release_handle_pin(connection);
+        if (!defer_handle_release)
+        {
+          aura_http_connection_async_release_handle_pin(connection);
+        }
         return AURA_TASK_COMPLETE;
       }
       connection->async_close_after_write = 0;
@@ -9353,6 +9716,12 @@ AuraTaskPollState aura_http_connection_poll_async_task_handle(
   connection->async_handle_pin = pin;
   connection->async_handle_pin_active = 1;
   connection->async_handle_frame = frame;
+  /* Arm cleanup before the first async initialization allocation.  The
+   * connection poller normally installs this hook after allocating its
+   * buffer, but a handle-backed task owns this pin immediately; an early
+   * allocation/initialization failure must release it as well. */
+  aura_task_frame_set_cleanup(frame, connection,
+                              aura_http_connection_async_cleanup);
   return aura_http_connection_poll_async_task(frame, connection, handler,
                                                user_data);
 }
@@ -9581,7 +9950,7 @@ static void aura_task_result_release(AuraTaskResult *result,
   size_t size;
   AuraTaskResultDestroyFn drop;
 
-  if (result == NULL || destroy == NULL || rooted == NULL)
+  if (result == NULL || rooted == NULL)
   {
     return;
   }
@@ -9591,13 +9960,16 @@ static void aura_task_result_release(AuraTaskResult *result,
   }
   data = result->data;
   size = result->size;
-  drop = *destroy;
+  drop = destroy != NULL ? *destroy : NULL;
   *result = (AuraTaskResult){NULL, 0};
   if (clone != NULL)
   {
     *clone = NULL;
   }
-  *destroy = NULL;
+  if (destroy != NULL)
+  {
+    *destroy = NULL;
+  }
   *rooted = 0;
   if (drop != NULL && data != NULL)
   {
@@ -9902,6 +10274,73 @@ AuraTaskResult aura_task_frame_result(const AuraTaskFrame *frame)
 {
   AuraTaskResult empty = {NULL, 0};
   return frame != NULL ? frame->result : empty;
+}
+
+static void *aura_type_erased_result_clone(const void *raw, size_t size,
+                                           size_t *out_size)
+{
+  const AuraTypeErasedValue *source = (const AuraTypeErasedValue *)raw;
+  AuraTypeErasedValue *copy;
+  if (raw == NULL || size != sizeof(*source) || out_size == NULL)
+  {
+    return NULL;
+  }
+  copy = (AuraTypeErasedValue *)calloc(1, sizeof(*copy));
+  if (copy == NULL || aura_type_erased_clone(source, copy) != AURA_FFI_OK)
+  {
+    free(copy);
+    return NULL;
+  }
+  *out_size = sizeof(*copy);
+  return copy;
+}
+
+static void aura_type_erased_result_destroy(void *raw, size_t size)
+{
+  if (raw != NULL && size == sizeof(AuraTypeErasedValue))
+  {
+    AuraTypeErasedValue *value = (AuraTypeErasedValue *)raw;
+    aura_type_erased_drop(value);
+  }
+  free(raw);
+}
+
+AuraFfiStatus aura_task_frame_set_erased_result(
+    AuraTaskFrame *frame, const AuraTypeErasedValue *value)
+{
+  void *copy;
+  size_t size = 0;
+  if (frame == NULL || value == NULL)
+  {
+    return AURA_FFI_INVALID;
+  }
+  copy = aura_type_erased_result_clone(value, sizeof(*value), &size);
+  if (copy == NULL)
+  {
+    return AURA_FFI_OOM;
+  }
+  aura_task_frame_set_result(frame, copy, size,
+                             aura_type_erased_result_destroy);
+  return AURA_FFI_OK;
+}
+
+AuraFfiStatus aura_task_frame_result_erased(const AuraTaskFrame *frame,
+                                            AuraTypeErasedValue *out)
+{
+  AuraTaskResult result;
+  if (frame == NULL || out == NULL ||
+      aura_task_frame_state(frame) != AURA_TASK_COMPLETE)
+  {
+    return AURA_FFI_INVALID;
+  }
+  result = aura_task_frame_result(frame);
+  if (result.data == NULL || result.size != sizeof(AuraTypeErasedValue))
+  {
+    return AURA_FFI_INVALID;
+  }
+  /* Retrieval is clone-out: the terminal frame owns its result until it is
+   * released, so callers must not receive a borrowed descriptor payload. */
+  return aura_type_erased_clone((const AuraTypeErasedValue *)result.data, out);
 }
 
 void aura_task_frame_destroy(AuraTaskFrame *frame)
@@ -11623,10 +12062,39 @@ int aura_task_executor_release(AuraTaskExecutor *executor, AuraTaskFrame **handl
   }
   if (frame->scope_owned)
   {
-    /* The lexical handle gives up only its reference; the active scope keeps
-     * the executor-owned frame alive until the scope drains it. */
+    /* The lexical handle gives up only its reference; a scope or scheduler
+     * payload keeps the executor-owned frame alive until its final release. */
     frame->handle_owned = 0;
     *handle = NULL;
+    return 1;
+  }
+  if (frame->payload_refs != 0)
+  {
+    /* A task moved through a scheduler payload has two owners: its original
+     * lexical handle and the payload reference. The first ordinary release
+     * drops the lexical handle; the next one consumes the transferred ref.
+     */
+    if (frame->handle_owned)
+    {
+      frame->handle_owned = 0;
+      *handle = NULL;
+      return 1;
+    }
+    aura_task_executor_lock(executor);
+    if (frame->payload_refs == 0 || frame->executor != executor)
+    {
+      aura_task_executor_unlock(executor);
+      return 0;
+    }
+    frame->payload_refs--;
+    int final_payload = frame->payload_refs == 0;
+    aura_task_executor_unlock(executor);
+    *handle = NULL;
+    if (final_payload)
+    {
+      AuraTaskFrame *owned = frame;
+      return aura_task_executor_release(executor, &owned);
+    }
     return 1;
   }
   if (frame->state != AURA_TASK_COMPLETE && frame->state != AURA_TASK_FAILED &&
@@ -11693,6 +12161,74 @@ int aura_task_executor_release(AuraTaskExecutor *executor, AuraTaskFrame **handl
   frame->handle_owned = 0;
   aura_task_executor_report_unjoined_failure(executor, frame);
   aura_task_frame_destroy(frame);
+  return 1;
+}
+
+/* Retain one scheduler-owned payload reference without copying the raw frame
+ * pointer. The matching release_payload call may outlive the lexical handle. */
+int aura_task_executor_retain_payload(AuraTaskExecutor *executor,
+                                       AuraTaskFrame *frame)
+{
+  if (executor == NULL || frame == NULL || executor->shutdown ||
+      frame->executor != executor)
+  {
+    return 0;
+  }
+  aura_task_executor_lock(executor);
+  if (executor->shutdown || frame->executor != executor)
+  {
+    aura_task_executor_unlock(executor);
+    return 0;
+  }
+  frame->payload_refs++;
+  aura_task_executor_unlock(executor);
+  return 1;
+}
+
+int aura_task_executor_release_payload(AuraTaskExecutor *executor,
+                                        AuraTaskFrame **payload)
+{
+  if (payload == NULL || *payload == NULL)
+  {
+    return 1;
+  }
+  AuraTaskFrame *frame = *payload;
+  /* Shutdown detaches payload-held frames before freeing the executor. The
+   * payload still owns the frame and can finish destruction independently. */
+  if (frame->executor == NULL)
+  {
+    *payload = NULL;
+    if (frame->payload_refs != 0)
+    {
+      frame->payload_refs--;
+      if (frame->payload_refs == 0)
+      {
+        aura_task_frame_destroy(frame);
+      }
+      return 1;
+    }
+    return 0;
+  }
+  if (executor == NULL || executor->shutdown || frame->executor != executor)
+  {
+    return 0;
+  }
+  aura_task_executor_lock(executor);
+  if (frame->payload_refs == 0 || frame->executor != executor)
+  {
+    aura_task_executor_unlock(executor);
+    return 0;
+  }
+  frame->payload_refs--;
+  int final = frame->payload_refs == 0 && !frame->handle_owned &&
+              !frame->scope_owned;
+  aura_task_executor_unlock(executor);
+  *payload = NULL;
+  if (final)
+  {
+    AuraTaskFrame *owned = frame;
+    return aura_task_executor_release(executor, &owned);
+  }
   return 1;
 }
 
@@ -11809,14 +12345,22 @@ void aura_task_executor_shutdown(AuraTaskExecutor *executor)
 #endif
   executor->shutdown = 1;
   AuraTaskFrame *frame = executor->owned_head;
+  executor->owned_head = NULL;
+  executor->owned_count = 0;
   while (frame != NULL)
   {
     AuraTaskFrame *next = frame->owned_next;
+    frame->owned_next = NULL;
     frame->executor = NULL;
+    frame->handle_owned = 0;
+    frame->scope_owned = 0;
     frame->queued = 0;
     aura_task_channel_cancel_wait(frame);
     aura_task_executor_report_unjoined_failure(executor, frame);
-    aura_task_frame_destroy(frame);
+    if (frame->payload_refs == 0)
+    {
+      aura_task_frame_destroy(frame);
+    }
     frame = next;
   }
 #if defined(AURA_TCP_POSIX)
@@ -12380,6 +12924,7 @@ AuraFfiStatus aura_io_operation_handle_check_boundary(
  * frame.  Wakeups are FIFO and use the frame's executor, with no OS threads.
  */
 
+#ifndef AURA_TASK_CHANNEL_ABI_DEFINED
 typedef void (*AuraTaskChannelValueDestroyFn)(void *data, size_t size);
 
 typedef struct
@@ -12396,6 +12941,8 @@ typedef enum
   AURA_CHANNEL_CLOSED = 2,
   AURA_CHANNEL_ERROR = 3
 } AuraTaskChannelStatus;
+#define AURA_TASK_CHANNEL_ABI_DEFINED 1
+#endif
 
 typedef struct AuraTaskChannelWaiter AuraTaskChannelWaiter;
 
@@ -12439,6 +12986,7 @@ struct AuraTaskChannel
   AuraTaskChannelWaiter *receive_head;
   AuraTaskChannelWaiter *receive_tail;
   AuraRaceTracker *race_tracker;
+  size_t refs;
 };
 
 #if defined(__unix__) || defined(__APPLE__)
@@ -12523,6 +13071,80 @@ void aura_task_channel_value_destroy_class(void *data, size_t size)
     aura_gc_remove_root((void **)data);
     free(data);
   }
+}
+
+typedef struct
+{
+  AuraTaskExecutor *executor;
+  AuraTaskFrame *frame;
+} AuraTaskPayloadRef;
+
+typedef struct
+{
+  AuraTaskChannel *channel;
+} AuraChannelPayloadRef;
+
+/* Forward declaration because the channel payload callback is defined beside
+ * the other value destructors, before the channel implementation. */
+void aura_task_channel_destroy(AuraTaskChannel *channel);
+
+void aura_task_channel_value_destroy_task(void *data, size_t size)
+{
+  (void)size;
+  AuraTaskPayloadRef *payload = (AuraTaskPayloadRef *)data;
+  if (payload != NULL)
+  {
+    if (payload->frame != NULL)
+    {
+      (void)aura_task_executor_release_payload(payload->executor,
+                                                &payload->frame);
+    }
+    free(payload);
+  }
+}
+
+AuraTaskFrame *aura_task_channel_value_take_task(void *data, size_t size)
+{
+  (void)size;
+  AuraTaskPayloadRef *payload = (AuraTaskPayloadRef *)data;
+  if (payload == NULL)
+  {
+    return NULL;
+  }
+  AuraTaskFrame *frame = payload->frame;
+  payload->frame = NULL;
+  free(payload);
+  return frame;
+}
+
+void aura_task_channel_value_destroy_channel(void *data, size_t size)
+{
+  (void)size;
+  AuraChannelPayloadRef *payload = (AuraChannelPayloadRef *)data;
+  if (payload != NULL)
+  {
+    if (payload->channel != NULL)
+    {
+      AuraTaskChannel *channel = payload->channel;
+      payload->channel = NULL;
+      aura_task_channel_destroy(channel);
+    }
+    free(payload);
+  }
+}
+
+AuraTaskChannel *aura_task_channel_value_take_channel(void *data, size_t size)
+{
+  (void)size;
+  AuraChannelPayloadRef *payload = (AuraChannelPayloadRef *)data;
+  if (payload == NULL)
+  {
+    return NULL;
+  }
+  AuraTaskChannel *channel = payload->channel;
+  payload->channel = NULL;
+  free(payload);
+  return channel;
 }
 
 static void aura_task_channel_wake(AuraTaskFrame *frame)
@@ -12772,7 +13394,60 @@ AuraTaskChannel *aura_task_channel_new(size_t capacity)
     return NULL;
   }
   channel->capacity = capacity;
+  channel->refs = 1;
   return channel;
+}
+
+int aura_task_channel_retain(AuraTaskChannel *channel)
+{
+  if (channel == NULL)
+  {
+    return 0;
+  }
+  aura_task_channel_lock_enter();
+  if (channel->refs == 0)
+  {
+    aura_task_channel_lock_leave();
+    return 0;
+  }
+  channel->refs++;
+  aura_task_channel_lock_leave();
+  return 1;
+}
+
+AuraTaskChannelValue aura_task_channel_value_from_task(AuraTaskExecutor *executor,
+                                                        AuraTaskFrame *frame)
+{
+  AuraTaskChannelValue value = {NULL, 0, NULL};
+  AuraTaskPayloadRef *payload = (AuraTaskPayloadRef *)calloc(1, sizeof(*payload));
+  if (payload == NULL ||
+      !aura_task_executor_retain_payload(executor, frame))
+  {
+    free(payload);
+    return value;
+  }
+  payload->executor = executor;
+  payload->frame = frame;
+  value.data = payload;
+  value.size = sizeof(*payload);
+  value.destroy = aura_task_channel_value_destroy_task;
+  return value;
+}
+
+AuraTaskChannelValue aura_task_channel_value_from_channel(AuraTaskChannel *channel)
+{
+  AuraTaskChannelValue value = {NULL, 0, NULL};
+  AuraChannelPayloadRef *payload = (AuraChannelPayloadRef *)calloc(1, sizeof(*payload));
+  if (payload == NULL || !aura_task_channel_retain(channel))
+  {
+    free(payload);
+    return value;
+  }
+  payload->channel = channel;
+  value.data = payload;
+  value.size = sizeof(*payload);
+  value.destroy = aura_task_channel_value_destroy_channel;
+  return value;
 }
 
 size_t aura_task_channel_capacity(const AuraTaskChannel *channel)
@@ -12997,6 +13672,19 @@ void aura_task_channel_destroy(AuraTaskChannel *channel)
   {
     return;
   }
+  aura_task_channel_lock_enter();
+  if (channel->refs == 0)
+  {
+    aura_task_channel_lock_leave();
+    return;
+  }
+  channel->refs--;
+  if (channel->refs != 0)
+  {
+    aura_task_channel_lock_leave();
+    return;
+  }
+  aura_task_channel_lock_leave();
   (void)aura_task_channel_close(channel);
   aura_task_channel_lock_enter();
   while (channel->count != 0)

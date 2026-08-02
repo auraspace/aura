@@ -13,10 +13,12 @@ pub mod formatter;
 
 pub use aura_diagnostics::Severity;
 pub use aura_parser::{
-    declarative_macro_sources, parse_file, parse_file_with_macro_sources, ParseError,
+    declarative_macro_names, declarative_macro_sources, parse_file, parse_file_with_macro_sources,
+    ParseError,
 };
 pub use aura_sema::{
-    check_file, check_file_with_plugin_source, check_file_with_sandboxed_macro, CheckedFile,
+    check_file, check_file_with_plugin_source, check_file_with_sandboxed_macro,
+    decode_plugin_request, encode_plugin_request, encode_plugin_response, CheckedFile,
     MacroPluginRequest, MacroPluginResponse, MacroSandboxConfig, SemaError, SemaErrors,
     MACRO_PLUGIN_ABI_VERSION,
 };

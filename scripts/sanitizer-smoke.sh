@@ -67,14 +67,20 @@ run_native_fixture() {
   local fixture="$1"
   local source="$2"
   local output="$tmp/$fixture"
-  local extra=()
+  local -a extra=()
   if ! grep -q 'AURA_RUNTIME_NO_MAIN' "$source"; then
     extra=(-D AURA_RUNTIME_NO_MAIN)
   fi
   printf 'sanitizer smoke: %s\n' "$fixture"
-  "$real_cc" "${extra[@]}" -D_POSIX_C_SOURCE=200809L -std=c11 -Wall -Wextra -Werror \
-    -fsanitize=address,undefined -fno-omit-frame-pointer \
-    -o "$output" "$source"
+  if ((${#extra[@]})); then
+    "$real_cc" "${extra[@]}" -D_POSIX_C_SOURCE=200809L -std=c11 -Wall -Wextra -Werror \
+      -fsanitize=address,undefined -fno-omit-frame-pointer \
+      -o "$output" "$source"
+  else
+    "$real_cc" -D_POSIX_C_SOURCE=200809L -std=c11 -Wall -Wextra -Werror \
+      -fsanitize=address,undefined -fno-omit-frame-pointer \
+      -o "$output" "$source"
+  fi
   ASAN_OPTIONS="$native_asan_options" \
     UBSAN_OPTIONS="$ubsan_options" \
     "$output"

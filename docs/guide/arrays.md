@@ -13,8 +13,12 @@ Builtin `Array<T>` is the primary growable sequence type in the MVP ([RFC-001](/
 
 `Array<I>` is supported for interface `I`. Interface elements use the runtime's
 tagged representation, so `get`, `set`, copying, method dispatch, and GC
-marking preserve the concrete object behind each element. See
-`corpus/iface/array_interface.aura` for a dispatch and GC smoke test.
+marking preserve the concrete object behind each element. Immutable Arrays
+captured by lambdas are cloned as owning snapshots and register their backing
+buffers with the typed GC root contract, which scans each tagged element. See
+`corpus/iface/array_interface.aura` for a dispatch and GC smoke test. The same
+typed registration is used for nested aggregate arrays and compiler-generated
+async/spawn frame storage, so tagged elements are never scanned as raw pointers.
 
 ## Create and index
 
@@ -86,7 +90,7 @@ fun demo_str(xs: Array<String>): Array<String> {
 
 Corpus: `fun/lambda_hof.aura`, `std_collections/hof`, `std_collections/hof_str`, `std_collections/join`.
 
-**Capture limits:** lambdas may close over outer `val` of `Int` / `Bool` / `String` / class / Array and outer `var` of scalar, String, class, Array, or Fun values through shared mutable storage (C20c–e). Mutable class payloads are GC-rooted and nested Fun environments retain/release correctly. Array captures use an owned snapshot for immutable bindings and a shared retained cell for mutable bindings; they do not expose non-owning live views, so owner movement, closure escape, and mutation remain valid under the documented retain/release contract. Richer aggregate element policies remain tracked in [`agents/debts.md`](https://github.com/auraspace/aura/blob/main/agents/debts.md).
+**Capture limits:** lambdas may close over outer `val` of `Int` / `Bool` / `String` / class / Array and outer `var` of scalar, String, class, Array, or Fun values through shared mutable storage (C20c–e). Mutable class payloads are GC-rooted and nested Fun environments retain/release correctly. Array captures use an owned snapshot for immutable bindings and a shared retained cell for mutable bindings; they do not expose non-owning live views, so owner rebinding, closure escape, mutation, and forced GC remain valid under the documented retain/release contract. `Array<HeapClass>` and `Array<Interface>` snapshots register an explicit typed GC array root for the closure lifetime. Richer aggregate element policies remain tracked in [`agents/debts.md`](https://github.com/auraspace/aura/blob/main/agents/debts.md).
 
 Array parameters **own** the buffer (move at call site). Use `clone()` if you need the same array after a call that takes it.
 
@@ -121,7 +125,7 @@ The C backend frees owned array buffers at scope end / before return / on owner 
 **Element drop:**
 
 - **Nested `Array<Array<T>>`:** deep-frees nested buffers on drop / clear / set (**C8e / C8f**).
-- **Other elems:** buffer-only free is enough — primitives and by-value structs/enums need no dtor; class elems are GC roots.
+- **Other elems:** buffer-only free is enough for primitives; structs, enums, and interface unions use generated typed clone/drop/mark hooks, while heap class references are scanned as GC roots.
 
 ## Corpus
 

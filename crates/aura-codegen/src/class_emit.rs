@@ -378,7 +378,12 @@ fn emit_struct_field_clone(
         let cty = crate::stmt::local_key_to_c(&full, checked);
         let _ = writeln!(out, "  {field_expr} = {cty}_clone(&({source_expr}));");
     } else if crate::names::is_heap_class_mono(&full, checked) {
-        let _ = writeln!(out, "  {field_expr} = {source_expr}; if ({field_expr} != NULL) aura_gc_add_root((void **)&{field_expr});");
+        // The clone destination may be a stack temporary (`copy` in a value
+        // struct clone, or `self` in a value-struct constructor).  Registering
+        // that slot as a GC root would leave a stale stack address after this
+        // helper returns.  The owning frame/result/class mark hook owns the
+        // liveness edge for the copied field instead.
+        let _ = writeln!(out, "  {field_expr} = {source_expr};");
     } else if full == "ForeignHandle" || full.starts_with("ForeignHandle_") {
         let _ = writeln!(out, "  {field_expr} = {source_expr}; if ({field_expr} != NULL) (void)aura_ffi_handle_retain({field_expr});");
     } else if crate::names::is_fun_type_key(&full) {
@@ -401,10 +406,8 @@ fn emit_struct_field_drop(out: &mut String, checked: &CheckedFile, field_expr: &
         let cty = crate::stmt::local_key_to_c(&full, checked);
         let _ = writeln!(out, "  {cty}_drop(&({field_expr}));");
     } else if crate::names::is_heap_class_mono(&full, checked) {
-        let _ = writeln!(
-            out,
-            "  if ({field_expr} != NULL) aura_gc_remove_root((void **)&{field_expr});"
-        );
+        // Heap-class fields are marked through their containing class/struct;
+        // they are not independently registered by the value clone helper.
     } else if full == "ForeignHandle" || full.starts_with("ForeignHandle_") {
         let _ = writeln!(
             out,
@@ -469,22 +472,17 @@ pub(crate) fn emit_struct_value_hooks(
         {
             let cty = crate::stmt::local_key_to_c(&full, checked);
             let _ = writeln!(out, "  {cty}_mark(&value->{field});");
-        } else if let Some(elem) = crate::array_emit::array_elem_key(&full) {
-            let elem = crate::expr::full_type_mono(elem, checked);
-            if crate::names::is_heap_class_mono(&elem, checked) {
-                let _ = writeln!(out, "  if (value->{field}.data != NULL) for (int64_t __i = 0; __i < value->{field}.len; __i++) aura_gc_mark_ptr((void *)value->{field}.data[__i]);");
-            } else if crate::expr::is_enum_mono(&elem, checked)
-                || is_value_struct_mono(&elem, checked)
-            {
-                let cty = crate::stmt::local_key_to_c(&elem, checked);
-                let _ = writeln!(out, "  if (value->{field}.data != NULL) for (int64_t __i = 0; __i < value->{field}.len; __i++) {cty}_mark(&value->{field}.data[__i]);");
-            }
+        } else if crate::array_emit::is_array_type_key(&full)
+            && crate::array_emit::is_array_of_heap_class(&full, checked)
+        {
+            let array_cty = crate::stmt::local_key_to_c(&full, checked);
+            let _ = writeln!(out, "  {array_cty}_mark(&value->{field});");
         }
     }
     out.push_str("}\n\n");
 }
 
-fn ownership_fields<'a>(
+pub(crate) fn ownership_fields<'a>(
     c: &'a ClassDecl,
     checked: &'a CheckedFile,
     params: &[String],
@@ -638,10 +636,18 @@ fn emit_class_gc_hooks(
         }
         for name in &arr_fields {
             let f = mangle_ident(name);
-            let _ = writeln!(
-                out,
-                "  if (self->{f}.data != NULL) {{ free(self->{f}.data); self->{f}.data = NULL; self->{f}.len = 0; self->{f}.cap = 0; }}"
-            );
+            if let Some((_, key)) = ownership_fields(c, checked, params, args)
+                .into_iter()
+                .find(|(field, _)| field == name)
+            {
+                crate::array_emit::emit_array_contents_free_checked(
+                    out,
+                    1,
+                    &format!("self->{f}"),
+                    &key,
+                    checked,
+                );
+            }
         }
         out.push_str("}\n\n");
         let _ = writeln!(
@@ -1202,6 +1208,8 @@ fn emit_async_class_method(
     };
     let mut params = vec![this_param];
     params.extend(m.params.clone());
+    let mut body = m.body.clone();
+    crate::emit::substitute_async_body(&mut body, class_params, class_args);
     let synthetic = AsyncFunDecl {
         is_pub: m.is_pub,
         origin_package: class_decl_package(c, checked),
@@ -1213,8 +1221,8 @@ fn emit_async_class_method(
         },
         type_params: Vec::new(),
         params,
-        return_type: Some(subst_type_ref(result_ty, class_params, class_args, c.span)),
-        body: m.body.clone(),
+        return_type: Some(subst_type_ref(result_ty, &class_params, class_args, c.span)),
+        body,
         span: m.span,
     };
     crate::emit::emit_async_fun_decl(out, &synthetic, checked, detector);
@@ -1640,6 +1648,7 @@ pub(crate) fn emit_method_mono(
         type_params: all_params.clone(),
         type_args: all_args.clone(),
         locals: vec![HashMap::new()],
+        local_c_names: HashMap::new(),
         array_owners: vec![std::collections::HashSet::new()],
         fun_owners: vec![std::collections::HashSet::new()],
         string_owners: vec![std::collections::HashSet::new()],
@@ -1684,10 +1693,13 @@ pub(crate) fn emit_method_mono(
         if crate::array_emit::is_array_of_heap_class(&mono_key, checked) {
             ctx.mark_array_gc_root(&p.name.name);
             let n = mangle_ident(&p.name.name);
-            let _ = writeln!(
-                out,
-                "  aura_gc_add_array_root((void **)&{n}.data, &{n}.len);"
+            let root = crate::array_emit::array_gc_root_add_call(
+                &format!("{n}.data"),
+                &format!("{n}.len"),
+                &mono_key,
+                checked,
             );
+            let _ = writeln!(out, "  {root}");
         }
     }
     // `this` is a heap pointer for classes — root it for the method body.

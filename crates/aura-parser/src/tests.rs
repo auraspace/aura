@@ -721,3 +721,48 @@ fn expands_declarative_macro_with_multiple_repeated_captures() {
     assert!(source.contains("1"), "expanded AST: {source}");
     assert!(source.contains("2"), "expanded AST: {source}");
 }
+
+#[test]
+fn declarative_macro_bindings_are_hygienic() {
+    let file = parse_file(
+        "package demo\nmacro! make { () => { val value: Int = 1 } }\nfun main() { val value: Int = 9 make!() }\n",
+    )
+    .expect("hygienic macro should parse");
+    let body = &file.functions[0].body.stmts;
+    let debug = format!("{body:?}");
+    assert!(debug.contains("__aura_macro_make_"), "{debug}");
+    assert!(
+        debug.contains("name: Ident { name: \"value\""),
+        "caller binding missing: {debug}"
+    );
+}
+
+#[test]
+fn declarative_macro_nested_bindings_get_distinct_scopes() {
+    let file = parse_file(
+        "package demo\nmacro! scoped { () => { val value: Int = 1 if (true) { val value: Int = 2 println(value.toString()) } println(value.toString()) } }\nfun main() { scoped!() }\n",
+    )
+    .expect("nested hygienic macro should parse");
+    let debug = format!("{:?}", file.functions[0].body);
+    let first = debug
+        .match_indices("__aura_macro_scoped_")
+        .map(|(index, _)| index)
+        .count();
+    assert!(
+        first >= 4,
+        "nested bindings and references missing: {debug}"
+    );
+    assert!(debug.contains("__aura_macro_scoped_1_value"), "{debug}");
+    assert!(debug.contains("__aura_macro_scoped_2_value"), "{debug}");
+}
+
+#[test]
+fn declarative_macro_function_parameters_use_body_scope() {
+    let file = parse_file(
+        "package demo\nmacro! make { () => { fun inner(value: Int): Int { if (true) { val value: Int = 2 println(value.toString()) } return value } } }\nmake!()\nfun main() { inner(1) }\n",
+    )
+    .expect("function parameter hygiene should parse");
+    let debug = format!("{:?}", file.functions);
+    assert!(debug.contains("__aura_macro_make_2_value"), "{debug}");
+    assert!(debug.contains("__aura_macro_make_3_value"), "{debug}");
+}

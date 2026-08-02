@@ -31,6 +31,8 @@ pub(crate) enum AsyncCfgNode {
         catch_name: String,
         catch_key: String,
         catch_state: usize,
+        failure_state: Option<usize>,
+        finally_state: Option<usize>,
         next: usize,
     },
     AwaitCatchValue {
@@ -41,6 +43,8 @@ pub(crate) enum AsyncCfgNode {
         catch_name: String,
         catch_key: String,
         catch_state: usize,
+        failure_state: Option<usize>,
+        finally_state: Option<usize>,
         next: usize,
     },
     AwaitFinally {
@@ -50,6 +54,7 @@ pub(crate) enum AsyncCfgNode {
         next: usize,
     },
     Fail,
+    Cancel,
     Return {
         value: String,
         value_key: String,
@@ -146,6 +151,9 @@ impl<'a> AsyncStateMachine<'a> {
                 }
                 AsyncCfgNode::Fail => {
                     let _ = writeln!(out, "/* aura async state={state} kind=fail */");
+                }
+                AsyncCfgNode::Cancel => {
+                    let _ = writeln!(out, "/* aura async state={state} kind=cancel */");
                 }
                 AsyncCfgNode::Return { .. } => {
                     let _ = writeln!(out, "/* aura async state={state} kind=return */");

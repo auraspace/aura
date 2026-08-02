@@ -22,6 +22,26 @@ pub fun connect(endpoint: String, timeoutMs: Int): ForeignHandle<Int> {
   throw "connect intrinsic"
 }
 
+/// Typed replacement for `listen`; recoverable bind failures are returned as
+/// `NetError` instead of escaping through a thrown string.
+pub fun listenResult(endpoint: String): NetErrs.Outcome<ForeignHandle<Int>, NetErrs.NetError> {
+  try {
+    return NetErrs.success(listen(endpoint))
+  } catch (error: String) {
+    return NetErrs.failure(NetErrs.asNetError(NetErrs.transport(error, 0)))
+  }
+}
+
+/// Typed replacement for `connect`; recoverable connection failures are
+/// returned as `NetError` instead of escaping through a thrown string.
+pub fun connectResult(endpoint: String, timeoutMs: Int): NetErrs.Outcome<ForeignHandle<Int>, NetErrs.NetError> {
+  try {
+    return NetErrs.success(connect(endpoint, timeoutMs))
+  } catch (error: String) {
+    return NetErrs.failure(NetErrs.asNetError(NetErrs.transport(error, 0)))
+  }
+}
+
 /// Suspend until an incoming stream is available on `listener`. The returned
 /// stream is owned by the task result and remains valid across `await`.
 pub async fun accept(listener: ForeignHandle<Int>): ForeignHandle<Int> {
@@ -38,6 +58,24 @@ pub fun closeListener(listener: ForeignHandle<Int>): Bool {
 /// the scheduler removes their readiness registration.
 pub fun closeStream(stream: ForeignHandle<Int>): Bool {
   throw "closeStream intrinsic"
+}
+
+/// Typed replacement for `closeListener`.
+pub fun closeListenerResult(listener: ForeignHandle<Int>): NetErrs.Outcome<Bool, NetErrs.NetError> {
+  try {
+    return NetErrs.success(closeListener(listener))
+  } catch (error: String) {
+    return NetErrs.failure(NetErrs.asNetError(NetErrs.transport(error, 0)))
+  }
+}
+
+/// Typed replacement for `closeStream`.
+pub fun closeStreamResult(stream: ForeignHandle<Int>): NetErrs.Outcome<Bool, NetErrs.NetError> {
+  try {
+    return NetErrs.success(closeStream(stream))
+  } catch (error: String) {
+    return NetErrs.failure(NetErrs.asNetError(NetErrs.transport(error, 0)))
+  }
 }
 
 /// Read up to `capacity` bytes from a typed TCP stream and suspend until it
@@ -79,7 +117,7 @@ pub async fun readStreamResult(stream: ForeignHandle<Int>, capacity: Int): NetEr
     val chunk: String = await readStream(stream, capacity)
     return NetErrs.success(chunk)
   } catch (error: String) {
-    return NetErrs.failure(NetErrs.asNetError(NetErrs.network(error, 0)))
+    return NetErrs.failure(NetErrs.asNetError(NetErrs.transport(error, 0)))
   }
 }
 
@@ -90,6 +128,6 @@ pub async fun writeStreamResult(stream: ForeignHandle<Int>, content: String): Ne
     val transferred: Int = await writeStream(stream, content)
     return NetErrs.success(transferred)
   } catch (error: String) {
-    return NetErrs.failure(NetErrs.asNetError(NetErrs.network(error, 0)))
+    return NetErrs.failure(NetErrs.asNetError(NetErrs.transport(error, 0)))
   }
 }

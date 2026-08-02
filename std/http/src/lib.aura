@@ -83,14 +83,22 @@ pub async fun postResponse(endpoint: String, target: String, body: String): Clie
 
 /// Typed variant that preserves protocol failures instead of returning status 0.
 pub async fun getResponseResult(endpoint: String, target: String): Errs.Outcome<ClientResponse, Errs.HttpError> {
-  val raw: String = await get(endpoint, target)
-  return parseResponseResult(raw)
+  try {
+    val raw: String = await get(endpoint, target)
+    return parseResponseResult(raw)
+  } catch (error: String) {
+    return Errs.failure(Errs.asHttpError(Errs.transport(error, 0)))
+  }
 }
 
 /// Typed variant of `postResponse` with shared std.error payloads.
 pub async fun postResponseResult(endpoint: String, target: String, body: String): Errs.Outcome<ClientResponse, Errs.HttpError> {
-  val raw: String = await post(endpoint, target, body)
-  return parseResponseResult(raw)
+  try {
+    val raw: String = await post(endpoint, target, body)
+    return parseResponseResult(raw)
+  } catch (error: String) {
+    return Errs.failure(Errs.asHttpError(Errs.transport(error, 0)))
+  }
 }
 
 /// Split the status line and body of one bounded HTTP/1.1 response.

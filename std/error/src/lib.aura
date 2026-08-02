@@ -69,9 +69,9 @@ pub class Error(pub val kind: ErrorKind, pub val message: String, pub val code: 
       case NotFound => { return false }
       case PermissionDenied => { return false }
       case WouldBlock => { return false }
-      case TimedOut => { return false }
+      case TimedOut => { return true }
       case Cancelled => { return false }
-      case Disconnected => { return false }
+      case Disconnected => { return true }
       case LimitExceeded => { return false }
       case Protocol => { return false }
       case System => { return false }
@@ -88,6 +88,23 @@ pub fun protocol(message: String, code: Int): Error {
 /// Construct a transport error without exposing enum variant qualification.
 pub fun network(message: String, code: Int): Error {
   return Error(ErrorNetwork(), message, code)
+}
+
+/// Classify a bounded runtime transport diagnostic without exposing native
+/// status storage through the public ABI. Runtime bridges use stable phrases
+/// for timeout, cancellation, and peer-close paths; unknown text remains a
+/// generic network failure.
+pub fun transport(message: String, code: Int): Error {
+  if (message.contains("timeout") || message.contains("timed out")) {
+    return timedOut(message, code)
+  }
+  if (message.contains("cancel")) {
+    return Error(Cancelled(), message, code)
+  }
+  if (message.contains("closed") || message.contains("disconnect") || message.contains("EOF")) {
+    return disconnected(message, code)
+  }
+  return network(message, code)
 }
 
 /// Construct an invalid-input error.

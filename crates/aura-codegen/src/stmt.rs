@@ -6,6 +6,7 @@ use aura_ast::*;
 use aura_sema::{CheckedFile, Ty};
 // Ty used in type_ref_local_key_checked
 
+use crate::class_emit::ownership_fields;
 use crate::ctx::EmitCtx;
 use crate::expr::{
     array_field_move_out_lvalue, coerce_expr, emit_expr, full_type_mono, infer_type_name,
@@ -123,6 +124,8 @@ pub(crate) fn emit_return_fallback(
                 || ct.starts_with("aura_iface_")
             {
                 let _ = writeln!(out, "  return ({ct}){{0}}; /* fallback */");
+            } else {
+                let _ = writeln!(out, "  return ({ct}){{0}}; /* fallback */");
             }
         }
         _ => {}
@@ -237,7 +240,11 @@ pub(crate) fn is_task_result_owner_key(key: &str) -> bool {
 }
 
 fn is_task_result_string_owner_key(key: &str) -> bool {
-    key == "std_io_Result_String_std_io_TaskError"
+    matches!(
+        key.strip_prefix("std_io_Result_")
+            .and_then(|rest| rest.strip_suffix("_std_io_TaskError")),
+        Some("String" | "Opt_String")
+    )
 }
 
 pub(crate) fn is_shared_outcome_error_owner_key(key: &str) -> bool {
@@ -253,21 +260,22 @@ fn is_task_result_shared_outcome_error_owner_key(key: &str) -> bool {
 fn task_result_array_owner_key(key: &str) -> Option<&str> {
     key.strip_prefix("std_io_Result_")
         .and_then(|rest| rest.strip_suffix("_std_io_TaskError"))
-        .filter(|payload| is_array_type_key(payload))
+        .filter(|payload| is_array_type_key(crate::expr::task_payload_repr_key(payload).as_str()))
 }
 
 fn task_result_class_owner_key<'a>(key: &'a str, ctx: &EmitCtx<'_>) -> Option<&'a str> {
     let payload = key
         .strip_prefix("std_io_Result_")
         .and_then(|rest| rest.strip_suffix("_std_io_TaskError"))?;
-    is_heap_class_mono(payload, ctx.checked).then_some(payload)
+    is_heap_class_mono(&crate::expr::task_payload_repr_key(payload), ctx.checked).then_some(payload)
 }
 
 fn task_result_enum_owner_key<'a>(key: &'a str, ctx: &EmitCtx<'_>) -> Option<&'a str> {
     let payload = key
         .strip_prefix("std_io_Result_")
         .and_then(|rest| rest.strip_suffix("_std_io_TaskError"))?;
-    crate::expr::mono_split(payload, ctx.checked)
+    let repr = crate::expr::task_payload_repr_key(payload);
+    crate::expr::mono_split(&repr, ctx.checked)
         .is_some_and(|(base, _)| ctx.checked.ast.enums.iter().any(|e| e.name.name == base))
         .then_some(payload)
 }
@@ -276,13 +284,21 @@ fn task_result_struct_owner_key<'a>(key: &'a str, ctx: &EmitCtx<'_>) -> Option<&
     let payload = key
         .strip_prefix("std_io_Result_")
         .and_then(|rest| rest.strip_suffix("_std_io_TaskError"))?;
-    let base = crate::expr::mono_base_name(payload, ctx.checked)?;
+    let repr = crate::expr::task_payload_repr_key(payload);
+    let base = crate::expr::mono_base_name(&repr, ctx.checked)?;
     ctx.checked
         .ast
         .classes
         .iter()
         .any(|class| class.kind == aura_ast::NominalKind::Struct && class.name.name == base)
         .then_some(payload)
+}
+
+pub(crate) fn task_result_fun_owner_key(key: &str) -> Option<&str> {
+    let payload = key
+        .strip_prefix("std_io_Result_")
+        .and_then(|rest| rest.strip_suffix("_std_io_TaskError"))?;
+    is_fun_type_key(&crate::expr::task_payload_repr_key(payload)).then_some(payload)
 }
 
 pub(crate) fn emit_free_task_result_owners(
@@ -303,12 +319,13 @@ pub(crate) fn emit_free_task_result_owners(
                 "if ({n}.tag == 0 && {n}.data.Ok.owned) {{ free((void *){n}.data.Ok.value); {n}.data.Ok.value = NULL; {n}.data.Ok.owned = false; }} "
             )
         } else if let Some(array_key) = task_result_array_owner_key(key) {
+            let array_key = crate::expr::task_payload_repr_key(array_key);
             let mut cleanup = String::new();
             crate::array_emit::emit_array_contents_free(
                 &mut cleanup,
                 0,
                 &format!("{n}.data.Ok.value"),
-                array_key,
+                &array_key,
             );
             format!("if ({n}.tag == 0) {{ {cleanup} }} ")
         } else if task_result_foreign_handle_owner_key(key).is_some() {
@@ -325,31 +342,66 @@ pub(crate) fn emit_free_task_result_owners(
             )
         } else if task_result_enum_owner_key(key, ctx).is_some() {
             let payload = task_result_enum_owner_key(key, ctx).unwrap();
-            let payload_cty = local_key_to_c(payload, ctx.checked);
+            let payload_cty =
+                local_key_to_c(&crate::expr::task_payload_repr_key(payload), ctx.checked);
             format!(
                 "if ({n}.tag == 0 && {n}.data.Ok.owned) {{ {payload_cty}_drop(&{n}.data.Ok.value); {n}.data.Ok.owned = false; }} "
             )
         } else if task_result_struct_owner_key(key, ctx).is_some() {
             let payload = task_result_struct_owner_key(key, ctx).unwrap();
-            let payload_cty = local_key_to_c(payload, ctx.checked);
+            let payload_cty =
+                local_key_to_c(&crate::expr::task_payload_repr_key(payload), ctx.checked);
             format!(
                 "if ({n}.tag == 0 && {n}.data.Ok.owned) {{ {payload_cty}_drop(&{n}.data.Ok.value); {n}.data.Ok.owned = false; }} "
             )
+        } else if task_result_fun_owner_key(key).is_some() {
+            format!(
+                "if ({n}.tag == 0 && {n}.data.Ok.owned && {n}.data.Ok.value.env != NULL) {{ aura_fun_env_free({n}.data.Ok.value.env); {n}.data.Ok.value.env = NULL; {n}.data.Ok.owned = false; }} "
+            )
+        } else if task_result_scheduler_owner_key(key).is_some() {
+            let payload = task_result_scheduler_owner_key(key).unwrap();
+            if crate::expr::task_payload_repr_key(payload).starts_with("Channel") {
+                format!(
+                    "if ({n}.tag == 0 && {n}.data.Ok.owned && {n}.data.Ok.value != NULL) {{ aura_task_channel_destroy({n}.data.Ok.value); {n}.data.Ok.value = NULL; {n}.data.Ok.owned = false; }} "
+                )
+            } else {
+                format!(
+                    "if ({n}.tag == 0 && {n}.data.Ok.owned && {n}.data.Ok.value != NULL && __aura_task_executor != NULL) {{ (void)aura_task_executor_release_payload(__aura_task_executor, &{n}.data.Ok.value); {n}.data.Ok.owned = false; }} "
+                )
+            }
         } else {
             String::new()
         };
         let _ = writeln!(
             out,
-            "{p}{ok_cleanup}if ({n}.tag == 1 && {n}.data.Err.error.tag == 0 && {n}.data.Err.error.data.Failed.owned) {{ free((void *){n}.data.Err.error.data.Failed.error); {n}.data.Err.error.data.Failed.error = NULL; {n}.data.Err.error.data.Failed.owned = false; }}"
+            "{p}{ok_cleanup}if ({n}.tag == 1 && {n}.data.Err.error.tag == 0) {{ if ({n}.data.Err.error.data.Failed.owned) {{ free((void *){n}.data.Err.error.data.Failed.error); {n}.data.Err.error.data.Failed.error = NULL; {n}.data.Err.error.data.Failed.owned = false; }} if ({n}.data.Err.error.data.Failed.type_name_owned) {{ free((void *){n}.data.Err.error.data.Failed.type_name); {n}.data.Err.error.data.Failed.type_name = NULL; {n}.data.Err.error.data.Failed.type_name_owned = false; }} }}"
         );
     }
+}
+
+fn task_result_scheduler_owner_key(key: &str) -> Option<&str> {
+    let payload = key
+        .strip_prefix("std_io_Result_")
+        .and_then(|rest| rest.strip_suffix("_std_io_TaskError"))?;
+    let repr = crate::expr::task_payload_repr_key(payload);
+    (repr == "Task"
+        || repr.starts_with("Task_")
+        || repr == "TaskHandle"
+        || repr.starts_with("TaskHandle_")
+        || repr == "Channel"
+        || repr.starts_with("Channel_")
+        || repr.starts_with("std_io_Task")
+        || repr.starts_with("std_io_Channel"))
+    .then_some(payload)
 }
 
 fn task_result_foreign_handle_owner_key(key: &str) -> Option<&str> {
     let payload = key
         .strip_prefix("std_io_Result_")
         .and_then(|rest| rest.strip_suffix("_std_io_TaskError"))?;
-    payload.starts_with("ForeignHandle_").then_some(payload)
+    crate::expr::task_payload_repr_key(payload)
+        .starts_with("ForeignHandle_")
+        .then_some(payload)
 }
 
 pub(crate) fn emit_release_task_handle_owners(
@@ -364,7 +416,11 @@ pub(crate) fn emit_release_task_handle_owners(
         let n = mangle_ident(name);
         if key == "ForeignHandle" || key.starts_with("ForeignHandle_") {
             let _ = writeln!(out, "{p}if ({n} != NULL) (void)aura_ffi_handle_drop(&{n});");
-        } else if key == "TaskHandle" || key.starts_with("TaskHandle_") {
+        } else if key == "Task"
+            || key.starts_with("Task_")
+            || key == "TaskHandle"
+            || key.starts_with("TaskHandle_")
+        {
             let _ = writeln!(
                 out,
                 "{p}if (__aura_task_executor != NULL) (void)aura_task_executor_release(__aura_task_executor, &{n});"
@@ -428,13 +484,22 @@ fn emit_remove_array_gc_roots(out: &mut String, indent: usize, names: &[String])
     }
 }
 
-fn emit_add_array_gc_root(out: &mut String, indent: usize, name: &str) {
+fn emit_add_array_gc_root(
+    out: &mut String,
+    indent: usize,
+    name: &str,
+    key: &str,
+    checked: &CheckedFile,
+) {
     let p = pad(indent);
     let n = mangle_ident(name);
-    let _ = writeln!(
-        out,
-        "{p}aura_gc_add_array_root((void **)&{n}.data, &{n}.len);"
+    let root = crate::array_emit::array_gc_root_add_call(
+        &format!("{n}.data"),
+        &format!("{n}.len"),
+        key,
+        checked,
     );
+    let _ = writeln!(out, "{p}{root}");
 }
 
 fn is_array_type_key(key: &str) -> bool {
@@ -529,22 +594,44 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
     let p = pad(indent);
     match stmt {
         Stmt::Var(v) => {
-            let ty_name =
+            let raw_ty_name =
                 v.ty.as_ref()
                     .map(|t| type_ref_local_key_checked(t, ctx))
                     .unwrap_or_else(|| infer_type_name(&v.init, ctx));
+            let ty_name = crate::expr::task_payload_repr_key(&raw_ty_name);
             let ty =
                 v.ty.as_ref()
                     .map(|t| c_type_ref_subst(t, ctx.checked, &ctx.type_params, &ctx.type_args))
                     .unwrap_or_else(|| local_key_to_c(&ty_name, ctx.checked));
-            // Store package mono key so method dispatch picks the right C symbol (C3v).
-            ctx.define_local(&v.name.name, full_type_mono(&ty_name, ctx.checked));
-            let owns_task_result = is_task_result_owner_key(&ty_name)
+            // Keep nullable generic arguments in enum context keys. Their C
+            // field representation is unchanged, but the monomorph still
+            // selects the correct Result/Outcome layout and match arms.
+            let context_ty_name = if let Some(semantic_ty) = ctx
+                .checked
+                .expr_tys
+                .get(&(v.init.span().start, v.init.span().end))
+                .filter(|ty| {
+                    matches!(
+                        ty,
+                        Ty::EnumApp { name, .. } | Ty::Enum(name)
+                            if matches!(aura_sema::split_nominal(name).0, "Result" | "Outcome")
+                    )
+                }) {
+                full_type_mono(&semantic_ty.mono_suffix(), ctx.checked)
+            } else {
+                full_type_mono(&ty_name, ctx.checked)
+            };
+            ctx.define_local(&v.name.name, context_ty_name.clone());
+            let owns_task_result = is_task_result_owner_key(&context_ty_name)
                 && matches!(v.init, Expr::Async(AsyncExpr::Join(_)));
             if owns_task_result {
                 ctx.mark_task_result_owner(&v.name.name);
             }
-            if ty_name == "TaskHandle" || ty_name.starts_with("TaskHandle_") {
+            if ty_name == "Task"
+                || ty_name.starts_with("Task_")
+                || ty_name == "TaskHandle"
+                || ty_name.starts_with("TaskHandle_")
+            {
                 ctx.mark_task_handle_owner(&v.name.name);
             }
             let owned_foreign_handle_init = ty_name.starts_with("ForeignHandle_")
@@ -558,6 +645,8 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
             if owned_foreign_handle_init {
                 ctx.mark_task_handle_owner(&v.name.name);
             }
+            let owned_string_channel_init =
+                ty_name == "String" && matches!(v.init, Expr::Async(AsyncExpr::ChannelReceive(_)));
             // C22l: make bindings visible to a later bounded spawn in the same
             // lexical scope. `bounded_spawn_captures` still filters the actual
             // capture set to the supported owned types.
@@ -598,7 +687,12 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
             // directly; an owned identifier is moved below after emission.
             let string_copy_init =
                 ty_name == "String" && v.mutable && !string_owned_init && string_move_src.is_none();
-            if !needs_box && (string_owned_init || string_move_src.is_some() || string_copy_init) {
+            if !needs_box
+                && (string_owned_init
+                    || string_move_src.is_some()
+                    || string_copy_init
+                    || owned_string_channel_init)
+            {
                 ctx.mark_string_owner(&v.name.name);
             }
             if ty_name.starts_with("Channel_")
@@ -724,7 +818,13 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                 let (payload_ty, drop, init_payload) = if is_array_type_key(&ty_name) {
                     let root = if crate::array_emit::is_array_of_heap_class(&ty_name, ctx.checked) {
                         format!(
-                            " aura_gc_add_array_root((void **)&{payload}->data, &{payload}->len);"
+                            " {}",
+                            crate::array_emit::array_gc_root_add_call(
+                                &format!("{payload}->data"),
+                                &format!("{payload}->len"),
+                                &ty_name,
+                                ctx.checked,
+                            )
                         )
                     } else {
                         String::new()
@@ -765,13 +865,13 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                     "{p}if ({dst}.tag == 0 && {dst}.data.Ok.value != NULL) aura_gc_add_root((void **)&{dst}.data.Ok.value);"
                 );
             }
-            if is_shared_outcome_error_owner_key(&ty_name) {
+            if is_shared_outcome_error_owner_key(&context_ty_name) {
                 let _ = writeln!(
                     out,
                     "{p}if ({dst}.tag == 1 && {dst}.data.OutcomeErr.error != NULL) {{ aura_gc_add_root((void **)&{dst}.data.OutcomeErr.error); {dst}.data.OutcomeErr.owned = true; }}"
                 );
             }
-            if is_task_result_shared_outcome_error_owner_key(&ty_name) {
+            if is_task_result_shared_outcome_error_owner_key(&context_ty_name) {
                 let _ = writeln!(
                     out,
                     "{p}if ({dst}.tag == 0 && {dst}.data.Ok.value.tag == 1 && {dst}.data.Ok.value.data.OutcomeErr.error != NULL) {{ aura_gc_add_root((void **)&{dst}.data.Ok.value.data.OutcomeErr.error); {dst}.data.Ok.value.data.OutcomeErr.owned = true; {dst}.data.Ok.owned = true; }}"
@@ -812,9 +912,14 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                 let _ = writeln!(out, "{p}aura_gc_add_root((void **)&{dst});");
             }
             // C6e: Array-of-class locals keep element GC pointers alive across collect.
-            if crate::array_emit::is_array_of_heap_class(&mono, ctx.checked) {
+            if !needs_ptr_box
+                && !borrow_binding
+                && !from_array_get
+                && ctx.is_array_owner(&v.name.name)
+                && crate::array_emit::is_array_of_heap_class(&mono, ctx.checked)
+            {
                 ctx.mark_array_gc_root(&v.name.name);
-                emit_add_array_gc_root(out, indent, &v.name.name);
+                emit_add_array_gc_root(out, indent, &v.name.name, &mono, ctx.checked);
             }
         }
         Stmt::If(i) => {
@@ -1099,6 +1204,10 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                 "Bool" => {
                     let _ = writeln!(out, "{p}aura_throw_bool({val});");
                 }
+                other if other == "ForeignHandle" || other.starts_with("ForeignHandle_") => {
+                    let payload = format!("__throw_foreign_payload_{}", t.span.start);
+                    let _ = writeln!(out, "{p}{{ AuraFfiOpaqueHandle *__handle = {val}; if (__handle != NULL && aura_ffi_handle_retain(__handle) != AURA_FFI_OK) abort(); AuraFfiOpaqueHandle **{payload} = (AuraFfiOpaqueHandle **)malloc(sizeof(*{payload})); if ({payload} == NULL) abort(); *{payload} = __handle; aura_throw_obj_with_destructor(\"{other}\", {payload}, aura_destroy_foreign_handle_payload); }}");
+                }
                 other => {
                     // C3g/C3y: class/struct — malloc a payload copy for exception machinery.
                     let mono = full_type_mono(other, ctx.checked);
@@ -1136,15 +1245,23 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                                     .iter()
                                     .map(|param| param.name.name.clone())
                                     .collect();
-                                for field in &class.fields {
-                                    if type_ref_local_key(&field.ty, &params, &[]) != "String" {
+                                for (field_name, field_key) in
+                                    ownership_fields(class, ctx.checked, &params, &[])
+                                {
+                                    let field_name = mangle_ident(&field_name);
+                                    let full_key = full_type_mono(&field_key, ctx.checked);
+                                    if field_key != "String"
+                                        && !crate::array_emit::is_array_type_key(&full_key)
+                                    {
                                         continue;
                                     }
-                                    let field_name = mangle_ident(&field.name.name);
-                                    let copy = format!(
-                                        "__throw_string_{}_{}",
-                                        t.span.start, field.span.start
-                                    );
+                                    if crate::array_emit::is_array_type_key(&full_key) {
+                                        let clone = c_method_name(&full_key, "clone");
+                                        let _ = writeln!(out, "{p}  {ptr}->{field_name} = {clone}(&{tmp}->{field_name});");
+                                        continue;
+                                    }
+                                    let copy =
+                                        format!("__throw_string_{}_{}", t.span.start, field_name);
                                     let _ = writeln!(out, "{p}  {{");
                                     let _ = writeln!(
                                         out,
@@ -1178,6 +1295,12 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                     // releases owned fields and then the copied payload.
                     if is_heap_class_mono(&mono, ctx.checked) {
                         let dtor = format!("aura_ex_dtor_{mono}");
+                        // `throw` unwinds through setjmp/longjmp, so lexical
+                        // array roots must be removed before leaving the scope.
+                        // The exception payload already owns cloned fields.
+                        emit_remove_array_gc_roots(out, indent + 2, &ctx.array_gc_roots_all());
+                        emit_free_array_owners(out, indent + 2, ctx, &ctx.array_owners_all());
+                        emit_free_string_owners(out, indent + 2, &ctx.string_owners_all());
                         let _ = writeln!(
                             out,
                             "{p}  aura_throw_obj_with_destructor(\"{other}\", {ptr}, {dtor});"
@@ -1289,15 +1412,18 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                         let _ = writeln!(out, "{p}{c_ty} {tmp} = {val};");
                         if is_shared_outcome_error_owner_key(&expected) {
                             // Returning an Outcome transfers its payload ownership to the result.
+                            // Do not register a root on `tmp`: it is a stack temporary
+                            // whose address becomes invalid when this function returns.
+                            // The receiving local/result owner registers the payload root.
                             let _ = writeln!(
                                 out,
-                                "{p}if ({tmp}.tag == 0 && {tmp}.data.OutcomeOk.value != NULL) {tmp}.data.OutcomeOk.owned = true; if ({tmp}.tag == 1 && {tmp}.data.OutcomeErr.error != NULL) {{ aura_gc_add_root((void **)&{tmp}.data.OutcomeErr.error); {tmp}.data.OutcomeErr.owned = true; }}"
+                                "{p}if ({tmp}.tag == 0 && {tmp}.data.OutcomeOk.value != NULL) {tmp}.data.OutcomeOk.owned = true; if ({tmp}.tag == 1 && {tmp}.data.OutcomeErr.error != NULL) {tmp}.data.OutcomeErr.owned = true;"
                             );
                             if let Expr::Ident(id) = e {
                                 let source = mangle_ident(&id.name);
                                 let _ = writeln!(
                                     out,
-                                    "{p}if ({source}.tag == 0) {source}.data.OutcomeOk.owned = false; else if ({source}.tag == 1) {source}.data.OutcomeErr.owned = false;"
+                                    "{p}if ({source}.tag == 0) {source}.data.OutcomeOk.owned = false; else if ({source}.tag == 1) {{ if ({source}.data.OutcomeErr.error != NULL) aura_gc_remove_root((void **)&{source}.data.OutcomeErr.error); {source}.data.OutcomeErr.owned = false; }}"
                                 );
                             }
                         }
@@ -1336,7 +1462,28 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
             }
         }
         Stmt::Expr(e) => {
-            let _ = writeln!(out, "{p}(void)({});", emit_expr(e, ctx));
+            if let Expr::Async(AsyncExpr::Join(join)) = e {
+                // A discarded join still produces an owned Result payload. Keep
+                // it in a named temporary so generated enum/aggregate drop hooks
+                // release nested error and success values immediately.
+                let key = full_type_mono(&infer_type_name(e, ctx), ctx.checked);
+                let value = crate::expr::emit_join_owned(join, ctx);
+                if crate::expr::is_enum_mono(&key, ctx.checked)
+                    || crate::expr::is_value_struct_mono(&key, ctx.checked)
+                    || is_iface_type_key(&key, ctx.checked)
+                {
+                    let cty = local_key_to_c(&key, ctx.checked);
+                    let drop = format!("{cty}_drop");
+                    let _ = writeln!(
+                        out,
+                        "{p}{{ {cty} __join_discard = {value}; {drop}(&__join_discard); }}"
+                    );
+                } else {
+                    let _ = writeln!(out, "{p}(void)({value});");
+                }
+            } else {
+                let _ = writeln!(out, "{p}(void)({});", emit_expr(e, ctx));
+            }
         }
     }
 }
@@ -1361,6 +1508,10 @@ pub(crate) fn local_key_to_c(key: &str, checked: &CheckedFile) -> String {
         n if n == "ForeignHandle" || n.starts_with("ForeignHandle_") => {
             "AuraFfiOpaqueHandle *".into()
         }
+        n if n == "Array" || n.starts_with("Array_") => {
+            let mono = full_type_mono(n, checked);
+            c_class_local_type(&mono, checked)
+        }
         // C10e: function-type mono keys → typedef name.
         n if is_fun_type_key(n) => c_fun_typedef(n),
         n if checked
@@ -1379,8 +1530,13 @@ pub(crate) fn local_key_to_c(key: &str, checked: &CheckedFile) -> String {
                 || checked.mono_enums.iter().any(|(name, _)| name == base)
             {
                 c_enum_type(&mono)
-            } else {
+            } else if checked.ast.classes.iter().any(|c| c.name.name == base) {
                 c_class_local_type(&mono, checked)
+            } else {
+                // An unresolved generic parameter must never silently acquire
+                // a nominal C class layout. Its operations travel through the
+                // explicit type-erased payload ABI.
+                "AuraTypeErasedValue".into()
             }
         }
     }
@@ -1416,6 +1572,9 @@ pub(crate) fn emit_try(out: &mut String, t: &TryStmt, indent: usize, ctx: &mut E
             "Bool" => {
                 let _ = writeln!(out, "{p}      bool {bind} = aura_ex_as_bool();");
             }
+            other if other == "ForeignHandle" || other.starts_with("ForeignHandle_") => {
+                let _ = writeln!(out, "{p}      AuraFfiOpaqueHandle **__payload = (AuraFfiOpaqueHandle **)aura_ex_take_obj(); AuraFfiOpaqueHandle *__source = __payload == NULL ? NULL : *__payload; if (__source != NULL && aura_ffi_handle_retain(__source) != AURA_FFI_OK) abort(); aura_destroy_foreign_handle_payload(__payload); AuraFfiOpaqueHandle *{bind} = __source;");
+            }
             other => {
                 let mono = full_type_mono(other, ctx.checked);
                 let base_c = c_class_type(&mono);
@@ -1442,14 +1601,27 @@ pub(crate) fn emit_try(out: &mut String, t: &TryStmt, indent: usize, ctx: &mut E
                                 .iter()
                                 .map(|param| param.name.name.clone())
                                 .collect();
-                            for field in &class.fields {
-                                if type_ref_local_key(&field.ty, &params, &[]) != "String" {
+                            for (field_name, field_key) in
+                                ownership_fields(class, ctx.checked, &params, &[])
+                            {
+                                let field_name = mangle_ident(&field_name);
+                                let full_key = full_type_mono(&field_key, ctx.checked);
+                                if field_key != "String"
+                                    && !crate::array_emit::is_array_type_key(&full_key)
+                                {
                                     continue;
                                 }
-                                let field_name = mangle_ident(&field.name.name);
                                 let src = format!("(({base_c} *)aura_ex_as_obj())->{field_name}");
+                                if crate::array_emit::is_array_type_key(&full_key) {
+                                    let clone = c_method_name(&full_key, "clone");
+                                    let _ = writeln!(
+                                        out,
+                                        "{p}      {bind}->{field_name} = {clone}(&{src});"
+                                    );
+                                    continue;
+                                }
                                 let copy =
-                                    format!("__catch_string_{}_{}", t.span.start, field.span.start);
+                                    format!("__catch_string_{}_{}", t.span.start, field_name);
                                 let _ = writeln!(out, "{p}      {{");
                                 let _ = writeln!(out, "{p}        const char *__src = {src};");
                                 let _ = writeln!(

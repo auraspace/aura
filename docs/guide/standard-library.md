@@ -65,6 +65,13 @@ Console, process, and file helpers (runtime `aura_*` intrinsics). Strict file AP
 | `readAllStdin(): String` | Remainder of stdin (throws on oversize / I/O / embedded NUL)                      |
 | `exit(code: Int)`        | Terminate with status; flushes stdout/stderr first; does not return (C12e)        |
 
+### Task outcomes
+
+`join` returns `Result<T, TaskError>`. `taskErrorTypeName` exposes the typed
+failure name when available; `taskErrorSpanStart` and `taskErrorSpanEnd`
+expose the retained source span, and `taskErrorSourceId` exposes its stable
+throw-origin identity without borrowing the child task frame.
+
 Pass user args after `--` with the CLI ([CLI](./cli.md)):
 
 ```bash
@@ -226,7 +233,7 @@ HTTP adapters.
 | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ErrorKind`                                          | RFC names: `InvalidInput`, `Unsupported`, `NotFound`, `PermissionDenied`, `WouldBlock`, `TimedOut`, `Cancelled`, `Disconnected`, `LimitExceeded`, `Protocol`, `System` plus legacy alpha variants |
 | `Error(kind, message, code)`                         | Owned error payload; `isRetryable()` identifies transient I/O/network/timeout failures                                                                                                            |
-| `protocol` / `network` / `invalidInput` / `notFound` | Error constructors                                                                                                                                                                                |
+| `protocol` / `network` / `transport` / `invalidInput` / `notFound` | Error constructors; `transport` classifies timeout, cancellation, and peer-close diagnostics |
 | `kindCode(code)`                                     | Map a native status code to the stable category number                                                                                                                                            |
 | `Outcome<T,E>`                                       | `OutcomeOk(value)` or `OutcomeErr(error)`                                                                                                                                                         |
 | `success` / `failure` / `isSuccess`                  | Import-safe outcome constructors and inspection                                                                                                                                                   |
@@ -313,9 +320,11 @@ suspension.
 
 | API                                                 | Contract                                                                                         |
 | --------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `listen(endpoint)` / `connect(endpoint, timeoutMs)` | Create a listener or connect to an endpoint; `endpoint` is `PORT`, `HOST:PORT`, or `[IPv6]:PORT` |
+| `listen(endpoint)` / `connect(endpoint, timeoutMs)` | Legacy throwing handles; `endpoint` is `PORT`, `HOST:PORT`, or `[IPv6]:PORT` |
+| `listenResult` / `connectResult`                         | Typed `Outcome` wrappers returning owned handles or `NetError` |
 | `accept(listener)`                                  | Async accepted-stream operation                                                                  |
 | `closeListener` / `closeStream`                     | Idempotent terminal close operations                                                             |
+| `closeListenerResult` / `closeStreamResult`         | Typed `Outcome<Bool, NetError>` compatibility wrappers                                            |
 | `readStream(stream, capacity)`                      | Async single-chunk read; empty string means EOF                                                  |
 | `readAllStream(stream, capacity)`                   | Async read-until-EOF bounded by aggregate capacity                                               |
 | `writeStream(stream, content)`                      | Async complete write; returns transferred byte count                                             |
@@ -352,11 +361,11 @@ raw foreign handles remain package-private.
 | `get` / `post`                                                  | Async raw response helpers for loopback servers       |
 | `ClientResponse(status, body)`                                  | Parsed bounded response value                         |
 | `getResponse` / `postResponse`                                  | Raw client helpers returning `ClientResponse`         |
-| `getResponseResult` / `postResponseResult`                      | Typed response helpers returning `std.error.Outcome`  |
+| `getResponseResult` / `postResponseResult`                      | Typed response helpers returning `std.error.Outcome`, including transport failures |
 | `Request.method` / `target` / `version`                         | Request-line fields                                   |
 | `Request.headerCount` / `headerName` / `headerValue`            | Bounded header snapshot access                        |
 | `Request.body` / `bodyReader`                                   | Body snapshot or single-reader body adapter           |
-| `RequestBody.readChunk`                                         | Async bounded body chunk read; empty string means EOF |
+| `RequestBody.readChunk`                                         | Async bounded single-reader chunk read; claim is held across suspension and empty string means EOF |
 | `Response.status` / `keepAlive`                                 | Inspect response state                                |
 | `Response.setStatus` / `setKeepAlive` / `setBody` / `addHeader` | Configure response before commit                      |
 | `Response.writeChunk`                                           | Async chunked response write; commits on first call   |
