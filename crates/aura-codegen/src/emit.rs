@@ -2416,7 +2416,11 @@ impl<'a> AsyncCfgBuilder<'a> {
                             ));
                         } else if is_heap_class_mono(&key, self.ctx.checked) {
                             bind_code.push(format!(
-                                "if ({binding_name} != NULL) aura_gc_remove_root((void **)&{binding_name}); {binding_name} = {field_name}; if ({binding_name} != NULL) aura_gc_add_root((void **)&{binding_name});"
+                                // Async CFG match bindings are mirrored in the
+                                // task frame. Root the frame slot, never the
+                                // poller's stack-local copy: the latter dies
+                                // when the poll returns at an await.
+                                "if (data->{binding_name} != NULL) aura_gc_remove_root((void **)&data->{binding_name}); data->{binding_name} = {field_name}; {binding_name} = data->{binding_name}; if (data->{binding_name} != NULL) aura_gc_add_root((void **)&data->{binding_name});"
                             ));
                         } else {
                             bind_code.push(format!("{binding_name} = {field_name};"));
