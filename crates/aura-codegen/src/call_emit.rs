@@ -1284,7 +1284,13 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                 for (index, (a, p)) in c.args.iter().zip(f.params.iter()).enumerate() {
                     let expected = type_ref_local_key(&p.ty, &params, &targs);
                     let value = coerce_owner_arg_expr(a, &expected, ctx);
-                    if (expected == "ForeignHandle" || expected.starts_with("ForeignHandle_"))
+                    if expected == "String" && string_expr_is_owned_temp(a, ctx) {
+                        let name = format!("__aura_async_string_{}_{}", c.span.start, index);
+                        prelude.push_str(&format!("const char *{name} = ({value}); "));
+                        cleanup.push_str(&format!("free((void *){name}); "));
+                        args.push(name);
+                    } else if (expected == "ForeignHandle"
+                        || expected.starts_with("ForeignHandle_"))
                         && matches!(a, Expr::Call(_))
                     {
                         let name = format!("__aura_async_handle_{}_{}", c.span.start, index);

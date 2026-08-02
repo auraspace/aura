@@ -520,12 +520,22 @@ pub(crate) fn string_call_owns_result(e: &Expr, ctx: &EmitCtx<'_>) -> bool {
     // Do not infer ownership from a String return type alone: user functions
     // and foreign helpers may return borrowed/static storage.  Only the
     // concrete allocating primitives below establish transfer ownership.
+    let is_array_string_get = match call.callee.as_ref() {
+        Expr::Field(field) if field.field.name == "get" => {
+            let receiver = resolve_type_name(&field.object, ctx)
+                .or_else(|| Some(infer_type_name(&field.object, ctx)))
+                .unwrap_or_default();
+            receiver == "Array_String" || receiver.ends_with("_Array_String") || receiver == "Array"
+        }
+        _ => false,
+    };
     if infer_type_name(e, ctx) == "String"
         && ctx
             .checked
             .call_instantiations
             .get(&call.span.start)
             .is_some_and(|inst| !inst.type_args.is_empty())
+        && !is_array_string_get
     {
         return false;
     }
@@ -573,9 +583,17 @@ pub(crate) fn string_call_owns_result(e: &Expr, ctx: &EmitCtx<'_>) -> bool {
             let receiver = resolve_type_name(&field.object, ctx)
                 .or_else(|| Some(infer_type_name(&field.object, ctx)))
                 .unwrap_or_default();
-            (receiver_is_array_string_get
-                || ((receiver == "Array_String" || receiver.ends_with("_Array_String"))
-                    && field.field.name == "get"))
+            // Array<String>.get() always returns a heap copy.  Keep this
+            // ownership rule based on the expression's String result rather
+            // than one exact monomorph spelling: local type resolution may
+            // expose `Array`, a qualified mono, or a package-qualified mono
+            // depending on the call site.
+            let array_string_get = field.field.name == "get"
+                && infer_type_name(e, ctx) == "String"
+                && (receiver == "Array"
+                    || receiver.starts_with("Array_")
+                    || receiver.ends_with("_Array_String"));
+            (receiver_is_array_string_get || array_string_get)
                 || (receiver == "Int" && field.field.name == "toString")
                 || (receiver == "String"
                     && matches!(
